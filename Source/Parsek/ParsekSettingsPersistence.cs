@@ -27,9 +27,10 @@ namespace Parsek
     /// </para>
     ///
     /// <para>
-    /// Tracks user-intent settings that must survive KSP's save/scene
-    /// GameParameters reloads. Add more fields here if additional settings
-    /// need the same survival semantics.
+    /// Tracks user-intent settings that must survive rewind, quickload,
+    /// KSP's save/scene GameParameters reloads, and session restart. Add
+    /// more fields here if additional settings need the same survival
+    /// semantics.
     /// </para>
     /// </summary>
     internal static class ParsekSettingsPersistence
@@ -40,6 +41,8 @@ namespace Parsek
         private const string GhostCameraCutoffKey = "ghostCameraCutoffKm";
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
         private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
+        private const string ShowCommittedFutureOverlaysKey = "showCommittedFutureOverlays";
+        private const string BlockCommittedActionsKey = "blockCommittedActions";
         private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string UseSmoothingSplinesKey = "useSmoothingSplines";
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
@@ -51,6 +54,8 @@ namespace Parsek
         // Non-null = user-set override, applied over GameParameters on load.
         private static bool? storedReadableSidecarMirrors;
         private static bool? storedShowGhostsInTrackingStation;
+        private static bool? storedShowCommittedFutureOverlays;
+        private static bool? storedBlockCommittedActions;
         private static bool? storedGhostRenderTracing;
         private static bool? storedUseSmoothingSplines;
         private static bool? storedUseAnchorCorrection;
@@ -142,6 +147,28 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowGhostsInTrackingStationKey} — using default");
                 }
 
+                string showOverlaysStr = root.GetValue(ShowCommittedFutureOverlaysKey);
+                if (!string.IsNullOrEmpty(showOverlaysStr)
+                    && bool.TryParse(showOverlaysStr, out bool showOverlays))
+                {
+                    storedShowCommittedFutureOverlays = showOverlays;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowCommittedFutureOverlaysKey} — using default");
+                }
+
+                string blockActionsStr = root.GetValue(BlockCommittedActionsKey);
+                if (!string.IsNullOrEmpty(blockActionsStr)
+                    && bool.TryParse(blockActionsStr, out bool blockActions))
+                {
+                    storedBlockCommittedActions = blockActions;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {BlockCommittedActionsKey} — using default");
+                }
+
                 string ghostRenderTracingStr = root.GetValue(GhostRenderTracingKey);
                 if (!string.IsNullOrEmpty(ghostRenderTracingStr)
                     && bool.TryParse(ghostRenderTracingStr, out bool ghostRenderTracing))
@@ -212,6 +239,8 @@ namespace Parsek
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
+                    $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<default>")}" +
+                    $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
@@ -251,6 +280,24 @@ namespace Parsek
                 settings.showGhostsInTrackingStation = storedShowGhostsInTrackingStation.Value;
                 ParsekLog.Info(Tag,
                     $"Restored showGhostsInTrackingStation {prev} -> {storedShowGhostsInTrackingStation.Value} from persistent store");
+            }
+
+            if (storedShowCommittedFutureOverlays.HasValue
+                && storedShowCommittedFutureOverlays.Value != settings.showCommittedFutureOverlays)
+            {
+                bool prev = settings.showCommittedFutureOverlays;
+                settings.showCommittedFutureOverlays = storedShowCommittedFutureOverlays.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored showCommittedFutureOverlays {prev} -> {storedShowCommittedFutureOverlays.Value} from persistent store");
+            }
+
+            if (storedBlockCommittedActions.HasValue
+                && storedBlockCommittedActions.Value != settings.blockCommittedActions)
+            {
+                bool prev = settings.blockCommittedActions;
+                settings.blockCommittedActions = storedBlockCommittedActions.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored blockCommittedActions {prev} -> {storedBlockCommittedActions.Value} from persistent store");
             }
 
             if (storedGhostRenderTracing.HasValue
@@ -336,6 +383,20 @@ namespace Parsek
         {
             LoadIfNeeded();
             storedShowGhostsInTrackingStation = value;
+            Save();
+        }
+
+        internal static void RecordShowCommittedFutureOverlays(bool value)
+        {
+            LoadIfNeeded();
+            storedShowCommittedFutureOverlays = value;
+            Save();
+        }
+
+        internal static void RecordBlockCommittedActions(bool value)
+        {
+            LoadIfNeeded();
+            storedBlockCommittedActions = value;
             Save();
         }
 
@@ -564,6 +625,10 @@ namespace Parsek
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
                 if (storedShowGhostsInTrackingStation.HasValue)
                     root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
+                if (storedShowCommittedFutureOverlays.HasValue)
+                    root.AddValue(ShowCommittedFutureOverlaysKey, storedShowCommittedFutureOverlays.Value.ToString());
+                if (storedBlockCommittedActions.HasValue)
+                    root.AddValue(BlockCommittedActionsKey, storedBlockCommittedActions.Value.ToString());
                 if (storedGhostRenderTracing.HasValue)
                     root.AddValue(GhostRenderTracingKey, storedGhostRenderTracing.Value.ToString());
                 if (storedUseSmoothingSplines.HasValue)
@@ -581,6 +646,8 @@ namespace Parsek
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
                     $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
+                    $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<null>")}" +
+                    $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
@@ -604,6 +671,8 @@ namespace Parsek
         {
             storedReadableSidecarMirrors = null;
             storedShowGhostsInTrackingStation = null;
+            storedShowCommittedFutureOverlays = null;
+            storedBlockCommittedActions = null;
             storedGhostRenderTracing = null;
             storedUseSmoothingSplines = null;
             storedUseAnchorCorrection = null;
@@ -665,6 +734,10 @@ namespace Parsek
 
         internal static bool? GetStoredShowGhostsInTrackingStation() => storedShowGhostsInTrackingStation;
 
+        internal static bool? GetStoredShowCommittedFutureOverlays() => storedShowCommittedFutureOverlays;
+
+        internal static bool? GetStoredBlockCommittedActions() => storedBlockCommittedActions;
+
         internal static bool? GetStoredGhostRenderTracing() => storedGhostRenderTracing;
 
         internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
@@ -690,6 +763,18 @@ namespace Parsek
         internal static void SetStoredShowGhostsInTrackingStationForTesting(bool? value)
         {
             storedShowGhostsInTrackingStation = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredShowCommittedFutureOverlaysForTesting(bool? value)
+        {
+            storedShowCommittedFutureOverlays = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredBlockCommittedActionsForTesting(bool? value)
+        {
+            storedBlockCommittedActions = value;
             loaded = true;
         }
 

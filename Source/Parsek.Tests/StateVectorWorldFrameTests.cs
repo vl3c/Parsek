@@ -254,6 +254,33 @@ namespace Parsek.Tests
             Assert.Equal(42u, result.AnchorPid);
         }
 
+        [Fact]
+        public void RetryPolicy_RelativeAnchorMiss_IsRetryable()
+        {
+            var resolution = new GhostMapPresence.StateVectorWorldFrame
+            {
+                Resolved = false,
+                Branch = "relative",
+                FailureReason = "anchor-not-found",
+                AnchorPid = 42u
+            };
+
+            Assert.True(GhostMapPresence.ShouldRetryStateVectorCreationAfterResolutionMiss(resolution));
+        }
+
+        [Fact]
+        public void RetryPolicy_NonRelativeMiss_IsNotRetryable()
+        {
+            var resolution = new GhostMapPresence.StateVectorWorldFrame
+            {
+                Resolved = false,
+                Branch = "orbital-checkpoint",
+                FailureReason = "state-vector-from-orbital-checkpoint"
+            };
+
+            Assert.False(GhostMapPresence.ShouldRetryStateVectorCreationAfterResolutionMiss(resolution));
+        }
+
         // -----------------------------------------------------------------
         // OrbitalCheckpoint branch — refuses (state-vector data should never
         // come from a checkpoint section).

@@ -80,9 +80,32 @@ namespace Parsek.Tests
                 committed,
                 currentTime: 1f,
                 timeoutSeconds: 5f,
-                relationSupersededIds: new HashSet<string> { "rec-1" });
+                timelineInactiveIds: new Dictionary<string, TimelineInactiveReason>
+                {
+                    { "rec-1", TimelineInactiveReason.SupersededByRelation }
+                });
 
             Assert.Equal(HeldGhostAction.ReleaseSupersededByRelation, action);
+        }
+
+        [Fact]
+        public void DecideAction_RewindRetired_ReturnsReleaseRewindRetired()
+        {
+            var committed = new List<Recording> { MakeRecording("rec-1") };
+            var info = new HeldGhostInfo { holdStartTime = 0f, recordingId = "rec-1" };
+
+            var action = ParsekPlaybackPolicy.DecideHeldGhostAction(
+                0,
+                info,
+                committed,
+                currentTime: 1f,
+                timeoutSeconds: 5f,
+                timelineInactiveIds: new Dictionary<string, TimelineInactiveReason>
+                {
+                    { "rec-1", TimelineInactiveReason.RewindRetired }
+                });
+
+            Assert.Equal(HeldGhostAction.ReleaseRewindRetired, action);
         }
 
         [Fact]
@@ -341,8 +364,9 @@ namespace Parsek.Tests
             Assert.Equal(1, (int)HeldGhostAction.RetrySpawn);
             Assert.Equal(2, (int)HeldGhostAction.ReleaseSpawned);
             Assert.Equal(3, (int)HeldGhostAction.ReleaseSupersededByRelation);
-            Assert.Equal(4, (int)HeldGhostAction.Timeout);
-            Assert.Equal(5, (int)HeldGhostAction.InvalidIndex);
+            Assert.Equal(4, (int)HeldGhostAction.ReleaseRewindRetired);
+            Assert.Equal(5, (int)HeldGhostAction.Timeout);
+            Assert.Equal(6, (int)HeldGhostAction.InvalidIndex);
         }
 
         #endregion

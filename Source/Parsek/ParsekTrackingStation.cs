@@ -2,9 +2,11 @@ using System.Collections.Generic;
 using System.Globalization;
 using ClickThroughFix;
 using KSP.UI.Screens;
+using KSP.UI.Screens.Mapview;
 using Parsek.Patches;
 using ToolbarControl_NS;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Parsek
 {
@@ -28,18 +30,33 @@ namespace Parsek
     {
         private const string Tag = "TrackingStation";
         private const float LifecycleCheckIntervalSec = 2.0f;
-        private const float GhostActionsWindowWidth = 330f;
+        private const float GhostPopupWidth = 180f;
+        private const float MaterializedFocusRetryDurationSec = 20.0f;
+        private const float MaterializedFocusRetryIntervalSec = 0.1f;
         private float nextLifecycleCheckTime;
         private ToolbarControl toolbarControl;
         private ParsekUI ui;
         private bool showUI;
         private Rect windowRect = new Rect(20, 100, 250, 10);
-        private Rect ghostActionsWindowRect = new Rect(20, 140, GhostActionsWindowWidth, 10);
-        private bool showSelectedRecordingDetails;
-        private uint recordingDetailsGhostPid;
+        private PopupDialog currentGhostPopup;
+        private string currentGhostPopupKey;
+        private int ghostPopupOpenFrame;
+        private MapObject atmosphericFocusTarget;
+        private string atmosphericFocusRecordingId;
+        private int atmosphericFocusCachedIndex = -1;
         private int ghostActionCacheFrame = -1;
         private double ghostActionCurrentUT;
         private Dictionary<uint, GhostChain> ghostActionChains = new Dictionary<uint, GhostChain>();
+        private uint pendingMaterializedFocusPid;
+        private string pendingMaterializedFocusReason;
+        private float pendingMaterializedFocusDeadlineTime;
+        private float nextMaterializedFocusAttemptTime;
+        private int pendingMaterializedFocusAttempts;
+        private bool pendingMaterializedFocusBaselineHasSelectedGhost;
+        private uint pendingMaterializedFocusBaselineGhostPid;
+        private string pendingMaterializedFocusBaselineRecordingId;
+        private bool pendingMaterializedFocusBaselineSelectedPidAvailable;
+        private uint pendingMaterializedFocusBaselineSelectedPid;
 
         /// <summary>Cached interpolation indices for atmospheric ghost icon rendering (per recording index).</summary>
         private readonly Dictionary<int, int> atmosCachedIndices = new Dictionary<int, int>();
@@ -252,12 +269,15 @@ namespace Parsek
                     "— forcing immediate lifecycle tick");
                 lastKnownShowGhosts = currentShowGhosts;
                 if (!currentShowGhosts)
-                    GhostMapPresence.RemoveAllGhostVessels("ghost-filter-disabled");
+                    HideTrackingStationGhostsNow("ghost-filter-disabled");
                 nextLifecycleCheckTime = 0f;
             }
 
             if (GhostTrackingStationSelection.HasSelectedGhost)
                 RefreshGhostActionCache();
+            UpdatePendingMaterializedFocus();
+            UpdateSelectedGhostPopup();
+            UpdateAtmosphericFocusTarget();
 
             if (Time.time < nextLifecycleCheckTime) return;
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
@@ -275,7 +295,6 @@ namespace Parsek
             if (PauseMenuGate.IsPauseMenuOpen())
                 return;
 
-            DrawSelectedGhostActionSurface();
             DrawAtmosphericMarkers();
             DrawControlSurface();
         }
@@ -295,6 +314,20 @@ namespace Parsek
             {
                 EventTypeName = etype.ToString()
             };
+            bool pointerOverGhostPopup =
+                IsAtmosphericMarkerClickEvent(etype)
+                && IsMouseOverCurrentGhostPopup();
+            if (ShouldBlockAtmosphericMarkerClickForGhostPopup(
+                    etype,
+                    pointerOverGhostPopup))
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "atmos-marker-popup-click-blocked",
+                    "Atmospheric marker click ignored: pointer over ghost popup event=" + etype,
+                    1.0);
+                return;
+            }
+
             if (!ShouldProcessAtmosphericMarkerEvent(
                     etype,
                     IsPointerOverParsekWindow(currentEvent.mousePosition)))
@@ -339,39 +372,43 @@ namespace Parsek
                     continue;
                 }
 
-                // Interpolate trajectory position at current UT
                 if (!atmosCachedIndices.ContainsKey(i))
                     atmosCachedIndices[i] = -1;
                 int cached = atmosCachedIndices[i];
-                TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(rec.Points, currentUT, ref cached);
+                if (!TryResolveRecordingWorldPosition(
+                        rec,
+                        currentUT,
+                        ref cached,
+                        out Vector3d worldPos,
+                        out _,
+                        out TrajectoryPoint sampledPoint,
+                        out string resolveReason))
+                {
+                    if (resolveReason == "body-missing")
+                        summary.MissingBody++;
+                    else
+                        summary.BracketMiss++;
+                    continue;
+                }
                 atmosCachedIndices[i] = cached;
-
-                if (!pt.HasValue)
-                {
-                    summary.BracketMiss++;
-                    continue;
-                }
-
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == pt.Value.bodyName);
-                if (body == null)
-                {
-                    summary.MissingBody++;
-                    continue;
-                }
-
-                Vector3d worldPos = body.GetWorldSurfacePosition(
-                    pt.Value.latitude, pt.Value.longitude, pt.Value.altitude);
 
                 VesselType vtype = ResolveVesselTypeWithFallback(committed, rec);
                 Color markerColor = MapMarkerRenderer.GetColorForType(vtype);
+                int recordingIndex = i;
+                Recording markerRecording = rec;
                 MapMarkerRenderer.DrawMarker(
-                    worldPos, rec.RecordingId, rec.VesselName ?? "(unknown)", markerColor, vtype);
+                    worldPos,
+                    rec.RecordingId,
+                    rec.VesselName ?? "(unknown)",
+                    markerColor,
+                    vtype,
+                    context => OnAtmosphericMarkerClicked(recordingIndex, markerRecording, context));
                 summary.Drawn++;
 
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
                     $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
-                        $"lat={pt.Value.latitude:F2} lon={pt.Value.longitude:F2} alt={pt.Value.altitude:F0}");
+                    $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0}");
             }
 
             LogAtmosphericMarkerSummary(summary);
@@ -397,6 +434,20 @@ namespace Parsek
                 return false;
 
             return true;
+        }
+
+        internal static bool IsAtmosphericMarkerClickEvent(EventType eventType)
+        {
+            return eventType == EventType.MouseDown
+                || eventType == EventType.MouseUp;
+        }
+
+        internal static bool ShouldBlockAtmosphericMarkerClickForGhostPopup(
+            EventType eventType,
+            bool pointerOverGhostPopup)
+        {
+            return pointerOverGhostPopup
+                && IsAtmosphericMarkerClickEvent(eventType);
         }
 
         private void DrawControlSurface()
@@ -492,12 +543,26 @@ namespace Parsek
             lastKnownShowGhosts = showGhosts;
 
             if (!showGhosts)
-                GhostMapPresence.RemoveAllGhostVessels("tracking-station-ui-toggle");
+                HideTrackingStationGhostsNow("tracking-station-ui-toggle");
 
             nextLifecycleCheckTime = 0f;
             ParsekLog.Info(Tag,
                 $"Control surface set showGhostsInTrackingStation={showGhosts} " +
                 $"liveSettingsUpdated={liveSettingsUpdated}");
+        }
+
+        private void HideTrackingStationGhostsNow(string reason)
+        {
+            string safeReason = string.IsNullOrEmpty(reason)
+                ? "tracking-station-ghosts-hidden"
+                : reason;
+            DismissCurrentGhostPopup(safeReason, clearSelection: true);
+            DestroyAtmosphericFocusTarget(safeReason);
+            atmosCachedIndices.Clear();
+            ghostActionCacheFrame = -1;
+            ghostActionChains.Clear();
+            GhostMapPresence.RemoveAllGhostVessels(safeReason);
+            GhostMapPresence.TryRefreshLiveTrackingStationVesselList(safeReason);
         }
 
         internal static bool TryApplyGhostVisibilitySetting(ParsekSettings settings, bool showGhosts)
@@ -631,6 +696,8 @@ namespace Parsek
 
         void OnDestroy()
         {
+            DismissCurrentGhostPopup("tracking-station-cleanup");
+            DestroyAtmosphericFocusTarget("tracking-station-cleanup");
             GhostTrackingStationSelection.ClearSelectedGhost("tracking-station-cleanup");
             GhostMapPresence.RemoveAllGhostVessels("tracking-station-cleanup");
             // Clear ghost-icon sticky state and force atlas re-init when leaving TS.
@@ -648,137 +715,327 @@ namespace Parsek
             ParsekLog.Info(Tag, "ParsekTrackingStation destroyed");
         }
 
-        private void DrawSelectedGhostActionSurface()
+        private bool OnAtmosphericMarkerClicked(
+            int recordingIndex,
+            Recording recording,
+            MapMarkerRenderer.MarkerClickContext context)
         {
-            if (!GhostTrackingStationSelection.HasSelectedGhost)
-                return;
+            if (recording == null)
+                return false;
 
-            RefreshGhostActionCache();
-
-            TrackingStationGhostSelectionInfo selection = GhostTrackingStationSelection.SelectedGhost;
-            Vessel vessel = FindGhostVessel(selection.GhostPid);
-            if (vessel == null)
-            {
-                GhostTrackingStationSelection.ClearSelectedGhost("selected ghost vessel missing");
-                return;
-            }
-
-            if (recordingDetailsGhostPid != selection.GhostPid)
-            {
-                recordingDetailsGhostPid = selection.GhostPid;
-                showSelectedRecordingDetails = false;
-            }
-
-            if (ghostActionsWindowRect.x < 0f || ghostActionsWindowRect.x > Screen.width - 80f)
-                ghostActionsWindowRect.x = 20f;
-            if (ghostActionsWindowRect.y < 0f || ghostActionsWindowRect.y > Screen.height - 80f)
-                ghostActionsWindowRect.y = 140f;
-
-            ghostActionsWindowRect.height = 0f;
-            // Match every other Parsek window — opaque dark background, larger
-            // title font, consistent padding. The previous fall-through to
-            // GUI.skin.window rendered semi-transparent and visibly clashed
-            // with the rest of the mod, and skin.window's font/padding shifts
-            // between Layout and Repaint events caused the ghost-detail panel
-            // to flicker frame-to-frame.
-            GUIStyle windowStyle = ui != null ? ui.GetOpaqueWindowStyle() : null;
-            if (windowStyle == null)
-                return;
-            ParsekUI.ResetWindowGuiColors(
-                out Color prevColor,
-                out Color prevBackgroundColor,
-                out Color prevContentColor);
-            try
-            {
-                ghostActionsWindowRect = ClickThruBlocker.GUILayoutWindow(
-                    GetInstanceID() + 553,
-                    ghostActionsWindowRect,
-                    id => DrawSelectedGhostActionsWindow(id, vessel, selection),
-                    "Parsek - Ghost Actions",
-                    windowStyle,
-                    GUILayout.Width(GhostActionsWindowWidth));
-            }
-            finally
-            {
-                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
-            }
+            GhostTrackingStationSelection.SelectRecordingMarker(
+                recordingIndex,
+                recording,
+                "atmospheric marker");
+            LockStockActionsForAtmosphericGhostSelection("atmospheric marker");
+            if (GhostTrackingStationSelection.HasSelectedGhost)
+                FocusSelectedGhost(GhostTrackingStationSelection.SelectedGhost);
+            ParsekLog.Info(Tag,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Atmospheric marker selected: recIndex={0} recId={1} label={2} button={3} screen=({4:F0},{5:F0})",
+                    recordingIndex,
+                    recording.RecordingId ?? "(none)",
+                    recording.VesselName ?? "(unknown)",
+                    context.Button,
+                    context.ScreenPosition.x,
+                    context.ScreenPosition.y));
+            return true;
         }
 
-        private void DrawSelectedGhostActionsWindow(
-            int windowId,
-            Vessel vessel,
-            TrackingStationGhostSelectionInfo selection)
+        private static void LockStockActionsForAtmosphericGhostSelection(string source)
+        {
+            SpaceTracking tracking = FindObjectOfType<SpaceTracking>();
+            if (tracking == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "Atmospheric marker ghost selection could not lock stock actions: SpaceTracking instance not found");
+                return;
+            }
+
+            bool cleared = GhostTrackingStationSelection.TryClearSelectedVessel(
+                tracking,
+                out object previousSelection,
+                out string clearError);
+            if (!string.IsNullOrEmpty(clearError))
+                ParsekLog.Warn(Tag,
+                    "Atmospheric marker ghost selection failed to clear stock selection: " + clearError);
+
+            GhostTrackingStationSelection.DisableStockActionButtons(
+                tracking,
+                out bool flyDisabled,
+                out bool deleteDisabled,
+                out bool recoverDisabled);
+            ParsekLog.Info(Tag,
+                FormatAtmosphericMarkerStockActionLockLine(
+                    cleared,
+                    previousSelection != null,
+                    flyDisabled,
+                    deleteDisabled,
+                    recoverDisabled,
+                    clearError,
+                    source));
+        }
+
+        internal static string FormatAtmosphericMarkerStockActionLockLine(
+            bool clearedSelection,
+            bool hadPreviousSelection,
+            bool flyDisabled,
+            bool deleteDisabled,
+            bool recoverDisabled,
+            string clearError,
+            string source)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "Atmospheric marker ghost selection locked stock actions: clearedSelection={0} hadPreviousSelection={1} flyDisabled={2} deleteDisabled={3} recoverDisabled={4} clearError={5} source={6}",
+                clearedSelection,
+                hadPreviousSelection,
+                flyDisabled,
+                deleteDisabled,
+                recoverDisabled,
+                string.IsNullOrEmpty(clearError) ? "(none)" : clearError,
+                source ?? "(unknown)");
+        }
+
+        private void UpdateSelectedGhostPopup()
+        {
+            if (PauseMenuGate.IsPauseMenuOpen())
+            {
+                DismissCurrentGhostPopup("pause-menu-open");
+                return;
+            }
+
+            if (!GhostTrackingStationSelection.HasSelectedGhost)
+            {
+                DismissCurrentGhostPopup("ghost-selection-cleared");
+                return;
+            }
+
+            TrackingStationGhostSelectionInfo selection = GhostTrackingStationSelection.SelectedGhost;
+            if (GhostTrackingStationSelection.TryResolveRecording(
+                    selection,
+                    out Recording selectedRecording,
+                    out _)
+                && GhostMapPresence.IsTrackingStationRecordingAlreadyMaterialized(selectedRecording))
+            {
+                DismissCurrentGhostPopup("selected-recording-materialized");
+                GhostTrackingStationSelection.ClearSelectedGhost("selected-recording-materialized");
+                return;
+            }
+
+            double currentUT = ghostActionCurrentUT;
+            if (!ShouldOpenSelectedGhostPopup(selection))
+            {
+                DismissCurrentGhostPopup("ghost-selection-focus-only");
+                return;
+            }
+
+            string key = BuildGhostPopupKey(selection, currentUT);
+            if (currentGhostPopup == null || currentGhostPopupKey != key)
+            {
+                DismissCurrentGhostPopup("opening-new-ghost-popup");
+                OpenSelectedGhostPopup(selection, key);
+            }
+
+            CheckGhostPopupOutsideClick();
+        }
+
+        internal static bool ShouldOpenSelectedGhostPopup(TrackingStationGhostSelectionInfo selection)
+        {
+            return selection.ShowPopup;
+        }
+
+        private static string BuildGhostPopupKey(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT)
+        {
+            string phase = BuildGhostPopupStatusPhase(selection, currentUT);
+            if (selection.GhostPid != 0)
+            {
+                return "ghost:"
+                    + selection.GhostPid.ToString(CultureInfo.InvariantCulture)
+                    + ":"
+                    + phase;
+            }
+
+            return "recording:" + (selection.RecordingId ?? "(none)") + ":" + phase;
+        }
+
+        internal static string BuildGhostPopupStatusPhase(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT)
+        {
+            if (!selection.HasRecording)
+                return "no-recording";
+            if (selection.VesselSpawned || selection.SpawnedVesselPersistentId != 0)
+                return "materialized";
+            if (double.IsNaN(selection.EndUT) || double.IsInfinity(selection.EndUT))
+                return "unknown-end";
+
+            return currentUT < selection.EndUT
+                ? "before-end"
+                : "endpoint";
+        }
+
+        private void OpenSelectedGhostPopup(
+            TrackingStationGhostSelectionInfo selection,
+            string key)
         {
             double currentUT = ghostActionCurrentUT;
+            Vessel vessel = FindGhostVessel(selection.GhostPid);
             TrackingStationGhostActionContext context =
                 GhostTrackingStationSelection.BuildActionContext(
                     selection,
                     hasGhostVessel: vessel != null,
-                    canFocus: PlanetariumCamera.fetch != null && vessel?.mapObject != null,
-                    canSetTarget: FlightGlobals.fetch != null,
+                    canFocus: false,
+                    canSetTarget: false,
                     currentUT: currentUT,
                     chains: ghostActionChains);
             TrackingStationGhostActionState[] actions =
                 TrackingStationGhostActionPresentation.BuildActionStates(context);
-
-            GUILayout.BeginVertical();
-            GUILayout.Label(selection.VesselName ?? "(ghost)");
-            GUILayout.Label(BuildGhostSummary(selection, currentUT));
-
-            GUILayout.BeginHorizontal();
-            DrawActionButton(
-                FindAction(actions, TrackingStationGhostActionKind.Focus),
-                () => FocusSelectedGhost(vessel),
-                78f);
-            DrawActionButton(
-                FindAction(actions, TrackingStationGhostActionKind.SetTarget),
-                () => TargetSelectedGhost(vessel),
-                78f);
-            DrawActionButton(
-                FindAction(actions, TrackingStationGhostActionKind.ShowRecording),
-                () => ToggleSelectedRecordingDetails(selection),
-                92f);
-            GUILayout.EndHorizontal();
-
-            // Materialize gets its own row at full width: it spawns the
-            // recorded vessel as a real ProtoVessel at the recorded endpoint
-            // (the ghost's terminal state). Stock Fly/Delete/Recover are
-            // intentionally absent — they are permanently blocked on ghost
-            // objects (see GhostTracking{Fly,Delete,Recover}Patch) and were
-            // only here as disabled placeholders that wrapped past the window
-            // edge and contributed to the flicker / overflow.
             TrackingStationGhostActionState materialize =
                 FindAction(actions, TrackingStationGhostActionKind.Materialize);
-            DrawActionButton(
-                materialize,
-                () => MaterializeSelectedGhost(selection, currentUT),
-                GhostActionsWindowWidth - 24f);
-            if (!materialize.Enabled)
-                GUILayout.Label(materialize.Reason);
 
-            if (showSelectedRecordingDetails)
-                DrawSelectedRecordingDetails(selection);
+            // KSP dismisses DialogGUIButton after the handler returns. Clear our
+            // popup reference first so lifecycle code does not touch a stale dialog.
+            var options = new DialogGUIBase[]
+            {
+                new DialogGUIButton(
+                    () => BuildMaterializeButtonLabel(
+                        materialize.Label,
+                        selection,
+                        context,
+                        Planetarium.GetUniversalTime()),
+                    () =>
+                    {
+                        currentGhostPopup = null;
+                        currentGhostPopupKey = null;
+                        MaterializeSelectedGhost(selection, Planetarium.GetUniversalTime());
+                    },
+                    () => materialize.Enabled,
+                    160f,
+                    30f,
+                    true,
+                    (DialogGUIBase[])null)
+            };
 
-            if (GUILayout.Button("Close"))
-                GhostTrackingStationSelection.ClearSelectedGhost("ghost action panel closed");
-
-            GUILayout.EndVertical();
-            GUI.DragWindow();
+            currentGhostPopup = PopupDialog.SpawnPopupDialog(
+                Vector2.zero,
+                Vector2.zero,
+                new MultiOptionDialog(
+                    "ParsekTrackingStationGhostMenu",
+                    BuildGhostPopupText(selection, currentUT),
+                    "Ghost",
+                    HighLogic.UISkin,
+                    GhostPopupWidth,
+                    options),
+                persistAcrossScenes: false,
+                skin: HighLogic.UISkin);
+            currentGhostPopupKey = key;
+            ghostPopupOpenFrame = Time.frameCount;
+            PositionPopupAtCursor(currentGhostPopup);
+            ParsekLog.Verbose(Tag,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Tracking Station ghost popup opened: key={0} ghostPid={1} recId={2} materialize={3}",
+                    key ?? "(none)",
+                    selection.GhostPid,
+                    selection.RecordingId ?? "(none)",
+                    materialize.Enabled));
         }
 
-        private static void DrawActionButton(
-            TrackingStationGhostActionState action,
-            System.Action onClick,
-            float width)
+        private void DismissCurrentGhostPopup(string reason, bool clearSelection = false)
         {
-            bool previousEnabled = GUI.enabled;
-            GUI.enabled = previousEnabled && action.Enabled;
-            if (GUILayout.Button(new GUIContent(action.Label, action.Reason), GUILayout.Width(width))
-                && action.Enabled)
+            if (currentGhostPopup != null)
             {
-                onClick?.Invoke();
+                currentGhostPopup.Dismiss();
+                currentGhostPopup = null;
+                ParsekLog.Verbose(Tag,
+                    "Tracking Station ghost popup dismissed: reason=" + (reason ?? "(none)"));
             }
-            GUI.enabled = previousEnabled;
+            currentGhostPopupKey = null;
+
+            if (clearSelection)
+                GhostTrackingStationSelection.ClearSelectedGhost(reason);
+        }
+
+        private void CheckGhostPopupOutsideClick()
+        {
+            if (currentGhostPopup == null)
+                return;
+            if (Time.frameCount - ghostPopupOpenFrame < 5)
+                return;
+            if (!Input.GetMouseButtonUp(0) && !Input.GetMouseButtonUp(1))
+                return;
+
+            if (IsMouseOverCurrentGhostPopup())
+            {
+                ParsekLog.Verbose(Tag,
+                    "Tracking Station ghost popup click ignored: inside-popup");
+                return;
+            }
+
+            DismissCurrentGhostPopup("outside-click", clearSelection: true);
+        }
+
+        private bool IsMouseOverCurrentGhostPopup()
+        {
+            if (currentGhostPopup == null)
+                return false;
+
+            RectTransform rt = currentGhostPopup.GetComponent<RectTransform>();
+            Vector3 mouse = Input.mousePosition;
+            return IsScreenPointInsideRect(rt, new Vector2(mouse.x, mouse.y));
+        }
+
+        private static bool IsScreenPointInsideRect(
+            RectTransform rectTransform,
+            Vector2 screenPoint)
+        {
+            if ((object)rectTransform == null)
+                return false;
+
+            Canvas canvas = rectTransform.GetComponentInParent<Canvas>();
+            Camera camera = null;
+            if ((object)canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+                camera = canvas.worldCamera;
+
+            return RectTransformUtility.RectangleContainsScreenPoint(
+                rectTransform,
+                screenPoint,
+                camera);
+        }
+
+        private static void PositionPopupAtCursor(PopupDialog popup)
+        {
+            if (popup == null)
+                return;
+
+            popup.SetDraggable(false);
+            RectTransform rt = popup.GetComponent<RectTransform>();
+            if (rt == null)
+                return;
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+            RectTransform canvasRect = MapViewCanvasUtil.MapViewCanvasRect;
+            if (canvasRect == null)
+                return;
+
+            Vector3 uiPos = CanvasUtil.ScreenToUISpacePos(
+                Input.mousePosition,
+                canvasRect,
+                out bool _);
+            uiPos = CanvasUtil.AnchorOffset(uiPos, rt, Vector2.down);
+            rt.localPosition = uiPos;
+            ParsekLog.Verbose(Tag,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Tracking Station ghost popup positioned: screen=({0:F0},{1:F0}) canvas=({2:F0},{3:F0})",
+                    Input.mousePosition.x,
+                    Input.mousePosition.y,
+                    uiPos.x,
+                    uiPos.y));
         }
 
         private static TrackingStationGhostActionState FindAction(
@@ -797,96 +1054,559 @@ namespace Parsek
                 "Action unavailable.");
         }
 
-        private static string BuildGhostSummary(
+        internal static string BuildGhostPopupText(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT)
+        {
+            string vesselName = FormatGhostPopupVesselName(selection.VesselName);
+            string recordingStatus = BuildGhostPopupRecordingStatus(selection, currentUT);
+            string endState = selection.TerminalState.HasValue
+                ? selection.TerminalState.Value.ToString()
+                : "(unknown)";
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "Name: {0}\nRecording: {1}\nEnd state: {2}",
+                vesselName,
+                recordingStatus,
+                endState);
+        }
+
+        internal static string FormatGhostPopupVesselName(string vesselName)
+        {
+            string name = string.IsNullOrEmpty(vesselName)
+                ? "(ghost)"
+                : vesselName.Trim();
+            const string stockGhostPrefix = "Ghost:";
+
+            while (name.StartsWith(stockGhostPrefix, System.StringComparison.OrdinalIgnoreCase))
+                name = name.Substring(stockGhostPrefix.Length).TrimStart();
+
+            return string.IsNullOrEmpty(name) ? "(ghost)" : name;
+        }
+
+        internal static string BuildMaterializeButtonLabel(
+            string baseLabel,
+            TrackingStationGhostSelectionInfo selection,
+            TrackingStationGhostActionContext actionContext,
+            double currentUT)
+        {
+            if (!actionContext.MaterializeFastForwardEligible)
+                return string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel;
+
+            double remaining = selection.EndUT - currentUT;
+            if (!(remaining > 0.0))
+                return string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel;
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} ({1})",
+                string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel,
+                ParsekTimeFormat.FormatDuration(remaining));
+        }
+
+        private static string BuildGhostPopupRecordingStatus(
             TrackingStationGhostSelectionInfo selection,
             double currentUT)
         {
             if (!selection.HasRecording)
-                return "Chain ghost";
+                return "unavailable";
+            if (selection.VesselSpawned || selection.SpawnedVesselPersistentId != 0)
+                return "materialized";
+            if (double.IsNaN(selection.EndUT))
+                return "unknown";
 
-            string id = string.IsNullOrEmpty(selection.RecordingId)
-                ? "(unknown)"
-                : selection.RecordingId;
             double remaining = selection.EndUT - currentUT;
-            string phase = remaining > 0.0
-                ? string.Format(CultureInfo.InvariantCulture, "T-{0:F1}s", remaining)
+            return remaining > 0.0
+                ? "before endpoint"
                 : "endpoint reached";
-
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "Recording {0} - {1}",
-                id,
-                phase);
         }
 
-        private static void DrawSelectedRecordingDetails(TrackingStationGhostSelectionInfo selection)
+        private void FocusSelectedGhost(TrackingStationGhostSelectionInfo selection)
         {
-            GUILayout.Space(4f);
-            GUILayout.Label("Recording details");
-            GUILayout.Label("ID: " + (selection.RecordingId ?? "(none)"));
-            if (!double.IsNaN(selection.StartUT) && !double.IsNaN(selection.EndUT))
+            Vessel vessel = FindGhostVessel(selection.GhostPid);
+            if (vessel != null && PlanetariumCamera.fetch != null && vessel.mapObject != null)
             {
-                GUILayout.Label(string.Format(
+                DestroyAtmosphericFocusTarget("proto-ghost-focused");
+                PlanetariumCamera.fetch.SetTarget(vessel.mapObject);
+                ParsekLog.Info(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Focused Tracking Station ghost '{0}' pid={1}",
+                        vessel.vesselName,
+                        vessel.persistentId));
+                return;
+            }
+
+            if (TryFocusAtmosphericGhost(selection, Planetarium.GetUniversalTime()))
+                return;
+
+            ParsekLog.Warn(Tag,
+                string.Format(
                     CultureInfo.InvariantCulture,
-                    "UT: {0:F1} - {1:F1}",
-                    selection.StartUT,
-                    selection.EndUT));
-            }
-            GUILayout.Label("Terminal: " + (selection.TerminalState?.ToString() ?? "(unknown)"));
-            if (selection.SpawnedVesselPersistentId != 0)
-                GUILayout.Label("Spawned PID: " + selection.SpawnedVesselPersistentId);
-            else
-                GUILayout.Label("Spawned: " + selection.VesselSpawned);
+                    "Focus selected ghost failed: ghostPid={0} recId={1} vessel={2} camera={3} mapObj={4}",
+                    selection.GhostPid,
+                    selection.RecordingId ?? "(none)",
+                    vessel != null,
+                    PlanetariumCamera.fetch != null,
+                    vessel != null && vessel.mapObject != null));
         }
 
-        private static void FocusSelectedGhost(Vessel vessel)
+        private bool TryFocusAtmosphericGhost(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT)
         {
-            if (vessel == null || PlanetariumCamera.fetch == null || vessel.mapObject == null)
+            if (PlanetariumCamera.fetch == null || !selection.HasRecording)
+                return false;
+
+            int cached = atmosphericFocusRecordingId == selection.RecordingId
+                ? atmosphericFocusCachedIndex
+                : -1;
+            if (!TryResolveSelectionWorldPosition(
+                    selection,
+                    currentUT,
+                    ref cached,
+                    out Vector3d worldPos,
+                    out CelestialBody body,
+                    out _,
+                    out string reason))
             {
                 ParsekLog.Warn(Tag,
-                    $"Focus selected ghost failed: vessel={vessel != null} " +
-                    $"camera={PlanetariumCamera.fetch != null} mapObj={vessel?.mapObject != null}");
-                return;
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Focus atmospheric Tracking Station ghost failed: recId={0} reason={1}",
+                        selection.RecordingId ?? "(none)",
+                        reason ?? "(none)"));
+                return false;
             }
 
-            PlanetariumCamera.fetch.SetTarget(vessel.mapObject);
+            atmosphericFocusCachedIndex = cached;
+            if (atmosphericFocusTarget == null
+                || atmosphericFocusRecordingId != selection.RecordingId)
+            {
+                DestroyAtmosphericFocusTarget("new-atmospheric-focus");
+                string targetName = "Ghost: " + (selection.VesselName ?? "Ghost");
+                atmosphericFocusTarget = MapObject.Create(
+                    targetName,
+                    targetName,
+                    body != null ? body.orbit : null,
+                    MapObject.ObjectType.Generic);
+                atmosphericFocusRecordingId = selection.RecordingId;
+            }
+
+            UpdateAtmosphericFocusTransform(atmosphericFocusTarget, worldPos);
+            PlanetariumCamera.fetch.SetTarget(atmosphericFocusTarget);
             ParsekLog.Info(Tag,
-                $"Focused Tracking Station ghost '{vessel.vesselName}' pid={vessel.persistentId}");
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Focused atmospheric Tracking Station ghost '{0}' recId={1} ut={2:F1}",
+                    selection.VesselName ?? "(ghost)",
+                    selection.RecordingId ?? "(none)",
+                    currentUT));
+            return true;
         }
 
-        private static void TargetSelectedGhost(Vessel vessel)
+        private void UpdateAtmosphericFocusTarget()
         {
-            if (vessel == null)
+            if (atmosphericFocusTarget == null
+                || string.IsNullOrEmpty(atmosphericFocusRecordingId))
+                return;
+
+            if (!GhostMapPresence.TryGetCommittedRecordingById(
+                    atmosphericFocusRecordingId,
+                    out _,
+                    out Recording recording))
             {
-                ParsekLog.Warn(Tag,
-                    "Target selected ghost failed: vessel=False");
+                DestroyAtmosphericFocusTarget("focused-recording-missing");
                 return;
             }
 
-            int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(vessel.persistentId);
-            GhostMapPresence.SetGhostMapNavigationTarget(vessel, recIndex, "tracking station panel");
+            if (recording.SpawnedVesselPersistentId != 0)
+            {
+                if (!FocusSpawnedTrackingStationVessel(
+                        recording.SpawnedVesselPersistentId,
+                        "atmospheric-focus-materialized",
+                        restoreStockSelection: true,
+                        warnOnFailure: true,
+                        out _))
+                {
+                    ScheduleMaterializedFocusRetry(
+                        recording.SpawnedVesselPersistentId,
+                        "atmospheric-focus-materialized");
+                }
+                DestroyAtmosphericFocusTarget("atmospheric-focus-materialized");
+                return;
+            }
+
+            int cached = atmosphericFocusCachedIndex;
+            if (TryResolveRecordingWorldPosition(
+                    recording,
+                    Planetarium.GetUniversalTime(),
+                    ref cached,
+                    out Vector3d worldPos,
+                    out _,
+                    out _,
+                    out string reason))
+            {
+                atmosphericFocusCachedIndex = cached;
+                UpdateAtmosphericFocusTransform(atmosphericFocusTarget, worldPos);
+                return;
+            }
+
+            ParsekLog.VerboseRateLimited(Tag,
+                "atmospheric-focus-update-failed|" + atmosphericFocusRecordingId,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Atmospheric focus target update failed: recId={0} reason={1}",
+                    atmosphericFocusRecordingId,
+                    reason ?? "(none)"),
+                5.0);
         }
 
-        private void ToggleSelectedRecordingDetails(TrackingStationGhostSelectionInfo selection)
+        private bool TryResolveSelectionWorldPosition(
+            TrackingStationGhostSelectionInfo selection,
+            double currentUT,
+            ref int cachedIndex,
+            out Vector3d worldPos,
+            out CelestialBody body,
+            out TrajectoryPoint sampledPoint,
+            out string reason)
         {
-            showSelectedRecordingDetails = !showSelectedRecordingDetails;
-            recordingDetailsGhostPid = selection.GhostPid;
-            ParsekLog.Verbose(Tag,
-                $"Tracking Station ghost recording details toggled: " +
-                $"{(showSelectedRecordingDetails ? "open" : "closed")} " +
-                $"recId={selection.RecordingId ?? "(none)"}");
+            worldPos = default(Vector3d);
+            body = null;
+            sampledPoint = default(TrajectoryPoint);
+            reason = null;
+
+            if (!GhostTrackingStationSelection.TryResolveRecording(
+                    selection,
+                    out Recording recording,
+                    out _))
+            {
+                reason = "recording-missing";
+                return false;
+            }
+
+            return TryResolveRecordingWorldPosition(
+                recording,
+                currentUT,
+                ref cachedIndex,
+                out worldPos,
+                out body,
+                out sampledPoint,
+                out reason);
         }
 
-        private static void MaterializeSelectedGhost(
+        internal static bool TryResolveRecordingWorldPosition(
+            Recording recording,
+            double currentUT,
+            ref int cachedIndex,
+            out Vector3d worldPos,
+            out CelestialBody body,
+            out TrajectoryPoint sampledPoint,
+            out string reason)
+        {
+            worldPos = default(Vector3d);
+            body = null;
+            sampledPoint = default(TrajectoryPoint);
+            reason = null;
+
+            if (recording == null)
+            {
+                reason = "recording-null";
+                return false;
+            }
+            if (!TrySelectTrackingStationFocusFrames(
+                    recording,
+                    currentUT,
+                    out List<TrajectoryPoint> frames,
+                    out reason))
+            {
+                return false;
+            }
+
+            double sampleUT = currentUT;
+            double firstUT = frames[0].ut;
+            double lastUT = frames[frames.Count - 1].ut;
+            if (sampleUT < firstUT)
+                sampleUT = firstUT;
+            else if (sampleUT > lastUT)
+                sampleUT = lastUT;
+
+            TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
+                frames,
+                sampleUT,
+                ref cachedIndex);
+            if (!pt.HasValue)
+            {
+                reason = "bracket-miss";
+                return false;
+            }
+
+            sampledPoint = pt.Value;
+            body = FlightGlobals.Bodies?.Find(b => b.name == pt.Value.bodyName);
+            if (body == null)
+            {
+                reason = "body-missing";
+                return false;
+            }
+
+            worldPos = body.GetWorldSurfacePosition(
+                pt.Value.latitude,
+                pt.Value.longitude,
+                pt.Value.altitude);
+            return true;
+        }
+
+        internal static bool TrySelectTrackingStationFocusFrames(
+            Recording recording,
+            double sampleUT,
+            out List<TrajectoryPoint> frames,
+            out string reason)
+        {
+            frames = null;
+            reason = null;
+            if (recording == null)
+            {
+                reason = "recording-null";
+                return false;
+            }
+
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(
+                recording.TrackSections,
+                sampleUT);
+            if (sectionIdx >= 0
+                && recording.TrackSections != null
+                && sectionIdx < recording.TrackSections.Count)
+            {
+                if (TrySelectTrackingStationFocusFramesFromSection(
+                        recording.TrackSections[sectionIdx],
+                        out frames,
+                        out reason,
+                        out bool blockedBySection))
+                {
+                    return true;
+                }
+
+                if (blockedBySection)
+                    return false;
+            }
+            else if (TryFindNearestTrackSectionForUT(
+                recording.TrackSections,
+                sampleUT,
+                out TrackSection nearestSection))
+            {
+                if (TrySelectTrackingStationFocusFramesFromSection(
+                        nearestSection,
+                        out frames,
+                        out reason,
+                        out bool blockedByNearestSection))
+                {
+                    return true;
+                }
+
+                if (blockedByNearestSection)
+                    return false;
+            }
+
+            if (recording.Points == null || recording.Points.Count == 0)
+            {
+                reason = "no-points";
+                return false;
+            }
+
+            frames = recording.Points;
+            return true;
+        }
+
+        private static bool TrySelectTrackingStationFocusFramesFromSection(
+            TrackSection section,
+            out List<TrajectoryPoint> frames,
+            out string reason,
+            out bool blocked)
+        {
+            frames = null;
+            reason = null;
+            blocked = false;
+
+            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+            {
+                reason = "checkpoint-section";
+                blocked = true;
+                return false;
+            }
+
+            if (section.referenceFrame == ReferenceFrame.Relative)
+            {
+                if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+                {
+                    reason = "relative-without-absolute-shadow";
+                    blocked = true;
+                    return false;
+                }
+
+                frames = section.absoluteFrames;
+                return true;
+            }
+
+            if (section.frames != null && section.frames.Count > 0)
+            {
+                frames = section.frames;
+                return true;
+            }
+
+            // Empty absolute sections are not a safety block; let callers try
+            // the nearest section or the legacy flat Points list.
+            return false;
+        }
+
+        private static bool TryFindNearestTrackSectionForUT(
+            List<TrackSection> sections,
+            double sampleUT,
+            out TrackSection nearestSection)
+        {
+            nearestSection = default(TrackSection);
+            if (sections == null || sections.Count == 0)
+                return false;
+            if (double.IsNaN(sampleUT) || double.IsInfinity(sampleUT))
+                return false;
+
+            double bestDistance = double.PositiveInfinity;
+            bool hasNearest = false;
+            for (int i = 0; i < sections.Count; i++)
+            {
+                TrackSection section = sections[i];
+
+                double distance;
+                if (sampleUT < section.startUT)
+                    distance = section.startUT - sampleUT;
+                else if (sampleUT > section.endUT)
+                    distance = sampleUT - section.endUT;
+                else
+                    distance = 0.0;
+
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    nearestSection = section;
+                    hasNearest = true;
+                }
+            }
+
+            return hasNearest;
+        }
+
+        private static void UpdateAtmosphericFocusTransform(
+            MapObject target,
+            Vector3d worldPos)
+        {
+            if (target == null)
+                return;
+
+            Vector3 scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
+            target.transform.position = scaledPos;
+            if (target.trf != null)
+                target.trf.position = scaledPos;
+        }
+
+        private void DestroyAtmosphericFocusTarget(string reason)
+        {
+            if (atmosphericFocusTarget == null)
+                return;
+
+            MapObject target = atmosphericFocusTarget;
+            atmosphericFocusTarget = null;
+            atmosphericFocusRecordingId = null;
+            atmosphericFocusCachedIndex = -1;
+
+            try
+            {
+                PlanetariumCamera camera = PlanetariumCamera.fetch;
+                if (camera != null && ReferenceEquals(camera.target, target))
+                {
+                    MapObject fallback = camera.FindNearestTarget();
+                    if (fallback != null && !ReferenceEquals(fallback, target))
+                        camera.SetTarget(fallback);
+                }
+                target.Terminate();
+                ParsekLog.Verbose(Tag,
+                    "Destroyed atmospheric ghost focus target: reason=" + (reason ?? "(none)"));
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Destroy atmospheric ghost focus target failed: reason={0} {1}: {2}",
+                        reason ?? "(none)",
+                        ex.GetType().Name,
+                        ex.Message));
+            }
+        }
+
+        private void MaterializeSelectedGhost(
             TrackingStationGhostSelectionInfo selection,
             double currentUT)
         {
             var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || string.IsNullOrEmpty(selection.RecordingId))
+            if (committed == null
+                || string.IsNullOrEmpty(selection.RecordingId)
+                || !GhostTrackingStationSelection.TryResolveRecording(
+                    selection,
+                    out Recording recording,
+                    out _))
             {
                 ParsekLog.Warn(Tag,
-                    $"Materialize selected ghost failed: missing recording ID for ghost pid={selection.GhostPid}");
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialize selected ghost failed: missing recording for ghostPid={0} recId={1}",
+                        selection.GhostPid,
+                        selection.RecordingId ?? "(none)"));
                 return;
+            }
+
+            if (currentUT < recording.EndUT)
+            {
+                var endpointMaterialize =
+                    GhostTrackingStationSelection.EvaluateMaterializeAtEndpoint(recording);
+                if (!endpointMaterialize.needsSpawn)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Materialize fast-forward refused: recId={0} fromUT={1:F1} endpointUT={2:F1} reason={3}",
+                            recording.RecordingId ?? "(none)",
+                            currentUT,
+                            recording.EndUT,
+                            endpointMaterialize.reason ?? "(none)"));
+                    ParsekLog.ScreenMessage(
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Cannot materialize \"{0}\": {1}",
+                            recording.VesselName ?? "ghost",
+                            endpointMaterialize.reason ?? "endpoint blocked"),
+                        4f);
+                    GhostTrackingStationSelection.ClearSelectedGhost("materialize endpoint ineligible");
+                    return;
+                }
+
+                double jumpDelta = recording.EndUT - currentUT;
+                ParsekLog.Info(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialize fast-forward requested: recId={0} fromUT={1:F1} endpointUT={2:F1} delta={3:F1}s",
+                        recording.RecordingId ?? "(none)",
+                        currentUT,
+                        recording.EndUT,
+                        jumpDelta));
+                TimeJumpManager.ExecuteForwardJump(recording.EndUT);
+                ParsekLog.ScreenMessage(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Fast-forwarded to materialize \"{0}\" ({1:F0}s)",
+                        recording.VesselName ?? "ghost",
+                        jumpDelta),
+                    3f);
+                currentUT = Planetarium.GetUniversalTime();
             }
 
             bool handled = GhostMapPresence.TryRunTrackingStationSpawnHandoffForRecordingId(
@@ -903,8 +1623,482 @@ namespace Parsek
                     currentUT,
                     handled));
 
-            if (!GhostMapPresence.IsGhostMapVessel(selection.GhostPid))
-                GhostTrackingStationSelection.ClearSelectedGhost("materialize handoff");
+            if (handled)
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialize handoff forcing immediate Tracking Station lifecycle tick: recId={0}",
+                        selection.RecordingId ?? "(none)"));
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle(refreshStockList: false);
+                nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
+                GhostMapPresence.TryRefreshLiveTrackingStationVesselList("tracking-station-materialize-handoff");
+
+                if (recording.SpawnedVesselPersistentId != 0)
+                {
+                    if (!FocusSpawnedTrackingStationVessel(
+                            recording.SpawnedVesselPersistentId,
+                            "tracking-station-materialize",
+                            restoreStockSelection: true,
+                            warnOnFailure: true,
+                            out _))
+                    {
+                        ScheduleMaterializedFocusRetry(
+                            recording.SpawnedVesselPersistentId,
+                            "tracking-station-materialize");
+                    }
+                }
+                DestroyAtmosphericFocusTarget("materialize handoff");
+            }
+
+            GhostTrackingStationSelection.ClearSelectedGhost("materialize handoff");
+        }
+
+        private void ScheduleMaterializedFocusRetry(uint spawnedPid, string reason)
+        {
+            if (spawnedPid == 0)
+                return;
+
+            pendingMaterializedFocusPid = spawnedPid;
+            pendingMaterializedFocusReason = string.IsNullOrEmpty(reason)
+                ? "tracking-station-materialize"
+                : reason;
+            pendingMaterializedFocusDeadlineTime =
+                Time.time + MaterializedFocusRetryDurationSec;
+            nextMaterializedFocusAttemptTime = Time.time;
+            pendingMaterializedFocusAttempts = 0;
+            CaptureMaterializedFocusSelectionBaseline(spawnedPid);
+
+            ParsekLog.Info(Tag,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Scheduled materialized Tracking Station focus retry: pid={0} reason={1} duration={2:F1}s interval={3:F2}s",
+                    spawnedPid,
+                    pendingMaterializedFocusReason,
+                    MaterializedFocusRetryDurationSec,
+                    MaterializedFocusRetryIntervalSec));
+        }
+
+        private void CaptureMaterializedFocusSelectionBaseline(uint spawnedPid)
+        {
+            pendingMaterializedFocusBaselineHasSelectedGhost =
+                GhostTrackingStationSelection.HasSelectedGhost;
+            pendingMaterializedFocusBaselineGhostPid =
+                pendingMaterializedFocusBaselineHasSelectedGhost
+                    ? GhostTrackingStationSelection.SelectedGhost.GhostPid
+                    : 0u;
+            pendingMaterializedFocusBaselineRecordingId =
+                pendingMaterializedFocusBaselineHasSelectedGhost
+                    ? GhostTrackingStationSelection.SelectedGhost.RecordingId
+                    : null;
+            pendingMaterializedFocusBaselineSelectedPidAvailable = false;
+            pendingMaterializedFocusBaselineSelectedPid = 0;
+
+            SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+            string selectedError = null;
+            if (tracking != null
+                && GhostTrackingStationSelection.TryGetSelectedVesselPid(
+                    tracking,
+                    out uint selectedPid,
+                    out selectedError))
+            {
+                pendingMaterializedFocusBaselineSelectedPidAvailable = true;
+                pendingMaterializedFocusBaselineSelectedPid = selectedPid;
+            }
+            else if (tracking != null)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialized Tracking Station focus retry baseline stock-selection probe failed: pid={0} error={1}",
+                        spawnedPid,
+                        selectedError ?? "(none)"));
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Captured materialized Tracking Station focus retry selection baseline: pid={0} ghostSelected={1} ghostPid={2} recId={3} stockAvailable={4} stockPid={5}",
+                    spawnedPid,
+                    pendingMaterializedFocusBaselineHasSelectedGhost,
+                    pendingMaterializedFocusBaselineGhostPid,
+                    pendingMaterializedFocusBaselineRecordingId ?? "(none)",
+                    pendingMaterializedFocusBaselineSelectedPidAvailable,
+                    pendingMaterializedFocusBaselineSelectedPid));
+        }
+
+        private void UpdatePendingMaterializedFocus()
+        {
+            bool expired;
+            if (!ShouldAttemptMaterializedFocusRetry(
+                    pendingMaterializedFocusPid,
+                    Time.time,
+                    nextMaterializedFocusAttemptTime,
+                    pendingMaterializedFocusDeadlineTime,
+                    out expired))
+            {
+                if (expired)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Materialized Tracking Station focus retry expired: pid={0} reason={1} attempts={2}",
+                            pendingMaterializedFocusPid,
+                            pendingMaterializedFocusReason ?? "(none)",
+                            pendingMaterializedFocusAttempts));
+                    ClearPendingMaterializedFocus();
+                }
+                return;
+            }
+
+            uint spawnedPid = pendingMaterializedFocusPid;
+            string reason = pendingMaterializedFocusReason ?? "tracking-station-materialize";
+            if (ShouldAbortMaterializedFocusRetryForCurrentSelection(
+                    spawnedPid,
+                    out string abortReason))
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialized Tracking Station focus retry cancelled: pid={0} reason={1} attempts={2} abort={3}",
+                        spawnedPid,
+                        reason,
+                        pendingMaterializedFocusAttempts,
+                        abortReason ?? "(none)"));
+                ClearPendingMaterializedFocus();
+                return;
+            }
+
+            pendingMaterializedFocusAttempts++;
+            nextMaterializedFocusAttemptTime = Time.time + MaterializedFocusRetryIntervalSec;
+
+            if (FocusSpawnedTrackingStationVessel(
+                    spawnedPid,
+                    reason + "-retry",
+                    restoreStockSelection: true,
+                    warnOnFailure: false,
+                    out string focusError))
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialized Tracking Station focus retry succeeded: pid={0} reason={1} attempts={2}",
+                        spawnedPid,
+                        reason,
+                        pendingMaterializedFocusAttempts));
+                ClearPendingMaterializedFocus();
+                return;
+            }
+
+            ParsekLog.VerboseRateLimited(Tag,
+                "materialized-focus-retry-pending|" + spawnedPid,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Materialized Tracking Station focus retry pending: pid={0} reason={1} attempts={2} error={3}",
+                    spawnedPid,
+                    reason,
+                    pendingMaterializedFocusAttempts,
+                    focusError ?? "(none)"),
+                1.0);
+        }
+
+        private bool ShouldAbortMaterializedFocusRetryForCurrentSelection(
+            uint spawnedPid,
+            out string abortReason)
+        {
+            uint selectedGhostPid = GhostTrackingStationSelection.HasSelectedGhost
+                ? GhostTrackingStationSelection.SelectedGhost.GhostPid
+                : 0u;
+            string selectedRecordingId = GhostTrackingStationSelection.HasSelectedGhost
+                ? GhostTrackingStationSelection.SelectedGhost.RecordingId
+                : null;
+            if (ShouldAbortMaterializedFocusRetryForUserSelection(
+                    spawnedPid,
+                    pendingMaterializedFocusBaselineHasSelectedGhost,
+                    pendingMaterializedFocusBaselineGhostPid,
+                    pendingMaterializedFocusBaselineRecordingId,
+                    pendingMaterializedFocusBaselineSelectedPidAvailable,
+                    pendingMaterializedFocusBaselineSelectedPid,
+                    GhostTrackingStationSelection.HasSelectedGhost,
+                    selectedGhostPid,
+                    selectedRecordingId,
+                    selectedGhostPid != 0,
+                    false,
+                    0u,
+                    out abortReason))
+            {
+                return true;
+            }
+
+            SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+            if (tracking == null)
+                return false;
+
+            if (!GhostTrackingStationSelection.TryGetSelectedVesselPid(
+                    tracking,
+                    out uint selectedPid,
+                    out string selectedError))
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "materialized-focus-selected-vessel-probe-failed",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Materialized Tracking Station focus retry selection probe failed: pid={0} error={1}",
+                        spawnedPid,
+                        selectedError ?? "(none)"),
+                    1.0);
+                return false;
+            }
+
+            if (!pendingMaterializedFocusBaselineSelectedPidAvailable)
+            {
+                pendingMaterializedFocusBaselineSelectedPidAvailable = true;
+                pendingMaterializedFocusBaselineSelectedPid = selectedPid;
+                ParsekLog.Verbose(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Captured deferred materialized Tracking Station focus retry stock-selection baseline: pid={0} stockPid={1}",
+                        spawnedPid,
+                        selectedPid));
+                return false;
+            }
+
+            return ShouldAbortMaterializedFocusRetryForUserSelection(
+                spawnedPid,
+                pendingMaterializedFocusBaselineHasSelectedGhost,
+                pendingMaterializedFocusBaselineGhostPid,
+                pendingMaterializedFocusBaselineRecordingId,
+                pendingMaterializedFocusBaselineSelectedPidAvailable,
+                pendingMaterializedFocusBaselineSelectedPid,
+                false,
+                0u,
+                null,
+                false,
+                true,
+                selectedPid,
+                out abortReason);
+        }
+
+        internal static bool ShouldAbortMaterializedFocusRetryForUserSelection(
+            uint pendingPid,
+            bool baselineHasSelectedGhost,
+            uint baselineGhostPid,
+            string baselineRecordingId,
+            bool baselineSelectedPidAvailable,
+            uint baselineSelectedPid,
+            bool currentHasSelectedGhost,
+            uint currentGhostPid,
+            string currentRecordingId,
+            bool currentGhostPidAvailable,
+            bool currentSelectedPidAvailable,
+            uint currentSelectedPid,
+            out string reason)
+        {
+            reason = null;
+            if (pendingPid == 0)
+                return false;
+
+            if (currentHasSelectedGhost)
+            {
+                if (IsSameMaterializedFocusGhostSelection(
+                        baselineHasSelectedGhost,
+                        baselineGhostPid,
+                        baselineRecordingId,
+                        currentGhostPid,
+                        currentRecordingId,
+                        currentGhostPidAvailable))
+                    return false;
+
+                reason = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "ghost-selection-changed ghostPid={0} baselineGhostPid={1} recId={2} baselineRecId={3}",
+                    currentGhostPid,
+                    baselineGhostPid,
+                    currentRecordingId ?? "(none)",
+                    baselineRecordingId ?? "(none)");
+                return true;
+            }
+
+            if (currentSelectedPidAvailable
+                && baselineSelectedPidAvailable
+                && currentSelectedPid != 0
+                && currentSelectedPid != pendingPid
+                && currentSelectedPid != baselineSelectedPid)
+            {
+                reason = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "stock-selection-changed selectedPid={0} baselinePid={1}",
+                    currentSelectedPid,
+                    baselineSelectedPid);
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool IsSameMaterializedFocusGhostSelection(
+            bool baselineHasSelectedGhost,
+            uint baselineGhostPid,
+            string baselineRecordingId,
+            uint currentGhostPid,
+            string currentRecordingId,
+            bool currentGhostPidAvailable)
+        {
+            if (!baselineHasSelectedGhost)
+                return false;
+
+            if (currentGhostPidAvailable)
+                return currentGhostPid == baselineGhostPid;
+
+            return baselineGhostPid == 0
+                && !string.IsNullOrEmpty(baselineRecordingId)
+                && string.Equals(
+                    baselineRecordingId,
+                    currentRecordingId,
+                    System.StringComparison.Ordinal);
+        }
+
+        private void ClearPendingMaterializedFocus()
+        {
+            pendingMaterializedFocusPid = 0;
+            pendingMaterializedFocusReason = null;
+            pendingMaterializedFocusDeadlineTime = 0f;
+            nextMaterializedFocusAttemptTime = 0f;
+            pendingMaterializedFocusAttempts = 0;
+            pendingMaterializedFocusBaselineHasSelectedGhost = false;
+            pendingMaterializedFocusBaselineGhostPid = 0;
+            pendingMaterializedFocusBaselineRecordingId = null;
+            pendingMaterializedFocusBaselineSelectedPidAvailable = false;
+            pendingMaterializedFocusBaselineSelectedPid = 0;
+        }
+
+        internal static bool ShouldAttemptMaterializedFocusRetry(
+            uint pendingPid,
+            float now,
+            float nextAttemptTime,
+            float deadlineTime,
+            out bool expired)
+        {
+            expired = false;
+            if (pendingPid == 0)
+                return false;
+
+            if (now > deadlineTime)
+            {
+                expired = true;
+                return false;
+            }
+
+            return now >= nextAttemptTime;
+        }
+
+        private static bool FocusSpawnedTrackingStationVessel(
+            uint spawnedPid,
+            string reason,
+            bool restoreStockSelection,
+            bool warnOnFailure,
+            out string error)
+        {
+            error = null;
+            Vessel spawned = FlightRecorder.FindVesselByPid(spawnedPid);
+            if (spawned != null
+                && spawned.mapObject != null
+                && PlanetariumCamera.fetch != null)
+            {
+                if (GhostMapPresence.TrySetReadyMapObjectTarget(
+                        () => spawned.mapObject.GetName(),
+                        () => PlanetariumCamera.fetch.SetTarget(spawned.mapObject),
+                        out string mapObjectName,
+                        out string mapObjectError))
+                {
+                    if (restoreStockSelection)
+                    {
+                        SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+                        if (tracking == null)
+                        {
+                            error = "SpaceTracking instance not found";
+                            if (warnOnFailure)
+                            {
+                                ParsekLog.Warn(Tag,
+                                    string.Format(
+                                        CultureInfo.InvariantCulture,
+                                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} error={2}",
+                                        spawnedPid,
+                                        reason ?? "(none)",
+                                        error));
+                            }
+                            return false;
+                        }
+
+                        if (!GhostMapPresence.TrySelectTrackingStationVessel(
+                                tracking,
+                                spawned,
+                                out string selectError))
+                        {
+                            error = string.IsNullOrEmpty(selectError)
+                                ? "stock selection failed"
+                                : selectError;
+                            if (warnOnFailure)
+                            {
+                                ParsekLog.Warn(Tag,
+                                    string.Format(
+                                        CultureInfo.InvariantCulture,
+                                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} mapObject='{2}' error={3}",
+                                        spawnedPid,
+                                        reason ?? "(none)",
+                                        mapObjectName ?? "(null)",
+                                        error));
+                            }
+                            return false;
+                        }
+                    }
+
+                    ParsekLog.Info(Tag,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Focused materialized Tracking Station vessel '{0}' pid={1} mapObject='{2}' reason={3} stockSelected={4}",
+                            spawned.vesselName ?? "(unknown)",
+                            spawned.persistentId,
+                            mapObjectName ?? "(null)",
+                            reason ?? "(none)",
+                            restoreStockSelection));
+                    return true;
+                }
+
+                error = mapObjectError ?? "map object focus failed";
+                if (warnOnFailure)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Focus materialized Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4} error={5}",
+                            spawnedPid,
+                            reason ?? "(none)",
+                            true,
+                            true,
+                            true,
+                            error));
+                }
+                return false;
+            }
+
+            error = string.Format(
+                CultureInfo.InvariantCulture,
+                "vessel={0} camera={1} mapObj={2}",
+                spawned != null,
+                PlanetariumCamera.fetch != null,
+                spawned != null && spawned.mapObject != null);
+            if (warnOnFailure)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} {2}",
+                        spawnedPid,
+                        reason ?? "(none)",
+                        error));
+            }
+            return false;
         }
 
         private static Vessel FindGhostVessel(uint persistentId)

@@ -161,5 +161,168 @@ namespace Parsek.Tests
 
             Assert.Null(restored.PreSessionBranchPointIds);
         }
+
+        // ============================================================
+        // Issue #734: InPlaceContinuation field round-trip
+        // ============================================================
+
+        [Fact]
+        public void ReFlySessionMarker_InPlaceContinuationTrue_RoundTrips()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree",
+                ActiveReFlyRecordingId = "rec_fork",
+                OriginChildRecordingId = "rec_origin",
+                SupersedeTargetId = "rec_origin",
+                RewindPointId = "rp",
+                InvokedUT = 100.0,
+                InPlaceContinuation = true,
+            };
+
+            var parent = new ConfigNode();
+            marker.SaveInto(parent);
+
+            // The flag must be serialized so a quickload mid-session
+            // restores the right shape.
+            var savedNode = parent.GetNode("REFLY_SESSION_MARKER");
+            Assert.Equal("true", savedNode.GetValue("inPlaceContinuation"));
+
+            var restored = ReFlySessionMarker.LoadFrom(savedNode);
+            Assert.True(restored.InPlaceContinuation);
+        }
+
+        [Fact]
+        public void ReFlySessionMarker_InPlaceContinuationFalse_OmitsValue_LoadsAsFalse()
+        {
+            // Defaults to false; when false the codec omits the value to
+            // keep marker payloads minimal.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree",
+                ActiveReFlyRecordingId = "rec_placeholder",
+                OriginChildRecordingId = "rec_origin",
+                RewindPointId = "rp",
+                InvokedUT = 50.0,
+                InPlaceContinuation = false,
+            };
+
+            var parent = new ConfigNode();
+            marker.SaveInto(parent);
+
+            var savedNode = parent.GetNode("REFLY_SESSION_MARKER");
+            Assert.False(savedNode.HasValue("inPlaceContinuation"));
+
+            var restored = ReFlySessionMarker.LoadFrom(savedNode);
+            Assert.False(restored.InPlaceContinuation);
+        }
+
+        [Fact]
+        public void ReFlySessionMarker_LegacyMarkerWithoutFlag_LoadsAsFalse()
+        {
+            // Pre-#734 markers do not carry the inPlaceContinuation value;
+            // load must default to false (the legacy id-equality shape is
+            // what the gate helper recognises for those).
+            var node = new ConfigNode("REFLY_SESSION_MARKER");
+            node.AddValue("sessionId", "sess");
+            node.AddValue("treeId", "tree");
+            node.AddValue("activeReFlyRecordingId", "rec_origin"); // legacy shape: active == origin
+            node.AddValue("originChildRecordingId", "rec_origin");
+            node.AddValue("rewindPointId", "rp");
+            node.AddValue("invokedUT", "0");
+
+            var restored = ReFlySessionMarker.LoadFrom(node);
+
+            Assert.False(restored.InPlaceContinuation);
+        }
+
+        [Fact]
+        public void ReFlySessionMarker_InPlaceContinuationFlag_CaseInsensitiveLoad()
+        {
+            // Defensive: KSP's ConfigNode serialization is famously
+            // inconsistent about case. Confirm that 'True' loads the same
+            // as 'true' (we write lowercase but legacy / external tools may
+            // write uppercase).
+            var node = new ConfigNode("REFLY_SESSION_MARKER");
+            node.AddValue("sessionId", "sess");
+            node.AddValue("activeReFlyRecordingId", "rec_fork");
+            node.AddValue("originChildRecordingId", "rec_origin");
+            node.AddValue("rewindPointId", "rp");
+            node.AddValue("invokedUT", "0");
+            node.AddValue("inPlaceContinuation", "True");
+
+            var restored = ReFlySessionMarker.LoadFrom(node);
+
+            Assert.True(restored.InPlaceContinuation);
+        }
+
+        // ============================================================
+        // Issue #734: IsInPlaceContinuation centralized gate helper
+        // ============================================================
+
+        [Fact]
+        public void IsInPlaceContinuation_NullMarker_False()
+        {
+            Assert.False(ReFlySessionMarker.IsInPlaceContinuation(null));
+        }
+
+        [Fact]
+        public void IsInPlaceContinuation_EmptyIds_False()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                ActiveReFlyRecordingId = null,
+                OriginChildRecordingId = null,
+                InPlaceContinuation = true, // even with the flag, missing ids is invalid
+            };
+            Assert.False(ReFlySessionMarker.IsInPlaceContinuation(marker));
+        }
+
+        [Fact]
+        public void IsInPlaceContinuation_ForkShape_True()
+        {
+            // Post-#734 fork shape: distinct ids + flag set.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec_fork",
+                OriginChildRecordingId = "rec_origin",
+                InPlaceContinuation = true,
+            };
+            Assert.True(ReFlySessionMarker.IsInPlaceContinuation(marker));
+        }
+
+        [Fact]
+        public void IsInPlaceContinuation_LegacyShape_False()
+        {
+            // Pre-fork legacy shape (ids equal but no InPlaceContinuation
+            // flag) is no longer recognised. The flag is the only signal
+            // -- AtomicMarkerWrite is the sole writer and always pairs
+            // the in-place case with the flag set, so any marker without
+            // the flag is by construction a placeholder pattern.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec_origin",
+                OriginChildRecordingId = "rec_origin",
+                InPlaceContinuation = false,
+            };
+            Assert.False(ReFlySessionMarker.IsInPlaceContinuation(marker));
+        }
+
+        [Fact]
+        public void IsInPlaceContinuation_PlaceholderPattern_False()
+        {
+            // Placeholder Re-Fly: distinct ids, no flag. Player flies a
+            // fresh strip-spawned vessel.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec_placeholder",
+                OriginChildRecordingId = "rec_origin",
+                InPlaceContinuation = false,
+            };
+            Assert.False(ReFlySessionMarker.IsInPlaceContinuation(marker));
+        }
     }
 }

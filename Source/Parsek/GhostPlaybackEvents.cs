@@ -16,6 +16,7 @@ namespace Parsek
         VisualLoadFailed = 9,
         SessionSuppressed = 10,
         SupersededByRelation = 11,
+        RewindRetired = 12,
         // #688 follow-up: chain-segment dead-on-arrival suppression. The
         // first-spawn branch detected past-effective-end + not-held at
         // spawn time and skipped the build entirely so a chain successor
@@ -24,7 +25,7 @@ namespace Parsek
         // cleanup destroys it ~6 frames later. The fall-through past-end
         // handler still fires the PlaybackCompleted event for consumers
         // that expect it.
-        SpawnSuppressedDeadOnArrival = 12,
+        SpawnSuppressedDeadOnArrival = 13,
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -57,6 +58,8 @@ namespace Parsek
                     return "session-suppressed";
                 case GhostPlaybackSkipReason.SupersededByRelation:
                     return "superseded-by-relation";
+                case GhostPlaybackSkipReason.RewindRetired:
+                    return "rewind-retired";
                 case GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival:
                     return "spawn-suppressed-dead-on-arrival";
                 default:
@@ -81,6 +84,7 @@ namespace Parsek
         public int externalVesselSuppressed;
         public int sessionSuppressed;
         public int supersededByRelation;
+        public int rewindRetired;
         public int spawnSuppressedDeadOnArrival;
         public int active;
     }

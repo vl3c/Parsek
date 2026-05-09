@@ -432,6 +432,7 @@ namespace Parsek
             public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
             public string relativeAnchorRecordingId;
+            public bool relativeLoopLiveAnchor;     // true only for loop playback's explicit live-PID contract
 
             // Phase 1-3 lookup key for LateUpdate re-evaluation (design doc
             // §6.1 / §6.2 / §6.3 / §6.4 / §7.1 / §8 / §18 Phase 1-3 + Phase 4).
@@ -467,48 +468,10 @@ namespace Parsek
             public string coBubblePrimaryRecordingId;
             public double coBubblePointUT;
 
-            // Re-Fly tree display alignment. This is the frozen body-fixed
-            // offset projected into the current render frame and reapplied
-            // in late/end-of-frame positioning so FloatingOrigin shifts do
-            // not discard the anchored alignment.
-            public Vector3d reFlyTreeOffset;
-            public bool hasReFlyTreeOffset;
-
-            // Active Re-Fly point-trend smoothing. Update fits a section-local
-            // line through nearby recorded points and stores the correction in
-            // the body's rotating frame so LateUpdate can replay the same
-            // render contract after FloatingOrigin shifts.
-            public bool hasReFlyPointTrendCorrection;
-            public Vector3d reFlyPointTrendBodyFixedCorrection;
         }
-
-        internal struct ReFlyRenderInterpolationState
-        {
-            public bool initialized;
-            public bool hasPrevious;
-            public GameObject ghost;
-            public double currentTargetUT;
-            public Vector3d previousPosition;
-            public Vector3d currentPosition;
-            public Quaternion previousRotation;
-            public Quaternion currentRotation;
-            public bool liveRootRelativeFrame;
-        }
-
-        // Reset instead of blending across world-frame discontinuities such
-        // as FloatingOrigin shifts or section seam snaps. Normal active
-        // Re-Fly ascent steps are tens of metres; blending hundreds of metres
-        // renders the ghost visibly behind the correct pinned target.
-        internal const double ReFlyRenderInterpolationResetMeters = 100.0;
-        internal const double ReFlyRenderInterpolationLiveRootFrameMaxDistanceMeters = 50.0;
-        internal const double ReFlyRenderInterpolationMinTargetDeltaMeters = 0.001;
-        internal const double ReFlyRenderInterpolationMinRotationDeltaDegrees = 0.01;
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
-        private readonly Dictionary<int, ReFlyRenderInterpolationState> reFlyRenderInterpolationStates =
-            new Dictionary<int, ReFlyRenderInterpolationState>();
         private int ghostPreCullReapplyFrame = -1;
-        private int lastReFlyRenderInterpolationPruneFrame = -1;
 
         private void AddOrReplaceGhostPosEntry(GhostPosEntry entry)
         {
@@ -1230,14 +1193,12 @@ namespace Parsek
 
         private void ApplyGhostPosEntries(GhostPositionReapplyPhase phase)
         {
-            PruneReFlyRenderInterpolationStatesIfNeeded();
-
             int skippedNonReFlyPreCull = 0;
             for (int i = 0; i < ghostPosEntries.Count; i++)
             {
                 var e = ghostPosEntries[i];
                 if (e.ghost == null || !e.ghost.activeSelf) continue;
-                if (!ShouldProcessGhostPositionReapply(phase, e.hasReFlyTreeOffset))
+                if (!ShouldProcessGhostPositionReapply(phase))
                 {
                     skippedNonReFlyPreCull++;
                     continue;
@@ -1264,14 +1225,14 @@ namespace Parsek
                         // unknownFrameTagWarned dedup so LateUpdate doesn't
                         // double-emit).
                         Vector3d pos;
-                        if (e.hasReFlyTreeOffset || !TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                        if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
                         {
                             Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
                                 e.latBefore, e.lonBefore, e.altBefore);
                             Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                                 e.latAfter, e.lonAfter, e.altAfter);
                             if (!allowPointHermiteInterpolation(
-                                    e.hasReFlyTreeOffset,
+                                    false,
                                     splineApplied: false,
                                     allowNormalPlaybackHermite: NormalPlaybackPointHermiteEnabled,
                                     out _))
@@ -1298,12 +1259,6 @@ namespace Parsek
                                 }
                             }
                         }
-                        if (e.hasReFlyPointTrendCorrection)
-                        {
-                            pos += ProjectBodyFixedReFlyVector(
-                                e.bodyBefore.bodyTransform.rotation,
-                                e.reFlyPointTrendBodyFixedCorrection);
-                        }
                         // Phase 2 + Phase 3 anchor correction (design doc
                         // §6.3 / §6.4 / §18 Phase 2-3): re-apply the world-
                         // space ε so the FloatingOrigin frame-velocity shift
@@ -1316,14 +1271,11 @@ namespace Parsek
                         // positioned or the raw-lerp position above.
                         if (allowRenderAnchorCorrectionInterval(
                                 e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                e.hasReFlyTreeOffset,
+                                false,
                                 out Vector3d lateEps, out _))
                         {
                             pos += lateEps;
                         }
-                        // Re-Fly tree anchor lock — preserve this frame's
-                        // anchor offset across the FloatingOrigin LateUpdate re-pos.
-                        pos += e.reFlyTreeOffset;
                         ApplyGhostReapplyTransform(
                             e,
                             pos,
@@ -1336,7 +1288,6 @@ namespace Parsek
                         if (e.bodyBefore == null) break;
                         Vector3d pos = e.bodyBefore.GetWorldSurfacePosition(
                             e.latBefore, e.lonBefore, e.altBefore);
-                        pos += e.reFlyTreeOffset;
                         ApplyGhostReapplyTransform(
                             e,
                             pos,
@@ -1361,7 +1312,7 @@ namespace Parsek
                             // orbital rotation inputs.
                             Vector3d rawOrbitPos = orbit.getPositionAtUT(e.orbitUT);
                             Vector3d orbitContinuityOffset = ResolveOrbitContinuityOffset(e, e.orbitUT);
-                            Vector3d targetPos = rawOrbitPos + orbitContinuityOffset + e.reFlyTreeOffset;
+                            Vector3d targetPos = rawOrbitPos + orbitContinuityOffset;
                             Quaternion targetRot = e.ghost.transform.rotation;
 
                             Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
@@ -1446,16 +1397,12 @@ namespace Parsek
                         // Both case) progresses each frame, not freezes.
                         if (allowRenderAnchorCorrectionInterval(
                                 e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                e.hasReFlyTreeOffset,
+                                false,
                                 out Vector3d cpLateEps, out _))
                         {
                             rawCheckpointPos += cpLateEps;
                         }
-                        // Re-Fly tree anchor lock — translate transform.position
-                        // only; rotation math below uses rawCheckpointPos so
-                        // the orbital-frame attitude isn't pushed by the tree
-                        // delta.
-                        Vector3d targetPos = rawCheckpointPos + e.reFlyTreeOffset;
+                        Vector3d targetPos = rawCheckpointPos;
                         Quaternion targetRot = e.ghost.transform.rotation;
 
                         Orbit orbit;
@@ -1526,9 +1473,6 @@ namespace Parsek
                         if (e.bodyBefore == null) break;
                         Vector3d surfacePos = e.bodyBefore.GetWorldSurfacePosition(
                             e.latBefore, e.lonBefore, e.altBefore);
-                        // Re-Fly tree anchor lock — preserve this frame's
-                        // anchor offset across the FloatingOrigin LateUpdate re-pos.
-                        surfacePos += e.reFlyTreeOffset;
                         ApplyGhostReapplyTransform(
                             e,
                             surfacePos,
@@ -1561,17 +1505,20 @@ namespace Parsek
                             haveAnchor = TryResolveStoredRecordedAnchorPose(
                                 e.relativeRecordedAnchorPose, out anchorPos, out anchorRotation);
                         }
-                        else
+                        else if (e.relativeLoopLiveAnchor)
                         {
                             // Loop-relative entries keep the explicit live
                             // loop-anchor contract. Non-loop recorded-relative
                             // entries set relativeAnchorRecordingId and resolve
                             // through the branch above.
-                            Vessel anchor = FlightRecorder.FindVesselByPid(e.anchorVesselId);
-                            if (anchor != null)
+                            if (TryResolveLoopLiveAnchorPose(
+                                    e.anchorVesselId,
+                                    e.recordingId,
+                                    e.pointUT,
+                                    out RelativeAnchorPose liveLoopAnchorPose))
                             {
-                                anchorPos = anchor.GetWorldPos3D();
-                                anchorRotation = anchor.transform.rotation;
+                                anchorPos = liveLoopAnchorPose.worldPos;
+                                anchorRotation = liveLoopAnchorPose.worldRotation;
                                 haveAnchor = true;
                             }
                             else
@@ -1584,6 +1531,16 @@ namespace Parsek
                                 anchorRotation = Quaternion.identity;
                             }
                         }
+                        else
+                        {
+                            if (e.anchorVesselId != 0u)
+                            {
+                                Rendering.NonLoopLivePidGuard.NonLoopRelativeLivePidLookupAttempted(
+                                    "LateUpdate.Relative");
+                            }
+                            anchorPos = Vector3d.zero;
+                            anchorRotation = Quaternion.identity;
+                        }
 
                         if (haveAnchor)
                         {
@@ -1594,7 +1551,6 @@ namespace Parsek
                                 e.relDy,
                                 e.relDz,
                                 e.relativeRecordingFormatVersion);
-                            ghostPos += e.reFlyTreeOffset;
                             ApplyGhostReapplyTransform(
                                 e,
                                 ghostPos,
@@ -1634,11 +1590,11 @@ namespace Parsek
                             && TryComputeStandaloneWorldPositionForRecording(
                                 lateprimary, e.coBubblePointUT, e.bodyBefore,
                                 out Vector3d primaryWorld,
-                                suppressAnchorCorrection: e.hasReFlyTreeOffset))
+                                suppressAnchorCorrection: false))
                         {
                             ApplyGhostReapplyTransform(
                                 e,
-                                primaryWorld + worldOffset + e.reFlyTreeOffset,
+                                primaryWorld + worldOffset,
                                 e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
                                 phase);
                             blendApplied = true;
@@ -1654,14 +1610,14 @@ namespace Parsek
                             // so spline / anchor ε re-application still works.
                             if (e.bodyAfter == null) break;
                             Vector3d pos;
-                            if (e.hasReFlyTreeOffset || !TryComputeLateUpdateSplineWorldPosition(e, out pos))
+                            if (!TryComputeLateUpdateSplineWorldPosition(e, out pos))
                             {
                                 Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
                                     e.latBefore, e.lonBefore, e.altBefore);
                                 Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
                                     e.latAfter, e.lonAfter, e.altAfter);
                                 if (!allowPointHermiteInterpolation(
-                                        e.hasReFlyTreeOffset,
+                                        false,
                                         splineApplied: false,
                                         allowNormalPlaybackHermite: NormalPlaybackPointHermiteEnabled,
                                         out _))
@@ -1688,20 +1644,13 @@ namespace Parsek
                                     }
                                 }
                             }
-                            if (e.hasReFlyPointTrendCorrection)
-                            {
-                                pos += ProjectBodyFixedReFlyVector(
-                                    e.bodyBefore.bodyTransform.rotation,
-                                    e.reFlyPointTrendBodyFixedCorrection);
-                            }
                             if (allowRenderAnchorCorrectionInterval(
                                     e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                    e.hasReFlyTreeOffset,
+                                    false,
                                     out Vector3d lateEps, out _))
                             {
                                 pos += lateEps;
                             }
-                            pos += e.reFlyTreeOffset;
                             ApplyGhostReapplyTransform(
                                 e,
                                 pos,
@@ -1727,464 +1676,8 @@ namespace Parsek
             if (entry.ghost == null)
                 return;
 
-            Vector3d appliedPosition = targetPosition;
-            Quaternion appliedRotation = targetRotation;
-            string reason = "disabled";
-            double alpha = 1.0;
-            double targetDeltaMeters = 0.0;
-            bool interpolated = false;
-            bool liveRootRelativeFrame = false;
-            Vector3d liveRootWorld = Vector3d.zero;
-            double liveRootDistanceMeters = double.NaN;
-            string liveRootFrameReason = "disabled";
-
-            int ghostId = entry.ghost.GetInstanceID();
-            if (!entry.hasReFlyTreeOffset)
-            {
-                reFlyRenderInterpolationStates.Remove(ghostId);
-            }
-            else
-            {
-                alpha = ComputeReFlyRenderInterpolationAlpha();
-                ReFlyRenderInterpolationState state;
-                reFlyRenderInterpolationStates.TryGetValue(ghostId, out state);
-                liveRootRelativeFrame = TryResolveReFlyRenderInterpolationLiveRootFrame(
-                    entry,
-                    targetPosition,
-                    out liveRootWorld,
-                    out liveRootDistanceMeters,
-                    out liveRootFrameReason);
-                interpolated = TryComputeReFlyRenderInterpolatedPose(
-                    ref state,
-                    entry.ghost,
-                    ResolveGhostPosEntryTargetUT(entry),
-                    targetPosition,
-                    targetRotation,
-                    alpha,
-                    ReFlyRenderInterpolationResetMeters,
-                    liveRootRelativeFrame,
-                    liveRootWorld,
-                    out appliedPosition,
-                    out appliedRotation,
-                    out targetDeltaMeters,
-                    out reason);
-                reFlyRenderInterpolationStates[ghostId] = state;
-                TraceReFlyRenderInterpolation(
-                    entry,
-                    phase,
-                    targetPosition,
-                    appliedPosition,
-                    alpha,
-                    targetDeltaMeters,
-                    reason,
-                    interpolated,
-                    liveRootRelativeFrame,
-                    liveRootDistanceMeters,
-                    liveRootFrameReason);
-            }
-
-            entry.ghost.transform.position = appliedPosition;
-            entry.ghost.transform.rotation = appliedRotation;
-        }
-
-        private static bool TryResolveReFlyRenderInterpolationLiveRootFrame(
-            GhostPosEntry entry,
-            Vector3d targetPosition,
-            out Vector3d liveRootWorld,
-            out double liveRootDistanceMeters,
-            out string reason)
-        {
-            liveRootWorld = Vector3d.zero;
-            liveRootDistanceMeters = double.NaN;
-            reason = "not-evaluated";
-
-            if (!entry.hasReFlyTreeOffset)
-            {
-                reason = "refly-offset-missing";
-                return false;
-            }
-            if (!IsFiniteVector3d(targetPosition))
-            {
-                reason = "target-non-finite";
-                return false;
-            }
-
-            string recordingId = ResolveGhostPosEntryRecordingId(entry);
-            if (string.IsNullOrEmpty(recordingId))
-            {
-                reason = "recording-id-missing";
-                return false;
-            }
-
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-            {
-                reason = "marker-missing";
-                return false;
-            }
-            uint selectedRootPartPid = marker.SelectedRootPartPersistentId;
-            if (selectedRootPartPid == 0u)
-            {
-                reason = "selected-root-part-missing";
-                return false;
-            }
-            if (!TryResolveActiveReFlyPidStatic(marker, out uint activeReFlyPid) || activeReFlyPid == 0u)
-            {
-                reason = "active-pid-missing";
-                return false;
-            }
-
-            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
-            if (liveAnchor == null)
-            {
-                reason = "live-vessel-missing";
-                return false;
-            }
-            if (!TryResolveReFlyLiveAnchorWorld(
-                    liveAnchor,
-                    marker,
-                    out liveRootWorld,
-                    out string liveRootSource,
-                    out uint liveRootPartPid,
-                    out double _))
-            {
-                reason = "live-root-unresolved";
-                return false;
-            }
-            if (!string.Equals(liveRootSource, "root-part", StringComparison.Ordinal)
-                || liveRootPartPid != selectedRootPartPid)
-            {
-                reason = "live-root-not-selected-root-part";
-                return false;
-            }
-            if (!IsFiniteVector3d(liveRootWorld))
-            {
-                reason = "live-root-non-finite";
-                return false;
-            }
-
-            liveRootDistanceMeters = Vector3d.Distance(targetPosition, liveRootWorld);
-            if (double.IsNaN(liveRootDistanceMeters) || double.IsInfinity(liveRootDistanceMeters))
-            {
-                reason = "live-root-distance-non-finite";
-                return false;
-            }
-            if (liveRootDistanceMeters > ReFlyRenderInterpolationLiveRootFrameMaxDistanceMeters)
-            {
-                reason = "outside-near-live-root";
-                return false;
-            }
-
-            reason = "near-selected-root";
-            return true;
-        }
-
-        private static double ResolveGhostPosEntryTargetUT(GhostPosEntry entry)
-        {
-            switch (entry.mode)
-            {
-                case GhostPosMode.Orbit:
-                case GhostPosMode.CheckpointPoint:
-                    return entry.orbitUT;
-                case GhostPosMode.CoBubble:
-                    return entry.coBubblePointUT;
-                default:
-                    return entry.pointUT;
-            }
-        }
-
-        private static double ComputeReFlyRenderInterpolationAlpha()
-        {
-            float fixedDelta = Time.fixedDeltaTime;
-            if (fixedDelta <= 0f || float.IsNaN(fixedDelta) || float.IsInfinity(fixedDelta))
-                return 1.0;
-
-            double alpha = ((double)Time.time - Time.fixedTime) / fixedDelta;
-            if (double.IsNaN(alpha) || double.IsInfinity(alpha))
-                return 1.0;
-            if (alpha < 0.0) return 0.0;
-            if (alpha > 1.0) return 1.0;
-            return alpha;
-        }
-
-        internal static bool TryComputeReFlyRenderInterpolatedPose(
-            ref ReFlyRenderInterpolationState state,
-            GameObject ghost,
-            double targetUT,
-            Vector3d targetPosition,
-            Quaternion targetRotation,
-            double renderAlpha,
-            double resetMeters,
-            bool useLiveRootRelativeFrame,
-            Vector3d liveRootWorld,
-            out Vector3d appliedPosition,
-            out Quaternion appliedRotation,
-            out double targetDeltaMeters,
-            out string reason)
-        {
-            appliedPosition = targetPosition;
-            appliedRotation = targetRotation;
-            targetDeltaMeters = 0.0;
-            reason = "not-evaluated";
-
-            if (!IsFiniteVector3d(targetPosition))
-            {
-                state = default(ReFlyRenderInterpolationState);
-                reason = "target-non-finite";
-                return false;
-            }
-            Vector3d targetPositionInFrame = targetPosition;
-            if (useLiveRootRelativeFrame)
-            {
-                if (!IsFiniteVector3d(liveRootWorld))
-                {
-                    state = default(ReFlyRenderInterpolationState);
-                    reason = "live-root-non-finite";
-                    return false;
-                }
-                targetPositionInFrame = targetPosition - liveRootWorld;
-            }
-            if (double.IsNaN(targetUT) || double.IsInfinity(targetUT))
-            {
-                state = default(ReFlyRenderInterpolationState);
-                reason = "target-ut-invalid";
-                return false;
-            }
-
-            if (double.IsNaN(renderAlpha) || double.IsInfinity(renderAlpha))
-                renderAlpha = 1.0;
-            if (renderAlpha < 0.0) renderAlpha = 0.0;
-            if (renderAlpha > 1.0) renderAlpha = 1.0;
-
-            if (!state.initialized)
-            {
-                state.initialized = true;
-                state.hasPrevious = false;
-                state.ghost = ghost;
-                state.currentTargetUT = targetUT;
-                state.previousPosition = targetPositionInFrame;
-                state.currentPosition = targetPositionInFrame;
-                state.previousRotation = targetRotation;
-                state.currentRotation = targetRotation;
-                state.liveRootRelativeFrame = useLiveRootRelativeFrame;
-                reason = "initialized";
-                return false;
-            }
-
-            if (state.liveRootRelativeFrame != useLiveRootRelativeFrame)
-            {
-                ResetReFlyRenderInterpolationState(
-                    ref state,
-                    ghost,
-                    targetUT,
-                    targetPositionInFrame,
-                    targetRotation,
-                    useLiveRootRelativeFrame);
-                reason = "interpolation-frame-changed-reset";
-                return false;
-            }
-
-            targetDeltaMeters = Vector3d.Distance(state.currentPosition, targetPositionInFrame);
-            double rotationDeltaDegrees = QuaternionAngleDegreesManaged(state.currentRotation, targetRotation);
-            bool targetChanged =
-                targetDeltaMeters > ReFlyRenderInterpolationMinTargetDeltaMeters
-                || rotationDeltaDegrees > ReFlyRenderInterpolationMinRotationDeltaDegrees
-                || targetUT > state.currentTargetUT + 1e-6;
-
-            if (targetChanged)
-            {
-                if (targetUT <= state.currentTargetUT - 1e-6)
-                {
-                    ResetReFlyRenderInterpolationState(
-                        ref state, ghost, targetUT, targetPositionInFrame, targetRotation,
-                        useLiveRootRelativeFrame);
-                    reason = "target-ut-regressed-reset";
-                    return false;
-                }
-
-                if (targetDeltaMeters > resetMeters)
-                {
-                    ResetReFlyRenderInterpolationState(
-                        ref state, ghost, targetUT, targetPositionInFrame, targetRotation,
-                        useLiveRootRelativeFrame);
-                    reason = "target-jump-reset";
-                    return false;
-                }
-
-                state.hasPrevious = true;
-                state.ghost = ghost;
-                state.previousPosition = state.currentPosition;
-                state.previousRotation = state.currentRotation;
-                state.currentPosition = targetPositionInFrame;
-                state.currentRotation = targetRotation;
-                state.currentTargetUT = targetUT;
-                reason = "advanced-target";
-            }
-            else
-            {
-                state.ghost = ghost;
-                reason = "duplicate-target";
-            }
-
-            if (!state.hasPrevious)
-            {
-                reason = "waiting-for-second-target";
-                return false;
-            }
-
-            double spanMeters = Vector3d.Distance(state.previousPosition, state.currentPosition);
-            double spanRotationDegrees = QuaternionAngleDegreesManaged(state.previousRotation, state.currentRotation);
-            if (spanMeters <= ReFlyRenderInterpolationMinTargetDeltaMeters
-                && spanRotationDegrees <= ReFlyRenderInterpolationMinRotationDeltaDegrees)
-            {
-                reason = "target-static";
-                return false;
-            }
-
-            Vector3d appliedPositionInFrame = LerpVector3d(
-                state.previousPosition,
-                state.currentPosition,
-                renderAlpha);
-            appliedPosition = useLiveRootRelativeFrame
-                ? liveRootWorld + appliedPositionInFrame
-                : appliedPositionInFrame;
-            appliedRotation = TrajectoryMath.PureSlerp(
-                state.previousRotation,
-                state.currentRotation,
-                (float)renderAlpha);
-            if (!IsFiniteVector3d(appliedPosition))
-            {
-                ResetReFlyRenderInterpolationState(
-                    ref state, ghost, targetUT, targetPositionInFrame, targetRotation,
-                    useLiveRootRelativeFrame);
-                appliedPosition = targetPosition;
-                appliedRotation = targetRotation;
-                reason = "applied-non-finite-reset";
-                return false;
-            }
-
-            return true;
-        }
-
-        internal static void ResetReFlyRenderInterpolationState(
-            ref ReFlyRenderInterpolationState state,
-            GameObject ghost,
-            double targetUT,
-            Vector3d targetPosition,
-            Quaternion targetRotation)
-        {
-            ResetReFlyRenderInterpolationState(
-                ref state,
-                ghost,
-                targetUT,
-                targetPosition,
-                targetRotation,
-                useLiveRootRelativeFrame: false);
-        }
-
-        internal static void ResetReFlyRenderInterpolationState(
-            ref ReFlyRenderInterpolationState state,
-            GameObject ghost,
-            double targetUT,
-            Vector3d targetPositionInFrame,
-            Quaternion targetRotation,
-            bool useLiveRootRelativeFrame)
-        {
-            state.initialized = true;
-            state.hasPrevious = false;
-            state.ghost = ghost;
-            state.currentTargetUT = targetUT;
-            state.previousPosition = targetPositionInFrame;
-            state.currentPosition = targetPositionInFrame;
-            state.previousRotation = targetRotation;
-            state.currentRotation = targetRotation;
-            state.liveRootRelativeFrame = useLiveRootRelativeFrame;
-        }
-
-        private void LogReFlyRenderInterpolationStatePreservedForGhostPartPin(
-            GameObject ghost,
-            string recordingId,
-            double currentUT,
-            Vector3d pinDelta)
-        {
-            if (ghost == null)
-                return;
-
-            int ghostId = ghost.GetInstanceID();
-            bool hasPriorState = reFlyRenderInterpolationStates.ContainsKey(ghostId);
-            ParsekLog.Info(
-                "Playback",
-                "Re-Fly render interpolation preserved: rec=" + ShortRecordingId(recordingId)
-                + " currentUT=" + currentUT.ToString("F3", CultureInfo.InvariantCulture)
-                + " ghostId=" + ghostId.ToString(CultureInfo.InvariantCulture)
-                + " hasPriorState=" + (hasPriorState ? "true" : "false")
-                + " pinDelta=" + FormatVector3d(pinDelta)
-                + " pinMeters=" + pinDelta.magnitude.ToString("F2", CultureInfo.InvariantCulture)
-                + " reason=initial-ghost-part-pin-smoothed");
-        }
-
-        private static Vector3d LerpVector3d(Vector3d a, Vector3d b, double t)
-        {
-            return new Vector3d(
-                a.x + (b.x - a.x) * t,
-                a.y + (b.y - a.y) * t,
-                a.z + (b.z - a.z) * t);
-        }
-
-        private static double QuaternionAngleDegreesManaged(Quaternion a, Quaternion b)
-        {
-            a = TrajectoryMath.PureNormalize(TrajectoryMath.SanitizeQuaternion(a));
-            b = TrajectoryMath.PureNormalize(TrajectoryMath.SanitizeQuaternion(b));
-            double dot = Math.Abs(
-                (double)a.x * b.x
-                + (double)a.y * b.y
-                + (double)a.z * b.z
-                + (double)a.w * b.w);
-            if (dot > 1.0) dot = 1.0;
-            return Math.Acos(dot) * 2.0 * (180.0 / Math.PI);
-        }
-
-        private void TraceReFlyRenderInterpolation(
-            GhostPosEntry entry,
-            GhostPositionReapplyPhase phase,
-            Vector3d targetPosition,
-            Vector3d appliedPosition,
-            double alpha,
-            double targetDeltaMeters,
-            string reason,
-            bool interpolated,
-            bool liveRootRelativeFrame,
-            double liveRootDistanceMeters,
-            string liveRootFrameReason)
-        {
-            string recordingId = ResolveGhostPosEntryRecordingId(entry);
-            double currentUT = Planetarium.fetch != null
-                ? Planetarium.GetUniversalTime()
-                : ResolveGhostPosEntryTargetUT(entry);
-            if (!GhostRenderTrace.ShouldEmitPhase(recordingId, currentUT))
-                return;
-
-            double renderCorrectionMeters = Vector3d.Distance(targetPosition, appliedPosition);
-            GhostRenderTrace.EmitPhase(
-                recordingId,
-                entry.hasRecordingIndex ? entry.recordingIndex : -1,
-                currentUT,
-                ResolveGhostPosEntryTargetUT(entry),
-                "RenderInterp",
-                "phase=" + (phase == GhostPositionReapplyPhase.CameraPreCull ? "CameraPreCull" : "LateUpdate")
-                + " mode=" + entry.mode
-                + " hit=" + (interpolated ? "true" : "false")
-                + " reason=" + (reason ?? "<none>")
-                + " alpha=" + alpha.ToString("F3", CultureInfo.InvariantCulture)
-                + " targetDeltaMeters=" + targetDeltaMeters.ToString("F3", CultureInfo.InvariantCulture)
-                + " renderCorrectionMeters=" + renderCorrectionMeters.ToString("F3", CultureInfo.InvariantCulture)
-                + " interpolationFrame=" + (liveRootRelativeFrame ? "live-root-relative" : "world")
-                + " liveRootFrameReason=" + (liveRootFrameReason ?? "<none>")
-                + " liveRootDistanceMeters=" + liveRootDistanceMeters.ToString("F2", CultureInfo.InvariantCulture)
-                + " target=" + GhostRenderTrace.FormatVector3d(targetPosition)
-                + " applied=" + GhostRenderTrace.FormatVector3d(appliedPosition),
-                important: false,
-                force: false);
+            entry.ghost.transform.position = targetPosition;
+            entry.ghost.transform.rotation = targetRotation;
         }
 
         private static string ResolveGhostPosEntryRecordingId(GhostPosEntry entry)
@@ -2196,31 +1689,6 @@ namespace Parsek
             return null;
         }
 
-        private void PruneReFlyRenderInterpolationStatesIfNeeded()
-        {
-            int frame = Time.frameCount;
-            if (frame == lastReFlyRenderInterpolationPruneFrame)
-                return;
-            if (frame % 300 != 0)
-                return;
-
-            lastReFlyRenderInterpolationPruneFrame = frame;
-            List<int> stale = null;
-            foreach (var kv in reFlyRenderInterpolationStates)
-            {
-                if (kv.Value.ghost != null)
-                    continue;
-                if (stale == null) stale = new List<int>();
-                stale.Add(kv.Key);
-            }
-
-            if (stale == null)
-                return;
-
-            for (int i = 0; i < stale.Count; i++)
-                reFlyRenderInterpolationStates.Remove(stale[i]);
-        }
-
         private static void TraceGhostPositionReapply(
             GhostPosEntry entry,
             GhostPositionReapplyPhase phase,
@@ -2228,7 +1696,6 @@ namespace Parsek
             Vector3d after)
         {
             double delta = Vector3d.Distance(before, after);
-            bool hasReFlyOffset = entry.hasReFlyTreeOffset;
 
             string recordingId =
                 !string.IsNullOrEmpty(entry.recordingId) ? entry.recordingId :
@@ -2247,13 +1714,12 @@ namespace Parsek
                 before,
                 after,
                 entry.ghost != null ? entry.ghost.transform.rotation : Quaternion.identity,
-                entry.reFlyTreeOffset,
-                hasReFlyOffset ? "refly-offset" : null);
+                null);
 
             if (phase != GhostPositionReapplyPhase.CameraPreCull)
                 return;
 
-            if (delta < 1.0 && !hasReFlyOffset)
+            if (delta < 1.0)
                 return;
 
             if (string.IsNullOrEmpty(recordingId))
@@ -2265,22 +1731,19 @@ namespace Parsek
                 key,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Ghost camera pre-cull reapply: rec={0} mode={1} ut={2:F3} deltaMeters={3:F2} before=({4:F2},{5:F2},{6:F2}) after=({7:F2},{8:F2},{9:F2}) reFlyOffset=({10:F2},{11:F2},{12:F2})",
+                    "Ghost camera pre-cull reapply: rec={0} mode={1} ut={2:F3} deltaMeters={3:F2} before=({4:F2},{5:F2},{6:F2}) after=({7:F2},{8:F2},{9:F2})",
                     shortRecordingId,
                     entry.mode,
                     entry.pointUT,
                     delta,
                     before.x, before.y, before.z,
-                    after.x, after.y, after.z,
-                    entry.reFlyTreeOffset.x, entry.reFlyTreeOffset.y, entry.reFlyTreeOffset.z),
+                    after.x, after.y, after.z),
                 1.0);
         }
 
-        internal static bool ShouldProcessGhostPositionReapply(
-            GhostPositionReapplyPhase phase,
-            bool hasReFlyTreeOffset)
+        internal static bool ShouldProcessGhostPositionReapply(GhostPositionReapplyPhase phase)
         {
-            return phase != GhostPositionReapplyPhase.CameraPreCull || hasReFlyTreeOffset;
+            return phase != GhostPositionReapplyPhase.CameraPreCull;
         }
 
         private static void LogSkippedNonReFlyCameraPreCull(string operation, int count)
@@ -2293,55 +1756,6 @@ namespace Parsek
                 "ghost-camera-pre-cull-non-refly-skip-" + operation,
                 $"Ghost camera pre-cull skipped non-Re-Fly {operation} entries: count={count}",
                 1.0);
-        }
-
-        private static string BuildGhostRenderTraceLiveRootComparison(
-            string recordingId,
-            Vector3d finalWorldPosition)
-        {
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-                return string.Empty;
-
-            string prefix = " liveRootActive=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
-                + " selectedRootPid="
-                + marker.SelectedRootPartPersistentId.ToString(CultureInfo.InvariantCulture);
-            if (string.IsNullOrEmpty(recordingId))
-                return prefix + " liveRootHit=false liveRootReason=recording-id-missing";
-            if (!IsFiniteVector3d(finalWorldPosition))
-                return prefix + " liveRootHit=false liveRootReason=ghost-pos-non-finite";
-            if (!TryResolveActiveReFlyPidStatic(marker, out uint activeReFlyPid) || activeReFlyPid == 0u)
-                return prefix + " liveRootHit=false liveRootReason=active-pid-missing";
-
-            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
-            if (liveAnchor == null)
-                return prefix + " liveRootHit=false liveRootReason=live-vessel-missing activePid="
-                    + activeReFlyPid.ToString(CultureInfo.InvariantCulture);
-
-            if (!TryResolveReFlyLiveAnchorWorld(
-                    liveAnchor,
-                    marker,
-                    out Vector3d liveRootWorld,
-                    out string liveRootSource,
-                    out uint liveRootPartPid,
-                    out double liveRootVesselOffsetMeters))
-            {
-                return prefix + " liveRootHit=false liveRootReason=live-root-unresolved activePid="
-                    + activeReFlyPid.ToString(CultureInfo.InvariantCulture);
-            }
-
-            Vector3d ghostMinusLiveRoot = finalWorldPosition - liveRootWorld;
-            return prefix
-                + " liveRootHit=true"
-                + " activePid=" + activeReFlyPid.ToString(CultureInfo.InvariantCulture)
-                + " liveRootSource=" + (liveRootSource ?? "<none>")
-                + " liveRootPartPid=" + liveRootPartPid.ToString(CultureInfo.InvariantCulture)
-                + " liveRootVesselOffsetMeters="
-                + liveRootVesselOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                + " liveRootWorld=" + GhostRenderTrace.FormatVector3d(liveRootWorld)
-                + " ghostMinusLiveRoot=" + GhostRenderTrace.FormatVector3d(ghostMinusLiveRoot)
-                + " ghostLiveRootDM="
-                + ghostMinusLiveRoot.magnitude.ToString("F2", CultureInfo.InvariantCulture);
         }
 
         private static bool TryResolveStoredRecordedAnchorPose(
@@ -2392,7 +1806,7 @@ namespace Parsek
             {
                 var e = ghostPosEntries[i];
                 if (e.ghost == null || !e.ghost.activeSelf) continue;
-                if (!ShouldProcessGhostPositionReapply(phase, e.hasReFlyTreeOffset))
+                if (!ShouldProcessGhostPositionReapply(phase))
                 {
                     skippedNonReFlyPreCull++;
                     continue;
@@ -2593,7 +2007,6 @@ namespace Parsek
             loggedRecordedRelativeStart.Clear();
             loggedRelativeAbsoluteShadowStart?.Clear();
             loggedAnchorNotFound.Clear();
-            reFlyDisplayAlignmentCache?.Clear();
             reFlyDenseAbsolutePlaybackFrameCache.Clear();
             loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
             unknownFrameTagWarned.Clear();
@@ -3635,13 +3048,12 @@ namespace Parsek
         {
             if (newPid == 0u) return false;
             if (marker == null) return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
-                return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            // Accept both legacy in-place (active == origin) and the
+            // post-#734 fork shape (InPlaceContinuation flag, active != origin).
+            // Both keep the player on the SAME physical vessel; the
+            // post-switch auto-record arming we want to suppress is the
+            // same in either case.
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
             if (committedRecordings == null) return false;
             for (int i = 0; i < committedRecordings.Count; i++)
@@ -4434,7 +3846,8 @@ namespace Parsek
         /// and starts a new FlightRecorder for the active child.
         /// </summary>
         void CreateSplitBranch(BranchPointType branchType, Vessel activeVessel, Vessel backgroundVessel,
-            double branchUT, string evaCrewName = null, uint evaVesselPid = 0)
+            double branchUT, string evaCrewName = null, uint evaVesselPid = 0,
+            TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
         {
             ParsekLog.RecState("CreateSplitBranch:entry", CaptureRecorderState());
             if (pendingSplitRecorder == null)
@@ -4545,7 +3958,8 @@ namespace Parsek
                 activeTree.BackgroundMap[backgroundVessel.persistentId] = bgChild.RecordingId;
                 backgroundRecorder?.OnVesselBackgrounded(
                     backgroundVessel.persistentId,
-                    initialEnvironmentOverride: initialBackgroundEnvOverride);
+                    initialEnvironmentOverride: initialBackgroundEnvOverride,
+                    initialTrajectoryPoint: backgroundInitialTrajectoryPoint);
             }
 
             // Stop any existing undock continuation and vessel continuation (tree handles them)
@@ -4582,6 +3996,7 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Tree branch created: type={branchType}, " +
                 $"bp={bp.Id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
                 $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId})" +
+                (backgroundInitialTrajectoryPoint.HasValue ? ", bgInitialSeed=part-origin" : "") +
                 (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
             ParsekLog.RecState("CreateSplitBranch:exit", CaptureRecorderState());
 
@@ -5048,7 +4463,9 @@ namespace Parsek
             return true;
         }
 
-        IEnumerator DeferredUndockBranch(uint newVesselPid)
+        IEnumerator DeferredUndockBranch(
+            uint newVesselPid,
+            TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
         {
             yield return null; // defer one frame for KSP to finalize the split
 
@@ -5082,14 +4499,21 @@ namespace Parsek
                 // Debris filter
                 if (!IsTrackableVessel(newVessel))
                 {
-                    ParsekLog.Verbose("Flight", $"DeferredUndockBranch: vessel pid={newVesselPid} is not trackable (debris) — resuming recording");
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredUndockBranch: vessel pid={newVesselPid} is not trackable (debris) — resuming recording " +
+                        $"capturedSeed={backgroundInitialTrajectoryPoint.HasValue}");
                     ResumeSplitRecorder(pendingSplitRecorder, "undocked vessel is debris");
                     yield break;
                 }
 
                 // Player stays on remaining vessel (active), undocked vessel goes to background
                 Vessel activeVessel = FlightGlobals.ActiveVessel;
-                CreateSplitBranch(BranchPointType.Undock, activeVessel, newVessel, branchUT);
+                CreateSplitBranch(
+                    BranchPointType.Undock,
+                    activeVessel,
+                    newVessel,
+                    branchUT,
+                    backgroundInitialTrajectoryPoint: backgroundInitialTrajectoryPoint);
             }
             finally
             {
@@ -5693,7 +5117,8 @@ namespace Parsek
             uint pid, Vessel vessel, bool isDebris, string fallbackName,
             ConfigNode fallbackSnapshot = null,
             TrajectoryPoint? fallbackTrajectoryPoint = null,
-            int parentGeneration = 0)
+            int parentGeneration = 0,
+            string parentRecordingId = null)
         {
             string childRecId = Guid.NewGuid().ToString("N");
             string vesselName = Recording.ResolveLocalizedName(vessel?.vesselName) ?? fallbackName;
@@ -5709,6 +5134,17 @@ namespace Parsek
                 IsDebris = isDebris,
                 Generation = parentGeneration + 1
             };
+            // PR 3b: stamp the v12+ debris parent-anchor contract on the new child
+            // Recording. The breakup branch point's ParentRecordingIds list can have
+            // multiple parents in chain-merge cases, so passing parentRecordingId
+            // explicitly avoids ambiguity — the focused recording is the right anchor.
+            Recording.ApplyDebrisAnchorContract(childRec, parentRecordingId);
+            if (childRec.IsDebris)
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"Debris contract applied at breakup: childRecId={childRecId} " +
+                    $"childPid={pid} parentRecId={parentRecordingId ?? "(none)"}");
+            }
 
             // Bug #419 — invariant-enforcement: before any seed-point or snapshot code
             // runs, trim any pre-existing trajectory points at or after the breakup UT.
@@ -6083,7 +5519,8 @@ namespace Parsek
                     initialPoint = ApplyStructuralEventFlagToChildSeed(initialPoint, breakupBp.UT);
 
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, childVessel, false, "Unknown",
-                        ctrlSnap, initialPoint, parentGeneration: activeRec.Generation);
+                        ctrlSnap, initialPoint, parentGeneration: activeRec.Generation,
+                        parentRecordingId: activeRec.RecordingId);
 
                     // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
@@ -6138,7 +5575,8 @@ namespace Parsek
                         crashCoalescer.GetPreCapturedTrajectoryPoint(pid),
                         breakupBp.UT);
                     var childRec = CreateBreakupChildRecording(activeTree, breakupBp, pid, debrisVessel, true, "Debris",
-                        preSnap, breakupChildPoint, parentGeneration: activeRec.Generation);
+                        preSnap, breakupChildPoint, parentGeneration: activeRec.Generation,
+                        parentRecordingId: activeRec.RecordingId);
 
                     if (debrisVessel != null && backgroundRecorder != null)
                     {
@@ -8487,6 +7925,31 @@ namespace Parsek
             }
             recorder.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
             backgroundRecorder?.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
+            uint undockedPartPid = undockedPart.persistentId;
+            uint undockedRootPartPid = undockedPart.vessel.rootPart?.persistentId ?? 0u;
+            TrajectoryPoint? undockRootPartSeed = null;
+            if (ShouldUseUndockPartOriginSeed(undockedPartPid, undockedRootPartPid)
+                && FlightRecorder.TryCreateAbsoluteTrajectoryPointFromPartOrigin(
+                    undockedPart,
+                    undockEventUT,
+                    out TrajectoryPoint capturedUndockSeed))
+            {
+                undockRootPartSeed = capturedUndockSeed;
+                ParsekLog.Verbose("Flight",
+                    $"Undock root part-origin seed captured: part='{undockedPart.partInfo?.name}' " +
+                    $"pid={undockedPartPid} vesselPid={newPid} " +
+                    $"ut={undockEventUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                string reason = ShouldUseUndockPartOriginSeed(undockedPartPid, undockedRootPartPid)
+                    ? "capture-failed"
+                    : "undocked-part-not-root";
+                ParsekLog.Verbose("Flight",
+                    $"Undock part-origin seed skipped: reason={reason} " +
+                    $"undockedPartPid={undockedPartPid} rootPartPid={undockedRootPartPid} " +
+                    $"vesselPid={newPid}");
+            }
 
             // Tree mode: create branch instead of chain segment.
             // Stop recorder synchronously to prevent OnPhysicsFrame interference.
@@ -8495,7 +7958,7 @@ namespace Parsek
             recorder = null;
             pendingSplitInProgress = true;
             Log($"onPartUndock: vessel split off (otherPid={newPid}) — starting deferred tree branch");
-            StartCoroutine(DeferredUndockBranch(newPid));
+            StartCoroutine(DeferredUndockBranch(newPid, undockRootPartSeed));
         }
 
         void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart)
@@ -9639,6 +9102,29 @@ namespace Parsek
             return recordedVesselPid != 0 && originalVesselPid == recordedVesselPid;
         }
 
+        internal delegate bool TryResolveTrajectoryPoint(uint persistentId, out TrajectoryPoint point);
+
+        internal static bool TrySelectDecouplePartOriginSeed(
+            uint rootPartPersistentId,
+            TryResolveTrajectoryPoint resolvePartOriginSeed,
+            out TrajectoryPoint seed)
+        {
+            seed = default;
+            if (rootPartPersistentId == 0u || resolvePartOriginSeed == null)
+                return false;
+
+            return resolvePartOriginSeed(rootPartPersistentId, out seed);
+        }
+
+        internal static bool ShouldUseUndockPartOriginSeed(
+            uint undockedPartPersistentId,
+            uint rootPartPersistentId)
+        {
+            return undockedPartPersistentId != 0u
+                && rootPartPersistentId != 0u
+                && undockedPartPersistentId == rootPartPersistentId;
+        }
+
         internal static double ResolveDeferredSplitBranchUT(
             double fallbackUT,
             double exactTriggerUT,
@@ -9747,17 +9233,44 @@ namespace Parsek
             if (decoupleControllerStatus != null)
                 decoupleControllerStatus[newVessel.persistentId] = hasController;
             double splitUT = Planetarium.GetUniversalTime();
+            uint rootPartPersistentId = newVessel.rootPart?.persistentId ?? 0u;
+            string seedSource = "none";
             if (decoupleCreatedTrajectoryPoints != null
                 && !decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
             {
-                decoupleCreatedTrajectoryPoints[newVessel.persistentId] =
-                    BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                        newVessel, splitUT, preferRootPartSurfacePose: true);
+                FlightRecorder seedRecorder = recorder ?? pendingSplitRecorder;
+                TryResolveTrajectoryPoint resolvePartOriginSeed = null;
+                if (seedRecorder != null)
+                    resolvePartOriginSeed = seedRecorder.TryConsumePendingJointChildPartOriginSeed;
+                // On stock decoupler splits, KSP roots the new debris vessel at
+                // joint.Child; if it chooses a different root, this misses cleanly and
+                // falls back to the post-split root-part sample below.
+                if (TrySelectDecouplePartOriginSeed(
+                        rootPartPersistentId,
+                        resolvePartOriginSeed,
+                        out TrajectoryPoint partOriginSeed))
+                {
+                    decoupleCreatedTrajectoryPoints[newVessel.persistentId] = partOriginSeed;
+                    seedSource = "joint-child-part-origin";
+                }
+                else
+                {
+                    decoupleCreatedTrajectoryPoints[newVessel.persistentId] =
+                        BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                            newVessel, splitUT, preferRootPartSurfacePose: true);
+                    seedSource = "new-vessel-root-part";
+                }
+            }
+            else if (decoupleCreatedTrajectoryPoints != null
+                     && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
+            {
+                seedSource = "already-captured";
             }
             ParsekLog.Info("Flight",
                 $"Decouple created vessel during recording: pid={newVessel.persistentId} " +
                 $"name='{newVessel.vesselName}' type={newVessel.vesselType} " +
                 $"parts={newVessel.parts?.Count ?? 0} hasController={hasController} " +
+                $"rootPartPid={rootPartPersistentId} seedSource={seedSource} " +
                 $"splitUT={splitUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"capturedSeed={(decoupleCreatedTrajectoryPoints != null && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId) ? "T" : "F")}");
         }
@@ -10390,6 +9903,20 @@ namespace Parsek
                 && tree.Recordings.TryGetValue(activeRecId, out var preMarkerActiveRec2)
                 ? (preMarkerActiveRec2?.VesselPersistentId ?? 0u) : 0u;
             var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            // Issue #734 race fix: AtomicMarkerWrite usually attaches the
+            // in-place fork to the pending tree at marker-write time, but
+            // on async FLIGHT loads both AtomicMarkerWrite and this restore
+            // coroutine defer to onFlightReady; if this coroutine fires
+            // first (or AtomicMarkerWrite ran on a different tree handle),
+            // the fork lives in CommittedRecordings but is not yet in
+            // tree.Recordings. ResolveInPlaceContinuationTarget would then
+            // refuse the swap with reason="marker-recording-missing-from-tree"
+            // and the recorder's flush would warn / data-loss. Reconcile
+            // here from the committed list before the swap runs. The
+            // helper is idempotent so it is a no-op when the eager path
+            // already attached.
+            ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
             var markerSwap = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker,
                 tree.Id,
@@ -14124,13 +13651,12 @@ namespace Parsek
                         for (int c = 0; c < t.childCount; c++)
                             t.GetChild(c).gameObject.SetActive(false);
                     }
-                    if (!GhostVisualBuilder.TryTriggerStockExplosionFx(pos, power, out string stockFxFailure))
-                    {
-                        ParsekLog.Warn("ExplosionFx",
-                            $"FXMonger.Explode did not queue stock FX for manual preview " +
-                            $"\"{previewRecording.VesselName}\"; falling back to custom FX: {stockFxFailure}");
-                        GhostVisualBuilder.SpawnExplosionFx(pos, len);
-                    }
+                    GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                        pos,
+                        power,
+                        len,
+                        $"manual preview \"{previewRecording.VesselName}\"",
+                        "manual-preview-stock-explosion-audio-busy");
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);
@@ -14888,12 +14414,15 @@ namespace Parsek
             bool hasRenderableData,
             bool playbackEnabled,
             bool externalVesselSuppressed,
-            bool supersededByRelation = false)
+            bool supersededByRelation = false,
+            bool rewindRetired = false)
         {
             if (!hasRenderableData)
                 return GhostPlaybackSkipReason.NoRenderableData;
             if (!playbackEnabled)
                 return GhostPlaybackSkipReason.PlaybackDisabled;
+            if (rewindRetired)
+                return GhostPlaybackSkipReason.RewindRetired;
             if (supersededByRelation)
                 return GhostPlaybackSkipReason.SupersededByRelation;
             if (externalVesselSuppressed)
@@ -14916,11 +14445,13 @@ namespace Parsek
             bool hasRenderableData,
             bool playbackEnabled,
             bool externalVesselSuppressed,
-            bool supersededByRelation = false)
+            bool supersededByRelation = false,
+            bool rewindRetired = false)
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "Ghost playback skip state: #{0} id={1} vessel=\"{2}\" skip={3} reason={4} " +
-                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7} supersededByRelation={8}",
+                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7} " +
+                "supersededByRelation={8} rewindRetired={9}",
                 index,
                 string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId,
                 vesselName ?? "?",
@@ -14929,7 +14460,8 @@ namespace Parsek
                 hasRenderableData,
                 playbackEnabled,
                 externalVesselSuppressed,
-                supersededByRelation);
+                supersededByRelation,
+                rewindRetired);
         }
 
         private static void LogGhostSkipReasonChangeCore(
@@ -14940,7 +14472,8 @@ namespace Parsek
             bool hasRenderableData,
             bool playbackEnabled,
             bool externalVesselSuppressed,
-            bool supersededByRelation = false)
+            bool supersededByRelation = false,
+            bool rewindRetired = false)
         {
             string identity = "ghost-skip|" + BuildGhostSkipReasonIdentity(index, recordingId);
             ParsekLog.VerboseOnChange(
@@ -14955,7 +14488,8 @@ namespace Parsek
                     hasRenderableData,
                     playbackEnabled,
                     externalVesselSuppressed,
-                    supersededByRelation));
+                    supersededByRelation,
+                    rewindRetired));
         }
 
         private void ClearGhostSkipReasonLogState()
@@ -14996,7 +14530,8 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool externalVesselSuppressed,
-            bool supersededByRelation = false)
+            bool supersededByRelation = false,
+            bool rewindRetired = false)
         {
             string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
             bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
@@ -15011,7 +14546,8 @@ namespace Parsek
                 hasRenderableData,
                 rec?.PlaybackEnabled ?? false,
                 externalVesselSuppressed,
-                supersededByRelation);
+                supersededByRelation,
+                rewindRetired);
 
             if (reason == GhostPlaybackSkipReason.None)
                 activeGhostSkipReasonLogIdentities.Remove(identity);
@@ -15133,9 +14669,10 @@ namespace Parsek
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
             var scenario = ParsekScenario.Instance;
-            var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+            var timelineInactiveIds = EffectiveState.ComputeTimelineInactiveRecordingIds(
                 committed,
-                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements);
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -15147,20 +14684,25 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
-                bool supersededByRelation = !string.IsNullOrEmpty(rec.RecordingId)
-                    && relationSupersededIds.Contains(rec.RecordingId);
+                TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                    timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason);
+                bool supersededByRelation = inactiveReason == TimelineInactiveReason.SupersededByRelation;
+                bool rewindRetired = inactiveReason == TimelineInactiveReason.RewindRetired;
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
                     rec.PlaybackEnabled,
                     externalVesselSuppressed,
-                    supersededByRelation);
+                    supersededByRelation,
+                    rewindRetired);
                 LogGhostSkipReasonChangeIfNeeded(
                     i,
                     rec,
                     skipReason,
                     hasData,
                     externalVesselSuppressed,
-                    supersededByRelation);
+                    supersededByRelation,
+                    rewindRetired);
 
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                     rec, isActiveChain, chainLooping);
@@ -15171,7 +14713,8 @@ namespace Parsek
 
                 bool finalNeedsSpawn = spawnResult.needsSpawn
                     && !chainSuppressed.suppressed
-                    && !supersededByRelation;
+                    && !supersededByRelation
+                    && !rewindRetired;
 
                 // Log spawn suppression reason for non-debris recordings (diagnostic).
                 // Emit only when the suppression reason flips for this recording —
@@ -15212,7 +14755,8 @@ namespace Parsek
                             hasData,
                             rec.PlaybackEnabled,
                             externalVesselSuppressed,
-                            supersededByRelation),
+                            supersededByRelation,
+                            rewindRetired),
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,
@@ -16446,38 +15990,21 @@ namespace Parsek
         /// fixed. <c>ShouldAutoActivateGhost</c> is the canonical source for the
         /// value.
         ///
-        /// <para>
-        /// The host-scene activation gate
-        /// (<see cref="GhostPlaybackState.externalActivationDeferred"/>,
-        /// #688 follow-up) is also honoured here so positioner paths that
-        /// reactivate a previously-hidden ghost (e.g. zone re-entry after
-        /// distance-LOD hide) cannot bypass the gate and SetActive(true)
-        /// on a ghost whose Re-Fly anchor offset has not yet resolved.
-        /// The gate's value is set by the END of the previous frame's
-        /// <c>RefreshReFlyAnchorActivationGate</c> call, so the predicate
-        /// reads at most one-frame-stale gate state — acceptable because
-        /// the gate is monotone-like at session boundaries.
-        /// </para>
         /// </summary>
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
             if (state == null) return true;
+            if (state.parentAnchoredDebrisCoverageRetired) return false;
             if (state.deferVisibilityUntilPlaybackSync) return false;
-            if (state.externalActivationDeferred) return false;
             return true;
         }
 
         /// <summary>
         /// Diagnostic context appended to the watch-cutoff log line: ghost
-        /// world position + (when known from the active section under the
-        /// current game UT) the section's reference frame and live anchor
-        /// data. The 818 km cutoff trip in
-        /// `logs/2026-04-27_0123_watch-jump-and-ghost-misalign` was
-        /// indecipherable from KSP.log alone; this turns "the cutoff
-        /// fired" into "the cutoff fired because the section's anchor is
-        /// in stable orbit while the recording wanted the ghost in
-        /// atmosphere." Returns empty when there's no useful context to
-        /// append (state/ghost null) so the call site stays clean.
+        /// world position plus the active section under the current game UT.
+        /// Recorded Relative sections are identified by anchor recording ID;
+        /// non-loop playback must not enrich this diagnostic from live vessel
+        /// PID lookups.
         /// </summary>
         internal static string DescribeWatchCutoffContext(
             IPlaybackTrajectory rec, GhostPlaybackState state)
@@ -16523,32 +16050,13 @@ namespace Parsek
                 $"sectionUT=[{section.startUT.ToString("F1", ic)}," +
                 $"{section.endUT.ToString("F1", ic)}]";
 
-            if (section.referenceFrame != ReferenceFrame.Relative
-                || section.anchorVesselId == 0u)
-            {
+            if (section.referenceFrame != ReferenceFrame.Relative)
                 return $"{ghostWorldStr} {sectionStr}";
-            }
 
-            string anchorStr;
-            Vessel anchor = FlightRecorder.FindVesselByPid(section.anchorVesselId);
-            if (anchor == null)
-            {
-                anchorStr = $"anchorPid={section.anchorVesselId} anchorWorld=unloaded";
-            }
-            else
-            {
-                Vector3d anchorWorld = anchor.GetWorldPos3D();
-                // Match DescribeAppearanceLiveAnchorContext's |anchor-root|
-                // label so KSP.log greps that look at one site work for the
-                // other (state.ghost.transform.position IS the ghost root).
-                Vector3d delta = ghostWorld - anchorWorld;
-                anchorStr =
-                    $"anchorPid={section.anchorVesselId} " +
-                    $"anchorWorld={FormatVector3d(anchorWorld)} " +
-                    $"|anchor-root|={delta.magnitude.ToString("F0", ic)}m";
-            }
-
-            return $"{ghostWorldStr} {sectionStr} {anchorStr}";
+            string anchorRec = string.IsNullOrWhiteSpace(section.anchorRecordingId)
+                ? "anchorRec=missing"
+                : $"anchorRec={section.anchorRecordingId.Trim()}";
+            return $"{ghostWorldStr} {sectionStr} {anchorRec}";
         }
 
         internal (bool isWatchedGhost, int watchProtectionIndex, bool isWatchProtectedRecording)
@@ -16587,20 +16095,12 @@ namespace Parsek
             {
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = playbackIdx;
-                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
             int splineSectionIdx = traj.TrackSections != null && traj.TrackSections.Count > 0
                 ? TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut)
                 : -1;
-            bool hasReFlyDisplayOffsetForFrameSelection = false;
-            if (splineSectionIdx >= 0 && !string.IsNullOrEmpty(traj.RecordingId))
-            {
-                Vector3d ignoredFrameSelectionOffset;
-                hasReFlyDisplayOffsetForFrameSelection = TryGetReFlyTreeAnchorOffset(
-                    traj.RecordingId, ut, out ignoredFrameSelectionOffset);
-            }
 
             if (splineSectionIdx >= 0
                 && TryGetAbsoluteSectionPlaybackFrames(
@@ -16608,21 +16108,7 @@ namespace Parsek
                     out List<TrajectoryPoint> absoluteFrames))
             {
                 string pointFrameSource = "section-frames";
-                if (hasReFlyDisplayOffsetForFrameSelection
-                    && TryGetDenseReFlyAbsolutePlaybackFrames(
-                        traj,
-                        splineSectionIdx,
-                        traj.TrackSections[splineSectionIdx],
-                        absoluteFrames,
-                        ut,
-                        out List<TrajectoryPoint> denseFrames,
-                        out string denseReason))
-                {
-                    absoluteFrames = denseFrames;
-                    pointFrameSource = "flat-dense-refly";
-                }
-                else if (!hasReFlyDisplayOffsetForFrameSelection
-                    && TryGetAbsoluteSectionPlaybackFramesForPlayback(
+                if (TryGetAbsoluteSectionPlaybackFramesForPlayback(
                         traj.TrackSections,
                         splineSectionIdx,
                         out List<TrajectoryPoint> bridgedFrames,
@@ -16645,12 +16131,9 @@ namespace Parsek
                     skipOrbitSegments: true,
                     recordingId: traj.RecordingId,
                     sectionIndex: splineSectionIdx,
-                    pointFrameSource: pointFrameSource,
-                    allowReFlyPointTrend:
-                        ShouldAllowReFlyPointTrend(traj.TrackSections[splineSectionIdx].environment));
+                    pointFrameSource: pointFrameSource);
                 state.SetInterpolated(interpResult);
                 state.playbackIndex = absolutePlaybackIdx;
-                RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
                 return;
             }
 
@@ -16662,11 +16145,9 @@ namespace Parsek
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
                 recordingId: traj.RecordingId, sectionIndex: splineSectionIdx,
-                pointFrameSource: "flat-points",
-                allowReFlyPointTrend: false);
+                pointFrameSource: "flat-points");
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
@@ -16717,7 +16198,6 @@ namespace Parsek
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.PositionAtPoint(int index, IPlaybackTrajectory traj,
@@ -16769,7 +16249,6 @@ namespace Parsek
                 positioned.velocity,
                 positioned.bodyName,
                 positioned.altitude));
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, positioned.ut);
         }
 
         bool IGhostPositioner.TryResolveExplosionAnchorPosition(int index,
@@ -17064,11 +16543,6 @@ namespace Parsek
                 Vector3.zero,
                 positioned.body,
                 positioned.altitude));
-            // Surface positioning has no playback UT of its own — the
-            // landed/splashed ghost sits at a fixed surface point. Use the
-            // current planetary UT so the gate evaluates the offset at
-            // "now," matching what PositionGhostAtSurface did internally.
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, Planetarium.GetUniversalTime());
         }
 
         void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
@@ -17111,7 +16585,6 @@ namespace Parsek
                     traj.RecordingId,
                     traj);
             }
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
@@ -17120,15 +16593,6 @@ namespace Parsek
             if (state?.ghost == null || traj == null) return;
             int playbackIdx = state.playbackIndex;
             bool useAnchor = GhostPlaybackLogic.ShouldUseLoopAnchor(traj);
-            if (useAnchor && !GhostPlaybackLogic.ValidateLoopAnchor(traj.LoopAnchorVesselId))
-            {
-                long anchorKey = ((long)index << 32) | traj.LoopAnchorVesselId;
-                if (loggedAnchorNotFound.Add(anchorKey))
-                    ParsekLog.Warn("Loop",
-                        $"Loop anchor vessel pid={traj.LoopAnchorVesselId} not found for " +
-                        $"recording #{index} \"{traj.VesselName}\" — falling back to absolute positioning");
-                useAnchor = false;
-            }
             InterpolationResult interpResult;
             // PR #594 P1 review fix: pass `state` so the relative-frame
             // retirement branch can set state.anchorRetiredThisFrame for
@@ -17139,7 +16603,6 @@ namespace Parsek
                 ShouldAutoActivateGhost(state), out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
-            RefreshReFlyAnchorActivationGate(traj?.RecordingId, state, ut);
         }
 
         ZoneRenderingResult IGhostPositioner.ApplyZoneRendering(int index, GhostPlaybackState state,
@@ -17154,18 +16617,6 @@ namespace Parsek
             ClearOrbitPlaybackCaches();
         }
 
-        bool IGhostPositioner.TryGetLiveAnchorWorldPosition(uint anchorVesselId, out Vector3d worldPosition)
-        {
-            worldPosition = Vector3d.zero;
-            if (anchorVesselId == 0u) return false;
-            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-            if (anchor == null) return false;
-            Vector3d candidate = anchor.GetWorldPos3D();
-            if (!IsFiniteVector3d(candidate)) return false;
-            worldPosition = candidate;
-            return true;
-        }
-
         #endregion
 
         #region Ghost Positioning (shared by manual + timeline playback)
@@ -17175,8 +16626,7 @@ namespace Parsek
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex,
             double targetUT, bool allowActivation, out InterpolationResult interpResult,
             string recordingId = null, int sectionIndex = -1,
-            string pointFrameSource = "input",
-            bool allowReFlyPointTrend = false)
+            string pointFrameSource = "input")
         {
             TrajectoryPoint before, after;
             float t;
@@ -17192,8 +16642,6 @@ namespace Parsek
                     ghost.SetActive(false);
                     return;
                 }
-                // Forward recordingId so PositionGhostAt applies and seeds
-                // the Re-Fly tree anchor offset on this single-point exit.
                 PositionGhostAt(ghost, before, recordingId);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
                 return;
@@ -17259,16 +16707,8 @@ namespace Parsek
                 interpolatedPos = posBefore;
             }
 
-            // Re-Fly tree display alignment is resolved before smoothing so
-            // active Re-Fly ghosts do not mix the frozen display offset with
-            // a smoothed path that can disagree with the raw recorded bracket
-            // around optimizer boundaries. The hidden recording remains the
-            // source of truth; this only chooses the rendering interpolant.
-            Vector3d reFlyTreeOffset = Vector3d.zero;
-            bool hasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
-                recordingId, targetUT, out reFlyTreeOffset);
             bool allowSplineForPlayback = allowSplinePositioningForPlayback(
-                hasReFlyTreeOffset,
+                false,
                 allowNormalPlaybackSplinePositioning: NormalPlaybackSplinePositioningEnabled,
                 out string splineReason);
 
@@ -17321,13 +16761,13 @@ namespace Parsek
             // changes the visible path between recorded samples. Keep normal Watch
             // and loop playback on the historical section-frame lerp unless a
             // future product gate explicitly enables velocity-curved playback.
-            // Active Re-Fly display alignment also stays linear.
+            // Active Re-Fly recorded-coordinate playback also stays linear.
             bool hermiteApplied = false;
             Vector3d rawHermitePos = Vector3d.zero;
             double hermiteDeviationMeters = double.NaN;
             double hermiteMaxDeviationMeters = ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
             bool allowHermite = allowPointHermiteInterpolation(
-                hasReFlyTreeOffset,
+                false,
                 splineApplied,
                 allowNormalPlaybackHermite: NormalPlaybackPointHermiteEnabled,
                 out string hermiteReason);
@@ -17350,37 +16790,6 @@ namespace Parsek
                 }
             }
 
-            bool reFlyPointTrendApplied = false;
-            Vector3d reFlyPointTrendCorrection = Vector3d.zero;
-            Vector3d reFlyPointTrendBodyFixedCorrection = Vector3d.zero;
-            Vector3d reFlyPointTrendWorld = Vector3d.zero;
-            int reFlyPointTrendSamples = 0;
-            double reFlyPointTrendMaxResidualMeters = double.NaN;
-            string reFlyPointTrendReason = "not-evaluated";
-            if (hasReFlyTreeOffset && allowReFlyPointTrend)
-            {
-                int trendBracketIndex = FindPointBracketIndex(points, before, after, cachedIndex);
-                if (TryComputeReFlyPointTrendWorld(
-                        points,
-                        trendBracketIndex,
-                        targetUT,
-                        bodyBefore,
-                        recordingId,
-                        interpolatedPos,
-                        out reFlyPointTrendWorld,
-                        out reFlyPointTrendCorrection,
-                        out reFlyPointTrendSamples,
-                        out reFlyPointTrendMaxResidualMeters,
-                        out reFlyPointTrendReason))
-                {
-                    interpolatedPos = reFlyPointTrendWorld;
-                    reFlyPointTrendApplied = true;
-                    reFlyPointTrendBodyFixedCorrection = CaptureBodyFixedReFlyVector(
-                        bodyBefore.bodyTransform.rotation,
-                        reFlyPointTrendCorrection);
-                }
-            }
-
             // Phase 2 + Phase 3 anchor correction (design doc §6.3 Stage 3,
             // §6.4 multi-anchor lerp, §7.1, §8, §18 Phase 2-3 / HR-15).
             // Additive world-space ε translation pinned once at session entry;
@@ -17392,7 +16801,7 @@ namespace Parsek
             // a silent fall-through — re-fly sessions with no marker yet are
             // normal state, not failure.
             bool hasAnchorEps = allowRenderAnchorCorrectionInterval(
-                recordingId, sectionIndex, targetUT, hasReFlyTreeOffset,
+                recordingId, sectionIndex, targetUT, false,
                 out Vector3d anchorEps, out string anchorCorrectionReason);
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
@@ -17411,14 +16820,14 @@ namespace Parsek
             Vector3d coBubbleOffset = Vector3d.zero;
             Parsek.Rendering.CoBubbleBlendStatus blendStatus = default(Parsek.Rendering.CoBubbleBlendStatus);
             string coBubbleReason = "not-evaluated";
-            if (allowRenderCoBubbleBlend(recordingId, targetUT, hasReFlyTreeOffset,
+            if (allowRenderCoBubbleBlend(recordingId, targetUT, false,
                     out coBubbleOffset, out string primaryRecordingId,
                     out blendStatus, out coBubbleReason))
             {
                 if (TryComputeStandaloneWorldPositionForRecording(
                         primaryRecordingId, targetUT, bodyBefore,
                         out Vector3d primaryWorld,
-                        suppressAnchorCorrection: hasReFlyTreeOffset))
+                        suppressAnchorCorrection: false))
                 {
                     interpolatedPos = primaryWorld + coBubbleOffset;
                     coBubbleHit = true;
@@ -17433,29 +16842,8 @@ namespace Parsek
                 }
             }
 
-            // Apply AFTER the Phase 5 co-bubble override so the override
-            // does not discard the offset — the engine reads ghost.transform
-            // immediately after positioning for ApplyFrameVisuals,
-            // TrackGhostAppearance, explosion anchors, and distance
-            // diagnostics; without this ordering co-bubble frames would use
-            // the unanchored position during Update and only re-apply the
-            // offset in LateUpdate.
-            if (hasReFlyTreeOffset)
-                interpolatedPos += reFlyTreeOffset;
-
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
-            bool reFlyGhostPartPinApplied = TryApplyInitialReFlyGhostPartPin(
-                recordingId,
-                targetUT,
-                ghost,
-                bodyBefore,
-                ref reFlyTreeOffset,
-                ref hasReFlyTreeOffset,
-                out Vector3d reFlyGhostPartPinDelta,
-                out string reFlyGhostPartPinReason);
-            if (reFlyGhostPartPinApplied)
-                interpolatedPos += reFlyGhostPartPinDelta;
 
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
@@ -17482,14 +16870,7 @@ namespace Parsek
                     + " hermiteMaxDeviationMeters=" + hermiteMaxDeviationMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " interpMode=" + (splineApplied ? "Spline" : hermiteApplied ? "Hermite" : "Lerp")
                     + " splineHit=" + (splineApplied ? "true" : "false")
-                    + " splineSuppressedForReFly=" + (hasReFlyTreeOffset ? "true" : "false")
                     + " splineReason=" + (splineReason ?? "<none>")
-                    + " reFlyTrendHit=" + (reFlyPointTrendApplied ? "true" : "false")
-                    + " reFlyTrendReason=" + (reFlyPointTrendReason ?? "<none>")
-                    + " reFlyTrendSamples=" + reFlyPointTrendSamples.ToString(CultureInfo.InvariantCulture)
-                    + " reFlyTrendCorrection=" + GhostRenderTrace.FormatVector3d(reFlyPointTrendApplied ? reFlyPointTrendCorrection : Vector3d.zero)
-                    + " reFlyTrendCorrectionMeters=" + (reFlyPointTrendApplied ? reFlyPointTrendCorrection.magnitude : 0.0).ToString("F2", CultureInfo.InvariantCulture)
-                    + " reFlyTrendResidualMaxMeters=" + reFlyPointTrendMaxResidualMeters.ToString("F2", CultureInfo.InvariantCulture)
                     + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
                     + " anchorCorrectionReason=" + anchorCorrectionReason
                     + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
@@ -17497,14 +16878,8 @@ namespace Parsek
                     + " coBubblePrimary=" + (coBubblePrimaryId ?? "<none>")
                     + " coBubbleOffset=" + GhostRenderTrace.FormatVector3d(coBubbleHit ? coBubbleOffset : Vector3d.zero)
                     + " coBubbleReason=" + coBubbleReason
-                    + " reFlyHit=" + (hasReFlyTreeOffset ? "true" : "false")
-                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero)
-                    + " reFlyGhostPartPinHit=" + (reFlyGhostPartPinApplied ? "true" : "false")
-                    + " reFlyGhostPartPinReason=" + (reFlyGhostPartPinReason ?? "<none>")
-                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(reFlyGhostPartPinApplied ? reFlyGhostPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(interpolatedPos)
-                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
-                    + BuildGhostRenderTraceLiveRootComparison(recordingId, interpolatedPos));
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift.
@@ -17547,8 +16922,6 @@ namespace Parsek
                     coBubblePeerRecordingId = recordingId,
                     coBubblePrimaryRecordingId = coBubblePrimaryId,
                     coBubblePointUT = targetUT,
-                    reFlyTreeOffset = hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero,
-                    hasReFlyTreeOffset = hasReFlyTreeOffset,
                 });
             }
             else
@@ -17570,12 +16943,6 @@ namespace Parsek
                     velocityAfter = after.velocity,
                     anchorRecordingId = hasLookupKey ? recordingId : null,
                     anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
-                    reFlyTreeOffset = hasReFlyTreeOffset ? reFlyTreeOffset : Vector3d.zero,
-                    hasReFlyTreeOffset = hasReFlyTreeOffset,
-                    hasReFlyPointTrendCorrection = reFlyPointTrendApplied,
-                    reFlyPointTrendBodyFixedCorrection = reFlyPointTrendApplied
-                        ? reFlyPointTrendBodyFixedCorrection
-                        : Vector3d.zero,
                 });
             }
 
@@ -17597,510 +16964,6 @@ namespace Parsek
             if (scaled > PointHermiteMaxDeviationCapMeters)
                 return PointHermiteMaxDeviationCapMeters;
             return scaled;
-        }
-
-        private static int FindPointBracketIndex(
-            List<TrajectoryPoint> points,
-            TrajectoryPoint before,
-            TrajectoryPoint after,
-            int cachedIndex)
-        {
-            if (points == null || points.Count < 2)
-                return -1;
-            if (cachedIndex >= 0
-                && cachedIndex < points.Count - 1
-                && points[cachedIndex].ut == before.ut
-                && points[cachedIndex + 1].ut == after.ut)
-            {
-                return cachedIndex;
-            }
-
-            for (int i = 0; i < points.Count - 1; i++)
-            {
-                if (points[i].ut == before.ut && points[i + 1].ut == after.ut)
-                    return i;
-            }
-
-            return -1;
-        }
-
-        private bool TryComputeReFlyPointTrendWorld(
-            List<TrajectoryPoint> points,
-            int bracketIndex,
-            double targetUT,
-            CelestialBody body,
-            string recordingId,
-            Vector3d rawWorld,
-            out Vector3d trendWorld,
-            out Vector3d correction,
-            out int sampleCount,
-            out double maxResidualMeters,
-            out string reason)
-        {
-            trendWorld = Vector3d.zero;
-            correction = Vector3d.zero;
-            sampleCount = 0;
-            maxResidualMeters = double.NaN;
-            reason = "not-evaluated";
-
-            if (points == null || points.Count < ReFlyPointTrendMinSamples)
-            {
-                reason = "too-few-points";
-                return false;
-            }
-            if (bracketIndex < 0 || bracketIndex >= points.Count - 1)
-            {
-                reason = "bracket-missing";
-                return false;
-            }
-            if (body == null || body.bodyTransform == null)
-            {
-                reason = "body-missing";
-                return false;
-            }
-            if (!IsFiniteVector3d(rawWorld))
-            {
-                reason = "raw-world-non-finite";
-                return false;
-            }
-
-            int start = Math.Max(0, bracketIndex - ReFlyPointTrendHalfWindowSamples);
-            int end = Math.Min(points.Count - 1, bracketIndex + 1 + ReFlyPointTrendHalfWindowSamples);
-            while (end - start + 1 < ReFlyPointTrendMinSamples && start > 0)
-                start--;
-            while (end - start + 1 < ReFlyPointTrendMinSamples && end < points.Count - 1)
-                end++;
-            if (end - start + 1 < ReFlyPointTrendMinSamples)
-            {
-                reason = "window-too-small";
-                return false;
-            }
-
-            var samples = new List<ReFlyPointTrendSample>(end - start + 1);
-            string bodyName = body.name;
-            double previousUT = double.NegativeInfinity;
-            for (int i = start; i <= end; i++)
-            {
-                TrajectoryPoint point = points[i];
-                if (point.ut <= previousUT)
-                {
-                    reason = "non-monotonic-ut";
-                    return false;
-                }
-                previousUT = point.ut;
-
-                if (!string.Equals(point.bodyName, bodyName, StringComparison.Ordinal))
-                {
-                    reason = "body-mismatch";
-                    return false;
-                }
-
-                double effectiveAlt = ResolveEffectiveAltitudeWithTailLift(
-                    body,
-                    point.latitude,
-                    point.longitude,
-                    point.altitude,
-                    point.recordedGroundClearance,
-                    ReferenceFrame.Absolute,
-                    point.ut,
-                    recordingId);
-                Vector3d world = body.GetWorldSurfacePosition(
-                    point.latitude,
-                    point.longitude,
-                    effectiveAlt);
-                if (!IsFiniteVector3d(world))
-                {
-                    reason = "sample-world-non-finite";
-                    return false;
-                }
-
-                samples.Add(new ReFlyPointTrendSample
-                {
-                    UT = point.ut,
-                    World = world,
-                });
-            }
-
-            sampleCount = samples.Count;
-            return TryFitReFlyPointTrend(
-                samples,
-                targetUT,
-                rawWorld,
-                ReFlyPointTrendMaxCorrectionMeters,
-                ReFlyPointTrendMaxResidualMeters,
-                out trendWorld,
-                out correction,
-                out maxResidualMeters,
-                out reason);
-        }
-
-        internal static bool TryFitReFlyPointTrend(
-            IList<ReFlyPointTrendSample> samples,
-            double targetUT,
-            Vector3d rawWorld,
-            double maxCorrectionMeters,
-            double maxResidualMetersAllowed,
-            out Vector3d trendWorld,
-            out Vector3d correction,
-            out double maxResidualMeters,
-            out string reason)
-        {
-            trendWorld = Vector3d.zero;
-            correction = Vector3d.zero;
-            maxResidualMeters = double.NaN;
-            reason = null;
-
-            if (samples == null || samples.Count < ReFlyPointTrendMinSamples)
-            {
-                reason = "too-few-samples";
-                return false;
-            }
-            if (double.IsNaN(targetUT) || double.IsInfinity(targetUT))
-            {
-                reason = "target-ut-invalid";
-                return false;
-            }
-            if (!IsFiniteVector3d(rawWorld))
-            {
-                reason = "raw-world-non-finite";
-                return false;
-            }
-
-            double sumT = 0.0;
-            double sumTT = 0.0;
-            double sumX = 0.0;
-            double sumY = 0.0;
-            double sumZ = 0.0;
-            double sumTX = 0.0;
-            double sumTY = 0.0;
-            double sumTZ = 0.0;
-            double previousUT = double.NegativeInfinity;
-            for (int i = 0; i < samples.Count; i++)
-            {
-                ReFlyPointTrendSample sample = samples[i];
-                if (sample.UT <= previousUT)
-                {
-                    reason = "non-monotonic-ut";
-                    return false;
-                }
-                previousUT = sample.UT;
-                if (!IsFiniteVector3d(sample.World))
-                {
-                    reason = "sample-world-non-finite";
-                    return false;
-                }
-
-                double dt = sample.UT - targetUT;
-                sumT += dt;
-                sumTT += dt * dt;
-                sumX += sample.World.x;
-                sumY += sample.World.y;
-                sumZ += sample.World.z;
-                sumTX += dt * sample.World.x;
-                sumTY += dt * sample.World.y;
-                sumTZ += dt * sample.World.z;
-            }
-
-            double count = samples.Count;
-            double denom = count * sumTT - sumT * sumT;
-            if (Math.Abs(denom) <= 1e-9)
-            {
-                reason = "degenerate-window";
-                return false;
-            }
-
-            double slopeX = (count * sumTX - sumT * sumX) / denom;
-            double slopeY = (count * sumTY - sumT * sumY) / denom;
-            double slopeZ = (count * sumTZ - sumT * sumZ) / denom;
-            double interceptX = (sumX - slopeX * sumT) / count;
-            double interceptY = (sumY - slopeY * sumT) / count;
-            double interceptZ = (sumZ - slopeZ * sumT) / count;
-            trendWorld = new Vector3d(interceptX, interceptY, interceptZ);
-            correction = trendWorld - rawWorld;
-            if (!IsFiniteVector3d(trendWorld) || !IsFiniteVector3d(correction))
-            {
-                reason = "trend-non-finite";
-                return false;
-            }
-
-            double correctionMeters = correction.magnitude;
-            if (double.IsNaN(correctionMeters) || double.IsInfinity(correctionMeters))
-            {
-                reason = "correction-non-finite";
-                return false;
-            }
-            if (correctionMeters > maxCorrectionMeters)
-            {
-                reason = "correction-too-large";
-                return false;
-            }
-
-            maxResidualMeters = 0.0;
-            for (int i = 0; i < samples.Count; i++)
-            {
-                double dt = samples[i].UT - targetUT;
-                Vector3d predicted = new Vector3d(
-                    interceptX + slopeX * dt,
-                    interceptY + slopeY * dt,
-                    interceptZ + slopeZ * dt);
-                double residual = (samples[i].World - predicted).magnitude;
-                if (double.IsNaN(residual) || double.IsInfinity(residual))
-                {
-                    reason = "residual-non-finite";
-                    return false;
-                }
-                if (residual > maxResidualMeters)
-                    maxResidualMeters = residual;
-            }
-
-            if (maxResidualMeters > maxResidualMetersAllowed)
-            {
-                if (TryFitReFlyPointTrendQuadratic(
-                        samples,
-                        targetUT,
-                        rawWorld,
-                        maxCorrectionMeters,
-                        maxResidualMetersAllowed,
-                        out Vector3d quadraticTrendWorld,
-                        out Vector3d quadraticCorrection,
-                        out double quadraticMaxResidualMeters,
-                        out _))
-                {
-                    trendWorld = quadraticTrendWorld;
-                    correction = quadraticCorrection;
-                    maxResidualMeters = quadraticMaxResidualMeters;
-                    reason = "applied-quadratic";
-                    return true;
-                }
-
-                reason = "residual-too-large";
-                return false;
-            }
-
-            reason = "applied";
-            return true;
-        }
-
-        internal static bool TryFitReFlyPointTrendQuadratic(
-            IList<ReFlyPointTrendSample> samples,
-            double targetUT,
-            Vector3d rawWorld,
-            double maxCorrectionMeters,
-            double maxResidualMetersAllowed,
-            out Vector3d trendWorld,
-            out Vector3d correction,
-            out double maxResidualMeters,
-            out string reason)
-        {
-            trendWorld = Vector3d.zero;
-            correction = Vector3d.zero;
-            maxResidualMeters = double.NaN;
-            reason = null;
-
-            if (samples == null || samples.Count < ReFlyPointTrendMinSamples)
-            {
-                reason = "too-few-samples";
-                return false;
-            }
-            if (double.IsNaN(targetUT) || double.IsInfinity(targetUT))
-            {
-                reason = "target-ut-invalid";
-                return false;
-            }
-            if (!IsFiniteVector3d(rawWorld))
-            {
-                reason = "raw-world-non-finite";
-                return false;
-            }
-
-            double sumT = 0.0;
-            double sumTT = 0.0;
-            double sumTTT = 0.0;
-            double sumTTTT = 0.0;
-            double sumX = 0.0;
-            double sumY = 0.0;
-            double sumZ = 0.0;
-            double sumTX = 0.0;
-            double sumTY = 0.0;
-            double sumTZ = 0.0;
-            double sumTTX = 0.0;
-            double sumTTY = 0.0;
-            double sumTTZ = 0.0;
-            double previousUT = double.NegativeInfinity;
-            for (int i = 0; i < samples.Count; i++)
-            {
-                ReFlyPointTrendSample sample = samples[i];
-                if (sample.UT <= previousUT)
-                {
-                    reason = "non-monotonic-ut";
-                    return false;
-                }
-                previousUT = sample.UT;
-                if (!IsFiniteVector3d(sample.World))
-                {
-                    reason = "sample-world-non-finite";
-                    return false;
-                }
-
-                double dt = sample.UT - targetUT;
-                double dt2 = dt * dt;
-                double dt3 = dt2 * dt;
-                double dt4 = dt2 * dt2;
-                sumT += dt;
-                sumTT += dt2;
-                sumTTT += dt3;
-                sumTTTT += dt4;
-                sumX += sample.World.x;
-                sumY += sample.World.y;
-                sumZ += sample.World.z;
-                sumTX += dt * sample.World.x;
-                sumTY += dt * sample.World.y;
-                sumTZ += dt * sample.World.z;
-                sumTTX += dt2 * sample.World.x;
-                sumTTY += dt2 * sample.World.y;
-                sumTTZ += dt2 * sample.World.z;
-            }
-
-            double count = samples.Count;
-            if (!TrySolveReFlyPointTrendQuadraticAxis(
-                    count, sumT, sumTT, sumTTT, sumTTTT,
-                    sumX, sumTX, sumTTX,
-                    out double interceptX, out double slopeX, out double curvatureX)
-                || !TrySolveReFlyPointTrendQuadraticAxis(
-                    count, sumT, sumTT, sumTTT, sumTTTT,
-                    sumY, sumTY, sumTTY,
-                    out double interceptY, out double slopeY, out double curvatureY)
-                || !TrySolveReFlyPointTrendQuadraticAxis(
-                    count, sumT, sumTT, sumTTT, sumTTTT,
-                    sumZ, sumTZ, sumTTZ,
-                    out double interceptZ, out double slopeZ, out double curvatureZ))
-            {
-                reason = "quadratic-degenerate-window";
-                return false;
-            }
-
-            trendWorld = new Vector3d(interceptX, interceptY, interceptZ);
-            correction = trendWorld - rawWorld;
-            if (!IsFiniteVector3d(trendWorld) || !IsFiniteVector3d(correction))
-            {
-                reason = "trend-non-finite";
-                return false;
-            }
-
-            double correctionMeters = correction.magnitude;
-            if (double.IsNaN(correctionMeters) || double.IsInfinity(correctionMeters))
-            {
-                reason = "correction-non-finite";
-                return false;
-            }
-            if (correctionMeters > maxCorrectionMeters)
-            {
-                reason = "correction-too-large";
-                return false;
-            }
-
-            maxResidualMeters = 0.0;
-            for (int i = 0; i < samples.Count; i++)
-            {
-                double dt = samples[i].UT - targetUT;
-                double dt2 = dt * dt;
-                Vector3d predicted = new Vector3d(
-                    interceptX + slopeX * dt + curvatureX * dt2,
-                    interceptY + slopeY * dt + curvatureY * dt2,
-                    interceptZ + slopeZ * dt + curvatureZ * dt2);
-                double residual = (samples[i].World - predicted).magnitude;
-                if (double.IsNaN(residual) || double.IsInfinity(residual))
-                {
-                    reason = "residual-non-finite";
-                    return false;
-                }
-                if (residual > maxResidualMeters)
-                    maxResidualMeters = residual;
-            }
-
-            if (maxResidualMeters > maxResidualMetersAllowed)
-            {
-                reason = "residual-too-large";
-                return false;
-            }
-
-            reason = "applied";
-            return true;
-        }
-
-        private static bool TrySolveReFlyPointTrendQuadraticAxis(
-            double sum0,
-            double sumT,
-            double sumTT,
-            double sumTTT,
-            double sumTTTT,
-            double sumV,
-            double sumTV,
-            double sumTTV,
-            out double intercept,
-            out double slope,
-            out double curvature)
-        {
-            intercept = 0.0;
-            slope = 0.0;
-            curvature = 0.0;
-
-            double determinant = Determinant3x3(
-                sum0, sumT, sumTT,
-                sumT, sumTT, sumTTT,
-                sumTT, sumTTT, sumTTTT);
-            if (Math.Abs(determinant) <= ReFlyPointTrendQuadraticDeterminantEpsilon)
-                return false;
-
-            intercept = Determinant3x3(
-                sumV, sumT, sumTT,
-                sumTV, sumTT, sumTTT,
-                sumTTV, sumTTT, sumTTTT) / determinant;
-            slope = Determinant3x3(
-                sum0, sumV, sumTT,
-                sumT, sumTV, sumTTT,
-                sumTT, sumTTV, sumTTTT) / determinant;
-            curvature = Determinant3x3(
-                sum0, sumT, sumV,
-                sumT, sumTT, sumTV,
-                sumTT, sumTTT, sumTTV) / determinant;
-
-            return !(double.IsNaN(intercept) || double.IsInfinity(intercept)
-                || double.IsNaN(slope) || double.IsInfinity(slope)
-                || double.IsNaN(curvature) || double.IsInfinity(curvature));
-        }
-
-        private static double Determinant3x3(
-            double a00, double a01, double a02,
-            double a10, double a11, double a12,
-            double a20, double a21, double a22)
-        {
-            return a00 * (a11 * a22 - a12 * a21)
-                - a01 * (a10 * a22 - a12 * a20)
-                + a02 * (a10 * a21 - a11 * a20);
-        }
-
-        private static Vector3d CaptureBodyFixedReFlyVector(
-            Quaternion bodyWorldRotation,
-            Vector3d worldVector)
-        {
-            Vector3 local = TrajectoryMath.PureRotateVector(
-                TrajectoryMath.PureInverse(TrajectoryMath.PureNormalize(bodyWorldRotation)),
-                (Vector3)worldVector);
-            return new Vector3d(local.x, local.y, local.z);
-        }
-
-        private static Vector3d ProjectBodyFixedReFlyVector(
-            Quaternion bodyWorldRotation,
-            Vector3d bodyFixedVector)
-        {
-            Vector3 projected = TrajectoryMath.PureRotateVector(
-                TrajectoryMath.PureNormalize(bodyWorldRotation),
-                new Vector3(
-                    (float)bodyFixedVector.x,
-                    (float)bodyFixedVector.y,
-                    (float)bodyFixedVector.z));
-            return new Vector3d(projected.x, projected.y, projected.z);
         }
 
         /// <summary>
@@ -18238,23 +17101,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Render-path anchor-correction gate. Active Re-Fly tree display
-        /// alignment is already the render-space translation for same-tree
-        /// ghosts, so applying the older anchor-correction epsilon on top of
-        /// it double-translates the ghost away from its hidden recorded path.
+        /// Render-path anchor-correction gate.
         /// </summary>
         internal static bool allowRenderAnchorCorrectionInterval(
             string recordingId,
             int sectionIndex,
             double targetUT,
-            bool hasReFlyTreeOffset,
+            bool suppressAnchorCorrection,
             out Vector3d epsilon,
             out string reason)
         {
             epsilon = default(Vector3d);
-            if (hasReFlyTreeOffset)
+            if (suppressAnchorCorrection)
             {
-                reason = "refly-display-offset-active";
+                reason = "suppressed";
                 return false;
             }
 
@@ -18291,7 +17151,7 @@ namespace Parsek
         internal static bool allowRenderCoBubbleBlend(
             string recordingId,
             double targetUT,
-            bool hasReFlyTreeOffset,
+            bool suppressBlend,
             out Vector3d worldOffset,
             out string primaryRecordingId,
             out Parsek.Rendering.CoBubbleBlendStatus status,
@@ -18300,9 +17160,9 @@ namespace Parsek
             worldOffset = Vector3d.zero;
             primaryRecordingId = null;
             status = default(Parsek.Rendering.CoBubbleBlendStatus);
-            if (hasReFlyTreeOffset)
+            if (suppressBlend)
             {
-                reason = "refly-display-offset-active";
+                reason = "suppressed";
                 return false;
             }
 
@@ -18317,7 +17177,7 @@ namespace Parsek
         }
 
         internal static bool allowPointHermiteInterpolation(
-            bool hasReFlyTreeOffset,
+            bool suppressHermite,
             bool splineApplied,
             bool allowNormalPlaybackHermite,
             out string reason)
@@ -18328,9 +17188,9 @@ namespace Parsek
                 return false;
             }
 
-            if (hasReFlyTreeOffset)
+            if (suppressHermite)
             {
-                reason = "refly-display-offset-linearized";
+                reason = "suppressed";
                 return false;
             }
 
@@ -18345,13 +17205,13 @@ namespace Parsek
         }
 
         internal static bool allowSplinePositioningForPlayback(
-            bool hasReFlyTreeOffset,
+            bool suppressSpline,
             bool allowNormalPlaybackSplinePositioning,
             out string reason)
         {
-            if (hasReFlyTreeOffset)
+            if (suppressSpline)
             {
-                reason = "refly-display-offset-linearized";
+                reason = "suppressed";
                 return false;
             }
 
@@ -18363,13 +17223,6 @@ namespace Parsek
 
             reason = "eligible";
             return true;
-        }
-
-        internal static bool ShouldAllowReFlyPointTrend(SegmentEnvironment environment)
-        {
-            return environment == SegmentEnvironment.Atmospheric
-                || environment == SegmentEnvironment.ExoPropulsive
-                || environment == SegmentEnvironment.ExoBallistic;
         }
 
         /// <summary>
@@ -18497,7 +17350,7 @@ namespace Parsek
             // through the Phase 5 blender — primaries always render
             // standalone, design doc §6.5).
             if (allowSplinePositioningForPlayback(
-                    hasReFlyTreeOffset: suppressAnchorCorrection,
+                    suppressSpline: suppressAnchorCorrection,
                     allowNormalPlaybackSplinePositioning: NormalPlaybackSplinePositioningEnabled,
                     out _)
                 && allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
@@ -18552,11 +17405,10 @@ namespace Parsek
                 ParsekLog.WarnRateLimited("Pipeline-CoBubble",
                     "standalone-relative-no-anchor-recording-id|" + (rec.RecordingId ?? "(none)"),
                     string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneRelativeWorldPosition: reason={0} recording={1} ut={2} legacyAnchorPid={3}",
+                        "TryComputeStandaloneRelativeWorldPosition: reason={0} recording={1} ut={2}",
                         reason,
                         rec.RecordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        section.anchorVesselId),
+                        ut.ToString("R", CultureInfo.InvariantCulture)),
                     5.0);
                 if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
                     return true;
@@ -18855,7 +17707,7 @@ namespace Parsek
         private bool TryComputeLateUpdateSplineWorldPosition(in GhostPosEntry e, out Vector3d worldPos)
         {
             if (!allowSplinePositioningForPlayback(
-                    e.hasReFlyTreeOffset,
+                    false,
                     allowNormalPlaybackSplinePositioning: NormalPlaybackSplinePositioningEnabled,
                     out _))
             {
@@ -19036,26 +17888,8 @@ namespace Parsek
 
             Quaternion sanitized = TrajectoryMath.SanitizeQuaternion(point.rotation);
 
-            // Re-Fly tree display alignment: when this ghost belongs to
-            // the active Re-Fly tree, translate by the frozen body-fixed
-            // offset. The same offset feeds the LateUpdate SinglePoint
-            // branch via GhostPosEntry.reFlyTreeOffset so FloatingOrigin
-            // re-pos preserves the alignment.
-            Vector3d singlePointReFlyTreeOffset = Vector3d.zero;
-            bool hasSinglePointReFlyTreeOffset = false;
-            if (!string.IsNullOrEmpty(recordingId))
-                hasSinglePointReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(recordingId, point.ut, out singlePointReFlyTreeOffset);
-            ghost.transform.position = worldPos + singlePointReFlyTreeOffset;
+            ghost.transform.position = worldPos;
             ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
-            bool singlePointPartPinApplied = TryApplyInitialReFlyGhostPartPin(
-                recordingId,
-                point.ut,
-                ghost,
-                body,
-                ref singlePointReFlyTreeOffset,
-                ref hasSinglePointReFlyTreeOffset,
-                out Vector3d singlePointPartPinDelta,
-                out string singlePointPartPinReason);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
             {
@@ -19071,13 +17905,8 @@ namespace Parsek
                     + " alt=" + effectiveAltitude.ToString("F2", CultureInfo.InvariantCulture)
                     + " altitudeAuthoritative=" + (altitudeAuthoritative ? "true" : "false")
                     + " rawWorld=" + GhostRenderTrace.FormatVector3d(worldPos)
-                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(singlePointReFlyTreeOffset)
-                    + " reFlyGhostPartPinHit=" + (singlePointPartPinApplied ? "true" : "false")
-                    + " reFlyGhostPartPinReason=" + (singlePointPartPinReason ?? "<none>")
-                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(singlePointPartPinApplied ? singlePointPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
-                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
-                    + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
@@ -19090,8 +17919,6 @@ namespace Parsek
                 latBefore = point.latitude, lonBefore = point.longitude, altBefore = effectiveAltitude,
                 pointUT = point.ut,
                 interpolatedRot = sanitized,
-                reFlyTreeOffset = singlePointReFlyTreeOffset,
-                hasReFlyTreeOffset = hasSinglePointReFlyTreeOffset,
             });
         }
 
@@ -19542,15 +18369,7 @@ namespace Parsek
                 orbitTerrainClamped = true;
             }
 
-            // Re-Fly tree display alignment: orbit-driven ghosts in the
-            // active Re-Fly tree are translated by the frozen body-fixed
-            // offset. LateUpdate Orbit branch reads the same offset via
-            // GhostPosEntry.reFlyTreeOffset.
-            Vector3d orbitReFlyTreeOffset = Vector3d.zero;
-            bool hasOrbitReFlyTreeOffset = false;
-            if (!string.IsNullOrEmpty(recordingId))
-                hasOrbitReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(recordingId, ut, out orbitReFlyTreeOffset);
-            ghost.transform.position = worldPos + orbitReFlyTreeOffset;
+            ghost.transform.position = worldPos;
 
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
 
@@ -19563,15 +18382,6 @@ namespace Parsek
                 ghost.transform.rotation, cacheKey, hasOfr, spinning);
 
             ghost.transform.rotation = ghostRot;
-            bool orbitPartPinApplied = TryApplyInitialReFlyGhostPartPin(
-                recordingId,
-                ut,
-                ghost,
-                body,
-                ref orbitReFlyTreeOffset,
-                ref hasOrbitReFlyTreeOffset,
-                out Vector3d orbitPartPinDelta,
-                out string orbitPartPinReason);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : ut;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
             {
@@ -19595,14 +18405,9 @@ namespace Parsek
                     + " continuityOffset=" + GhostRenderTrace.FormatVector3d(orbitContinuityOffset)
                     + " terrainClamp=" + (orbitTerrainClamped ? "true" : "false")
                     + " orbitAlt=" + orbitAlt.ToString("F2", CultureInfo.InvariantCulture)
-                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(orbitReFlyTreeOffset)
-                    + " reFlyGhostPartPinHit=" + (orbitPartPinApplied ? "true" : "false")
-                    + " reFlyGhostPartPinReason=" + (orbitPartPinReason ?? "<none>")
-                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(orbitPartPinApplied ? orbitPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
-                    + " rotationMode=" + (spinning ? "spin-forward" : hasOfr ? "orbital-frame" : "prograde")
-                    + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
+                    + " rotationMode=" + (spinning ? "spin-forward" : hasOfr ? "orbital-frame" : "prograde"));
             }
 
             // First-activation logging (once per segment)
@@ -19636,8 +18441,6 @@ namespace Parsek
                 hasOrbitContinuityOffset = hasOrbitContinuityOffset,
                 orbitContinuityAnchorUT = orbitContinuityAnchorUT,
                 orbitContinuityBlendSeconds = orbitContinuityBlendSeconds,
-                reFlyTreeOffset = orbitReFlyTreeOffset,
-                hasReFlyTreeOffset = hasOrbitReFlyTreeOffset,
             });
         }
 
@@ -20009,31 +18812,8 @@ namespace Parsek
                 ghost.SetActive(false);
                 return;
             }
-            // Re-Fly tree display alignment: translate landed/splashed
-            // ghosts in the active Re-Fly tree by the frozen body-fixed
-            // offset. Surface mode shares the offset with PositionGhostAt
-            // — same intent, different entry mode. LateUpdate Surface
-            // branch reads the same
-            // GhostPosEntry.reFlyTreeOffset.
-            Vector3d surfReFlyTreeOffset = Vector3d.zero;
-            bool hasSurfReFlyTreeOffset = false;
-            if (!string.IsNullOrEmpty(recordingId))
-            {
-                double offsetUT = double.IsNaN(pointUT) ? Planetarium.GetUniversalTime() : pointUT;
-                hasSurfReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(recordingId, offsetUT, out surfReFlyTreeOffset);
-            }
-            ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude)
-                + surfReFlyTreeOffset;
+            ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude);
             ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
-            bool surfPartPinApplied = TryApplyInitialReFlyGhostPartPin(
-                recordingId,
-                double.IsNaN(pointUT) ? Planetarium.GetUniversalTime() : pointUT,
-                ghost,
-                body,
-                ref surfReFlyTreeOffset,
-                ref hasSurfReFlyTreeOffset,
-                out Vector3d surfPartPinDelta,
-                out string surfPartPinReason);
             double tracePlaybackUT = double.IsNaN(pointUT) && Planetarium.fetch != null
                 ? Planetarium.GetUniversalTime()
                 : pointUT;
@@ -20050,13 +18830,8 @@ namespace Parsek
                     + " lat=" + surfPos.latitude.ToString("F6", CultureInfo.InvariantCulture)
                     + " lon=" + surfPos.longitude.ToString("F6", CultureInfo.InvariantCulture)
                     + " alt=" + surfPos.altitude.ToString("F2", CultureInfo.InvariantCulture)
-                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(surfReFlyTreeOffset)
-                    + " reFlyGhostPartPinHit=" + (surfPartPinApplied ? "true" : "false")
-                    + " reFlyGhostPartPinReason=" + (surfPartPinReason ?? "<none>")
-                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(surfPartPinApplied ? surfPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
-                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
-                    + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
             if (allowActivation)
                 ghost.SetActive(true);
@@ -20070,8 +18845,6 @@ namespace Parsek
                 bodyBefore = body,
                 latBefore = surfPos.latitude, lonBefore = surfPos.longitude, altBefore = surfPos.altitude,
                 surfaceRot = surfPos.rotation,
-                reFlyTreeOffset = surfReFlyTreeOffset,
-                hasReFlyTreeOffset = hasSurfReFlyTreeOffset,
             });
 
             ParsekLog.VerboseRateLimited("Flight", "surface-ghost-positioned",
@@ -20096,2410 +18869,13 @@ namespace Parsek
         private readonly HashSet<string> unknownFrameTagWarned =
             new HashSet<string>(StringComparer.Ordinal);
 
-        // ===== Re-Fly recording anchor =====
+        // ===== Recorded-coordinate playback helpers =====
         //
-        // During an active Re-Fly, same-tree ghosts are display-aligned
-        // ONCE per recording when that recording first becomes renderable
-        // in the session. The live vessel/root part supplies only the
-        // initial placement:
-        //
-        //     initialDelta = live_active_anchor_world(t0)
-        //                  - recorded_active_world(t0)
-        //
-        // That delta is stored in the body's rotating frame and reprojected
-        // each frame:
-        //
-        //     ghost_world(t) = recorded_ghost_world(t)
-        //                    + body_rotation(t) * initialDelta_body_fixed
-        //
-        // The live vessel is not sampled again for that recording after
-        // capture. This keeps Re-Fly comparison ghosts initialized near the
-        // separation/root part without injecting the player's later live
-        // vessel motion into the hidden recorded trajectory. On the first
-        // visible ghost frame we may add one more frozen body-fixed delta
-        // so the visible ghost part with the selected decoupler/root PID is
-        // exactly over the live selected root part at t0.
-        internal const double ReFlyDisplayAlignmentSuspiciousOffsetMeters = 50.0;
-        internal const double ReFlyGhostPartPinSuspiciousOffsetMeters = 50.0;
-        internal const double ReFlyGhostPartPinMaxOffsetMeters = 2000.0;
-        internal const double ReFlyRecordedDebobWindowSeconds = 0.75;
-        internal const double ReFlyRecordedDebobMaxCorrectionMeters = 250.0;
-        internal const int ReFlyPointTrendHalfWindowSamples = 2;
-        internal const int ReFlyPointTrendMinSamples = 4;
-        internal const double ReFlyPointTrendMaxCorrectionMeters = 250.0;
-        internal const double ReFlyPointTrendMaxResidualMeters = 50.0;
-        private const double ReFlyPointTrendQuadraticDeterminantEpsilon = 1e-12;
         private const double PointHermiteMaxDeviationCapMeters = 250.0;
         private const double PointHermiteMinDeviationMeters = 10.0;
         private const double PointHermiteDeviationFraction = 0.05;
         private const bool NormalPlaybackSplinePositioningEnabled = false;
         private const bool NormalPlaybackPointHermiteEnabled = false;
-        private ReFlyDisplayAlignmentCache reFlyDisplayAlignmentCache;
-        private string reFlyDebobSampleScopeKey;
-        private string reFlyDebobSampleRecordingId;
-        private int reFlyDebobSampleStoreVersion;
-        private RecordingTree reFlyDebobSamplePendingTree;
-        private List<TrackSection> reFlyDebobSampleSections;
-
-        internal struct ReFlyRecordedAnchorSampleDiagnostics
-        {
-            public int SectionIndex;
-            public ReferenceFrame SectionFrame;
-            public TrackSectionSource SectionSource;
-            public string FrameSource;
-            public double SectionStartUT;
-            public double SectionEndUT;
-            public int FrameCount;
-            public double BeforeUT;
-            public double AfterUT;
-            public float InterpolationT;
-            public bool ClampedToEndpoint;
-            public string BodyBeforeName;
-            public string BodyAfterName;
-            public Vector3 RecordedVelocity;
-        }
-
-        internal struct ReFlyRecordedDebobDiagnostics
-        {
-            public bool Applied;
-            public string Reason;
-            public double WindowSeconds;
-            public double BeforeUT;
-            public double AfterUT;
-            public Vector3d RawWorld;
-            public Vector3d BaselineWorld;
-            public Vector3d Correction;
-            public double CorrectionMeters;
-            public bool ReferenceInitialized;
-            public string BeforeBody;
-            public string CurrentBody;
-            public string AfterBody;
-        }
-
-        internal struct ReFlyPointTrendSample
-        {
-            public double UT;
-            public Vector3d World;
-        }
-
-        /// <summary>
-        /// Returns the frozen body-fixed display delta to apply to a ghost's
-        /// rendered position when the ghost belongs to a tree whose Re-Fly
-        /// session is active. The first successful call per
-        /// <c>(sessionId, recordingId)</c> captures the selected live Re-Fly
-        /// anchor against the hidden recorded active trajectory at
-        /// <paramref name="currentUT"/>. Later calls only reproject that
-        /// frozen body-fixed offset; they do not resample the live vessel.
-        /// </summary>
-        internal bool TryGetReFlyTreeAnchorOffset(
-            string recordingId, double currentUT, out Vector3d delta)
-        {
-            return TryGetReFlyTreeAnchorOffsetUncached(
-                recordingId,
-                currentUT,
-                allowCapture: true,
-                out delta);
-        }
-
-        /// <summary>
-        /// Projection-only read for distance/LOD paths. Returns a frozen
-        /// display alignment that was already captured by a render/admission
-        /// path, but never samples the live vessel and never stores a new
-        /// alignment.
-        /// </summary>
-        internal bool TryProjectExistingReFlyTreeAnchorOffset(
-            string recordingId, double currentUT, out Vector3d delta)
-        {
-            return TryGetReFlyTreeAnchorOffsetUncached(
-                recordingId,
-                currentUT,
-                allowCapture: false,
-                out delta);
-        }
-
-        /// <summary>
-        /// Historical entry point for recorder-side frame normalization.
-        /// The Re-Fly display offset is render-only: it shifts old ghosts so
-        /// they visually line up with the live attempt, but the live vessel
-        /// samples are already authored in KSP world/body coordinates. Do not
-        /// subtract this display offset from persisted trajectory samples.
-        /// </summary>
-        internal bool TryGetReFlyRecordingFrameOffset(
-            string recordingId,
-            double currentUT,
-            out Vector3d delta,
-            out string reason)
-        {
-            delta = Vector3d.zero;
-            reason = null;
-
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            string recordingTreeId = ResolveTreeIdForRecording(recordingId);
-            Recording activeReFlyRecording = marker != null
-                ? FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId)
-                : null;
-
-            if (!ShouldCanonicalizeReFlyRecordingFrame(
-                    recordingId,
-                    recordingTreeId,
-                    marker,
-                    activeReFlyRecording,
-                    currentUT,
-                    out reason))
-            {
-                return false;
-            }
-
-            if (!TryGetReFlyTreeAnchorOffset(recordingId, currentUT, out delta))
-            {
-                reason = "offset-unavailable";
-                return false;
-            }
-
-            if (!IsFiniteVector3d(delta))
-            {
-                reason = "offset-non-finite";
-                delta = Vector3d.zero;
-                return false;
-            }
-
-            reason = "offset-applied";
-            return true;
-        }
-
-        private bool TryGetReFlyTreeAnchorOffsetUncached(
-            string recordingId,
-            double currentUT,
-            bool allowCapture,
-            out Vector3d delta)
-        {
-            delta = Vector3d.zero;
-            if (string.IsNullOrEmpty(recordingId))
-                return false;
-            ReFlyDisplayAlignmentCache cache = GetReFlyDisplayAlignmentCache();
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (marker == null
-                || string.IsNullOrEmpty(marker.SessionId)
-                || string.IsNullOrEmpty(marker.TreeId)
-                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-            {
-                cache.ClearIfSessionChanged(null);
-                return false;
-            }
-            cache.ClearIfScopeChanged(
-                marker.SessionId,
-                BuildReFlyDisplayAlignmentScopeKey(marker));
-
-            string recTreeId = ResolveTreeIdForRecording(recordingId);
-            if (string.IsNullOrEmpty(recTreeId)
-                || !string.Equals(recTreeId, marker.TreeId, StringComparison.Ordinal))
-            {
-                return false;
-            }
-            if (!IsReFlyDisplayAlignmentCaptureAllowed(recordingId, currentUT, out string captureWindowReason))
-            {
-                GhostRenderTrace.EmitReFlyAlignment(
-                    recordingId,
-                    -1,
-                    currentUT,
-                    "capture-window-skip",
-                    captureWindowReason,
-                    marker,
-                    recTreeId,
-                    Vector3d.zero,
-                    0.0,
-                    force: true);
-                ParsekLog.VerboseRateLimited(
-                    "Playback",
-                    "refly-display-alignment-capture-window-skip|"
-                        + recTreeId + "|" + marker.SessionId + "|" + recordingId,
-                    "Re-Fly display alignment skipped: tree="
-                    + ShortRecordingId(recTreeId)
-                    + " sess=" + ShortRecordingId(marker.SessionId)
-                    + " rec=" + ShortRecordingId(recordingId)
-                    + " reason=" + (captureWindowReason ?? "<unknown>")
-                    + " ut=" + currentUT.ToString("F2", CultureInfo.InvariantCulture),
-                    5.0);
-                return false;
-            }
-
-            ReFlyDisplayAlignment alignment;
-            if (cache.TryGet(marker.SessionId, recordingId, out alignment))
-            {
-                if (!CachedReFlyDisplayAlignmentMatchesLiveBody(
-                        marker,
-                        alignment,
-                        out string liveBodyName,
-                        out string bodyReason))
-                {
-                    cache.Remove(marker.SessionId, recordingId);
-                    GhostRenderTrace.EmitReFlyAlignment(
-                        recordingId,
-                        -1,
-                        currentUT,
-                        "cache-body-mismatch",
-                        bodyReason,
-                        marker,
-                        recTreeId,
-                        Vector3d.zero,
-                        alignment.InitialWorldOffsetMeters,
-                        force: true);
-                    ParsekLog.WarnRateLimited(
-                        "Playback",
-                        "refly-display-alignment-body-mismatch|"
-                            + recTreeId + "|" + marker.SessionId + "|" + recordingId,
-                        "Re-Fly display alignment cleared: tree="
-                        + ShortRecordingId(recTreeId)
-                        + " sess=" + ShortRecordingId(marker.SessionId)
-                        + " rec=" + ShortRecordingId(recordingId)
-                        + " reason=" + (bodyReason ?? "body-mismatch")
-                        + " alignmentBody=" + (alignment.BodyName ?? "<none>")
-                        + " liveBody=" + (liveBodyName ?? "<none>"),
-                        5.0);
-                    return false;
-                }
-
-                if (TryProjectReFlyDisplayAlignment(
-                        ref alignment,
-                        marker,
-                        currentUT,
-                        out delta,
-                        out string projectReason,
-                        out ReFlyRecordedDebobDiagnostics projectDebob,
-                        out bool projectAlignmentUpdated))
-                {
-                    if (projectAlignmentUpdated)
-                        cache.Store(alignment);
-                    LogReFlyDisplayAlignmentProjection(
-                        marker,
-                        recTreeId,
-                        recordingId,
-                        currentUT,
-                        alignment,
-                        delta,
-                        projectDebob);
-                    GhostRenderTrace.EmitReFlyAlignment(
-                        recordingId,
-                        -1,
-                        currentUT,
-                        "projected",
-                        projectReason,
-                        marker,
-                        recTreeId,
-                        delta,
-                        alignment.InitialWorldOffsetMeters,
-                        force: false);
-                    return true;
-                }
-
-                GhostRenderTrace.EmitReFlyAlignment(
-                    recordingId,
-                    -1,
-                    currentUT,
-                    "project-skip",
-                    projectReason,
-                    marker,
-                    recTreeId,
-                    Vector3d.zero,
-                    alignment.InitialWorldOffsetMeters,
-                    force: true);
-                ParsekLog.VerboseRateLimited(
-                    "Playback",
-                    "refly-display-alignment-project-skip|"
-                        + recTreeId + "|" + marker.SessionId + "|" + recordingId,
-                    "Re-Fly display alignment skipped: tree="
-                    + ShortRecordingId(recTreeId)
-                    + " sess=" + ShortRecordingId(marker.SessionId)
-                    + " rec=" + ShortRecordingId(recordingId)
-                    + " reason=" + (projectReason ?? "<unknown>"),
-                    5.0);
-                return false;
-            }
-
-            if (!allowCapture)
-                return false;
-
-            if (TryInheritReFlyDisplayAlignmentForChainSuccessor(
-                    cache,
-                    marker,
-                    recordingId,
-                    out alignment,
-                    out string inheritedFromRecordingId))
-            {
-                if (!CachedReFlyDisplayAlignmentMatchesLiveBody(
-                        marker,
-                        alignment,
-                        out string inheritedLiveBodyName,
-                        out string inheritedBodyReason))
-                {
-                    GhostRenderTrace.EmitReFlyAlignment(
-                        recordingId,
-                        -1,
-                        currentUT,
-                        "inherit-body-mismatch",
-                        inheritedBodyReason,
-                        marker,
-                        recTreeId,
-                        Vector3d.zero,
-                        alignment.InitialWorldOffsetMeters,
-                        force: true);
-                    ParsekLog.WarnRateLimited(
-                        "Playback",
-                        "refly-display-alignment-inherit-body-mismatch|"
-                            + recTreeId + "|" + marker.SessionId + "|" + recordingId,
-                        "Re-Fly display alignment inheritance skipped: tree="
-                        + ShortRecordingId(recTreeId)
-                        + " sess=" + ShortRecordingId(marker.SessionId)
-                        + " rec=" + ShortRecordingId(recordingId)
-                        + " inheritedFrom=" + ShortRecordingId(inheritedFromRecordingId)
-                        + " reason=" + (inheritedBodyReason ?? "body-mismatch")
-                        + " alignmentBody=" + (alignment.BodyName ?? "<none>")
-                        + " liveBody=" + (inheritedLiveBodyName ?? "<none>"),
-                        5.0);
-                    return false;
-                }
-
-                if (!TryProjectReFlyDisplayAlignment(
-                        ref alignment,
-                        marker,
-                        currentUT,
-                        out delta,
-                        out string inheritedProjectReason,
-                        out ReFlyRecordedDebobDiagnostics inheritedProjectDebob,
-                        out _))
-                {
-                    GhostRenderTrace.EmitReFlyAlignment(
-                        recordingId,
-                        -1,
-                        currentUT,
-                        "inherit-project-skip",
-                        inheritedProjectReason,
-                        marker,
-                        recTreeId,
-                        Vector3d.zero,
-                        alignment.InitialWorldOffsetMeters,
-                        force: true);
-                    ParsekLog.VerboseRateLimited(
-                        "Playback",
-                        "refly-display-alignment-inherit-project-skip|"
-                            + recTreeId + "|" + marker.SessionId + "|" + recordingId,
-                        "Re-Fly display alignment inheritance skipped: tree="
-                        + ShortRecordingId(recTreeId)
-                        + " sess=" + ShortRecordingId(marker.SessionId)
-                        + " rec=" + ShortRecordingId(recordingId)
-                        + " inheritedFrom=" + ShortRecordingId(inheritedFromRecordingId)
-                        + " reason=" + (inheritedProjectReason ?? "<unknown>"),
-                        5.0);
-                    return false;
-                }
-
-                cache.Store(alignment);
-                GhostRenderTrace.EmitReFlyAlignment(
-                    recordingId,
-                    -1,
-                    currentUT,
-                    "inherited",
-                    "inheritedFrom=" + ShortRecordingId(inheritedFromRecordingId),
-                    marker,
-                    recTreeId,
-                    delta,
-                    alignment.InitialWorldOffsetMeters,
-                    force: true);
-                ParsekLog.Info(
-                    "Playback",
-                    "Re-Fly display alignment inherited: tree="
-                    + ShortRecordingId(recTreeId)
-                    + " sess=" + ShortRecordingId(marker.SessionId)
-                    + " rec=" + ShortRecordingId(recordingId)
-                    + " inheritedFrom=" + ShortRecordingId(inheritedFromRecordingId)
-                    + " body=" + (alignment.BodyName ?? "<none>")
-                    + " captureUT=" + alignment.CaptureUT.ToString("F2", CultureInfo.InvariantCulture)
-                    + " initialWorldOffsetMeters=" + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " projectedOffset=" + FormatVector3d(delta)
-                    + " debobApplied=" + inheritedProjectDebob.Applied
-                    + " debobReferenceCaptured=" + alignment.DebobReferenceCaptured
-                    + " debobReferenceInitialized=" + inheritedProjectDebob.ReferenceInitialized
-                    + " debobCorrection=" + FormatVector3d(inheritedProjectDebob.Correction)
-                    + " debobCorrectionMeters=" + inheritedProjectDebob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " mode=frozen-body-fixed"
-                    + " contract=ghost_world(t)=recorded_world(t)+inherited_frozen_body_fixed_refly_offset");
-                return true;
-            }
-
-            if (!TryCaptureReFlyDisplayAlignment(
-                    marker,
-                    recTreeId,
-                    recordingId,
-                    currentUT,
-                    out alignment,
-                    out string reason,
-                    out string liveAnchorSource,
-                    out uint liveAnchorPartPid,
-                    out double liveAnchorOffsetMeters))
-            {
-                GhostRenderTrace.EmitReFlyAlignment(
-                    recordingId,
-                    -1,
-                    currentUT,
-                    "capture-skip",
-                    reason,
-                    marker,
-                    recTreeId,
-                    Vector3d.zero,
-                    0.0,
-                    force: true);
-                ParsekLog.VerboseRateLimited(
-                    "Playback",
-                    "refly-recording-anchor-skip|" + recTreeId + "|" + marker.SessionId,
-                    "Re-Fly recording anchor skipped: tree="
-                    + ShortRecordingId(recTreeId)
-                    + " sess=" + ShortRecordingId(marker.SessionId)
-                    + " reason=" + (reason ?? "<unknown>"),
-                    5.0);
-                return false;
-            }
-
-            cache.Store(alignment);
-            WarnIfReFlyDisplayAlignmentOffsetSuspicious(
-                marker,
-                recTreeId,
-                recordingId,
-                alignment);
-            if (!TryProjectReFlyDisplayAlignment(
-                    ref alignment,
-                    marker,
-                    currentUT,
-                    out delta,
-                    out string capturedProjectReason,
-                    out ReFlyRecordedDebobDiagnostics capturedProjectDebob,
-                    out bool capturedAlignmentUpdated))
-            {
-                GhostRenderTrace.EmitReFlyAlignment(
-                    recordingId,
-                    -1,
-                    currentUT,
-                    "captured-project-skip",
-                    capturedProjectReason,
-                    marker,
-                    recTreeId,
-                    Vector3d.zero,
-                    alignment.InitialWorldOffsetMeters,
-                    force: true);
-                ParsekLog.VerboseRateLimited(
-                    "Playback",
-                    "refly-display-alignment-captured-project-skip|"
-                        + recTreeId + "|" + marker.SessionId + "|" + recordingId,
-                    "Re-Fly display alignment captured but not projected: tree="
-                    + ShortRecordingId(recTreeId)
-                    + " sess=" + ShortRecordingId(marker.SessionId)
-                    + " rec=" + ShortRecordingId(recordingId)
-                    + " reason=" + (capturedProjectReason ?? "<unknown>"),
-                    5.0);
-                return false;
-            }
-            if (capturedAlignmentUpdated)
-                cache.Store(alignment);
-
-            GhostRenderTrace.EmitReFlyAlignment(
-                recordingId,
-                -1,
-                currentUT,
-                "initialized",
-                "liveAnchorSource=" + (liveAnchorSource ?? "<none>")
-                    + "|liveAnchorPartPid=" + liveAnchorPartPid.ToString(CultureInfo.InvariantCulture),
-                marker,
-                recTreeId,
-                delta,
-                alignment.InitialWorldOffsetMeters,
-                force: true);
-            ParsekLog.Info(
-                "Playback",
-                "Re-Fly display alignment initialized: tree="
-                + ShortRecordingId(recTreeId)
-                + " sess=" + ShortRecordingId(marker.SessionId)
-                + " rec=" + ShortRecordingId(recordingId)
-                + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
-                + " body=" + (alignment.BodyName ?? "<none>")
-                + " captureUT=" + currentUT.ToString("F2", CultureInfo.InvariantCulture)
-                + " initialWorldOffsetMeters=" + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
-                + " liveAnchorPartPid=" + liveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
-                + " liveAnchorVesselOffsetMeters=" + liveAnchorOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                + " projectedOffset=" + FormatVector3d(delta)
-                + " debobApplied=" + capturedProjectDebob.Applied
-                + " debobReferenceCaptured=" + alignment.DebobReferenceCaptured
-                + " debobReferenceInitialized=" + capturedProjectDebob.ReferenceInitialized
-                + " debobCorrection=" + FormatVector3d(capturedProjectDebob.Correction)
-                + " debobCorrectionMeters=" + capturedProjectDebob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
-                + " mode=frozen-body-fixed"
-                + " contract=ghost_world(t)=recorded_world(t)+frozen_body_fixed_refly_offset");
-            return true;
-        }
-
-        private void LogReFlyDisplayAlignmentProjection(
-            ReFlySessionMarker marker,
-            string recTreeId,
-            string recordingId,
-            double currentUT,
-            ReFlyDisplayAlignment alignment,
-            Vector3d projectedOffset,
-            ReFlyRecordedDebobDiagnostics debob)
-        {
-            ParsekLog.VerboseRateLimited(
-                "Playback",
-                "refly-display-alignment-projected|"
-                    + (recTreeId ?? "<no-tree>") + "|"
-                    + (marker?.SessionId ?? "<no-sess>") + "|"
-                    + (recordingId ?? "<no-rec>"),
-                "Re-Fly display alignment projected: tree="
-                    + ShortRecordingId(recTreeId)
-                    + " sess=" + ShortRecordingId(marker?.SessionId)
-                    + " rec=" + ShortRecordingId(recordingId)
-                    + " active=" + ShortRecordingId(marker?.ActiveReFlyRecordingId)
-                    + " currentUT=" + currentUT.ToString("F3", CultureInfo.InvariantCulture)
-                    + " captureUT=" + alignment.CaptureUT.ToString("F3", CultureInfo.InvariantCulture)
-                    + " ageSeconds=" + (currentUT - alignment.CaptureUT).ToString("F3", CultureInfo.InvariantCulture)
-                    + " body=" + (alignment.BodyName ?? "<none>")
-                    + " source=" + (alignment.LiveAnchorSource ?? "<none>")
-                    + " liveAnchorPartPid=" + alignment.LiveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
-                    + " initialWorldOffsetMeters=" + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " projectedOffset=" + FormatVector3d(projectedOffset)
-                    + " bodyFixedOffset=" + FormatVector3d(alignment.BodyFixedOffset)
-                    + " debobApplied=" + debob.Applied
-                    + " debobReason=" + (debob.Reason ?? "<none>")
-                    + " debobReferenceCaptured=" + alignment.DebobReferenceCaptured
-                    + " debobReferenceInitialized=" + debob.ReferenceInitialized
-                    + " debobReferenceCorrectionMeters="
-                    + alignment.DebobReferenceCorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " debobCorrection=" + FormatVector3d(debob.Correction)
-                    + " debobCorrectionMeters=" + debob.CorrectionMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " ghostPartPinCaptured=" + alignment.GhostPartPinCaptured
-                    + " ghostPartPinPid=" + alignment.GhostPartPinPid.ToString(CultureInfo.InvariantCulture)
-                    + " ghostPartPinMeters=" + alignment.GhostPartPinMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " ghostPartPinUT=" + alignment.GhostPartPinUT.ToString("F3", CultureInfo.InvariantCulture),
-                5.0);
-        }
-
-        private bool TryApplyInitialReFlyGhostPartPin(
-            string recordingId,
-            double currentUT,
-            GameObject ghost,
-            CelestialBody body,
-            ref Vector3d reFlyTreeOffset,
-            ref bool hasReFlyTreeOffset,
-            out Vector3d pinDelta,
-            out string reason)
-        {
-            pinDelta = Vector3d.zero;
-            reason = null;
-            if (!hasReFlyTreeOffset)
-            {
-                reason = "refly-offset-missing";
-                return false;
-            }
-            if (string.IsNullOrEmpty(recordingId))
-            {
-                reason = "recording-id-missing";
-                return false;
-            }
-            if (ghost == null)
-            {
-                reason = "ghost-missing";
-                return false;
-            }
-            if (body == null || body.bodyTransform == null)
-            {
-                reason = "body-missing";
-                return false;
-            }
-
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (marker == null || string.IsNullOrEmpty(marker.SessionId))
-            {
-                reason = "marker-missing";
-                return false;
-            }
-            uint selectedRootPartPid = marker.SelectedRootPartPersistentId;
-            if (selectedRootPartPid == 0u)
-            {
-                reason = "selected-root-part-missing";
-                return false;
-            }
-
-            ReFlyDisplayAlignmentCache cache = GetReFlyDisplayAlignmentCache();
-            if (!cache.TryGet(marker.SessionId, recordingId, out ReFlyDisplayAlignment alignment))
-            {
-                reason = "alignment-missing";
-                return false;
-            }
-            if (alignment.GhostPartPinCaptured)
-            {
-                reason = "already-captured";
-                return false;
-            }
-
-            Transform ghostPart = GhostVisualBuilder.FindGhostPartTransform(ghost, selectedRootPartPid);
-            if (ghostPart == null)
-            {
-                reason = "ghost-part-missing";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-            Vector3d ghostPartWorld = ghostPart.position;
-            if (!IsFiniteVector3d(ghostPartWorld))
-            {
-                reason = "ghost-part-non-finite";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-
-            if (!TryResolveActiveReFlyPid(marker, /*searchTrees*/ null, out uint activeReFlyPid)
-                || activeReFlyPid == 0u)
-            {
-                reason = "active-pid-missing";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
-            if (liveAnchor == null)
-            {
-                reason = "live-vessel-missing";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-            if (!TryResolveReFlyLiveAnchorWorld(
-                    liveAnchor,
-                    marker,
-                    out Vector3d liveAnchorWorld,
-                    out string liveAnchorSource,
-                    out uint liveAnchorPartPid,
-                    out double liveAnchorVesselOffsetMeters))
-            {
-                reason = "live-anchor-unresolved";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-            if (!string.Equals(liveAnchorSource, "root-part", StringComparison.Ordinal)
-                || liveAnchorPartPid != selectedRootPartPid)
-            {
-                reason = "live-anchor-not-selected-root-part";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-
-            pinDelta = liveAnchorWorld - ghostPartWorld;
-            if (!IsFiniteVector3d(pinDelta))
-            {
-                reason = "pin-delta-non-finite";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-            double pinMeters = pinDelta.magnitude;
-            if (double.IsNaN(pinMeters) || double.IsInfinity(pinMeters))
-            {
-                reason = "pin-magnitude-non-finite";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-            if (pinMeters > ReFlyGhostPartPinMaxOffsetMeters)
-            {
-                reason = "pin-delta-too-large";
-                ParsekLog.WarnRateLimited(
-                    "Playback",
-                    "refly-ghost-part-pin-too-large|"
-                        + (marker.SessionId ?? "<no-sess>") + "|" + recordingId,
-                    "Re-Fly ghost part pin skipped: rec=" + ShortRecordingId(recordingId)
-                    + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
-                    + " selectedRootPartPid=" + selectedRootPartPid.ToString(CultureInfo.InvariantCulture)
-                    + " pinMeters=" + pinMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " maxMeters=" + ReFlyGhostPartPinMaxOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " ghostPartWorld=" + FormatVector3d(ghostPartWorld)
-                    + " liveAnchorWorld=" + FormatVector3d(liveAnchorWorld),
-                    5.0);
-                return false;
-            }
-
-            Vector3d previousOffset = reFlyTreeOffset;
-            if (!alignment.TryApplyGhostPartPin(
-                    body.bodyTransform.rotation,
-                    pinDelta,
-                    selectedRootPartPid,
-                    currentUT))
-            {
-                reason = "alignment-pin-capture-failed";
-                LogReFlyGhostPartPinSkip(recordingId, marker, reason, selectedRootPartPid);
-                return false;
-            }
-
-            cache.Store(alignment);
-            reFlyTreeOffset += pinDelta;
-            hasReFlyTreeOffset = true;
-            LogReFlyRenderInterpolationStatePreservedForGhostPartPin(ghost, recordingId, currentUT, pinDelta);
-            reason = "applied";
-
-            if (pinMeters > ReFlyGhostPartPinSuspiciousOffsetMeters)
-            {
-                ParsekLog.WarnRateLimited(
-                    "Playback",
-                    "refly-ghost-part-pin-suspicious|"
-                        + (marker.SessionId ?? "<no-sess>") + "|" + recordingId,
-                    "Re-Fly ghost part pin suspicious offset: rec=" + ShortRecordingId(recordingId)
-                    + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
-                    + " selectedRootPartPid=" + selectedRootPartPid.ToString(CultureInfo.InvariantCulture)
-                    + " pinMeters=" + pinMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " thresholdMeters=" + ReFlyGhostPartPinSuspiciousOffsetMeters.ToString("F2", CultureInfo.InvariantCulture),
-                    5.0);
-            }
-
-            ParsekLog.Info(
-                "Playback",
-                "Re-Fly ghost part pin applied: rec=" + ShortRecordingId(recordingId)
-                + " active=" + ShortRecordingId(marker.ActiveReFlyRecordingId)
-                + " sess=" + ShortRecordingId(marker.SessionId)
-                + " currentUT=" + currentUT.ToString("F3", CultureInfo.InvariantCulture)
-                + " selectedRootPartPid=" + selectedRootPartPid.ToString(CultureInfo.InvariantCulture)
-                + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
-                + " liveAnchorPartPid=" + liveAnchorPartPid.ToString(CultureInfo.InvariantCulture)
-                + " liveAnchorVesselOffsetMeters=" + liveAnchorVesselOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                + " ghostPartWorld=" + FormatVector3d(ghostPartWorld)
-                + " liveAnchorWorld=" + FormatVector3d(liveAnchorWorld)
-                + " pinDelta=" + FormatVector3d(pinDelta)
-                + " pinMeters=" + pinMeters.ToString("F2", CultureInfo.InvariantCulture)
-                + " previousOffset=" + FormatVector3d(previousOffset)
-                + " updatedOffset=" + FormatVector3d(reFlyTreeOffset)
-                + " mode=initial-ghost-part-pin-smoothed"
-                + " contract=ghost_anchor_part_world(t0)=live_selected_root_part_world(t0), then frozen_body_fixed_offset");
-            return true;
-        }
-
-        private static void LogReFlyGhostPartPinSkip(
-            string recordingId,
-            ReFlySessionMarker marker,
-            string reason,
-            uint selectedRootPartPid)
-        {
-            ParsekLog.VerboseRateLimited(
-                "Playback",
-                "refly-ghost-part-pin-skip|"
-                    + (marker?.SessionId ?? "<no-sess>") + "|"
-                    + (recordingId ?? "<no-rec>") + "|"
-                    + (reason ?? "<unknown>"),
-                "Re-Fly ghost part pin skipped: rec=" + ShortRecordingId(recordingId)
-                + " active=" + ShortRecordingId(marker?.ActiveReFlyRecordingId)
-                + " selectedRootPartPid=" + selectedRootPartPid.ToString(CultureInfo.InvariantCulture)
-                + " reason=" + (reason ?? "<unknown>"),
-                5.0);
-        }
-
-        internal static string BuildReFlyDisplayAlignmentScopeKey(ReFlySessionMarker marker)
-        {
-            if (marker == null || string.IsNullOrEmpty(marker.SessionId))
-                return null;
-
-            var ic = CultureInfo.InvariantCulture;
-            return (marker.SessionId ?? "") + "|"
-                + (marker.TreeId ?? "") + "|"
-                + (marker.ActiveReFlyRecordingId ?? "") + "|"
-                + (marker.OriginChildRecordingId ?? "") + "|"
-                + (marker.SupersedeTargetId ?? "") + "|"
-                + (marker.RewindPointId ?? "") + "|"
-                + marker.SelectedRootPartPersistentId.ToString(ic) + "|"
-                + marker.InvokedUT.ToString("R", ic);
-        }
-
-        internal static bool IsSuspiciousReFlyDisplayAlignmentOffset(double offsetMeters)
-        {
-            return !double.IsNaN(offsetMeters)
-                && !double.IsInfinity(offsetMeters)
-                && offsetMeters > ReFlyDisplayAlignmentSuspiciousOffsetMeters;
-        }
-
-        internal static bool TryInheritReFlyDisplayAlignmentForChainSuccessor(
-            ReFlyDisplayAlignmentCache cache,
-            ReFlySessionMarker marker,
-            string recordingId,
-            out ReFlyDisplayAlignment alignment,
-            out string inheritedFromRecordingId)
-        {
-            alignment = default(ReFlyDisplayAlignment);
-            inheritedFromRecordingId = null;
-            if (cache == null
-                || marker == null
-                || string.IsNullOrEmpty(marker.SessionId)
-                || string.IsNullOrEmpty(recordingId))
-            {
-                return false;
-            }
-
-            RecordingTree tree = ResolveTreeByIdPreferPending(marker.TreeId);
-            if (tree?.Recordings == null)
-                return false;
-            if (!tree.Recordings.TryGetValue(recordingId, out Recording target)
-                || target == null
-                || string.IsNullOrEmpty(target.ChainId)
-                || target.ChainIndex <= 0)
-            {
-                return false;
-            }
-
-            ReFlyDisplayAlignment bestAlignment = default(ReFlyDisplayAlignment);
-            string bestRecordingId = null;
-            int bestChainIndex = int.MinValue;
-            foreach (KeyValuePair<string, Recording> pair in tree.Recordings)
-            {
-                Recording candidate = pair.Value;
-                if (candidate == null)
-                    continue;
-                if (string.IsNullOrEmpty(candidate.RecordingId))
-                    continue;
-                if (candidate.ChainIndex >= target.ChainIndex)
-                    continue;
-                if (candidate.ChainIndex <= bestChainIndex)
-                    continue;
-                if (candidate.ChainBranch != target.ChainBranch)
-                    continue;
-                if (!string.Equals(candidate.ChainId, target.ChainId, StringComparison.Ordinal))
-                    continue;
-                if (!cache.TryGet(marker.SessionId, candidate.RecordingId, out ReFlyDisplayAlignment candidateAlignment))
-                    continue;
-
-                bestChainIndex = candidate.ChainIndex;
-                bestRecordingId = candidate.RecordingId;
-                bestAlignment = candidateAlignment;
-            }
-
-            if (string.IsNullOrEmpty(bestRecordingId))
-                return false;
-
-            alignment = bestAlignment;
-            alignment.RecordingId = recordingId;
-            alignment.TreeId = !string.IsNullOrEmpty(target.TreeId)
-                ? target.TreeId
-                : marker.TreeId;
-            inheritedFromRecordingId = bestRecordingId;
-            return true;
-        }
-
-        private static RecordingTree ResolveTreeByIdPreferPending(string treeId)
-        {
-            if (string.IsNullOrEmpty(treeId))
-                return null;
-
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                if (pending != null
-                    && string.Equals(pending.Id, treeId, StringComparison.Ordinal))
-                {
-                    return pending;
-                }
-            }
-
-            return ResolveTreeById(treeId);
-        }
-
-        private ReFlyDisplayAlignmentCache GetReFlyDisplayAlignmentCache()
-        {
-            if (reFlyDisplayAlignmentCache == null)
-                reFlyDisplayAlignmentCache = new ReFlyDisplayAlignmentCache();
-            return reFlyDisplayAlignmentCache;
-        }
-
-        private bool CachedReFlyDisplayAlignmentMatchesLiveBody(
-            ReFlySessionMarker marker,
-            ReFlyDisplayAlignment alignment,
-            out string liveBodyName,
-            out string reason)
-        {
-            liveBodyName = null;
-            reason = null;
-            if (marker == null)
-            {
-                reason = "marker-missing";
-                return true;
-            }
-            if (!TryResolveActiveReFlyPid(marker, /*searchTrees*/ null, out uint activeReFlyPid)
-                || activeReFlyPid == 0u)
-            {
-                reason = "no-active-pid";
-                return true;
-            }
-
-            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
-            if (liveAnchor == null)
-            {
-                reason = "live-vessel-missing";
-                return true;
-            }
-
-            liveBodyName = liveAnchor.mainBody?.name;
-            if (string.IsNullOrEmpty(liveBodyName) || string.IsNullOrEmpty(alignment.BodyName))
-            {
-                reason = "body-unavailable";
-                return true;
-            }
-
-            if (ReFlyDisplayAlignmentBodyMatches(alignment.BodyName, liveBodyName))
-            {
-                reason = "body-match";
-                return true;
-            }
-
-            reason = "live-body-changed";
-            return false;
-        }
-
-        internal static bool ReFlyDisplayAlignmentBodyMatches(
-            string alignmentBodyName,
-            string liveBodyName)
-        {
-            return !string.IsNullOrEmpty(alignmentBodyName)
-                && !string.IsNullOrEmpty(liveBodyName)
-                && string.Equals(alignmentBodyName, liveBodyName, StringComparison.Ordinal);
-        }
-
-        private static void WarnIfReFlyDisplayAlignmentOffsetSuspicious(
-            ReFlySessionMarker marker,
-            string recTreeId,
-            string recordingId,
-            ReFlyDisplayAlignment alignment)
-        {
-            if (!IsSuspiciousReFlyDisplayAlignmentOffset(alignment.InitialWorldOffsetMeters))
-                return;
-
-            ParsekLog.WarnRateLimited(
-                "Playback",
-                "refly-display-alignment-suspicious-offset|"
-                    + (recTreeId ?? "<no-tree>") + "|"
-                    + (marker?.SessionId ?? "<no-sess>") + "|"
-                    + (recordingId ?? "<no-rec>"),
-                "Re-Fly display alignment suspicious offset: tree="
-                    + ShortRecordingId(recTreeId)
-                    + " sess=" + ShortRecordingId(marker?.SessionId)
-                    + " rec=" + ShortRecordingId(recordingId)
-                    + " initialWorldOffsetMeters="
-                    + alignment.InitialWorldOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " thresholdMeters="
-                    + ReFlyDisplayAlignmentSuspiciousOffsetMeters.ToString("F2", CultureInfo.InvariantCulture)
-                    + " body=" + (alignment.BodyName ?? "<none>")
-                    + " source=" + (alignment.LiveAnchorSource ?? "<none>")
-                    + " liveAnchorPartPid="
-                    + alignment.LiveAnchorPartPid.ToString(CultureInfo.InvariantCulture),
-                5.0);
-        }
-
-        private static bool IsReFlyDisplayAlignmentCaptureAllowed(
-            string recordingId, double currentUT, out string reason)
-        {
-            reason = null;
-            Recording target = FindRecordingByIdInTrees(recordingId);
-            if (target == null)
-            {
-                reason = "target-recording-missing";
-                return false;
-            }
-            double startUT;
-            if (target.TryGetGhostActivationStartUT(out startUT)
-                && currentUT < startUT - 0.001)
-            {
-                reason = "target-not-started";
-                return false;
-            }
-            reason = "allowed";
-            return true;
-        }
-
-        /// <summary>
-        /// Pure tree-membership predicate for the activation gate and
-        /// related read sites. Takes the marker explicitly so unit tests
-        /// can drive it without a live <see cref="ParsekScenario.Instance"/>.
-        /// </summary>
-        internal static bool IsRecordingInReFlyTreeMarker(
-            string recordingId, ReFlySessionMarker marker)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return false;
-            if (marker == null || string.IsNullOrEmpty(marker.TreeId))
-                return false;
-            string recTreeId = ResolveTreeIdForRecording(recordingId);
-            return !string.IsNullOrEmpty(recTreeId)
-                && string.Equals(recTreeId, marker.TreeId, StringComparison.Ordinal);
-        }
-
-        internal static bool ShouldCanonicalizeReFlyRecordingFrame(
-            string recordingId,
-            string recordingTreeId,
-            ReFlySessionMarker marker,
-            Recording activeReFlyRecording,
-            double currentUT,
-            out string reason)
-        {
-            reason = null;
-
-            if (string.IsNullOrEmpty(recordingId))
-            {
-                reason = "recording-id-missing";
-                return false;
-            }
-            if (marker == null)
-            {
-                reason = "marker-missing";
-                return false;
-            }
-            if (string.IsNullOrEmpty(marker.SessionId))
-            {
-                reason = "marker-session-missing";
-                return false;
-            }
-            if (string.IsNullOrEmpty(marker.TreeId))
-            {
-                reason = "marker-tree-missing";
-                return false;
-            }
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-            {
-                reason = "marker-active-recording-missing";
-                return false;
-            }
-            if (!IsFinite(currentUT))
-            {
-                reason = "ut-non-finite";
-                return false;
-            }
-            if (IsFinite(marker.InvokedUT)
-                && currentUT < marker.InvokedUT - 0.001)
-            {
-                reason = "before-invocation";
-                return false;
-            }
-            if (string.IsNullOrEmpty(recordingTreeId))
-            {
-                reason = "recording-tree-missing";
-                return false;
-            }
-            if (!string.Equals(recordingTreeId, marker.TreeId, StringComparison.Ordinal))
-            {
-                reason = "tree-mismatch";
-                return false;
-            }
-            if (activeReFlyRecording == null)
-            {
-                reason = "active-refly-recording-missing";
-                return false;
-            }
-            if (!activeReFlyRecording.HasPreReFlyAnchorTrajectory(marker.SessionId))
-            {
-                reason = "pre-refly-anchor-snapshot-missing";
-                return false;
-            }
-
-            reason = "display-offset-render-only";
-            return false;
-        }
-
-        private bool TryProjectReFlyDisplayAlignment(
-            ref ReFlyDisplayAlignment alignment,
-            ReFlySessionMarker marker,
-            double currentUT,
-            out Vector3d delta,
-            out string reason,
-            out ReFlyRecordedDebobDiagnostics debobDiagnostics,
-            out bool alignmentUpdated)
-        {
-            delta = Vector3d.zero;
-            reason = null;
-            debobDiagnostics = default(ReFlyRecordedDebobDiagnostics);
-            alignmentUpdated = false;
-            if (string.IsNullOrEmpty(alignment.BodyName))
-            {
-                reason = "alignment-body-empty";
-                return false;
-            }
-
-            string alignmentBodyName = alignment.BodyName;
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == alignmentBodyName);
-            if (body == null)
-            {
-                reason = "alignment-body-missing";
-                return false;
-            }
-            if (body.bodyTransform == null)
-            {
-                reason = "alignment-body-transform-missing";
-                return false;
-            }
-
-            if (!alignment.TryProject(body.bodyTransform.rotation, out delta))
-            {
-                reason = "alignment-delta-non-finite";
-                return false;
-            }
-
-            debobDiagnostics.WindowSeconds = ReFlyRecordedDebobWindowSeconds;
-            debobDiagnostics.BeforeUT = currentUT - ReFlyRecordedDebobWindowSeconds;
-            debobDiagnostics.AfterUT = currentUT + ReFlyRecordedDebobWindowSeconds;
-            debobDiagnostics.Reason = "runtime-disabled";
-
-            reason = "projected";
-            return true;
-        }
-
-        private bool TryCaptureReFlyDisplayAlignment(
-            ReFlySessionMarker marker,
-            string recTreeId,
-            string recordingId,
-            double currentUT,
-            out ReFlyDisplayAlignment alignment,
-            out string reason,
-            out string liveAnchorSource,
-            out uint liveAnchorPartPid,
-            out double liveAnchorOffsetMeters)
-        {
-            alignment = default(ReFlyDisplayAlignment);
-            reason = null;
-            liveAnchorSource = null;
-            liveAnchorPartPid = 0u;
-            liveAnchorOffsetMeters = double.NaN;
-
-            if (!TryResolveActiveReFlyPid(marker, /*searchTrees*/ null, out uint activeReFlyPid)
-                || activeReFlyPid == 0u)
-            {
-                reason = "no-active-pid";
-                return false;
-            }
-
-            Vessel liveAnchor = FlightRecorder.FindVesselByPid(activeReFlyPid);
-            if (liveAnchor == null)
-            {
-                reason = "live-vessel-missing";
-                return false;
-            }
-            if (!TryResolveReFlyLiveAnchorWorld(
-                    liveAnchor,
-                    marker,
-                    out Vector3d livePos,
-                    out liveAnchorSource,
-                    out liveAnchorPartPid,
-                    out liveAnchorOffsetMeters))
-            {
-                reason = "live-pos-non-finite";
-                return false;
-            }
-            if (marker != null
-                && marker.SelectedRootPartPersistentId != 0u
-                && !string.Equals(liveAnchorSource, "root-part", StringComparison.Ordinal))
-            {
-                ParsekLog.VerboseRateLimited(
-                    "Playback",
-                    "refly-live-anchor-rootpart-fallback|"
-                        + (marker.SessionId ?? "<no-sess>")
-                        + "|" + marker.SelectedRootPartPersistentId.ToString(CultureInfo.InvariantCulture),
-                    "Re-Fly live anchor root-part fallback: active="
-                        + ShortRecordingId(marker.ActiveReFlyRecordingId)
-                        + " selectedRootPartPid="
-                        + marker.SelectedRootPartPersistentId.ToString(CultureInfo.InvariantCulture)
-                        + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
-                        + " vesselPid=" + activeReFlyPid.ToString(CultureInfo.InvariantCulture),
-                    5.0);
-            }
-
-            CelestialBody body = liveAnchor.mainBody;
-            if (body == null)
-            {
-                reason = "live-body-missing";
-                return false;
-            }
-            if (body.bodyTransform == null)
-            {
-                reason = "live-body-transform-missing";
-                return false;
-            }
-
-            Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
-            if (reFlyRec == null)
-            {
-                reason = "refly-rec-missing";
-                return false;
-            }
-
-            List<TrackSection> sampleSections = GetCachedReFlyAnchorSampleSections(reFlyRec, marker);
-            if (!TrySampleRecordedAbsoluteWorld(
-                    sampleSections,
-                    currentUT,
-                    out Vector3d recordedPos,
-                    out ReFlyRecordedAnchorSampleDiagnostics sampleDiagnostics)
-                || !IsFiniteVector3d(recordedPos))
-            {
-                reason = "recorded-pos-unavailable";
-                return false;
-            }
-
-            Vector3d debobbedRecordedPos = recordedPos;
-            ReFlyRecordedDebobDiagnostics debobDiagnostics = default(ReFlyRecordedDebobDiagnostics);
-            debobDiagnostics.WindowSeconds = ReFlyRecordedDebobWindowSeconds;
-            debobDiagnostics.BeforeUT = currentUT - ReFlyRecordedDebobWindowSeconds;
-            debobDiagnostics.AfterUT = currentUT + ReFlyRecordedDebobWindowSeconds;
-            debobDiagnostics.RawWorld = recordedPos;
-            debobDiagnostics.Reason = "runtime-disabled";
-
-            if (!ReFlyDisplayAlignment.TryCapture(
-                    marker.SessionId,
-                    recTreeId,
-                    recordingId,
-                    body.name,
-                    body.bodyTransform.rotation,
-                    livePos,
-                    debobbedRecordedPos,
-                    currentUT,
-                    liveAnchorSource,
-                    liveAnchorPartPid,
-                    liveAnchorOffsetMeters,
-                    out alignment))
-            {
-                reason = "alignment-capture-failed";
-                return false;
-            }
-
-            alignment.DebobEnabled = false;
-            alignment.DebobReferenceCaptured = false;
-            alignment.DebobReferenceCorrection = Vector3d.zero;
-            alignment.DebobReferenceCorrectionMeters = 0.0;
-            alignment.DebobReferenceUT = double.NaN;
-
-            LogReFlyDisplayAlignmentCaptureDetail(
-                marker,
-                recTreeId,
-                recordingId,
-                currentUT,
-                liveAnchor,
-                activeReFlyPid,
-                livePos,
-                recordedPos,
-                debobbedRecordedPos,
-                body.name,
-                liveAnchorSource,
-                liveAnchorPartPid,
-                liveAnchorOffsetMeters,
-                sampleDiagnostics,
-                debobDiagnostics,
-                alignment);
-
-            reason = "captured";
-            return true;
-        }
-
-        private void LogReFlyDisplayAlignmentCaptureDetail(
-            ReFlySessionMarker marker,
-            string recTreeId,
-            string recordingId,
-            double currentUT,
-            Vessel liveAnchor,
-            uint activeReFlyPid,
-            Vector3d livePos,
-            Vector3d recordedPos,
-            Vector3d debobbedRecordedPos,
-            string bodyName,
-            string liveAnchorSource,
-            uint liveAnchorPartPid,
-            double liveAnchorOffsetMeters,
-            ReFlyRecordedAnchorSampleDiagnostics sampleDiagnostics,
-            ReFlyRecordedDebobDiagnostics debobDiagnostics,
-            ReFlyDisplayAlignment alignment)
-        {
-            var ic = CultureInfo.InvariantCulture;
-            Vector3 liveVelocity = FlightRecorder.SampleCurrentVelocity(liveAnchor);
-            Vector3 recordedVelocity = sampleDiagnostics.RecordedVelocity;
-            Vector3 velocityDelta = liveVelocity - recordedVelocity;
-            Vector3d worldDelta = livePos - recordedPos;
-            Vector3d debobbedWorldDelta = livePos - debobbedRecordedPos;
-            double deltaAlongRecordedVelocityMeters =
-                ProjectMetersAlongVelocity(worldDelta, recordedVelocity);
-            double recordedSpeed = recordedVelocity.magnitude;
-            double impliedRecordedTimeOffsetSeconds =
-                recordedSpeed > 0.001
-                    ? deltaAlongRecordedVelocityMeters / recordedSpeed
-                    : double.NaN;
-
-            Recording target = FindRecordingByIdInTrees(recordingId);
-            double targetStartUT = double.NaN;
-            bool hasTargetStart = target != null
-                && target.TryGetGhostActivationStartUT(out targetStartUT);
-            string targetStart = hasTargetStart
-                ? targetStartUT.ToString("F3", ic)
-                : "none";
-            string currentMinusTargetStart = hasTargetStart
-                ? (currentUT - targetStartUT).ToString("F3", ic)
-                : "NaN";
-
-            ParsekLog.Info(
-                "Playback",
-                "Re-Fly display alignment capture detail: tree="
-                    + ShortRecordingId(recTreeId)
-                    + " sess=" + ShortRecordingId(marker?.SessionId)
-                    + " rec=" + ShortRecordingId(recordingId)
-                    + " active=" + ShortRecordingId(marker?.ActiveReFlyRecordingId)
-                    + " currentUT=" + currentUT.ToString("F3", ic)
-                    + " targetStartUT=" + targetStart
-                    + " currentMinusTargetStart=" + currentMinusTargetStart
-                    + " activePid=" + activeReFlyPid.ToString(ic)
-                    + " body=" + (bodyName ?? "<none>")
-                    + " liveAnchorSource=" + (liveAnchorSource ?? "<none>")
-                    + " selectedRootPartPid="
-                    + (marker?.SelectedRootPartPersistentId ?? 0u).ToString(ic)
-                    + " liveAnchorPartPid=" + liveAnchorPartPid.ToString(ic)
-                    + " liveAnchorVesselOffsetMeters="
-                    + liveAnchorOffsetMeters.ToString("F2", ic)
-                    + " sampleSectionIndex="
-                    + sampleDiagnostics.SectionIndex.ToString(ic)
-                    + " sampleSectionFrame=" + sampleDiagnostics.SectionFrame
-                    + " sampleSectionSource=" + sampleDiagnostics.SectionSource
-                    + " sampleFrameSource=" + (sampleDiagnostics.FrameSource ?? "<none>")
-                    + " sampleSectionUT=["
-                    + sampleDiagnostics.SectionStartUT.ToString("F3", ic)
-                    + "," + sampleDiagnostics.SectionEndUT.ToString("F3", ic) + "]"
-                    + " sampleFrames=" + sampleDiagnostics.FrameCount.ToString(ic)
-                    + " sampleBeforeUT=" + sampleDiagnostics.BeforeUT.ToString("F3", ic)
-                    + " sampleAfterUT=" + sampleDiagnostics.AfterUT.ToString("F3", ic)
-                    + " currentMinusBefore="
-                    + (currentUT - sampleDiagnostics.BeforeUT).ToString("F3", ic)
-                    + " afterMinusCurrent="
-                    + (sampleDiagnostics.AfterUT - currentUT).ToString("F3", ic)
-                    + " sampleT=" + sampleDiagnostics.InterpolationT.ToString("F3", ic)
-                    + " sampleClamped=" + sampleDiagnostics.ClampedToEndpoint
-                    + " sampleBodies="
-                    + (sampleDiagnostics.BodyBeforeName ?? "<none>")
-                    + "->" + (sampleDiagnostics.BodyAfterName ?? "<none>")
-                    + " liveWorld=" + FormatVector3d(livePos)
-                    + " recordedWorld=" + FormatVector3d(recordedPos)
-                    + " debobbedRecordedWorld=" + FormatVector3d(debobbedRecordedPos)
-                    + " live-recorded=" + FormatVector3d(worldDelta)
-                    + " live-debobbedRecorded=" + FormatVector3d(debobbedWorldDelta)
-                    + " initialWorldOffsetMeters="
-                    + alignment.InitialWorldOffsetMeters.ToString("F2", ic)
-                    + " debobApplied=" + debobDiagnostics.Applied
-                    + " debobReason=" + (debobDiagnostics.Reason ?? "<none>")
-                    + " debobReferenceCaptured=" + alignment.DebobReferenceCaptured
-                    + " debobReferenceCorrection="
-                    + FormatVector3d(alignment.DebobReferenceCorrection)
-                    + " debobReferenceCorrectionMeters="
-                    + alignment.DebobReferenceCorrectionMeters.ToString("F2", ic)
-                    + " debobReferenceUT="
-                    + alignment.DebobReferenceUT.ToString("F3", ic)
-                    + " debobWindowSeconds="
-                    + debobDiagnostics.WindowSeconds.ToString("F2", ic)
-                    + " debobBeforeUT="
-                    + debobDiagnostics.BeforeUT.ToString("F3", ic)
-                    + " debobAfterUT="
-                    + debobDiagnostics.AfterUT.ToString("F3", ic)
-                    + " debobRawWorld=" + FormatVector3d(debobDiagnostics.RawWorld)
-                    + " debobBaselineWorld=" + FormatVector3d(debobDiagnostics.BaselineWorld)
-                    + " debobCorrection=" + FormatVector3d(debobDiagnostics.Correction)
-                    + " debobCorrectionMeters="
-                    + debobDiagnostics.CorrectionMeters.ToString("F2", ic)
-                    + " debobBodies="
-                    + (debobDiagnostics.BeforeBody ?? "<none>")
-                    + "->" + (debobDiagnostics.CurrentBody ?? "<none>")
-                    + "->" + (debobDiagnostics.AfterBody ?? "<none>")
-                    + " liveVelocity=" + FormatVector3(liveVelocity)
-                    + " recordedVelocity=" + FormatVector3(recordedVelocity)
-                    + " velocityDelta=" + FormatVector3(velocityDelta)
-                    + " liveSpeed=" + liveVelocity.magnitude.ToString("F2", ic)
-                    + " recordedSpeed=" + recordedSpeed.ToString("F2", ic)
-                    + " deltaAlongRecordedVelocityMeters="
-                    + deltaAlongRecordedVelocityMeters.ToString("F2", ic)
-                    + " impliedRecordedTimeOffsetSeconds="
-                    + impliedRecordedTimeOffsetSeconds.ToString("F3", ic)
-                    + " bodyFixedOffset=" + FormatVector3d(alignment.BodyFixedOffset));
-        }
-
-        private static double ProjectMetersAlongVelocity(Vector3d delta, Vector3 velocity)
-        {
-            double speed = velocity.magnitude;
-            if (speed <= 0.001)
-                return double.NaN;
-
-            return (delta.x * velocity.x
-                + delta.y * velocity.y
-                + delta.z * velocity.z) / speed;
-        }
-
-        private bool TryComputeReFlyRecordedDebobCorrection(
-            ReFlySessionMarker marker,
-            double currentUT,
-            out Vector3d correction,
-            out ReFlyRecordedDebobDiagnostics diagnostics)
-        {
-            correction = Vector3d.zero;
-            diagnostics = default(ReFlyRecordedDebobDiagnostics);
-            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-            {
-                diagnostics.Reason = "marker-missing";
-                return false;
-            }
-
-            Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
-            if (reFlyRec == null)
-            {
-                diagnostics.Reason = "refly-rec-missing";
-                return false;
-            }
-
-            return TryComputeReFlyRecordedDebobCorrection(
-                GetCachedReFlyAnchorSampleSections(reFlyRec, marker),
-                currentUT,
-                out correction,
-                out diagnostics);
-        }
-
-        private List<TrackSection> GetCachedReFlyAnchorSampleSections(
-            Recording reFlyRec,
-            ReFlySessionMarker marker)
-        {
-            if (reFlyRec == null || marker == null)
-                return null;
-
-            string scopeKey = BuildReFlyDisplayAlignmentScopeKey(marker);
-            RecordingTree pendingTree = RecordingStore.HasPendingTree
-                ? RecordingStore.PendingTree
-                : null;
-            int storeVersion = RecordingStore.StateVersion;
-            if (!string.IsNullOrEmpty(scopeKey)
-                && reFlyDebobSampleSections != null
-                && string.Equals(reFlyDebobSampleScopeKey, scopeKey, StringComparison.Ordinal)
-                && string.Equals(
-                    reFlyDebobSampleRecordingId,
-                    reFlyRec.RecordingId,
-                    StringComparison.Ordinal)
-                && reFlyDebobSampleStoreVersion == storeVersion
-                && object.ReferenceEquals(reFlyDebobSamplePendingTree, pendingTree))
-            {
-                return reFlyDebobSampleSections;
-            }
-
-            List<TrackSection> sections = SelectReFlyAnchorSampleSections(reFlyRec, marker);
-            reFlyDebobSampleScopeKey = scopeKey;
-            reFlyDebobSampleRecordingId = reFlyRec.RecordingId;
-            reFlyDebobSampleStoreVersion = storeVersion;
-            reFlyDebobSamplePendingTree = pendingTree;
-            reFlyDebobSampleSections = sections;
-            return sections;
-        }
-
-        internal static bool TryComputeReFlyRecordedDebobCorrection(
-            List<TrackSection> sampleSections,
-            double currentUT,
-            out Vector3d correction,
-            out ReFlyRecordedDebobDiagnostics diagnostics)
-        {
-            correction = Vector3d.zero;
-            diagnostics = default(ReFlyRecordedDebobDiagnostics);
-            diagnostics.WindowSeconds = ReFlyRecordedDebobWindowSeconds;
-            diagnostics.BeforeUT = currentUT - ReFlyRecordedDebobWindowSeconds;
-            diagnostics.AfterUT = currentUT + ReFlyRecordedDebobWindowSeconds;
-
-            if (sampleSections == null || sampleSections.Count == 0)
-            {
-                diagnostics.Reason = "sections-missing";
-                return false;
-            }
-
-            if (!TrySampleRecordedAbsoluteWorld(
-                    sampleSections,
-                    currentUT,
-                    out Vector3d rawWorld,
-                    out ReFlyRecordedAnchorSampleDiagnostics currentSample)
-                || !IsFiniteVector3d(rawWorld))
-            {
-                diagnostics.Reason = "current-sample-missing";
-                return false;
-            }
-
-            if (!TrySampleRecordedAbsoluteWorld(
-                    sampleSections,
-                    diagnostics.BeforeUT,
-                    out Vector3d beforeWorld,
-                    out ReFlyRecordedAnchorSampleDiagnostics beforeSample)
-                || beforeSample.ClampedToEndpoint
-                || !IsFiniteVector3d(beforeWorld))
-            {
-                diagnostics.RawWorld = rawWorld;
-                diagnostics.Reason = "before-sample-missing";
-                return false;
-            }
-
-            if (!TrySampleRecordedAbsoluteWorld(
-                    sampleSections,
-                    diagnostics.AfterUT,
-                    out Vector3d afterWorld,
-                    out ReFlyRecordedAnchorSampleDiagnostics afterSample)
-                || afterSample.ClampedToEndpoint
-                || !IsFiniteVector3d(afterWorld))
-            {
-                diagnostics.RawWorld = rawWorld;
-                diagnostics.Reason = "after-sample-missing";
-                return false;
-            }
-
-            string beforeBody = ResolveStableSampleBodyName(beforeSample);
-            string currentBody = ResolveStableSampleBodyName(currentSample);
-            string afterBody = ResolveStableSampleBodyName(afterSample);
-            diagnostics.BeforeBody = beforeBody;
-            diagnostics.CurrentBody = currentBody;
-            diagnostics.AfterBody = afterBody;
-            diagnostics.RawWorld = rawWorld;
-
-            if (string.IsNullOrEmpty(beforeBody)
-                || string.IsNullOrEmpty(currentBody)
-                || string.IsNullOrEmpty(afterBody)
-                || !string.Equals(beforeBody, currentBody, StringComparison.Ordinal)
-                || !string.Equals(currentBody, afterBody, StringComparison.Ordinal))
-            {
-                diagnostics.Reason = "body-mismatch";
-                return false;
-            }
-
-            if (!TryComputeReFlyDebobCorrectionFromSamples(
-                    beforeWorld,
-                    diagnostics.BeforeUT,
-                    rawWorld,
-                    currentUT,
-                    afterWorld,
-                    diagnostics.AfterUT,
-                    ReFlyRecordedDebobMaxCorrectionMeters,
-                    out correction,
-                    out Vector3d baselineWorld,
-                    out string reason))
-            {
-                diagnostics.BaselineWorld = baselineWorld;
-                diagnostics.Correction = correction;
-                diagnostics.CorrectionMeters = correction.magnitude;
-                diagnostics.Reason = reason;
-                return false;
-            }
-
-            diagnostics.Applied = true;
-            diagnostics.Reason = "applied";
-            diagnostics.BaselineWorld = baselineWorld;
-            diagnostics.Correction = correction;
-            diagnostics.CorrectionMeters = correction.magnitude;
-            return true;
-        }
-
-        internal static bool TryComputeReFlyDebobCorrectionFromSamples(
-            Vector3d beforeWorld,
-            double beforeUT,
-            Vector3d rawWorld,
-            double currentUT,
-            Vector3d afterWorld,
-            double afterUT,
-            double maxCorrectionMeters,
-            out Vector3d correction,
-            out Vector3d baselineWorld,
-            out string reason)
-        {
-            correction = Vector3d.zero;
-            baselineWorld = Vector3d.zero;
-            reason = null;
-
-            if (!IsFiniteVector3d(beforeWorld)
-                || !IsFiniteVector3d(rawWorld)
-                || !IsFiniteVector3d(afterWorld))
-            {
-                reason = "non-finite-sample";
-                return false;
-            }
-
-            if (double.IsNaN(beforeUT)
-                || double.IsInfinity(beforeUT)
-                || double.IsNaN(currentUT)
-                || double.IsInfinity(currentUT)
-                || double.IsNaN(afterUT)
-                || double.IsInfinity(afterUT)
-                || !(beforeUT < currentUT)
-                || !(currentUT < afterUT))
-            {
-                reason = "invalid-time-window";
-                return false;
-            }
-
-            double span = afterUT - beforeUT;
-            if (span <= 0.001)
-            {
-                reason = "time-window-too-small";
-                return false;
-            }
-
-            double t = (currentUT - beforeUT) / span;
-            if (t < 0.0 || t > 1.0)
-            {
-                reason = "time-window-out-of-range";
-                return false;
-            }
-
-            baselineWorld = Vector3d.Lerp(beforeWorld, afterWorld, (float)t);
-            correction = baselineWorld - rawWorld;
-            if (!IsFiniteVector3d(baselineWorld) || !IsFiniteVector3d(correction))
-            {
-                reason = "non-finite-correction";
-                return false;
-            }
-
-            double magnitude = correction.magnitude;
-            if (magnitude > maxCorrectionMeters)
-            {
-                reason = "correction-too-large";
-                return false;
-            }
-
-            reason = "applied";
-            return true;
-        }
-
-        private static string ResolveStableSampleBodyName(
-            ReFlyRecordedAnchorSampleDiagnostics diagnostics)
-        {
-            if (diagnostics.ClampedToEndpoint)
-                return null;
-            if (string.IsNullOrEmpty(diagnostics.BodyBeforeName)
-                || string.IsNullOrEmpty(diagnostics.BodyAfterName))
-                return null;
-            if (!string.Equals(
-                    diagnostics.BodyBeforeName,
-                    diagnostics.BodyAfterName,
-                    StringComparison.Ordinal))
-                return null;
-            return diagnostics.BodyBeforeName;
-        }
-
-        /// <summary>
-        /// Pure decision helper for the spawn-frame activation gate (#688
-        /// follow-up). Returns the decision (raise / lower / lower-with-no-
-        /// op) given the inputs as parameters. Extracted so xUnit can drive
-        /// the gate logic without needing a MonoBehaviour-instantiated
-        /// <see cref="ParsekFlight"/> or a live KSP runtime.
-        ///
-        /// <para>
-        /// Callers compute <paramref name="offsetApplied"/> and
-        /// <paramref name="hasResolvableAnchorData"/> ahead of time. The
-        /// decision rule:
-        /// <list type="bullet">
-        ///   <item><description>Active ghost or no marker or out-of-tree → lower the gate.</description></item>
-        ///   <item><description>No resolvable anchor data → lower the gate (safety net for non-in-place Re-Fly).</description></item>
-        ///   <item><description>Offset applied → lower the gate.</description></item>
-        ///   <item><description>Inactive ghost in the active tree, anchor data exists, offset miss → raise the gate.</description></item>
-        /// </list>
-        /// </para>
-        /// </summary>
-        internal static bool ShouldRaiseExternalActivationGate(
-            bool ghostActive,
-            string recordingId,
-            ReFlySessionMarker marker,
-            bool hasResolvableAnchorData,
-            bool offsetApplied)
-        {
-            // Test-friendly entry point that resolves `inTree` from
-            // (recordingId, marker) and forwards to the production
-            // helper used by RefreshReFlyAnchorActivationGate.
-            return ShouldRaiseExternalActivationGateGivenInputs(
-                ghostActive,
-                inTree: IsRecordingInReFlyTreeMarker(recordingId, marker),
-                hasResolvableAnchorData,
-                offsetApplied);
-        }
-
-        /// <summary>
-        /// Updates <see cref="GhostPlaybackState.externalActivationDeferred"/>
-        /// for a freshly-positioned ghost. While the ghost is inactive AND
-        /// belongs to the active Re-Fly tree AND the active Re-Fly target
-        /// has resolvable anchor data, the gate stays raised whenever the
-        /// frozen display alignment cannot be resolved at
-        /// <paramref name="currentUT"/> (e.g. live anchor not yet finite,
-        /// recorded snapshot still loading). The gate is re-evaluated
-        /// against the live <c>state.ghost.activeSelf</c> on every call,
-        /// so a ghost that gets de-activated by zone hide / warp / part
-        /// destruction and later re-activates can have the gate raised
-        /// again on the re-activation pass — that's the intended
-        /// behaviour: re-spawn re-runs the safety check. A transient
-        /// mid-playback miss while the ghost is already active does NOT
-        /// flicker it back to invisible because the active branch
-        /// short-circuits before any gate-raise path can fire.
-        ///
-        /// <para>
-        /// The "resolvable anchor data" precondition is the safety net that
-        /// keeps the gate from holding ghosts permanently invisible in the
-        /// non-in-place Re-Fly continuation path: that path creates a fresh
-        /// empty provisional and never captures a pre-Re-Fly snapshot
-        /// against it, so <see cref="TryGetReFlyTreeAnchorOffset"/> would
-        /// return false forever and the gate would never clear. When no
-        /// anchor data is reachable the gate is unconditionally lowered so
-        /// the engine activates the ghost at its unanchored recorded
-        /// position — the same behaviour as before the gate existed.
-        /// </para>
-        ///
-        /// <para>
-        /// Cheap to call per-frame: only does work for ghosts that are
-        /// inactive AND in the active Re-Fly tree. Each branch short-
-        /// circuits before the per-call <see cref="TryGetReFlyTreeAnchorOffset"/>
-        /// invocation, so the no-Re-Fly common case is a single dict
-        /// lookup + early return.
-        /// </para>
-        /// </summary>
-        internal void RefreshReFlyAnchorActivationGate(
-            string recordingId, GhostPlaybackState state, double currentUT)
-        {
-            if (state?.ghost == null)
-                return;
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            // Compute each input ONCE — the previous code re-derived
-            // `inTree` two more times (in ShouldRaiseExternalActivationGate
-            // and ResolveLowerReason), each one being an O(tree-count)
-            // committed-tree walk. Pass the result through.
-            bool ghostActive = state.ghost.activeSelf;
-            bool inTree = !ghostActive && IsRecordingInReFlyTreeMarker(recordingId, marker);
-            bool hasResolvableAnchorData = inTree
-                && HasResolvableReFlyAnchorData(marker, currentUT);
-            bool offsetApplied = false;
-            if (hasResolvableAnchorData)
-            {
-                offsetApplied = TryGetReFlyTreeAnchorOffset(
-                    recordingId, currentUT, out Vector3d _);
-            }
-            bool raise = ShouldRaiseExternalActivationGateGivenInputs(
-                ghostActive, inTree, hasResolvableAnchorData, offsetApplied);
-
-            if (raise)
-            {
-                RaiseExternalActivationGate(state, recordingId, currentUT);
-            }
-            else
-            {
-                string reason = ResolveLowerReason(
-                    ghostActive, inTree, hasResolvableAnchorData, offsetApplied);
-                LowerExternalActivationGate(state, recordingId, reason);
-            }
-        }
-
-        // Internal helper that takes the precomputed `inTree` flag, used by
-        // RefreshReFlyAnchorActivationGate to avoid the second tree walk
-        // through ShouldRaiseExternalActivationGate's IsRecordingInReFlyTreeMarker
-        // call. Public entry point ShouldRaiseExternalActivationGate (below)
-        // forwards to this helper.
-        private static bool ShouldRaiseExternalActivationGateGivenInputs(
-            bool ghostActive, bool inTree,
-            bool hasResolvableAnchorData, bool offsetApplied)
-        {
-            if (ghostActive) return false;
-            if (!inTree) return false;
-            if (!hasResolvableAnchorData) return false;
-            return !offsetApplied;
-        }
-
-        private static string ResolveLowerReason(
-            bool ghostActive, bool inTree,
-            bool hasResolvableAnchorData, bool offsetApplied)
-        {
-            if (ghostActive) return "ghost-active";
-            if (!inTree) return "out-of-tree";
-            if (!hasResolvableAnchorData) return "no-anchor-data";
-            if (offsetApplied) return "offset-resolved";
-            return "<unreachable>";
-        }
-
-        private static void LowerExternalActivationGate(
-            GhostPlaybackState state, string recordingId, string reason)
-        {
-            if (state == null) return;
-            bool wasRaised = state.externalActivationDeferred;
-            state.externalActivationDeferred = false;
-            if (wasRaised)
-            {
-                GhostRenderTrace.EmitPhase(
-                    recordingId,
-                    -1,
-                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : double.NaN,
-                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : double.NaN,
-                    "ReFlyActivationGate",
-                    "action=lower reason=" + (reason ?? "<none>"),
-                    important: false,
-                    force: true);
-                ParsekLog.Verbose("Playback",
-                    "Re-Fly anchor activation gate lowered: rec="
-                    + ShortRecordingId(recordingId)
-                    + " reason=" + (reason ?? "<none>"));
-            }
-        }
-
-        private static void RaiseExternalActivationGate(
-            GhostPlaybackState state, string recordingId, double currentUT)
-        {
-            if (state == null) return;
-            bool wasRaised = state.externalActivationDeferred;
-            state.externalActivationDeferred = true;
-            if (!wasRaised)
-            {
-                GhostRenderTrace.EmitPhase(
-                    recordingId,
-                    -1,
-                    currentUT,
-                    currentUT,
-                    "ReFlyActivationGate",
-                    "action=raise reason=offset-not-resolvable",
-                    important: false,
-                    force: true);
-                ParsekLog.VerboseRateLimited(
-                    "Playback",
-                    "refly-gate-raise|" + (recordingId ?? "<no-rec>"),
-                    "Re-Fly anchor activation gate raised: rec="
-                    + ShortRecordingId(recordingId)
-                    + " ut=" + currentUT.ToString("F2", CultureInfo.InvariantCulture)
-                    + " (offset not yet resolvable; ghost stays hidden until "
-                    + "the offset resolves or the active Re-Fly target's anchor data is gone)",
-                    5.0);
-            }
-        }
-
-        /// <summary>
-        /// Returns true when the active Re-Fly target has trajectory data
-        /// the display alignment capture path can sample at the current playback
-        /// UT. The predicate must agree with
-        /// <see cref="TrySampleRecordedAbsoluteWorld"/> on THREE axes:
-        /// <list type="bullet">
-        ///   <item><description><b>Source selection.</b> When a captured
-        ///   pre-Re-Fly snapshot exists for the active session, the offset
-        ///   sampler uses the snapshot's <see cref="Recording.PreReFlyAnchorTrackSections"/>
-        ///   exclusively — it does NOT fall through to live track sections
-        ///   if the snapshot is unsampleable. The gate predicate must
-        ///   match: when a snapshot exists for the session, only the
-        ///   snapshot is consulted; when no snapshot exists, only the
-        ///   live recording's <see cref="Recording.TrackSections"/> are.
-        ///   Falling through to live in the snapshot-unsampleable case
-        ///   would land on the player's NEW flight data (post-trim
-        ///   extension), producing a circular self-anchored result.</description></item>
-        ///   <item><description><b>Chain extension.</b> When the active
-        ///   recording is part of a chain (optimizer-split halves, etc.),
-        ///   the primary list only covers up to the split UT. The sampler
-        ///   appends chain successors' track sections — they're untouched
-        ///   by Re-Fly's <see cref="ParsekScenario.QuickloadTrimScope.ActiveRecOnly"/>
-        ///   trim. The predicate must consult the same combined list so a
-        ///   ghost spawning at decouple UT (which falls in the successor's
-        ///   range) sees true here and gets a real offset, instead of the
-        ///   sampler clamping to the split UT and producing a stale
-        ///   anchor 1-2 km off.</description></item>
-        ///   <item><description><b>Section-at-UT.</b> The sampler picks
-        ///   the section that covers <paramref name="currentUT"/> (or
-        ///   clamps to the nearest endpoint section), then accepts /
-        ///   rejects that single section. The gate predicate must
-        ///   evaluate sampleability against the SAME section the sampler
-        ///   would choose — a recording with an early sampleable Absolute
-        ///   section followed by a later OrbitalCheckpoint section
-        ///   reports false during the checkpoint window even though the
-        ///   list as a whole has sampleable data elsewhere.</description></item>
-        /// </list>
-        /// </summary>
-        internal static bool HasResolvableReFlyAnchorData(
-            ReFlySessionMarker marker, double currentUT)
-        {
-            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-                return false;
-            Recording reFlyRec = FindRecordingByIdInTrees(marker.ActiveReFlyRecordingId);
-            if (reFlyRec == null)
-                return false;
-            return HasSampleableTrackSectionAtUT(
-                SelectReFlyAnchorSampleSections(reFlyRec, marker), currentUT);
-        }
-
-        /// <summary>
-        /// Single source of truth for which track-section list the Re-Fly
-        /// display alignment sampler reads from. Both
-        /// <see cref="HasResolvableReFlyAnchorData"/> and
-        /// <see cref="TryCaptureReFlyDisplayAlignment"/> route
-        /// through this helper so the predicate-sampler contract cannot
-        /// drift apart again. When a captured pre-Re-Fly snapshot exists
-        /// for the active session the snapshot's track sections are
-        /// returned; otherwise the live recording's track sections are.
-        /// No fall-through — the live recording's post-trim extension is
-        /// the player's NEW flight data and anchoring to it would be
-        /// circular. Returns null when either input is null.
-        ///
-        /// <para>When the active Re-Fly recording is part of a chain
-        /// (e.g. an optimizer-split atmospheric / exo pair), the primary
-        /// list (snapshot or live) only covers up to the split UT. Player
-        /// flight past that UT — for instance, watching a decouple that
-        /// happened in the original timeline AFTER the split — needs the
-        /// chain successors' track sections to keep the alignment capture
-        /// honest. Re-Fly's <see cref="ParsekScenario.QuickloadTrimScope.ActiveRecOnly"/>
-        /// trim leaves chain successors untouched (only the active rec
-        /// gets trimmed past cutoff), so their <see cref="Recording.TrackSections"/>
-        /// still hold the original recorded path and are safe to read.
-        /// Successor sections are appended in <see cref="Recording.ChainIndex"/>
-        /// order; the appended list is fed to <see cref="TrySampleRecordedAbsoluteWorld"/>
-        /// which selects the section covering the current UT (or clamps
-        /// to the nearest endpoint section, same as the no-chain case).</para>
-        /// </summary>
-        private static List<TrackSection> SelectReFlyAnchorSampleSections(
-            Recording reFlyRec, ReFlySessionMarker marker)
-        {
-            if (reFlyRec == null || marker == null) return null;
-            // HasPreReFlyAnchorTrajectory short-circuits on a null/empty
-            // sessionId, so no extra string check is needed here.
-            List<TrackSection> primary = reFlyRec.HasPreReFlyAnchorTrajectory(marker.SessionId)
-                ? reFlyRec.PreReFlyAnchorTrackSections
-                : reFlyRec.TrackSections;
-
-            // No chain → primary is the whole story. Returns the field-
-            // resident list directly (no allocation).
-            if (string.IsNullOrEmpty(reFlyRec.ChainId) || reFlyRec.ChainIndex < 0)
-                return primary;
-
-            return AppendReFlyAnchorChainSuccessorSections(primary, reFlyRec, marker);
-        }
-
-        /// <summary>
-        /// Walks the recording store for chain successors of the active
-        /// Re-Fly recording (same <see cref="Recording.ChainId"/>, strictly
-        /// greater <see cref="Recording.ChainIndex"/>, with non-empty
-        /// <see cref="Recording.TrackSections"/>) and appends their
-        /// sections to <paramref name="primary"/>. When no successors
-        /// exist, returns <paramref name="primary"/> unchanged so the
-        /// no-chain hot path stays allocation-free. Successors are scoped
-        /// to the active Re-Fly tree (<see cref="ReFlySessionMarker.TreeId"/>)
-        /// — chain IDs are tree-local and a global walk could collide.
-        /// The match predicate also requires
-        /// <see cref="Recording.ChainBranch"/> equality with the active
-        /// recording. <c>ChainBranch == 0</c> is the primary chain path
-        /// while <c>ChainBranch &gt; 0</c> is a parallel ghost-only
-        /// continuation (e.g. dock / undock branch-1 recordings); same
-        /// <c>ChainId</c> + different <c>ChainBranch</c> represent
-        /// independent vessel paths and must not be appended together,
-        /// otherwise the sampler would interleave a parallel vessel's
-        /// trajectory into the active branch's anchor list. The same
-        /// <c>(TreeId, ChainId, ChainBranch)</c> triplet is used by
-        /// <c>EffectiveState.EnqueueChainSiblings</c> to scope the merge
-        /// closure walk; this helper mirrors that contract.
-        /// Exposed as <c>internal</c> for unit testing of the
-        /// optimizer-split anchor scenario.
-        /// </summary>
-        internal static List<TrackSection> AppendReFlyAnchorChainSuccessorSections(
-            List<TrackSection> primary, Recording reFlyRec, ReFlySessionMarker marker)
-        {
-            if (reFlyRec == null || marker == null) return primary;
-            if (string.IsNullOrEmpty(reFlyRec.ChainId) || reFlyRec.ChainIndex < 0)
-                return primary;
-
-            List<Recording> successors = null;
-            string chainId = reFlyRec.ChainId;
-            int activeIdx = reFlyRec.ChainIndex;
-            int activeBranch = reFlyRec.ChainBranch;
-            string treeId = marker.TreeId;
-
-            // Scope the walk to the active Re-Fly tree. A null/empty
-            // marker.TreeId is a malformed marker; falling through to
-            // every committed tree could pull successors from an
-            // unrelated tree that happens to share a ChainId GUID.
-            RecordingTree activeTree = ResolveTreeById(treeId);
-            if (activeTree?.Recordings != null)
-            {
-                CollectChainSuccessors(activeTree, chainId, activeIdx, activeBranch, ref successors);
-            }
-            // The pending tree is the resume-time tree before the
-            // committed-trees publish, so include it if it shares the
-            // marker's TreeId. After publish, CommittedTrees holds the
-            // canonical tree and PendingTree is null — no double-count.
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                if (pending != null
-                    && pending.Recordings != null
-                    && string.Equals(pending.Id, treeId, StringComparison.Ordinal)
-                    && !object.ReferenceEquals(pending, activeTree))
-                {
-                    CollectChainSuccessors(pending, chainId, activeIdx, activeBranch, ref successors);
-                }
-            }
-
-            if (successors == null || successors.Count == 0)
-                return primary;
-
-            // Sort by ChainIndex so the appended sections stay in UT
-            // order. TrackSection.startUT inside each recording is
-            // already monotonic, and chain segments are temporally
-            // contiguous (successor.startUT == predecessor.endUT for
-            // optimizer splits), so sorting by ChainIndex preserves the
-            // sorted-by-startUT contract that FindTrackSectionForUT
-            // relies on.
-            successors.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
-
-            int totalSections = primary?.Count ?? 0;
-            for (int i = 0; i < successors.Count; i++)
-                totalSections += successors[i].TrackSections.Count;
-
-            List<TrackSection> combined = new List<TrackSection>(totalSections);
-            if (primary != null) combined.AddRange(primary);
-            for (int i = 0; i < successors.Count; i++)
-                combined.AddRange(successors[i].TrackSections);
-
-            // One-line audit per active session per ~5s so the chain
-            // extension is visible in KSP.log without spamming. Key on
-            // sessionId + active recording so a session with multiple
-            // chain pairs (rare) still logs each.
-            ParsekLog.VerboseRateLimited(
-                "Playback",
-                "refly-anchor-chain-extend|"
-                    + (marker.SessionId ?? "<no-sess>")
-                    + "|" + (reFlyRec.RecordingId ?? "<no-rec>"),
-                "Re-Fly anchor chain extension active: rec="
-                    + ShortRecordingId(reFlyRec.RecordingId)
-                    + " chainId=" + ShortRecordingId(reFlyRec.ChainId)
-                    + " activeIdx=" + reFlyRec.ChainIndex.ToString(CultureInfo.InvariantCulture)
-                    + " activeBranch=" + reFlyRec.ChainBranch.ToString(CultureInfo.InvariantCulture)
-                    + " primarySecs=" + (primary?.Count ?? 0).ToString(CultureInfo.InvariantCulture)
-                    + " appendedSuccessors=" + successors.Count.ToString(CultureInfo.InvariantCulture)
-                    + " totalSecs=" + combined.Count.ToString(CultureInfo.InvariantCulture),
-                5.0);
-
-            return combined;
-        }
-
-        private static void CollectChainSuccessors(
-            RecordingTree tree, string chainId, int activeIdx, int activeBranch,
-            ref List<Recording> successors)
-        {
-            if (tree?.Recordings == null) return;
-            foreach (KeyValuePair<string, Recording> pair in tree.Recordings)
-            {
-                Recording rec = pair.Value;
-                if (rec == null) continue;
-                if (rec.ChainIndex <= activeIdx) continue;
-                if (rec.ChainBranch != activeBranch) continue;
-                if (!string.Equals(rec.ChainId, chainId, StringComparison.Ordinal))
-                    continue;
-                if (rec.TrackSections == null || rec.TrackSections.Count == 0)
-                    continue;
-                if (successors == null) successors = new List<Recording>(2);
-                successors.Add(rec);
-            }
-        }
-
-        private static RecordingTree ResolveTreeById(string treeId)
-        {
-            if (string.IsNullOrEmpty(treeId)) return null;
-            var trees = RecordingStore.CommittedTrees;
-            if (trees != null)
-            {
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    RecordingTree tree = trees[i];
-                    if (tree != null
-                        && string.Equals(tree.Id, treeId, StringComparison.Ordinal))
-                    {
-                        return tree;
-                    }
-                }
-            }
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                if (pending != null
-                    && string.Equals(pending.Id, treeId, StringComparison.Ordinal))
-                {
-                    return pending;
-                }
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Mirrors <see cref="TrySampleRecordedAbsoluteWorld"/>'s
-        /// section-selection-then-acceptance rule: picks the section that
-        /// covers <paramref name="ut"/> (clamping to the nearest endpoint
-        /// section when <paramref name="ut"/> is outside any section,
-        /// matching the sampler's clamp behaviour), then returns true iff
-        /// that single section is sampleable (Absolute with non-empty
-        /// <see cref="TrackSection.frames"/>, or Relative with non-empty
-        /// <see cref="TrackSection.absoluteFrames"/> v7 shadow). A list
-        /// containing sampleable sections elsewhere does not satisfy the
-        /// predicate when the section selected for the current UT is
-        /// unsampleable.
-        /// </summary>
-        internal static bool HasSampleableTrackSectionAtUT(
-            List<TrackSection> sections, double ut)
-        {
-            if (sections == null || sections.Count == 0)
-                return false;
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
-            if (sectionIdx < 0)
-            {
-                // Mirror TrySampleRecordedAbsoluteWorld's clamp: UT
-                // outside any section falls back to the nearest endpoint.
-                sectionIdx = ut < sections[0].startUT ? 0 : sections.Count - 1;
-            }
-            TrackSection s = sections[sectionIdx];
-            if (s.referenceFrame == ReferenceFrame.Absolute
-                && s.frames != null && s.frames.Count > 0)
-                return true;
-            if (s.referenceFrame == ReferenceFrame.Relative
-                && s.absoluteFrames != null && s.absoluteFrames.Count > 0)
-                return true;
-            return false;
-        }
-
-        private static bool TryResolveReFlyLiveAnchorWorld(
-            Vessel liveAnchor,
-            ReFlySessionMarker marker,
-            out Vector3d livePos,
-            out string source,
-            out uint partPersistentId,
-            out double vesselOffsetMeters)
-        {
-            livePos = Vector3d.zero;
-            source = null;
-            partPersistentId = 0u;
-            vesselOffsetMeters = double.NaN;
-            if (liveAnchor == null)
-                return false;
-
-            Vector3d vesselPos = liveAnchor.GetWorldPos3D();
-            bool haveFiniteVesselPos = IsFiniteVector3d(vesselPos);
-            uint selectedRootPartPid = marker != null
-                ? marker.SelectedRootPartPersistentId
-                : 0u;
-            if (selectedRootPartPid != 0u)
-            {
-                partPersistentId = selectedRootPartPid;
-                IList<Part> parts = liveAnchor.parts;
-                if (parts != null)
-                {
-                    for (int i = 0; i < parts.Count; i++)
-                    {
-                        Part part = parts[i];
-                        if (part == null || part.persistentId != selectedRootPartPid)
-                            continue;
-                        if (part.transform == null)
-                        {
-                            source = "vessel-world-root-part-no-transform";
-                            break;
-                        }
-
-                        Vector3d partPos = part.transform.position;
-                        if (!IsFiniteVector3d(partPos))
-                        {
-                            source = "vessel-world-root-part-non-finite";
-                            break;
-                        }
-
-                        livePos = partPos;
-                        source = "root-part";
-                        vesselOffsetMeters = haveFiniteVesselPos
-                            ? Vector3d.Distance(vesselPos, partPos)
-                            : double.NaN;
-                        return true;
-                    }
-                }
-
-                if (source == null)
-                    source = "vessel-world-root-part-missing";
-            }
-
-            if (!haveFiniteVesselPos)
-                return false;
-
-            livePos = vesselPos;
-            if (source == null)
-                source = "vessel-world";
-            vesselOffsetMeters = 0.0;
-            return true;
-        }
-
-        /// <summary>
-        /// Samples the recorded ABSOLUTE world position of <paramref name="rec"/>
-        /// at <paramref name="ut"/>, looking up the section at that UT and
-        /// reading from absolute frames (Absolute section: section.frames;
-        /// Relative section: section.absoluteFrames shadow). Returns false for
-        /// OrbitalCheckpoint sections or missing shadow data — callers fall
-        /// through.
-        /// </summary>
-        internal static bool TrySampleRecordedAbsoluteWorld(
-            Recording rec, double ut, out Vector3d worldPos)
-        {
-            worldPos = Vector3d.zero;
-            if (rec == null) return false;
-            return TrySampleRecordedAbsoluteWorld(rec.TrackSections, ut, out worldPos);
-        }
-
-        /// <summary>
-        /// Allocation-free overload of
-        /// <see cref="TrySampleRecordedAbsoluteWorld(Recording, double, out Vector3d)"/>
-        /// that takes the section list directly. The per-frame Re-Fly
-        /// anchor offset path uses this so it doesn't have to materialize
-        /// a synthetic <see cref="Recording"/> wrapping the captured
-        /// pre-Re-Fly snapshot just to read its track sections.
-        /// </summary>
-        internal static bool TrySampleRecordedAbsoluteWorld(
-            List<TrackSection> sections, double ut, out Vector3d worldPos)
-        {
-            return TrySampleRecordedAbsoluteWorld(
-                sections,
-                ut,
-                out worldPos,
-                out _);
-        }
-
-        internal static bool TrySampleRecordedAbsoluteWorld(
-            List<TrackSection> sections,
-            double ut,
-            out Vector3d worldPos,
-            out ReFlyRecordedAnchorSampleDiagnostics diagnostics)
-        {
-            worldPos = Vector3d.zero;
-            diagnostics = default(ReFlyRecordedAnchorSampleDiagnostics);
-            if (sections == null || sections.Count == 0)
-                return false;
-
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
-            if (sectionIdx < 0)
-            {
-                // UT outside any section — try clamping to nearest endpoint
-                if (ut < sections[0].startUT)
-                    sectionIdx = 0;
-                else
-                    sectionIdx = sections.Count - 1;
-            }
-
-            TrackSection section = sections[sectionIdx];
-            List<TrajectoryPoint> frames;
-            if (section.referenceFrame == ReferenceFrame.Absolute
-                && section.frames != null && section.frames.Count > 0)
-            {
-                frames = section.frames;
-                diagnostics.FrameSource = "absolute-frames";
-            }
-            else if (section.referenceFrame == ReferenceFrame.Relative
-                && section.absoluteFrames != null && section.absoluteFrames.Count > 0)
-            {
-                frames = section.absoluteFrames;
-                diagnostics.FrameSource = "relative-absolute-shadow";
-            }
-            else
-            {
-                return false;
-            }
-
-            diagnostics.SectionIndex = sectionIdx;
-            diagnostics.SectionFrame = section.referenceFrame;
-            diagnostics.SectionSource = section.source;
-            diagnostics.SectionStartUT = section.startUT;
-            diagnostics.SectionEndUT = section.endUT;
-            diagnostics.FrameCount = frames.Count;
-
-            int cachedIdx = 0;
-            TrajectoryPoint before;
-            TrajectoryPoint after;
-            float t;
-            bool hasSegment = TrajectoryMath.InterpolatePoints(
-                frames, ref cachedIdx, ut, out before, out after, out t);
-
-            if (!hasSegment)
-            {
-                TrajectoryPoint clamp = (ut <= frames[0].ut)
-                    ? frames[0]
-                    : frames[frames.Count - 1];
-                diagnostics.BeforeUT = clamp.ut;
-                diagnostics.AfterUT = clamp.ut;
-                diagnostics.InterpolationT = 0f;
-                diagnostics.ClampedToEndpoint = true;
-                diagnostics.BodyBeforeName = clamp.bodyName;
-                diagnostics.BodyAfterName = clamp.bodyName;
-                diagnostics.RecordedVelocity = clamp.velocity;
-                CelestialBody bodyClamp = FlightGlobals.Bodies?.Find(b => b.name == clamp.bodyName);
-                if (bodyClamp == null)
-                    return false;
-                worldPos = bodyClamp.GetWorldSurfacePosition(
-                    clamp.latitude, clamp.longitude, clamp.altitude);
-                return IsFiniteVector3d(worldPos);
-            }
-
-            CelestialBody bodyBefore = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
-            CelestialBody bodyAfter = FlightGlobals.Bodies?.Find(b => b.name == after.bodyName);
-            if (bodyBefore == null || bodyAfter == null)
-                return false;
-
-            diagnostics.BeforeUT = before.ut;
-            diagnostics.AfterUT = after.ut;
-            diagnostics.InterpolationT = t;
-            diagnostics.ClampedToEndpoint = false;
-            diagnostics.BodyBeforeName = before.bodyName;
-            diagnostics.BodyAfterName = after.bodyName;
-            diagnostics.RecordedVelocity = Vector3.Lerp(before.velocity, after.velocity, t);
-
-            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
-                before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
-                after.latitude, after.longitude, after.altitude);
-            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
-            return IsFiniteVector3d(worldPos);
-        }
-
-        internal static string ResolveTreeIdForRecording(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return null;
-            var trees = RecordingStore.CommittedTrees;
-            if (trees != null)
-            {
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    RecordingTree tree = trees[i];
-                    if (tree?.Recordings != null
-                        && tree.Recordings.ContainsKey(recordingId))
-                    {
-                        return tree.Id;
-                    }
-                }
-            }
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                if (pending?.Recordings != null
-                    && pending.Recordings.ContainsKey(recordingId))
-                {
-                    return pending.Id;
-                }
-            }
-            return null;
-        }
-
-        private static Recording FindRecordingByIdInTrees(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-                return null;
-            var trees = RecordingStore.CommittedTrees;
-            if (trees != null)
-            {
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    RecordingTree tree = trees[i];
-                    Recording rec;
-                    if (tree?.Recordings != null
-                        && tree.Recordings.TryGetValue(recordingId, out rec)
-                        && rec != null)
-                    {
-                        return rec;
-                    }
-                }
-            }
-            if (RecordingStore.HasPendingTree)
-            {
-                RecordingTree pending = RecordingStore.PendingTree;
-                Recording rec;
-                if (pending?.Recordings != null
-                    && pending.Recordings.TryGetValue(recordingId, out rec)
-                    && rec != null)
-                {
-                    return rec;
-                }
-            }
-            return null;
-        }
 
         internal static bool TryResolvePlaybackDistanceReferencePosition(
             bool mapViewEnabled,
@@ -22588,20 +18964,6 @@ namespace Parsek
             Vector3d worldPos;
             if (TryResolvePlaybackWorldPosition(index, traj, state, playbackUT, out worldPos))
             {
-                // Re-Fly tree anchor lock: once a render/admission path has
-                // captured display alignment, classify zone hiding / LOD /
-                // watch cutoff against that same projected position. This
-                // path is intentionally projection-only so a hidden ghost
-                // cannot freeze its per-session alignment during distance
-                // classification before it is actually renderable.
-                if (traj != null
-                    && TryProjectExistingReFlyTreeAnchorOffset(
-                        traj.RecordingId,
-                        playbackUT,
-                        out Vector3d treeDelta))
-                {
-                    worldPos += treeDelta;
-                }
                 return Vector3d.Distance(worldPos, referencePosition);
             }
 
@@ -22792,14 +19154,6 @@ namespace Parsek
             if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
                 interpolatedPos = posBefore;
 
-            // Re-Fly tree display alignment: translate Checkpoint section
-            // playback by the frozen body-fixed offset. Compute before
-            // anchor correction so the active Re-Fly display translation
-            // fences off the older anchor-correction epsilon.
-            Vector3d checkpointReFlyTreeOffset = Vector3d.zero;
-            bool hasCheckpointReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
-                recordingId, playbackUT, out checkpointReFlyTreeOffset);
-
             // §7.7 BubbleEntry/Exit (and any other §7.x candidate landing on
             // a Checkpoint section): apply the rigid-translation ε on top of
             // the Kepler-bracketed lerp before assigning the transform.
@@ -22813,16 +19167,11 @@ namespace Parsek
             // Checkpoint side. Same lookup as the PointInterp path uses
             // (Phase 2/3 ε, additive in world-space, HR-15 frozen-once).
             bool hasAnchorEps = allowRenderAnchorCorrectionInterval(
-                recordingId, sectionIdx, playbackUT, hasCheckpointReFlyTreeOffset,
+                recordingId, sectionIdx, playbackUT, false,
                 out Vector3d anchorEps, out string anchorCorrectionReason);
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
-            // The Re-Fly translation is applied to transform.position only — rotation
-            // math (orbital-frame radialOut) uses the pre-tree-offset position
-            // so the anchor offset doesn't push the ghost's orbital-frame
-            // attitude. ComputeOrbitalRotation receives interpolatedPos
-            // BEFORE the tree-offset add for that reason.
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
@@ -22838,17 +19187,8 @@ namespace Parsek
                 hasOfr,
                 spinning);
 
-            ghost.transform.position = interpolatedPos + checkpointReFlyTreeOffset;
+            ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = ghostRot;
-            bool checkpointPartPinApplied = TryApplyInitialReFlyGhostPartPin(
-                recordingId,
-                playbackUT,
-                ghost,
-                bodyBefore,
-                ref checkpointReFlyTreeOffset,
-                ref hasCheckpointReFlyTreeOffset,
-                out Vector3d checkpointPartPinDelta,
-                out string checkpointPartPinReason);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : playbackUT;
             if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
             {
@@ -22868,14 +19208,8 @@ namespace Parsek
                     + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
                     + " anchorCorrectionReason=" + anchorCorrectionReason
                     + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
-                    + " reFlyHit=" + (hasCheckpointReFlyTreeOffset ? "true" : "false")
-                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(checkpointReFlyTreeOffset)
-                    + " reFlyGhostPartPinHit=" + (checkpointPartPinApplied ? "true" : "false")
-                    + " reFlyGhostPartPinReason=" + (checkpointPartPinReason ?? "<none>")
-                    + " reFlyGhostPartPinDelta=" + GhostRenderTrace.FormatVector3d(checkpointPartPinApplied ? checkpointPartPinDelta : Vector3d.zero)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
-                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
-                    + BuildGhostRenderTraceLiveRootComparison(recordingId, ghost.transform.position));
+                    + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
 
             Quaternion pointRot = Quaternion.Slerp(before.rotation, after.rotation, t);
@@ -22912,8 +19246,6 @@ namespace Parsek
                 // ghost would drop the anchor correction every late frame.
                 anchorRecordingId = recordingId,
                 anchorSectionIndex = sectionIdx,
-                reFlyTreeOffset = checkpointReFlyTreeOffset,
-                hasReFlyTreeOffset = hasCheckpointReFlyTreeOffset,
             });
 
             interpResult = new InterpolationResult(
@@ -23975,15 +20307,14 @@ namespace Parsek
                     targetUT,
                     "recorded-relative-offset",
                     "anchor-pose-unresolved",
-                    target.Section.anchorVesselId,
+                    0u,
                     target.AnchorRecordingId,
                     success: false,
                     fromRecordedTrajectory: true,
                     anchorPosition: Vector3d.zero,
                     anchorRotation: Quaternion.identity,
                     localOffset: new Vector3d(dx, dy, dz),
-                    outputPosition: Vector3d.zero,
-                    reFlyOffset: Vector3d.zero);
+                    outputPosition: Vector3d.zero);
                 return false;
             }
 
@@ -23996,9 +20327,6 @@ namespace Parsek
                 recordingFormatVersion);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
                 worldPos = anchorPose.worldPos;
-            Vector3d reFlyTreeOffset = Vector3d.zero;
-            if (TryGetReFlyTreeAnchorOffset(target.RecordingId, targetUT, out reFlyTreeOffset))
-                worldPos += reFlyTreeOffset;
             GhostRenderTrace.EmitRelativeResolver(
                 target.RecordingId,
                 -1,
@@ -24006,15 +20334,14 @@ namespace Parsek
                 targetUT,
                 "recorded-relative-offset",
                 "resolved",
-                target.Section.anchorVesselId,
+                0u,
                 target.AnchorRecordingId,
                 success: true,
                 fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
                 anchorPosition: anchorPose.worldPos,
                 anchorRotation: anchorPose.worldRotation,
                 localOffset: new Vector3d(dx, dy, dz),
-                outputPosition: worldPos,
-                reFlyOffset: reFlyTreeOffset);
+                outputPosition: worldPos);
             return true;
         }
 
@@ -24025,613 +20352,88 @@ namespace Parsek
             out RelativeAnchorPose pose)
         {
             pose = default(RelativeAnchorPose);
-            IReadOnlyList<RecordingTree> searchTrees = null;
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            bool shouldCheckReFlyBypass =
-                marker != null
-                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                && !string.IsNullOrEmpty(victimRecordingId)
-                && string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal);
-            if (shouldCheckReFlyBypass)
+            if (anchorVesselId == 0u)
             {
-                searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                    RecordingStore.CommittedTrees,
-                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            }
-
-            bool bypassLiveAnchor = shouldCheckReFlyBypass
-                && ShouldBypassLiveRelativeAnchorForActiveReFly(
-                    anchorVesselId, victimRecordingId, marker, searchTrees);
-
-            RelativeAnchorPose livePose = default(RelativeAnchorPose);
-            bool liveAnchorAvailable = false;
-            if (!bypassLiveAnchor)
-            {
-                Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-                if (anchor != null)
-                {
-                    livePose.worldPos = anchor.GetWorldPos3D();
-                    livePose.worldRotation = anchor.transform.rotation;
-                    livePose.fromRecordedTrajectory = false;
-                    liveAnchorAvailable = IsFiniteVector3d(livePose.worldPos);
-                }
-            }
-
-            // Proximity fast-path: when the live anchor is loaded AND within
-            // physics range of the active vessel, trust the live pose and
-            // skip the (more expensive) recorded-anchor probe. This restores
-            // the pre-PR fast path for the common docking/rendezvous case —
-            // anchor is the station the player is approaching, live pose is
-            // by definition the right answer because the recording was made
-            // in the same world frame the player is currently in.
-            //
-            // The bug class this PR fixes (post-merge watch of a recording
-            // whose Relative anchor is now in stable orbit hundreds of km
-            // from the player) is, by construction, far from the active
-            // vessel — the orbital booster sits at ~818 km from the pad in
-            // the captured repro. So this fast-path keeps the docking case
-            // perf-equivalent to pre-PR while still letting the staleness
-            // check fire for the failure mode.
-            //
-            // Threshold (5 km) sits comfortably above KSP's ~2.5 km physics
-            // bubble (anchors loaded for physics are within that range) and
-            // well below the km-scale separations the bug exhibits. NaN /
-            // Infinity distances fall through to the slow path rather than
-            // tripping the fast-path; better to spend one extra probe than
-            // misclassify.
-            //
-            // Perf coverage analysis (review P2 from the Opus pass):
-            //  - Anchor loaded AND in physics range (≤5 km from active):
-            //    fast-path returns. O(1). This is the docking/rendezvous
-            //    common case.
-            //  - Anchor loaded BUT > 5 km from active: fast-path skipped,
-            //    recorded probe runs. KSP unloads vessels outside ~2.25 km
-            //    of the active vessel, so this band is narrow and rare —
-            //    typically only happens for a few frames around physics-
-            //    range crossings, or with mods extending the load distance.
-            //  - Anchor unloaded (vessel exists but physics-asleep): live
-            //    pose unavailable, fast-path can't apply, we fall through
-            //    to recorded probe. THIS is the bug-class path and the
-            //    probe is exactly what's needed.
-            // Net: under default KSP load behaviour, the residual probe-
-            // every-frame cost only applies to the bug-class scenario the
-            // PR is closing. If a future playtest with extended-physics
-            // mods shows perf regression for the loaded-but-far-from-active
-            // band, a per-FixedUpdate cache keyed on (anchorPid,
-            // sectionStartUT) is the natural follow-up — left out here to
-            // keep the surface area small until measured to matter.
-            if (liveAnchorAvailable && !bypassLiveAnchor)
-            {
-                Vessel activeForFastPath = FlightGlobals.ActiveVessel;
-                if (activeForFastPath != null)
-                {
-                    Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
-                    if (IsLiveAnchorWithinActiveFastPath(
-                            liveAnchorAvailable,
-                            livePose.worldPos,
-                            IsFiniteVector3d(activeWorld),
-                            activeWorld,
-                            out _))
-                    {
-                        pose = livePose;
-                        GhostRenderTrace.EmitRelativeResolver(
-                            victimRecordingId,
-                            -1,
-                            Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                            targetUT,
-                            "loop-live-anchor",
-                            "live-fast-path",
-                            anchorVesselId,
-                            null,
-                            success: true,
-                            fromRecordedTrajectory: false,
-                            anchorPosition: pose.worldPos,
-                            anchorRotation: pose.worldRotation,
-                            localOffset: Vector3d.zero,
-                            outputPosition: pose.worldPos,
-                            reFlyOffset: Vector3d.zero);
-                        return true;
-                    }
-                }
-            }
-
-            // Slow path: probe the recorded anchor pose so we can detect
-            // pose drift (live anchor far from active vessel — likely a
-            // post-merge / time-warp / cross-mission case). Pre-PR the
-            // early-exit at this point returned Live whenever
-            // liveAnchorAvailable && !bypass, skipping the recorded probe
-            // entirely; that made the post-merge watch-jump bug invisible
-            // because the Relative section's offset got decoded against the
-            // live anchor's CURRENT pose (hundreds of km from recording),
-            // tripping the watch zone cutoff. Keeping the recorded probe
-            // means we have the data to detect that drift and downgrade to
-            // the recorded path via IsStaleLiveAnchor below.
-            if (searchTrees == null)
-            {
-                searchTrees = GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                    RecordingStore.CommittedTrees,
-                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            }
-
-            bool recordedAnchorAvailable = TryResolveRecordedAnchorPoseWithCoverage(
-                anchorVesselId,
-                victimRecordingId,
-                targetUT,
-                searchTrees,
-                marker,
-                bypassLiveAnchor,
-                requireCoverage: true,
-                out RelativeAnchorPose recordedPose);
-
-            // Stale-anchor staleness gate: when we have BOTH a live and a
-            // recorded pose for the anchor at the playback UT, and they
-            // disagree by more than StaleRelativeAnchorRejectMeters, the
-            // live anchor's pose isn't what the recording captured (anchor
-            // has progressed past the recording's UT range, anchor was
-            // rewound, etc.). Prefer the recorded pose so the ghost renders
-            // at its recorded geometry instead of being decoded against an
-            // anchor that is now in a totally different physical location.
-            // This upgrades the active-Re-Fly bypass into a general "live
-            // anchor is unreliable" signal — same downstream path, broader
-            // applicability.
-            //
-            // Threshold rationale lives next to the constant; in short,
-            // 250 m is well above docking-approach noise (200 m
-            // DockingApproachMeters) and well below the km-scale drift the
-            // bug exhibits.
-            //
-            // Why this clause naturally no-ops during active Re-Fly:
-            // ShouldBypassLiveRelativeAnchorForActiveReFly already set
-            // bypassLiveAnchor=true above, which short-circuited the live
-            // probe (so liveAnchorAvailable=false). Both conditions
-            // conspire to skip this `if`. Don't add an explicit
-            // `bypassLiveAnchor` early-out here — leaving the predicate
-            // self-documenting via `liveAnchorAvailable` keeps the gate's
-            // semantics ("we have two poses to compare") readable.
-            if (liveAnchorAvailable
-                && recordedAnchorAvailable
-                && !bypassLiveAnchor
-                && RelativeAnchorResolution.IsStaleLiveAnchor(
-                    livePose.worldPos,
-                    recordedPose.worldPos,
-                    StaleRelativeAnchorRejectMeters,
-                    out double posDelta))
-            {
-                var ic = CultureInfo.InvariantCulture;
-                string staleKey = string.Concat(
-                    "stale-anchor|",
-                    anchorVesselId.ToString(ic),
-                    "|",
-                    victimRecordingId ?? "<no-victim>");
-                ParsekLog.VerboseRateLimited("Playback", staleKey,
-                    $"Stale relative anchor detected: anchorPid={anchorVesselId} " +
-                    $"victim={ShortRecordingId(victimRecordingId)} " +
-                    $"targetUT={targetUT.ToString("F2", ic)} " +
-                    $"liveWorld=({livePose.worldPos.x.ToString("F1", ic)}," +
-                    $"{livePose.worldPos.y.ToString("F1", ic)}," +
-                    $"{livePose.worldPos.z.ToString("F1", ic)}) " +
-                    $"recordedWorld=({recordedPose.worldPos.x.ToString("F1", ic)}," +
-                    $"{recordedPose.worldPos.y.ToString("F1", ic)}," +
-                    $"{recordedPose.worldPos.z.ToString("F1", ic)}) " +
-                    $"delta={posDelta.ToString("F0", ic)}m " +
-                    $"threshold={StaleRelativeAnchorRejectMeters.ToString("F0", ic)}m " +
-                    "— preferring recorded anchor pose");
-                bypassLiveAnchor = true;
-            }
-
-            bool recordedFallbackAvailable = false;
-            RelativeAnchorPose recordedFallbackPose = default(RelativeAnchorPose);
-            if (!recordedAnchorAvailable && bypassLiveAnchor)
-            {
-                recordedFallbackAvailable = TryResolveRecordedAnchorPoseWithCoverage(
-                    anchorVesselId,
+                GhostRenderTrace.EmitRelativeResolver(
                     victimRecordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
                     targetUT,
-                    searchTrees,
-                    marker,
-                    bypassLiveAnchor,
-                    requireCoverage: false,
-                    out recordedFallbackPose);
-            }
-
-            RelativeAnchorResolution.AnchorFrameSource source =
-                RelativeAnchorResolution.SelectAnchorFrameSource(
-                    liveAnchorAvailable,
-                    bypassLiveAnchor,
-                    recordedAnchorAvailable,
-                    recordedFallbackAvailable);
-            switch (source)
-            {
-                case RelativeAnchorResolution.AnchorFrameSource.Live:
-                    pose = livePose;
-                    GhostRenderTrace.EmitRelativeResolver(
-                        victimRecordingId,
-                        -1,
-                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                        targetUT,
-                        "loop-live-anchor",
-                        "live-selected",
-                        anchorVesselId,
-                        null,
-                        success: true,
-                        fromRecordedTrajectory: false,
-                        anchorPosition: pose.worldPos,
-                        anchorRotation: pose.worldRotation,
-                        localOffset: Vector3d.zero,
-                        outputPosition: pose.worldPos,
-                        reFlyOffset: Vector3d.zero);
-                    return true;
-                case RelativeAnchorResolution.AnchorFrameSource.Recorded:
-                    pose = recordedPose;
-                    GhostRenderTrace.EmitRelativeResolver(
-                        victimRecordingId,
-                        -1,
-                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                        targetUT,
-                        "loop-live-anchor",
-                        bypassLiveAnchor ? "recorded-selected-bypass" : "recorded-selected-stale-or-unloaded",
-                        anchorVesselId,
-                        null,
-                        success: true,
-                        fromRecordedTrajectory: true,
-                        anchorPosition: pose.worldPos,
-                        anchorRotation: pose.worldRotation,
-                        localOffset: Vector3d.zero,
-                        outputPosition: pose.worldPos,
-                        reFlyOffset: Vector3d.zero);
-                    return true;
-                case RelativeAnchorResolution.AnchorFrameSource.RecordedFallback:
-                    pose = recordedFallbackPose;
-                    GhostRenderTrace.EmitRelativeResolver(
-                        victimRecordingId,
-                        -1,
-                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                        targetUT,
-                        "loop-live-anchor",
-                        "recorded-fallback-selected",
-                        anchorVesselId,
-                        null,
-                        success: true,
-                        fromRecordedTrajectory: true,
-                        anchorPosition: pose.worldPos,
-                        anchorRotation: pose.worldRotation,
-                        localOffset: Vector3d.zero,
-                        outputPosition: pose.worldPos,
-                        reFlyOffset: Vector3d.zero);
-                    return true;
-                default:
-                    GhostRenderTrace.EmitRelativeResolver(
-                        victimRecordingId,
-                        -1,
-                        Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
-                        targetUT,
-                        "loop-live-anchor",
-                        "no-anchor-source",
-                        anchorVesselId,
-                        null,
-                        success: false,
-                        fromRecordedTrajectory: false,
-                        anchorPosition: Vector3d.zero,
-                        anchorRotation: Quaternion.identity,
-                        localOffset: Vector3d.zero,
-                        outputPosition: Vector3d.zero,
-                        reFlyOffset: Vector3d.zero);
-                    return false;
-            }
-        }
-
-        // Stale-anchor staleness threshold (metres). Live anchor world position
-        // at the playback UT differs from recorded anchor world position at
-        // the same UT by more than this → the resolver downgrades to the
-        // recorded pose.
-        //
-        // Why 250 m:
-        // - During *normal* in-physics-range playback the live anchor is
-        //   either the active vessel or a vessel within ~2.5 km being
-        //   physics-simulated alongside; sample-interp drift across the
-        //   recording's ~0.1-0.5 s sample interval is at most a few tens of
-        //   metres for atmospheric flight and centimetres for a Kepler-on-
-        //   rails anchor (deterministic). 250 m gives ~5x safety margin
-        //   above that noise floor.
-        // - The *bug class* (post-merge watch session, plain rewind, time-
-        //   warp etc.) puts the live anchor hundreds of metres to hundreds
-        //   of km from where the recording captured it — orders of magnitude
-        //   above 250 m. The captured repro at
-        //   logs/2026-04-27_0123_watch-jump-and-ghost-misalign sat at
-        //   818 km, comfortably across the threshold.
-        // - Sits above DockingApproachMeters (200 m) so legitimate close-
-        //   rendezvous ghosts whose anchor is a docking target the player
-        //   is actively flying near don't false-positive on
-        //   sample-interp noise.
-        // - The companion proximity fast-path at LiveAnchorProximityFastPathMeters
-        //   already short-circuits the staleness check entirely for anchors
-        //   in physics range of the active vessel, so this threshold only
-        //   gates the cases where probing recorded was already going to
-        //   happen.
-        internal const double StaleRelativeAnchorRejectMeters = 250.0;
-
-        // Proximity fast-path threshold (metres). When the live anchor is
-        // closer than this to the active vessel, the relative-anchor
-        // resolver trusts the live pose and skips the recorded probe (and
-        // the staleness check that follows). Picked at 5 km: above KSP's
-        // ~2.5 km physics bubble so any legitimately-loaded anchor falls
-        // inside the fast-path, well below the bug-class km-scale
-        // separations.
-        internal const double LiveAnchorProximityFastPathMeters = 5_000.0;
-
-        bool ShouldBypassLiveRelativeAnchorForActiveReFly(
-            uint anchorVesselId,
-            string victimRecordingId,
-            ReFlySessionMarker marker,
-            IReadOnlyList<RecordingTree> searchTrees)
-        {
-            if (marker == null)
-                return false;
-            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                || string.IsNullOrEmpty(victimRecordingId))
-                return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
-                return false;
-
-            if (!TryResolveActiveReFlyPid(marker, searchTrees, out uint activeReFlyPid))
-                return false;
-            if (anchorVesselId != activeReFlyPid)
-                return false;
-
-            // Compute the parent-chain hint for telemetry only — the bypass
-            // applies to any victim recording whose section anchor is the
-            // active Re-Fly PID, regardless of topological relationship. See
-            // RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly's
-            // docstring (PR after the 2026-04-26 sibling-chain repro).
-            bool victimIsParentOfActiveReFly =
-                GhostMapPresence.IsRecordingInParentChainOfActiveReFly(
-                    victimRecordingId,
-                    marker.ActiveReFlyRecordingId,
-                    searchTrees,
-                    out _);
-
-            return RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly(
-                anchorVesselId,
-                activeReFlyPid,
-                victimRecordingId,
-                marker.ActiveReFlyRecordingId,
-                victimIsParentOfActiveReFly);
-        }
-
-        internal bool TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-            int recordingIndex,
-            IPlaybackTrajectory trajectory,
-            TrackSection section,
-            uint anchorVesselId,
-            double targetUT,
-            out List<TrajectoryPoint> absoluteFrames)
-        {
-            absoluteFrames = null;
-            if (trajectory == null
-                || section.referenceFrame != ReferenceFrame.Relative
-                || anchorVesselId == 0
-                || section.absoluteFrames == null
-                || section.absoluteFrames.Count < 1
-                || string.IsNullOrEmpty(trajectory.RecordingId))
-            {
-                return false;
-            }
-
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            IReadOnlyList<RecordingTree> searchTrees = null;
-            bool activeReFlyBypass = false;
-            if (marker != null
-                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                && string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
-            {
-                searchTrees =
-                    GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                        RecordingStore.CommittedTrees,
-                        RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-                activeReFlyBypass = ShouldBypassLiveRelativeAnchorForActiveReFly(
+                    "loop-live-anchor",
+                    "missing-anchor-pid",
                     anchorVesselId,
-                    trajectory.RecordingId,
-                    marker,
-                    searchTrees);
-            }
-
-            bool liveAnchorAvailable = false;
-            Vector3d liveAnchorWorld = Vector3d.zero;
-            bool liveAnchorWithinActiveFastPath = false;
-            double liveAnchorActiveDistance = double.NaN;
-            bool recordedAnchorAvailable = false;
-            Vector3d recordedAnchorWorld = Vector3d.zero;
-            if (!activeReFlyBypass)
-            {
-                Vessel liveAnchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-                if (liveAnchor != null)
-                {
-                    liveAnchorWorld = liveAnchor.GetWorldPos3D();
-                    liveAnchorAvailable = IsFiniteVector3d(liveAnchorWorld);
-                }
-
-                if (liveAnchorAvailable)
-                {
-                    Vessel activeForFastPath = FlightGlobals.ActiveVessel;
-                    if (activeForFastPath != null)
-                    {
-                        Vector3d activeWorld = activeForFastPath.GetWorldPos3D();
-                        liveAnchorWithinActiveFastPath = IsLiveAnchorWithinActiveFastPath(
-                            liveAnchorAvailable,
-                            liveAnchorWorld,
-                            IsFiniteVector3d(activeWorld),
-                            activeWorld,
-                            out liveAnchorActiveDistance);
-                    }
-
-                    if (liveAnchorWithinActiveFastPath)
-                    {
-                        var ic = CultureInfo.InvariantCulture;
-                        ParsekLog.VerboseRateLimited(
-                            "Playback",
-                            string.Concat(
-                                "relative-absolute-shadow-live-fast-path|",
-                                trajectory.RecordingId, "|",
-                                anchorVesselId.ToString(ic), "|",
-                                section.startUT.ToString("R", ic)),
-                            $"RELATIVE absolute shadow skipped: reason=live-anchor-proximity-fast-path " +
-                            $"anchorPid={anchorVesselId} " +
-                            $"distFromActive={liveAnchorActiveDistance.ToString("F0", ic)}m " +
-                            $"threshold={LiveAnchorProximityFastPathMeters.ToString("F0", ic)}m",
-                            5.0);
-                    }
-                    else
-                    {
-                        if (searchTrees == null)
-                        {
-                            searchTrees =
-                                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                                    RecordingStore.CommittedTrees,
-                                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-                        }
-
-                        if (TryResolveRecordedAnchorPoseWithCoverage(
-                                anchorVesselId,
-                                trajectory.RecordingId,
-                                targetUT,
-                                searchTrees,
-                                marker,
-                                bypassLiveAnchorForActiveReFly: false,
-                                requireCoverage: true,
-                                out RelativeAnchorPose recordedPose))
-                        {
-                            recordedAnchorWorld = recordedPose.worldPos;
-                            recordedAnchorAvailable = IsFiniteVector3d(recordedAnchorWorld);
-                        }
-                    }
-                }
-            }
-
-            if (!ShouldUseAbsoluteShadowForRelativeSection(
-                    activeReFlyBypass,
-                    liveAnchorAvailable,
-                    liveAnchorWorld,
-                    liveAnchorWithinActiveFastPath,
-                    recordedAnchorAvailable,
-                    recordedAnchorWorld,
-                    out string shadowReason,
-                    out double staleDeltaMeters))
-            {
+                    null,
+                    success: false,
+                    fromRecordedTrajectory: false,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero);
                 return false;
             }
 
-            absoluteFrames = ResolveAbsoluteShadowPlaybackFrames(
-                trajectory,
-                section,
-                targetUT);
-            string logKey = string.Concat(
-                shadowReason ?? "<none>", "|",
-                trajectory.RecordingId, "|", anchorVesselId.ToString(CultureInfo.InvariantCulture),
-                "|", section.startUT.ToString("R", CultureInfo.InvariantCulture));
-            if (loggedRelativeAbsoluteShadowStart.Add(logKey))
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor == null)
             {
-                var ic = CultureInfo.InvariantCulture;
-                string staleDetail = string.Equals(shadowReason, "stale-anchor", StringComparison.Ordinal)
-                    ? $" staleDelta={staleDeltaMeters.ToString("F0", ic)}m threshold={StaleRelativeAnchorRejectMeters.ToString("F0", ic)}m"
-                    : string.Empty;
-                ParsekLog.Info("Playback",
-                    $"RELATIVE absolute shadow playback: recording #{recordingIndex} " +
-                    $"\"{trajectory.VesselName}\" recordingId={ShortRecordingId(trajectory.RecordingId)} " +
-                    $"anchorPid={anchorVesselId} frames={absoluteFrames.Count} " +
-                    $"sectionUT=[{section.startUT:F1},{section.endUT:F1}] " +
-                    $"reason={shadowReason}{staleDetail}");
+                GhostRenderTrace.EmitRelativeResolver(
+                    victimRecordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "loop-live-anchor",
+                    "anchor-not-loaded",
+                    anchorVesselId,
+                    null,
+                    success: false,
+                    fromRecordedTrajectory: false,
+                    anchorPosition: Vector3d.zero,
+                    anchorRotation: Quaternion.identity,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero);
+                return false;
             }
+
+            Vector3d anchorWorld = anchor.GetWorldPos3D();
+            if (!IsFiniteVector3d(anchorWorld))
+            {
+                GhostRenderTrace.EmitRelativeResolver(
+                    victimRecordingId,
+                    -1,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                    targetUT,
+                    "loop-live-anchor",
+                    "non-finite-live-anchor",
+                    anchorVesselId,
+                    null,
+                    success: false,
+                    fromRecordedTrajectory: false,
+                    anchorPosition: anchorWorld,
+                    anchorRotation: anchor.transform.rotation,
+                    localOffset: Vector3d.zero,
+                    outputPosition: Vector3d.zero);
+                return false;
+            }
+
+            pose.worldPos = anchorWorld;
+            pose.worldRotation = anchor.transform.rotation;
+            pose.fromRecordedTrajectory = false;
+            GhostRenderTrace.EmitRelativeResolver(
+                victimRecordingId,
+                -1,
+                Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
+                targetUT,
+                "loop-live-anchor",
+                "live-selected",
+                anchorVesselId,
+                null,
+                success: true,
+                fromRecordedTrajectory: false,
+                anchorPosition: pose.worldPos,
+                anchorRotation: pose.worldRotation,
+                localOffset: Vector3d.zero,
+                outputPosition: pose.worldPos);
             return true;
         }
-
-        internal static bool ShouldUseAbsoluteShadowForRelativeSection(
-            bool activeReFlyBypass,
-            bool liveAnchorAvailable,
-            Vector3d liveAnchorWorld,
-            bool liveAnchorWithinActiveFastPath,
-            bool recordedAnchorAvailable,
-            Vector3d recordedAnchorWorld,
-            out string reason,
-            out double staleDeltaMeters)
-        {
-            reason = null;
-            staleDeltaMeters = double.NaN;
-            if (activeReFlyBypass)
-            {
-                reason = "active-refly-parent-chain";
-                return true;
-            }
-
-            if (liveAnchorWithinActiveFastPath)
-                return false;
-
-            // #688 follow-up: when the live anchor vessel doesn't exist
-            // (typical of regular Watch playback where the recording's
-            // original anchor vessel is gone — recovered, unloaded, or
-            // never existed in the current playback session), the shadow
-            // is the only world-position truth available for the Relative
-            // section. Without this branch, the legacy live-anchor relative
-            // path logs `relative-anchor-unresolved` and leaves the focused
-            // ghost briefly mispositioned at stage-separation moments,
-            // where the recorded anchor (the just-decoupled booster) only
-            // ever existed during the original recording. Caller already
-            // gated on `section.absoluteFrames` being non-empty, so the
-            // shadow data is guaranteed available when this branch fires.
-            if (!liveAnchorAvailable)
-            {
-                reason = "no-live-anchor";
-                return true;
-            }
-
-            if (!recordedAnchorAvailable)
-                return false;
-
-            if (RelativeAnchorResolution.IsStaleLiveAnchor(
-                    liveAnchorWorld,
-                    recordedAnchorWorld,
-                    StaleRelativeAnchorRejectMeters,
-                    out staleDeltaMeters))
-            {
-                reason = "stale-anchor";
-                return true;
-            }
-
-            return false;
-        }
-
-        internal static bool IsLiveAnchorWithinActiveFastPath(
-            bool liveAnchorAvailable,
-            Vector3d liveAnchorWorld,
-            bool activeVesselAvailable,
-            Vector3d activeVesselWorld,
-            out double distanceMeters)
-        {
-            distanceMeters = double.NaN;
-            if (!liveAnchorAvailable || !activeVesselAvailable)
-                return false;
-
-            distanceMeters = (liveAnchorWorld - activeVesselWorld).magnitude;
-            return !double.IsNaN(distanceMeters)
-                && !double.IsInfinity(distanceMeters)
-                && distanceMeters < LiveAnchorProximityFastPathMeters;
-        }
-
-        // SplitAtSection creates adjacent RELATIVE sections with back-to-back UT
-        // bounds. The 0.5s bridge window covers frame/float skew without spanning a
-        // real gap to an unrelated future section.
-        internal const double AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds = 0.5;
 
         internal static List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
             IPlaybackTrajectory trajectory,
@@ -24644,41 +20446,7 @@ namespace Parsek
             if (RecordedAnchorPointListCoversUT(absoluteFrames, targetUT))
                 return absoluteFrames;
             if (targetUT >= absoluteFrames[0].ut)
-            {
-                TrajectoryPoint forwardBridge;
-                if (!TryFindAbsoluteShadowForwardBridgeFrame(
-                        trajectory, section, targetUT, out forwardBridge))
-                {
-                    return absoluteFrames;
-                }
-
-                TrajectoryPoint last = absoluteFrames[absoluteFrames.Count - 1];
-                if (forwardBridge.ut <= last.ut + 0.0001)
-                    return absoluteFrames;
-
-                var forwardBridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
-                forwardBridged.AddRange(absoluteFrames);
-                forwardBridged.Add(forwardBridge);
-                ParsekLog.WarnRateLimited(
-                    "Playback",
-                    string.Concat(
-                        "absolute-shadow-forward-bridge|",
-                        trajectory?.RecordingId ?? "(none)",
-                        "|",
-                        section.startUT.ToString("R", CultureInfo.InvariantCulture)),
-                    string.Format(
-                        CultureInfo.InvariantCulture,
-                        "RELATIVE absolute shadow forward bridge inserted: recording={0} targetUT={1:F2} " +
-                        "lastShadowUT={2:F2} bridgeUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
-                        ShortRecordingId(trajectory?.RecordingId),
-                        targetUT,
-                        last.ut,
-                        forwardBridge.ut,
-                        section.startUT,
-                        section.endUT),
-                    30.0);
-                return forwardBridged;
-            }
+                return absoluteFrames;
 
             TrajectoryPoint bridge;
             if (!TryFindAbsoluteShadowBridgeFrame(trajectory, section, targetUT, out bridge))
@@ -24708,87 +20476,6 @@ namespace Parsek
                     section.endUT),
                 30.0);
             return bridged;
-        }
-
-        internal static bool TryFindAbsoluteShadowForwardBridgeFrame(
-            IPlaybackTrajectory trajectory,
-            TrackSection relativeSection,
-            double targetUT,
-            out TrajectoryPoint bridge)
-        {
-            bridge = default(TrajectoryPoint);
-            if (relativeSection.referenceFrame != ReferenceFrame.Relative
-                || relativeSection.absoluteFrames == null
-                || relativeSection.absoluteFrames.Count == 0)
-            {
-                return false;
-            }
-
-            double lastShadowUT =
-                relativeSection.absoluteFrames[relativeSection.absoluteFrames.Count - 1].ut;
-            double adjacentStartLimit = relativeSection.endUT + AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds;
-            bool found = false;
-            double bestUT = double.PositiveInfinity;
-
-            if (trajectory?.TrackSections != null)
-            {
-                for (int i = 0; i < trajectory.TrackSections.Count; i++)
-                {
-                    TrackSection section = trajectory.TrackSections[i];
-                    if (section.referenceFrame == ReferenceFrame.Absolute
-                        && section.frames != null
-                        && section.frames.Count > 0)
-                    {
-                        if (section.startUT < relativeSection.endUT - AbsoluteShadowForwardBridgeAdjacencyToleranceSeconds)
-                            continue;
-                        if (section.startUT > adjacentStartLimit)
-                            continue;
-
-                        TrajectoryPoint candidate = section.frames[0];
-                        if (candidate.ut <= lastShadowUT + 0.0001)
-                            continue;
-                        if (candidate.ut <= targetUT + 0.0001)
-                            continue;
-                        if (candidate.ut >= bestUT)
-                            continue;
-
-                        bridge = candidate;
-                        bestUT = candidate.ut;
-                        found = true;
-                        continue;
-                    }
-
-                    if (section.referenceFrame != ReferenceFrame.Relative
-                        || section.absoluteFrames == null
-                        || section.absoluteFrames.Count == 0)
-                    {
-                        continue;
-                    }
-                    if (section.anchorVesselId != relativeSection.anchorVesselId)
-                        continue;
-                    if (section.startUT > adjacentStartLimit)
-                        continue;
-                    if (section.endUT < relativeSection.endUT - 0.0001)
-                        continue;
-
-                    for (int j = 0; j < section.absoluteFrames.Count; j++)
-                    {
-                        TrajectoryPoint candidate = section.absoluteFrames[j];
-                        if (candidate.ut <= lastShadowUT + 0.0001)
-                            continue;
-                        if (candidate.ut <= targetUT + 0.0001)
-                            continue;
-                        if (candidate.ut >= bestUT)
-                            continue;
-
-                        bridge = candidate;
-                        bestUT = candidate.ut;
-                        found = true;
-                    }
-                }
-            }
-
-            return found;
         }
 
         internal static bool TryFindAbsoluteShadowBridgeFrame(
@@ -25060,6 +20747,125 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Issue #734 race fix: ensures the in-place Re-Fly fork is present
+        /// in <paramref name="tree"/>'s <c>Recordings</c> dictionary before
+        /// the restore coroutine runs <see cref="ReFlySessionMarker.ResolveInPlaceContinuationTarget"/>.
+        /// AtomicMarkerWrite eagerly attaches the fork to the pending tree,
+        /// but on async FLIGHT loads the restore coroutine and
+        /// AtomicMarkerWrite both fire on <c>onFlightReady</c> — if the
+        /// coroutine wins the race, AtomicMarkerWrite finds no pending tree
+        /// and the fork only lives in <see cref="RecordingStore.CommittedRecordings"/>.
+        /// This helper looks the fork up by id from the committed list and
+        /// attaches it to the tree so the swap can fire and the recorder
+        /// has a destination dict entry to flush into. Internal static so
+        /// xUnit can pin every branch without a live coroutine.
+        /// </summary>
+        internal static bool ReconcileInPlaceForkIntoTreeIfNeeded(
+            RecordingTree tree, ReFlySessionMarker marker)
+        {
+            if (tree == null || tree.Recordings == null || marker == null)
+                return false;
+            // Only the post-#734 fork shape needs reconciliation.
+            // AtomicMarkerWrite is the only writer of the
+            // InPlaceContinuation flag and always pairs it with a fresh
+            // provisional recording.
+            if (!marker.InPlaceContinuation)
+                return false;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                return false;
+            if (!string.IsNullOrEmpty(marker.TreeId)
+                && !string.Equals(marker.TreeId, tree.Id, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Locate the fork in the committed list. Allowlisted raw read
+            // per [ERS-exempt - Phase 6] file-level note in RewindInvoker.
+            // The committed-list object is the canonical one: AtomicMarkerWrite
+            // wrote it via AddProvisional, the recorder flushes through
+            // tree.ActiveRecordingId -> tree.Recordings[id], and
+            // TryCommitReFlySupersede resolves the provisional from the
+            // committed list. The same instance must live in BOTH places or
+            // commit/discard can pull a stale shadow object.
+            Recording committedFork = null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null) continue;
+                    if (string.Equals(rec.RecordingId,
+                            marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                    {
+                        committedFork = rec;
+                        break;
+                    }
+                }
+            }
+            if (committedFork == null)
+            {
+                // Normal F5/F9 mid-Re-Fly: LoadRecordingTrees skips
+                // isActive nodes and TryRestoreActiveTreeNode populates
+                // PendingTree.Recordings only (no AddCommittedInternal),
+                // so the fork is intentionally absent from the committed
+                // list while present in the tree's Recordings dict. The
+                // recorder will flush correctly via the tree path; only
+                // the genuine "missing from BOTH" state is data-loss.
+                bool inTree = tree.Recordings.ContainsKey(marker.ActiveReFlyRecordingId);
+                if (inTree)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
+                        $"absent from committed list but present in tree.Recordings " +
+                        $"(normal F5/F9 mid-Re-Fly hydration; recorder flush will work). " +
+                        $"sess={marker.SessionId ?? "<no-id>"} tree={tree.Id ?? "<none>"}");
+                }
+                else
+                {
+                    ParsekLog.Warn("Flight",
+                        $"ReconcileInPlaceForkIntoTreeIfNeeded: fork rec={marker.ActiveReFlyRecordingId} " +
+                        $"missing from BOTH committed list AND tree.Recordings — " +
+                        $"recorder flush will warn and stop. " +
+                        $"sess={marker.SessionId ?? "<no-id>"} tree={tree.Id ?? "<none>"}");
+                }
+                return false;
+            }
+
+            // Critical: when an F5/F9 mid-session deserialised tree has
+            // an in-place fork entry, that entry is a *new* Recording
+            // instance, but the committed list still holds the pre-load
+            // fork object. Recorder flush appends to the tree's instance,
+            // TryCommitReFlySupersede resolves the provisional from the
+            // committed list -- so without convergence the merge sees a
+            // stale shadow with no recorded data and CommitTree can even
+            // re-add a duplicate same-id row by reference. Compare the two
+            // and overwrite the tree slot with the committed instance when
+            // they diverge. EnsureForkAttachedToTree's own no-op short-
+            // circuit fires when they already match.
+            if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId,
+                    out Recording treeFork)
+                && ReferenceEquals(treeFork, committedFork))
+            {
+                return false;
+            }
+
+            // Always rebuild the background map after attach. The earlier
+            // optimisation (skipBackgroundMapRebuild: true) assumed
+            // RestoreActiveTreeFromPending's markerSwap branch would
+            // rebuild immediately afterwards, but that branch only fires
+            // when `ShouldSwap=true`. On the cold-start mid-Re-Fly path
+            // the saved tree's ActiveRecordingId is already the fork id
+            // (`already-pointing-at-marker`), so the swap is a no-op,
+            // the rebuild never runs, and the freshly-attached fork's
+            // pid lingers as a stale background entry. The double-rebuild
+            // when ShouldSwap IS true is cheap.
+            return RewindInvoker.EnsureForkAttachedToTree(
+                tree, committedFork, "RestoreActiveTreeFromPending:reconcile");
+        }
+
         internal static bool ShouldUsePreReFlyAnchorTrajectory(
             Recording candidate,
             uint anchorVesselId,
@@ -25073,13 +20879,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(candidate.RecordingId)
                 || !string.Equals(candidate.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
                 return false;
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
-            {
+            // Accept both the post-#734 fork shape (InPlaceContinuation flag,
+            // snapshot lives on the fork) and the pre-fork legacy in-place
+            // pattern (active == origin, snapshot lives on origin).
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
                 return false;
-            }
             if (!candidate.HasPreReFlyAnchorTrajectory(marker.SessionId))
                 return false;
             if (!string.IsNullOrEmpty(victimRecordingId)
@@ -25468,22 +21272,6 @@ namespace Parsek
                     ? section.anchorVesselId
                     : rec.LoopAnchorVesselId;
 
-                if (TryUseAbsoluteShadowForActiveReFlyRelativeSection(
-                        recIdx, rec, section, anchorVesselId, loopUT, out List<TrajectoryPoint> absoluteFrames))
-                {
-                    // Thread recordingId/sectionIndex so the inner
-                    // InterpolateAndPosition can apply the Re-Fly tree anchor
-                    // offset on the loop absolute-shadow path. Mirrors the
-                    // same fix in InterpolateAndPositionRelative outer.
-                    InterpolateAndPosition(ghost, absoluteFrames, null,
-                        ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
-                        allowActivation: allowActivation,
-                        skipOrbitSegments: true,
-                        recordingId: rec.RecordingId,
-                        sectionIndex: sectionIdx);
-                    return;
-                }
-
                 if (useAnchor)
                 {
                     long relKey = ((long)recIdx << 32) | anchorVesselId;
@@ -25502,6 +21290,20 @@ namespace Parsek
                         allowActivation, out interpResult);
                     return;
                 }
+
+                if (ghost.activeSelf) ghost.SetActive(false);
+                if (retireSignalState != null)
+                    retireSignalState.anchorRetiredThisFrame = true;
+                long missingAnchorKey = RelativeAnchorResolution.DedupeKey(recIdx, anchorVesselId);
+                if (loggedAnchorNotFound.Add(missingAnchorKey))
+                    ParsekLog.Warn("Anchor",
+                        RelativeAnchorResolution.FormatRetiredMessage(
+                            recIdx,
+                            rec.VesselName,
+                            anchorVesselId,
+                            "PositionLoopGhost"));
+                interpResult = InterpolationResult.Zero;
+                return;
             }
 
             if (sectionIdx >= 0
@@ -25567,6 +21369,23 @@ namespace Parsek
 
             if (indexBefore < 0)
             {
+                // PR 3c (plan §3c): legacy v11 debris with absolute shadow
+                // bypasses the resolver chain — its `anchorRecordingId` was
+                // chosen by nearest-vessel-at-sample-time and is often wrong
+                // (the resolver "succeeds" with the wrong anchor and never
+                // reaches the existing post-failure shadow path). v12+
+                // debris fails condition #2 and falls through.
+                if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
+                    && TryUseLegacyDebrisShadowFallback(
+                            recordingIndex,
+                            traj,
+                            retireSignalState,
+                            target,
+                            targetUT,
+                            ref cachedIndex,
+                            out interpResult))
+                    return;
+
                 if (TryPositionGhostRecordedRelativeAt(
                         ghost,
                         frames[0],
@@ -25609,6 +21428,19 @@ namespace Parsek
             double segmentDuration = after.ut - before.ut;
             if (segmentDuration <= 0.0001)
             {
+                // PR 3c (plan §3c): legacy v11 debris with absolute shadow
+                // bypasses the resolver chain. See pre-range branch above.
+                if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
+                    && TryUseLegacyDebrisShadowFallback(
+                            recordingIndex,
+                            traj,
+                            retireSignalState,
+                            target,
+                            targetUT,
+                            ref cachedIndex,
+                            out interpResult))
+                    return;
+
                 if (TryPositionGhostRecordedRelativeAt(
                         ghost,
                         before,
@@ -25682,6 +21514,23 @@ namespace Parsek
 
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
+            // PR 3c (plan §3c): legacy v11 debris with absolute shadow
+            // bypasses the resolver chain BEFORE the resolver attempt — the
+            // resolver "succeeds" with the wrong nearest-vessel-at-sample-time
+            // anchor and never reaches the post-failure shadow path. v12+
+            // debris (DebrisParentRecordingId set) fails condition #2 and
+            // falls through to the resolver per Decision §7.
+            if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
+                && TryUseLegacyDebrisShadowFallback(
+                        recordingIndex,
+                        traj,
+                        retireSignalState,
+                        target,
+                        targetUT,
+                        ref cachedIndex,
+                        out interpResult))
+                return;
+
             if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out RelativeAnchorPose anchorPose))
             {
                 if (TryUseRelativeAbsoluteShadowFallback(
@@ -25719,11 +21568,6 @@ namespace Parsek
                 ghostPos = anchorPose.worldPos;
             }
 
-            bool hasRecordedRelativeReFlyTreeOffset =
-                TryGetReFlyTreeAnchorOffset(target.RecordingId, targetUT, out Vector3d reFlyTreeOffset);
-            if (hasRecordedRelativeReFlyTreeOffset)
-                ghostPos += reFlyTreeOffset;
-
             ghost.transform.position = ghostPos;
             ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                 anchorPose.worldRotation,
@@ -25735,15 +21579,14 @@ namespace Parsek
                 targetUT,
                 "recorded-relative-position",
                 "resolved",
-                target.Section.anchorVesselId,
+                0u,
                 target.AnchorRecordingId,
                 success: true,
                 fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
                 anchorPosition: anchorPose.worldPos,
                 anchorRotation: anchorPose.worldRotation,
                 localOffset: new Vector3d(dx, dy, dz),
-                outputPosition: ghostPos,
-                reFlyOffset: reFlyTreeOffset);
+                outputPosition: ghostPos);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT;
             if (GhostRenderTrace.ShouldEmitPhase(target.RecordingId, traceCurrentUT))
             {
@@ -25760,7 +21603,6 @@ namespace Parsek
                     + " anchorRec=" + (target.AnchorRecordingId ?? "<none>")
                     + " localOffset=" + GhostRenderTrace.FormatVector3d(new Vector3d(dx, dy, dz))
                     + " anchorPos=" + GhostRenderTrace.FormatVector3d(anchorPose.worldPos)
-                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(reFlyTreeOffset)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
@@ -25796,9 +21638,8 @@ namespace Parsek
                 anchorRecordingId = target.RecordingId,
                 anchorSectionIndex = target.SectionIndex,
                 relativeAnchorRecordingId = target.AnchorRecordingId,
+                relativeLoopLiveAnchor = false,
                 pointUT = targetUT,
-                reFlyTreeOffset = reFlyTreeOffset,
-                hasReFlyTreeOffset = hasRecordedRelativeReFlyTreeOffset,
             });
 
             interpResult = new InterpolationResult(
@@ -25922,11 +21763,6 @@ namespace Parsek
                 dz,
                 recordingFormatVersion);
 
-            bool hasRecordedRelativeReFlyTreeOffset =
-                TryGetReFlyTreeAnchorOffset(target.RecordingId, point.ut, out Vector3d reFlyTreeOffset);
-            if (hasRecordedRelativeReFlyTreeOffset)
-                ghostPos += reFlyTreeOffset;
-
             ghost.transform.position = ghostPos;
             ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                 anchorPose.worldRotation,
@@ -25938,15 +21774,14 @@ namespace Parsek
                 point.ut,
                 "recorded-relative-single",
                 "resolved",
-                target.Section.anchorVesselId,
+                0u,
                 target.AnchorRecordingId,
                 success: true,
                 fromRecordedTrajectory: anchorPose.fromRecordedTrajectory,
                 anchorPosition: anchorPose.worldPos,
                 anchorRotation: anchorPose.worldRotation,
                 localOffset: new Vector3d(dx, dy, dz),
-                outputPosition: ghostPos,
-                reFlyOffset: reFlyTreeOffset);
+                outputPosition: ghostPos);
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
             if (GhostRenderTrace.ShouldEmitPhase(target.RecordingId, traceCurrentUT))
             {
@@ -25960,7 +21795,6 @@ namespace Parsek
                     + " anchorRec=" + (target.AnchorRecordingId ?? "<none>")
                     + " localOffset=" + GhostRenderTrace.FormatVector3d(new Vector3d(dx, dy, dz))
                     + " anchorPos=" + GhostRenderTrace.FormatVector3d(anchorPose.worldPos)
-                    + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(reFlyTreeOffset)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
@@ -25983,9 +21817,8 @@ namespace Parsek
                 anchorRecordingId = target.RecordingId,
                 anchorSectionIndex = target.SectionIndex,
                 relativeAnchorRecordingId = target.AnchorRecordingId,
+                relativeLoopLiveAnchor = false,
                 pointUT = point.ut,
-                reFlyTreeOffset = reFlyTreeOffset,
-                hasReFlyTreeOffset = hasRecordedRelativeReFlyTreeOffset,
             });
             return true;
         }
@@ -26027,8 +21860,7 @@ namespace Parsek
                     anchorPosition: Vector3d.zero,
                     anchorRotation: Quaternion.identity,
                     localOffset: Vector3d.zero,
-                    outputPosition: Vector3d.zero,
-                    reFlyOffset: Vector3d.zero);
+                    outputPosition: Vector3d.zero);
                 ParsekLog.WarnRateLimited(
                     "Anchor",
                     "recorded-relative-missing-anchor-recording-id|" +
@@ -26058,8 +21890,7 @@ namespace Parsek
                     anchorPosition: Vector3d.zero,
                     anchorRotation: Quaternion.identity,
                     localOffset: Vector3d.zero,
-                    outputPosition: Vector3d.zero,
-                    reFlyOffset: Vector3d.zero);
+                    outputPosition: Vector3d.zero);
                 ParsekLog.WarnRateLimited(
                     "Anchor",
                     "recorded-relative-focus-tree-missing|" + (recordingId ?? "(none)"),
@@ -26109,8 +21940,7 @@ namespace Parsek
                     anchorPosition: Vector3d.zero,
                     anchorRotation: Quaternion.identity,
                     localOffset: Vector3d.zero,
-                    outputPosition: Vector3d.zero,
-                    reFlyOffset: Vector3d.zero);
+                    outputPosition: Vector3d.zero);
                 return false;
             }
 
@@ -26131,8 +21961,7 @@ namespace Parsek
                 anchorPosition: pose.worldPos,
                 anchorRotation: pose.worldRotation,
                 localOffset: Vector3d.zero,
-                outputPosition: pose.worldPos,
-                reFlyOffset: Vector3d.zero);
+                outputPosition: pose.worldPos);
             return true;
         }
 
@@ -26186,7 +22015,20 @@ namespace Parsek
             return false;
         }
 
-        private bool TryUseRelativeAbsoluteShadowFallback(
+        /// <summary>
+        /// Wraps <see cref="TryUseRelativeAbsoluteShadowFallback"/> for the
+        /// PR 3c legacy-debris gate (`LegacyDebrisShadowGate`). The wrapper
+        /// emits a distinct rate-limited log line so legacy-debris
+        /// dispatches are diagnosable independently of the existing
+        /// resolver-failure shadow path (which keeps emitting
+        /// `RELATIVE recorded-anchor fallback to absolute shadow` for
+        /// non-debris recordings).
+        ///
+        /// Caller must guard with
+        /// <see cref="LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible"/>
+        /// before calling — this helper does not re-check the predicate.
+        /// </summary>
+        private bool TryUseLegacyDebrisShadowFallback(
             int recordingIndex,
             IPlaybackTrajectory trajectory,
             GhostPlaybackState state,
@@ -26195,7 +22037,96 @@ namespace Parsek
             ref int playbackIdx,
             out InterpolationResult interpResult)
         {
+            // PR 3c review follow-up: pass `suppressFallbackWarn: true` so the
+            // legacy-debris path does NOT emit
+            // [WARN][Playback] RELATIVE recorded-anchor fallback to absolute shadow —
+            // that warning is one of the plan's zero-count validation targets, and
+            // for legacy v11 debris the shadow path is the INTENDED dispatch (not a
+            // resolver-failure recovery). The legacy path's distinct
+            // `Playback: legacy debris path — preferring absoluteFrames shadow`
+            // verbose log below is the diagnostic signal for this case.
+            if (!TryUseRelativeAbsoluteShadowFallback(
+                    recordingIndex,
+                    trajectory,
+                    state,
+                    target,
+                    targetUT,
+                    ref playbackIdx,
+                    out interpResult,
+                    suppressFallbackWarn: true))
+            {
+                return false;
+            }
+
+            // Mirror the post-failure fallback's per-(recording, section) dedupe
+            // window, but with a distinct key prefix so legacy-debris dispatches
+            // are filterable independently.
+            string key = string.Concat(
+                "legacy-debris-shadow-preferred|",
+                target.RecordingId ?? "(none)",
+                "|",
+                target.SectionIndex.ToString(CultureInfo.InvariantCulture));
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                key,
+                "Playback: legacy debris path — preferring absoluteFrames shadow " +
+                $"(recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
+                $"recordingId={ShortRecordingId(target.RecordingId)} " +
+                $"sectionIndex={target.SectionIndex.ToString(CultureInfo.InvariantCulture)} " +
+                $"shadowFrames={target.Section.absoluteFrames.Count.ToString(CultureInfo.InvariantCulture)})",
+                5.0);
+            return true;
+        }
+
+        private bool TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+            GameObject ghost,
+            int recordingIndex,
+            string recordingVesselName,
+            IPlaybackTrajectory trajectory,
+            RelativeSectionPlaybackTarget target,
+            GhostPlaybackState retireSignalState,
+            out InterpolationResult interpResult)
+        {
             interpResult = InterpolationResult.Zero;
+            if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(trajectory))
+                return false;
+
+            RetireUnresolvedRecordedRelative(
+                ghost,
+                recordingIndex,
+                recordingVesselName,
+                target,
+                retireSignalState,
+                "InterpolateAndPositionRecordedRelative.parent-anchored-debris");
+            return true;
+        }
+
+        private bool TryUseRelativeAbsoluteShadowFallback(
+            int recordingIndex,
+            IPlaybackTrajectory trajectory,
+            GhostPlaybackState state,
+            RelativeSectionPlaybackTarget target,
+            double targetUT,
+            ref int playbackIdx,
+            out InterpolationResult interpResult,
+            bool suppressFallbackWarn = false)
+        {
+            interpResult = InterpolationResult.Zero;
+            // Parent-anchored v12+ debris has a strict recorded-relative
+            // contract: a parent-anchor miss hides the debris instead of
+            // replaying stale absolute-shadow frames. Keeping this guard inside
+            // the fallback helper prevents future callers from accidentally
+            // bypassing the retire path.
+            if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
+                    state?.ghost,
+                    recordingIndex,
+                    trajectory?.VesselName,
+                    trajectory,
+                    target,
+                    state,
+                    out interpResult))
+                return true;
+
             if (state?.ghost == null
                 || target.Section.referenceFrame != ReferenceFrame.Relative
                 || target.Section.absoluteFrames == null
@@ -26219,22 +22150,32 @@ namespace Parsek
                 sectionIndex: target.SectionIndex);
             playbackIdx = absolutePlaybackIdx;
 
-            string key = string.Concat(
-                "recorded-relative-shadow-fallback|",
-                target.RecordingId ?? "(none)",
-                "|",
-                target.AnchorRecordingId ?? "(missing)",
-                "|",
-                target.SectionIndex.ToString(CultureInfo.InvariantCulture));
-            if (loggedRelativeAbsoluteShadowStart.Add(key))
+            // PR 3c review follow-up: skip the [WARN] entirely (don't even
+            // populate the dedupe set) when called by the legacy-debris gate —
+            // the wrapper emits its own distinct verbose log so legacy-path
+            // dispatches stay filterable. This keeps the post-failure-recovery
+            // and intended-legacy-path log surfaces cleanly separate, and stops
+            // the gate from inflating the WARN count the plan's success
+            // criteria require to reach zero on a clean replay.
+            if (!suppressFallbackWarn)
             {
-                ParsekLog.Warn("Playback",
-                    $"RELATIVE recorded-anchor fallback to absolute shadow: " +
-                    $"recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
-                    $"recordingId={ShortRecordingId(target.RecordingId)} " +
-                    $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
-                    $"frames={target.Section.absoluteFrames.Count} " +
-                    $"sectionUT=[{target.Section.startUT:F1},{target.Section.endUT:F1}]");
+                string key = string.Concat(
+                    "recorded-relative-shadow-fallback|",
+                    target.RecordingId ?? "(none)",
+                    "|",
+                    target.AnchorRecordingId ?? "(missing)",
+                    "|",
+                    target.SectionIndex.ToString(CultureInfo.InvariantCulture));
+                if (loggedRelativeAbsoluteShadowStart.Add(key))
+                {
+                    ParsekLog.Warn("Playback",
+                        $"RELATIVE recorded-anchor fallback to absolute shadow: " +
+                        $"recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
+                        $"recordingId={ShortRecordingId(target.RecordingId)} " +
+                        $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
+                        $"frames={target.Section.absoluteFrames.Count} " +
+                        $"sectionUT=[{target.Section.startUT:F1},{target.Section.endUT:F1}]");
+                }
             }
             return true;
         }
@@ -26247,7 +22188,8 @@ namespace Parsek
             GhostPlaybackState retireSignalState,
             string callsite)
         {
-            if (ghost.activeSelf) ghost.SetActive(false);
+            if (!ReferenceEquals(ghost, null))
+                GhostPlaybackLogic.HideGhostForRetire(ghost);
             if (retireSignalState != null)
                 retireSignalState.anchorRetiredThisFrame = true;
 
@@ -26357,12 +22299,6 @@ namespace Parsek
                     ghostPos = anchorPose.worldPos;
                 }
 
-                // Re-Fly tree display alignment: when this ghost belongs
-                // to the active Re-Fly tree, add the frozen body-fixed
-                // alignment after the recorded relative pose has resolved.
-                if (TryGetReFlyTreeAnchorOffset(recordingId, targetUT, out Vector3d reFlyTreeOffset))
-                    ghostPos += reFlyTreeOffset;
-
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                     anchorPose.worldRotation,
@@ -26381,8 +22317,7 @@ namespace Parsek
                     anchorPosition: anchorPose.worldPos,
                     anchorRotation: anchorPose.worldRotation,
                     localOffset: new Vector3d(dx, dy, dz),
-                    outputPosition: ghostPos,
-                    reFlyOffset: reFlyTreeOffset);
+                    outputPosition: ghostPos);
                 double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT;
                 if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
                 {
@@ -26399,7 +22334,6 @@ namespace Parsek
                         + " anchorSource=" + (anchorPose.fromRecordedTrajectory ? "recorded" : "live")
                         + " localOffset=" + GhostRenderTrace.FormatVector3d(new Vector3d(dx, dy, dz))
                         + " anchorPos=" + GhostRenderTrace.FormatVector3d(anchorPose.worldPos)
-                        + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(reFlyTreeOffset)
                         + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
                         + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
                 }
@@ -26418,10 +22352,6 @@ namespace Parsek
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
                 double alt = body != null ? body.GetAltitude(ghostPos) : 0;
 
-                // Register for LateUpdate re-positioning after FloatingOrigin shift
-                Vector3d relReFlyTreeOffset = Vector3d.zero;
-                bool relHasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
-                    recordingId, targetUT, out relReFlyTreeOffset);
                 AddOrReplaceGhostPosEntry(new GhostPosEntry
                 {
                     ghost = ghost,
@@ -26437,8 +22367,7 @@ namespace Parsek
                     bodyBefore = body, // for fallback in LateUpdate
                     latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
-                    reFlyTreeOffset = relHasReFlyTreeOffset ? relReFlyTreeOffset : Vector3d.zero,
-                    hasReFlyTreeOffset = relHasReFlyTreeOffset,
+                    relativeLoopLiveAnchor = true,
                 });
 
                 interpResult = new InterpolationResult(
@@ -26464,8 +22393,7 @@ namespace Parsek
                     anchorPosition: Vector3d.zero,
                     anchorRotation: Quaternion.identity,
                     localOffset: new Vector3d(dx, dy, dz),
-                    outputPosition: Vector3d.zero,
-                    reFlyOffset: Vector3d.zero);
+                    outputPosition: Vector3d.zero);
                 if (ghost.activeSelf) ghost.SetActive(false);
                 if (retireSignalState != null)
                     retireSignalState.anchorRetiredThisFrame = true;
@@ -26518,18 +22446,6 @@ namespace Parsek
                     dz,
                     recordingFormatVersion);
 
-                // Re-Fly tree anchor lock: before-first-frame and zero-duration
-                // edge cases route here (single-point relative fallback). Apply
-                // the same frozen body-fixed offset as the regular relative
-                // path so these frames don't bypass coverage and LateUpdate's
-                // Relative branch preserves the anchored pose via
-                // reFlyTreeOffset.
-                Vector3d relReFlyTreeOffset = Vector3d.zero;
-                bool relHasReFlyTreeOffset = TryGetReFlyTreeAnchorOffset(
-                    recordingId, point.ut, out relReFlyTreeOffset);
-                if (relHasReFlyTreeOffset)
-                    ghostPos += relReFlyTreeOffset;
-
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                     anchorPose.worldRotation,
@@ -26548,8 +22464,7 @@ namespace Parsek
                     anchorPosition: anchorPose.worldPos,
                     anchorRotation: anchorPose.worldRotation,
                     localOffset: new Vector3d(dx, dy, dz),
-                    outputPosition: ghostPos,
-                    reFlyOffset: relReFlyTreeOffset);
+                    outputPosition: ghostPos);
                 double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
                 if (GhostRenderTrace.ShouldEmitPhase(recordingId, traceCurrentUT))
                 {
@@ -26563,7 +22478,6 @@ namespace Parsek
                         + " anchorSource=" + (anchorPose.fromRecordedTrajectory ? "recorded" : "live")
                         + " localOffset=" + GhostRenderTrace.FormatVector3d(new Vector3d(dx, dy, dz))
                         + " anchorPos=" + GhostRenderTrace.FormatVector3d(anchorPose.worldPos)
-                        + " reFlyOffset=" + GhostRenderTrace.FormatVector3d(relReFlyTreeOffset)
                         + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
                         + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
                 }
@@ -26584,8 +22498,7 @@ namespace Parsek
                     bodyBefore = body,
                     latBefore = dx, lonBefore = dy, altBefore = dz,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
-                    reFlyTreeOffset = relHasReFlyTreeOffset ? relReFlyTreeOffset : Vector3d.zero,
-                    hasReFlyTreeOffset = relHasReFlyTreeOffset,
+                    relativeLoopLiveAnchor = true,
                 });
             }
             else
@@ -26606,8 +22519,7 @@ namespace Parsek
                     anchorPosition: Vector3d.zero,
                     anchorRotation: Quaternion.identity,
                     localOffset: new Vector3d(dx, dy, dz),
-                    outputPosition: Vector3d.zero,
-                    reFlyOffset: Vector3d.zero);
+                    outputPosition: Vector3d.zero);
                 if (ghost.activeSelf) ghost.SetActive(false);
                 if (retireSignalState != null)
                     retireSignalState.anchorRetiredThisFrame = true;
@@ -26626,8 +22538,7 @@ namespace Parsek
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
             out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false,
             string recordingId = null, int sectionIndex = -1,
-            string pointFrameSource = "input",
-            bool allowReFlyPointTrend = false)
+            string pointFrameSource = "input")
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -26672,7 +22583,7 @@ namespace Parsek
 
             // Fall through to point-based interpolation
             InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult,
-                recordingId, sectionIndex, pointFrameSource, allowReFlyPointTrend);
+                recordingId, sectionIndex, pointFrameSource);
         }
 
         #endregion
@@ -27113,6 +23024,13 @@ namespace Parsek
 
             double targetUT = rec.StartUT;
             double currentUT = Planetarium.GetUniversalTime();
+
+            if (!RecordingStore.CanFastForwardAtUT(rec, currentUT, out string ffReason, IsRecording))
+            {
+                ParsekLog.Warn("Flight",
+                    $"FastForwardToRecording: '{rec.VesselName}' id={rec.RecordingId ?? "<none>"} blocked: {ffReason}");
+                return;
+            }
 
             if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
             {

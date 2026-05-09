@@ -38,17 +38,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingAnchorChainVersion_IsCurrentRecordingAndBinaryVersion()
+        public void RecordingAnchorChainVersion_PinnedAt11_AndCurrentVersionsTrackV12()
         {
+            // PR 3a (format v12) bumped CurrentRecordingFormatVersion to 12
+            // (`DebrisParentRecordingFormatVersion`). The anchor-chain layout was
+            // introduced at v11 and is unchanged at v12 — `RecordingAnchorChainFormatVersion`
+            // / `RecordingAnchorChainBinaryVersion` stay pinned at 11 to identify the
+            // anchor-chain boundary, while the current-version constants advance to 12.
             Assert.Equal(11, RecordingStore.RecordingAnchorChainFormatVersion);
             Assert.Equal(
                 RecordingStore.RecordingAnchorChainFormatVersion,
-                RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(
-                RecordingStore.RecordingAnchorChainFormatVersion,
                 TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
+            Assert.Equal(12, RecordingStore.CurrentRecordingFormatVersion);
             Assert.Equal(
-                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion,
+                RecordingStore.CurrentRecordingFormatVersion,
                 TrajectorySidecarBinary.CurrentBinaryVersion);
         }
 
@@ -61,7 +64,10 @@ namespace Parsek.Tests
             TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.RecordingAnchorChainFormatVersion, probe.FormatVersion);
+            // Fresh writes stamp the recording's format version (post-PR-3a v12); the
+            // anchor-chain layout introduced at v11 is unchanged at v12 so the probe
+            // and recording version match by equality.
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.True(probe.Supported);
 
             var restored = new Recording();

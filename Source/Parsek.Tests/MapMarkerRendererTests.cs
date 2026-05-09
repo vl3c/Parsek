@@ -192,6 +192,44 @@ namespace Parsek.Tests
             Assert.Equal(expected, MapMarkerRenderer.IsToggleClick(type, button));
         }
 
+        [Theory]
+        [InlineData(true, true, "rec-1", EventType.MouseDown, 0, true)]
+        [InlineData(false, true, "rec-1", EventType.MouseDown, 0, false)]
+        [InlineData(true, false, "rec-1", EventType.MouseDown, 0, false)]
+        [InlineData(true, true, "", EventType.MouseDown, 0, false)]
+        [InlineData(true, true, "rec-1", EventType.MouseDown, 1, false)]
+        [InlineData(true, true, "rec-1", EventType.MouseUp, 0, false)]
+        public void ShouldRouteMarkerClickToHandler_MatchesHandledLeftClickContract(
+            bool hasHandler,
+            bool mouseOver,
+            string markerKey,
+            EventType type,
+            int button,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                MapMarkerRenderer.ShouldRouteMarkerClickToHandler(
+                    hasHandler,
+                    mouseOver,
+                    markerKey,
+                    type,
+                    button));
+        }
+
+        [Fact]
+        public void FormatHandledClickLogLine_IncludesCallerHandledState()
+        {
+            string line = MapMarkerRenderer.FormatHandledClickLogLine(
+                label: "Ghost Marker",
+                markerKey: "rec-handled",
+                button: 0);
+
+            Assert.Contains("handled by caller", line);
+            Assert.Contains("rec-handled", line);
+            Assert.Contains("button=0", line);
+        }
+
         // The click log line keeps the button id in the payload so log reviews
         // can confirm the production left-click path. This test pins the wire
         // format (label / sticky on/off / key / button) by format-building

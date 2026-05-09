@@ -72,6 +72,17 @@ namespace Parsek.Tests
             return tree;
         }
 
+        private static RecordingSupersedeRelation Rel(string oldId, string newId)
+        {
+            return new RecordingSupersedeRelation
+            {
+                RelationId = "rel_" + oldId + "_" + newId,
+                OldRecordingId = oldId,
+                NewRecordingId = newId,
+                UT = 0.0
+            };
+        }
+
         #region GetRewindSaveFileName
 
         [Fact]
@@ -382,6 +393,157 @@ namespace Parsek.Tests
             bool result = RecordingsTableUI.ShouldShowLegacyRewindButton(branch, now: 100.0);
 
             Assert.False(result);
+        }
+
+        [Fact]
+        public void ShouldShowLegacyRewindButton_ReFlyReplacementOfHiddenRoot_ReturnsTrue()
+        {
+            // Regression from logs/2026-05-06_2351_refly-phase-d-rewind-button-debris:
+            // after Re-Fly superseded the original root recording, the visible
+            // replacement inherited the root launch save but the row-level owner
+            // gate suppressed its R button because the owner was the hidden,
+            // superseded root. Rewind-to-Launch is mission-level and must remain
+            // reachable from the visible effective root/replacement row.
+            var tree = BuildTree("tree_refly", "root_original", "parsek_rw_launch",
+                ("rec_refly_root", "Kerbal X"),
+                ("rec_probe", "Kerbal X Probe"));
+            var root = tree.Recordings["root_original"];
+            root.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            root.Points.Add(new TrajectoryPoint { ut = 140.0 });
+            root.MergeState = MergeState.CommittedProvisional;
+
+            var replacement = tree.Recordings["rec_refly_root"];
+            replacement.Points.Add(new TrajectoryPoint { ut = 120.0 });
+            replacement.Points.Add(new TrajectoryPoint { ut = 160.0 });
+            replacement.MergeState = MergeState.CommittedProvisional;
+            replacement.ParentBranchPointId = "bp_refly";
+
+            var sibling = tree.Recordings["rec_probe"];
+            sibling.Points.Add(new TrajectoryPoint { ut = 121.0 });
+            sibling.Points.Add(new TrajectoryPoint { ut = 150.0 });
+            sibling.MergeState = MergeState.CommittedProvisional;
+            sibling.ParentBranchPointId = "bp_refly";
+
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                Rel("root_original", "rec_refly_root")
+            };
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>(),
+                RecordingSupersedes = supersedes,
+                LedgerTombstones = new List<LedgerTombstone>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.Same(root, RecordingStore.GetRewindRecording(replacement));
+            Assert.True(RecordingsTableUI.IsEffectiveReplacementForLaunchRewindOwner(
+                replacement, root, supersedes));
+            Assert.True(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                replacement, now: 200.0));
+            Assert.True(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                replacement, now: 110.0));
+            Assert.False(RecordingsTableUI.ShouldShowForwardButton(
+                replacement, now: 110.0));
+            Assert.True(RecordingsTableUI.ShouldShowForwardButton(
+                replacement, now: 90.0));
+            Assert.False(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                replacement, now: 90.0));
+            Assert.True(RecordingsTableUI.ShouldShowGroupLegacyRewindButton(
+                replacement, now: 200.0));
+            Assert.Equal(-1, RecordingsTableUI.FindAggregateForwardRecordingIndex(
+                new[] { 0, 1 },
+                new List<Recording> { replacement, sibling },
+                now: 110.0));
+
+            // Other branch rows still inherit the root launch save but are not the
+            // effective replacement for that root, so they stay suppressed.
+            Assert.False(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                sibling, now: 200.0));
+
+            int aggregateRewind = RecordingsTableUI.FindAggregateLegacyRewindRecordingIndex(
+                new[] { 0, 1 },
+                new List<Recording> { replacement, sibling },
+                now: 200.0);
+            Assert.Equal(0, aggregateRewind);
+
+            var earlierTree = BuildTree("tree_refly_earlier", "root_earlier", "parsek_rw_earlier",
+                ("rec_refly_earlier", "Kerbal Earlier"));
+            var earlierRoot = earlierTree.Recordings["root_earlier"];
+            earlierRoot.Points.Add(new TrajectoryPoint { ut = 80.0 });
+            earlierRoot.Points.Add(new TrajectoryPoint { ut = 100.0 });
+
+            var earlierReplacement = earlierTree.Recordings["rec_refly_earlier"];
+            earlierReplacement.Points.Add(new TrajectoryPoint { ut = 130.0 });
+            earlierReplacement.Points.Add(new TrajectoryPoint { ut = 170.0 });
+            earlierReplacement.ParentBranchPointId = "bp_earlier";
+            RecordingStore.AddCommittedTreeForTesting(earlierTree);
+
+            supersedes.Add(Rel("root_earlier", "rec_refly_earlier"));
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            int aggregateByLaunchStart = RecordingsTableUI.FindAggregateLegacyRewindRecordingIndex(
+                new[] { 0, 1 },
+                new List<Recording> { replacement, earlierReplacement },
+                now: 200.0);
+            Assert.Equal(1, aggregateByLaunchStart);
+        }
+
+        [Fact]
+        public void ShouldShowLegacyRewindButton_ReFlySupersedeChainEndpointOnly_ReturnsTrue()
+        {
+            var tree = BuildTree("tree_refly_chain", "root_chain", "parsek_rw_chain",
+                ("rec_mid", "Kerbal Mid"),
+                ("rec_final", "Kerbal Final"));
+            var root = tree.Recordings["root_chain"];
+            root.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            root.Points.Add(new TrajectoryPoint { ut = 120.0 });
+            root.MergeState = MergeState.CommittedProvisional;
+
+            var mid = tree.Recordings["rec_mid"];
+            mid.Points.Add(new TrajectoryPoint { ut = 120.0 });
+            mid.Points.Add(new TrajectoryPoint { ut = 140.0 });
+            mid.MergeState = MergeState.CommittedProvisional;
+            mid.ParentBranchPointId = "bp_refly_mid";
+
+            var final = tree.Recordings["rec_final"];
+            final.Points.Add(new TrajectoryPoint { ut = 140.0 });
+            final.Points.Add(new TrajectoryPoint { ut = 160.0 });
+            final.MergeState = MergeState.CommittedProvisional;
+            final.ParentBranchPointId = "bp_refly_final";
+
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                Rel("root_chain", "rec_mid"),
+                Rel("rec_mid", "rec_final")
+            };
+            var scenario = new ParsekScenario
+            {
+                RewindPoints = new List<RewindPoint>(),
+                RecordingSupersedes = supersedes,
+                LedgerTombstones = new List<LedgerTombstone>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            Assert.False(RecordingsTableUI.IsEffectiveReplacementForLaunchRewindOwner(
+                mid, root, supersedes));
+            Assert.True(RecordingsTableUI.IsEffectiveReplacementForLaunchRewindOwner(
+                final, root, supersedes));
+            Assert.False(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                mid, now: 200.0));
+            Assert.True(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                final, now: 200.0));
+            Assert.True(RecordingsTableUI.ShouldShowLegacyRewindButton(
+                final, now: 110.0));
+            Assert.False(RecordingsTableUI.ShouldShowForwardButton(
+                final, now: 110.0));
         }
 
         [Fact]

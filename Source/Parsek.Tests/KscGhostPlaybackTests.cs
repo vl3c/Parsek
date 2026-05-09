@@ -22,6 +22,10 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekKSC.PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
+            ParsekKSC.UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
+            ParsekKSC.PauseExplosionOneShotAudioAction = GhostPlaybackLogic.PauseExplosionOneShotAudio;
+            ParsekKSC.UnpauseExplosionOneShotAudioAction = GhostPlaybackLogic.UnpauseExplosionOneShotAudio;
             RecordingStore.ResetForTesting();
         }
 
@@ -135,7 +139,7 @@ namespace Parsek.Tests
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 100,
                 endUT = 110,
-                anchorVesselId = 42u,
+                anchorRecordingId = "anchor-rec",
                 frames = new List<TrajectoryPoint> { before, after }
             });
             return rec;
@@ -237,11 +241,12 @@ namespace Parsek.Tests
             };
         }
 
-        static ParsekKSC.KscAnchorLookup AnchorLookup(uint expectedPid, Vector3d anchorPos)
+        static ParsekKSC.KscRecordedAnchorLookup AnchorLookup(string expectedAnchorRecordingId, Vector3d anchorPos)
         {
-            return (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            return (Recording rec, TrackSection section, int sectionIndex, double targetUT,
+                out ParsekKSC.KscAnchorFrame anchor) =>
             {
-                if (pid != expectedPid)
+                if (!string.Equals(section.anchorRecordingId, expectedAnchorRecordingId, StringComparison.Ordinal))
                 {
                     anchor = default(ParsekKSC.KscAnchorFrame);
                     return false;
@@ -252,7 +257,8 @@ namespace Parsek.Tests
             };
         }
 
-        static bool MissingAnchorLookup(uint pid, out ParsekKSC.KscAnchorFrame anchor)
+        static bool MissingAnchorLookup(Recording rec, TrackSection section, int sectionIndex,
+            double targetUT, out ParsekKSC.KscAnchorFrame anchor)
         {
             anchor = default(ParsekKSC.KscAnchorFrame);
             return false;
@@ -276,21 +282,21 @@ namespace Parsek.Tests
                 ref cachedFrameSourceKey,
                 105,
                 SurfaceLookupFromLatLonAlt(() => surfaceCalled = true),
-                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                AnchorLookup("anchor-rec", new Vector3d(1000, 2000, 3000)),
                 out ParsekKSC.KscPoseResolution pose);
 
             Assert.True(resolved);
             Assert.False(surfaceCalled);
             Assert.Equal(1, cachedFrameSourceKey);
             Assert.Equal("relative", pose.Branch);
-            Assert.Equal(42u, pose.AnchorPid);
+            Assert.Equal("anchor-rec", pose.AnchorRecordingId);
             Assert.Equal(1020.0, pose.WorldPos.x, 6);
             Assert.Equal(2030.0, pose.WorldPos.y, 6);
             Assert.Equal(3040.0, pose.WorldPos.z, 6);
             Assert.Contains(logLines, line =>
                 line.Contains("[KSCGhost]") &&
                 line.Contains("RELATIVE KSC playback resolved") &&
-                line.Contains("anchorPid=42"));
+                line.Contains("anchorRec=anchor-rec"));
         }
 
         [Fact]
@@ -312,11 +318,11 @@ namespace Parsek.Tests
             Assert.False(resolved);
             Assert.Equal("relative", pose.Branch);
             Assert.Equal("relative-anchor-unresolved", pose.FailureReason);
-            Assert.Equal(42u, pose.AnchorPid);
+            Assert.Equal("anchor-rec", pose.AnchorRecordingId);
             Assert.Contains(logLines, line =>
                 line.Contains("[KSCGhost]") &&
                 line.Contains("RELATIVE KSC playback skipped") &&
-                line.Contains("anchorPid=42"));
+                line.Contains("anchorRec=anchor-rec"));
         }
 
         [Fact]
@@ -348,7 +354,7 @@ namespace Parsek.Tests
                 ref cachedFrameSourceKey,
                 105,
                 SurfaceLookupFromLatLonAlt(() => surfaceCalls++),
-                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                AnchorLookup("anchor-rec", new Vector3d(1000, 2000, 3000)),
                 out ParsekKSC.KscPoseResolution pose);
 
             Assert.True(resolved);
@@ -385,7 +391,9 @@ namespace Parsek.Tests
             int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
             int surfaceCalls = 0;
             bool anchorCalled = false;
-            ParsekKSC.KscAnchorLookup anchorLookup = (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            ParsekKSC.KscRecordedAnchorLookup anchorLookup = (
+                Recording rec, TrackSection section, int sectionIndex, double targetUT,
+                out ParsekKSC.KscAnchorFrame anchor) =>
             {
                 anchorCalled = true;
                 anchor = default(ParsekKSC.KscAnchorFrame);
@@ -423,7 +431,9 @@ namespace Parsek.Tests
             int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
             int surfaceCalls = 0;
             bool anchorCalled = false;
-            ParsekKSC.KscAnchorLookup anchorLookup = (uint pid, out ParsekKSC.KscAnchorFrame anchor) =>
+            ParsekKSC.KscRecordedAnchorLookup anchorLookup = (
+                Recording rec, TrackSection section, int sectionIndex, double targetUT,
+                out ParsekKSC.KscAnchorFrame anchor) =>
             {
                 anchorCalled = true;
                 anchor = default(ParsekKSC.KscAnchorFrame);
@@ -466,7 +476,7 @@ namespace Parsek.Tests
                 ref cachedFrameSourceKey,
                 105,
                 SurfaceLookupFromLatLonAlt(),
-                AnchorLookup(42u, new Vector3d(1000, 2000, 3000)),
+                AnchorLookup("anchor-rec", new Vector3d(1000, 2000, 3000)),
                 out ParsekKSC.KscPoseResolution relativePose);
 
             Assert.True(relativeResolved);
@@ -516,6 +526,28 @@ namespace Parsek.Tests
             };
 
             Assert.False(ParsekKSC.ShouldShowInKSC(rec, supersedes));
+        }
+
+        [Fact]
+        public void ShouldShowInKSC_RewindRetired_ReturnsFalse()
+        {
+            var rec = MakeKerbinRecording();
+            rec.RecordingId = "rewound-probe-booster";
+            var retirements = new List<RecordingRewindRetirement>
+            {
+                new RecordingRewindRetirement
+                {
+                    RetirementId = "rrt_probe",
+                    RecordingId = "rewound-probe-booster",
+                    RestoredRecordingId = "restored-probe-booster",
+                    Reason = RecordingRewindRetirement.DefaultReason
+                }
+            };
+
+            Assert.False(ParsekKSC.ShouldShowInKSC(
+                rec,
+                supersedes: null,
+                retirements: retirements));
         }
 
         [Fact]
@@ -1296,6 +1328,21 @@ namespace Parsek.Tests
                 ParsekKSC.ShouldApplyRuntimeGhostEvents(pauseMenuOpen, inCullRange));
         }
 
+        [Theory]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned, true)]
+        [InlineData(true, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned, false)]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockQueued, false)]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.AudioBusyCustomVisualSpawned, false)]
+        public void ShouldQueueKscExplicitExplosionAudio_OnlyWhenUnpausedAndStockFailed(
+            bool pauseMenuOpen,
+            int stockResultValue,
+            bool expected)
+        {
+            var stockResult = (GhostPlaybackLogic.StockExplosionFxWithAudioGateResult)stockResultValue;
+            Assert.Equal(expected,
+                ParsekKSC.ShouldQueueKscExplicitExplosionAudio(pauseMenuOpen, stockResult));
+        }
+
         [Fact]
         public void ApplyAudioActionToActiveGhosts_LogsVisitedCounts()
         {
@@ -1337,6 +1384,8 @@ namespace Parsek.Tests
             var onGamePause = typeof(ParsekKSC)
                 .GetMethod("OnGamePause", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             var previousPauseAction = ParsekKSC.PauseGhostAudioAction;
+            var previousExplosionPauseAction = ParsekKSC.PauseExplosionOneShotAudioAction;
+            int pausedIndependentOneShots = 0;
 
             typeof(ParsekKSC)
                 .GetField("kscGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
@@ -1351,20 +1400,30 @@ namespace Parsek.Tests
             try
             {
                 ParsekKSC.PauseGhostAudioAction = state => visited.Add(state);
+                ParsekKSC.PauseExplosionOneShotAudioAction = () =>
+                {
+                    pausedIndependentOneShots++;
+                    return 3;
+                };
                 onGamePause.Invoke(host, null);
             }
             finally
             {
                 ParsekKSC.PauseGhostAudioAction = previousPauseAction;
+                ParsekKSC.PauseExplosionOneShotAudioAction = previousExplosionPauseAction;
             }
 
             Assert.True((bool)pauseField.GetValue(host));
             Assert.Equal(2, visited.Count);
+            Assert.Equal(1, pausedIndependentOneShots);
             Assert.Contains(primary, visited);
             Assert.Contains(overlap, visited);
             Assert.Contains(logLines, line =>
                 line.Contains("[GhostAudio]") &&
                 line.Contains("KSC OnGamePause: 1 primary + 1 overlap ghost(s)"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostAudio]") &&
+                line.Contains("KSC OnGamePause: paused 3 independent explosion one-shot source(s)"));
         }
 
         [Fact]
@@ -1379,6 +1438,8 @@ namespace Parsek.Tests
             var onGameUnpause = typeof(ParsekKSC)
                 .GetMethod("OnGameUnpause", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             var previousUnpauseAction = ParsekKSC.UnpauseGhostAudioAction;
+            var previousExplosionUnpauseAction = ParsekKSC.UnpauseExplosionOneShotAudioAction;
+            int unpausedIndependentOneShots = 0;
 
             typeof(ParsekKSC)
                 .GetField("kscGhosts", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
@@ -1394,20 +1455,30 @@ namespace Parsek.Tests
             try
             {
                 ParsekKSC.UnpauseGhostAudioAction = state => visited.Add(state);
+                ParsekKSC.UnpauseExplosionOneShotAudioAction = () =>
+                {
+                    unpausedIndependentOneShots++;
+                    return 2;
+                };
                 onGameUnpause.Invoke(host, null);
             }
             finally
             {
                 ParsekKSC.UnpauseGhostAudioAction = previousUnpauseAction;
+                ParsekKSC.UnpauseExplosionOneShotAudioAction = previousExplosionUnpauseAction;
             }
 
             Assert.False((bool)pauseField.GetValue(host));
             Assert.Equal(2, visited.Count);
+            Assert.Equal(1, unpausedIndependentOneShots);
             Assert.Contains(primary, visited);
             Assert.Contains(overlap, visited);
             Assert.Contains(logLines, line =>
                 line.Contains("[GhostAudio]") &&
                 line.Contains("KSC OnGameUnpause: 1 primary + 1 overlap ghost(s)"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostAudio]") &&
+                line.Contains("KSC OnGameUnpause: resumed 2 independent explosion one-shot source(s)"));
         }
 
         #endregion

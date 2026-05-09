@@ -481,6 +481,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FlushDeferredSpawns_PurgesRewindRetiredQueues()
+        {
+            var retired = new Recording
+            {
+                RecordingId = "rec-retired-fork",
+                VesselName = "Retired Fork",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var restored = new Recording
+            {
+                RecordingId = "rec-restored-origin",
+                VesselName = "Restored Origin"
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(retired);
+            RecordingStore.AddRecordingWithTreeForTesting(restored);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_deferred",
+                        RecordingId = retired.RecordingId,
+                        RestoredRecordingId = restored.RecordingId,
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                int spawnCalls = 0;
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+                var engine = new GhostPlaybackEngine(null);
+                var policy = new ParsekPlaybackPolicy(engine, host)
+                {
+                    IsWarpActiveOverrideForTesting = () => false,
+                    CurrentUTOverrideForTesting = () => 200.0,
+                    SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++
+                };
+                policy.pendingSpawnRecordingIds.Add(retired.RecordingId);
+                policy.pendingFlagReplayRecordingIds.Add(retired.RecordingId);
+                policy.pendingWatchRecordingId = retired.RecordingId;
+
+                policy.FlushDeferredSpawns();
+
+                Assert.Equal(0, spawnCalls);
+                Assert.Empty(policy.pendingSpawnRecordingIds);
+                Assert.Empty(policy.pendingFlagReplayRecordingIds);
+                Assert.Null(policy.pendingWatchRecordingId);
+                Assert.Contains(logLines, line =>
+                    line.Contains("[Policy]")
+                    && line.Contains("timelineInactive")
+                    && line.Contains("clearedWatch=True"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+            }
+        }
+
+        [Fact]
         public void RetryHeldGhostSpawns_ReleasesSupersededRelationWithoutRetry()
         {
             var oldRec = new Recording
@@ -505,8 +568,11 @@ namespace Parsek.Tests
             var policy = new ParsekPlaybackPolicy(engine, host)
             {
                 CurrentRealTimeOverrideForTesting = () => 1f,
-                RelationSupersededIdsOverrideForTesting = committed =>
-                    new HashSet<string> { oldRec.RecordingId },
+                TimelineInactiveIdsOverrideForTesting = committed =>
+                    new Dictionary<string, TimelineInactiveReason>
+                    {
+                        { oldRec.RecordingId, TimelineInactiveReason.SupersededByRelation }
+                    },
                 SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++,
                 DestroyGhostOverrideForTesting = (index, reason) =>
                 {
@@ -533,6 +599,73 @@ namespace Parsek.Tests
             Assert.Empty(policy.heldGhosts);
             Assert.False(oldRec.VesselSpawned);
             Assert.Equal(0u, oldRec.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void RetryHeldGhostSpawns_ReleasesRewindRetiredWithoutRetry()
+        {
+            var retired = new Recording
+            {
+                RecordingId = "rec-held-retired",
+                VesselName = "Held Retired Booster",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            var restored = new Recording
+            {
+                RecordingId = "rec-held-restored",
+                VesselName = "Held Restored Booster"
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(retired);
+            RecordingStore.AddRecordingWithTreeForTesting(restored);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_held",
+                        RecordingId = retired.RecordingId,
+                        RestoredRecordingId = restored.RecordingId,
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            });
+
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = new GhostPlaybackEngine(null);
+            int spawnCalls = 0;
+            int destroyCalls = 0;
+            string destroyReason = null;
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                CurrentRealTimeOverrideForTesting = () => 1f,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, index) => spawnCalls++,
+                DestroyGhostOverrideForTesting = (index, reason) =>
+                {
+                    destroyCalls++;
+                    destroyReason = reason;
+                }
+            };
+            policy.heldGhosts[0] = new HeldGhostInfo
+            {
+                holdStartTime = 0f,
+                lastRetryTime = -100f,
+                recordingId = retired.RecordingId,
+                vesselName = retired.VesselName
+            };
+
+            using (ParsekLog.SuppressScope())
+            {
+                policy.RetryHeldGhostSpawns();
+            }
+
+            Assert.Equal(0, spawnCalls);
+            Assert.Equal(1, destroyCalls);
+            Assert.Equal("held-rewind-retired", destroyReason);
+            Assert.Empty(policy.heldGhosts);
+            Assert.False(retired.VesselSpawned);
+            Assert.Equal(0u, retired.SpawnedVesselPersistentId);
         }
 
         [Fact]
@@ -842,7 +975,7 @@ namespace Parsek.Tests
                 Assert.Equal(0, oldRec.SpawnDeathCount);
                 Assert.Contains(logLines, l =>
                     l.Contains("[Policy]")
-                    && l.Contains("RunSpawnDeathChecks: skipped 1 superseded-by-relation recording"));
+                    && l.Contains("RunSpawnDeathChecks: skipped 1 timeline-inactive recording"));
             }
             finally
             {

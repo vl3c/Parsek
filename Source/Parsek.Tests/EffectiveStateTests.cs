@@ -88,11 +88,13 @@ namespace Parsek.Tests
             List<RecordingSupersedeRelation> supersedes = null,
             List<LedgerTombstone> tombstones = null,
             List<RewindPoint> rps = null,
-            ReFlySessionMarker marker = null)
+            ReFlySessionMarker marker = null,
+            List<RecordingRewindRetirement> retirements = null)
         {
             var scenario = new ParsekScenario
             {
                 RecordingSupersedes = supersedes ?? new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = retirements ?? new List<RecordingRewindRetirement>(),
                 LedgerTombstones = tombstones ?? new List<LedgerTombstone>(),
                 RewindPoints = rps ?? new List<RewindPoint>(),
                 ActiveReFlySessionMarker = marker
@@ -105,6 +107,17 @@ namespace Parsek.Tests
             scenario.BumpTombstoneStateVersion();
             EffectiveState.ResetCachesForTesting();
             return scenario;
+        }
+
+        private static RecordingRewindRetirement Retire(string recordingId, string restoredId = null)
+        {
+            return new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_" + recordingId,
+                RecordingId = recordingId,
+                RestoredRecordingId = restoredId,
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
         }
 
         private static RewindPoint Rp(string rpId, string bpId, params string[] slotRecordingIds)
@@ -262,6 +275,26 @@ namespace Parsek.Tests
 
             Assert.Empty(result);
             Assert.False(EffectiveState.IsSupersededByRelation(rec, list));
+        }
+
+        [Fact]
+        public void ComputeTimelineInactiveRecordingIds_IncludesRewindRetirements()
+        {
+            var recordings = new List<Recording>
+            {
+                Rec("rec_old"),
+                Rec("rec_new"),
+                Rec("rec_retired")
+            };
+
+            var inactive = EffectiveState.ComputeTimelineInactiveRecordingIds(
+                recordings,
+                new List<RecordingSupersedeRelation> { Rel("rec_old", "rec_new") },
+                new List<RecordingRewindRetirement> { Retire("rec_retired", "rec_restored") });
+
+            Assert.Equal(TimelineInactiveReason.SupersededByRelation, inactive["rec_old"]);
+            Assert.Equal(TimelineInactiveReason.RewindRetired, inactive["rec_retired"]);
+            Assert.False(inactive.ContainsKey("rec_new"));
         }
 
         // =====================================================================
@@ -702,6 +735,28 @@ namespace Parsek.Tests
 
             // Design §10 ERS rebuild log.
             Assert.Contains(logLines, l => l.Contains("[ERS]") && l.Contains("Rebuilt"));
+        }
+
+        [Fact]
+        public void ComputeERS_FiltersRewindRetiredRecording()
+        {
+            var restored = Rec("rec_restored", MergeState.Immutable);
+            var retired = Rec("rec_retired", MergeState.Immutable);
+            RecordingStore.AddRecordingWithTreeForTesting(restored);
+            RecordingStore.AddRecordingWithTreeForTesting(retired);
+            MakeScenario(retirements: new List<RecordingRewindRetirement>
+            {
+                Retire("rec_retired", "rec_restored")
+            });
+
+            var ers = EffectiveState.ComputeERS();
+            var ids = ers.Select(r => r.RecordingId).ToList();
+
+            Assert.Contains("rec_restored", ids);
+            Assert.DoesNotContain("rec_retired", ids);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ERS]")
+                && l.Contains("skippedRewindRetired=1"));
         }
 
         [Fact]

@@ -724,9 +724,16 @@ namespace Parsek.Tests
             RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
 
             Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r?.RecordingId == rec.RecordingId);
+            // Discard now routes through MergeDialog.PruneActiveReFlyAttemptOwnedTopology,
+            // which logs the removal via RemoveCommittedAttemptRecordings'
+            // standard line. Test fixture has no in-memory tree set up, so
+            // the helper takes the single-id fallback path (also logs a
+            // Warn about the missing tree, which is the expected diagnostic
+            // for that degenerate setup - the production Revert path always
+            // has a live activeTree).
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]")
-                && l.Contains("Removed provisional rec=" + rec.RecordingId));
+                && l.Contains("Removed Re-Fly attempt rec=" + rec.RecordingId));
         }
 
         [Fact]
@@ -1234,6 +1241,147 @@ namespace Parsek.Tests
                 && l.Contains("Revert dialog cancelled")
                 && l.Contains("sess=" + marker.SessionId)
                 && l.Contains("target=Prelaunch"));
+        }
+
+        /// <summary>
+        /// Issue #734 reviewer P1 (round 6): the Esc/Revert Discard path
+        /// shares MergeDialog.PruneActiveReFlyAttemptOwnedTopology with
+        /// the merge-dialog Discard path. When the in-place fork was
+        /// attached to a committed tree (no pending tree existed at
+        /// marker write) the cleanup must remove the fork from
+        /// `committedTree.Recordings`, drop session-authored branch
+        /// points (e.g. an in-flight stage separation), reset stale
+        /// `tree.ActiveRecordingId`, scrub attempt id refs, and adopt
+        /// untagged debris children from session-BPs - not just remove
+        /// the fork from the flat CommittedRecordings list. Pre-fix,
+        /// the abandoned fork + topology survived as committed mission
+        /// history after the RP quicksave reload.
+        /// </summary>
+        [Fact]
+        public void DiscardReFly_InPlaceForkAttachedToCommittedTree_PrunesFullTopology()
+        {
+            const string treeId = "tree-734-revert-discard";
+            const string sessionId = "sess-734-revert-discard";
+            const string rpId = "rp_734_revert_discard";
+            const string originId = "rec-734-revert-origin";
+            const string forkId = "rec-734-revert-fork";
+            const string attemptDebrisId = "rec-734-revert-debris";
+            const string preSessionBpId = "bp-734-revert-pre";
+            const string sessionAuthoredBpId = "bp-734-revert-session";
+
+            // Origin: pre-existing committed mission history.
+            var origin = new Recording
+            {
+                RecordingId = originId,
+                TreeId = treeId,
+                MergeState = MergeState.Immutable,
+                VesselName = "rec_origin",
+                ChildBranchPointId = preSessionBpId,
+            };
+            // Fork: in-place attempt provisional, attached to the
+            // committed tree (committed-tree-attach shape).
+            var fork = new Recording
+            {
+                RecordingId = forkId,
+                TreeId = treeId,
+                MergeState = MergeState.NotCommitted,
+                CreatingSessionId = sessionId,
+                ProvisionalForRpId = rpId,
+                SupersedeTargetId = originId,
+                VesselName = "rec_origin",
+            };
+            // Attempt-authored debris from CreateBreakupChildRecording:
+            // ONLY ParentBranchPointId set (production shape - no session
+            // tagging, no AddProvisional).
+            var attemptDebris = new Recording
+            {
+                RecordingId = attemptDebrisId,
+                TreeId = treeId,
+                MergeState = MergeState.NotCommitted,
+                ParentBranchPointId = sessionAuthoredBpId,
+            };
+            var preSessionBp = new BranchPoint
+            {
+                Id = preSessionBpId,
+                UT = 50.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { originId },
+                ChildRecordingIds = new List<string>(),
+            };
+            // Session-authored BP booked DURING the abandoned attempt.
+            var sessionAuthoredBp = new BranchPoint
+            {
+                Id = sessionAuthoredBpId,
+                UT = 80.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { forkId },
+                ChildRecordingIds = new List<string> { attemptDebrisId },
+            };
+
+            var committedTree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                RootRecordingId = originId,
+                ActiveRecordingId = forkId,  // markerSwap pointed it at the fork
+            };
+            committedTree.AddOrReplaceRecording(origin);
+            committedTree.AddOrReplaceRecording(fork);
+            committedTree.AddOrReplaceRecording(attemptDebris);
+            committedTree.BranchPoints.Add(preSessionBp);
+            committedTree.BranchPoints.Add(sessionAuthoredBp);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddProvisional(fork);
+            // attemptDebris intentionally NOT in CommittedRecordings -
+            // production shape (no AddProvisional in CreateBreakupChildRecording).
+
+            var marker = MakeMarker(
+                sessionId: sessionId, treeId: treeId, rpId: rpId,
+                originId: originId, activeReFlyRecordingId: forkId);
+            marker.SupersedeTargetId = originId;
+            marker.InPlaceContinuation = true;
+            // Pre-session baseline contains ONLY the pre-session BP, so
+            // the session-authored one gets pruned.
+            marker.PreSessionBranchPointIds = new List<string> { preSessionBpId };
+
+            var rp = MakeRewindPoint(rpId, originId, sessionProvisional: true,
+                creatingSessionId: sessionId);
+            InstallScenario(marker: marker, rps: new List<RewindPoint> { rp });
+            InstallQuicksaveExistsOverride(true);
+            WireDiscardSeams();
+
+            RevertInterceptor.DiscardReFlyHandler(marker, RevertTarget.Launch);
+
+            // Fork removed from the flat committed list AND from the
+            // committed tree's Recordings dict. Origin survives.
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+                r => r?.RecordingId == forkId);
+            Assert.False(committedTree.Recordings.ContainsKey(forkId));
+            Assert.True(committedTree.Recordings.ContainsKey(originId));
+
+            // Attempt-authored debris (untagged, from CreateBreakupChild-
+            // Recording) was adopted via the session-BP-descendant walk
+            // and removed from the committed tree dict.
+            Assert.False(committedTree.Recordings.ContainsKey(attemptDebrisId));
+
+            // Session-authored BP gone, pre-session BP survives intact.
+            Assert.DoesNotContain(committedTree.BranchPoints,
+                bp => bp.Id == sessionAuthoredBpId);
+            Assert.Contains(committedTree.BranchPoints,
+                bp => bp.Id == preSessionBpId);
+
+            // Stale ActiveRecordingId reset away from the deleted fork.
+            Assert.NotEqual(forkId, committedTree.ActiveRecordingId);
+            Assert.Equal(originId, committedTree.ActiveRecordingId);
+
+            // Helper logs the per-call summary so the audit trail makes
+            // it clear which path ran on Revert.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("PruneActiveReFlyAttemptOwnedTopology")
+                && l.Contains("callSite=RevertInterceptor:DiscardReFly")
+                && l.Contains("sess=" + sessionId));
         }
     }
 }
