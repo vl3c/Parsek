@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** `LedgerOrchestrator` now rebuilds the committed-science cache from the full surviving post-tombstone ledger, while the live `ScienceModule` still respects the requested cutoff. This keeps recovery metadata for future committed science without leaking that future science into the live cutoff state.
 
-**Coverage:** `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffWalk_PreservesFutureCommittedScienceCache`, `CommittedScienceCacheRebuildTests.RecalculateAndPatch_FullWalk_PrunesDeletedScienceRows`, and `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffThenFullWalk_DoesNotDriftCommittedCache`.
+**Coverage:** `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffWalk_KeepsFutureScienceInCommittedCacheOnly`, `CommittedScienceCacheRebuildTests.RecalculateAndPatch_FullWalk_PrunesDeletedScienceSubjectsFromCommittedCache`, and `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffThenFullWalk_DoesNotDriftCommittedCache`.
 
 ---
 
