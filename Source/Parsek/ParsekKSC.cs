@@ -1966,7 +1966,7 @@ namespace Parsek
                     power,
                     vesselLength,
                     context,
-                    $"ksc-stock-explosion-audio-busy-{recIdx}",
+                    $"ksc-stock-explosion-visual-only-busy-{recIdx}",
                     recordResult: result => stockResult = result);
             }
             else
