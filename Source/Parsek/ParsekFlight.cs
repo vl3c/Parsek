@@ -3682,26 +3682,6 @@ namespace Parsek
             return true;
         }
 
-        internal static bool ApplyPendingSplitDestructionToCapturedRecording(
-            Recording captured,
-            bool vesselDestroyedDuringRecording,
-            string source)
-        {
-            if (captured == null || !vesselDestroyedDuringRecording)
-                return false;
-            if (captured.VesselDestroyed)
-                return false;
-
-            TerminalState? priorTerminal = captured.TerminalStateValue;
-            captured.VesselDestroyed = true;
-
-            ParsekLog.Info("Flight",
-                $"Pending split destruction override: capture='{captured.RecordingId ?? "(null)"}' " +
-                $"source={source ?? "(null)"} priorTerminal={priorTerminal?.ToString() ?? "null"} " +
-                $"points={captured.Points?.Count ?? 0} snapshot={captured.VesselSnapshot != null}");
-            return true;
-        }
-
         /// <summary>
         /// Applies a late destruction callback to a stopped recorder capture. Leaves
         /// <see cref="Recording.TerminalStateValue"/> as the pre-override diagnostic
