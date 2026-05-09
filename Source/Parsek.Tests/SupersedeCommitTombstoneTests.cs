@@ -36,6 +36,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             RecordingStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
             Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
@@ -51,6 +52,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = priorParsekLogSuppress;
             RecordingStore.SuppressLogging = priorStoreSuppress;
             RecordingStore.ResetForTesting();
+            GameStateStore.ResetForTesting();
             Ledger.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
@@ -240,6 +242,20 @@ namespace Parsek.Tests
                 SubjectId = subjectId,
                 ScienceAwarded = 10f,
                 SubjectMaxValue = 10f,
+                UT = ut,
+            };
+        }
+
+        private static GameAction ScienceSpending(string recordingId, double ut,
+            string nodeId)
+        {
+            return new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                Type = GameActionType.ScienceSpending,
+                RecordingId = recordingId,
+                NodeId = nodeId,
+                Cost = 5f,
                 UT = ut,
             };
         }
@@ -450,6 +466,35 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[CrewReservations]")
                 && l.Contains("after cutoff walk"));
+        }
+
+        [Fact]
+        public void CommitTombstones_TombstonedScienceSpending_NotSeededFromLatestTechBaseline()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            const string startingTech = "start";
+            const string oldBranchTech = "advConstruction";
+            var latestBaseline = new GameStateBaseline { ut = 200.0 };
+            latestBaseline.researchedTechIds.Add(startingTech);
+            latestBaseline.researchedTechIds.Add(oldBranchTech);
+            GameStateStore.AddBaseline(latestBaseline);
+
+            var oldUnlock = ScienceSpending("rec_origin", 100.0, oldBranchTech);
+            Ledger.AddAction(oldUnlock);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Contains(scenario.LedgerTombstones,
+                t => t.ActionId == oldUnlock.ActionId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("tech-tree patch enabled")
+                && l.Contains("baselineTechExclusions=1")
+                && l.Contains("targetCount=1"));
         }
 
         // ---------- Null scope pass-through --------------------------------

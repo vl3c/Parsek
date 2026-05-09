@@ -1324,7 +1324,8 @@ namespace Parsek
                 utCutoff: null,
                 bypassPatchDeferral: true,
                 authoritativeRepeatableRecordState: true,
-                techPatchCutoff: double.MaxValue);
+                techPatchCutoff: double.MaxValue,
+                excludeTombstonedTechFromBaseline: true);
         }
 
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
@@ -1565,7 +1566,8 @@ namespace Parsek
             double? utCutoff,
             bool bypassPatchDeferral,
             bool authoritativeRepeatableRecordState,
-            double? techPatchCutoff)
+            double? techPatchCutoff,
+            bool excludeTombstonedTechFromBaseline = false)
         {
             Initialize();
 
@@ -1634,7 +1636,8 @@ namespace Parsek
                     actions,
                     utCutoff,
                     authoritativeRepeatableRecordState,
-                    techPatchCutoff);
+                    techPatchCutoff,
+                    excludeTombstonedTechFromBaseline);
             }
 
             // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
@@ -1725,7 +1728,8 @@ namespace Parsek
             List<GameAction> actions,
             double? utCutoff,
             bool authoritativeRepeatableRecordState,
-            double? techPatchCutoff)
+            double? techPatchCutoff,
+            bool excludeTombstonedTechFromBaseline)
         {
             // KSP state mutations (PostWalk already called by engine). Repeatable
             // Records* nodes only rebuild strictly from ledger-backed thresholds on
@@ -1740,12 +1744,17 @@ namespace Parsek
             // through PatchTechTree's existing null-target guard.
             HashSet<string> targetTechIds = null;
             double? techBaselineUt = null;
+            HashSet<string> baselineTechExclusions = null;
             if (techPatchCutoff.HasValue)
             {
+                if (excludeTombstonedTechFromBaseline)
+                    baselineTechExclusions = BuildTombstonedScienceSpendingNodeIds();
+
                 targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
                     GameStateStore.Baselines,
                     actions,
-                    techPatchCutoff);
+                    techPatchCutoff,
+                    baselineTechExclusions);
                 techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
                     GameStateStore.Baselines,
                     techPatchCutoff);
@@ -1754,6 +1763,7 @@ namespace Parsek
                     $"(walkCutoff={(utCutoff.HasValue ? utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
                     $"techCutoff={techPatchCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
                     $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                    $"baselineTechExclusions={(baselineTechExclusions == null ? "0" : baselineTechExclusions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))}, " +
                     $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
             }
             else
@@ -1768,6 +1778,48 @@ namespace Parsek
                 authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
                 techUtCutoff: techPatchCutoff,
                 techBaselineUt: techBaselineUt);
+        }
+
+        private static HashSet<string> BuildTombstonedScienceSpendingNodeIds()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) ||
+                scenario.LedgerTombstones == null ||
+                scenario.LedgerTombstones.Count == 0)
+            {
+                return null;
+            }
+
+            var tombstonedActionIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var tombstone = scenario.LedgerTombstones[i];
+                if (tombstone == null || string.IsNullOrEmpty(tombstone.ActionId))
+                    continue;
+                tombstonedActionIds.Add(tombstone.ActionId);
+            }
+
+            if (tombstonedActionIds.Count == 0)
+                return null;
+
+            var excludedTechIds = new HashSet<string>(StringComparer.Ordinal);
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceSpending ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.NodeId))
+                {
+                    continue;
+                }
+
+                if (tombstonedActionIds.Contains(action.ActionId))
+                    excludedTechIds.Add(action.NodeId);
+            }
+
+            return excludedTechIds.Count == 0 ? null : excludedTechIds;
         }
 
         internal static bool HasActionsAfterUT(double ut)

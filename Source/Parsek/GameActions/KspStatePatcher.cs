@@ -134,6 +134,27 @@ namespace Parsek
             IReadOnlyList<GameAction> actions,
             double? utCutoff)
         {
+            return BuildTargetTechIdsForPatch(
+                baselines,
+                actions,
+                utCutoff,
+                baselineTechExclusions: null);
+        }
+
+        /// <summary>
+        /// Builds the authoritative researched-tech set for a recalculation patch,
+        /// optionally excluding tech ids from the selected baseline before replaying
+        /// surviving ledger-backed unlocks. The exclusion hook is used after merge
+        /// tombstones: a commit-time baseline may already include a now-retired old
+        /// branch unlock, but a surviving ScienceSpending row for the same node must
+        /// still be able to add it back.
+        /// </summary>
+        internal static HashSet<string> BuildTargetTechIdsForPatch(
+            IReadOnlyList<GameStateBaseline> baselines,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff,
+            IReadOnlyCollection<string> baselineTechExclusions)
+        {
             var selectedBaseline = SelectTechBaselineForPatch(baselines, utCutoff);
             if (selectedBaseline == null ||
                 selectedBaseline.researchedTechIds == null ||
@@ -143,11 +164,18 @@ namespace Parsek
             }
 
             var target = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> excludedBaselineTech = null;
+            if (baselineTechExclusions != null && baselineTechExclusions.Count > 0)
+                excludedBaselineTech = new HashSet<string>(baselineTechExclusions, StringComparer.Ordinal);
+
             for (int i = 0; i < selectedBaseline.researchedTechIds.Count; i++)
             {
                 string techId = selectedBaseline.researchedTechIds[i];
-                if (!string.IsNullOrEmpty(techId))
+                if (!string.IsNullOrEmpty(techId) &&
+                    (excludedBaselineTech == null || !excludedBaselineTech.Contains(techId)))
+                {
                     target.Add(techId);
+                }
             }
 
             if (actions == null)
