@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** `ContractsModule` now treats contract deadlines as non-inclusive for completion credit, injects synthetic deadline failures before late completions can clear the active accept, and records explicit fail/cancel resolution UTs during `PrePass` so stale completions after fail/cancel replay as ineffective even when sort tie-breakers process the completion first at the same UT.
 
-**Coverage:** `ContractsModuleTests.CompleteAtOrAfterDeadline_NotEffective`, `ContractsModuleTests.CompleteAfterExplicitFailOrCancel_NotEffective`, `ContractsModuleTests.CompleteAtSameUtAsExplicitFailOrCancel_NotEffectiveAfterPrePass`, `RecalculationEngineTests.Recalculate_CompleteAfterExplicitFailOrCancel_DoesNotPayRewards`, `RecalculationEngineTests.Recalculate_CompleteSameUtAsExplicitFailOrCancel_DoesNotPayRewards`, and the existing explicit fail/cancel deadline replay coverage.
+**Coverage:** `ContractsModuleTests.CompletedAtDeadline_NotEffectiveAndNotCredited`, `ContractsModuleTests.CompletedAfterDeadline_NotEffectiveAndNotCredited`, `ContractsModuleTests.CompleteAfterExplicitFailOrCancel_NotEffective`, `ContractsModuleTests.CompleteAtSameUtAsExplicitFailOrCancel_NotEffectiveAfterPrePass`, `RecalculationEngineTests.Recalculate_CompleteAfterExplicitFailOrCancel_DoesNotPayRewards`, `RecalculationEngineTests.Recalculate_CompleteSameUtAsExplicitFailOrCancel_DoesNotPayRewards`, and the existing explicit fail/cancel deadline replay coverage.
 
 ---
 
