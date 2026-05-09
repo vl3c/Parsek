@@ -1043,14 +1043,19 @@ namespace Parsek.Tests
             origin.VesselPersistentId = 100u;
 
             var notCommittedDebris = Rec("rec_not_committed_debris", "tree_1",
+                parentBranchPointId: "bp_breakup",
                 state: MergeState.NotCommitted);
             notCommittedDebris.VesselPersistentId = 200u;
             notCommittedDebris.IsDebris = true;
             notCommittedDebris.DebrisParentRecordingId = "rec_origin";
 
+            var bp = Bp("bp_breakup", BranchPointType.Breakup,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_not_committed_debris" });
+
             InstallTree("tree_1",
                 new List<Recording> { origin, notCommittedDebris },
-                new List<BranchPoint>());
+                new List<BranchPoint> { bp });
             InstallScenario(Marker("rec_origin"));
 
             var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
@@ -1069,19 +1074,26 @@ namespace Parsek.Tests
             var origin = Rec("rec_origin", "tree_1");
             origin.VesselPersistentId = 100u;
 
-            var debris1 = Rec("rec_debris1", "tree_1");
+            var debris1 = Rec("rec_debris1", "tree_1", parentBranchPointId: "bp_breakup_1");
             debris1.VesselPersistentId = 200u;
             debris1.IsDebris = true;
             debris1.DebrisParentRecordingId = "rec_origin";
 
-            var debris2 = Rec("rec_debris2", "tree_1");
+            var debris2 = Rec("rec_debris2", "tree_1", parentBranchPointId: "bp_breakup_2");
             debris2.VesselPersistentId = 300u;
             debris2.IsDebris = true;
             debris2.DebrisParentRecordingId = "rec_debris1";
 
+            var bp1 = Bp("bp_breakup_1", BranchPointType.Breakup,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_debris1" });
+            var bp2 = Bp("bp_breakup_2", BranchPointType.Breakup,
+                parents: new List<string> { "rec_debris1" },
+                children: new List<string> { "rec_debris2" });
+
             InstallTree("tree_1",
                 new List<Recording> { origin, debris1, debris2 },
-                new List<BranchPoint>());
+                new List<BranchPoint> { bp1, bp2 });
             InstallScenario(Marker("rec_origin"));
 
             var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
@@ -1090,6 +1102,124 @@ namespace Parsek.Tests
             Assert.Contains("rec_debris1", closure);
             Assert.Contains("rec_debris2", closure);
             Assert.Equal(3, closure.Count);
+        }
+
+        [Fact]
+        public void DebrisChildren_AnchorOnlyBackgroundSplit_NotAdmitted()
+        {
+            // Reproduces the v12 sampling-anchor pattern from
+            // BackgroundRecorder.RegisterChildRecordingsFromSplit
+            // (BackgroundRecorder.cs:724-741, 1115): a background split
+            // creates a parent continuation (same VesselPersistentId as the
+            // pre-split parent) plus side-off debris (different PID), and
+            // the debris's DebrisParentRecordingId is deliberately re-pointed
+            // at the parent continuation as its relative-sampling anchor.
+            // Re-flying the parent continuation must NOT enqueue the
+            // anchor-only side-off debris, because the split BP's parent is
+            // the pre-split recording (not the continuation) and the BP
+            // type is typically Decouple. The same-PID side-off filter
+            // already protects the existing closure walk; this gate keeps
+            // the new debris edge from defeating it.
+            var preSplit = Rec("rec_preSplit", "tree_1", childBranchPointId: "bp_split");
+            preSplit.VesselPersistentId = 100u;
+            preSplit.ExplicitStartUT =0.0;
+
+            var parentCont = Rec("rec_parentCont", "tree_1", parentBranchPointId: "bp_split");
+            parentCont.VesselPersistentId = 100u; // same PID — continuation
+            parentCont.ExplicitStartUT =10.0;
+
+            var sideOffDebris = Rec("rec_sideOff", "tree_1", parentBranchPointId: "bp_split");
+            sideOffDebris.VesselPersistentId = 200u;
+            sideOffDebris.ExplicitStartUT =10.0;
+            sideOffDebris.IsDebris = true;
+            // Anchor (NOT topology) link points at the parent continuation.
+            sideOffDebris.DebrisParentRecordingId = "rec_parentCont";
+
+            // Background split BPs are typed Decouple in production; the BP
+            // type alone rejects the candidate. The parent-mismatch gate is
+            // exercised by the Breakup-typed variant below.
+            var splitBp = Bp("bp_split", BranchPointType.JointBreak,
+                parents: new List<string> { "rec_preSplit" },
+                children: new List<string> { "rec_parentCont", "rec_sideOff" });
+
+            InstallTree("tree_1",
+                new List<Recording> { preSplit, parentCont, sideOffDebris },
+                new List<BranchPoint> { splitBp });
+
+            // InvokedUT well after the split so the same-PID pre-split peer
+            // is excluded by the EnqueuePidPeerSiblings StartUT guard and
+            // can't smuggle debris in via a different edge.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                TreeId = "tree_1",
+                ActiveReFlyRecordingId = "rec_provisional",
+                OriginChildRecordingId = "rec_parentCont",
+                RewindPointId = "rp_1",
+                InvokedUT = 20.0
+            };
+            InstallScenario(marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.Contains("rec_parentCont", closure);
+            Assert.DoesNotContain("rec_sideOff", closure);
+            Assert.DoesNotContain("rec_preSplit", closure);
+            Assert.Single(closure);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("SessionSuppressedSubtree")
+                && l.Contains("debrisAnchorOnlySkips=1"));
+        }
+
+        [Fact]
+        public void DebrisChildren_AnchorOnlyBreakupBp_ParentMismatch_NotAdmitted()
+        {
+            // Defense-in-depth variant of the previous test: even if the
+            // background-split BP were typed Breakup (not the production
+            // case but conceivable in odd structural-failure paths), the
+            // BP's parent is still the pre-split recording, not the parent
+            // continuation. The parents-must-include-currentRec gate
+            // rejects the anchor-only candidate.
+            var preSplit = Rec("rec_preSplit", "tree_1", childBranchPointId: "bp_split");
+            preSplit.VesselPersistentId = 100u;
+            preSplit.ExplicitStartUT =0.0;
+
+            var parentCont = Rec("rec_parentCont", "tree_1", parentBranchPointId: "bp_split");
+            parentCont.VesselPersistentId = 100u;
+            parentCont.ExplicitStartUT =10.0;
+
+            var sideOffDebris = Rec("rec_sideOff", "tree_1", parentBranchPointId: "bp_split");
+            sideOffDebris.VesselPersistentId = 200u;
+            sideOffDebris.ExplicitStartUT =10.0;
+            sideOffDebris.IsDebris = true;
+            sideOffDebris.DebrisParentRecordingId = "rec_parentCont";
+
+            var splitBp = Bp("bp_split", BranchPointType.Breakup,
+                parents: new List<string> { "rec_preSplit" },
+                children: new List<string> { "rec_parentCont", "rec_sideOff" });
+
+            InstallTree("tree_1",
+                new List<Recording> { preSplit, parentCont, sideOffDebris },
+                new List<BranchPoint> { splitBp });
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                TreeId = "tree_1",
+                ActiveReFlyRecordingId = "rec_provisional",
+                OriginChildRecordingId = "rec_parentCont",
+                RewindPointId = "rp_1",
+                InvokedUT = 20.0
+            };
+            InstallScenario(marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.Contains("rec_parentCont", closure);
+            Assert.DoesNotContain("rec_sideOff", closure);
+            Assert.Single(closure);
         }
     }
 }

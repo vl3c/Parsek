@@ -804,6 +804,7 @@ namespace Parsek
                 int pidPeersAdded = 0;
                 int sideOffSkips = 0;
                 int debrisAdded = 0;
+                int debrisAnchorOnlySkips = 0;
 
                 while (queue.Count > 0)
                 {
@@ -848,11 +849,16 @@ namespace Parsek
                     // breakup BPs), and even when it is set the same-PID gate
                     // below would cull every debris row because debris is born
                     // as a fresh KSP-assigned VesselPersistentId. Use the v12
-                    // direct ownership link to admit debris children
-                    // unconditionally — debris is intrinsically owned by the
-                    // parent recording's destruction tail and must be hidden
-                    // alongside it during an active re-fly.
-                    EnqueueDebrisChildren(currentRec, recById, queue, result, ref debrisAdded);
+                    // direct ownership link to admit debris children whose
+                    // ParentBranchPointId resolves to a Breakup BP that this
+                    // recording owns — the topology side of the dual-purpose
+                    // DebrisParentRecordingId field. Anchor-only matches
+                    // (background splits where the field is re-pointed to the
+                    // parent continuation as a sampling anchor) are gated out
+                    // here and left to the existing same-PID side-off filter.
+                    EnqueueDebrisChildren(
+                        currentRec, recById, queue, result,
+                        ref debrisAdded, ref debrisAnchorOnlySkips);
 
                     if (string.IsNullOrEmpty(currentRec.ChildBranchPointId))
                         continue;
@@ -918,7 +924,8 @@ namespace Parsek
                 ParsekLog.Verbose("ReFlySession",
                     $"SessionSuppressedSubtree: {result.Count} recording(s) closed from root={rootOverride} " +
                     $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} " +
-                    $"debrisAdded={debrisAdded} mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips})");
+                    $"debrisAdded={debrisAdded} debrisAnchorOnlySkips={debrisAnchorOnlySkips} " +
+                    $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips})");
 
                 return suppressionCache;
             }
@@ -1099,12 +1106,31 @@ namespace Parsek
         // from the dequeued parent's would be a corrupted or hand-spliced
         // link and we refuse to cross tree boundaries silently — matching
         // the contract of EnqueueChainSiblings / EnqueuePidPeerSiblings.
+        //
+        // Topology gate: `DebrisParentRecordingId` does double duty. The
+        // focused-vessel breakup path (`ParsekFlight.CreateBreakupChildRecording`)
+        // sets it to the actual breakup parent — a topology edge — while the
+        // background-split path (`BackgroundRecorder.RegisterChildRecordingsFromSplit`,
+        // anchored at lines 724-741) deliberately re-points it to the parent
+        // continuation as a relative-sampling anchor so playback can resolve
+        // post-split debris frames against an open parent recording. Walking
+        // the anchor link as topology would pull non-PID side-off debris into
+        // the closure when the parent continuation is re-flown, defeating the
+        // same-PID side-off gate added in `fix-refly-suppress-side-off`.
+        // Require the candidate's `ParentBranchPointId` to resolve to a
+        // `Breakup` BP whose parents include the dequeued recording: the
+        // breakup case satisfies it (`ParentBranchPointId == breakupBp.Id`,
+        // `breakupBp.ParentRecordingIds[0] == parentRec.RecordingId`); the
+        // background-split anchor case fails it because the split BP's parent
+        // is the pre-split recording, not the continuation, and the BP type
+        // is typically Decouple rather than Breakup.
         private static void EnqueueDebrisChildren(
             Recording rec,
             Dictionary<string, Recording> recById,
             Queue<string> queue,
             HashSet<string> result,
-            ref int debrisAdded)
+            ref int debrisAdded,
+            ref int debrisAnchorOnlySkips)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
             if (string.IsNullOrEmpty(rec.TreeId)) return;
@@ -1118,6 +1144,24 @@ namespace Parsek
                 if (!string.Equals(cand.DebrisParentRecordingId, rec.RecordingId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
                 if (result.Contains(cand.RecordingId)) continue;
+
+                if (string.IsNullOrEmpty(cand.ParentBranchPointId))
+                {
+                    debrisAnchorOnlySkips++;
+                    continue;
+                }
+                BranchPoint bp = LookupBranchPoint(cand.TreeId, cand.ParentBranchPointId);
+                if (bp == null || bp.Type != BranchPointType.Breakup)
+                {
+                    debrisAnchorOnlySkips++;
+                    continue;
+                }
+                if (bp.ParentRecordingIds == null
+                    || !bp.ParentRecordingIds.Contains(rec.RecordingId))
+                {
+                    debrisAnchorOnlySkips++;
+                    continue;
+                }
 
                 result.Add(cand.RecordingId);
                 debrisAdded++;
