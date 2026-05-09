@@ -1006,6 +1006,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_RelativeFrameInterpolationMiss_ReturnsSectionRange()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(120, 0, 0),
+                startUT: 0.0,
+                endUT: 20.0);
+            Recording relative = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: absolute.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            TrackSection section = relative.TrackSections[0];
+            section.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(0.0, new Vector3d(1, 0, 0), Quaternion.identity),
+                MakePoint(10.0, new Vector3d(1, 0, 0), Quaternion.identity),
+            };
+            relative.TrackSections[0] = section;
+            tree.AddOrReplaceRecording(absolute);
+            tree.AddOrReplaceRecording(relative);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                relative.RecordingId,
+                15.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.OutOfSectionRange, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.Equal(0, failure.SectionIndex);
+            Assert.Equal(0.0, failure.RangeStartUT, 6);
+            Assert.Equal(20.0, failure.RangeEndUT, 6);
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_EmptyAbsoluteFrames_ReturnsOutOfSectionRangeWithNaNRange()
         {
             var tree = new RecordingTree { Id = "tree" };

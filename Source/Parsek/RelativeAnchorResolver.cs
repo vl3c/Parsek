@@ -932,7 +932,18 @@ namespace Parsek
                 worldRotation,
                 resolvedSectionIndex,
                 resolvedRecordingId);
-            return IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation);
+            if (IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation))
+                return true;
+
+            pose = default;
+            failure = WarnUnresolved(
+                RelativeAnchorResolveOutcome.Other,
+                "absolute-position-unresolved",
+                resolvedRecordingId,
+                resolvedRecordingId,
+                before.ut + (after.ut - before.ut) * t,
+                resolvedSectionIndex);
+            return false;
         }
 
         internal static bool TryResolveRelativeSectionPose(
@@ -996,7 +1007,9 @@ namespace Parsek
                     recording.RecordingId,
                     anchorRecordingId,
                     ut,
-                    sectionIndex);
+                    sectionIndex,
+                    rangeStartUT: IsFinite(section.startUT) ? section.startUT : double.NaN,
+                    rangeEndUT: IsFinite(section.endUT) ? section.endUT : double.NaN);
                 return false;
             }
 
@@ -1011,7 +1024,7 @@ namespace Parsek
                 parentPose.WorldRotation,
                 relativeRotation);
 
-            if (!IsFinite(worldPos))
+            if (!IsFinite(worldPos) || !IsFinite(worldRotation))
             {
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.PoseNonFinite,
@@ -1173,7 +1186,18 @@ namespace Parsek
                 worldRotation,
                 resolvedSectionIndex,
                 resolvedRecordingId);
-            return IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation);
+            if (IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation))
+                return true;
+
+            pose = default;
+            failure = WarnUnresolved(
+                RelativeAnchorResolveOutcome.Other,
+                "absolute-position-unresolved",
+                resolvedRecordingId,
+                resolvedRecordingId,
+                ut,
+                resolvedSectionIndex);
+            return false;
         }
 
         private static bool TryBuildAbsolutePoseFromPoint(
@@ -1202,7 +1226,18 @@ namespace Parsek
             Quaternion surfaceRotation = TrajectoryMath.SanitizeQuaternion(point.rotation);
             Quaternion worldRotation = TrajectoryMath.PureMultiply(bodyRotation, surfaceRotation);
             pose = new AnchorPose(worldPos, worldRotation, resolvedSectionIndex, resolvedRecordingId);
-            return IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation);
+            if (IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation))
+                return true;
+
+            pose = default;
+            failure = WarnUnresolved(
+                RelativeAnchorResolveOutcome.Other,
+                "absolute-position-unresolved",
+                resolvedRecordingId,
+                resolvedRecordingId,
+                point.ut,
+                resolvedSectionIndex);
+            return false;
         }
 
         private static bool TryInterpolateRelativeFrame(

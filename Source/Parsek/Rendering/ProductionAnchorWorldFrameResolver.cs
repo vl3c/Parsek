@@ -49,21 +49,73 @@ namespace Parsek.Rendering
                 // V11 path: resolve the anchor-local boundary through the
                 // recorded anchor chain. If the chain misses, fall back to the
                 // v7+ absolute shadow below instead of failing outright.
-                if (relSection.frames != null
-                    && relSection.frames.Count > 0
-                    && TryFindBoundaryFrameSample(relSection.frames, boundaryUT, side, out TrajectoryPoint pt)
-                    && TryBuildRelativeAnchorResolverContext(rec, out RelativeAnchorResolverContext context)
-                    && TryResolveKnownRelativeBoundaryPose(
-                        context,
-                        rec,
-                        relSection,
-                        relIdx,
+                if (relSection.frames == null || relSection.frames.Count == 0)
+                {
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.PreconditionFailed,
+                        "relative-boundary-frames-missing",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
+                        boundaryUT,
+                        relIdx);
+                }
+                else if (!TryFindBoundaryFrameSample(
+                             relSection.frames,
+                             boundaryUT,
+                             side,
+                             out TrajectoryPoint pt))
+                {
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.OutOfSectionRange,
+                        "relative-boundary-frame-missing",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
+                        boundaryUT,
+                        relIdx);
+                }
+                else if (!TryBuildRelativeAnchorResolverContext(
+                             rec,
+                             out RelativeAnchorResolverContext context))
+                {
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.Other,
+                        "focus-tree-missing",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
                         pt.ut,
-                        out AnchorPose pose,
-                        out chainFailure))
+                        relIdx);
+                }
+                else if (TryResolveKnownRelativeBoundaryPose(
+                             context,
+                             rec,
+                             relSection,
+                             relIdx,
+                             pt.ut,
+                             out AnchorPose pose,
+                             out chainFailure))
                 {
                     worldPos = pose.WorldPos;
-                    return IsFinite(worldPos);
+                    if (IsFinite(worldPos))
+                        return true;
+
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.PoseNonFinite,
+                        "relative-pose-nonfinite",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
+                        pt.ut,
+                        relIdx);
+                }
+
+                if (!chainFailure.HasFailure)
+                {
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.Other,
+                        "relative-boundary-chain-unresolved",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
+                        boundaryUT,
+                        relIdx);
                 }
 
                 if (TryResolveRelativeBoundaryShadowWorldPos(

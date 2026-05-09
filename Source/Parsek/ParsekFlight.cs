@@ -21583,7 +21583,8 @@ namespace Parsek
                         target,
                         recordingFormatVersion,
                         allowActivation,
-                        out double firstAltitude))
+                        out double firstAltitude,
+                        out RelativeAnchorResolveFailure firstFailure))
                 {
                     interpResult = new InterpolationResult(
                         frames[0].velocity,
@@ -21608,7 +21609,9 @@ namespace Parsek
                     recordingVesselName,
                     target,
                     retireSignalState,
-                    "InterpolateAndPositionRecordedRelative");
+                    "InterpolateAndPositionRecordedRelative",
+                    firstFailure.Outcome.ToString(),
+                    RelativeAnchorResolveFailure.ReasonOrFallback(firstFailure, null));
                 interpResult = InterpolationResult.Zero;
                 return;
             }
@@ -21638,7 +21641,8 @@ namespace Parsek
                         target,
                         recordingFormatVersion,
                         allowActivation,
-                        out double pointAltitude))
+                        out double pointAltitude,
+                        out RelativeAnchorResolveFailure pointFailure))
                 {
                     interpResult = new InterpolationResult(
                         before.velocity,
@@ -21663,7 +21667,9 @@ namespace Parsek
                     recordingVesselName,
                     target,
                     retireSignalState,
-                    "InterpolateAndPositionRecordedRelative");
+                    "InterpolateAndPositionRecordedRelative",
+                    pointFailure.Outcome.ToString(),
+                    RelativeAnchorResolveFailure.ReasonOrFallback(pointFailure, null));
                 interpResult = InterpolationResult.Zero;
                 return;
             }
@@ -21938,11 +21944,19 @@ namespace Parsek
             RelativeSectionPlaybackTarget target,
             int recordingFormatVersion,
             bool allowActivation,
-            out double altitude)
+            out double altitude,
+            out RelativeAnchorResolveFailure failure)
         {
             altitude = 0.0;
-            if (!TryResolveRecordedRelativeAnchorPose(target, point.ut, out RelativeAnchorPose anchorPose))
+            failure = default;
+            if (!TryResolveRecordedRelativeAnchorPose(
+                    target,
+                    point.ut,
+                    out RelativeAnchorPose anchorPose,
+                    out failure))
+            {
                 return false;
+            }
 
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
