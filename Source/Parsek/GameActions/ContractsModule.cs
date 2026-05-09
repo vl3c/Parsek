@@ -534,7 +534,9 @@ namespace Parsek
         /// <summary>
         /// Returns terminal outcomes keyed by contract id for contracts resolved
         /// during the current walk. Unlike the action type map, this distinguishes
-        /// explicit failures from deadline-expired failures.
+        /// explicit failures from deadline-expired failures, including preserving
+        /// a prior deadline-expired classification when a later fail action for
+        /// the same contract is processed in the same walk.
         /// </summary>
         internal IReadOnlyDictionary<string, ContractTerminalOutcome> GetTerminalContractOutcomes()
         {

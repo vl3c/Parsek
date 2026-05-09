@@ -173,6 +173,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Ensures the kerbal module exists before queuing merge-tombstone roster
+        /// cleanup work. Does not reinitialize a partially initialized orchestrator.
+        /// </summary>
+        internal static bool TryEnsureKerbalsModuleForTombstoneRosterCleanup()
+        {
+            if (kerbalsModule != null)
+                return true;
+
+            if (initialized)
+            {
+                ParsekLog.Warn(Tag,
+                    "Tombstoned roster cleanup queue skipped: LedgerOrchestrator is initialized but KerbalsModule is missing");
+                return false;
+            }
+
+            ParsekLog.Warn(Tag,
+                "Tombstoned roster cleanup requested before LedgerOrchestrator.Initialize; initializing modules before queueing cleanup");
+            Initialize();
+
+            if (kerbalsModule != null)
+                return true;
+
+            ParsekLog.Warn(Tag,
+                "Tombstoned roster cleanup queue skipped: KerbalsModule unavailable after initialization");
+            return false;
+        }
+
+        /// <summary>
         /// Called when a recording is committed. Converts events to GameActions,
         /// adds to ledger, recalculates, and patches KSP state.
         /// </summary>

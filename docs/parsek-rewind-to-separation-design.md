@@ -1481,7 +1481,7 @@ Nested RP's `CreatingSessionId` matches the discarded session; load-sweep spare-
 Marker validates; all session-tagged recordings AND RPs spared; re-fly resumes. Atomic §6.10 write means no save can capture an intermediate state. **Shipped (integration)**: in-game `F5MidReFlyResumeTest`.
 
 ### 7.13 Contract supersede retires old-branch contract rows
-BG-crash completed contract X. Player re-flies, merges. The old `ContractComplete` action is tombstoned, disappears from ELS, and the post-tombstone patch removes unsupported active stock contract state plus terminal stock state only for the explicit tombstoned Parsek contract id. Terminal preservation is outcome-aware, so a surviving retry failure/cancel for the same contract id does not preserve the old completed stock row. A retry completion can then be credited from the surviving branch subject to normal once-ever and deadline rules. **Shipped (integration)**: `TombstoneEligibilityTests`, `PatchContractsPreservationTests`, and in-game `ContractStickyAcrossSupersedeTest`.
+BG-crash completed contract X. Player re-flies, merges. The old `ContractComplete` action is tombstoned, disappears from ELS, and the post-tombstone patch removes unsupported active stock contract state plus terminal stock state only for the explicit tombstoned Parsek contract id. Terminal preservation is outcome-aware, so a surviving retry failure/cancel for the same contract id does not preserve the old completed stock row. A retry completion can then be credited from the surviving branch subject to normal once-ever and deadline rules. **Shipped (integration)**: `TombstoneEligibilityTests`, `PatchContractsPreservationTests`, and in-game `ContractTombstonesAcrossSupersedeTest`.
 
 ### 7.14 Contract failed by BG-crash; re-fly succeeds
 BG-crash failed contract X. The old `ContractFail` action is tombstoned with the old subtree. The contract patcher removes unsupported terminal stock state only for that explicit tombstoned Parsek contract id when the surviving ledger no longer carries a compatible fail/deadline-expired outcome, so a retry can supply the canonical result without erasing unrelated stock finished history.
@@ -2138,7 +2138,7 @@ The v0.9.1 stable-leaf extension adds:
 - `InvokeRPStripAndActivate` — strip counts + active-vessel PID unchanged.
 - `MergeLandedReFlyCreatesImmutableSupersedeTest` — relation in list, provisional Immutable, RP reaps.
 - `MergeCrashedReFlyCreatesCPSupersedeTest` — provisional `CommittedProvisional`, is Unfinished Flight, RP does not reap; re-invoke path exercises chain extension on next merge.
-- `ContractStickyAcrossSupersedeTest` — old-branch contract actions are tombstoned and absent from ELS after re-fly merge.
+- `ContractTombstonesAcrossSupersedeTest` — old-branch contract actions are tombstoned and absent from ELS after re-fly merge.
 - `GhostSuppressionDuringReFlyTest` — no ghost rendering for supersede-target subtree.
 - `KerbalRecoveryOnSupersedeTest` — kerbal returns active; reservation re-derived.
 - `KerbalDualResidenceCarveOutTest` — live re-fly crew exempt from reservation lock.

@@ -679,6 +679,38 @@ namespace Parsek.Tests
                 && l.Contains("Queued 1 tombstoned roster kerbal cleanup candidate"));
         }
 
+        [Fact]
+        public void TryEnsureKerbalsModuleForTombstoneRosterCleanup_NotInitialized_InitializesBeforeQueue()
+        {
+            Assert.False(LedgerOrchestrator.IsInitialized);
+            Assert.Null(LedgerOrchestrator.Kerbals);
+
+            bool available = LedgerOrchestrator.TryEnsureKerbalsModuleForTombstoneRosterCleanup();
+
+            Assert.True(available);
+            Assert.True(LedgerOrchestrator.IsInitialized);
+            Assert.NotNull(LedgerOrchestrator.Kerbals);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("Tombstoned roster cleanup requested before LedgerOrchestrator.Initialize"));
+        }
+
+        [Fact]
+        public void TryEnsureKerbalsModuleForTombstoneRosterCleanup_InitializedButMissing_WarnsAndSkips()
+        {
+            LedgerOrchestrator.Initialize();
+            LedgerOrchestrator.SetKerbalsForTesting(null);
+            logLines.Clear();
+
+            bool available = LedgerOrchestrator.TryEnsureKerbalsModuleForTombstoneRosterCleanup();
+
+            Assert.False(available);
+            Assert.Null(LedgerOrchestrator.Kerbals);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("initialized but KerbalsModule is missing"));
+        }
+
         // ---------- Idempotence --------------------------------------------
 
         [Fact]

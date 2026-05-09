@@ -1031,7 +1031,7 @@ Tags: `Rewind`, `RewindSave`, `Supersede`, `LedgerSwap`, `UnfinishedFlights`, `R
 - **MergeLandedReFlyCreatesImmutableSupersede** — relation in list, AB unchanged, AB' Immutable, RP reaps.
 - **MergeCrashedReFlyCreatesCPSupersede** — relation in list, AB' CommittedProvisional Crashed, is an Unfinished Flight, RP does NOT reap.
 - **ReRewindExtendsChain** — after merged crash, invoke RP again; strip uses PidSlotMap; new provisional created; chain extends on next merge.
-- **ContractStickyAcrossSupersede** — contract completed by BG-crash; re-fly merges; contract still complete in KSP's `ContractSystem`; rep unchanged.
+- **ContractTombstonesAcrossSupersede** — contract completed by BG-crash; re-fly merges; old-branch contract actions are tombstoned and absent from ELS.
 - **GhostSuppressionDuringReFly** — no ghost rendering for supersede-target subtree.
 - **KerbalRecoveryOnSupersede** — kerbal returns active; reservation re-derived.
 - **UnfinishedFlightsRenderingAndNoHide.**

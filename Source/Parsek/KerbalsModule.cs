@@ -1509,12 +1509,19 @@ namespace Parsek
             int skippedStatus = 0;
             int skippedLive = 0;
             int failedRemove = 0;
+            int candidates = 0;
+            int skippedEmpty = 0;
 
             for (int i = 0; i < pending.Count; i++)
             {
                 string name = pending[i];
                 if (string.IsNullOrEmpty(name))
+                {
+                    skippedEmpty++;
                     continue;
+                }
+
+                candidates++;
 
                 if (ledgerCreatedKerbals.Contains(name)
                     || reservations.ContainsKey(name)
@@ -1550,9 +1557,9 @@ namespace Parsek
             }
 
             ParsekLog.Info(Tag,
-                $"Tombstoned roster cleanup: candidates={pending.Count} removed={removed} " +
+                $"Tombstoned roster cleanup: candidates={candidates} removed={removed} " +
                 $"preserved={preserved} missing={missing} skippedStatus={skippedStatus} " +
-                $"skippedLive={skippedLive} failedRemove={failedRemove}");
+                $"skippedLive={skippedLive} failedRemove={failedRemove} skippedEmpty={skippedEmpty}");
         }
 
         private static ProtoCrewMember FindInRoster(KerbalRoster roster, string name)

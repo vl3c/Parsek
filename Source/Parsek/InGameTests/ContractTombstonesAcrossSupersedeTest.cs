@@ -30,11 +30,11 @@ namespace Parsek.InGameTests
     ///       Ledger Set (<see cref="EffectiveState.ComputeELS"/>).</description></item>
     /// </list>
     /// </summary>
-    public class ContractStickyAcrossSupersedeTest
+    public class ContractTombstonesAcrossSupersedeTest
     {
         [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
             Description = "Re-fly merge tombstones contract actions from the superseded subtree")]
-        public void ContractStickyAcrossSupersede()
+        public void ContractTombstonesAcrossSupersede()
         {
             var scenario = ParsekScenario.Instance;
             InGameAssert.IsNotNull(scenario, "ParsekScenario.Instance is null");
@@ -59,7 +59,7 @@ namespace Parsek.InGameTests
 
             // Collect every contract-type ledger action in the supersede subtree
             // BEFORE the merge commits. These are the items the test will check
-            // for stickiness.
+            // for physical retention plus ELS tombstoning.
             var subtreeBefore = EffectiveState.ComputeSessionSuppressedSubtree(marker);
             var contractActionIds = new HashSet<string>();
             var subtreeSet = new HashSet<string>(subtreeBefore);
@@ -86,7 +86,7 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Info("RewindTest",
-                $"ContractStickyAcrossSupersede: found {contractActionIds.Count} contract action(s) " +
+                $"ContractTombstonesAcrossSupersede: found {contractActionIds.Count} contract action(s) " +
                 $"in subtree of size {subtreeBefore.Count}");
 
             // Simulate the merge commit. CommitSupersede runs CommitTombstones
@@ -130,7 +130,7 @@ namespace Parsek.InGameTests
                 $"No contract actions may remain in ELS after broad tombstone merge; got {inEls.Count}");
 
             ParsekLog.Info("RewindTest",
-                $"ContractStickyAcrossSupersede: all {contractActionIds.Count} contract action(s) " +
+                $"ContractTombstonesAcrossSupersede: all {contractActionIds.Count} contract action(s) " +
                 "survive physically in Ledger.Actions, are tombstoned, and are absent from ELS.");
         }
 

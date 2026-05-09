@@ -1793,9 +1793,7 @@ namespace Parsek
             // have been rebuilt from the post-tombstone ELS.
             if (tombstonedRosterActions.Count > 0)
             {
-                if (LedgerOrchestrator.Kerbals == null)
-                    LedgerOrchestrator.Initialize();
-                if (LedgerOrchestrator.Kerbals != null)
+                if (LedgerOrchestrator.TryEnsureKerbalsModuleForTombstoneRosterCleanup())
                     LedgerOrchestrator.Kerbals.QueueTombstonedRosterKerbals(tombstonedRosterActions);
             }
 
