@@ -20516,7 +20516,17 @@ namespace Parsek
                 return false;
             }
 
-            Vector3d anchorWorld = anchor.GetWorldPos3D();
+            // Match the recorder's live-anchor frame (FlightRecorder /
+            // BackgroundRecorder TryResolveAnchorPoseForCandidate). The recorder
+            // writes loop-relative offsets against vesselTransform.position; the
+            // matching rotation is vesselTransform.rotation. GetWorldPos3D (CoMD)
+            // here would re-introduce the same CoM-vs-vesselTransform mismatch
+            // the recorder fix removed, but inverted at playback time. Use
+            // anchor.transform explicitly (not GetTransform(), which follows
+            // ReferenceTransform / "Control From Here").
+            Vector3d anchorWorld = anchor.transform != null
+                ? (Vector3d)anchor.transform.position
+                : anchor.GetWorldPos3D();
             if (!IsFiniteVector3d(anchorWorld))
             {
                 GhostRenderTrace.EmitRelativeResolver(
