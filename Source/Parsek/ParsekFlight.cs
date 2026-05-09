@@ -9135,14 +9135,18 @@ namespace Parsek
             string origin = part.transform != null
                 ? FormatVector3d(part.transform.position)
                 : "no-transform";
+            string rotation = part.transform != null
+                ? FormatQuaternionForDiagnostics(part.transform.rotation)
+                : "no-transform";
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "{0}='{1}' pid={2} parentPid={3} origin={4} srfAttach={5}",
+                "{0}='{1}' pid={2} parentPid={3} origin={4} rot={5} srfAttach={6}",
                 label,
                 name,
                 part.persistentId,
                 parentPid,
                 origin,
+                rotation,
                 DescribeDecoupleSurfaceAttachForDiagnostics(part));
         }
 
@@ -9194,6 +9198,17 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static string FormatQuaternionForDiagnostics(Quaternion value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F3},{1:F3},{2:F3},{3:F3})",
+                value.x,
+                value.y,
+                value.z,
+                value.w);
         }
 
         internal static double ResolveDeferredSplitBranchUT(

@@ -3737,6 +3737,8 @@ namespace Parsek
             }
             catch (Exception)
             {
+                // Diagnostics should not fail sampling if KSP cannot resolve the
+                // world position during scene/load transitions.
                 return "unresolved";
             }
         }

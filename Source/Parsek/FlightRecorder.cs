@@ -1059,10 +1059,13 @@ namespace Parsek
             string origin = part.transform != null
                 ? FormatVector3dForDiagnostics(part.transform.position)
                 : "no-transform";
+            string rotation = part.transform != null
+                ? FormatQuaternionForDiagnostics(part.transform.rotation)
+                : "no-transform";
 
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "{0}='{1}' pid={2} parentPid={3} vesselPid={4} vessel='{5}' origin={6} srfAttach={7}",
+                "{0}='{1}' pid={2} parentPid={3} vesselPid={4} vessel='{5}' origin={6} rot={7} srfAttach={8}",
                 label,
                 partName,
                 part.persistentId,
@@ -1070,6 +1073,7 @@ namespace Parsek
                 vesselPid,
                 vesselName,
                 origin,
+                rotation,
                 DescribeSurfaceAttachNodeForDiagnostics(part));
         }
 
@@ -1110,6 +1114,17 @@ namespace Parsek
                 value.x,
                 value.y,
                 value.z);
+        }
+
+        private static string FormatQuaternionForDiagnostics(Quaternion value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F3},{1:F3},{2:F3},{3:F3})",
+                value.x,
+                value.y,
+                value.z,
+                value.w);
         }
 
         private void OnPartJointBreak(PartJoint joint, float breakForce)
