@@ -3889,15 +3889,17 @@ namespace Parsek
             float effectiveMotionMinSampleInterval,
             float foregroundMinSampleInterval)
         {
+            // highFidelityActive is already folded into
+            // effectiveMotionMinSampleInterval by the caller; attitude uses the
+            // more aggressive of motion cadence and foreground attitude floor.
+            _ = highFidelityActive;
             // The two-arg helper currently returns the configured foreground
             // minimum unchanged; keep the call here so this background path stays
             // aligned if foreground cadence policy grows another override.
             float foregroundAttitudeMin = FlightRecorder.ResolveEffectiveMinSampleInterval(
                 true,
                 foregroundMinSampleInterval);
-            return highFidelityActive
-                ? foregroundAttitudeMin
-                : Math.Min(effectiveMotionMinSampleInterval, foregroundAttitudeMin);
+            return Math.Min(effectiveMotionMinSampleInterval, foregroundAttitudeMin);
         }
 
         internal static TrajectoryPoint CreateAbsoluteTrajectoryPointFromVessel(

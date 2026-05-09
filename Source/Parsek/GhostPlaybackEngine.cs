@@ -1133,7 +1133,7 @@ namespace Parsek
                 ctx.warpRate,
                 "non-loop",
                 ShouldExitWatchForCoverageRetiredState(i, state, ctx),
-                loopCameraEvent: true);
+                emitOnLoopCameraChannel: true);
 
             // Position the ghost. Parent-anchored v12+ debris is only valid
             // while a recorded Relative section covers the playback UT; outside
@@ -2617,7 +2617,7 @@ namespace Parsek
             float warpRate,
             string phase,
             bool emitExitWatch,
-            bool loopCameraEvent)
+            bool emitOnLoopCameraChannel)
         {
             if (flags.tryEvaluateAnchorRotationReliability == null)
                 return false;
@@ -2639,6 +2639,9 @@ namespace Parsek
 
             if (emitExitWatch)
             {
+                // Match the existing parent-anchored coverage-retire contract:
+                // primary and loop-positioning exits travel through the loop
+                // camera-action channel watched by WatchModeController.
                 var evt = new CameraActionEvent
                 {
                     Index = index,
@@ -2646,7 +2649,7 @@ namespace Parsek
                     Trajectory = traj,
                     Flags = flags
                 };
-                if (loopCameraEvent)
+                if (emitOnLoopCameraChannel)
                     OnLoopCameraAction?.Invoke(evt);
                 else
                     OnOverlapCameraAction?.Invoke(evt);
@@ -2703,6 +2706,9 @@ namespace Parsek
             state.parentAnchoredDebrisCoverageRetired = false;
             if (state.ghost != null && state.ghost.activeSelf)
                 state.ghost.SetActive(false);
+            // FX teardown is dictionary-driven and does not require the root
+            // GameObject to remain active; hide visual presence before stopping
+            // transient effects so a future refactor does not re-show it here.
             if (HasLoadedGhostVisuals(state))
             {
                 ApplyFrameVisuals(
@@ -2885,7 +2891,7 @@ namespace Parsek
                     warpRate,
                     callsite,
                     emitExitWatch,
-                    loopCameraEvent: true))
+                    emitOnLoopCameraChannel: true))
             {
                 return;
             }

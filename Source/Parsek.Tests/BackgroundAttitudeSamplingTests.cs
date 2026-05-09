@@ -17,14 +17,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveBackgroundAttitudeMinSampleInterval_HighFidelityKeepsForegroundFloor()
+        public void ResolveBackgroundAttitudeMinSampleInterval_HighFidelityKeepsMotionFloorWhenMoreAggressive()
         {
             float interval = BackgroundRecorder.ResolveBackgroundAttitudeMinSampleInterval(
                 highFidelityActive: true,
-                effectiveMotionMinSampleInterval: 0.5f,
+                effectiveMotionMinSampleInterval: 0.02f,
                 foregroundMinSampleInterval: 0.05f);
 
-            Assert.Equal(0.05f, interval);
+            Assert.Equal(0.02f, interval);
         }
     }
 }

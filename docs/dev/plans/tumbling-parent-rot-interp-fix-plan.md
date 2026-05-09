@@ -1,14 +1,14 @@
 # Implementation Plan v4: Anchor rotation interpolation chaos when parent is tumbling
 
-> **Plan v4** — fixes the v3 review findings: `RelativeAnchorResolverContext` is readonly, the child local offset must be computed before parent resolution, site 1157 is child-relative rotation and must not drive the parent-rotation gate, loop-synced debris must evaluate at the actual playback UT, hysteresis must be keyed per child+anchor pair, and the tests/threshold text must match the final cleanup policy.
+> **Plan v4** -- fixes the v3 review findings: `RelativeAnchorResolverContext` is readonly, the child local offset must be computed before parent resolution, site 1157 is child-relative rotation and must not drive the parent-rotation gate, loop-synced debris must evaluate at the actual playback UT, hysteresis must be keyed per child+anchor pair, and the tests/threshold text must match the final cleanup policy.
 >
 > **v2 RESOLVED from v1:** v7 shadow fallback eliminated (replaced by HIDE-on-suspect, consistent with `DebrisRelativePlaybackPolicy`); all relevant slerp sites were audited (parent sites 878/1074 gated, child-relative site 1157 explicitly out of scope); PR #787 interaction verified.
 
 ## Bug summary
 
-When a parent recording captures a vessel tumbling at high angular velocity, debris ghosts anchored to that parent with large local-offset vectors render with chaotic per-frame motion (50–200m dM where expectedDM ~2m). Adjacent recorded parent rotations are 50° apart over 0.22s = ~240°/s tumble. Slerp between sparse samples doesn't reproduce the actual rotation curve. With debris local-offset of 1400m+, rotation-interpolation errors translate to 100m+ position errors per physics frame.
+When a parent recording captures a vessel tumbling at high angular velocity, debris ghosts anchored to that parent with large local-offset vectors render with chaotic per-frame motion (50-200m dM where expectedDM ~2m). Adjacent recorded parent rotations are 50 deg apart over 0.22s = ~240 deg/s tumble. Slerp between sparse samples doesn't reproduce the actual rotation curve. With debris local-offset of 1400m+, rotation-interpolation errors translate to 100m+ position errors per physics frame.
 
-Evidence — debris #2 (`a118a1dc`):
+Evidence -- debris #2 (`a118a1dc`):
 ```
 frame 11177 ut=42.000 pos=(1352.88, 54.67, -369.29) dM=111.87 expectedDM=2.08
 frame 11179 ut=42.020 pos=(1308.92, 54.35, -471.13) dM=110.92 expectedDM=2.08
@@ -25,14 +25,14 @@ v4 extends the policy semantics from "anchor cannot be resolved" to include "rot
 
 ## 1. Fix shape
 
-### 1.1 HIDE vs FREEZE-AT-LAST-STABLE — consideration of alternatives (v2 review IMPORTANT)
+### 1.1 HIDE vs FREEZE-AT-LAST-STABLE -- consideration of alternatives (v2 review IMPORTANT)
 
 The v2 reviewer asked whether freezing the ghost at its last reliably-resolved world pose for the suspect window is better than hiding it. v4 keeps that decision:
 
 - **Freeze-at-last-stable:** holds the last stable position of the ghost mesh while the rotation interp is unreliable. Visual: ghost appears to stop moving for the duration of the parent's tumble, then resumes. Pros: preserves visual continuity (the player still sees the booster). Cons: position diverges from physics reality (the booster IS still falling/moving in the world); may cause overlap with terrain or other ghosts if held too long; does not match the existing seed-bridge precedent (`DebrisRelativePlaybackPolicy.TryResolveInitialStructuralSeedBridgeEndUT` hides through the bridge window).
 - **HIDE (chosen):** ghost mesh disappears for the suspect window. Pros: matches the existing precedent of "hide when contract data is unreliable"; no position-divergence risk; consistent with the policy's "should disappear" language. Cons: brief visual discontinuity (the booster vanishes for a few seconds during the parent's tumble window).
 
-Decision: HIDE. The "freeze" alternative may LOOK better for short windows but introduces position-divergence risk that the policy was explicitly written to prevent ("can continue stale motion after the debris has left the parent's resolvable range" — the same phrase applies if the ghost is frozen while the world keeps moving). HIDE is safer and consistent with the existing seed-bridge precedent.
+Decision: HIDE. The "freeze" alternative may LOOK better for short windows but introduces position-divergence risk that the policy was explicitly written to prevent ("can continue stale motion after the debris has left the parent's resolvable range" -- the same phrase applies if the ghost is frozen while the world keeps moving). HIDE is safer and consistent with the existing seed-bridge precedent.
 
 ### 1.2 Engine-side gate via `TrajectoryPlaybackFlags[]` (v2 BLOCKER + v4 loop-UT fix)
 
@@ -106,7 +106,7 @@ Mirrors `TryResolveAnchorPose` at `RelativeAnchorResolver.cs:86`. The original `
 
 `TryResolveAnchorPoseWithReliability` reports the instantaneous bracket decision. The `ParsekFlight` callback applies `AnchorRotationHysteresisState` keyed by child+anchor before returning `decision.Unreliable` to the engine.
 
-**Design seam — where the gate lives** (v3 review BLOCKER #3 + v4 correction): sites 878 and 1074 inside `TryResolveAbsoluteBracketPose` / `TryResolveAbsoluteFramesPose` operate on the PARENT recording during recursive anchor resolution. The debris's local offset currently comes from `TryInterpolateRelativeFrame` (lines 1154-1156), but current code resolves the parent first at `RelativeAnchorResolver.cs:912-915`. v4 therefore explicitly reorders the relative-section path:
+**Design seam -- where the gate lives** (v3 review BLOCKER #3 + v4 correction): sites 878 and 1074 inside `TryResolveAbsoluteBracketPose` / `TryResolveAbsoluteFramesPose` operate on the PARENT recording during recursive anchor resolution. The debris's local offset currently comes from `TryInterpolateRelativeFrame` (lines 1154-1156), but current code resolves the parent first at `RelativeAnchorResolver.cs:912-915`. v4 therefore explicitly reorders the relative-section path:
 
 1. Resolve `anchorRecordingId`.
 2. Interpolate the child relative frame first with `TryInterpolateRelativeFrame` to obtain `dx/dy/dz` and `relativeRotation`.
@@ -241,41 +241,41 @@ The engine never imports `RelativeAnchorResolver`. The engine only invokes a hos
 
 ### 1.3 Slerp site 878 narrow coverage (v2 review IMPORTANT)
 
-Site 878 (`TryResolveAbsoluteBracketPose`) is a small-section-gap fallback with bracket span ≤ 0.10s (per the comment at line 876-877). The fallback path itself is uncommon at runtime, so the site is expected to be exercised infrequently. When it is exercised in the bug regime, the predicate can still trip correctly: 240°/s over 0.10s is ~24°, above both the 8° angle threshold and 150°/s rate threshold when the debris offset is large. v4 documents this expected behavior in the helper's XML comment so a future reviewer doesn't think the gate is "broken at site 878."
+Site 878 (`TryResolveAbsoluteBracketPose`) is a small-section-gap fallback with bracket span <= 0.10s (per the comment at line 876-877). The fallback path itself is uncommon at runtime, so the site is expected to be exercised infrequently. When it is exercised in the bug regime, the predicate can still trip correctly: 240 deg/s over 0.10s is ~24 deg, above both the 8 deg angle threshold and 150 deg/s rate threshold when the debris offset is large. v4 documents this expected behavior in the helper's XML comment so a future reviewer doesn't think the gate is "broken at site 878."
 
 The gate IS still wired at site 878 for correctness; most runs simply will not enter this fallback path. Coverage is a defense-in-depth measure.
 
-### 1.4 Threshold tuning + hysteresis (v4 — refined per review)
+### 1.4 Threshold tuning + hysteresis (v4 -- refined per review)
 
-**Enter thresholds** — fire HIDE when ALL of:
-- `Δθ ≥ EnterAngleDegrees = 8°` per bracket pair
-- `Δθ/Δt ≥ EnterRateDegPerSec = 150 °/s`
-- debris local offset magnitude `≥ MinOffsetMagnitudeMeters = 50m`
+**Enter thresholds** -- fire HIDE when ALL of:
+- `delta-theta >= EnterAngleDegrees = 8 deg` per bracket pair
+- `delta-theta/delta-t >= EnterRateDegreesPerSecond = 150 deg/s`
+- debris local offset magnitude `>= MinOffsetMagnitudeMeters = 50m`
 - AND `traj.IsDebris && traj.DebrisParentRecordingId != null`
 
 **Exit thresholds** (hysteresis):
 - Release immediately if debris local offset magnitude drops below `MinOffsetMagnitudeMeters = 50m`.
-- Otherwise release only when `Δθ ≤ ExitAngleDegrees = 4°` AND `Δθ/Δt ≤ ExitRateDegPerSec = 75 °/s`.
+- Otherwise release only when `delta-theta <= ExitAngleDegrees = 4 deg` AND `delta-theta/delta-t <= ExitRateDegreesPerSecond = 75 deg/s`.
 
-**Reaction-wheel false-positive analysis (review IMPORTANT #6 fix — raised rate threshold):**
+**Reaction-wheel false-positive analysis (review IMPORTANT #6 fix -- raised rate threshold):**
 
-The v3 review correctly flagged that the original 90°/s rate threshold was optimistic: a 180°/s probe at t=3s post-separation can have 50–100m offset to debris children (decoupled stage with sustained relative velocity from a separation motor). Both thresholds would fire — false positive.
+The v3 review correctly flagged that the original 90 deg/s rate threshold was optimistic: a 180 deg/s probe at t=3s post-separation can have 50-100m offset to debris children (decoupled stage with sustained relative velocity from a separation motor). Both thresholds would fire -- false positive.
 
-**v4 uses `EnterRateDegPerSec = 150 °/s`**:
-- Bug regime: 240°/s+ tumble (well above 150°/s) → gate fires reliably.
-- Stock + tweakable reaction-wheel limit: ~120°/s peak observed in vanilla KSP gameplay. Buffer of 30°/s above the legitimate-fast ceiling.
-- KER/MJ scripted maneuvers can briefly hit 180°/s but are typically very short bursts (<0.5s); even when they pass the rate threshold, the bracket is so short that the angle-threshold AND the offset-threshold filters typically save them.
-- For the bug regime where playback shows ~5 seconds of sustained chaos, the rate must be sustained — brief 180°/s spikes during legitimate scripted maneuvers are unlikely to coincide with a debris recording having 50m+ offset for that exact bracket.
+**v4 uses `EnterRateDegreesPerSecond = 150 deg/s`**:
+- Bug regime: 240 deg/s+ tumble (well above 150 deg/s) -> gate fires reliably.
+- Stock + tweakable reaction-wheel limit: ~120 deg/s peak observed in vanilla KSP gameplay. Buffer of 30 deg/s above the legitimate-fast ceiling.
+- KER/MJ scripted maneuvers can briefly hit 180 deg/s but are typically very short bursts (<0.5s); even when they pass the rate threshold, the bracket is so short that the angle-threshold AND the offset-threshold filters typically save them.
+- For the bug regime where playback shows ~5 seconds of sustained chaos, the rate must be sustained -- brief 180 deg/s spikes during legitimate scripted maneuvers are unlikely to coincide with a debris recording having 50m+ offset for that exact bracket.
 
-The 150°/s value is an empirical tuning knob, not a serialized contract. If post-merge reports show false positives, tune the rate threshold first; the offset filter is the more principled guard because it directly represents whether parent rotation error can amplify into visible translation.
+The 150 deg/s value is an empirical tuning knob, not a serialized contract. If post-merge reports show false positives, tune the rate threshold first; the offset filter is the more principled guard because it directly represents whether parent rotation error can amplify into visible translation.
 
 Hysteresis enter/exit:
-- Enter: Δθ ≥ 8° AND Δθ/Δt ≥ 150°/s AND offset ≥ 50m
-- Exit: offset < 50m OR (Δθ ≤ 4° AND Δθ/Δt ≤ 75°/s)
+- Enter: delta-theta >= 8 deg AND delta-theta/delta-t >= 150 deg/s AND offset >= 50m
+- Exit: offset < 50m OR (delta-theta <= 4 deg AND delta-theta/delta-t <= 75 deg/s)
 
 **The AND of three conditions (angle + rate + offset) is load-bearing.** Each one alone false-positives. Documented as `internal const` rationale in `TumblingParentInterpolationGate.cs` XML comment.
 
-The v3 review's recommendation (b) — add a third AND condition based on debris-relative-velocity — was considered but rejected: it adds another threshold to tune and the offset filter alone is sufficient given the conservative rate raise.
+The v3 review's recommendation (b) -- add a third AND condition based on debris-relative-velocity -- was considered but rejected: it adds another threshold to tune and the offset filter alone is sufficient given the conservative rate raise.
 
 ### 1.5 Hysteresis state lifetime (v4 review fix)
 
@@ -329,9 +329,9 @@ For test fixtures or transient trajectories with an empty `RecordingId`, `Parsek
 
 **v3 review correction:** `RecordingStore.OnRecordingRemoved` event does NOT exist. Grep across `Source/Parsek` returns zero matches. The plan v2 was wrong to claim it. Cleanup hooks now use ONLY events that demonstrably exist:
 
-- **Scene exit:** `ParsekFlight.OnDestroy` (verified at `ParsekFlight.cs:1924`) and `ParsekFlight.OnSceneChangeRequested` (verified at `:1007`) — both clear the dictionary entirely. This is the primary cleanup path.
+- **Scene exit:** `ParsekFlight.OnDestroy` (verified at `ParsekFlight.cs:1924`) and `ParsekFlight.OnSceneChangeRequested` (verified at `:1007`) -- both clear the dictionary entirely. This is the primary cleanup path.
 - **Recording deletion within a scene:** explicitly NOT handled. Stale entries persist until next scene change. Memory footprint: at most 1 entry per child+anchor pair across the dictionary's lifetime in a scene. A long sandbox session can accumulate hundreds or even thousands of pairs, but each entry is only two string references plus the small state struct; even thousands of pairs stay comfortably below 100 KB and are cleared on scene exit. Acceptable. Documented in the helper's XML comment as a known limitation.
-- **Re-Fly session end:** `ParsekScenario.ActiveReFlySessionMarker` is a state OBJECT, not an event. There is no `OnReFlySessionEnd` event today. v4 does NOT add one — the scene-exit hook handles the common case (every Re-Fly transitions through a scene change at completion). If the hysteresis flapping turns out to be a real symptom across Re-Fly sessions within one flight, file a follow-up to add the event.
+- **Re-Fly session end:** `ParsekScenario.ActiveReFlySessionMarker` is a state OBJECT, not an event. There is no `OnReFlySessionEnd` event today. v4 does NOT add one -- the scene-exit hook handles the common case (every Re-Fly transitions through a scene change at completion). If the hysteresis flapping turns out to be a real symptom across Re-Fly sessions within one flight, file a follow-up to add the event.
 
 Memory-leak risk: bounded by scene lifetime and small enough for worst-case gameplay sessions. Acceptable.
 
@@ -339,7 +339,7 @@ Memory-leak risk: bounded by scene lifetime and small enough for worst-case game
 
 For NEW recordings only: add an attitude trigger to BG sampling at `Source/Parsek/BackgroundRecorder.cs:1937` that fires when `Quaternion.Angle(currentWorldRotation, state.lastWorldRotation) >= 1.0f` AND `elapsed >= attitudeMinSampleInterval`.
 
-**v3 simplification** (v2 review IMPORTANT — sister helper not needed): reuse `FlightRecorder.ShouldRecordAttitudePoint` directly. It is `internal static` and stateless at `FlightRecorder.cs:8346`, taking `currentWorldRotation, lastWorldRotation, currentUT, lastRecordedUT, hasLastWorldRotation, minInterval, rotationThresholdDegrees`. No sister helper needed. Pass BG-side `state.lastWorldRotation`, `state.hasLastWorldRotation`, and BG-side `attitudeMinSampleInterval`.
+**v3 simplification** (v2 review IMPORTANT -- sister helper not needed): reuse `FlightRecorder.ShouldRecordAttitudePoint` directly. It is `internal static` and stateless at `FlightRecorder.cs:8346`, taking `currentWorldRotation, lastWorldRotation, currentUT, lastRecordedUT, hasLastWorldRotation, minInterval, rotationThresholdDegrees`. No sister helper needed. Pass BG-side `state.lastWorldRotation`, `state.hasLastWorldRotation`, and BG-side `attitudeMinSampleInterval`.
 
 `FlightRecorder.attitudeSampleThresholdDegrees` is a private const at `FlightRecorder.cs:918`, so `BackgroundRecorder` cannot reference it directly. Add a local BG-side private const:
 
@@ -352,14 +352,16 @@ Use that constant when calling `ShouldRecordAttitudePoint`. If the foreground th
 **v4 correction:** do NOT pass the normal BG `effectiveMinSampleInterval` for attitude. For non-high-fidelity background vessels that value is the proximity tier interval (`FarInterval = 2.0s`), which can still leave a tumbling parent too sparse. Compute a separate attitude floor:
 
 ```csharp
-float attitudeMinSampleInterval = highFidelityActive
-    ? effectiveMinSampleInterval
-    : Math.Min(effectiveMinSampleInterval, minSampleInterval);
+float foregroundAttitudeMin = FlightRecorder.ResolveEffectiveMinSampleInterval(
+    true,
+    minSampleInterval);
+float attitudeMinSampleInterval =
+    Math.Min(effectiveMinSampleInterval, foregroundAttitudeMin);
 ```
 
-Then call `ShouldRecordAttitudePoint(..., attitudeMinSampleInterval, backgroundAttitudeSampleThresholdDegrees)`. This only bypasses the proximity cadence while the vessel is inside the normal background sampling range; the existing out-of-range return remains intact. A far-tier tumbling parent inside the physics bubble can now emit attitude samples at foreground minimum cadence, while stationary far-tier vessels continue using velocity/proximity cadence.
+Then call `ShouldRecordAttitudePoint(..., attitudeMinSampleInterval, backgroundAttitudeSampleThresholdDegrees)`. This only bypasses the proximity cadence while the vessel is inside the normal background sampling range; the existing out-of-range return remains intact. A far-tier tumbling parent inside the physics bubble can now emit attitude samples at foreground minimum cadence, while high-fidelity windows keep any more aggressive motion cadence and stationary far-tier vessels continue using velocity/proximity cadence.
 
-Note: `FlightRecorder.ResolveEffectiveMinSampleInterval(true, minSampleInterval)` is currently a no-op wrapper over `minSampleInterval` (`FlightRecorder.cs:805-808`), so the plan uses `minSampleInterval` directly. The active-recorder 4-arg overload also considers Re-Fly tree cadence; background attitude sampling intentionally does not introduce that Re-Fly tree override because the BG sampler does not currently participate in active Re-Fly tree cadence control.
+Note: `FlightRecorder.ResolveEffectiveMinSampleInterval(true, minSampleInterval)` is currently a no-op wrapper over `minSampleInterval` (`FlightRecorder.cs:805-808`), but the implementation keeps the wrapper call so this background path stays aligned if foreground cadence policy grows another override. The active-recorder 4-arg overload also considers Re-Fly tree cadence; background attitude sampling intentionally does not introduce that Re-Fly tree override because the BG sampler does not currently participate in active Re-Fly tree cadence control.
 
 Implementation detail: split the current inline `TrajectoryMath.ShouldRecordPoint(...)` guard into two booleans, matching the active recorder pattern:
 
@@ -371,7 +373,7 @@ if (!motionTriggered && !attitudeTriggered)
     return;
 ```
 
-New fields on `BackgroundVesselState` (in-memory only, not serialized — verified by reading `BackgroundRecorder.cs:189`, declared `private class`, no codec):
+New fields on `BackgroundVesselState` (in-memory only, not serialized -- verified by reading `BackgroundRecorder.cs:189`, declared `private class`, no codec):
 
 ```csharp
 public Quaternion lastWorldRotation;
@@ -380,7 +382,7 @@ public bool hasLastWorldRotation;
 
 Updated by the BG sample loop on every successful sample emission, mirroring the active recorder's pattern.
 
-**PR #787 interaction (v2 verified, v4 refined):** parent vessel recordings are NOT debris recordings → the debris-specific `effectiveMaxSampleInterval` cap still does not apply to them. The new attitude-only minimum is a separate recurrence-prevention path for tumbling parents and does not change the velocity/proximity cadence for non-rotating parents. No conflict.
+**PR #787 interaction (v2 verified, v4 refined):** parent vessel recordings are NOT debris recordings -> the debris-specific `effectiveMaxSampleInterval` cap still does not apply to them. The new attitude-only minimum is a separate recurrence-prevention path for tumbling parents and does not change the velocity/proximity cadence for non-rotating parents. No conflict.
 
 ## 2. Risk surface
 
@@ -389,9 +391,9 @@ Updated by the BG sample loop on every successful sample emission, mirroring the
 - **`ParsekFlight.cs:21688`** is debris's own rotation interp, not the parent's. Different concern, out of scope.
 - **PR #787 interaction:** verified clean (parent isn't debris; cap doesn't apply).
 - **Reaction-wheel false-positive risk:** addressed by AND with 50m offset filter + child+anchor hysteresis. Small probes don't have large offsets.
-- **Resolver harness scenarios 4, 5, 7:** static parent rotation → Δθ = 0° → gate doesn't fire. Baselines preserved. New harness scenario 11 added with explicit tumbling case.
+- **Resolver harness scenarios 4, 5, 7:** static parent rotation -> delta-theta = 0 deg -> gate doesn't fire. Baselines preserved. New harness scenario 11 added with explicit tumbling case.
 - **Watch mode:** SetActive(false) for several seconds during parent's tumble. `WatchModeController.cs` checks `state.ghost == null` not `activeSelf` (verified for Bug 1 plan, applies here too), so the hide gate must emit the explicit ExitWatch camera action when it hides the currently watched debris. Implementation mirrors the existing parent-anchored coverage-retire path.
-- **Hysteresis state lifetime:** cleanup hooks specified in §1.5.
+- **Hysteresis state lifetime:** cleanup hooks specified in section 1.5.
 - **`BackgroundVesselState` is in-memory only** (verified). New fields are safe.
 - **Smoothing/co-bubble/spline pipelines** consume engine output. Hidden ghost = no positioning = smoothing skips frame. Verified.
 - **Map presence:** does not invoke `InterpolateAndPositionRecordedRelative`. Unaffected.
@@ -401,11 +403,11 @@ Updated by the BG sample loop on every successful sample emission, mirroring the
 
 xUnit, `[Collection("Sequential")]` only on shared-state classes:
 
-1. **`TumblingParentInterpolationGateTests.cs`** — focused predicate and hysteresis coverage, including value-type dictionary-key equality/hash behavior and playback-scope isolation.
-2. **`RelativeAnchorResolverTests.cs` additions** — large-offset tumbling parent returns an unreliable decision; small-offset sibling remains reliable; exact waypoint playback does not hide; recursive relative-frame parent rotation interpolation is gated.
-3. **`BackgroundAttitudeSamplingTests.cs`** — attitude minimum-interval helper coverage for normal and high-fidelity background sampling. The live Unity vessel loop remains runtime-only.
-4. **`GhostPlaybackEngineTests.cs` / `FlightPlaybackExplainabilityTests.cs` additions** — loop-positioning signature coverage and frame-summary skip-counter coverage for `anchorRotationUnreliable`.
-5. **Runtime follow-up candidate** — an in-game canary can still synthesize a tumbling-parent + large-offset debris pair and assert hidden/visible windows, but this PR keeps the fixture cost out of the mod assembly.
+1. **`TumblingParentInterpolationGateTests.cs`** -- focused predicate and hysteresis coverage, including value-type dictionary-key equality/hash behavior and playback-scope isolation.
+2. **`RelativeAnchorResolverTests.cs` additions** -- large-offset tumbling parent returns an unreliable decision; small-offset sibling remains reliable; exact waypoint playback does not hide; recursive relative-frame parent rotation interpolation is gated.
+3. **`BackgroundAttitudeSamplingTests.cs`** -- attitude minimum-interval helper coverage for normal and high-fidelity background sampling. The live Unity vessel loop remains runtime-only.
+4. **`GhostPlaybackEngineTests.cs` / `FlightPlaybackExplainabilityTests.cs` additions** -- loop-positioning signature coverage and frame-summary skip-counter coverage for `anchorRotationUnreliable`.
+5. **Runtime follow-up candidate** -- an in-game canary can still synthesize a tumbling-parent + large-offset debris pair and assert hidden/visible windows, but this PR keeps the fixture cost out of the mod assembly.
 
 ## 4. Logging additions
 
@@ -419,15 +421,15 @@ xUnit, `[Collection("Sequential")]` only on shared-state classes:
 
 Same commit:
 
-- `CHANGELOG.md` under `0.9.2 / Bug Fixes` — trimmed per memory rule: "Fixed chaotic translation for parent-anchored debris when the recorded parent tumbles faster than its rotation samples can safely interpolate. Future tumbling parents now receive attitude-triggered BG samples."
+- `CHANGELOG.md` under `0.9.2 / Bug Fixes` -- trimmed per memory rule: "Fixed chaotic translation for parent-anchored debris when the recorded parent tumbles faster than its rotation samples can safely interpolate. Future tumbling parents now receive attitude-triggered BG samples."
 - `docs/dev/todo-and-known-bugs.md`: NEW top-level `## Done - Debris ghost sustained chaos when parent vessel tumbles`. Cross-reference the existing initial-position-slide entry. Note this is "separate from Re-Fly post-load settle bug" so reviewers see the distinction.
-- `Source/Parsek/DebrisRelativePlaybackPolicy.cs` XML comment update (lines 14-22): add a sentence — "Also disappears when the parent's rotation samples are too sparse to reliably interpolate at the playback UT, with debris offset large enough to amplify the interpolation error into a visible discontinuity."
+- `Source/Parsek/DebrisRelativePlaybackPolicy.cs` XML comment update (lines 14-22): add a sentence -- "Also disappears when the parent's rotation samples are too sparse to reliably interpolate at the playback UT, with debris offset large enough to amplify the interpolation error into a visible discontinuity."
 
 ## 6. PR scope and Bug 1 conflict surface
 
 Files this PR touches:
 
-- `Source/Parsek/TumblingParentInterpolationGate.cs` (new — pure predicate + thresholds + reliability decision payload + hysteresis key/state structs)
+- `Source/Parsek/TumblingParentInterpolationGate.cs` (new -- pure predicate + thresholds + reliability decision payload + hysteresis key/state structs)
 - `Source/Parsek/RelativeAnchorResolver.cs` (readonly-context `WithDebrisLocalOffsetSquaredMeters`, relative-section child-offset prepass, reliability-returning sister methods for the two parent-rotation slerp paths at 878/1074; site 1157 intentionally not gated)
 - `Source/Parsek/GhostPlaybackEngine.cs` `RenderInRangeGhost` and `PositionLoopAtPlaybackUT` (invoke reliability callback at the actual positioning UT; mesh hide; FX teardown; skip counter)
 - `Source/Parsek/GhostPlaybackEvents.cs` (`TryEvaluateAnchorRotationReliability`, callback field on `TrajectoryPlaybackFlags`; `AnchorRotationUnreliable` enum + log token + frame counter)
