@@ -54,6 +54,18 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
+        internal sealed class RewindSupersedeRollbackResult
+        {
+            public readonly List<RecordingSupersedeRelation> DroppedRelations =
+                new List<RecordingSupersedeRelation>();
+            public readonly HashSet<string> RestoredRecordingIds =
+                new HashSet<string>(StringComparer.Ordinal);
+            public readonly HashSet<string> RetiredForkRecordingIds =
+                new HashSet<string>(StringComparer.Ordinal);
+
+            public int DroppedRelationCount => DroppedRelations.Count;
+        }
+
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
         public const int PredictedOrbitSegmentFormatVersion = 5;
         public const int RelativeLocalFrameFormatVersion = 6;
@@ -136,6 +148,7 @@ namespace Parsek
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
         internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
+        internal static Func<double> CurrentUniversalTimeForRewindRetirementOverrideForTesting;
 
         // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
         // one-shot legacy migration log. Each RecordingTree.LoadRecordingFrom pass
@@ -3375,6 +3388,7 @@ namespace Parsek
             pendingTreeState = PendingTreeState.Finalized;
             CleanOrphanFilesDirectoryOverrideForTesting = null;
             WriteReadableSidecarMirrorsOverrideForTesting = null;
+            CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
             ClearRewindReplayTargetScope();
             RewindContext.ResetForTesting();
@@ -4359,6 +4373,15 @@ namespace Parsek
                 return false;
             }
 
+            var scenario = ParsekScenario.Instance;
+            if (EffectiveState.IsRewindRetired(
+                    rec,
+                    object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements))
+            {
+                reason = "Recording was rewound out of the active timeline";
+                return false;
+            }
+
             if (isRecording)
             {
                 reason = "Stop recording before fast-forwarding";
@@ -4625,8 +4648,24 @@ namespace Parsek
             IReadOnlyDictionary<string, Recording> liveRecordingsById,
             List<RecordingSupersedeRelation> supersedes)
         {
+            return DropSupersedesRewoundOutOfExistenceDetailedPure(
+                owner,
+                rewindAdjustedUT,
+                ownerTreeRecordings,
+                liveRecordingsById,
+                supersedes).DroppedRelationCount;
+        }
+
+        internal static RewindSupersedeRollbackResult DropSupersedesRewoundOutOfExistenceDetailedPure(
+            Recording owner,
+            double rewindAdjustedUT,
+            IReadOnlyList<Recording> ownerTreeRecordings,
+            IReadOnlyDictionary<string, Recording> liveRecordingsById,
+            List<RecordingSupersedeRelation> supersedes)
+        {
+            var result = new RewindSupersedeRollbackResult();
             if (owner == null || supersedes == null || supersedes.Count == 0)
-                return 0;
+                return result;
 
             // Build set of recording ids that are rewound out: the owner itself plus
             // every recording in the owner's tree whose StartUT >= rewindAdjustedUT.
@@ -4668,11 +4707,23 @@ namespace Parsek
             }
 
             if (pendingDrops.Count == 0)
-                return 0;
+                return result;
 
             for (int i = 0; i < pendingDrops.Count; i++)
+            {
+                var rel = pendingDrops[i];
+                result.DroppedRelations.Add(rel);
+                if (!string.IsNullOrEmpty(rel.NewRecordingId))
+                    result.RetiredForkRecordingIds.Add(rel.NewRecordingId);
+                if (!string.IsNullOrEmpty(rel.OldRecordingId))
+                    result.RestoredRecordingIds.Add(rel.OldRecordingId);
                 supersedes.Remove(pendingDrops[i]);
-            return pendingDrops.Count;
+            }
+
+            foreach (string retiredId in result.RetiredForkRecordingIds)
+                result.RestoredRecordingIds.Remove(retiredId);
+
+            return result;
         }
 
         /// <summary>
@@ -4743,21 +4794,136 @@ namespace Parsek
                     liveById[liveRec.RecordingId] = liveRec;
             }
 
-            int dropped = DropSupersedesRewoundOutOfExistencePure(
+            RewindSupersedeRollbackResult rollback = DropSupersedesRewoundOutOfExistenceDetailedPure(
                 owner,
                 rewindAdjustedUT,
                 ownerTreeRecordings,
                 liveById,
                 scenario.RecordingSupersedes);
+            int dropped = rollback.DroppedRelationCount;
+            int retired = EnsureRewindRetirementsForRollback(
+                scenario,
+                rollback,
+                rewindAdjustedUT,
+                liveById);
 
             // Invalidate the EffectiveState ERS cache. EffectiveState.ComputeERS
             // keys its cache on ParsekScenario.SupersedeStateVersion — without the
             // bump, any cached effective view stays stale until a later load or
             // unrelated mutation. Every other production supersede mutation
             // (SupersedeCommit) bumps this counter; the rewind drop must too.
-            if (dropped > 0)
+            if (dropped > 0 || retired > 0)
+            {
                 scenario.BumpSupersedeStateVersion();
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Rewind supersede rollback: dropped={dropped.ToString(CultureInfo.InvariantCulture)} " +
+                        $"retiredForks={retired.ToString(CultureInfo.InvariantCulture)} " +
+                        $"restored={rollback.RestoredRecordingIds.Count.ToString(CultureInfo.InvariantCulture)} " +
+                        $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"owner='{owner.VesselName}'");
+            }
             return dropped;
+        }
+
+        private static int EnsureRewindRetirementsForRollback(
+            ParsekScenario scenario,
+            RewindSupersedeRollbackResult rollback,
+            double rewindAdjustedUT,
+            IReadOnlyDictionary<string, Recording> liveRecordingsById)
+        {
+            if (object.ReferenceEquals(null, scenario)
+                || rollback == null
+                || rollback.RetiredForkRecordingIds.Count == 0)
+                return 0;
+
+            if (scenario.RecordingRewindRetirements == null)
+                scenario.RecordingRewindRetirements = new List<RecordingRewindRetirement>();
+
+            var existing = EffectiveState.ComputeRewindRetiredRecordingIds(scenario.RecordingRewindRetirements);
+            int added = 0;
+            foreach (string retiredId in rollback.RetiredForkRecordingIds)
+            {
+                if (string.IsNullOrEmpty(retiredId) || existing.Contains(retiredId))
+                    continue;
+
+                Recording retiredRec = null;
+                if (liveRecordingsById == null
+                    || !liveRecordingsById.TryGetValue(retiredId, out retiredRec)
+                    || retiredRec == null
+                    || retiredRec.StartUT < rewindAdjustedUT)
+                {
+                    continue;
+                }
+
+                RecordingSupersedeRelation sourceRel = null;
+                for (int i = 0; i < rollback.DroppedRelations.Count; i++)
+                {
+                    var rel = rollback.DroppedRelations[i];
+                    if (rel != null && string.Equals(rel.NewRecordingId, retiredId, StringComparison.Ordinal))
+                    {
+                        sourceRel = rel;
+                        break;
+                    }
+                }
+
+                var retirement = new RecordingRewindRetirement
+                {
+                    RetirementId = "rrt_" + Guid.NewGuid().ToString("N"),
+                    RecordingId = retiredId,
+                    RestoredRecordingId = sourceRel?.OldRecordingId,
+                    SourceSupersedeRelationId = sourceRel?.RelationId,
+                    RewindUT = rewindAdjustedUT,
+                    CreatedUT = CurrentUniversalTimeForRewindRetirement(),
+                    CreatedRealTime = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+                    Reason = RecordingRewindRetirement.DefaultReason,
+                };
+                scenario.RecordingRewindRetirements.Add(retirement);
+                existing.Add(retiredId);
+                added++;
+
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Retired rewound-out fork rec={retiredId} " +
+                        $"restored={retirement.RestoredRecordingId ?? "<none>"} " +
+                        $"sourceRel={retirement.SourceSupersedeRelationId ?? "<none>"} " +
+                        $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)}");
+            }
+
+            return added;
+        }
+
+        private static double CurrentUniversalTimeForRewindRetirement()
+        {
+            try
+            {
+                if (CurrentUniversalTimeForRewindRetirementOverrideForTesting != null)
+                    return CurrentUniversalTimeForRewindRetirementOverrideForTesting();
+                return Planetarium.GetUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                double fallback = RewindContext.RewindAdjustedUT;
+                if (RewindContext.IsRewinding && IsFinite(fallback))
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            "Retirement createdUT fallback to rewindAdjustedUT=" +
+                            fallback.ToString("F1", CultureInfo.InvariantCulture) +
+                            $" after UT read failed ({ex.GetType().Name})");
+                    return fallback;
+                }
+
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Rewind",
+                        $"Retirement createdUT unavailable; writing NaN after UT read failed ({ex.GetType().Name})");
+                return double.NaN;
+            }
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         private static HashSet<string> BuildRewindStripNames(Recording owner)

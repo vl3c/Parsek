@@ -529,6 +529,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldShowInKSC_RewindRetired_ReturnsFalse()
+        {
+            var rec = MakeKerbinRecording();
+            rec.RecordingId = "rewound-probe-booster";
+            var retirements = new List<RecordingRewindRetirement>
+            {
+                new RecordingRewindRetirement
+                {
+                    RetirementId = "rrt_probe",
+                    RecordingId = "rewound-probe-booster",
+                    RestoredRecordingId = "restored-probe-booster",
+                    Reason = RecordingRewindRetirement.DefaultReason
+                }
+            };
+
+            Assert.False(ParsekKSC.ShouldShowInKSC(
+                rec,
+                supersedes: null,
+                retirements: retirements));
+        }
+
+        [Fact]
         public void ShouldShowInKSC_DisabledRecording_ReturnsFalse()
         {
             var rec = MakeKerbinRecording(playbackEnabled: false);

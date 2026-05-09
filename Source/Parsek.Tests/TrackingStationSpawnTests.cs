@@ -168,6 +168,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSpawnAtTrackingStationEnd_RewindRetired_ReturnsFalse()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-retired", pid: 555);
+            RecordingStore.AddCommittedInternal(rec);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_retired",
+                        RecordingId = rec.RecordingId,
+                        RestoredRecordingId = "rec-restored",
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            });
+
+            var (needsSpawn, reason) = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
+                rec,
+                rec.EndUT + 1,
+                chains: null);
+
+            Assert.False(needsSpawn);
+            Assert.Equal(GhostMapPresence.TrackingStationSpawnSkipRewindRetired, reason);
+        }
+
+        [Fact]
         public void ShouldSkipTrackingStationDuplicateSpawn_ExistingRealVessel_ReturnsTrue()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);

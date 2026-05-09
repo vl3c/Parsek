@@ -487,6 +487,7 @@ namespace Parsek
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
         internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
         internal const string TrackingStationSpawnSkipSupersededByRelation = "superseded-by-relation";
+        internal const string TrackingStationSpawnSkipRewindRetired = "rewind-retired";
         internal const string SoiGapStateVectorFallbackReason = "soi-gap-state-vector-fallback";
         internal const string OrbitalCheckpointStateVectorRejectSaferSegment = "orbital-checkpoint-state-vector-safer-segment-source";
         internal const string OrbitalCheckpointStateVectorRejectNotSoiGap = "orbital-checkpoint-state-vector-not-soi-gap-recovery";
@@ -4907,7 +4908,7 @@ namespace Parsek
                 return;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
-            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
+            var timelineInactiveIds = CurrentTimelineInactiveRecordingIds(committed);
             List<int> eligibleIndices = null;
             for (int i = 0; i < committed.Count; i++)
             {
@@ -4915,7 +4916,7 @@ namespace Parsek
                     committed[i],
                     currentUT,
                     chains,
-                    relationSupersededIds);
+                    timelineInactiveIds);
                 if (!needsSpawn)
                     continue;
 
@@ -4949,12 +4950,12 @@ namespace Parsek
                 return false;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
-            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
+            var timelineInactiveIds = CurrentTimelineInactiveRecordingIds(committed);
             var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(
                 committed[index],
                 currentUT,
                 chains,
-                relationSupersededIds);
+                timelineInactiveIds);
             if (!needsSpawn)
                 return false;
 
@@ -5974,13 +5975,13 @@ namespace Parsek
             // supersede relations here so callers using the convenience
             // overload get the same display-effective spawn eligibility as
             // the batch handoff path.
-            var relationSupersededIds =
-                CurrentRelationSupersededRecordingIds(RecordingStore.CommittedRecordings);
+            var timelineInactiveIds =
+                CurrentTimelineInactiveRecordingIds(RecordingStore.CommittedRecordings);
             return ShouldSpawnAtTrackingStationEnd(
                 rec,
                 currentUT,
                 chains,
-                relationSupersededIds);
+                timelineInactiveIds);
         }
 
         internal static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
@@ -5988,6 +5989,33 @@ namespace Parsek
             double currentUT,
             Dictionary<uint, GhostChain> chains,
             HashSet<string> relationSupersededIds)
+        {
+            IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds = null;
+            if (relationSupersededIds != null && relationSupersededIds.Count > 0)
+            {
+                var dict = new Dictionary<string, TimelineInactiveReason>(
+                    relationSupersededIds.Count,
+                    StringComparer.Ordinal);
+                foreach (var id in relationSupersededIds)
+                {
+                    if (!string.IsNullOrEmpty(id))
+                        dict[id] = TimelineInactiveReason.SupersededByRelation;
+                }
+                timelineInactiveIds = dict;
+            }
+
+            return ShouldSpawnAtTrackingStationEnd(
+                rec,
+                currentUT,
+                chains,
+                timelineInactiveIds);
+        }
+
+        private static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
+            Recording rec,
+            double currentUT,
+            Dictionary<uint, GhostChain> chains,
+            IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds)
         {
             if (rec == null)
                 return (false, "null");
@@ -5999,9 +6027,13 @@ namespace Parsek
                 return (false, TrackingStationSpawnSkipBeforeEnd);
 
             if (!string.IsNullOrEmpty(rec.RecordingId)
-                && relationSupersededIds != null
-                && relationSupersededIds.Contains(rec.RecordingId))
-                return (false, TrackingStationSpawnSkipSupersededByRelation);
+                && timelineInactiveIds != null
+                && timelineInactiveIds.TryGetValue(rec.RecordingId, out var inactiveReason))
+            {
+                return (false, inactiveReason == TimelineInactiveReason.RewindRetired
+                    ? TrackingStationSpawnSkipRewindRetired
+                    : TrackingStationSpawnSkipSupersededByRelation);
+            }
 
             bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId)
                 && RecordingStore.IsChainLooping(rec.ChainId);
@@ -6018,13 +6050,14 @@ namespace Parsek
             return spawnResult;
         }
 
-        private static HashSet<string> CurrentRelationSupersededRecordingIds(
+        private static IReadOnlyDictionary<string, TimelineInactiveReason> CurrentTimelineInactiveRecordingIds(
             IReadOnlyList<Recording> committed)
         {
             var scenario = ParsekScenario.Instance;
-            return EffectiveState.ComputeSupersededRecordingIdsByRelation(
+            return EffectiveState.ComputeTimelineInactiveRecordingIds(
                 committed,
-                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements);
         }
 
         internal static bool ShouldPreserveIdentityForTrackingStationSpawn(
@@ -6078,12 +6111,27 @@ namespace Parsek
             var supersedes = object.ReferenceEquals(null, scenario)
                 ? null
                 : scenario.RecordingSupersedes;
-            return FindTrackingStationSuppressedRecordingIds(recordings, currentUT, supersedes);
+            var retirements = object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingRewindRetirements;
+            return FindTrackingStationSuppressedRecordingIds(recordings, currentUT, supersedes, retirements);
         }
 
         internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
             IReadOnlyList<Recording> recordings, double currentUT,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            return FindTrackingStationSuppressedRecordingIds(
+                recordings,
+                currentUT,
+                supersedes,
+                retirements: null);
+        }
+
+        internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
+            IReadOnlyList<Recording> recordings, double currentUT,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
         {
             var suppressed = new HashSet<string>();
             if (recordings == null)
@@ -6101,6 +6149,7 @@ namespace Parsek
             }
 
             AddSupersedeRelationSuppressedRecordingIds(suppressed, recordings, supersedes);
+            AddRewindRetiredSuppressedRecordingIds(suppressed, recordings, retirements);
             return suppressed;
         }
 
@@ -6116,6 +6165,23 @@ namespace Parsek
             {
                 Recording rec = recordings[i];
                 if (!EffectiveState.IsSupersededByRelation(rec, supersedes))
+                    continue;
+                suppressed.Add(rec.RecordingId);
+            }
+        }
+
+        private static void AddRewindRetiredSuppressedRecordingIds(
+            HashSet<string> suppressed,
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            if (suppressed == null || recordings == null || retirements == null || retirements.Count == 0)
+                return;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (!EffectiveState.IsRewindRetired(rec, retirements))
                     continue;
                 suppressed.Add(rec.RecordingId);
             }

@@ -191,6 +191,7 @@ namespace Parsek.Tests
         private static ParsekScenario InstallScenario(
             List<RewindPoint> rps = null,
             List<RecordingSupersedeRelation> supersedes = null,
+            List<RecordingRewindRetirement> retirements = null,
             List<LedgerTombstone> tombstones = null,
             ReFlySessionMarker marker = null,
             MergeJournal journal = null)
@@ -199,6 +200,7 @@ namespace Parsek.Tests
             {
                 RewindPoints = rps ?? new List<RewindPoint>(),
                 RecordingSupersedes = supersedes ?? new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = retirements ?? new List<RecordingRewindRetirement>(),
                 LedgerTombstones = tombstones ?? new List<LedgerTombstone>(),
                 ActiveReFlySessionMarker = marker,
                 ActiveMergeJournal = journal,
@@ -890,6 +892,34 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[LoadSweep]")
                 && l.Contains("removedFullyOrphanSupersedes=1"));
+        }
+
+        [Fact]
+        public void OrphanRewindRetirement_RemovedAtLoadTime()
+        {
+            InstallTree("tree_1",
+                new List<Recording> { Rec("rec_restored", MergeState.Immutable) },
+                new List<BranchPoint>());
+            var retirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_orphan",
+                RecordingId = "rec_vanished_fork",
+                RestoredRecordingId = "rec_restored",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { retirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Orphan rewind-retirement=rrt_orphan")
+                && l.Contains("removing"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("removedOrphanRewindRetirements=1"));
         }
 
         [Fact]

@@ -73,6 +73,12 @@ namespace Parsek
         // engine resets it at the top of the next per-frame render pass for
         // this state.
         public bool anchorRetiredThisFrame;
+        // Runtime-only defensive visibility guard for v12+ parent-anchored
+        // debris whose current playback UT is outside recorded Relative
+        // coverage. The deterministic predicate over (trajectory, playbackUT)
+        // remains the source of truth; generic visual cleanup must not clear
+        // this flag because it lacks playback-UT context.
+        public bool parentAnchoredDebrisCoverageRetired;
         internal bool positionedThisFrame;
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
@@ -125,6 +131,10 @@ namespace Parsek
             simplified = false;
             deferVisibilityUntilPlaybackSync = false;
             anchorRetiredThisFrame = false;
+            // Do not clear parentAnchoredDebrisCoverageRetired here. Visual
+            // cleanup/rebuild has no trajectory + playbackUT context; only the
+            // deterministic coverage helper can prove the debris is covered
+            // again and safely clear the guard.
             positionedThisFrame = false;
             cameraPivot = null;
             horizonProxy = null;

@@ -14469,12 +14469,15 @@ namespace Parsek
             bool hasRenderableData,
             bool playbackEnabled,
             bool externalVesselSuppressed,
-            bool supersededByRelation = false)
+            bool supersededByRelation = false,
+            bool rewindRetired = false)
         {
             if (!hasRenderableData)
                 return GhostPlaybackSkipReason.NoRenderableData;
             if (!playbackEnabled)
                 return GhostPlaybackSkipReason.PlaybackDisabled;
+            if (rewindRetired)
+                return GhostPlaybackSkipReason.RewindRetired;
             if (supersededByRelation)
                 return GhostPlaybackSkipReason.SupersededByRelation;
             if (externalVesselSuppressed)
@@ -14497,11 +14500,13 @@ namespace Parsek
             bool hasRenderableData,
             bool playbackEnabled,
             bool externalVesselSuppressed,
-            bool supersededByRelation = false)
+            bool supersededByRelation = false,
+            bool rewindRetired = false)
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "Ghost playback skip state: #{0} id={1} vessel=\"{2}\" skip={3} reason={4} " +
-                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7} supersededByRelation={8}",
+                "hasRenderableData={5} playbackEnabled={6} externalVesselSuppressed={7} " +
+                "supersededByRelation={8} rewindRetired={9}",
                 index,
                 string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId,
                 vesselName ?? "?",
@@ -14510,7 +14515,8 @@ namespace Parsek
                 hasRenderableData,
                 playbackEnabled,
                 externalVesselSuppressed,
-                supersededByRelation);
+                supersededByRelation,
+                rewindRetired);
         }
 
         private static void LogGhostSkipReasonChangeCore(
@@ -14521,7 +14527,8 @@ namespace Parsek
             bool hasRenderableData,
             bool playbackEnabled,
             bool externalVesselSuppressed,
-            bool supersededByRelation = false)
+            bool supersededByRelation = false,
+            bool rewindRetired = false)
         {
             string identity = "ghost-skip|" + BuildGhostSkipReasonIdentity(index, recordingId);
             ParsekLog.VerboseOnChange(
@@ -14536,7 +14543,8 @@ namespace Parsek
                     hasRenderableData,
                     playbackEnabled,
                     externalVesselSuppressed,
-                    supersededByRelation));
+                    supersededByRelation,
+                    rewindRetired));
         }
 
         private void ClearGhostSkipReasonLogState()
@@ -14577,7 +14585,8 @@ namespace Parsek
             GhostPlaybackSkipReason reason,
             bool hasRenderableData,
             bool externalVesselSuppressed,
-            bool supersededByRelation = false)
+            bool supersededByRelation = false,
+            bool rewindRetired = false)
         {
             string identity = BuildGhostSkipReasonIdentity(index, rec?.RecordingId);
             bool hasLoggedActiveSkip = activeGhostSkipReasonLogIdentities.Contains(identity);
@@ -14592,7 +14601,8 @@ namespace Parsek
                 hasRenderableData,
                 rec?.PlaybackEnabled ?? false,
                 externalVesselSuppressed,
-                supersededByRelation);
+                supersededByRelation,
+                rewindRetired);
 
             if (reason == GhostPlaybackSkipReason.None)
                 activeGhostSkipReasonLogIdentities.Remove(identity);
@@ -14714,9 +14724,10 @@ namespace Parsek
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
             var scenario = ParsekScenario.Instance;
-            var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+            var timelineInactiveIds = EffectiveState.ComputeTimelineInactiveRecordingIds(
                 committed,
-                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements);
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -14728,20 +14739,25 @@ namespace Parsek
 
                 bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
-                bool supersededByRelation = !string.IsNullOrEmpty(rec.RecordingId)
-                    && relationSupersededIds.Contains(rec.RecordingId);
+                TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                    timelineInactiveIds.TryGetValue(rec.RecordingId, out inactiveReason);
+                bool supersededByRelation = inactiveReason == TimelineInactiveReason.SupersededByRelation;
+                bool rewindRetired = inactiveReason == TimelineInactiveReason.RewindRetired;
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
                     rec.PlaybackEnabled,
                     externalVesselSuppressed,
-                    supersededByRelation);
+                    supersededByRelation,
+                    rewindRetired);
                 LogGhostSkipReasonChangeIfNeeded(
                     i,
                     rec,
                     skipReason,
                     hasData,
                     externalVesselSuppressed,
-                    supersededByRelation);
+                    supersededByRelation,
+                    rewindRetired);
 
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                     rec, isActiveChain, chainLooping);
@@ -14752,7 +14768,8 @@ namespace Parsek
 
                 bool finalNeedsSpawn = spawnResult.needsSpawn
                     && !chainSuppressed.suppressed
-                    && !supersededByRelation;
+                    && !supersededByRelation
+                    && !rewindRetired;
 
                 // Log spawn suppression reason for non-debris recordings (diagnostic).
                 // Emit only when the suppression reason flips for this recording —
@@ -14793,7 +14810,8 @@ namespace Parsek
                             hasData,
                             rec.PlaybackEnabled,
                             externalVesselSuppressed,
-                            supersededByRelation),
+                            supersededByRelation,
+                            rewindRetired),
                     isMidChain = RecordingStore.IsChainMidSegment(rec),
                     chainEndUT = RecordingStore.GetChainEndUT(rec),
                     needsSpawn = finalNeedsSpawn,
@@ -16031,6 +16049,7 @@ namespace Parsek
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
             if (state == null) return true;
+            if (state.parentAnchoredDebrisCoverageRetired) return false;
             if (state.deferVisibilityUntilPlaybackSync) return false;
             return true;
         }
@@ -23060,6 +23079,13 @@ namespace Parsek
 
             double targetUT = rec.StartUT;
             double currentUT = Planetarium.GetUniversalTime();
+
+            if (!RecordingStore.CanFastForwardAtUT(rec, currentUT, out string ffReason, IsRecording))
+            {
+                ParsekLog.Warn("Flight",
+                    $"FastForwardToRecording: '{rec.VesselName}' id={rec.RecordingId ?? "<none>"} blocked: {ffReason}");
+                return;
+            }
 
             if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
             {
