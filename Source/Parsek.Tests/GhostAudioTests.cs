@@ -237,13 +237,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryTriggerStockExplosionFxWithAudioGate_BusyGateSkipsStockAndSpawnsCustomVisual()
+        public void TryTriggerStockExplosionFxWithAudioGate_StockSuccessFiresVisualAndExtendsAudioGate()
         {
             int resolveCalls = 0;
-            int reserveCalls = 0;
             int stockCalls = 0;
             int spawnCalls = 0;
-            int releaseCalls = 0;
+            float? registeredDuration = null;
             GhostPlaybackLogic.StockExplosionFxWithAudioGateResult? gateResult = null;
 
             bool result = GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
@@ -251,56 +250,43 @@ namespace Parsek.Tests
                 power: 0.75,
                 vesselLength: 12f,
                 contextDescription: "manual preview \"Test\"",
-                busyLogKey: "test-busy-preview",
                 resolveExplosionSoundDuration: () =>
                 {
                     resolveCalls++;
                     return 1.5f;
                 },
-                reserveExplosionSound: (float clipLengthSeconds, out double busyUntil) =>
-                {
-                    reserveCalls++;
-                    Assert.Equal(1.5f, clipLengthSeconds);
-                    busyUntil = 42.0;
-                    return false;
-                },
-                releaseExplosionSoundReservation: _ => releaseCalls++,
                 triggerStockExplosionFx: (UnityEngine.Vector3 stockPos, double stockPower, out string failure) =>
                 {
                     stockCalls++;
+                    Assert.Equal(1f, stockPos.x);
+                    Assert.Equal(2f, stockPos.y);
+                    Assert.Equal(3f, stockPos.z);
+                    Assert.Equal(0.75, stockPower);
                     failure = null;
                     return true;
                 },
-                spawnExplosionFx: (UnityEngine.Vector3 pos, float length) =>
-                {
-                    spawnCalls++;
-                    Assert.Equal(12f, length);
-                    Assert.Equal(1f, pos.x);
-                    Assert.Equal(2f, pos.y);
-                    Assert.Equal(3f, pos.z);
-                },
-                recordResult: value => gateResult = value);
+                spawnExplosionFx: (UnityEngine.Vector3 pos, float length) => spawnCalls++,
+                recordResult: value => gateResult = value,
+                registerStockExplosionSoundEnd: duration => registeredDuration = duration);
 
-            Assert.False(result);
+            Assert.True(result);
             Assert.Equal(
-                GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.AudioBusyCustomVisualSpawned,
+                GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockQueued,
                 gateResult);
             Assert.Equal(1, resolveCalls);
-            Assert.Equal(1, reserveCalls);
-            Assert.Equal(0, stockCalls);
-            Assert.Equal(1, spawnCalls);
-            Assert.Equal(0, releaseCalls);
-            Assert.Contains(logLines, l =>
-                l.Contains("[GhostAudio]") &&
-                l.Contains("Stock explosion FX skipped for manual preview \"Test\""));
+            Assert.Equal(1, stockCalls);
+            Assert.Equal(0, spawnCalls);
+            Assert.NotNull(registeredDuration);
+            Assert.Equal(1.5f, registeredDuration.Value);
         }
 
         [Fact]
-        public void TryTriggerStockExplosionFxWithAudioGate_StockFailureReleasesReservationAndSpawnsCustomVisual()
+        public void TryTriggerStockExplosionFxWithAudioGate_StockFailureSpawnsCustomVisual()
         {
             int stockCalls = 0;
             int spawnCalls = 0;
-            double releasedUntil = double.NaN;
+            int registerCalls = 0;
+            int resolveCalls = 0;
             GhostPlaybackLogic.StockExplosionFxWithAudioGateResult? gateResult = null;
 
             bool result = GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
@@ -308,14 +294,11 @@ namespace Parsek.Tests
                 power: 0.4,
                 vesselLength: 9f,
                 contextDescription: "ghost #3 \"Crashy\"",
-                busyLogKey: "test-stock-fail",
-                resolveExplosionSoundDuration: () => 2f,
-                reserveExplosionSound: (float clipLengthSeconds, out double busyUntil) =>
+                resolveExplosionSoundDuration: () =>
                 {
-                    busyUntil = 99.0;
-                    return true;
+                    resolveCalls++;
+                    return 2f;
                 },
-                releaseExplosionSoundReservation: busyUntil => releasedUntil = busyUntil,
                 triggerStockExplosionFx: (UnityEngine.Vector3 stockPos, double stockPower, out string failure) =>
                 {
                     stockCalls++;
@@ -327,7 +310,8 @@ namespace Parsek.Tests
                     spawnCalls++;
                     Assert.Equal(9f, length);
                 },
-                recordResult: value => gateResult = value);
+                recordResult: value => gateResult = value,
+                registerStockExplosionSoundEnd: _ => registerCalls++);
 
             Assert.False(result);
             Assert.Equal(
@@ -335,7 +319,8 @@ namespace Parsek.Tests
                 gateResult);
             Assert.Equal(1, stockCalls);
             Assert.Equal(1, spawnCalls);
-            Assert.Equal(99.0, releasedUntil, 3);
+            Assert.Equal(0, resolveCalls);
+            Assert.Equal(0, registerCalls);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
                 l.Contains("[ExplosionFx]") &&
@@ -344,39 +329,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryTriggerStockExplosionFxWithAudioGate_StockSuccessKeepsReservationAndSkipsCustomVisual()
+        public void RegisterStockExplosionSoundEnd_ExtendsBusyHorizonForOverlappingExplosions()
         {
-            int spawnCalls = 0;
-            int releaseCalls = 0;
-            GhostPlaybackLogic.StockExplosionFxWithAudioGateResult? gateResult = null;
+            // Empty gate -> set to now + duration.
+            GhostPlaybackLogic.RegisterStockExplosionSoundEnd(2f, nowRealtimeSeconds: 100.0);
+            Assert.False(GhostPlaybackLogic.TryReserveOneShotSound(
+                PartEventType.Destroyed,
+                sourceIsPlaying: false,
+                clipLengthSeconds: 2f,
+                nowRealtimeSeconds: 101.0,
+                out _));
 
-            bool result = GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
-                new UnityEngine.Vector3(7f, 8f, 9f),
-                power: 0.6,
-                vesselLength: 15f,
-                contextDescription: "ghost #4 \"Boom\"",
-                busyLogKey: "test-stock-success",
-                resolveExplosionSoundDuration: () => 2f,
-                reserveExplosionSound: (float clipLengthSeconds, out double busyUntil) =>
-                {
-                    busyUntil = 101.0;
-                    return true;
-                },
-                releaseExplosionSoundReservation: _ => releaseCalls++,
-                triggerStockExplosionFx: (UnityEngine.Vector3 stockPos, double stockPower, out string failure) =>
-                {
-                    failure = null;
-                    return true;
-                },
-                spawnExplosionFx: (UnityEngine.Vector3 spawnPos, float length) => spawnCalls++,
-                recordResult: value => gateResult = value);
+            // Earlier-ending overlapping fire -> leaves the longer reservation alone.
+            GhostPlaybackLogic.RegisterStockExplosionSoundEnd(0.5f, nowRealtimeSeconds: 100.5);
+            Assert.False(GhostPlaybackLogic.TryReserveOneShotSound(
+                PartEventType.Destroyed,
+                sourceIsPlaying: false,
+                clipLengthSeconds: 2f,
+                nowRealtimeSeconds: 101.5,
+                out _));
 
-            Assert.True(result);
-            Assert.Equal(
-                GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockQueued,
-                gateResult);
-            Assert.Equal(0, spawnCalls);
-            Assert.Equal(0, releaseCalls);
+            // Later-ending fire -> extends the gate.
+            GhostPlaybackLogic.RegisterStockExplosionSoundEnd(2f, nowRealtimeSeconds: 101.0);
+            Assert.False(GhostPlaybackLogic.TryReserveOneShotSound(
+                PartEventType.Destroyed,
+                sourceIsPlaying: false,
+                clipLengthSeconds: 2f,
+                nowRealtimeSeconds: 102.5,
+                out _));
+
+            // After the latest end -> gate clears.
+            Assert.True(GhostPlaybackLogic.TryReserveOneShotSound(
+                PartEventType.Destroyed,
+                sourceIsPlaying: false,
+                clipLengthSeconds: 1f,
+                nowRealtimeSeconds: 103.5,
+                out _));
         }
 
         [Fact]

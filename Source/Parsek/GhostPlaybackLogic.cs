@@ -58,7 +58,6 @@ namespace Parsek
         internal enum StockExplosionFxWithAudioGateResult
         {
             StockQueued,
-            AudioBusyCustomVisualSpawned,
             StockFailedCustomVisualSpawned
         }
 
@@ -3109,6 +3108,26 @@ namespace Parsek
                 explosionOneShotBusyUntilRealtime = double.NegativeInfinity;
         }
 
+        // Extends the explosion-sound gate to cover at least clipLengthSeconds from now.
+        // Unlike TryReserveExplosionSound, never fails — used when stock FXMonger.Explode
+        // has already fired its own audio and we need the gate to reflect the stock clip's
+        // remaining duration so subsequent explicit ELS one-shots wait for it to finish.
+        // Overlapping stock fires extend (never shorten) the gate to the latest end.
+        internal static void RegisterStockExplosionSoundEnd(float clipLengthSeconds)
+        {
+            RegisterStockExplosionSoundEnd(clipLengthSeconds, GetAudioRealtimeSinceStartup());
+        }
+
+        internal static void RegisterStockExplosionSoundEnd(
+            float clipLengthSeconds,
+            double nowRealtimeSeconds)
+        {
+            float durationSeconds = NormalizeOneShotDurationSeconds(clipLengthSeconds);
+            double newBusyUntil = nowRealtimeSeconds + durationSeconds;
+            if (newBusyUntil > explosionOneShotBusyUntilRealtime)
+                explosionOneShotBusyUntilRealtime = newBusyUntil;
+        }
+
         internal static float ResolveExplosionOneShotDurationSeconds()
         {
             string clipPath = GhostAudioPresets.ResolveOneShotClip(PartEventType.Destroyed);
@@ -3135,58 +3154,53 @@ namespace Parsek
             return GhostAudioPresets.ExplosionOneShotFallbackDurationSeconds;
         }
 
+        // Triggers KSP's stock terminal explosion FX (visual + audio together via
+        // FXMonger.Explode) and extends the explicit-one-shot audio gate to cover the
+        // stock clip's remaining duration. The visual is NOT gated on the existing
+        // reservation: stock FXMonger.Explode plays its own AudioSource, which mixes
+        // naturally with concurrent explosion clips through Unity's AudioMixer (matching
+        // stock KSP's behaviour when several real parts destroy in the same frame).
+        // Only ELS explicit one-shots — which share a single AudioSource per ghost and
+        // would clip each other — wait for the gate. The custom particle fallback is
+        // therefore reached only when the stock FX controller is genuinely unavailable.
         internal static bool TryTriggerStockExplosionFxWithAudioGate(
             Vector3 worldPosition,
             double power,
             float vesselLength,
             string contextDescription,
-            string busyLogKey,
             Func<float> resolveExplosionSoundDuration = null,
-            TryReserveExplosionSoundDelegate reserveExplosionSound = null,
-            Action<double> releaseExplosionSoundReservation = null,
             TryTriggerStockExplosionFxDelegate triggerStockExplosionFx = null,
             Action<Vector3, float> spawnExplosionFx = null,
-            Action<StockExplosionFxWithAudioGateResult> recordResult = null)
+            Action<StockExplosionFxWithAudioGateResult> recordResult = null,
+            Action<float> registerStockExplosionSoundEnd = null)
         {
             string context = string.IsNullOrEmpty(contextDescription)
                 ? "ghost explosion"
                 : contextDescription;
-            float explosionSoundDuration = resolveExplosionSoundDuration != null
-                ? resolveExplosionSoundDuration()
-                : ResolveExplosionOneShotDurationSeconds();
-            TryReserveExplosionSoundDelegate reserveSound = reserveExplosionSound
-                ?? ((float length, out double busyUntil) => TryReserveExplosionSound(length, out busyUntil));
+
+            TryTriggerStockExplosionFxDelegate triggerStock = triggerStockExplosionFx
+                ?? ((Vector3 pos, double pwr, out string failure) =>
+                    GhostVisualBuilder.TryTriggerStockExplosionFx(pos, pwr, out failure));
             Action<Vector3, float> spawnCustom =
                 spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnExplosionFx(pos, len));
-            double explosionSoundReservedUntil;
-            if (reserveSound(explosionSoundDuration, out explosionSoundReservedUntil))
-            {
-                TryTriggerStockExplosionFxDelegate triggerStock = triggerStockExplosionFx
-                    ?? ((Vector3 pos, double pwr, out string failure) =>
-                        GhostVisualBuilder.TryTriggerStockExplosionFx(pos, pwr, out failure));
-                if (triggerStock(worldPosition, power, out string stockFxFailure))
-                {
-                    recordResult?.Invoke(StockExplosionFxWithAudioGateResult.StockQueued);
-                    return true;
-                }
 
-                Action<double> releaseReservation =
-                    releaseExplosionSoundReservation ?? ReleaseExplosionSoundReservation;
-                releaseReservation(explosionSoundReservedUntil);
-                ParsekLog.Warn("ExplosionFx",
-                    $"FXMonger.Explode did not queue stock FX for {context}; " +
-                    $"falling back to custom FX: {stockFxFailure}");
-                spawnCustom(worldPosition, vesselLength);
-                recordResult?.Invoke(StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned);
-                return false;
+            if (triggerStock(worldPosition, power, out string stockFxFailure))
+            {
+                float explosionSoundDuration = resolveExplosionSoundDuration != null
+                    ? resolveExplosionSoundDuration()
+                    : ResolveExplosionOneShotDurationSeconds();
+                Action<float> registerEnd = registerStockExplosionSoundEnd
+                    ?? RegisterStockExplosionSoundEnd;
+                registerEnd(explosionSoundDuration);
+                recordResult?.Invoke(StockExplosionFxWithAudioGateResult.StockQueued);
+                return true;
             }
 
-            ParsekLog.VerboseRateLimited("GhostAudio", busyLogKey ?? "stock-explosion-audio-busy",
-                $"Stock explosion FX skipped for {context} because another explosion sound is still active; " +
-                "spawning custom visual FX only",
-                1.0);
+            ParsekLog.Warn("ExplosionFx",
+                $"FXMonger.Explode did not queue stock FX for {context}; " +
+                $"falling back to custom FX: {stockFxFailure}");
             spawnCustom(worldPosition, vesselLength);
-            recordResult?.Invoke(StockExplosionFxWithAudioGateResult.AudioBusyCustomVisualSpawned);
+            recordResult?.Invoke(StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned);
             return false;
         }
 
