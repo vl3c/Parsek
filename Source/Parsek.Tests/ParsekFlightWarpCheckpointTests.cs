@@ -1,9 +1,73 @@
+using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
 {
+    [Collection("Sequential")]
     public class ParsekFlightWarpCheckpointTests
     {
+        [Fact]
+        public void RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly()
+        {
+            var logLines = new List<string>();
+            double capturedCutoff = double.NaN;
+            int cutoffCalls = 0;
+
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                ParsekFlight.RecalculateLedgerAfterWarpExit(
+                    1234.5,
+                    cutoff =>
+                    {
+                        capturedCutoff = cutoff;
+                        cutoffCalls++;
+                    });
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+
+            Assert.Equal(1, cutoffCalls);
+            Assert.Equal(1234.5, capturedCutoff);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][LedgerOrchestrator]")
+                && l.Contains("Warp exit ledger recalculation started")
+                && l.Contains("cutoffUT=1234.5"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][LedgerOrchestrator]")
+                && l.Contains("Warp exit ledger recalculation complete")
+                && l.Contains("cutoffUT=1234.5"));
+        }
+
+        [Fact]
+        public void RecalculateLedgerAfterWarpExit_LogsAndSwallowsRecalculationFailure()
+        {
+            var logLines = new List<string>();
+
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                ParsekFlight.RecalculateLedgerAfterWarpExit(
+                    1234.5,
+                    _ => throw new InvalidOperationException("boom"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][LedgerOrchestrator]")
+                && l.Contains("Warp exit ledger recalculation failed")
+                && l.Contains("cutoffUT=1234.5")
+                && l.Contains("InvalidOperationException"));
+        }
+
         [Fact]
         public void ShouldSkipDuplicateWarpCheckpointEvent_FirstEvent_ReturnsFalse()
         {
