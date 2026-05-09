@@ -137,6 +137,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Decision helper for trees that were finalized and stashed before
+        /// the player picked Space Center / Tracking Station from stock's
+        /// flight-results UI. Semantics intentionally mirror the live
+        /// active-tree gate above; only the source of terminal-state evidence
+        /// differs.
+        /// </summary>
+        internal static DialogVariant ShouldShowDialogBeforeSceneChangeForPendingTree(
+            GameScenes destination,
+            bool hasFinalizedPendingTree,
+            bool reFlyActive,
+            bool isAutoMerge,
+            bool pendingRootLandedOrSplashed)
+        {
+            return ShouldShowDialogBeforeSceneChange(
+                destination,
+                hasActiveTree: hasFinalizedPendingTree,
+                reFlyActive: reFlyActive,
+                isAutoMerge: isAutoMerge,
+                activeVesselLandedOrSplashed: pendingRootLandedOrSplashed);
+        }
+
+        /// <summary>
         /// Live-state wrapper that gathers values from
         /// <see cref="FlightGlobals"/> / <see cref="ParsekScenario"/> and
         /// dispatches to the pure helper. Used by the prefix.
@@ -170,6 +192,52 @@ namespace Parsek
                 reFlyActive: reFlyActive,
                 isAutoMerge: isAutoMerge,
                 activeVesselLandedOrSplashed: landedOrSplashed);
+        }
+
+        /// <summary>
+        /// Live-state wrapper for an already-finalized pending tree. This is
+        /// the post-destruction / flight-results path: the active recorder was
+        /// stopped before stock asks where to go next, so the prefix must look
+        /// at <see cref="RecordingStore.PendingTree"/> instead of
+        /// <see cref="ParsekFlight.HasActiveTree"/>.
+        /// </summary>
+        internal static DialogVariant ShouldShowPendingTreeDialogBeforeSceneChangeLive(
+            GameScenes destination)
+        {
+            bool hasFinalizedPendingTree =
+                RecordingStore.HasPendingTree
+                && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized;
+            var scenario = ParsekScenario.Instance;
+            bool reFlyActive =
+                !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveReFlySessionMarker != null;
+            bool isAutoMerge = ParsekScenario.IsAutoMerge;
+            bool pendingRootLandedOrSplashed = PendingTreeRootLandedOrSplashed();
+
+            return ShouldShowDialogBeforeSceneChangeForPendingTree(
+                destination,
+                hasFinalizedPendingTree: hasFinalizedPendingTree,
+                reFlyActive: reFlyActive,
+                isAutoMerge: isAutoMerge,
+                pendingRootLandedOrSplashed: pendingRootLandedOrSplashed);
+        }
+
+        private static bool PendingTreeRootLandedOrSplashed()
+        {
+            var tree = RecordingStore.PendingTree;
+            if (tree == null || string.IsNullOrEmpty(tree.RootRecordingId))
+                return false;
+
+            Recording root;
+            if (!tree.Recordings.TryGetValue(tree.RootRecordingId, out root))
+                return false;
+
+            // Finalized pending trees no longer have live vessel state here.
+            // Use the root terminal state as the conservative #88 autoMerge
+            // approval proxy; autoMerge-off and Re-Fly dialog paths ignore it.
+            return root != null
+                && (root.TerminalStateValue == TerminalState.Landed
+                    || root.TerminalStateValue == TerminalState.Splashed);
         }
 
         /// <summary>
@@ -419,7 +487,34 @@ namespace Parsek
 
             var flight = ParsekFlight.Instance;
             if (flight == null || !flight.HasActiveTree)
-                return true;
+            {
+                var pendingVariant =
+                    SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(scene);
+                if (pendingVariant == SceneExitInterceptor.DialogVariant.None)
+                    return true;
+
+                if (SceneExitInterceptor.ShowDialogForTesting != null)
+                {
+                    SceneExitInterceptor.ShowDialogForTesting(scene, pendingVariant);
+                    return false;
+                }
+
+                var pendingLabels = pendingVariant == SceneExitInterceptor.DialogVariant.ReFlyAttempt
+                    ? MergeDialog.MergeDialogButtonLabels.ReFlyAttempt
+                    : MergeDialog.MergeDialogButtonLabels.Default;
+
+                ParsekLog.Info("SceneExit",
+                    $"LoadScene prefix: showing pre-transition dialog for finalized pending tree " +
+                    $"'{RecordingStore.PendingTree?.TreeName ?? "<null>"}' dest={scene}");
+
+                MergeDialog.ShowTreeDialog(
+                    RecordingStore.PendingTree,
+                    labels: pendingLabels,
+                    preCommitFinalize: () => { },
+                    postChoice: SceneExitInterceptor.BuildPostChoice(scene));
+
+                return false;
+            }
 
             // (4) decision matrix on LIVE state.
             var variant = SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeLive(

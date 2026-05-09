@@ -360,7 +360,8 @@ namespace Parsek
 
                 // Step 3-6 still run so the session does not strand the
                 // player behind the marker; skip 7-10 (no RP to reload).
-                RemoveProvisionalById(activeReFlyRecId, sessionId);
+                MergeDialog.PruneActiveReFlyAttemptOwnedTopology(
+                    marker, "RevertInterceptor:DiscardReFly:rp-unresolvable");
                 if (!ReferenceEquals(null, scenario))
                 {
                     scenario.ActiveReFlySessionMarker = null;
@@ -382,9 +383,22 @@ namespace Parsek
                 return;
             }
 
-            // Step 3: drop the provisional. Log + continue on absence — session
-            // cleanup is desired even on a partially-corrupted marker.
-            RemoveProvisionalById(activeReFlyRecId, sessionId);
+            // Step 3: drop the provisional + every other in-memory artifact
+            // the abandoned attempt produced (the fork dictionary entry in
+            // any in-memory tree, attempt-authored debris children created
+            // by ParsekFlight.CreateBreakupChildRecording, session-authored
+            // branch points, dangling parent/child id refs on surviving BPs,
+            // stale tree.ActiveRecordingId, sidecar files, recorded events).
+            // Pre-PR-#734 only the flat CommittedRecordings entry was
+            // removed; the committed-tree-attach shape introduced by the
+            // post-#734 fork model meant the abandoned attempt could
+            // survive in any committed tree that owned the marker's tree id.
+            // The shared MergeDialog helper finds the in-memory tree via
+            // the same Pending/Committed/live-active fallback chain
+            // FindTreeForReFlyFork uses, so this works regardless of which
+            // attach shape the marker write hit.
+            MergeDialog.PruneActiveReFlyAttemptOwnedTopology(
+                marker, "RevertInterceptor:DiscardReFly");
 
             // Step 4: promote the origin RP to persistent BEFORE clearing
             // the marker — LoadTimeSweep's RP-discard pass in the fresh
@@ -565,53 +579,10 @@ namespace Parsek
         // Discard Re-fly helpers
         // ------------------------------------------------------------------
 
-        private static void RemoveProvisionalById(string recordingId, string sessionId)
-        {
-            if (string.IsNullOrEmpty(recordingId))
-            {
-                ParsekLog.Warn(SessionTag,
-                    $"DiscardReFly: marker had empty ActiveReFlyRecordingId sess={sessionId} — skipping provisional removal");
-                return;
-            }
-
-            // Inline by-id lookup on CommittedRecordings — mirrors the pattern
-            // RewindInvoker uses at the atomic rollback path. No new public
-            // API surface.
-            var committed = RecordingStore.CommittedRecordings;
-            Recording target = null;
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    var rec = committed[i];
-                    if (rec == null) continue;
-                    if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    {
-                        target = rec;
-                        break;
-                    }
-                }
-            }
-
-            if (target == null)
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"DiscardReFly: provisional rec={recordingId} sess={sessionId} not in committed list — already gone");
-                return;
-            }
-
-            bool removed = RecordingStore.RemoveCommittedInternal(target);
-            if (removed)
-            {
-                ParsekLog.Info("RecordingStore",
-                    $"Removed provisional rec={recordingId} sess={sessionId}");
-            }
-            else
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"DiscardReFly: RemoveCommittedInternal returned false for rec={recordingId} sess={sessionId}");
-            }
-        }
+        // RemoveProvisionalById was deleted - both call sites now route
+        // through MergeDialog.PruneActiveReFlyAttemptOwnedTopology so the
+        // committed-tree-attach + structural-mutation cleanup runs on the
+        // Esc/Revert Discard path too.
 
         private static bool QuicksaveExists(RewindPoint rp)
         {

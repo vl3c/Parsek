@@ -24,6 +24,14 @@ namespace Parsek
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
+        // Set on debris recordings (v12+) to the parent recording's id; null on legacy v11
+        // debris and on non-debris. PR 3a schema only — populated by PR 3b at recording
+        // time (BackgroundRecorder / ParsekFlight breakup paths) and consumed by PR 3c
+        // playback gate to dispatch legacy v11 debris through the absolute-shadow path
+        // when this id is null. See docs/dev/plans/recording-and-ghost-policies-refactor-plan.md
+        // §"3a. Schema (PR 3a)".
+        public string DebrisParentRecordingId;
+
         // True if this recording was created via the Gloops Flight Recorder (manual ghost-only).
         // Ghost-only recordings never spawn a real vessel at playback end.
         public bool IsGhostOnly;
@@ -123,8 +131,6 @@ namespace Parsek
         [NonSerialized] internal List<TrackSection> PreReFlyAnchorTrackSections;
         [NonSerialized] private string cachedPreReFlyAnchorRecordingSessionId;
         [NonSerialized] private Recording cachedPreReFlyAnchorRecording;
-        [NonSerialized] internal string PreReFlyOriginalSessionId;
-        [NonSerialized] internal Recording PreReFlyOriginalRecording;
 
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", or "approach" (null = untagged/legacy)
@@ -569,6 +575,10 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
+            // Propagate the v12+ debris parent-anchor contract alongside IsDebris.
+            // Without this, every cloned debris recording would silently lose the
+            // contract — see plan §"`IsDebris` propagation surface" site #4.
+            DebrisParentRecordingId = source.DebrisParentRecordingId;
             IsGhostOnly = source.IsGhostOnly;
             // Generation is transient, but copied so the cascade-depth state is
             // preserved across recording creation/commit boundaries within a tree session.
@@ -591,11 +601,6 @@ namespace Parsek
         }
 
         internal static Recording DeepClone(Recording source)
-        {
-            return DeepClone(source, preservePreReFlySnapshots: true);
-        }
-
-        private static Recording DeepClone(Recording source, bool preservePreReFlySnapshots)
         {
             if (source == null) return null;
 
@@ -688,43 +693,58 @@ namespace Parsek
             clone.SpawnSuppressedByRewindReason = source.SpawnSuppressedByRewindReason;
             clone.SpawnSuppressedByRewindUT = source.SpawnSuppressedByRewindUT;
 
-            if (preservePreReFlySnapshots)
-            {
-                // Preserve active Re-Fly snapshots across recording clones.
-                // The full-original snapshot is cloned without its own
-                // snapshots so capture/codec paths cannot recurse.
-                clone.PreReFlyAnchorSessionId = source.PreReFlyAnchorSessionId;
-                clone.PreReFlyAnchorPoints = source.PreReFlyAnchorPoints != null
-                    ? new List<TrajectoryPoint>(source.PreReFlyAnchorPoints)
-                    : null;
-                clone.PreReFlyAnchorOrbitSegments = source.PreReFlyAnchorOrbitSegments != null
-                    ? new List<OrbitSegment>(source.PreReFlyAnchorOrbitSegments)
-                    : null;
-                clone.PreReFlyAnchorTrackSections = source.PreReFlyAnchorTrackSections != null
-                    ? DeepCopyTrackSections(source.PreReFlyAnchorTrackSections)
-                    : null;
-                clone.PreReFlyOriginalSessionId = source.PreReFlyOriginalSessionId;
-                clone.PreReFlyOriginalRecording = source.PreReFlyOriginalRecording != null
-                    ? DeepClone(source.PreReFlyOriginalRecording, preservePreReFlySnapshots: false)
-                    : null;
-            }
+            // Preserve the active Re-Fly anchor trajectory snapshot across
+            // recording clones. Repair / splice paths that DeepClone a
+            // recording (e.g. the active-tree refresh in ParsekScenario)
+            // would otherwise silently drop the snapshot, breaking the
+            // per-frame anchor for every other ghost in the active Re-Fly
+            // tree. The lists are cloned to keep the clone independent of
+            // the source. ApplyPersistenceArtifactsFrom intentionally does
+            // NOT copy these (they're [NonSerialized] live-session state),
+            // so the explicit copy here is the only way the snapshot
+            // survives a clone.
+            clone.PreReFlyAnchorSessionId = source.PreReFlyAnchorSessionId;
+            clone.PreReFlyAnchorPoints = source.PreReFlyAnchorPoints != null
+                ? new List<TrajectoryPoint>(source.PreReFlyAnchorPoints)
+                : null;
+            clone.PreReFlyAnchorOrbitSegments = source.PreReFlyAnchorOrbitSegments != null
+                ? new List<OrbitSegment>(source.PreReFlyAnchorOrbitSegments)
+                : null;
+            clone.PreReFlyAnchorTrackSections = source.PreReFlyAnchorTrackSections != null
+                ? DeepCopyTrackSections(source.PreReFlyAnchorTrackSections)
+                : null;
 
             return clone;
         }
 
         internal void CapturePreReFlyAnchorTrajectory(string sessionId)
         {
+            CapturePreReFlyAnchorTrajectoryFrom(this, sessionId);
+        }
+
+        /// <summary>
+        /// Captures the pre-Re-Fly anchor trajectory snapshot from
+        /// <paramref name="source"/>'s position-history lists onto this
+        /// recording. Used by the in-place Re-Fly fork
+        /// (issue #734): the new active recording stores the origin's
+        /// frozen trajectory under its own session id so resolver paths keyed by
+        /// <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
+        /// see the original trajectory data without reading the origin
+        /// recording directly.
+        /// </summary>
+        internal void CapturePreReFlyAnchorTrajectoryFrom(Recording source, string sessionId)
+        {
             cachedPreReFlyAnchorRecordingSessionId = null;
             cachedPreReFlyAnchorRecording = null;
             PreReFlyAnchorSessionId = sessionId;
-            PreReFlyAnchorPoints = Points != null
-                ? new List<TrajectoryPoint>(Points)
+            PreReFlyAnchorPoints = source != null && source.Points != null
+                ? new List<TrajectoryPoint>(source.Points)
                 : new List<TrajectoryPoint>();
-            PreReFlyAnchorOrbitSegments = OrbitSegments != null
-                ? new List<OrbitSegment>(OrbitSegments)
+            PreReFlyAnchorOrbitSegments = source != null && source.OrbitSegments != null
+                ? new List<OrbitSegment>(source.OrbitSegments)
                 : new List<OrbitSegment>();
-            PreReFlyAnchorTrackSections = TrackSections != null
-                ? DeepCopyTrackSections(TrackSections)
+            PreReFlyAnchorTrackSections = source != null && source.TrackSections != null
+                ? DeepCopyTrackSections(source.TrackSections)
                 : new List<TrackSection>();
         }
 
@@ -758,40 +778,9 @@ namespace Parsek
             cachedPreReFlyAnchorRecording = null;
         }
 
-        internal void CapturePreReFlyOriginalRecording(string sessionId)
-        {
-            PreReFlyOriginalSessionId = sessionId;
-            PreReFlyOriginalRecording = DeepClone(this, preservePreReFlySnapshots: false);
-        }
-
-        internal bool HasPreReFlyOriginalRecording(string sessionId)
-        {
-            if (string.IsNullOrEmpty(sessionId))
-                return false;
-            if (!string.Equals(PreReFlyOriginalSessionId, sessionId, StringComparison.Ordinal))
-                return false;
-            return PreReFlyOriginalRecording != null;
-        }
-
-        internal Recording BuildPreReFlyOriginalRecording(string sessionId)
-        {
-            if (!HasPreReFlyOriginalRecording(sessionId))
-                return null;
-            // Return a defensive copy; the captured original is the rollback
-            // template and discard/restore callers mutate the returned recording.
-            return DeepClone(PreReFlyOriginalRecording, preservePreReFlySnapshots: false);
-        }
-
-        internal void ClearPreReFlyOriginalRecording()
-        {
-            PreReFlyOriginalSessionId = null;
-            PreReFlyOriginalRecording = null;
-        }
-
         internal void ClearPreReFlySessionSnapshots()
         {
             ClearPreReFlyAnchorTrajectory();
-            ClearPreReFlyOriginalRecording();
         }
 
         /// <summary>
@@ -806,7 +795,7 @@ namespace Parsek
         /// <see cref="PartEvents"/>, <see cref="FlagEvents"/>,
         /// <see cref="SegmentEvents"/> are intentionally left at their
         /// default-empty initialisers — only position-history data matters
-        /// for the Re-Fly display alignment sample, and emitting events from the
+        /// for the Re-Fly recorded-coordinate resolver, and emitting events from the
         /// snapshot would re-fire structural events at every save. Returns
         /// null when no snapshot is captured for <paramref name="sessionId"/>.
         /// </summary>
@@ -866,6 +855,32 @@ namespace Parsek
                 result.Add(copy);
             }
             return result;
+        }
+
+        /// <summary>
+        /// Stamps the v12+ debris parent-anchor contract on <paramref name="child"/>:
+        /// when the child is debris, sets <see cref="DebrisParentRecordingId"/> to the
+        /// supplied parent's recording id; otherwise no-op. Idempotent on non-debris
+        /// recordings so callers can invoke unconditionally adjacent to their existing
+        /// `IsDebris = …` assignments. Per plan §3b §"Helper".
+        /// </summary>
+        internal static void ApplyDebrisAnchorContract(Recording child, Recording parent)
+        {
+            if (child == null) return;
+            if (!child.IsDebris) return;
+            child.DebrisParentRecordingId = parent?.RecordingId;
+        }
+
+        /// <summary>
+        /// String overload of <see cref="ApplyDebrisAnchorContract(Recording, Recording)"/>
+        /// for the pure-static factory path (`BuildBackgroundSplitBranchData`) where the
+        /// caller has the parent's recording id but no Recording object in scope.
+        /// </summary>
+        internal static void ApplyDebrisAnchorContract(Recording child, string parentRecordingId)
+        {
+            if (child == null) return;
+            if (!child.IsDebris) return;
+            child.DebrisParentRecordingId = parentRecordingId;
         }
 
         /// <summary>
@@ -949,6 +964,7 @@ namespace Parsek
         double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
         bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
         bool IPlaybackTrajectory.IsDebris => IsDebris;
+        string IPlaybackTrajectory.DebrisParentRecordingId => DebrisParentRecordingId;
         string IPlaybackTrajectory.TerminalOrbitBody => TerminalOrbitBody;
         double IPlaybackTrajectory.TerminalOrbitSemiMajorAxis => TerminalOrbitSemiMajorAxis;
         double IPlaybackTrajectory.TerminalOrbitEccentricity => TerminalOrbitEccentricity;

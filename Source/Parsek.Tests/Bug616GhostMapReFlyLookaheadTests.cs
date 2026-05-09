@@ -11,7 +11,7 @@ namespace Parsek.Tests
         private const uint ActivePid = 2676381515u;
 
         [Fact]
-        public void AbsolutePrefixCreateLookahead_SuppressesFutureRelativeAnchorToActiveReFlyTarget()
+        public void AbsolutePrefixCreateLookahead_NoLongerSuppressesFutureLegacyPidAnchor()
         {
             var marker = InPlaceMarker("rec-booster");
             var committed = CommittedWith(
@@ -36,11 +36,10 @@ namespace Parsek.Tests
                 committedTrees: trees,
                 out string reason);
 
-            Assert.True(suppressed);
+            Assert.False(suppressed);
             Assert.Contains(
-                GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeLookahead,
+                "lookahead-disabled-recorded-anchor-chain",
                 reason);
-            Assert.Contains("currentBranch=absolute", reason);
             Assert.Contains("not-suppressed-not-relative-frame", reason);
         }
 
@@ -107,11 +106,11 @@ namespace Parsek.Tests
                 out string reason);
 
             Assert.False(suppressed);
-            Assert.Contains("not-suppressed-not-parent-of-refly-target", reason);
+            Assert.Contains("lookahead-disabled-recorded-anchor-chain", reason);
         }
 
         [Fact]
-        public void PendingTreeActiveReFlySearch_WorksForCreateLookahead()
+        public void PendingTreeActiveReFlySearch_NoLongerDrivesCreateLookahead()
         {
             var marker = InPlaceMarker("rec-booster");
             var committed = CommittedWith(("rec-capsule", 2708531065u));
@@ -139,8 +138,8 @@ namespace Parsek.Tests
                 committedTrees: searchTrees,
                 out string reason);
 
-            Assert.True(suppressed);
-            Assert.Contains("activePidSource=search-tree:" + PendingTreeId, reason);
+            Assert.False(suppressed);
+            Assert.Contains("lookahead-disabled-recorded-anchor-chain", reason);
         }
 
         private static ReFlySessionMarker InPlaceMarker(string activeAndOriginRecId)
@@ -151,7 +150,8 @@ namespace Parsek.Tests
                 TreeId = TreeId,
                 ActiveReFlyRecordingId = activeAndOriginRecId,
                 OriginChildRecordingId = activeAndOriginRecId,
-                InvokedUT = 119.0
+                InvokedUT = 119.0,
+                InPlaceContinuation = true,
             };
         }
 

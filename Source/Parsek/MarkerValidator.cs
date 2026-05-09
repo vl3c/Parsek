@@ -146,38 +146,20 @@ namespace Parsek
 
             ValidateSupersedeTargetWeak(marker);
 
-            // MergeState gate. The placeholder pattern (origin != active)
-            // creates a fresh `NotCommitted` recording at re-fly start, so
-            // the active row is always `NotCommitted` for that path. The
-            // in-place continuation pattern (`origin == active`, see
-            // RewindInvoker.AtomicMarkerWrite) reuses the existing
-            // recording — and that recording can be EITHER
-            // `CommittedProvisional` (a UF promoted from a fresh tree merge)
-            // OR `Immutable` (a UF from an older / sealed recording where
-            // the RP is still alive). `EffectiveState.IsUnfinishedFlight`
-            // explicitly accepts both states (line 156-157), so the
-            // validator MUST too — otherwise every save+load cycle during
-            // an in-place re-fly silently wipes the marker and the merge
-            // falls through to the regular tree-merge path (no force-
-            // Immutable, no RP reap, UF row never clears). The placeholder
-            // pattern stays NotCommitted-only because no committed
-            // recording is being reused there.
-            bool inPlaceContinuation = string.Equals(
-                marker.ActiveReFlyRecordingId,
-                marker.OriginChildRecordingId,
-                StringComparison.Ordinal);
-            bool acceptableState =
-                active.MergeState == MergeState.NotCommitted
-                || (inPlaceContinuation
-                    && (active.MergeState == MergeState.CommittedProvisional
-                        || active.MergeState == MergeState.Immutable));
-            if (!acceptableState)
+            // MergeState gate. RewindInvoker.AtomicMarkerWrite always creates
+            // a fresh NotCommitted provisional Recording for the active
+            // attempt (both the placeholder and the in-place fork paths), so
+            // the active row is NotCommitted by construction. Anything else
+            // is a stale/corrupted marker and must be rejected.
+            if (active.MergeState != MergeState.NotCommitted)
             {
                 return MarkerValidationResult.Invalid(
                     "ActiveReFlyRecordingId",
                     "checked=ActiveReFlyRecordingId.mergeState " +
-                    $"state={active.MergeState} inPlace={inPlaceContinuation} " +
-                    "expected=NotCommitted-or-inPlace-CommittedProvisional/Immutable; rejected because state/pattern is not valid for a live marker");
+                    $"state={active.MergeState} " +
+                    $"inPlace={ReFlySessionMarker.IsInPlaceContinuation(marker)} " +
+                    "expected=NotCommitted; rejected because the active recording is not a fresh provisional " +
+                    "(fork-mode markers always point at a NotCommitted provisional created at AtomicMarkerWrite)");
             }
 
             if (string.IsNullOrEmpty(marker.RewindPointId))
@@ -211,7 +193,10 @@ namespace Parsek
                         "rejected because InvokedUT exceeds the 1E+15 sanity ceiling"));
 
             return MarkerValidationResult.Ok(
-                BuildAcceptedDetails(active, inPlaceContinuation, marker.InvokedUT, now, rewindPoint.UT));
+                BuildAcceptedDetails(
+                    active,
+                    ReFlySessionMarker.IsInPlaceContinuation(marker),
+                    marker.InvokedUT, now, rewindPoint.UT));
         }
 
         private static bool TreeExists(string treeId)
@@ -326,7 +311,8 @@ namespace Parsek
         {
             bool legacyFutureUtCheckTriggered = IsFinite(currentUt) && invokedUt > currentUt;
             return $"checked={AcceptedMarkerCheckPaths}; " +
-                $"activeState={active.MergeState} inPlace={inPlaceContinuation} " +
+                $"activeState={active.MergeState} " +
+                $"inPlace={inPlaceContinuation} " +
                 BuildInvokedUtComparison(invokedUt, currentUt, rewindPointUt) + " " +
                 $"legacyFutureUtCheck={(legacyFutureUtCheckTriggered ? "triggered" : "none")}";
         }

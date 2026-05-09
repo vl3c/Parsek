@@ -20,6 +20,7 @@ namespace Parsek
         internal const int JetLoopAudioPriority = 176;
         internal const int MaxDistancePriorityPenalty = 64;
         internal const int MaxAudioSourcePriority = 255;
+        internal const float ExplosionOneShotFallbackDurationSeconds = 2.0f;
         private const double ResolutionLogIntervalSeconds = 5.0;
 
         private static readonly Dictionary<string, string> presetMap = new Dictionary<string, string>

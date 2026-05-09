@@ -183,7 +183,7 @@ namespace Parsek
         {
             // [ERS-exempt] reason: this is a cleanup pass for the raw
             // persisted group hierarchy. It must inspect all known committed
-            // and pending rows, then explicitly subtract relation-superseded
+            // and pending rows, then explicitly subtract timeline-inactive
             // ids so the hierarchy matches the recordings table's
             // display-effective group membership without losing NotCommitted
             // management rows. Pending rows matter during active-tree restore:
@@ -191,9 +191,10 @@ namespace Parsek
             // storage while still awaiting a deferred merge dialog.
             var cleanupRecordings = RecordingStore.BuildKnownRecordingsForCleanup();
             var scenario = ParsekScenario.Instance;
-            var relationSupersededIds = EffectiveState.ComputeSupersededRecordingIdsByRelation(
+            var timelineInactiveIds = EffectiveState.ComputeTimelineInactiveRecordingIds(
                 cleanupRecordings,
-                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements);
 
             var liveGroupNames = new HashSet<string>(StringComparer.Ordinal);
             if (cleanupRecordings != null)
@@ -204,7 +205,7 @@ namespace Parsek
                     if (rec == null)
                         continue;
                     if (!string.IsNullOrEmpty(rec.RecordingId)
-                        && relationSupersededIds.Contains(rec.RecordingId))
+                        && timelineInactiveIds.ContainsKey(rec.RecordingId))
                         continue;
                     if (rec.RecordingGroups == null)
                         continue;

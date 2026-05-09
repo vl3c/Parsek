@@ -324,8 +324,9 @@ namespace Parsek.Tests.Rendering
                     && l.Contains(rec.RecordingId));
                 Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
                     && l.Contains("anchor-recording-id-missing")
-                    && l.Contains("legacyAnchorPid=12345")
                     && l.Contains(rec.RecordingId));
+                Assert.DoesNotContain(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                    && l.Contains("legacyAnchorPid=12345"));
             }
             finally
             {

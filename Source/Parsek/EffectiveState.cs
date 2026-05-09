@@ -3,6 +3,13 @@ using System.Collections.Generic;
 
 namespace Parsek
 {
+    internal enum TimelineInactiveReason
+    {
+        None,
+        SupersededByRelation,
+        RewindRetired,
+    }
+
     /// <summary>
     /// Phase 2 of Rewind-to-Staging (design doc sections 3.1 / 3.2 / 3.3).
     ///
@@ -274,6 +281,62 @@ namespace Parsek
             return result;
         }
 
+        internal static HashSet<string> ComputeRewindRetiredRecordingIds(
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            if (retirements == null || retirements.Count == 0)
+                return result;
+
+            for (int i = 0; i < retirements.Count; i++)
+            {
+                var retirement = retirements[i];
+                if (retirement == null || string.IsNullOrEmpty(retirement.RecordingId))
+                    continue;
+                result.Add(retirement.RecordingId);
+            }
+
+            return result;
+        }
+
+        internal static Dictionary<string, TimelineInactiveReason> ComputeTimelineInactiveRecordingIds(
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            var result = new Dictionary<string, TimelineInactiveReason>(StringComparer.Ordinal);
+            var superseded = ComputeSupersededRecordingIdsByRelation(recordings, supersedes);
+            foreach (string id in superseded)
+                result[id] = TimelineInactiveReason.SupersededByRelation;
+
+            var retired = ComputeRewindRetiredRecordingIds(retirements);
+            foreach (string id in retired)
+                result[id] = TimelineInactiveReason.RewindRetired;
+
+            return result;
+        }
+
+        internal static bool IsRewindRetired(
+            Recording rec,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            if (retirements == null || retirements.Count == 0)
+                return false;
+
+            for (int i = 0; i < retirements.Count; i++)
+            {
+                var retirement = retirements[i];
+                if (retirement == null || string.IsNullOrEmpty(retirement.RecordingId))
+                    continue;
+                if (string.Equals(retirement.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// True iff <paramref name="rec"/> is an Unfinished Flight: committed
         /// visible, mapped to a RewindPoint child slot, not sealed, and with a
@@ -475,6 +538,7 @@ namespace Parsek
             var scenario = ParsekScenario.Instance;
             bool hasScenario = !object.ReferenceEquals(null, scenario);
             IReadOnlyList<RecordingSupersedeRelation> supersedes = hasScenario ? scenario.RecordingSupersedes : null;
+            IReadOnlyList<RecordingRewindRetirement> retirements = hasScenario ? scenario.RecordingRewindRetirements : null;
             ReFlySessionMarker marker = hasScenario ? scenario.ActiveReFlySessionMarker : null;
             int storeVersion = RecordingStore.StateVersion;
             int supersedeVersion = hasScenario ? scenario.SupersedeStateVersion : 0;
@@ -491,11 +555,13 @@ namespace Parsek
 
                 var suppressed = ComputeSubtreeClosureInternal(
                     marker, marker?.OriginChildRecordingId);
+                var retiredIds = ComputeRewindRetiredRecordingIds(retirements);
                 var source = RecordingStore.CommittedRecordings;
                 var result = new List<Recording>(source.Count);
                 int raw = source.Count;
                 int skippedNotCommitted = 0;
                 int skippedSuperseded = 0;
+                int skippedRewindRetired = 0;
                 int skippedSuppressed = 0;
 
                 for (int i = 0; i < source.Count; i++)
@@ -510,6 +576,12 @@ namespace Parsek
                     if (!IsVisible(rec, supersedes))
                     {
                         skippedSuperseded++;
+                        continue;
+                    }
+                    if (!string.IsNullOrEmpty(rec.RecordingId)
+                        && retiredIds.Contains(rec.RecordingId))
+                    {
+                        skippedRewindRetired++;
                         continue;
                     }
                     if (suppressed != null && !string.IsNullOrEmpty(rec.RecordingId)
@@ -529,7 +601,8 @@ namespace Parsek
                 ParsekLog.Verbose("ERS",
                     $"Rebuilt: {result.Count} entries from {raw} committed " +
                     $"(skippedNotCommitted={skippedNotCommitted} skippedSuperseded={skippedSuperseded} " +
-                    $"skippedSuppressed={skippedSuppressed} marker={(marker != null ? marker.SessionId ?? "<no-id>" : "none")})");
+                    $"skippedRewindRetired={skippedRewindRetired} skippedSuppressed={skippedSuppressed} " +
+                    $"marker={(marker != null ? marker.SessionId ?? "<no-id>" : "none")})");
 
                 return ersCache;
             }

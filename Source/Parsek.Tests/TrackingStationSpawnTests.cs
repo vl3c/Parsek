@@ -168,6 +168,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSpawnAtTrackingStationEnd_RewindRetired_ReturnsFalse()
+        {
+            var rec = MakeEligibleTrackingStationRecording(id: "rec-retired", pid: 555);
+            RecordingStore.AddCommittedInternal(rec);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_retired",
+                        RecordingId = rec.RecordingId,
+                        RestoredRecordingId = "rec-restored",
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            });
+
+            var (needsSpawn, reason) = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
+                rec,
+                rec.EndUT + 1,
+                chains: null);
+
+            Assert.False(needsSpawn);
+            Assert.Equal(GhostMapPresence.TrackingStationSpawnSkipRewindRetired, reason);
+        }
+
+        [Fact]
         public void ShouldSkipTrackingStationDuplicateSpawn_ExistingRealVessel_ReturnsTrue()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
@@ -332,6 +361,210 @@ namespace Parsek.Tests
             Assert.False(GhostMapPresence.IsTrackingStationMapFocusSceneActive(
                 mapViewEnabled: false,
                 isTrackingStationScene: false));
+        }
+
+        [Fact]
+        public void TryProbeMapObjectName_ReturnsName()
+        {
+            bool ok = GhostMapPresence.TryProbeMapObjectName(
+                () => "Learstar A1",
+                out string name,
+                out string error);
+
+            Assert.True(ok);
+            Assert.Equal("Learstar A1", name);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TryProbeMapObjectName_WhenGetterThrows_ReturnsFalse()
+        {
+            bool ok = GhostMapPresence.TryProbeMapObjectName(
+                () => throw new InvalidOperationException("map object not ready"),
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.Null(name);
+            Assert.Equal("GetName threw InvalidOperationException: map object not ready", error);
+        }
+
+        [Fact]
+        public void TryProbeMapObjectName_NullGetter_ReturnsFalse()
+        {
+            bool ok = GhostMapPresence.TryProbeMapObjectName(
+                null,
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.Null(name);
+            Assert.Equal("getName-null", error);
+        }
+
+        [Fact]
+        public void TrySetReadyMapObjectTarget_ReturnsNameAndRunsSetter()
+        {
+            bool setTargetCalled = false;
+
+            bool ok = GhostMapPresence.TrySetReadyMapObjectTarget(
+                () => "Learstar A1",
+                () => setTargetCalled = true,
+                out string name,
+                out string error);
+
+            Assert.True(ok);
+            Assert.True(setTargetCalled);
+            Assert.Equal("Learstar A1", name);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void TrySetReadyMapObjectTarget_WhenGetterThrows_DoesNotRunSetter()
+        {
+            bool setTargetCalled = false;
+
+            bool ok = GhostMapPresence.TrySetReadyMapObjectTarget(
+                () => throw new InvalidOperationException("map object not ready"),
+                () => setTargetCalled = true,
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.False(setTargetCalled);
+            Assert.Null(name);
+            Assert.Equal("GetName threw InvalidOperationException: map object not ready", error);
+        }
+
+        [Fact]
+        public void TrySetReadyMapObjectTarget_WhenSetterThrows_ReturnsFalse()
+        {
+            bool ok = GhostMapPresence.TrySetReadyMapObjectTarget(
+                () => "Learstar A1",
+                () => throw new InvalidOperationException("camera target rejected"),
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.Equal("Learstar A1", name);
+            Assert.Equal("SetTarget threw InvalidOperationException: camera target rejected", error);
+        }
+
+        [Fact]
+        public void TrySetReadyMapObjectTarget_NullSetter_ReturnsFalse()
+        {
+            bool ok = GhostMapPresence.TrySetReadyMapObjectTarget(
+                () => "Learstar A1",
+                null,
+                out string name,
+                out string error);
+
+            Assert.False(ok);
+            Assert.Equal("Learstar A1", name);
+            Assert.Equal("setTarget-null", error);
+        }
+
+        [Fact]
+        public void ShouldAttemptMaterializedFocusRetry_NoPendingPid_ReturnsFalse()
+        {
+            bool attempt = ParsekTrackingStation.ShouldAttemptMaterializedFocusRetry(
+                pendingPid: 0,
+                now: 10f,
+                nextAttemptTime: 5f,
+                deadlineTime: 20f,
+                out bool expired);
+
+            Assert.False(attempt);
+            Assert.False(expired);
+        }
+
+        [Fact]
+        public void ShouldAttemptMaterializedFocusRetry_BeforeNextAttempt_ReturnsFalse()
+        {
+            bool attempt = ParsekTrackingStation.ShouldAttemptMaterializedFocusRetry(
+                pendingPid: 123,
+                now: 4.9f,
+                nextAttemptTime: 5f,
+                deadlineTime: 20f,
+                out bool expired);
+
+            Assert.False(attempt);
+            Assert.False(expired);
+        }
+
+        [Fact]
+        public void ShouldAttemptMaterializedFocusRetry_WhenDue_ReturnsTrue()
+        {
+            bool attempt = ParsekTrackingStation.ShouldAttemptMaterializedFocusRetry(
+                pendingPid: 123,
+                now: 5f,
+                nextAttemptTime: 5f,
+                deadlineTime: 20f,
+                out bool expired);
+
+            Assert.True(attempt);
+            Assert.False(expired);
+        }
+
+        [Fact]
+        public void ShouldAttemptMaterializedFocusRetry_AfterDeadline_Expires()
+        {
+            bool attempt = ParsekTrackingStation.ShouldAttemptMaterializedFocusRetry(
+                pendingPid: 123,
+                now: 20.1f,
+                nextAttemptTime: 5f,
+                deadlineTime: 20f,
+                out bool expired);
+
+            Assert.False(attempt);
+            Assert.True(expired);
+        }
+
+        [Theory]
+        [InlineData(123u, false, 0u, null, true, 456u, false, 0u, null, false, true, 456u, false, null)]
+        [InlineData(123u, false, 0u, null, true, 456u, false, 0u, null, false, true, 123u, false, null)]
+        [InlineData(123u, false, 0u, null, true, 456u, false, 0u, null, false, true, 789u, true, "stock-selection-changed selectedPid=789 baselinePid=456")]
+        [InlineData(123u, false, 0u, null, false, 0u, false, 0u, null, false, true, 456u, false, null)]
+        [InlineData(123u, false, 0u, null, true, 0u, false, 0u, null, false, true, 456u, true, "stock-selection-changed selectedPid=456 baselinePid=0")]
+        [InlineData(123u, true, 900u, "rec-a", true, 456u, true, 900u, "rec-b", true, true, 456u, false, null)]
+        [InlineData(123u, true, 900u, "rec-a", true, 456u, true, 901u, "rec-b", true, true, 456u, true, "ghost-selection-changed ghostPid=901 baselineGhostPid=900 recId=rec-b baselineRecId=rec-a")]
+        [InlineData(123u, false, 0u, null, true, 456u, true, 901u, "rec-a", true, true, 456u, true, "ghost-selection-changed ghostPid=901 baselineGhostPid=0 recId=rec-a baselineRecId=(none)")]
+        [InlineData(123u, true, 0u, "rec-a", true, 456u, true, 0u, "rec-a", false, true, 456u, false, null)]
+        [InlineData(123u, true, 0u, "rec-a", true, 456u, true, 0u, "rec-b", false, true, 456u, true, "ghost-selection-changed ghostPid=0 baselineGhostPid=0 recId=rec-b baselineRecId=rec-a")]
+        [InlineData(0u, false, 0u, null, true, 456u, true, 901u, "rec-a", true, true, 789u, false, null)]
+        public void ShouldAbortMaterializedFocusRetryForUserSelection_OnlyCancelsAfterUserNavigatesAway(
+            uint pendingPid,
+            bool baselineHasSelectedGhost,
+            uint baselineGhostPid,
+            string baselineRecordingId,
+            bool baselineSelectedPidAvailable,
+            uint baselineSelectedPid,
+            bool currentHasSelectedGhost,
+            uint currentGhostPid,
+            string currentRecordingId,
+            bool currentGhostPidAvailable,
+            bool currentSelectedPidAvailable,
+            uint currentSelectedPid,
+            bool expectedAbort,
+            string expectedReason)
+        {
+            bool abort = ParsekTrackingStation.ShouldAbortMaterializedFocusRetryForUserSelection(
+                pendingPid,
+                baselineHasSelectedGhost,
+                baselineGhostPid,
+                baselineRecordingId,
+                baselineSelectedPidAvailable,
+                baselineSelectedPid,
+                currentHasSelectedGhost,
+                currentGhostPid,
+                currentRecordingId,
+                currentGhostPidAvailable,
+                currentSelectedPidAvailable,
+                currentSelectedPid,
+                out string reason);
+
+            Assert.Equal(expectedAbort, abort);
+            Assert.Equal(expectedReason, reason);
         }
 
         [Fact]
