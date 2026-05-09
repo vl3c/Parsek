@@ -260,6 +260,20 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction FacilityAction(string recordingId, double ut,
+            string facilityId, GameActionType type = GameActionType.FacilityUpgrade)
+        {
+            return new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                Type = type,
+                RecordingId = recordingId,
+                FacilityId = facilityId,
+                ToLevel = 2,
+                UT = ut,
+            };
+        }
+
         private static GameAction KerbalRescue(string recordingId, double ut,
             string kerbalName = "Rescuee")
         {
@@ -495,6 +509,33 @@ namespace Parsek.Tests
                 && l.Contains("tech-tree patch enabled")
                 && l.Contains("baselineTechExclusions=1")
                 && l.Contains("targetCount=1"));
+        }
+
+        [Fact]
+        public void CommitTombstones_TombstonedFacilityDefaultScope_OnlyIncludesRetiredFacilityIds()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var oldBranchUpgrade = FacilityAction(
+                "rec_origin", 100.0, "SpaceCenter/LaunchPad");
+            var unrelatedUpgrade = FacilityAction(
+                "rec_outside", 120.0, "SpaceCenter/MissionControl");
+            Ledger.AddAction(oldBranchUpgrade);
+            Ledger.AddAction(unrelatedUpgrade);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var facilityIds = LedgerOrchestrator.BuildTombstonedFacilityIdsForPatch();
+            Assert.NotNull(facilityIds);
+            Assert.Single(facilityIds);
+            Assert.Contains("SpaceCenter/LaunchPad", facilityIds);
+            Assert.DoesNotContain("SpaceCenter/MissionControl", facilityIds);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("scheduled default targets for 1 tombstoned facility id"));
         }
 
         // ---------- Null scope pass-through --------------------------------

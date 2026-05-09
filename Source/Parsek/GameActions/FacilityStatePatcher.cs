@@ -13,7 +13,8 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private static readonly HashSet<string> lastPatchedFacilityIds =
             new HashSet<string>(System.StringComparer.Ordinal);
-        private static bool defaultKnownFacilitiesOnNextPatch;
+        private static readonly HashSet<string> defaultFacilityIdsOnNextPatch =
+            new HashSet<string>(System.StringComparer.Ordinal);
         private static string patchHistorySaveFolder;
 
         private static void VerboseStablePatchState(string identity, string stateKey, string message)
@@ -45,19 +46,19 @@ namespace Parsek
                 return;
             }
 
-            IEnumerable<string> knownFacilitiesToDefault = null;
-            if (defaultKnownFacilitiesOnNextPatch)
+            List<string> facilityIdsToDefault = null;
+            if (defaultFacilityIdsOnNextPatch.Count > 0)
             {
-                knownFacilitiesToDefault = ScenarioUpgradeableFacilities.protoUpgradeables.Keys;
-                defaultKnownFacilitiesOnNextPatch = false;
+                facilityIdsToDefault = new List<string>(defaultFacilityIdsOnNextPatch);
+                defaultFacilityIdsOnNextPatch.Clear();
                 ParsekLog.Verbose(Tag,
-                    "PatchFacilities: forcing default targets for all known facilities after tombstone recalc");
+                    $"PatchFacilities: forcing default targets for {facilityIdsToDefault.Count.ToString(IC)} tombstoned facility id(s)");
             }
 
             var allFacilities = BuildFacilityPatchTargets(
                 facilities.GetAllFacilities(),
                 lastPatchedFacilityIds,
-                knownFacilitiesToDefault);
+                facilityIdsToDefault);
             int patchedCount = 0;
             int skippedCount = 0;
             int notFoundCount = 0;
@@ -156,7 +157,20 @@ namespace Parsek
                 return;
             }
 
-            var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
+            DestructibleBuilding[] destructibles;
+            try
+            {
+                destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
+            }
+            catch (System.Exception ex)
+            {
+                VerboseStablePatchState(
+                    "patch-skip|destruction|find-objects",
+                    ex.GetType().Name,
+                    $"PatchDestructionState: FindObjectsOfType unavailable - skipping ({ex.GetType().Name}: {ex.Message})");
+                return;
+            }
+
             if (destructibles == null || destructibles.Length == 0)
             {
                 VerboseStablePatchState("patch-skip|destruction|destructibles", "none-found",
@@ -273,11 +287,25 @@ namespace Parsek
             }
         }
 
-        internal static void ForceDefaultAllKnownFacilitiesForNextPatch()
+        internal static void ForceDefaultFacilitiesForNextPatch(IEnumerable<string> facilityIds)
         {
-            defaultKnownFacilitiesOnNextPatch = true;
+            int added = 0;
+            if (facilityIds != null)
+            {
+                foreach (string facilityId in facilityIds)
+                {
+                    if (string.IsNullOrEmpty(facilityId))
+                        continue;
+                    if (defaultFacilityIdsOnNextPatch.Add(facilityId))
+                        added++;
+                }
+            }
+
+            if (added == 0)
+                return;
+
             ParsekLog.Verbose(Tag,
-                "PatchFacilities: scheduled all-known-facility default targets for next patch");
+                $"PatchFacilities: scheduled default targets for {added.ToString(IC)} tombstoned facility id(s)");
         }
 
         /// <summary>
@@ -303,15 +331,15 @@ namespace Parsek
                 return;
 
             int previousCount = lastPatchedFacilityIds.Count;
-            bool hadPendingDefault = defaultKnownFacilitiesOnNextPatch;
+            int pendingDefaultCount = defaultFacilityIdsOnNextPatch.Count;
             lastPatchedFacilityIds.Clear();
-            defaultKnownFacilitiesOnNextPatch = false;
+            defaultFacilityIdsOnNextPatch.Clear();
             patchHistorySaveFolder = normalized;
 
             ParsekLog.Verbose(Tag,
                 $"PatchFacilities: cleared facility patch history after save change " +
                 $"(previous={previousCount.ToString(IC)}, " +
-                $"pendingDefault={hadPendingDefault.ToString(IC)})");
+                $"pendingDefaults={pendingDefaultCount.ToString(IC)})");
         }
 
         private static string GetCurrentSaveFolderForPatchHistory()
@@ -329,7 +357,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             lastPatchedFacilityIds.Clear();
-            defaultKnownFacilitiesOnNextPatch = false;
+            defaultFacilityIdsOnNextPatch.Clear();
             patchHistorySaveFolder = null;
         }
     }

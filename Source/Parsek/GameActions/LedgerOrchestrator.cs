@@ -1319,7 +1319,8 @@ namespace Parsek
         /// </summary>
         internal static void RecalculateAndPatchAfterTombstones()
         {
-            FacilityStatePatcher.ForceDefaultAllKnownFacilitiesForNextPatch();
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                BuildTombstonedFacilityIdsForPatch());
             RecalculateAndPatchCore(
                 utCutoff: null,
                 bypassPatchDeferral: true,
@@ -1780,26 +1781,42 @@ namespace Parsek
                 techBaselineUt: techBaselineUt);
         }
 
+        internal static HashSet<string> BuildTombstonedFacilityIdsForPatch()
+        {
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
+                return null;
+
+            var facilityIds = new HashSet<string>(StringComparer.Ordinal);
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.FacilityId))
+                {
+                    continue;
+                }
+
+                switch (action.Type)
+                {
+                    case GameActionType.FacilityUpgrade:
+                    case GameActionType.FacilityDestruction:
+                    case GameActionType.FacilityRepair:
+                        if (tombstonedActionIds.Contains(action.ActionId))
+                            facilityIds.Add(action.FacilityId);
+                        break;
+                }
+            }
+
+            return facilityIds.Count == 0 ? null : facilityIds;
+        }
+
         private static HashSet<string> BuildTombstonedScienceSpendingNodeIds()
         {
-            var scenario = ParsekScenario.Instance;
-            if (object.ReferenceEquals(null, scenario) ||
-                scenario.LedgerTombstones == null ||
-                scenario.LedgerTombstones.Count == 0)
-            {
-                return null;
-            }
-
-            var tombstonedActionIds = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
-            {
-                var tombstone = scenario.LedgerTombstones[i];
-                if (tombstone == null || string.IsNullOrEmpty(tombstone.ActionId))
-                    continue;
-                tombstonedActionIds.Add(tombstone.ActionId);
-            }
-
-            if (tombstonedActionIds.Count == 0)
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
                 return null;
 
             var excludedTechIds = new HashSet<string>(StringComparer.Ordinal);
@@ -1820,6 +1837,30 @@ namespace Parsek
             }
 
             return excludedTechIds.Count == 0 ? null : excludedTechIds;
+        }
+
+        private static HashSet<string> BuildTombstonedActionIds()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) ||
+                scenario.LedgerTombstones == null ||
+                scenario.LedgerTombstones.Count == 0)
+            {
+                return null;
+            }
+
+            var tombstonedActionIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var tombstone = scenario.LedgerTombstones[i];
+                if (tombstone == null || string.IsNullOrEmpty(tombstone.ActionId))
+                    continue;
+                tombstonedActionIds.Add(tombstone.ActionId);
+            }
+
+            if (tombstonedActionIds.Count == 0)
+                return null;
+            return tombstonedActionIds;
         }
 
         internal static bool HasActionsAfterUT(double ut)

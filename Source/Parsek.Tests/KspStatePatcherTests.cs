@@ -653,7 +653,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildFacilityPatchTargets_KnownFacilityMissingAfterTombstoneTargetsDefault()
+        public void BuildFacilityPatchTargets_TombstonedFacilityMissingAfterTombstoneTargetsDefault()
         {
             var current = new Dictionary<string, FacilitiesModule.FacilityState>
             {
@@ -676,6 +676,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PatchDestructionState_HeadlessUnityFindObjectsUnavailable_SkipsWithoutThrow()
+        {
+            KspStatePatcher.SuppressUnityCallsForTesting = false;
+            var facilities = new Dictionary<string, FacilitiesModule.FacilityState>
+            {
+                {
+                    "SpaceCenter/LaunchPad",
+                    new FacilitiesModule.FacilityState { Level = 1, Destroyed = true }
+                }
+            };
+
+            var ex = Record.Exception(() =>
+                FacilityStatePatcher.PatchDestructionState(facilities));
+
+            Assert.Null(ex);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && (l.Contains("FindObjectsOfType unavailable")
+                    || l.Contains("no DestructibleBuilding objects found")));
+        }
+
+        [Fact]
         public void ResetPatchHistoryForSaveChange_ClearsStaticFacilityHistory()
         {
             var field = typeof(FacilityStatePatcher).GetField(
@@ -683,7 +705,8 @@ namespace Parsek.Tests
                 BindingFlags.NonPublic | BindingFlags.Static);
             var history = Assert.IsType<HashSet<string>>(field.GetValue(null));
             history.Add("SpaceCenter/LaunchPad");
-            FacilityStatePatcher.ForceDefaultAllKnownFacilitiesForNextPatch();
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/LaunchPad" });
 
             FacilityStatePatcher.ResetPatchHistoryForSaveChange("save-a");
             Assert.Single(history);
