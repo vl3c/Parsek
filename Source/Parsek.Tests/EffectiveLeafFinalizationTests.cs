@@ -232,6 +232,68 @@ namespace Parsek.Tests
                 l.Contains("from SubOrbital to Destroyed"));
         }
 
+        [Fact]
+        public void PendingSplitDestroyedCapture_AppendedActiveLeafBeatsLiveSplashedSceneExit()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-pending-split-crash",
+                TreeName = "Kerbal X",
+                RootRecordingId = "kerbal-x-root",
+                ActiveRecordingId = "kerbal-x-root"
+            };
+            var active = new Recording
+            {
+                RecordingId = tree.ActiveRecordingId,
+                TreeId = tree.Id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 2708531065
+            };
+            active.Points.Add(new TrajectoryPoint { ut = 410.2, altitude = 100.0, bodyName = "Kerbin" });
+            active.Points.Add(new TrajectoryPoint { ut = 434.2, altitude = 1200.0, bodyName = "Kerbin" });
+            tree.Recordings[active.RecordingId] = active;
+
+            var captured = new Recording
+            {
+                RecordingId = "stale-pending-split-capture",
+                VesselName = "Kerbal X",
+                VesselPersistentId = active.VesselPersistentId,
+                MaxDistanceFromLaunch = 7018.0,
+                EndBiome = "Water"
+            };
+            captured.Points.Add(new TrajectoryPoint { ut = 434.2, altitude = 1200.0, bodyName = "Kerbin" });
+            captured.Points.Add(new TrajectoryPoint { ut = 460.8, altitude = 0.0, bodyName = "Kerbin" });
+            var capturedSnapshot = new ConfigNode("VESSEL");
+            capturedSnapshot.AddValue("name", "Kerbal X");
+            captured.VesselSnapshot = capturedSnapshot;
+
+            Assert.True(ParsekFlight.ApplyPendingSplitDestructionToCapturedRecording(
+                captured,
+                vesselDestroyedDuringRecording: true,
+                source: "FallbackCommitSplitRecorder.entry"));
+            Assert.True(ParsekFlight.TryAppendCapturedToTree(tree, captured));
+            Assert.True(active.VesselDestroyed);
+            Assert.Equal(TerminalState.Destroyed, active.TerminalStateValue);
+            Assert.Same(capturedSnapshot, captured.VesselSnapshot);
+
+            Vessel liveSplashedVessel = TestVessel(
+                active.VesselPersistentId,
+                Vessel.Situations.SPLASHED);
+
+            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT: 464.1,
+                isSceneExit: true,
+                resolveFinalizationCache: null,
+                findVesselByPid: pid => pid == active.VesselPersistentId ? liveSplashedVessel : null,
+                liveVesselAccess: TestLiveVesselAccess);
+
+            Assert.Equal(TerminalState.Destroyed, active.TerminalStateValue);
+            Assert.Contains(logLines, l =>
+                l.Contains("TryAppendCapturedToTree: appended 2 points") &&
+                l.Contains("destroyed=True"));
+        }
+
         [Theory]
         [InlineData(Vessel.Situations.LANDED, TerminalState.Landed)]
         [InlineData(Vessel.Situations.SPLASHED, TerminalState.Splashed)]
