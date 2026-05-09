@@ -669,20 +669,26 @@ namespace Parsek
             }
 
             var subjects = science.GetAllSubjects();
+            var subjectIds = BuildSubjectIdsForPatch(
+                subjects,
+                GameStateStore.GetCommittedScienceSubjectIds());
             int patchedSubjects = 0;
             int skippedSubjects = 0;
             int notFoundSubjects = 0;
+            int clearedSubjects = 0;
 
-            foreach (var kvp in subjects)
+            foreach (var subjectId in subjectIds)
             {
-                var kspSubject = ResearchAndDevelopment.GetSubjectByID(kvp.Key);
+                var kspSubject = ResearchAndDevelopment.GetSubjectByID(subjectId);
                 if (kspSubject == null)
                 {
                     notFoundSubjects++;
                     continue;
                 }
 
-                float targetScience = (float)kvp.Value.CreditedTotal;
+                ScienceModule.SubjectState state;
+                bool hasCurrentState = subjects.TryGetValue(subjectId, out state);
+                float targetScience = hasCurrentState ? (float)state.CreditedTotal : 0f;
                 if (Math.Abs(kspSubject.science - targetScience) > 0.001f)
                 {
                     kspSubject.science = targetScience;
@@ -692,6 +698,8 @@ namespace Parsek
                         kspSubject.scientificValue = 0f;
                     if (kspSubject.scientificValue < 0f) kspSubject.scientificValue = 0f;
                     patchedSubjects++;
+                    if (!hasCurrentState)
+                        clearedSubjects++;
                 }
                 else
                 {
@@ -701,9 +709,34 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"PatchPerSubjectScience: patched={patchedSubjects.ToString(IC)}, " +
+                $"cleared={clearedSubjects.ToString(IC)}, " +
                 $"skipped={skippedSubjects.ToString(IC)}, " +
                 $"notFound={notFoundSubjects.ToString(IC)}, " +
-                $"totalSubjects={subjects.Count}");
+                $"totalSubjects={subjectIds.Count}");
+        }
+
+        internal static HashSet<string> BuildSubjectIdsForPatch(
+            IReadOnlyDictionary<string, ScienceModule.SubjectState> currentSubjects,
+            IEnumerable<string> previouslyCommittedSubjectIds)
+        {
+            var subjectIds = new HashSet<string>(StringComparer.Ordinal);
+            if (currentSubjects != null)
+            {
+                foreach (var kvp in currentSubjects)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Key))
+                        subjectIds.Add(kvp.Key);
+                }
+            }
+            if (previouslyCommittedSubjectIds != null)
+            {
+                foreach (var subjectId in previouslyCommittedSubjectIds)
+                {
+                    if (!string.IsNullOrEmpty(subjectId))
+                        subjectIds.Add(subjectId);
+                }
+            }
+            return subjectIds;
         }
 
         /// <summary>
@@ -1635,6 +1668,7 @@ namespace Parsek
         {
             SuppressUnityCallsForTesting = false;
             protoTechNodesReflectionWarnEmitted = false;
+            FacilityStatePatcher.ResetForTesting();
         }
     }
 }

@@ -1595,7 +1595,8 @@ namespace Parsek
         /// invalidates on the next <see cref="EffectiveState.ComputeELS"/>
         /// call, then asks <see cref="CrewReservationManager.RecomputeAfterTombstones"/>
         /// to re-derive the reservation dictionary from the broad post-merge
-        /// ELS rather than retaining old-subtree crew assignments (§7.16).
+        /// ELS rather than retaining old-subtree crew assignments (§7.16), and
+        /// refreshes the recalculated KSP state when ledger content was removed.
         /// </para>
         /// </summary>
         internal static void CommitTombstones(
@@ -1761,6 +1762,18 @@ namespace Parsek
             // Design §6.6 step 6 / §7.16: reservation walker re-derives so
             // old-subtree crew assignments disappear from reservations.
             CrewReservationManager.RecomputeAfterTombstones();
+
+            RecalculateAfterTombstones(tombstoned);
+        }
+
+        private static void RecalculateAfterTombstones(int tombstoned)
+        {
+            if (tombstoned <= 0)
+                return;
+
+            ParsekLog.Info(Tag,
+                $"CommitTombstones: refreshing recalculated KSP state after {tombstoned.ToString(CultureInfo.InvariantCulture)} tombstone(s)");
+            LedgerOrchestrator.RecalculateAndPatchAfterTombstones();
         }
 
         private static void CountTombstonedByType(
@@ -1922,7 +1935,7 @@ namespace Parsek
             return false;
         }
 
-        private static double SafeNow()
+        internal static double SafeNow()
         {
             try
             {

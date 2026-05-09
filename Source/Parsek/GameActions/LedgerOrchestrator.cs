@@ -1293,6 +1293,22 @@ namespace Parsek
                 authoritativeRepeatableRecordState: false);
         }
 
+        /// <summary>
+        /// Post-supersede tombstone refresh. The broad tombstone scope can remove
+        /// career effects from the full ELS after the normal commit-time recalc has
+        /// already run, so this path walks the full timeline and bypasses live-tree
+        /// deferral to patch KSP state immediately. Passing double.MaxValue keeps
+        /// all surviving actions while enabling authoritative tech/repeatable-record
+        /// patching for removed old-branch consequences.
+        /// </summary>
+        internal static void RecalculateAndPatchAfterTombstones()
+        {
+            RecalculateAndPatchCore(
+                double.MaxValue,
+                bypassPatchDeferral: true,
+                authoritativeRepeatableRecordState: true);
+        }
+
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
 
         private static void SeedInitialResourceBalances()

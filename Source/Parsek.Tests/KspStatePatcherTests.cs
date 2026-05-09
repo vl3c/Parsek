@@ -525,6 +525,26 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]") && l.Contains("ResearchAndDevelopment.Instance is null"));
         }
 
+        [Fact]
+        public void BuildSubjectIdsForPatch_IncludesPreviouslyCommittedStaleSubjects()
+        {
+            var current = new Dictionary<string, ScienceModule.SubjectState>
+            {
+                {
+                    "current-subject",
+                    new ScienceModule.SubjectState { CreditedTotal = 5.0, MaxValue = 10.0 }
+                }
+            };
+
+            var ids = KspStatePatcher.BuildSubjectIdsForPatch(
+                current,
+                new[] { "stale-subject", "current-subject" });
+
+            Assert.Equal(2, ids.Count);
+            Assert.Contains("current-subject", ids);
+            Assert.Contains("stale-subject", ids);
+        }
+
         // ================================================================
         // PatchFacilities — destruction state with no DestructibleBuildings
         // (Full integration testing of Demolish/Repair requires in-game verification
@@ -607,6 +627,28 @@ namespace Parsek.Tests
             // Rate-limited to one line per 5s window; 50 immediate calls
             // collapse to one.
             Assert.Equal(1, emptyLines);
+        }
+
+        [Fact]
+        public void BuildFacilityPatchTargets_PreviouslyPatchedMissingFacilityTargetsDefault()
+        {
+            var current = new Dictionary<string, FacilitiesModule.FacilityState>
+            {
+                {
+                    "SpaceCenter/MissionControl",
+                    new FacilitiesModule.FacilityState { Level = 2, Destroyed = true }
+                }
+            };
+
+            var targets = FacilityStatePatcher.BuildFacilityPatchTargets(
+                current,
+                new[] { "SpaceCenter/LaunchPad", "SpaceCenter/MissionControl" });
+
+            Assert.Equal(2, targets.Count);
+            Assert.Equal(2, targets["SpaceCenter/MissionControl"].Level);
+            Assert.True(targets["SpaceCenter/MissionControl"].Destroyed);
+            Assert.Equal(1, targets["SpaceCenter/LaunchPad"].Level);
+            Assert.False(targets["SpaceCenter/LaunchPad"].Destroyed);
         }
 
         // Note: the skipped-only branch (patchedCount==0 && notFoundCount==0

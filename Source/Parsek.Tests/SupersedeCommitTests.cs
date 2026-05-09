@@ -42,6 +42,9 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            RecalculationEngine.ClearModules();
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
         }
 
         public void Dispose()
@@ -55,6 +58,9 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            RecalculationEngine.ClearModules();
+            KspStatePatcher.ResetForTesting();
         }
 
         // ---------- Helpers -------------------------------------------------
@@ -3296,6 +3302,15 @@ namespace Parsek.Tests
             // origin == provisional == "rec_head"
             var marker = Marker(originId: "rec_head", provisionalId: "rec_head");
             var scenario = InstallScenario(marker);
+            var headAction = RecordingScopedAction(
+                GameActionType.ScienceEarning, "rec_head", "act_head_science");
+            var tipAction = RecordingScopedAction(
+                GameActionType.ScienceEarning, "rec_tip", "act_tip_science");
+            var siblingAction = RecordingScopedAction(
+                GameActionType.ScienceEarning, "rec_other_sib", "act_sibling_science");
+            Ledger.AddAction(headAction);
+            Ledger.AddAction(tipAction);
+            Ledger.AddAction(siblingAction);
 
             // Stub the quicksave file delete so the reaper inside the in-place
             // path doesn't try to touch disk.
@@ -3323,6 +3338,12 @@ namespace Parsek.Tests
                 r => r.OldRecordingId == "rec_head");
             Assert.DoesNotContain(scenario.RecordingSupersedes,
                 r => r.OldRecordingId == "rec_tip");
+            Assert.DoesNotContain(scenario.LedgerTombstones,
+                t => t.ActionId == headAction.ActionId);
+            Assert.DoesNotContain(scenario.LedgerTombstones,
+                t => t.ActionId == tipAction.ActionId);
+            Assert.Contains(scenario.LedgerTombstones,
+                t => t.ActionId == siblingAction.ActionId);
 
             // Marker cleared, MergeState flipped to Immutable on the head
             // (in-place force-Immutable rule), tip stays default Immutable.

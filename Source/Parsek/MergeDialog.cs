@@ -1965,7 +1965,7 @@ namespace Parsek
                         $"size={chainSkipSet.Count.ToString(ic)}");
 
                     int relationsBefore = scenario.RecordingSupersedes.Count;
-                    SupersedeCommit.AppendRelations(
+                    IReadOnlyCollection<string> relationSubtree = SupersedeCommit.AppendRelations(
                         marker, supersedeTargetRec, scenario,
                         extraSelfSkipRecordingIds: chainSkipSet);
                     int relationsAfter = scenario.RecordingSupersedes.Count;
@@ -1976,6 +1976,16 @@ namespace Parsek
                         $"by AppendRelations old==new guard; full chain " +
                         $"({chainSkipSet.Count} member(s)) skipped via extra-self-skip set so " +
                         $"no in-place chain segment is collapsed under another via supersede)");
+
+                    IReadOnlyCollection<string> tombstoneSubtree =
+                        FilterInPlaceTombstoneSubtree(relationSubtree, chainSkipSet);
+                    SupersedeCommit.CommitTombstones(
+                        marker,
+                        tombstoneSubtree,
+                        provisional.RecordingId,
+                        SupersedeCommit.SafeNow(),
+                        System.DateTime.UtcNow.ToString("o"),
+                        scenario);
 
                     // FlipMergeStateAndClearTransient with preserveMarker=false
                     // flips MergeState, clears SupersedeTargetId, bumps
@@ -2113,6 +2123,35 @@ namespace Parsek
             }
 
             return ReFlyMergeCommitResult.Completed;
+        }
+
+        private static IReadOnlyCollection<string> FilterInPlaceTombstoneSubtree(
+            IReadOnlyCollection<string> relationSubtree,
+            IReadOnlyCollection<string> continuingChainIds)
+        {
+            if (relationSubtree == null || relationSubtree.Count == 0)
+                return new List<string>();
+
+            HashSet<string> continuing = null;
+            if (continuingChainIds != null && continuingChainIds.Count > 0)
+                continuing = new HashSet<string>(continuingChainIds, System.StringComparer.Ordinal);
+
+            var tombstoneSubtree = new List<string>(relationSubtree.Count);
+            foreach (string recordingId in relationSubtree)
+            {
+                if (string.IsNullOrEmpty(recordingId))
+                    continue;
+                if (continuing != null && continuing.Contains(recordingId))
+                    continue;
+                tombstoneSubtree.Add(recordingId);
+            }
+
+            ParsekLog.Info("MergeDialog",
+                $"TryCommitReFlySupersede: in-place continuation tombstone scope " +
+                $"relationSubtree={relationSubtree.Count} " +
+                $"continuingChain={(continuing == null ? 0 : continuing.Count)} " +
+                $"retiring={tombstoneSubtree.Count}");
+            return tombstoneSubtree;
         }
 
         private static void ClearStashedSlotForInPlaceCommit(

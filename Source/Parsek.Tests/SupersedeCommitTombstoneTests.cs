@@ -42,6 +42,7 @@ namespace Parsek.Tests
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             RecalculationEngine.ClearModules();
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
         }
 
         public void Dispose()
@@ -56,6 +57,7 @@ namespace Parsek.Tests
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             RecalculationEngine.ClearModules();
+            KspStatePatcher.ResetForTesting();
         }
 
         // ---------- Fixture helpers ----------------------------------------
@@ -416,6 +418,32 @@ namespace Parsek.Tests
 
             Assert.Equal(10f, retryScience.EffectiveScience);
             Assert.True(retryComplete.Effective);
+        }
+
+        [Fact]
+        public void CommitTombstones_RecalculatesModulesFromPostTombstoneELS()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var oldScience = ScienceEarning("rec_origin", 100.0, "old-subject");
+            var retryScience = ScienceEarning("rec_provisional", 120.0, "retry-subject");
+            Ledger.AddAction(oldScience);
+            Ledger.AddAction(retryScience);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(0.0, LedgerOrchestrator.Science.GetSubjectCredited("old-subject"), 3);
+            Assert.Equal(10.0, LedgerOrchestrator.Science.GetSubjectCredited("retry-subject"), 3);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("refreshing recalculated KSP state")
+                && l.Contains("tombstone"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("RecalculateAndPatch complete"));
         }
 
         // ---------- Null scope pass-through --------------------------------

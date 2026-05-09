@@ -11,6 +11,8 @@ namespace Parsek
     {
         private const string Tag = "KspStatePatcher";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        private static readonly HashSet<string> lastPatchedFacilityIds =
+            new HashSet<string>(System.StringComparer.Ordinal);
 
         private static void VerboseStablePatchState(string identity, string stateKey, string message)
         {
@@ -39,7 +41,7 @@ namespace Parsek
                 return;
             }
 
-            var allFacilities = facilities.GetAllFacilities();
+            var allFacilities = BuildFacilityPatchTargets(facilities.GetAllFacilities());
             int patchedCount = 0;
             int skippedCount = 0;
             int notFoundCount = 0;
@@ -64,6 +66,7 @@ namespace Parsek
                     notFoundCount++;
                     continue;
                 }
+                lastPatchedFacilityIds.Add(facilityId);
 
                 int currentLevel = facility.FacilityLevel;
                 int targetLevel = state.Level;
@@ -197,6 +200,47 @@ namespace Parsek
                 $"noMatch={noMatchCount.ToString(IC)}, " +
                 $"buildings={buildingById.Count}, " +
                 $"facilities={allFacilities.Count}");
+        }
+
+        internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(
+            IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities)
+        {
+            return BuildFacilityPatchTargets(currentFacilities, lastPatchedFacilityIds);
+        }
+
+        internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(
+            IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities,
+            IEnumerable<string> previouslyPatchedFacilityIds)
+        {
+            var targets = new Dictionary<string, FacilitiesModule.FacilityState>(
+                System.StringComparer.Ordinal);
+            if (previouslyPatchedFacilityIds != null)
+            {
+                foreach (string facilityId in previouslyPatchedFacilityIds)
+                {
+                    if (string.IsNullOrEmpty(facilityId))
+                        continue;
+                    targets[facilityId] = new FacilitiesModule.FacilityState
+                    {
+                        Level = 1,
+                        Destroyed = false
+                    };
+                }
+            }
+            if (currentFacilities != null)
+            {
+                foreach (var kvp in currentFacilities)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Key))
+                        targets[kvp.Key] = kvp.Value;
+                }
+            }
+            return targets;
+        }
+
+        internal static void ResetForTesting()
+        {
+            lastPatchedFacilityIds.Clear();
         }
     }
 }
