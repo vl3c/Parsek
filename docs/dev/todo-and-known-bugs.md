@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 cutoff committed-science cache preservation
+
+- ~~Cutoff recalculations rebuilt the persisted committed-science recovery cache from the cutoff-filtered `ScienceModule`, so saving after a rewind or time jump could serialize only the past slice of `SCIENCE_SUBJECTS` and delete the recovery source for future committed science.~~ Source: review finding [P2].
+
+**Fix:** `LedgerOrchestrator` now rebuilds the committed-science cache from the full surviving post-tombstone ledger, while the live `ScienceModule` still respects the requested cutoff. This keeps recovery metadata for future committed science without leaking that future science into the live cutoff state.
+
+**Coverage:** `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffWalk_KeepsFutureScienceInCommittedCacheOnly`, `CommittedScienceCacheRebuildTests.RecalculateAndPatch_FullWalk_PrunesDeletedScienceSubjectsFromCommittedCache`, and `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffThenFullWalk_DoesNotDriftCommittedCache`.
+
+---
+
 ## Done - v0.9.2 late contract completion replay
 
 - ~~Recorded or recovered contract completions after the accepted deadline could suppress the synthetic deadline failure and still pay completion rewards.~~ A related replay gap allowed a completion after an explicit fail or cancel to pay out against an already-resolved contract id.
