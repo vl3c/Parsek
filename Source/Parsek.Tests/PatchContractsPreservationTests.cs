@@ -7,9 +7,10 @@ namespace Parsek.Tests
     /// <summary>
     /// Covers §B/#404 of career-earnings-bundle plan plus broad Re-Fly
     /// tombstones: PatchContracts must preserve Offered/declined stock entries
-    /// while removing Active and terminal contracts that are no longer in the
-    /// ledger. The old code unconditionally cleared buckets, which wiped Mission
-    /// Control's Offered list and contract history on every recalc.
+    /// and unrelated finished stock history while removing Active contracts that
+    /// are no longer in the ledger and explicit tombstoned terminal rows. The old
+    /// code unconditionally cleared buckets, which wiped Mission Control's Offered
+    /// list and contract history on every recalc.
     ///
     /// The real PatchContracts method needs a live KSP ContractSystem. This test
     /// exercises the pure <see cref="KspStatePatcher.PartitionContractsForPatch"/>
@@ -141,12 +142,14 @@ namespace Parsek.Tests
             };
             var ledgerActive = new HashSet<Guid>();
             var ledgerTerminal = new HashSet<Guid>();
+            var tombstonedContracts = new HashSet<Guid> { tombstonedComplete };
 
             KspStatePatcher.PartitionContractsForPatch(
                 currentEntries,
                 finishedEntries,
                 ledgerActive,
                 ledgerTerminal,
+                tombstonedContracts,
                 out var toRemoveCurrent,
                 out var toRemoveFinished,
                 out var survivingActive,
@@ -154,6 +157,36 @@ namespace Parsek.Tests
 
             Assert.Empty(toRemoveCurrent);
             Assert.Contains(tombstonedComplete, toRemoveFinished);
+            Assert.Empty(survivingActive);
+            Assert.Empty(survivingTerminal);
+        }
+
+        [Fact]
+        public void Partition_FinishedTerminalNotInLedgerButNotTombstoned_Preserved()
+        {
+            var stockHistoricalComplete = Guid.NewGuid();
+            var currentEntries = new List<KspStatePatcher.ContractFilterEntry>();
+            var finishedEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(stockHistoricalComplete),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid>();
+            var tombstonedContracts = new HashSet<Guid>();
+
+            KspStatePatcher.PartitionContractsForPatch(
+                currentEntries,
+                finishedEntries,
+                ledgerActive,
+                ledgerTerminal,
+                tombstonedContracts,
+                out var toRemoveCurrent,
+                out var toRemoveFinished,
+                out var survivingActive,
+                out var survivingTerminal);
+
+            Assert.Empty(toRemoveCurrent);
+            Assert.Empty(toRemoveFinished);
             Assert.Empty(survivingActive);
             Assert.Empty(survivingTerminal);
         }
@@ -169,12 +202,14 @@ namespace Parsek.Tests
             };
             var ledgerActive = new HashSet<Guid>();
             var ledgerTerminal = new HashSet<Guid> { completed };
+            var tombstonedContracts = new HashSet<Guid>();
 
             KspStatePatcher.PartitionContractsForPatch(
                 currentEntries,
                 finishedEntries,
                 ledgerActive,
                 ledgerTerminal,
+                tombstonedContracts,
                 out var toRemoveCurrent,
                 out var toRemoveFinished,
                 out var survivingActive,

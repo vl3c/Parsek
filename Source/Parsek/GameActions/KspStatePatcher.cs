@@ -1447,21 +1447,22 @@ namespace Parsek
                 $"KSP has {currentCount.ToString(IC)} current contracts, " +
                 $"{finishedCount.ToString(IC)} finished contracts");
 
-            // #404/#756: Filtered remove — touch Active contracts whose id is NOT
-            // in the ledger's active set, and terminal stock contracts whose id is
-            // NOT in the ledger's terminal set. Offered/Declined entries still stay
-            // untouched; terminal entries are only removable because broad Re-Fly
-            // tombstones can now remove their ContractComplete/Fail/Cancel source
-            // row from ELS. ContractsFinished is not cleared wholesale; only stale
-            // terminal rows with no surviving ELS terminal action are removed.
+            // #404/#756: Filtered remove. Active current contracts whose id is NOT
+            // in the ledger's active set are stale and can be removed. Offered and
+            // Declined entries still stay untouched. ContractsFinished is append-only
+            // stock history; only finished terminal rows for explicit tombstoned
+            // Parsek contract action ids are removable when their terminal ELS row
+            // no longer survives.
             // Filtering is delegated to PartitionContractsForPatch for testability.
             var currentContracts = ContractSystem.Instance.Contracts;
             var finishedContracts = ContractSystem.Instance.ContractsFinished;
             var currentEntries = BuildContractFilterEntries(currentContracts);
             var finishedEntries = BuildContractFilterEntries(finishedContracts);
+            var tombstonedContractGuids =
+                LedgerOrchestrator.BuildTombstonedContractGuidsForPatch();
 
             PartitionContractsForPatch(currentEntries, finishedEntries,
-                activeIdSet, terminalIdSet,
+                activeIdSet, terminalIdSet, tombstonedContractGuids,
                 out var toRemoveCurrent, out var toRemoveFinished,
                 out var survivingActiveIds,
                 out var survivingTerminalIds);
@@ -1469,14 +1470,14 @@ namespace Parsek
             var toRemoveFinishedSet = new HashSet<Guid>(toRemoveFinished);
 
             int removedStale = 0;
-            int removedFinishedStale = 0;
+            int removedFinishedTombstoned = 0;
             int unregisterFailures = 0;
             removedStale = RemoveContractsById(
                 currentContracts,
                 toRemoveCurrentSet,
                 unregisterBeforeRemove: true,
                 ref unregisterFailures);
-            removedFinishedStale = RemoveContractsById(
+            removedFinishedTombstoned = RemoveContractsById(
                 finishedContracts,
                 toRemoveFinishedSet,
                 unregisterBeforeRemove: false,
@@ -1484,7 +1485,7 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 $"PatchContracts: removed {removedStale.ToString(IC)} stale Active/terminal contract(s), " +
-                $"{removedFinishedStale.ToString(IC)} stale finished terminal contract(s), " +
+                $"{removedFinishedTombstoned.ToString(IC)} tombstoned finished terminal contract(s), " +
                 $"{survivingActiveIds.Count.ToString(IC)} Active contract(s) preserved in place, " +
                 $"{survivingTerminalIds.Count.ToString(IC)} terminal contract(s) preserved in place " +
                 $"(unregisterFailures={unregisterFailures.ToString(IC)})");
@@ -1613,7 +1614,7 @@ namespace Parsek
             int kspFinishedAfter = finishedContracts != null ? finishedContracts.Count : 0;
             ParsekLog.Info(Tag,
                 $"PatchContracts: removedStale={removedStale.ToString(IC)}, " +
-                $"removedFinishedStale={removedFinishedStale.ToString(IC)}, " +
+                $"removedFinishedTombstoned={removedFinishedTombstoned.ToString(IC)}, " +
                 $"restored={restored.ToString(IC)}, " +
                 $"registered={registered.ToString(IC)}, " +
                 $"skippedExisting={skippedExisting.ToString(IC)}, " +
@@ -1625,7 +1626,7 @@ namespace Parsek
                 $"ledgerTerminal={terminalIds.Count.ToString(IC)}, " +
                 $"kspTotal={kspTotalAfter.ToString(IC)}, " +
                 $"kspFinished={kspFinishedAfter.ToString(IC)} " +
-                $"(Offered preserved; stale terminal filtered)");
+                $"(Offered and unrelated finished history preserved; tombstoned terminal filtered)");
         }
 
         // ================================================================
@@ -1718,6 +1719,7 @@ namespace Parsek
             IReadOnlyList<ContractFilterEntry> finishedEntries,
             HashSet<Guid> activeIdSet,
             HashSet<Guid> terminalIdSet,
+            HashSet<Guid> removableFinishedTerminalIdSet,
             out List<Guid> toRemoveCurrent,
             out List<Guid> toRemoveFinished,
             out HashSet<Guid> survivingActive,
@@ -1726,11 +1728,43 @@ namespace Parsek
             PartitionContractsForPatch(currentEntries, activeIdSet, terminalIdSet,
                 out toRemoveCurrent, out survivingActive, out survivingTerminal);
 
-            PartitionContractsForPatch(finishedEntries, new HashSet<Guid>(), terminalIdSet,
-                out toRemoveFinished, out _, out var survivingFinishedTerminal);
+            PartitionFinishedContractsForPatch(finishedEntries, terminalIdSet,
+                removableFinishedTerminalIdSet,
+                out toRemoveFinished, out var survivingFinishedTerminal);
 
             foreach (var id in survivingFinishedTerminal)
                 survivingTerminal.Add(id);
+        }
+
+        internal static void PartitionFinishedContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<Guid> terminalIdSet,
+            HashSet<Guid> removableFinishedTerminalIdSet,
+            out List<Guid> toRemoveFinished,
+            out HashSet<Guid> survivingTerminal)
+        {
+            toRemoveFinished = new List<Guid>();
+            survivingTerminal = new HashSet<Guid>();
+            if (finishedEntries == null) return;
+
+            for (int i = 0; i < finishedEntries.Count; i++)
+            {
+                var entry = finishedEntries[i];
+                if (!entry.IsTerminal)
+                    continue;
+
+                if (terminalIdSet != null && terminalIdSet.Contains(entry.Id))
+                {
+                    survivingTerminal.Add(entry.Id);
+                    continue;
+                }
+
+                if (removableFinishedTerminalIdSet != null &&
+                    removableFinishedTerminalIdSet.Contains(entry.Id))
+                {
+                    toRemoveFinished.Add(entry.Id);
+                }
+            }
         }
 
         private static List<ContractFilterEntry> BuildContractFilterEntries(

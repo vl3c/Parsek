@@ -1813,6 +1813,41 @@ namespace Parsek
             return facilityIds.Count == 0 ? null : facilityIds;
         }
 
+        internal static HashSet<Guid> BuildTombstonedContractGuidsForPatch()
+        {
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
+                return null;
+
+            var contractIds = new HashSet<Guid>();
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.ContractId) ||
+                    !tombstonedActionIds.Contains(action.ActionId))
+                {
+                    continue;
+                }
+
+                switch (action.Type)
+                {
+                    case GameActionType.ContractAccept:
+                    case GameActionType.ContractComplete:
+                    case GameActionType.ContractFail:
+                    case GameActionType.ContractCancel:
+                        Guid contractGuid;
+                        if (Guid.TryParse(action.ContractId, out contractGuid))
+                            contractIds.Add(contractGuid);
+                        break;
+                }
+            }
+
+            return contractIds.Count == 0 ? null : contractIds;
+        }
+
         private static HashSet<string> BuildTombstonedScienceSpendingNodeIds()
         {
             var tombstonedActionIds = BuildTombstonedActionIds();

@@ -375,6 +375,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTombstones_TombstonedContractScope_OnlyIncludesRetiredContractIds()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var oldBranchContractId = Guid.NewGuid();
+            var unrelatedContractId = Guid.NewGuid();
+            var oldBranchComplete = ContractComplete(
+                "rec_origin", 100.0, oldBranchContractId.ToString());
+            var unrelatedComplete = ContractComplete(
+                "rec_outside", 120.0, unrelatedContractId.ToString());
+            Ledger.AddAction(oldBranchComplete);
+            Ledger.AddAction(unrelatedComplete);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var contractIds = LedgerOrchestrator.BuildTombstonedContractGuidsForPatch();
+            Assert.NotNull(contractIds);
+            Assert.Single(contractIds);
+            Assert.Contains(oldBranchContractId, contractIds);
+            Assert.DoesNotContain(unrelatedContractId, contractIds);
+        }
+
+        [Fact]
         public void CommitTombstones_ParentSubtreeMilestone_Tombstoned()
         {
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
