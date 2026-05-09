@@ -5,6 +5,17 @@ using System.IO;
 
 namespace Parsek
 {
+    /// <summary>
+    /// Stores committed game-state event milestones and exposes the unreplayed,
+    /// current-timeline slices consumed by replay, click-blocks, and stock UI
+    /// overlays.
+    ///
+    /// Future code that advances LastReplayedEventIndex or changes event
+    /// visibility must finish by calling LedgerOrchestrator.RecalculateAndPatch()
+    /// or by invoking LedgerOrchestrator.OnTimelineDataChanged directly. Open
+    /// stock overlays rebuild from that signal and otherwise remain stale until
+    /// the player reopens the stock screen.
+    /// </summary>
     internal static class MilestoneStore
     {
         private static List<Milestone> milestones = new List<Milestone>();
@@ -639,6 +650,84 @@ namespace Parsek
 
             if (result.Count > 0)
                 ParsekLog.Verbose("MilestoneStore", $"GetCommittedFacilityUpgrades: {result.Count} committed facility(ies): [{string.Join(", ", result)}]");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Returns contract accept keys that are committed but not yet replayed.
+        /// Used by stock UI overlays and click-blocks for Mission Control.
+        /// </summary>
+        internal static HashSet<string> GetCommittedContractAcceptIds()
+        {
+            var result = new HashSet<string>();
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed) continue;
+                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
+                {
+                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
+                    if (m.Events[j].eventType == GameStateEventType.ContractAccepted
+                        && !string.IsNullOrEmpty(m.Events[j].key))
+                        result.Add(m.Events[j].key);
+                }
+            }
+
+            if (result.Count > 0)
+                ParsekLog.Verbose("MilestoneStore", $"GetCommittedContractAcceptIds: {result.Count} committed contract accept(s): [{string.Join(", ", result)}]");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Returns kerbal names with committed-but-unreplayed hire events.
+        /// Used by stock UI overlays and click-blocks for the Astronaut Complex.
+        /// </summary>
+        internal static HashSet<string> GetCommittedKerbalHireNames()
+        {
+            var result = new HashSet<string>();
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed) continue;
+                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
+                {
+                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
+                    if (m.Events[j].eventType == GameStateEventType.CrewHired
+                        && !string.IsNullOrEmpty(m.Events[j].key))
+                        result.Add(m.Events[j].key);
+                }
+            }
+
+            if (result.Count > 0)
+                ParsekLog.Verbose("MilestoneStore", $"GetCommittedKerbalHireNames: {result.Count} committed kerbal hire(s): [{string.Join(", ", result)}]");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Returns kerbal names with committed-but-unreplayed removal events.
+        /// Used by stock UI overlays for FutureRetired markers.
+        /// </summary>
+        internal static HashSet<string> GetCommittedKerbalRetireNames()
+        {
+            var result = new HashSet<string>();
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed) continue;
+                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
+                {
+                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
+                    if (m.Events[j].eventType == GameStateEventType.CrewRemoved
+                        && !string.IsNullOrEmpty(m.Events[j].key))
+                        result.Add(m.Events[j].key);
+                }
+            }
+
+            if (result.Count > 0)
+                ParsekLog.Verbose("MilestoneStore", $"GetCommittedKerbalRetireNames: {result.Count} committed kerbal retire(s): [{string.Join(", ", result)}]");
 
             return result;
         }

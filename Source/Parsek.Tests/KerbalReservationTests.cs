@@ -480,6 +480,146 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetReservationKind_UnmanagedKerbal_ReturnsNotManaged()
+        {
+            var kerbals = new KerbalsModule();
+
+            Assert.Equal(KerbalReservationKind.NotManaged, kerbals.GetReservationKind("Val"));
+            Assert.Equal(KerbalReservationKind.NotManaged, kerbals.GetReservationKind(null));
+            Assert.Equal(KerbalReservationKind.NotManaged, kerbals.GetReservationKind(""));
+        }
+
+        [Fact]
+        public void GetReservationKind_ReservedOwner_ReturnsReservedActive()
+        {
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 2000);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var kerbals = KerbalsTestHelper.RecalculateFromStore();
+
+            Assert.Equal(KerbalReservationKind.ReservedActive, kerbals.GetReservationKind("Jeb"));
+        }
+
+        [Fact]
+        public void GetReservationKind_ActiveStandIn_ReturnsNotManaged()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 2000);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.Equal("Hanley", kerbals.GetActiveOccupant("Jeb"));
+            Assert.True(kerbals.IsManaged("Hanley"));
+            Assert.Equal(KerbalReservationKind.NotManaged, kerbals.GetReservationKind("Hanley"));
+        }
+
+        [Fact]
+        public void GetReservationKind_AllReservedPrefix_ReturnsReservedActive()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley");
+            module.LoadSlots(parent);
+
+            var recA = MakeRecording("Ship A", new[] { "Jeb" },
+                TerminalState.Recovered, 2000);
+            var recB = MakeRecording("Ship B", new[] { "Hanley" },
+                TerminalState.Recovered, 3000);
+            RecordingStore.AddRecordingWithTreeForTesting(recA);
+            RecordingStore.AddRecordingWithTreeForTesting(recB);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.Null(kerbals.GetActiveOccupant("Jeb"));
+            Assert.Equal(KerbalReservationKind.ReservedActive, kerbals.GetReservationKind("Jeb"));
+            Assert.Equal(KerbalReservationKind.ReservedActive, kerbals.GetReservationKind("Hanley"));
+        }
+
+        [Fact]
+        public void GetReservationKind_PermanentReservationNoActiveStandIn_ReturnsReservedActiveForOwner()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var entry = slotNode.AddNode("CHAIN_ENTRY");
+            entry.AddValue("name", "Hanley");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Destroyed, 1000);
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.Null(kerbals.GetActiveOccupant("Jeb"));
+            Assert.Equal(KerbalReservationKind.ReservedActive, kerbals.GetReservationKind("Jeb"));
+            Assert.Equal(KerbalReservationKind.NotManaged, kerbals.GetReservationKind("Hanley"));
+        }
+
+        [Fact]
+        public void GetReservationKind_DisplacedUsedStandIn_ReturnsReservedRetired()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotsNode = parent.AddNode("KERBAL_SLOTS");
+            var slotNode = slotsNode.AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            var first = slotNode.AddNode("CHAIN_ENTRY");
+            first.AddValue("name", "Hanley");
+            var second = slotNode.AddNode("CHAIN_ENTRY");
+            second.AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+
+            var rec = MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 1000);
+            rec.RecordingId = "rec-jeb";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var action = new GameAction
+            {
+                UT = 0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-jeb",
+                KerbalName = "Jeb",
+                KerbalEndStateField = KerbalEndState.Recovered,
+                StartUT = 0,
+                EndUT = 1000,
+                Sequence = 1
+            };
+
+            module.PrePass(new List<GameAction> { action });
+            module.ProcessAction(action);
+
+            var allRecordingCrewField = typeof(KerbalsModule).GetField(
+                "allRecordingCrew", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(allRecordingCrewField);
+            allRecordingCrewField.SetValue(module, new HashSet<string> { "Kirrim" });
+
+            module.PostWalk();
+
+            Assert.Contains("Kirrim", module.RetiredKerbals);
+            Assert.Equal(KerbalReservationKind.ReservedRetired, module.GetReservationKind("Kirrim"));
+            Assert.Equal(KerbalReservationKind.NotManaged, module.GetReservationKind("Hanley"));
+        }
+
+        [Fact]
         public void IsManaged_ReservedKerbal_ReturnsTrue()
         {
             var rec = MakeRecording("Ship", new[] { "Jeb" },

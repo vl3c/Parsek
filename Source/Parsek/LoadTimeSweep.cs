@@ -236,6 +236,9 @@ namespace Parsek
             // warning on every load/save cycle.
             // ----------------------------------------------------------------
             orphanSupersedes = SweepOrphanSupersedes(scenario);
+            // Step 10 below bumps SupersedeStateVersion once for the whole sweep,
+            // covering rewind-retirement removals without a second local bump.
+            int orphanRewindRetirements = SweepOrphanRewindRetirements(scenario);
             if (markerValid)
             {
                 ParsekLog.Verbose("GroupHierarchy",
@@ -271,6 +274,7 @@ namespace Parsek
                 $"selfSupersedes={selfSupersedes.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanSupersedes={orphanSupersedes.RetainedOrphans.ToString(CultureInfo.InvariantCulture)} " +
                 $"removedFullyOrphanSupersedes={orphanSupersedes.RemovedFullyOrphaned.ToString(CultureInfo.InvariantCulture)} " +
+                $"removedOrphanRewindRetirements={orphanRewindRetirements.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanTombstones={orphanTombstones.ToString(CultureInfo.InvariantCulture)} " +
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
                 $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)} " +
@@ -398,8 +402,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Defensive backstop: clears any pre-Re-Fly snapshot whose session id doesn't
-        /// match the live <see cref="ParsekScenario.ActiveReFlySessionMarker"/>'s
+        /// Defensive backstop: clears any pre-Re-Fly anchor snapshot whose
+        /// <see cref="Recording.PreReFlyAnchorSessionId"/> doesn't match the
+        /// live <see cref="ParsekScenario.ActiveReFlySessionMarker"/>'s
         /// session id. The expected lifecycle clears snapshots through the
         /// session-end paths
         /// (<see cref="SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession"/>);
@@ -417,40 +422,23 @@ namespace Parsek
             {
                 var rec = committed[i];
                 if (rec == null) continue;
-                bool clearedThisRecording = false;
-
-                if (!string.IsNullOrEmpty(rec.PreReFlyAnchorSessionId)
-                    && (string.IsNullOrEmpty(liveSessionId)
-                        || !string.Equals(rec.PreReFlyAnchorSessionId, liveSessionId, StringComparison.Ordinal)))
-                {
-                    // Per CLAUDE.md batch counting convention: per-item events at
-                    // Verbose, single Warn summary after the loop when cleared > 0.
-                    ParsekLog.Verbose(SessionTag,
-                        $"Stray pre-Re-Fly anchor snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
-                        $"sess={rec.PreReFlyAnchorSessionId} (live sess={liveSessionId ?? "<none>"}) - clearing");
-                    rec.ClearPreReFlyAnchorTrajectory();
-                    clearedThisRecording = true;
-                }
-
-                if (!string.IsNullOrEmpty(rec.PreReFlyOriginalSessionId)
-                    && (string.IsNullOrEmpty(liveSessionId)
-                        || !string.Equals(rec.PreReFlyOriginalSessionId, liveSessionId, StringComparison.Ordinal)))
-                {
-                    ParsekLog.Verbose(SessionTag,
-                        $"Stray pre-Re-Fly original snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
-                        $"sess={rec.PreReFlyOriginalSessionId} (live sess={liveSessionId ?? "<none>"}) - clearing");
-                    rec.ClearPreReFlyOriginalRecording();
-                    clearedThisRecording = true;
-                }
-
-                if (clearedThisRecording)
-                    cleared++;
+                if (string.IsNullOrEmpty(rec.PreReFlyAnchorSessionId)) continue;
+                if (!string.IsNullOrEmpty(liveSessionId)
+                    && string.Equals(rec.PreReFlyAnchorSessionId, liveSessionId, StringComparison.Ordinal))
+                    continue;
+                // Per CLAUDE.md batch counting convention: per-item events at
+                // Verbose, single Warn summary after the loop when cleared > 0.
+                ParsekLog.Verbose(SessionTag,
+                    $"Stray pre-Re-Fly anchor snapshot on rec={rec.RecordingId ?? "<no-id>"}: " +
+                    $"sess={rec.PreReFlyAnchorSessionId} (live sess={liveSessionId ?? "<none>"}) - clearing");
+                rec.ClearPreReFlyAnchorTrajectory();
+                cleared++;
             }
             if (cleared > 0)
             {
                 ParsekLog.Warn(SessionTag,
-                    $"Cleared {cleared.ToString(CultureInfo.InvariantCulture)} stray pre-Re-Fly " +
-                    $"snapshot host(s) at load time (live sess={liveSessionId ?? "<none>"})");
+                    $"Cleared {cleared.ToString(CultureInfo.InvariantCulture)} stray pre-Re-Fly anchor " +
+                    $"snapshot(s) at load time (live sess={liveSessionId ?? "<none>"})");
             }
             return cleared;
         }
@@ -581,6 +569,58 @@ namespace Parsek
                 result.RetainedOrphans++;
             }
             return result;
+        }
+
+        private static int SweepOrphanRewindRetirements(ParsekScenario scenario)
+        {
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.RecordingRewindRetirements == null
+                || scenario.RecordingRewindRetirements.Count == 0)
+                return 0;
+
+            var knownRecordingIds = RecordingStore.BuildKnownRecordingIdsForCleanup();
+            int removed = 0;
+            int retainedWithMissingRestored = 0;
+            for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
+            {
+                var retirement = scenario.RecordingRewindRetirements[i];
+                if (retirement == null || string.IsNullOrEmpty(retirement.RecordingId))
+                {
+                    scenario.RecordingRewindRetirements.RemoveAt(i);
+                    removed++;
+                    continue;
+                }
+
+                bool retiredResolved = RecordingExists(retirement.RecordingId, knownRecordingIds);
+                if (!retiredResolved)
+                {
+                    ParsekLog.Info(SupersedeTag,
+                        $"Orphan rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
+                        $"recording={retirement.RecordingId}; removing");
+                    scenario.RecordingRewindRetirements.RemoveAt(i);
+                    removed++;
+                    continue;
+                }
+
+                bool restoredMissing = !string.IsNullOrEmpty(retirement.RestoredRecordingId)
+                    && !RecordingExists(retirement.RestoredRecordingId, knownRecordingIds);
+                if (restoredMissing)
+                    retainedWithMissingRestored++;
+            }
+
+            if (removed > 0)
+            {
+                ParsekLog.Info(SweepTag,
+                    $"[LoadSweep] Cleaned {removed.ToString(CultureInfo.InvariantCulture)} " +
+                    "orphan rewind-retirement row(s); persists on next OnSave");
+            }
+            if (retainedWithMissingRestored > 0)
+            {
+                ParsekLog.Warn(SupersedeTag,
+                    $"Retained {retainedWithMissingRestored.ToString(CultureInfo.InvariantCulture)} " +
+                    "rewind-retirement row(s) whose restored recording no longer exists");
+            }
+            return removed;
         }
 
         // ------------------------------------------------------------------

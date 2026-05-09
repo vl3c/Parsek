@@ -15,14 +15,6 @@ namespace Parsek
     public class FlightRecorder
     {
         internal static Func<double> QuickloadResumeUTProviderForTesting;
-        internal delegate bool TryResolveReFlyRecordingFrameOffset(
-            string recordingId,
-            double currentUT,
-            out Vector3d offset,
-            out string reason);
-        internal static TryResolveReFlyRecordingFrameOffset
-            ReFlyRecordingFrameOffsetOverrideForTesting;
-
         internal enum VesselSwitchDecision
         {
             None,
@@ -61,6 +53,7 @@ namespace Parsek
         // 0.1s covers scene-load physics tick variability across local framerates.
         internal const int ReFlyPostLoadSettleRequiredUnpackedFrames = 2;
         internal const float ReFlyPostLoadSettleMinLevelSeconds = 0.1f;
+        private const double SectionBoundaryUtEpsilon = 1e-6;
         internal static Func<float> TimeSinceLevelLoadProviderForTesting;
         private bool reFlyPostLoadSettleActive;
         private int reFlyPostLoadSettleUnpackedFrames;
@@ -213,6 +206,11 @@ namespace Parsek
         // Joint break split detection: set by OnPartJointBreak, consumed by ParsekFlight.Update()
         public bool HasPendingJointBreakCheck { get; private set; }
         public double PendingJointBreakUT { get; private set; } = double.NaN;
+        // Bounded by structural-break part count. Survives chain-boundary stops so
+        // ParsekFlight can hand the seed to the new child, then clears on normal
+        // stop/force-stop, new recording starts, or false-alarm resumes.
+        private readonly Dictionary<uint, TrajectoryPoint> pendingJointChildPartOriginSeeds =
+            new Dictionary<uint, TrajectoryPoint>();
 
         // Exact terminal events appended by the most recent FinalizeRecordingState call with
         // emitTerminalEvents=true. ResumeAfterFalseAlarm uses this list to remove the orphaned
@@ -232,6 +230,19 @@ namespace Parsek
             HasPendingJointBreakCheck = false;
             PendingJointBreakUT = double.NaN;
             return was;
+        }
+
+        internal bool TryConsumePendingJointChildPartOriginSeed(uint partPersistentId, out TrajectoryPoint point)
+        {
+            point = default;
+            if (partPersistentId == 0u
+                || !pendingJointChildPartOriginSeeds.TryGetValue(partPersistentId, out point))
+            {
+                return false;
+            }
+
+            pendingJointChildPartOriginSeeds.Remove(partPersistentId);
+            return true;
         }
 
         /// <summary>
@@ -981,6 +992,46 @@ namespace Parsek
             return PartEventType.Destroyed;
         }
 
+        internal static bool TryCreateAbsoluteTrajectoryPointFromPartOrigin(
+            Part part,
+            double ut,
+            out TrajectoryPoint point)
+        {
+            point = default;
+            Vessel vessel = part?.vessel;
+            CelestialBody body = vessel?.mainBody;
+            if (part?.transform == null || body?.bodyTransform == null)
+                return false;
+
+            // Part-origin seeds are used for physics-frame separation events. Packed
+            // vessels expose orbital velocity in a different frame contract, so fail
+            // closed rather than mixing inertial velocity into a body-fixed seed.
+            if (vessel.packed)
+                return false;
+
+            Vector3 velocity = (Vector3)(vessel.rb_velocityD + Krakensbane.GetFrameVelocity());
+            Vector3d worldPos = part.transform.position;
+
+            point = new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = body.GetLatitude(worldPos),
+                longitude = body.GetLongitude(worldPos),
+                altitude = body.GetAltitude(worldPos),
+                // Consumers accept this seed only when this part becomes the new
+                // vessel root, so the part's surface-relative rotation is the
+                // child vessel's initial srfRelRotation contract.
+                rotation = Quaternion.Inverse(body.bodyTransform.rotation) * part.transform.rotation,
+                velocity = velocity,
+                bodyName = body.name ?? "Unknown",
+                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
+                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
+                recordedGroundClearance = double.NaN
+            };
+            return true;
+        }
+
         private void OnPartJointBreak(PartJoint joint, float breakForce)
         {
             if (!IsRecording) return;
@@ -1012,6 +1063,23 @@ namespace Parsek
             decoupledPartIds.Add(joint.Child.persistentId);
 
             double jointBreakUT = Planetarium.GetUniversalTime();
+            if (TryCreateAbsoluteTrajectoryPointFromPartOrigin(
+                    joint.Child,
+                    jointBreakUT,
+                    out TrajectoryPoint childPartOriginSeed))
+            {
+                pendingJointChildPartOriginSeeds[joint.Child.persistentId] = childPartOriginSeed;
+                ParsekLog.Verbose("Recorder",
+                    $"Joint child part-origin seed captured: part='{joint.Child.partInfo?.name}' " +
+                    $"pid={joint.Child.persistentId} ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Recorder",
+                    $"joint-break-part-origin-seed-miss-{joint.Child.persistentId}",
+                    $"Joint child part-origin seed unavailable: part='{joint.Child.partInfo?.name}' " +
+                    $"pid={joint.Child.persistentId} ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
 
             PartEvents.Add(new PartEvent
             {
@@ -5605,6 +5673,7 @@ namespace Parsek
             highFidelitySamplingReason = null;
             reFlyTreeSamplingProximityMeters = double.NaN;
             reFlyTreeSamplingProximitySource = null;
+            pendingJointChildPartOriginSeeds.Clear();
             ResetReFlyPostLoadSettle();
             highFidelityProximityVesselPids.Clear();
 
@@ -5645,6 +5714,31 @@ namespace Parsek
             reFlyPostLoadSettleStartLevelTime = 0f;
             reFlyPostLoadSettleSessionId = sessionId;
             reFlyPostLoadSettleRecordingId = recordingId;
+        }
+
+        /// <summary>
+        /// PR 3b §"Re-Fly settle window hook" (Decision §11): expose the focus
+        /// recorder's private Re-Fly post-load settle state as a derived predicate
+        /// without leaking the underlying field. Returns true iff the focus
+        /// recorder is non-null AND its settle window is currently active AND its
+        /// settle target is the queried recording id.
+        ///
+        /// Reads <see cref="Patches.PhysicsFramePatch.ActiveRecorder"/>, the
+        /// static handle to the focus recorder. Does NOT consult
+        /// <see cref="Patches.PhysicsFramePatch.GloopsRecorderInstance"/> —
+        /// Gloops sessions don't go through Re-Fly post-load settle, so they
+        /// would always return false. For background-vessel debris (parent is
+        /// itself a background recording, never the settle target), the
+        /// accessor returns false and the per-frame check is a no-op.
+        /// </summary>
+        internal static bool IsReFlyPostLoadSettleActiveForRecording(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            var focus = Patches.PhysicsFramePatch.ActiveRecorder;
+            return focus != null
+                && focus.reFlyPostLoadSettleActive
+                && string.Equals(focus.reFlyPostLoadSettleRecordingId, recordingId,
+                    StringComparison.Ordinal);
         }
 
         internal TrackSection CurrentTrackSectionForTesting => currentTrackSection;
@@ -6291,6 +6385,7 @@ namespace Parsek
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel",
                 VesselDestroyedDuringRecording);
+            pendingJointChildPartOriginSeeds.Clear();
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -6385,6 +6480,7 @@ namespace Parsek
 
             CaptureAtStop = null;
             HasPendingJointBreakCheck = false;
+            pendingJointChildPartOriginSeeds.Clear();
 
             // Re-register the Harmony patch and part event hooks
             Patches.PhysicsFramePatch.ActiveRecorder = this;
@@ -6502,7 +6598,7 @@ namespace Parsek
                 ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
 
-            // Frame-mismatch repair when stale-anchor validation downgraded a
+            // Frame-mismatch repair when resume-anchor validation downgraded a
             // RELATIVE resume to ABSOLUTE: `boundaryPoint` is the prior
             // Relative section's last frame, whose lat/lon/alt fields hold
             // anchor-local Cartesian metres (NOT body-fixed surface coords).
@@ -6542,7 +6638,23 @@ namespace Parsek
                 absoluteBoundaryPoint = null;
             }
 
-            StartNewTrackSection(resumeEnv, resumeRef, ut, resumeSource);
+            double sectionStartUT = ut;
+            if (resumeRef != ReferenceFrame.OrbitalCheckpoint
+                && boundaryPoint.HasValue
+                && IsFinite(boundaryPoint.Value.ut)
+                && boundaryPoint.Value.ut <= ut + SectionBoundaryUtEpsilon)
+            {
+                sectionStartUT = boundaryPoint.Value.ut;
+                if (sectionStartUT < ut - SectionBoundaryUtEpsilon)
+                {
+                    ParsekLog.Verbose("Recorder",
+                        $"ResumeAfterFalseAlarm: aligning reopened TrackSection startUT " +
+                        $"from {ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                        $"to boundary seed UT={sectionStartUT.ToString("F3", CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            StartNewTrackSection(resumeEnv, resumeRef, sectionStartUT, resumeSource);
 
             if (resumeRef == ReferenceFrame.Relative)
             {
@@ -6571,9 +6683,13 @@ namespace Parsek
 
         private bool TryGetFalseAlarmResumeTrackSection(out TrackSection section)
         {
-            // Prefer the recorder's most recently closed section snapshot even when it was
-            // discarded instead of persisted (e.g. a <1s zero-frame RELATIVE flicker).
-            if (currentTrackSection.frames != null || currentTrackSection.checkpoints != null)
+            // Prefer the recorder's most recently closed section snapshot only when it
+            // carries a payload we can seed or resume from. Relative v7+ sections may
+            // carry only absolute-shadow frames, which are still valid resume payload.
+            // A discarded zero-frame section has metadata but no coverage, so using it
+            // would reopen at the later resume UT and leave the prior persisted
+            // section's boundary uncovered.
+            if (TrackSectionHasResumePayload(currentTrackSection))
             {
                 section = currentTrackSection;
                 return true;
@@ -6587,6 +6703,13 @@ namespace Parsek
 
             section = default;
             return false;
+        }
+
+        private static bool TrackSectionHasResumePayload(TrackSection section)
+        {
+            return (section.frames != null && section.frames.Count > 0)
+                || (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                || (section.checkpoints != null && section.checkpoints.Count > 0);
         }
 
         /// <summary>
@@ -7587,26 +7710,8 @@ namespace Parsek
             offset = Vector3d.zero;
             reason = null;
 
-            if (ReFlyRecordingFrameOffsetOverrideForTesting != null)
-            {
-                return ReFlyRecordingFrameOffsetOverrideForTesting(
-                    recordingId,
-                    currentUT,
-                    out offset,
-                    out reason);
-            }
-
-            if (ParsekFlight.Instance == null)
-            {
-                reason = "flight-missing";
-                return false;
-            }
-
-            return ParsekFlight.Instance.TryGetReFlyRecordingFrameOffset(
-                recordingId,
-                currentUT,
-                out offset,
-                out reason);
+            reason = "display-alignment-removed";
+            return false;
         }
 
         internal static bool TryResolveAbsolutePointWorldForRelativeOffset(
@@ -8875,6 +8980,7 @@ namespace Parsek
                 clearRelativeMode: false,
                 sampleBoundaryOnRails: false,
                 logTag: "force stop");
+            pendingJointChildPartOriginSeeds.Clear();
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -9073,7 +9179,7 @@ namespace Parsek
             return TryGetFlightGlobalsVessels();
         }
 
-        // Test-only seam: lets xUnit drive the stale-anchor downgrade branch
+        // Test-only seam: lets xUnit drive the resume-anchor downgrade branch
         // of RestoreTrackSectionAfterFalseAlarm without a live KSP scene. In
         // production this stays null and the helper falls back to
         // TryGetFlightGlobalsVessels(), which returns null in xUnit and so

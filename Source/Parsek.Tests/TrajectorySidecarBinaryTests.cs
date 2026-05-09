@@ -81,13 +81,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CurrentBinaryVersion_IsRecordingAnchorChainVersion()
+        public void CurrentBinaryVersion_TracksCurrentRecordingFormatVersion()
         {
+            // PR 3a (format v12): the binary `.prec` LAYOUT is unchanged at v12 — the
+            // anchor-chain layout introduced at v11 covers both. The constants for
+            // layout boundaries (`RecordingAnchorChainFormatVersion` /
+            // `RecordingAnchorChainBinaryVersion`) stay pinned at 11. The current-version
+            // stamps advance to 12 so freshly-written sidecars match the recording's
+            // RecordingFormatVersion by equality.
             Assert.Equal(
                 RecordingStore.RecordingAnchorChainFormatVersion,
                 TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
             Assert.Equal(
-                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion,
+                RecordingStore.CurrentRecordingFormatVersion,
                 TrajectorySidecarBinary.CurrentBinaryVersion);
         }
 
