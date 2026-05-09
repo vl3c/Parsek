@@ -1696,6 +1696,7 @@ namespace Parsek
             int rolloutExcluded = 0;
             int otherExcluded = 0;
             var tombstonedRosterActions = new List<GameAction>();
+            HashSet<string> tombstonedScienceSpendingNodeIds = null;
 
             foreach (var kv in sliceByRecording)
             {
@@ -1739,6 +1740,14 @@ namespace Parsek
                         ref reputationCount,
                         ref kerbalCount,
                         ref otherCount);
+                    if (a.Type == GameActionType.ScienceSpending &&
+                        !string.IsNullOrEmpty(a.NodeId))
+                    {
+                        if (tombstonedScienceSpendingNodeIds == null)
+                            tombstonedScienceSpendingNodeIds = new HashSet<string>(
+                                StringComparer.Ordinal);
+                        tombstonedScienceSpendingNodeIds.Add(a.NodeId);
+                    }
                     string rosterKerbalName;
                     if (KerbalsModule.TryGetRosterCreatedKerbalName(a, out rosterKerbalName))
                         tombstonedRosterActions.Add(a);
@@ -1782,24 +1791,32 @@ namespace Parsek
             // the next ApplyToRoster pass during RecalculateAndPatchAfterTombstones
             // sees the cleanup work after reservations and ledger-created kerbals
             // have been rebuilt from the post-tombstone ELS.
-            if (tombstonedRosterActions.Count > 0 && LedgerOrchestrator.Kerbals != null)
-                LedgerOrchestrator.Kerbals.QueueTombstonedRosterKerbals(tombstonedRosterActions);
+            if (tombstonedRosterActions.Count > 0)
+            {
+                if (LedgerOrchestrator.Kerbals == null)
+                    LedgerOrchestrator.Initialize();
+                if (LedgerOrchestrator.Kerbals != null)
+                    LedgerOrchestrator.Kerbals.QueueTombstonedRosterKerbals(tombstonedRosterActions);
+            }
 
             // Design §6.6 step 6 / §7.16: reservation walker re-derives so
             // old-subtree crew assignments disappear from reservations.
             CrewReservationManager.RecomputeAfterTombstones();
 
-            RecalculateAfterTombstones(tombstoned);
+            RecalculateAfterTombstones(tombstoned, tombstonedScienceSpendingNodeIds);
         }
 
-        private static void RecalculateAfterTombstones(int tombstoned)
+        private static void RecalculateAfterTombstones(
+            int tombstoned,
+            IReadOnlyCollection<string> currentTombstonedScienceSpendingNodeIds)
         {
             if (tombstoned <= 0)
                 return;
 
             ParsekLog.Info(Tag,
                 $"CommitTombstones: refreshing recalculated KSP state after {tombstoned.ToString(CultureInfo.InvariantCulture)} tombstone(s)");
-            LedgerOrchestrator.RecalculateAndPatchAfterTombstones();
+            LedgerOrchestrator.RecalculateAndPatchAfterTombstones(
+                currentTombstonedScienceSpendingNodeIds);
         }
 
         private static void CountTombstonedByType(

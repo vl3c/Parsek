@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Contracts;
 using Xunit;
 
 namespace Parsek.Tests
@@ -19,13 +20,25 @@ namespace Parsek.Tests
     public class PatchContractsPreservationTests
     {
         private static KspStatePatcher.ContractFilterEntry Active(Guid g) =>
-            new KspStatePatcher.ContractFilterEntry { Id = g, IsActive = true };
+            new KspStatePatcher.ContractFilterEntry
+            {
+                Id = g,
+                IsActive = true,
+                State = Contract.State.Active,
+            };
 
         private static KspStatePatcher.ContractFilterEntry Offered(Guid g) =>
             new KspStatePatcher.ContractFilterEntry { Id = g, IsActive = false };
 
-        private static KspStatePatcher.ContractFilterEntry Terminal(Guid g) =>
-            new KspStatePatcher.ContractFilterEntry { Id = g, IsTerminal = true };
+        private static KspStatePatcher.ContractFilterEntry Terminal(
+            Guid g,
+            Contract.State state = Contract.State.Completed) =>
+            new KspStatePatcher.ContractFilterEntry
+            {
+                Id = g,
+                IsTerminal = true,
+                State = state,
+            };
 
         [Fact]
         public void Partition_ActiveStillInLedger_Preserved()
@@ -122,11 +135,34 @@ namespace Parsek.Tests
             };
             var ledgerActive = new HashSet<Guid>();
             var ledgerTerminal = new HashSet<Guid>();
+            var tombstonedContracts = new HashSet<Guid> { tombstonedComplete };
 
             KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive, ledgerTerminal,
+                tombstonedContracts,
                 out var toRemove, out var survivingActive, out var survivingTerminal);
 
             Assert.Contains(tombstonedComplete, toRemove);
+            Assert.Empty(survivingActive);
+            Assert.Empty(survivingTerminal);
+        }
+
+        [Fact]
+        public void Partition_CurrentTerminalNotInLedgerButNotTombstoned_Preserved()
+        {
+            var stockTerminal = Guid.NewGuid();
+            var entries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(stockTerminal),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid>();
+            var tombstonedContracts = new HashSet<Guid>();
+
+            KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive, ledgerTerminal,
+                tombstonedContracts,
+                out var toRemove, out var survivingActive, out var survivingTerminal);
+
+            Assert.Empty(toRemove);
             Assert.Empty(survivingActive);
             Assert.Empty(survivingTerminal);
         }
@@ -192,6 +228,196 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Partition_FinishedTerminalInLedgerButDifferentTombstonedOutcome_Removed()
+        {
+            var contractId = Guid.NewGuid();
+            var currentEntries = new List<KspStatePatcher.ContractFilterEntry>();
+            var finishedEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(contractId, Contract.State.Completed),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid> { contractId };
+            var terminalActions = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { contractId, ContractTerminalOutcome.Failed },
+            };
+            var tombstonedContracts = new HashSet<Guid> { contractId };
+
+            KspStatePatcher.PartitionContractsForPatch(
+                currentEntries,
+                finishedEntries,
+                ledgerActive,
+                ledgerTerminal,
+                terminalActions,
+                tombstonedContracts,
+                out var toRemoveCurrent,
+                out var toRemoveFinished,
+                out var survivingActive,
+                out var survivingTerminal);
+
+            Assert.Empty(toRemoveCurrent);
+            Assert.Contains(contractId, toRemoveFinished);
+            Assert.Empty(survivingActive);
+            Assert.Empty(survivingTerminal);
+        }
+
+        [Fact]
+        public void Partition_FinishedTerminalInLedgerWithMatchingOutcome_Preserved()
+        {
+            var contractId = Guid.NewGuid();
+            var currentEntries = new List<KspStatePatcher.ContractFilterEntry>();
+            var finishedEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(contractId, Contract.State.Failed),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid> { contractId };
+            var terminalActions = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { contractId, ContractTerminalOutcome.Failed },
+            };
+            var tombstonedContracts = new HashSet<Guid> { contractId };
+
+            KspStatePatcher.PartitionContractsForPatch(
+                currentEntries,
+                finishedEntries,
+                ledgerActive,
+                ledgerTerminal,
+                terminalActions,
+                tombstonedContracts,
+                out var toRemoveCurrent,
+                out var toRemoveFinished,
+                out var survivingActive,
+                out var survivingTerminal);
+
+            Assert.Empty(toRemoveCurrent);
+            Assert.Empty(toRemoveFinished);
+            Assert.Empty(survivingActive);
+            Assert.Contains(contractId, survivingTerminal);
+        }
+
+        [Fact]
+        public void BuildFinishedRemovalKeys_SameGuidMixedOutcomes_RemovesOnlyTombstonedOutcome()
+        {
+            var contractId = Guid.NewGuid();
+            var finishedEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(contractId, Contract.State.Completed),
+                Terminal(contractId, Contract.State.Failed),
+            };
+            var ledgerTerminal = new HashSet<Guid> { contractId };
+            var terminalActions = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { contractId, ContractTerminalOutcome.Failed },
+            };
+            var tombstonedContracts = new HashSet<Guid> { contractId };
+
+            var removalKeys = KspStatePatcher.BuildFinishedContractRemovalKeys(
+                finishedEntries,
+                ledgerTerminal,
+                terminalActions,
+                tombstonedContracts);
+
+            Assert.Single(removalKeys);
+            Assert.Contains(removalKeys, k =>
+                k.Id == contractId && k.State == Contract.State.Completed);
+            Assert.DoesNotContain(removalKeys, k =>
+                k.Id == contractId && k.State == Contract.State.Failed);
+        }
+
+        [Fact]
+        public void BuildFinishedRemovalKeys_SameGuidFailedAndDeadlineExpired_RemovesOnlyTombstonedOutcome()
+        {
+            var contractId = Guid.NewGuid();
+            var finishedEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(contractId, Contract.State.Failed),
+                Terminal(contractId, Contract.State.DeadlineExpired),
+            };
+            var ledgerTerminal = new HashSet<Guid> { contractId };
+            var terminalActions = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { contractId, ContractTerminalOutcome.DeadlineExpired },
+            };
+            var tombstonedContracts = new HashSet<Guid> { contractId };
+
+            var removalKeys = KspStatePatcher.BuildFinishedContractRemovalKeys(
+                finishedEntries,
+                ledgerTerminal,
+                terminalActions,
+                tombstonedContracts);
+
+            Assert.Single(removalKeys);
+            Assert.Contains(removalKeys, k =>
+                k.Id == contractId && k.State == Contract.State.Failed);
+            Assert.DoesNotContain(removalKeys, k =>
+                k.Id == contractId && k.State == Contract.State.DeadlineExpired);
+        }
+
+        [Fact]
+        public void BuildCurrentRemovalKeys_SameGuidMixedOutcomes_RemovesOnlyTombstonedOutcome()
+        {
+            var contractId = Guid.NewGuid();
+            var currentEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(contractId, Contract.State.Completed),
+                Terminal(contractId, Contract.State.Cancelled),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid> { contractId };
+            var terminalActions = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { contractId, ContractTerminalOutcome.Cancelled },
+            };
+            var tombstonedContracts = new HashSet<Guid> { contractId };
+
+            var removalKeys = KspStatePatcher.BuildCurrentContractRemovalKeys(
+                currentEntries,
+                ledgerActive,
+                ledgerTerminal,
+                terminalActions,
+                tombstonedContracts);
+
+            Assert.Single(removalKeys);
+            Assert.Contains(removalKeys, k =>
+                k.Id == contractId && k.State == Contract.State.Completed);
+            Assert.DoesNotContain(removalKeys, k =>
+                k.Id == contractId && k.State == Contract.State.Cancelled);
+        }
+
+        [Fact]
+        public void BuildCurrentRemovalKeys_SameGuidFailedAndDeadlineExpired_RemovesOnlyTombstonedOutcome()
+        {
+            var contractId = Guid.NewGuid();
+            var currentEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(contractId, Contract.State.Failed),
+                Terminal(contractId, Contract.State.DeadlineExpired),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid> { contractId };
+            var terminalActions = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { contractId, ContractTerminalOutcome.Failed },
+            };
+            var tombstonedContracts = new HashSet<Guid> { contractId };
+
+            var removalKeys = KspStatePatcher.BuildCurrentContractRemovalKeys(
+                currentEntries,
+                ledgerActive,
+                ledgerTerminal,
+                terminalActions,
+                tombstonedContracts);
+
+            Assert.Single(removalKeys);
+            Assert.Contains(removalKeys, k =>
+                k.Id == contractId && k.State == Contract.State.DeadlineExpired);
+            Assert.DoesNotContain(removalKeys, k =>
+                k.Id == contractId && k.State == Contract.State.Failed);
+        }
+
+        [Fact]
         public void Partition_FinishedTerminalStillInLedger_Preserved()
         {
             var completed = Guid.NewGuid();
@@ -222,7 +448,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Partition_MixedBucket_RemovesOnlyUnsupportedActiveAndTerminal()
+        public void Partition_MixedBucket_RemovesUnsupportedActiveAndTombstonedTerminal()
         {
             var activeInLedger = Guid.NewGuid();
             var activeStale = Guid.NewGuid();
@@ -239,8 +465,10 @@ namespace Parsek.Tests
             };
             var ledgerActive = new HashSet<Guid> { activeInLedger };
             var ledgerTerminal = new HashSet<Guid> { terminalInLedger };
+            var tombstonedContracts = new HashSet<Guid> { terminalStale };
 
             KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive, ledgerTerminal,
+                tombstonedContracts,
                 out var toRemove, out var surviving, out var survivingTerminal);
 
             Assert.Equal(2, toRemove.Count);

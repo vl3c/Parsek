@@ -611,9 +611,9 @@ namespace Parsek
         /// <summary>
         /// Computes the Effective Ledger Set per design §3.2: ledger actions
         /// whose <see cref="GameAction.ActionId"/> is NOT in any
-        /// <see cref="LedgerTombstone"/>. No recording-level filter (v1
-        /// narrow supersede scope; contract / milestone / funds actions from
-        /// superseded recordings remain in ELS).
+        /// <see cref="LedgerTombstone"/>. There is no generic recording-level
+        /// filter here; broad supersede retirement is expressed by explicit
+        /// tombstone rows written only for reviewed eligible action types.
         /// Cached; rebuilds only when the underlying
         /// <see cref="Ledger.StateVersion"/> or
         /// <see cref="ParsekScenario.TombstoneStateVersion"/> change.

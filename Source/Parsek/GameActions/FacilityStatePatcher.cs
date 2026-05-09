@@ -16,6 +16,7 @@ namespace Parsek
         private static readonly HashSet<string> defaultFacilityIdsOnNextPatch =
             new HashSet<string>(System.StringComparer.Ordinal);
         private static string patchHistorySaveFolder;
+        private static string defaultFacilityIdsSaveFolder;
 
         private static void VerboseStablePatchState(string identity, string stateKey, string message)
         {
@@ -50,7 +51,6 @@ namespace Parsek
             if (defaultFacilityIdsOnNextPatch.Count > 0)
             {
                 facilityIdsToDefault = new List<string>(defaultFacilityIdsOnNextPatch);
-                defaultFacilityIdsOnNextPatch.Clear();
                 ParsekLog.Verbose(Tag,
                     $"PatchFacilities: forcing default targets for {facilityIdsToDefault.Count.ToString(IC)} tombstoned facility id(s)");
             }
@@ -84,6 +84,11 @@ namespace Parsek
                     continue;
                 }
                 lastPatchedFacilityIds.Add(facilityId);
+                if (defaultFacilityIdsOnNextPatch.Remove(facilityId) &&
+                    defaultFacilityIdsOnNextPatch.Count == 0)
+                {
+                    defaultFacilityIdsSaveFolder = null;
+                }
 
                 int currentLevel = facility.FacilityLevel;
                 int targetLevel = state.Level;
@@ -289,6 +294,20 @@ namespace Parsek
 
         internal static void ForceDefaultFacilitiesForNextPatch(IEnumerable<string> facilityIds)
         {
+            string currentSaveFolder = GetCurrentSaveFolderForPatchHistory();
+            if (defaultFacilityIdsOnNextPatch.Count > 0 &&
+                !System.String.Equals(
+                    defaultFacilityIdsSaveFolder ?? "",
+                    currentSaveFolder,
+                    System.StringComparison.Ordinal))
+            {
+                int staleCount = defaultFacilityIdsOnNextPatch.Count;
+                defaultFacilityIdsOnNextPatch.Clear();
+                defaultFacilityIdsSaveFolder = null;
+                ParsekLog.Verbose(Tag,
+                    $"PatchFacilities: cleared {staleCount.ToString(IC)} stale pending default target(s) before scheduling for current save");
+            }
+
             int added = 0;
             if (facilityIds != null)
             {
@@ -304,6 +323,7 @@ namespace Parsek
             if (added == 0)
                 return;
 
+            defaultFacilityIdsSaveFolder = currentSaveFolder;
             ParsekLog.Verbose(Tag,
                 $"PatchFacilities: scheduled default targets for {added.ToString(IC)} tombstoned facility id(s)");
         }
@@ -332,14 +352,24 @@ namespace Parsek
 
             int previousCount = lastPatchedFacilityIds.Count;
             int pendingDefaultCount = defaultFacilityIdsOnNextPatch.Count;
+            bool pendingDefaultsMatchNewSave = pendingDefaultCount > 0
+                && System.String.Equals(
+                    defaultFacilityIdsSaveFolder ?? "",
+                    normalized,
+                    System.StringComparison.Ordinal);
             lastPatchedFacilityIds.Clear();
-            defaultFacilityIdsOnNextPatch.Clear();
+            if (!pendingDefaultsMatchNewSave)
+            {
+                defaultFacilityIdsOnNextPatch.Clear();
+                defaultFacilityIdsSaveFolder = null;
+            }
             patchHistorySaveFolder = normalized;
 
             ParsekLog.Verbose(Tag,
                 $"PatchFacilities: cleared facility patch history after save change " +
                 $"(previous={previousCount.ToString(IC)}, " +
-                $"pendingDefaults={pendingDefaultCount.ToString(IC)})");
+                $"pendingDefaults={pendingDefaultCount.ToString(IC)}, " +
+                $"preservedPendingDefaults={pendingDefaultsMatchNewSave.ToString(IC)})");
         }
 
         private static string GetCurrentSaveFolderForPatchHistory()
@@ -358,6 +388,7 @@ namespace Parsek
         {
             lastPatchedFacilityIds.Clear();
             defaultFacilityIdsOnNextPatch.Clear();
+            defaultFacilityIdsSaveFolder = null;
             patchHistorySaveFolder = null;
         }
     }

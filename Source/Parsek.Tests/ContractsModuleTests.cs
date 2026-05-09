@@ -256,6 +256,30 @@ namespace Parsek.Tests
             Assert.Equal(3, module.GetAvailableSlots());
         }
 
+        [Fact]
+        public void TerminalContractActionTypes_TrackLatestTerminalOutcome()
+        {
+            module.ProcessAction(MakeAccept("c1"));
+            module.ProcessAction(MakeComplete("c1"));
+            module.ProcessAction(MakeAccept("c2"));
+            module.ProcessAction(MakeFail("c2"));
+            module.ProcessAction(MakeAccept("c3"));
+            module.ProcessAction(MakeCancel("c3"));
+            module.ProcessAction(MakeAccept("c4", deadlineUT: 500f));
+            module.CheckDeadlines(500.0);
+
+            var terminalActions = module.GetTerminalContractActionTypes();
+            var terminalOutcomes = module.GetTerminalContractOutcomes();
+
+            Assert.Equal(GameActionType.ContractComplete, terminalActions["c1"]);
+            Assert.Equal(GameActionType.ContractFail, terminalActions["c2"]);
+            Assert.Equal(GameActionType.ContractCancel, terminalActions["c3"]);
+            Assert.Equal(ContractTerminalOutcome.Completed, terminalOutcomes["c1"]);
+            Assert.Equal(ContractTerminalOutcome.Failed, terminalOutcomes["c2"]);
+            Assert.Equal(ContractTerminalOutcome.Cancelled, terminalOutcomes["c3"]);
+            Assert.Equal(ContractTerminalOutcome.DeadlineExpired, terminalOutcomes["c4"]);
+        }
+
         [Theory]
         [InlineData(GameActionType.ContractFail)]
         [InlineData(GameActionType.ContractCancel)]
@@ -361,6 +385,8 @@ namespace Parsek.Tests
             Assert.False(module.IsContractCredited("c1"));
             Assert.Equal(0, module.GetActiveContractCount());
             Assert.Equal(5, module.GetAvailableSlots());
+            Assert.Empty(module.GetTerminalContractActionTypes());
+            Assert.Empty(module.GetTerminalContractOutcomes());
         }
 
         [Fact]

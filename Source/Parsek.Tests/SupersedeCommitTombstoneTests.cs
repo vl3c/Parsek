@@ -509,6 +509,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitTombstones_NonTechTombstone_DoesNotPatchTechTree()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var contract = ContractComplete(
+                "rec_origin", 100.0, Guid.NewGuid().ToString());
+            Ledger.AddAction(contract);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("tech-tree patch enabled"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("no cutoff supplied")
+                && l.Contains("skipping tech-tree patch"));
+        }
+
+        [Fact]
+        public void CommitTombstones_NonTechTombstone_WithPriorTechTombstone_DoesNotPatchTechTree()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var priorUnlock = ScienceSpending("rec_outside", 50.0, "advConstruction");
+            Ledger.AddAction(priorUnlock);
+            scenario.LedgerTombstones.Add(new LedgerTombstone
+            {
+                TombstoneId = "tomb_prior",
+                ActionId = priorUnlock.ActionId,
+                RetiringRecordingId = "rec_prior_retry",
+                UT = 60.0,
+                CreatedRealTime = "2026-05-09T00:00:00Z",
+            });
+
+            var contract = ContractComplete(
+                "rec_origin", 100.0, Guid.NewGuid().ToString());
+            Ledger.AddAction(contract);
+
+            logLines.Clear();
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Contains(scenario.LedgerTombstones,
+                t => t.ActionId == contract.ActionId);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("tech-tree patch enabled"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("no cutoff supplied")
+                && l.Contains("skipping tech-tree patch"));
+        }
+
+        [Fact]
         public void CommitTombstones_TombstonedScienceSpending_NotSeededFromLatestTechBaseline()
         {
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
@@ -598,6 +658,7 @@ namespace Parsek.Tests
             Ledger.AddAction(oldBranchRescue);
             Ledger.AddAction(outsideRescue);
 
+            Assert.Null(LedgerOrchestrator.Kerbals);
             var elsBefore = EffectiveState.ComputeELS();
             Assert.Contains(elsBefore, a => a.ActionId == oldBranchRescue.ActionId);
             Assert.Contains(elsBefore, a => a.ActionId == outsideRescue.ActionId);
@@ -613,6 +674,9 @@ namespace Parsek.Tests
 
             // Headless xUnit can prove ELS retirement. Live CrewRoster cleanup for
             // a stock-rescued kerbal must be covered by runtime/KSP validation.
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Queued 1 tombstoned roster kerbal cleanup candidate"));
         }
 
         // ---------- Idempotence --------------------------------------------

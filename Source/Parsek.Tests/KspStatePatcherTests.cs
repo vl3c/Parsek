@@ -604,6 +604,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PatchFacilities_TombstonedDefaultNotFound_RemainsQueuedForRetry()
+        {
+            var pendingField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsOnNextPatch",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var pending = Assert.IsType<HashSet<string>>(pendingField.GetValue(null));
+
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/LaunchPad" });
+            logLines.Clear();
+
+            KspStatePatcher.PatchFacilities(new FacilitiesModule());
+
+            Assert.Contains("SpaceCenter/LaunchPad", pending);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchFacilities: levels patched=") &&
+                l.Contains("notFound=1"));
+        }
+
+        [Fact]
         public void PatchFacilities_Empty_DoesNotLogInfo_UsesRateLimitedVerbose()
         {
             // No tracked facilities -> patched=0, skipped=0, notFound=0.
@@ -718,6 +740,71 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]")
                 && l.Contains("cleared facility patch history after save change")
                 && l.Contains("previous=1"));
+        }
+
+        [Fact]
+        public void ResetPatchHistoryForSaveChange_PreservesPendingDefaultsForCurrentSave()
+        {
+            var pendingField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsOnNextPatch",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var pending = Assert.IsType<HashSet<string>>(pendingField.GetValue(null));
+
+            FacilityStatePatcher.ResetPatchHistoryForSaveChange("old-save");
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/LaunchPad" });
+
+            FacilityStatePatcher.ResetPatchHistoryForSaveChange("");
+
+            Assert.Contains("SpaceCenter/LaunchPad", pending);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("preservedPendingDefaults=True"));
+        }
+
+        [Fact]
+        public void ForceDefaultFacilitiesForNextPatch_ClearsStaleSavePendingDefaultsBeforeAdding()
+        {
+            var pendingField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsOnNextPatch",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var saveField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsSaveFolder",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var pending = Assert.IsType<HashSet<string>>(pendingField.GetValue(null));
+            pending.Add("SpaceCenter/LaunchPad");
+            saveField.SetValue(null, "old-save");
+
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/Runway" });
+
+            Assert.DoesNotContain("SpaceCenter/LaunchPad", pending);
+            Assert.Contains("SpaceCenter/Runway", pending);
+            Assert.Equal("", saveField.GetValue(null));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("cleared 1 stale pending default target"));
+        }
+
+        [Fact]
+        public void ForceDefaultFacilitiesForNextPatch_RestampsSameIdAfterSaveChange()
+        {
+            var pendingField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsOnNextPatch",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var saveField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsSaveFolder",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var pending = Assert.IsType<HashSet<string>>(pendingField.GetValue(null));
+            pending.Add("SpaceCenter/LaunchPad");
+            saveField.SetValue(null, "old-save");
+
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/LaunchPad" });
+
+            Assert.Single(pending);
+            Assert.Contains("SpaceCenter/LaunchPad", pending);
+            Assert.Equal("", saveField.GetValue(null));
         }
 
         // Note: the skipped-only branch (patchedCount==0 && notFoundCount==0

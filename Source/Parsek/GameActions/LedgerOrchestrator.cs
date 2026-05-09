@@ -1314,19 +1314,24 @@ namespace Parsek
         /// Post-supersede tombstone refresh. The broad tombstone scope can remove
         /// career effects from the full ELS after the normal commit-time recalc has
         /// already run, so this path walks the full timeline, bypasses live-tree
-        /// deferral, and still enables a full-timeline tech/repeatable-record patch
-        /// without pretending this is a cutoff walk.
+        /// deferral, and still enables an authoritative repeatable-record patch.
+        /// Tech-tree patching stays disabled unless the current tombstone pass
+        /// retired a ScienceSpending row that may need a baseline-seeded unlock
+        /// removed.
         /// </summary>
-        internal static void RecalculateAndPatchAfterTombstones()
+        internal static void RecalculateAndPatchAfterTombstones(
+            IReadOnlyCollection<string> currentTombstonedScienceSpendingNodeIds)
         {
+            bool patchTechTree = currentTombstonedScienceSpendingNodeIds != null &&
+                currentTombstonedScienceSpendingNodeIds.Count > 0;
             FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
                 BuildTombstonedFacilityIdsForPatch());
             RecalculateAndPatchCore(
                 utCutoff: null,
                 bypassPatchDeferral: true,
                 authoritativeRepeatableRecordState: true,
-                techPatchCutoff: double.MaxValue,
-                excludeTombstonedTechFromBaseline: true);
+                techPatchCutoff: patchTechTree ? double.MaxValue : (double?)null,
+                excludeTombstonedTechFromBaseline: patchTechTree);
         }
 
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
@@ -3457,8 +3462,8 @@ namespace Parsek
             // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
             // leak into affordability.
             // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
-            // any tombstoned action (kerbal deaths + bundled rep penalties) is
-            // excluded from the affordability probe's walk.
+            // any explicitly tombstoned action is excluded from the affordability
+            // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
             RecalculationEngine.Recalculate(actions, nowUT);
@@ -3491,8 +3496,8 @@ namespace Parsek
             // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
             // leak into affordability.
             // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
-            // any tombstoned action (kerbal deaths + bundled rep penalties) is
-            // excluded from the affordability probe's walk.
+            // any explicitly tombstoned action is excluded from the affordability
+            // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
             RecalculationEngine.Recalculate(actions, nowUT);

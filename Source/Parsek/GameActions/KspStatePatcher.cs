@@ -1432,6 +1432,7 @@ namespace Parsek
                 if (Guid.TryParse(idStr, out var gid))
                     terminalIdSet.Add(gid);
             }
+            var terminalOutcomeById = BuildTerminalContractOutcomeMap(contracts);
 
             // If no active contracts in ledger, just log the current KSP state
             int currentCount = ContractSystem.Instance.Contracts != null
@@ -1449,10 +1450,10 @@ namespace Parsek
 
             // #404/#756: Filtered remove. Active current contracts whose id is NOT
             // in the ledger's active set are stale and can be removed. Offered and
-            // Declined entries still stay untouched. ContractsFinished is append-only
-            // stock history; only finished terminal rows for explicit tombstoned
-            // Parsek contract action ids are removable when their terminal ELS row
-            // no longer survives.
+            // Declined entries still stay untouched. Terminal stock rows in either
+            // current contracts or ContractsFinished are removable only for explicit
+            // tombstoned Parsek contract action ids when their terminal ELS row no
+            // longer survives.
             // Filtering is delegated to PartitionContractsForPatch for testability.
             var currentContracts = ContractSystem.Instance.Contracts;
             var finishedContracts = ContractSystem.Instance.ContractsFinished;
@@ -1462,24 +1463,33 @@ namespace Parsek
                 LedgerOrchestrator.BuildTombstonedContractGuidsForPatch();
 
             PartitionContractsForPatch(currentEntries, finishedEntries,
-                activeIdSet, terminalIdSet, tombstonedContractGuids,
+                activeIdSet, terminalIdSet, terminalOutcomeById, tombstonedContractGuids,
                 out var toRemoveCurrent, out var toRemoveFinished,
                 out var survivingActiveIds,
                 out var survivingTerminalIds);
-            var toRemoveCurrentSet = new HashSet<Guid>(toRemoveCurrent);
-            var toRemoveFinishedSet = new HashSet<Guid>(toRemoveFinished);
+            var toRemoveCurrentKeys = BuildCurrentContractRemovalKeys(
+                currentEntries,
+                activeIdSet,
+                terminalIdSet,
+                terminalOutcomeById,
+                tombstonedContractGuids);
+            var toRemoveFinishedKeys = BuildFinishedContractRemovalKeys(
+                finishedEntries,
+                terminalIdSet,
+                terminalOutcomeById,
+                tombstonedContractGuids);
 
             int removedStale = 0;
             int removedFinishedTombstoned = 0;
             int unregisterFailures = 0;
-            removedStale = RemoveContractsById(
+            removedStale = RemoveContractsByKey(
                 currentContracts,
-                toRemoveCurrentSet,
+                toRemoveCurrentKeys,
                 unregisterBeforeRemove: true,
                 ref unregisterFailures);
-            removedFinishedTombstoned = RemoveContractsById(
+            removedFinishedTombstoned = RemoveContractsByKey(
                 finishedContracts,
-                toRemoveFinishedSet,
+                toRemoveFinishedKeys,
                 unregisterBeforeRemove: false,
                 ref unregisterFailures);
 
@@ -1644,11 +1654,19 @@ namespace Parsek
             public Guid Id;
             public bool IsActive;
             public bool IsTerminal;
+            public Contract.State State;
+        }
+
+        internal struct ContractRemovalKey
+        {
+            public Guid Id;
+            public Contract.State State;
         }
 
         /// <summary>
-        /// Pure helper: partitions the current KSP contract list into {stale Active/terminal
-        /// contracts to remove} and {surviving ledger-backed contracts to keep in place}.
+        /// Pure helper: partitions the current KSP contract list into {stale Active
+        /// contracts plus explicitly tombstoned terminal contracts to remove} and
+        /// {surviving ledger-backed contracts to keep in place}.
         /// Non-terminal non-Active entries are implicitly preserved by being absent from the
         /// remove list. Extracted from <see cref="PatchContracts"/> so the filtering logic can
         /// be unit-tested without real KSP Contract instances.
@@ -1657,7 +1675,8 @@ namespace Parsek
         /// <list type="number">
         ///   <item>An Active contract whose ID is NOT in the ledger's active set is "stale" and goes to <paramref name="toRemove"/>.</item>
         ///   <item>An Active contract whose ID IS in the ledger's active set is "surviving" and goes to <paramref name="surviving"/>.</item>
-        ///   <item>A terminal contract whose ID is NOT in the ledger's terminal set is "stale" and goes to <paramref name="toRemove"/>.</item>
+        ///   <item>A terminal contract whose ID IS in the ledger's terminal set is "surviving".</item>
+        ///   <item>A terminal contract whose ID is NOT in the ledger's terminal set is removed only when the caller supplies it in the removable tombstoned set.</item>
         ///   <item>A non-terminal non-Active contract is left out of both lists — callers MUST NOT touch it.</item>
         /// </list>
         /// </summary>
@@ -1671,6 +1690,8 @@ namespace Parsek
                 currentEntries,
                 activeIdSet,
                 new HashSet<Guid>(),
+                null,
+                null,
                 out toRemove,
                 out surviving,
                 out _);
@@ -1680,6 +1701,35 @@ namespace Parsek
             IReadOnlyList<ContractFilterEntry> currentEntries,
             HashSet<Guid> activeIdSet,
             HashSet<Guid> terminalIdSet,
+            out List<Guid> toRemove,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
+            PartitionContractsForPatch(currentEntries, activeIdSet, terminalIdSet,
+                null, null,
+                out toRemove, out survivingActive, out survivingTerminal);
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            HashSet<Guid> removableTerminalIdSet,
+            out List<Guid> toRemove,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
+            PartitionContractsForPatch(currentEntries, activeIdSet, terminalIdSet,
+                null, removableTerminalIdSet,
+                out toRemove, out survivingActive, out survivingTerminal);
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableTerminalIdSet,
             out List<Guid> toRemove,
             out HashSet<Guid> survivingActive,
             out HashSet<Guid> survivingTerminal)
@@ -1703,10 +1753,16 @@ namespace Parsek
 
                 if (entry.IsTerminal)
                 {
-                    if (terminalIdSet != null && terminalIdSet.Contains(entry.Id))
+                    if (IsSurvivingTerminalEntry(
+                            entry, terminalIdSet, terminalOutcomeById))
+                    {
                         survivingTerminal.Add(entry.Id);
-                    else
+                    }
+                    else if (removableTerminalIdSet != null &&
+                             removableTerminalIdSet.Contains(entry.Id))
+                    {
                         toRemove.Add(entry.Id);
+                    }
                     continue;
                 }
 
@@ -1725,11 +1781,30 @@ namespace Parsek
             out HashSet<Guid> survivingActive,
             out HashSet<Guid> survivingTerminal)
         {
+            PartitionContractsForPatch(currentEntries, finishedEntries,
+                activeIdSet, terminalIdSet, null, removableFinishedTerminalIdSet,
+                out toRemoveCurrent, out toRemoveFinished,
+                out survivingActive, out survivingTerminal);
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableFinishedTerminalIdSet,
+            out List<Guid> toRemoveCurrent,
+            out List<Guid> toRemoveFinished,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
             PartitionContractsForPatch(currentEntries, activeIdSet, terminalIdSet,
+                terminalOutcomeById, removableFinishedTerminalIdSet,
                 out toRemoveCurrent, out survivingActive, out survivingTerminal);
 
             PartitionFinishedContractsForPatch(finishedEntries, terminalIdSet,
-                removableFinishedTerminalIdSet,
+                terminalOutcomeById, removableFinishedTerminalIdSet,
                 out toRemoveFinished, out var survivingFinishedTerminal);
 
             foreach (var id in survivingFinishedTerminal)
@@ -1739,6 +1814,7 @@ namespace Parsek
         internal static void PartitionFinishedContractsForPatch(
             IReadOnlyList<ContractFilterEntry> finishedEntries,
             HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
             HashSet<Guid> removableFinishedTerminalIdSet,
             out List<Guid> toRemoveFinished,
             out HashSet<Guid> survivingTerminal)
@@ -1753,7 +1829,8 @@ namespace Parsek
                 if (!entry.IsTerminal)
                     continue;
 
-                if (terminalIdSet != null && terminalIdSet.Contains(entry.Id))
+                if (IsSurvivingTerminalEntry(
+                        entry, terminalIdSet, terminalOutcomeById))
                 {
                     survivingTerminal.Add(entry.Id);
                     continue;
@@ -1764,6 +1841,108 @@ namespace Parsek
                 {
                     toRemoveFinished.Add(entry.Id);
                 }
+            }
+        }
+
+        internal static HashSet<ContractRemovalKey> BuildCurrentContractRemovalKeys(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableTerminalIdSet)
+        {
+            var keys = new HashSet<ContractRemovalKey>();
+            if (currentEntries == null)
+                return keys;
+
+            for (int i = 0; i < currentEntries.Count; i++)
+            {
+                var entry = currentEntries[i];
+                if (entry.IsActive)
+                {
+                    if (activeIdSet == null || !activeIdSet.Contains(entry.Id))
+                        keys.Add(ToRemovalKey(entry));
+                    continue;
+                }
+
+                if (entry.IsTerminal &&
+                    !IsSurvivingTerminalEntry(entry, terminalIdSet, terminalOutcomeById) &&
+                    removableTerminalIdSet != null &&
+                    removableTerminalIdSet.Contains(entry.Id))
+                {
+                    keys.Add(ToRemovalKey(entry));
+                }
+            }
+
+            return keys;
+        }
+
+        internal static HashSet<ContractRemovalKey> BuildFinishedContractRemovalKeys(
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableFinishedTerminalIdSet)
+        {
+            var keys = new HashSet<ContractRemovalKey>();
+            if (finishedEntries == null)
+                return keys;
+
+            for (int i = 0; i < finishedEntries.Count; i++)
+            {
+                var entry = finishedEntries[i];
+                if (entry.IsTerminal &&
+                    !IsSurvivingTerminalEntry(entry, terminalIdSet, terminalOutcomeById) &&
+                    removableFinishedTerminalIdSet != null &&
+                    removableFinishedTerminalIdSet.Contains(entry.Id))
+                {
+                    keys.Add(ToRemovalKey(entry));
+                }
+            }
+
+            return keys;
+        }
+
+        private static ContractRemovalKey ToRemovalKey(ContractFilterEntry entry)
+        {
+            return new ContractRemovalKey
+            {
+                Id = entry.Id,
+                State = entry.State
+            };
+        }
+
+        private static bool IsSurvivingTerminalEntry(
+            ContractFilterEntry entry,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById)
+        {
+            if (terminalIdSet == null || !terminalIdSet.Contains(entry.Id))
+                return false;
+
+            if (terminalOutcomeById == null)
+                return true;
+
+            ContractTerminalOutcome terminalOutcome;
+            return terminalOutcomeById.TryGetValue(entry.Id, out terminalOutcome)
+                && IsTerminalContractStateCompatible(entry.State, terminalOutcome);
+        }
+
+        private static bool IsTerminalContractStateCompatible(
+            Contract.State state,
+            ContractTerminalOutcome terminalOutcome)
+        {
+            switch (terminalOutcome)
+            {
+                case ContractTerminalOutcome.Completed:
+                    return state == Contract.State.Completed;
+                case ContractTerminalOutcome.Failed:
+                    return state == Contract.State.Failed;
+                case ContractTerminalOutcome.DeadlineExpired:
+                    return state == Contract.State.DeadlineExpired;
+                case ContractTerminalOutcome.Cancelled:
+                    return state == Contract.State.Cancelled;
+                default:
+                    return false;
             }
         }
 
@@ -1782,16 +1961,38 @@ namespace Parsek
                 {
                     Id = c.ContractGuid,
                     IsActive = c.ContractState == Contract.State.Active,
-                    IsTerminal = IsTerminalContractState(c.ContractState)
+                    IsTerminal = IsTerminalContractState(c.ContractState),
+                    State = c.ContractState
                 });
             }
 
             return entries;
         }
 
-        private static int RemoveContractsById(
+        private static Dictionary<Guid, ContractTerminalOutcome> BuildTerminalContractOutcomeMap(
+            ContractsModule contracts)
+        {
+            var result = new Dictionary<Guid, ContractTerminalOutcome>();
+            if (contracts == null)
+                return result;
+
+            var source = contracts.GetTerminalContractOutcomes();
+            if (source == null)
+                return result;
+
+            foreach (var kvp in source)
+            {
+                Guid contractGuid;
+                if (Guid.TryParse(kvp.Key, out contractGuid))
+                    result[contractGuid] = kvp.Value;
+            }
+
+            return result;
+        }
+
+        private static int RemoveContractsByKey(
             List<Contract> contracts,
-            HashSet<Guid> toRemove,
+            HashSet<ContractRemovalKey> toRemove,
             bool unregisterBeforeRemove,
             ref int unregisterFailures)
         {
@@ -1803,7 +2004,12 @@ namespace Parsek
             {
                 var c = contracts[i];
                 if (c == null) continue;
-                if (!toRemove.Contains(c.ContractGuid)) continue;
+                var key = new ContractRemovalKey
+                {
+                    Id = c.ContractGuid,
+                    State = c.ContractState
+                };
+                if (!toRemove.Contains(key)) continue;
 
                 if (unregisterBeforeRemove)
                 {
