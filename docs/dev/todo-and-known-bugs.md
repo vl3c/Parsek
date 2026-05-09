@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 tumbling parent rotation interpolation destabilized debris
+
+- ~~Parent-anchored debris far from a rapidly tumbling parent could translate chaotically when playback slerped sparse parent attitude samples.~~ The visible failure mode was worst for tens-of-metres-plus offsets: a modest parent rotation bracket becomes a large swept positional arc for child debris even when the child's own local offset samples are valid.
+
+**Fix:** playback now evaluates the parent rotation bracket before applying recorded-relative debris offsets. If the bracket angle, angular rate, and debris offset all exceed the tumbling-parent gate, the ghost is hidden for that frame with hysteresis and FX teardown instead of rendering an interpolated pose. The gate runs at the actual visible playback UT, including loop-sync overrides. Loaded background recording also admits attitude-only samples at the foreground minimum interval, so steady-velocity tumbling parents produce denser rotation samples.
+
+**Coverage:** `TumblingParentInterpolationGateTests`, `RelativeAnchorResolverTests.TryEvaluateRecordingAnchorRotationReliability_UnreliableTumblingParent_ReturnsDecision`, `RelativeAnchorResolverTests.TryEvaluateRecordingAnchorRotationReliability_SmallOffsetTumblingParent_ReturnsReliable`, `RelativeAnchorResolverTests.TryEvaluateRecordingAnchorRotationReliability_ExactWaypoint_ReturnsReliable`, `RelativeAnchorResolverTests.TryEvaluateRecordingAnchorRotationReliability_RelativeParentRotationInterpolation_ReturnsUnreliable`, `BackgroundAttitudeSamplingTests`, and the frame-summary skip-counter tests.
+
+---
+
 ## Done - v0.9.2 facility slot limits after warp recalc
 
 - ~~Facility-derived contract and strategy slot limits could stay one recalculation behind after warp exit or an instant time jump.~~ Source: review finding [P3]. `LedgerOrchestrator.RecalculateAndPatchCore` primed slot limits from the previous `FacilitiesModule` state before the walk, then a single warp-exit recalc walked the facility upgrade without refreshing the final Mission Control/Admin-derived availability.

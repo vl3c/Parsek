@@ -822,6 +822,9 @@ namespace Parsek
             new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
         private readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
             new HashSet<string>(StringComparer.Ordinal);
+        private Dictionary<AnchorRotationHysteresisKey, AnchorRotationHysteresisState>
+            anchorRotationHysteresis =
+                new Dictionary<AnchorRotationHysteresisKey, AnchorRotationHysteresisState>();
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
         private static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
             new Dictionary<string, TerrainCorrector.TailLiftPlan>();
@@ -2011,6 +2014,7 @@ namespace Parsek
             loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
             unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
+            anchorRotationHysteresis?.Clear();
 
             ui?.Cleanup();
         }
@@ -2059,6 +2063,7 @@ namespace Parsek
             // ground clearances at the destination scene's lat/lon.
             Parsek.Rendering.TerrainCacheBuckets.Clear();
             InvalidateTailLiftPlanCache();
+            anchorRotationHysteresis?.Clear();
 
             // Stamp the pre-transition UT so ParsekScenario.OnLoad can detect
             // F5/F9 quickloads (UT regresses across the transition) and
@@ -14931,9 +14936,116 @@ namespace Parsek
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
+                    tryEvaluateAnchorRotationReliability =
+                        ShouldEvaluateAnchorRotationReliability(rec)
+                            ? TryEvaluateAnchorRotationReliability
+                            : null,
                 };
             }
             return flags;
+        }
+
+        private static bool ShouldEvaluateAnchorRotationReliability(Recording rec)
+        {
+            return rec != null
+                && rec.IsDebris
+                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId);
+        }
+
+        private bool TryEvaluateAnchorRotationReliability(
+            int index,
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            string playbackScope,
+            out AnchorRotationReliabilityDecision decision)
+        {
+            decision = default;
+            Recording rec = traj as Recording;
+            if (!ShouldEvaluateAnchorRotationReliability(rec))
+                return false;
+
+            string recordingId = !string.IsNullOrEmpty(rec.RecordingId)
+                ? rec.RecordingId
+                : "idx-" + index.ToString(CultureInfo.InvariantCulture);
+            if (!TryFindRelativeAnchorFocusTree(recordingId, out RecordingTree focusTree))
+                return false;
+
+            var context = BuildFlightRelativeAnchorResolverContext(
+                focusTree,
+                recordingId,
+                ParsekScenario.Instance?.ActiveReFlySessionMarker);
+
+            HashSet<string> visited = recordedRelativeAnchorVisited;
+            visited.Clear();
+            bool resolved;
+            try
+            {
+                resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                    context,
+                    rec,
+                    playbackUT,
+                    visited,
+                    out decision);
+            }
+            finally
+            {
+                visited.Clear();
+            }
+
+            if (!resolved)
+                return false;
+
+            string anchorRecordingId = !string.IsNullOrEmpty(decision.AnchorRecordingId)
+                ? decision.AnchorRecordingId
+                : rec.DebrisParentRecordingId;
+            if (anchorRotationHysteresis == null)
+            {
+                anchorRotationHysteresis =
+                    new Dictionary<AnchorRotationHysteresisKey, AnchorRotationHysteresisState>();
+            }
+
+            var key = new AnchorRotationHysteresisKey(recordingId, anchorRecordingId, playbackScope);
+            anchorRotationHysteresis.TryGetValue(key, out AnchorRotationHysteresisState state);
+            bool wasHeld = state.Held;
+            int heldFramesBefore = state.HeldFrames;
+            bool held = TumblingParentInterpolationGate.UpdateHysteresis(decision, ref state);
+            if (held)
+                anchorRotationHysteresis[key] = state;
+            else if (wasHeld)
+                anchorRotationHysteresis.Remove(key);
+
+            if (!wasHeld && held)
+            {
+                ParsekLog.Info(
+                    "Anchor",
+                    "anchor-rotation-interp-hold-engaged: "
+                    + "recording=#" + index.ToString(CultureInfo.InvariantCulture) + " "
+                    + "recordingId=" + recordingId + " "
+                    + "anchorRecordingId=" + (anchorRecordingId ?? "(none)") + " "
+                    + "scope=" + (playbackScope ?? "(none)") + " "
+                    + "playbackUT=" + playbackUT.ToString("R", CultureInfo.InvariantCulture) + " "
+                    + "bracketDeg=" + decision.BracketDegrees.ToString("F2", CultureInfo.InvariantCulture) + " "
+                    + "rateDegPerSec=" + decision.RateDegreesPerSecond.ToString("F1", CultureInfo.InvariantCulture) + " "
+                    + "offsetMeters=" + decision.OffsetMeters.ToString("F1", CultureInfo.InvariantCulture));
+            }
+            else if (wasHeld && !held)
+            {
+                ParsekLog.Info(
+                    "Anchor",
+                    "anchor-rotation-interp-hold-released: "
+                    + "recording=#" + index.ToString(CultureInfo.InvariantCulture) + " "
+                    + "recordingId=" + recordingId + " "
+                    + "anchorRecordingId=" + (anchorRecordingId ?? "(none)") + " "
+                    + "scope=" + (playbackScope ?? "(none)") + " "
+                    + "playbackUT=" + playbackUT.ToString("R", CultureInfo.InvariantCulture) + " "
+                    + "heldFrames=" + heldFramesBefore.ToString(CultureInfo.InvariantCulture) + " "
+                    + "bracketDeg=" + decision.BracketDegrees.ToString("F2", CultureInfo.InvariantCulture) + " "
+                    + "rateDegPerSec=" + decision.RateDegreesPerSecond.ToString("F1", CultureInfo.InvariantCulture) + " "
+                    + "offsetMeters=" + decision.OffsetMeters.ToString("F1", CultureInfo.InvariantCulture));
+            }
+
+            decision = decision.WithUnreliable(held);
+            return true;
         }
 
         /// <summary>
@@ -15442,6 +15554,7 @@ namespace Parsek
             loggedAnchorNotFound.Clear();
             unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
+            anchorRotationHysteresis?.Clear();
         }
 
         /// <summary>

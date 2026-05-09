@@ -935,6 +935,161 @@ namespace Parsek.Tests
                 l.Contains("reason=anchor-cross-tree-out-of-scope"));
         }
 
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_UnreliableTumblingParent_ReturnsDecision()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording parent = MakeAbsoluteRecording(
+                "parent",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.1);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.1,
+                new Vector3d(0, 0, 0),
+                RotationZDegrees(24.0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1500, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.05,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.True(decision.Unreliable);
+            Assert.Equal(parent.RecordingId, decision.AnchorRecordingId);
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_SmallOffsetTumblingParent_ReturnsReliable()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording parent = MakeAbsoluteRecording(
+                "parent",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.1);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.1,
+                new Vector3d(0, 0, 0),
+                RotationZDegrees(24.0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(10, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.05,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.False(decision.Unreliable);
+            Assert.Equal(parent.RecordingId, decision.AnchorRecordingId);
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_ExactWaypoint_ReturnsReliable()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording parent = MakeAbsoluteRecording(
+                "parent",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.1);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.1,
+                new Vector3d(0, 0, 0),
+                RotationZDegrees(24.0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1500, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.False(decision.Unreliable);
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_RelativeParentRotationInterpolation_ReturnsUnreliable()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording root = MakeAbsoluteRecording(
+                "root",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.1);
+            Recording parent = MakeRelativeRecording(
+                "parent",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: root.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.1,
+                new Vector3d(1, 0, 0),
+                RotationZDegrees(24.0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1500, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.05,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.True(decision.Unreliable);
+            Assert.Equal(parent.RecordingId, decision.AnchorRecordingId);
+        }
+
         private static RelativeAnchorResolverContext MakeContext(
             RecordingTree tree,
             Func<Recording, TrackSection, int, string> anchorRecordingIdResolver = null,

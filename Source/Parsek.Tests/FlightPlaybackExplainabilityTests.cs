@@ -385,7 +385,8 @@ namespace Parsek.Tests
                 supersededByRelation = 14,
                 rewindRetired = 15,
                 spawnSuppressedDeadOnArrival = 16,
-                active = 17
+                anchorRotationUnreliable = 17,
+                active = 18
             };
 
             string message = GhostPlaybackEngine.BuildFrameSummaryMessage(counters);
@@ -407,7 +408,8 @@ namespace Parsek.Tests
             Assert.Contains("supersededByRelation=14", message);
             Assert.Contains("rewindRetired=15", message);
             Assert.Contains("spawnSuppressedDeadOnArrival=16", message);
-            Assert.Contains("active=17", message);
+            Assert.Contains("anchorRotationUnreliable=17", message);
+            Assert.Contains("active=18", message);
         }
 
         [Fact]
@@ -429,6 +431,13 @@ namespace Parsek.Tests
         public void FrameSummary_EmitsWhenRewindRetiredNonZero()
         {
             var counters = new GhostPlaybackFrameCounters { rewindRetired = 1 };
+            Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
+        }
+
+        [Fact]
+        public void FrameSummary_EmitsWhenAnchorRotationUnreliableNonZero()
+        {
+            var counters = new GhostPlaybackFrameCounters { anchorRotationUnreliable = 1 };
             Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
         }
 

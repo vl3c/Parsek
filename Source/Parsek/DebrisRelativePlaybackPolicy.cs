@@ -5,7 +5,10 @@ namespace Parsek
 {
     /// <summary>
     /// Playback policy for v12+ debris that carries the explicit
-    /// parent-recording anchor contract.
+    /// parent-recording anchor contract. The recorded parent is authoritative:
+    /// playback retires outside recorded Relative coverage and may transiently
+    /// hide frames whose parent rotation interpolation is unreliable for a
+    /// large child offset.
     /// </summary>
     internal static class DebrisRelativePlaybackPolicy
     {

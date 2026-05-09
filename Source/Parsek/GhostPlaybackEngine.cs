@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Parsek
@@ -95,6 +96,7 @@ namespace Parsek
         private int frameSkipSupersededByRelation;
         private int frameSkipRewindRetired;
         private int frameSkipSpawnSuppressedDeadOnArrival;
+        private int frameSkipAnchorRotationUnreliable;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -303,6 +305,9 @@ namespace Parsek
                 case GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival:
                     frameSkipSpawnSuppressedDeadOnArrival++;
                     break;
+                case GhostPlaybackSkipReason.AnchorRotationUnreliable:
+                    frameSkipAnchorRotationUnreliable++;
+                    break;
             }
         }
 
@@ -323,7 +328,8 @@ namespace Parsek
                 || counters.sessionSuppressed > 0
                 || counters.supersededByRelation > 0
                 || counters.rewindRetired > 0
-                || counters.spawnSuppressedDeadOnArrival > 0;
+                || counters.spawnSuppressedDeadOnArrival > 0
+                || counters.anchorRotationUnreliable > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -334,7 +340,7 @@ namespace Parsek
                 "parentLoopPaused={6} warpHidden={7} visualLoadFailed={8} " +
                 "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
                 "sessionSuppressed={12} supersededByRelation={13} rewindRetired={14} " +
-                "spawnSuppressedDeadOnArrival={15}] active={16}",
+                "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16}] active={17}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -351,6 +357,7 @@ namespace Parsek
                 counters.supersededByRelation,
                 counters.rewindRetired,
                 counters.spawnSuppressedDeadOnArrival,
+                counters.anchorRotationUnreliable,
                 counters.active);
         }
 
@@ -374,6 +381,7 @@ namespace Parsek
                 supersededByRelation = frameSkipSupersededByRelation,
                 rewindRetired = frameSkipRewindRetired,
                 spawnSuppressedDeadOnArrival = frameSkipSpawnSuppressedDeadOnArrival,
+                anchorRotationUnreliable = frameSkipAnchorRotationUnreliable,
                 active = ghostStates.Count
             };
         }
@@ -893,6 +901,7 @@ namespace Parsek
             frameSkipSupersededByRelation = 0;
             frameSkipRewindRetired = 0;
             frameSkipSpawnSuppressedDeadOnArrival = 0;
+            frameSkipAnchorRotationUnreliable = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -1114,11 +1123,24 @@ namespace Parsek
             // is unresolvable.
             state.anchorRetiredThisFrame = false;
 
+            bool anchorRotationHidden = TryHideForAnchorRotationUnreliable(
+                i,
+                traj,
+                f,
+                state,
+                visiblePlaybackUT,
+                ctx.currentUT,
+                ctx.warpRate,
+                "non-loop",
+                ShouldExitWatchForCoverageRetiredState(i, state, ctx),
+                loopCameraEvent: true);
+
             // Position the ghost. Parent-anchored v12+ debris is only valid
             // while a recorded Relative section covers the playback UT; outside
             // that coverage, hide instead of falling through to flat points,
             // surface, or orbit-tail playback.
-            if (!TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            if (!anchorRotationHidden
+                && !TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     i, traj, state, visiblePlaybackUT, "GhostPlaybackEngine.RenderInRangeGhost"))
             {
                 bool orbitTailPlayback = ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
@@ -1169,7 +1191,8 @@ namespace Parsek
             // unconditionally re-show the ghost the same frame we hid it.
             // Skip TrackGhostAppearance -- logging a root=(0,0,0) appearance
             // for a retired ghost was the original misleading symptom.
-            bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+            bool retired = anchorRotationHidden
+                || RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
             GhostRenderTrace.EmitPostUpdate(
                 traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired);
@@ -1568,7 +1591,8 @@ namespace Parsek
                     // stale (0,0,0) transform when the LoopAnchor pid is
                     // unresolvable post-rewind.
                     state.anchorRetiredThisFrame = false;
-                    PositionGhostAtLoopEndpoint(index, traj, state);
+                    PositionGhostAtLoopEndpoint(
+                        index, traj, flags, state, ctx.currentUT, ctx.warpRate);
 
                     bool loopEndpointRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                         state.anchorRetiredThisFrame);
@@ -1744,7 +1768,7 @@ namespace Parsek
             // Pause window: position at end, hide parts, zero velocity for reentry decay
             if (inPauseWindow)
             {
-                HandleLoopPauseWindow(index, traj, state, ctx.warpRate);
+                HandleLoopPauseWindow(index, traj, flags, state, ctx.currentUT, ctx.warpRate);
                 return;
             }
 
@@ -1757,7 +1781,9 @@ namespace Parsek
 
             // Position the loop ghost
             PositionLoopAtPlaybackUT(
-                index, traj, state, loopUT, effectiveSuppressVisualFx,
+                index, traj, flags, state, loopUT, ctx.currentUT, ctx.warpRate,
+                effectiveSuppressVisualFx,
+                ShouldExitWatchForCoverageRetiredState(index, state, ctx),
                 "GhostPlaybackEngine.UpdateLoopPlayback");
 
             // Apply visual events
@@ -1997,7 +2023,9 @@ namespace Parsek
                         GhostRenderTrace.BeginFrame(
                             traj, index, ctx.currentUT, primaryLoopUT, "overlap-primary");
                         PositionLoopAtPlaybackUT(
-                            index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx,
+                            index, traj, flags, primaryState, primaryLoopUT, ctx.currentUT,
+                            ctx.warpRate, effectiveSuppressVisualFx,
+                            ShouldExitWatchForCoverageRetiredState(index, primaryState, ctx),
                             "GhostPlaybackEngine.UpdateOverlapPlayback.primary");
                         bool primaryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                             primaryState.anchorRetiredThisFrame);
@@ -2077,7 +2105,8 @@ namespace Parsek
                     if (ovState.ghost != null)
                     {
                         ovState.anchorRetiredThisFrame = false;
-                        PositionGhostAtLoopEndpoint(index, traj, ovState);
+                        PositionGhostAtLoopEndpoint(
+                            index, traj, flags, ovState, ctx.currentUT, ctx.warpRate);
                         overlapExpiryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                             ovState.anchorRetiredThisFrame);
                     }
@@ -2176,7 +2205,9 @@ namespace Parsek
                     traj, index, ctx.currentUT, loopUT,
                     "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture));
                 PositionLoopAtPlaybackUT(
-                    index, traj, ovState, loopUT, effectiveSuppressVisualFx,
+                    index, traj, flags, ovState, loopUT, ctx.currentUT, ctx.warpRate,
+                    effectiveSuppressVisualFx,
+                    ShouldExitWatchForCoverageRetiredState(index, ovState, ctx),
                     "GhostPlaybackEngine.UpdateExpireAndPositionOverlaps");
                 bool overlapRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                     ovState.anchorRetiredThisFrame);
@@ -2210,7 +2241,7 @@ namespace Parsek
         /// and triggers explosion if the recording ended in destruction.
         /// </summary>
         private void HandleLoopPauseWindow(int index, IPlaybackTrajectory traj,
-            GhostPlaybackState state, float warpRate)
+            TrajectoryPlaybackFlags flags, GhostPlaybackState state, double frameUT, float warpRate)
         {
             // Bug #613 (PR #594 P1): clear retire signal before positioning;
             // gate visuals/activation/appearance on it after. The loop-pause
@@ -2219,7 +2250,7 @@ namespace Parsek
             // traj.LoopAnchorVesselId is unresolvable (same Re-Fly rewind
             // failure mode covered by the per-frame gate above).
             state.anchorRetiredThisFrame = false;
-            PositionGhostAtLoopEndpoint(index, traj, state);
+            PositionGhostAtLoopEndpoint(index, traj, flags, state, frameUT, warpRate);
             bool loopPauseRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
             // PositionAtPoint now sets state.lastInterpolatedAltitude to the
@@ -2287,13 +2318,20 @@ namespace Parsek
         }
 
         private void PositionGhostAtLoopEndpoint(
-            int index, IPlaybackTrajectory traj, GhostPlaybackState state)
+            int index,
+            IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags,
+            GhostPlaybackState state,
+            double frameUT,
+            float warpRate)
         {
             if (state?.ghost == null || traj == null || positioner == null)
                 return;
 
             PositionLoopAtPlaybackUT(
-                index, traj, state, ResolveLoopPlaybackEndpointUT(traj), true,
+                index, traj, flags, state, ResolveLoopPlaybackEndpointUT(traj), frameUT,
+                warpRate, true,
+                emitExitWatch: false,
                 "GhostPlaybackEngine.PositionGhostAtLoopEndpoint");
         }
 
@@ -2569,6 +2607,117 @@ namespace Parsek
             return true;
         }
 
+        private bool TryHideForAnchorRotationUnreliable(
+            int index,
+            IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags,
+            GhostPlaybackState state,
+            double playbackUT,
+            double frameUT,
+            float warpRate,
+            string phase,
+            bool emitExitWatch,
+            bool loopCameraEvent)
+        {
+            if (flags.tryEvaluateAnchorRotationReliability == null)
+                return false;
+
+            string playbackScope = BuildAnchorRotationHysteresisScope(state, phase);
+            if (!flags.tryEvaluateAnchorRotationReliability(
+                    index,
+                    traj,
+                    playbackUT,
+                    playbackScope,
+                    out AnchorRotationReliabilityDecision decision)
+                || !decision.Unreliable)
+            {
+                return false;
+            }
+
+            if (state != null)
+                HideAnchorRotationUnreliableState(index, traj, state, playbackUT, warpRate);
+
+            if (emitExitWatch)
+            {
+                var evt = new CameraActionEvent
+                {
+                    Index = index,
+                    Action = CameraActionType.ExitWatch,
+                    Trajectory = traj,
+                    Flags = flags
+                };
+                if (loopCameraEvent)
+                    OnLoopCameraAction?.Invoke(evt);
+                else
+                    OnOverlapCameraAction?.Invoke(evt);
+
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "anchor-rotation-unreliable-exit-watch-" + index.ToString(CultureInfo.InvariantCulture),
+                    "anchor-rotation-unreliable: exiting direct debris watch for ghost #"
+                    + index.ToString(CultureInfo.InvariantCulture)
+                    + " \"" + (traj?.VesselName ?? state?.vesselName ?? "(unknown)") + "\" "
+                    + "playbackUT=" + playbackUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " phase=" + (phase ?? "(unknown)"),
+                    1.0);
+            }
+
+            CountFrameSkip(GhostPlaybackSkipReason.AnchorRotationUnreliable);
+            GhostRenderTrace.EmitGuardSkip(
+                traj,
+                index,
+                frameUT,
+                "anchor-rotation-unreliable phase=" + (phase ?? "(unknown)")
+                + " scope=" + playbackScope
+                + " anchorRecordingId=" + (decision.AnchorRecordingId ?? "(none)")
+                + " playbackUT=" + playbackUT.ToString("R", CultureInfo.InvariantCulture)
+                + " bracketDeg=" + decision.BracketDegrees.ToString("F2", CultureInfo.InvariantCulture)
+                + " rateDegPerSec=" + decision.RateDegreesPerSecond.ToString("F1", CultureInfo.InvariantCulture)
+                + " offsetMeters=" + decision.OffsetMeters.ToString("F1", CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        private static string BuildAnchorRotationHysteresisScope(
+            GhostPlaybackState state,
+            string phase)
+        {
+            string label = string.IsNullOrEmpty(phase) ? "(unknown)" : phase;
+            if (state == null)
+                return label;
+
+            return label + "|cycle=" + state.loopCycleIndex.ToString(CultureInfo.InvariantCulture);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void HideAnchorRotationUnreliableState(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            float warpRate)
+        {
+            if (state == null)
+                return;
+
+            state.anchorRetiredThisFrame = true;
+            state.parentAnchoredDebrisCoverageRetired = false;
+            if (state.ghost != null && state.ghost.activeSelf)
+                state.ghost.SetActive(false);
+            if (HasLoadedGhostVisuals(state))
+            {
+                ApplyFrameVisuals(
+                    index,
+                    traj,
+                    state,
+                    playbackUT,
+                    warpRate,
+                    skipPartEvents: true,
+                    suppressVisualFx: true,
+                    allowTransientEffects: false);
+            }
+            ResetGhostAppearanceTracking(state);
+        }
+
         private bool TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
             int index,
             IPlaybackTrajectory traj,
@@ -2717,11 +2866,30 @@ namespace Parsek
         private void PositionLoopAtPlaybackUT(
             int index,
             IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags,
             GhostPlaybackState state,
             double loopUT,
+            double frameUT,
+            float warpRate,
             bool suppressFx,
+            bool emitExitWatch,
             string callsite)
         {
+            if (TryHideForAnchorRotationUnreliable(
+                    index,
+                    traj,
+                    flags,
+                    state,
+                    loopUT,
+                    frameUT,
+                    warpRate,
+                    callsite,
+                    emitExitWatch,
+                    loopCameraEvent: true))
+            {
+                return;
+            }
+
             if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     index, traj, state, loopUT, callsite))
                 return;
@@ -4170,6 +4338,7 @@ namespace Parsek
             frameSkipSupersededByRelation = 0;
             frameSkipRewindRetired = 0;
             frameSkipSpawnSuppressedDeadOnArrival = 0;
+            frameSkipAnchorRotationUnreliable = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
