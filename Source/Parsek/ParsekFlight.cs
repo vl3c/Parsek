@@ -3683,6 +3683,63 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Applies a late destruction callback to a stopped recorder capture. Leaves
+        /// <see cref="Recording.TerminalStateValue"/> as the pre-override diagnostic
+        /// value; commit paths derive the final terminal state from VesselDestroyed.
+        /// </summary>
+        internal static bool ApplyPendingSplitDestructionToCapturedRecording(
+            Recording captured,
+            bool vesselDestroyedDuringRecording,
+            string source)
+        {
+            if (captured == null || !vesselDestroyedDuringRecording)
+                return false;
+            if (captured.VesselDestroyed)
+                return false;
+
+            TerminalState? priorTerminal = captured.TerminalStateValue;
+            captured.VesselDestroyed = true;
+
+            ParsekLog.Info("Flight",
+                $"Pending split destruction override: capture='{captured.RecordingId ?? "(null)"}' " +
+                $"source={source ?? "(null)"} priorTerminal={priorTerminal?.ToString() ?? "null"} " +
+                $"points={captured.Points?.Count ?? 0} snapshot={captured.VesselSnapshot != null}");
+            return true;
+        }
+
+        /// <summary>
+        /// Copies a stopped split capture onto the standalone fallback recording when no
+        /// active tree accepts the capture.
+        /// </summary>
+        internal static void ApplyCapturedSplitStateToStandaloneRecording(Recording rec, Recording captured)
+        {
+            if (rec == null || captured == null)
+                return;
+
+            rec.VesselSnapshot = captured.VesselSnapshot;
+            rec.GhostVisualSnapshot = captured.GhostVisualSnapshot;
+            rec.VesselDestroyed = captured.VesselDestroyed;
+            rec.VesselSituation = captured.VesselSituation;
+            rec.DistanceFromLaunch = captured.DistanceFromLaunch;
+            rec.MaxDistanceFromLaunch = captured.MaxDistanceFromLaunch;
+            rec.PreLaunchFunds = captured.PreLaunchFunds;
+            rec.PreLaunchScience = captured.PreLaunchScience;
+            rec.PreLaunchReputation = captured.PreLaunchReputation;
+            rec.RewindSaveFileName = captured.RewindSaveFileName;
+            rec.RewindReservedFunds = captured.RewindReservedFunds;
+            rec.RewindReservedScience = captured.RewindReservedScience;
+            rec.RewindReservedRep = captured.RewindReservedRep;
+            rec.CopyStartLocationFrom(captured);
+            rec.EndBiome = captured.EndBiome;
+
+            if (captured.VesselDestroyed)
+            {
+                rec.TerminalStateValue = TerminalState.Destroyed;
+                ParsekLog.Verbose("Flight", "FallbackCommitSplitRecorder: set TerminalState=Destroyed");
+            }
+        }
+
+        /// <summary>
         /// Tags the recording's SegmentPhase and SegmentBodyName based on the vessel's current
         /// body and altitude, if not already set. No-op if SegmentPhase is already non-empty
         /// or vessel/mainBody is null.
@@ -4292,6 +4349,10 @@ namespace Parsek
             if (splitRec?.CaptureAtStop == null) return;
 
             var captured = splitRec.CaptureAtStop;
+            ApplyPendingSplitDestructionToCapturedRecording(
+                captured,
+                splitRec.VesselDestroyedDuringRecording,
+                "FallbackCommitSplitRecorder.entry");
 
             // Bug #297: when in tree mode, append to the active tree recording
             // instead of orphaning data as a standalone recording.
@@ -4310,34 +4371,11 @@ namespace Parsek
                 return;
             }
 
-            // Copy snapshot/vessel state to the recording
-            rec.VesselSnapshot = captured.VesselSnapshot;
-            rec.GhostVisualSnapshot = captured.GhostVisualSnapshot;
-            rec.VesselDestroyed = captured.VesselDestroyed;
-            rec.VesselSituation = captured.VesselSituation;
-            rec.DistanceFromLaunch = captured.DistanceFromLaunch;
-            rec.MaxDistanceFromLaunch = captured.MaxDistanceFromLaunch;
-            rec.PreLaunchFunds = captured.PreLaunchFunds;
-            rec.PreLaunchScience = captured.PreLaunchScience;
-            rec.PreLaunchReputation = captured.PreLaunchReputation;
-            rec.RewindSaveFileName = captured.RewindSaveFileName;
-            rec.RewindReservedFunds = captured.RewindReservedFunds;
-            rec.RewindReservedScience = captured.RewindReservedScience;
-            rec.RewindReservedRep = captured.RewindReservedRep;
-
-            // Location context (Phase 10)
-            rec.CopyStartLocationFrom(captured);
-            rec.EndBiome = captured.EndBiome;
+            // Copy snapshot/vessel state and location context to the recording.
+            ApplyCapturedSplitStateToStandaloneRecording(rec, captured);
 
             // Preserve chain membership if this segment was part of a chain
             chainManager.ApplyChainMetadataTo(rec);
-
-            // Set terminal state for destroyed vessels
-            if (captured.VesselDestroyed)
-            {
-                rec.TerminalStateValue = TerminalState.Destroyed;
-                ParsekLog.Verbose("Flight", "FallbackCommitSplitRecorder: set TerminalState=Destroyed");
-            }
 
             // Tag segment phase if untagged
             TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
@@ -13656,7 +13694,7 @@ namespace Parsek
                         power,
                         len,
                         $"manual preview \"{previewRecording.VesselName}\"",
-                        "manual-preview-stock-explosion-audio-busy");
+                        "manual-preview-stock-explosion-visual-only-busy");
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);

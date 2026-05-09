@@ -5996,7 +5996,7 @@ namespace Parsek
                 power,
                 vesselLength,
                 $"ghost #{recIdx} \"{traj.VesselName}\"",
-                "stock-explosion-audio-busy");
+                $"stock-explosion-visual-only-busy-{recIdx}");
 
             GhostPlaybackLogic.HideAllGhostParts(state);
             ParsekLog.VerboseRateLimited("Engine", "parts-hidden-explosion",
