@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** committed-science cache rebuild now derives per-subject credits from the full Effective Ledger Set while leaving the live `ScienceModule` and KSP patch path at the cutoff UT. Full walks still rebuild from the surviving ledger, so subjects whose ledger rows were deleted are pruned.
 
-**Coverage:** `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffWalk_KeepsFutureScienceInCommittedCacheOnly` and `CommittedScienceCacheRebuildTests.RecalculateAndPatch_FullWalk_PrunesDeletedScienceSubjectsFromCommittedCache`.
+**Coverage:** `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffWalk_KeepsFutureScienceInCommittedCacheOnly`, `CommittedScienceCacheRebuildTests.RecalculateAndPatch_FullWalk_PrunesDeletedScienceSubjectsFromCommittedCache`, and `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffThenFullWalk_DoesNotDriftCommittedCache`.
 
 **Status:** CLOSED 2026-05-06.
 
