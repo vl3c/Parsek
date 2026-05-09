@@ -3142,8 +3142,15 @@ namespace Parsek
                 }
                 else
                 {
+                    // Same vesselTransform contract as TryResolveBackgroundAnchorPoseForCandidate:
+                    // the seed fallback (used when both queued-parent-seed and
+                    // recorded-parent-pose resolution fail) and the live candidate's
+                    // stored WorldPos must share the surface-pose frame the parent's
+                    // recorded lla lives in. GetWorldPos3D (CoMD) here would re-introduce
+                    // a smaller version of the same CoM-vs-vesselTransform mismatch on
+                    // the warn-logged failure path.
                     var liveAnchorPose = new AnchorPose(
-                        parentVessel.GetWorldPos3D(),
+                        (Vector3d)parentVessel.transform.position,
                         parentVessel.transform.rotation,
                         -1,
                         treeRecForDebris.DebrisParentRecordingId);
