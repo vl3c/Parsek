@@ -748,6 +748,46 @@ namespace Parsek.Tests
                 l.Contains("c-terminal"));
         }
 
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void Recalculate_CompleteSameUtAsExplicitFailOrCancel_DoesNotPayRewards(
+            GameActionType type)
+        {
+            var contracts = new ContractsModule();
+            var funds = new FundsModule();
+            var science = new ScienceModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.SecondTier);
+
+            var complete = ContractComplete(400.0, "c-same-ut", funds: 1000f, sci: 7f);
+            complete.Sequence = 2;
+            var penalty = ContractPenalty(type, 400.0, "c-same-ut", fundsPenalty: 300f);
+            penalty.Sequence = 1;
+            var actions = new List<GameAction>
+            {
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-same-ut",
+                    advance: 100f, deadlineUt: 500f, fundsPenalty: 500f),
+                penalty,
+                complete
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.False(complete.Effective);
+            Assert.Equal(9800.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, science.GetRunningScience(), 3);
+            Assert.False(contracts.IsContractCredited("c-same-ut"));
+            Assert.Equal(0, contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("Complete") &&
+                l.Contains("effective=false") &&
+                l.Contains("same/prior UT"));
+        }
+
         [Fact]
         public void Recalculate_MultipleFirstTierModules()
         {

@@ -42,6 +42,14 @@ namespace Parsek
         private readonly HashSet<string> explicitlyResolvedContracts = new HashSet<string>();
 
         /// <summary>
+        /// Earliest explicit fail/cancel UT seen by PrePass for the currently
+        /// accepted lifecycle epoch. This protects replay from same-UT sort
+        /// ordering where ContractComplete is processed before fail/cancel.
+        /// </summary>
+        private readonly Dictionary<string, double> prepassExplicitResolutionUT
+            = new Dictionary<string, double>();
+
+        /// <summary>
         /// Mission Control slot limit. Determined by building level.
         /// Default 2 for level 1 (KSP stock).
         /// </summary>
@@ -78,15 +86,18 @@ namespace Parsek
             int prevCredited = creditedContracts.Count;
             int prevExpired = deadlineExpiredContracts.Count;
             int prevResolved = explicitlyResolvedContracts.Count;
+            int prevPrepassResolved = prepassExplicitResolutionUT.Count;
 
             activeContracts.Clear();
             creditedContracts.Clear();
             deadlineExpiredContracts.Clear();
             explicitlyResolvedContracts.Clear();
+            prepassExplicitResolutionUT.Clear();
 
             ParsekLog.Verbose(Tag,
                 $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts, " +
-                $"{prevExpired} deadline-expired contracts, {prevResolved} explicitly resolved contracts");
+                $"{prevExpired} deadline-expired contracts, {prevResolved} explicitly resolved contracts, " +
+                $"{prevPrepassResolved} prepass explicit resolutions");
         }
 
         /// <inheritdoc/>
@@ -110,26 +121,34 @@ namespace Parsek
 
             // Track accepted contracts with deadlines: contractId -> accept action
             var tracked = new Dictionary<string, GameAction>();
+            var activeAcceptUT = new Dictionary<string, double>();
+            prepassExplicitResolutionUT.Clear();
 
             // Walk all actions to find unresolved contracts with deadlines
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];
+                string id = action.ContractId;
                 switch (action.Type)
                 {
                     case GameActionType.ContractAccept:
-                        if (!float.IsNaN(action.DeadlineUT) && action.ContractId != null)
-                            tracked[action.ContractId] = action;
+                        if (id != null)
+                        {
+                            activeAcceptUT[id] = action.UT;
+                            prepassExplicitResolutionUT.Remove(id);
+                            if (!float.IsNaN(action.DeadlineUT))
+                                tracked[id] = action;
+                        }
                         break;
 
                     case GameActionType.ContractComplete:
-                        if (action.ContractId != null)
+                        if (id != null)
                         {
                             GameAction accept;
-                            if (tracked.TryGetValue(action.ContractId, out accept)
+                            if (tracked.TryGetValue(id, out accept)
                                 && IsBeforeContractDeadline(action.UT, accept.DeadlineUT))
                             {
-                                tracked.Remove(action.ContractId);
+                                tracked.Remove(id);
                             }
                         }
                         break;
@@ -138,8 +157,21 @@ namespace Parsek
                     case GameActionType.ContractCancel:
                         // Explicit resolution already applies its own penalty; after
                         // deadline it must not receive an additional synthetic fail.
-                        if (action.ContractId != null)
-                            tracked.Remove(action.ContractId);
+                        if (id != null)
+                        {
+                            double acceptUT;
+                            if (activeAcceptUT.TryGetValue(id, out acceptUT)
+                                && action.UT >= acceptUT)
+                            {
+                                double existing;
+                                if (!prepassExplicitResolutionUT.TryGetValue(id, out existing)
+                                    || action.UT < existing)
+                                {
+                                    prepassExplicitResolutionUT[id] = action.UT;
+                                }
+                            }
+                            tracked.Remove(id);
+                        }
                         break;
                 }
             }
@@ -275,6 +307,17 @@ namespace Parsek
                     $"Complete: contractId='{id}' effective=false (explicitly resolved), " +
                     $"rewards zeroed");
             }
+            else if (HasPrepassExplicitResolutionAtOrBefore(id, action.UT))
+            {
+                // SortActions processes ContractComplete before ContractFail/Cancel
+                // at the same UT. PrePass sees the whole walk and makes that
+                // same-tick explicit terminal state authoritative.
+                action.Effective = false;
+
+                ParsekLog.Info(Tag,
+                    $"Complete: contractId='{id}' effective=false " +
+                    $"(explicitly resolved at same/prior UT), rewards zeroed");
+            }
             else
             {
                 // First completion — credit awarded
@@ -346,6 +389,16 @@ namespace Parsek
                 $"repPenalty={action.RepPenalty} " +
                 $"wasActive={wasActive} " +
                 $"activeSlots={activeContracts.Count}/{maxSlots}");
+        }
+
+        private bool HasPrepassExplicitResolutionAtOrBefore(string contractId, double completeUT)
+        {
+            if (string.IsNullOrEmpty(contractId))
+                return false;
+
+            double resolutionUT;
+            return prepassExplicitResolutionUT.TryGetValue(contractId, out resolutionUT)
+                && resolutionUT <= completeUT;
         }
 
         private void ProcessCancel(GameAction action)

@@ -278,6 +278,38 @@ namespace Parsek.Tests
                 l.Contains("c1"));
         }
 
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void CompleteAtSameUtAsExplicitFailOrCancel_NotEffectiveAfterPrePass(
+            GameActionType resolutionType)
+        {
+            var accept = MakeAccept("c1", ut: 100, deadlineUT: 1000f);
+            var complete = MakeComplete("c1", ut: 400);
+            var resolution = resolutionType == GameActionType.ContractFail
+                ? MakeFail("c1", ut: 400)
+                : MakeCancel("c1", ut: 400);
+            var actions = RecalculationEngine.SortActions(new List<GameAction>
+            {
+                accept,
+                resolution,
+                complete
+            });
+
+            module.PrePass(actions);
+            for (int i = 0; i < actions.Count; i++)
+                module.ProcessAction(actions[i]);
+
+            Assert.False(complete.Effective);
+            Assert.False(module.IsContractCredited("c1"));
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("effective=false") &&
+                l.Contains("same/prior UT") &&
+                l.Contains("c1"));
+        }
+
         [Fact]
         public void DuplicateCompletion_NotEffective()
         {
