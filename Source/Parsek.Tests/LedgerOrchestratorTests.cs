@@ -958,15 +958,16 @@ namespace Parsek.Tests
         {
             LedgerOrchestrator.Initialize();
 
-            // Upgrade Mission Control to level 2 and accept a contract in the same walk.
+            // Upgrade Mission Control to tier 2 and accept a contract in the same walk.
             // The final availability must use level-2 slots after a single recalc.
-            Ledger.AddAction(new GameAction
+            Ledger.AddAction(GameStateEventConverter.ConvertEvent(new GameStateEvent
             {
-                UT = 10.0,
-                Type = GameActionType.FacilityUpgrade,
-                FacilityId = "MissionControl",
-                ToLevel = 2
-            });
+                ut = 10.0,
+                eventType = GameStateEventType.FacilityUpgraded,
+                key = "MissionControl",
+                valueBefore = 0.0,
+                valueAfter = 0.5
+            }, null));
             Ledger.AddAction(new GameAction
             {
                 UT = 20.0,
@@ -989,15 +990,16 @@ namespace Parsek.Tests
         {
             LedgerOrchestrator.Initialize();
 
-            // Upgrade Administration to level 3 and activate a strategy in the same walk.
+            // Upgrade Administration to tier 3 and activate a strategy in the same walk.
             // The final availability must use level-3 slots after a single recalc.
-            Ledger.AddAction(new GameAction
+            Ledger.AddAction(GameStateEventConverter.ConvertEvent(new GameStateEvent
             {
-                UT = 10.0,
-                Type = GameActionType.FacilityUpgrade,
-                FacilityId = "Administration",
-                ToLevel = 3
-            });
+                ut = 10.0,
+                eventType = GameStateEventType.FacilityUpgraded,
+                key = "Administration",
+                valueBefore = 0.5,
+                valueAfter = 1.0
+            }, null));
             Ledger.AddAction(new GameAction
             {
                 UT = 20.0,

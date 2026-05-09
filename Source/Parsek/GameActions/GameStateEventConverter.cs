@@ -470,8 +470,10 @@ namespace Parsek
             if (costStr != null)
                 float.TryParse(costStr, NumberStyles.Float, IC, out cost);
 
-            // KSP facility levels are normalized 0-1; convert using max level 2 (3 tiers: 0, 0.5, 1.0)
-            int toLevel = (int)Math.Round(evt.valueAfter * 2);
+            // KSP facility levels are normalized 0-1 for stock's three tiers:
+            // 0.0 = tier 1, 0.5 = tier 2, 1.0 = tier 3. GameAction.ToLevel is
+            // stored as the same 1-based tier number FacilitiesModule uses.
+            int toLevel = (int)Math.Round(evt.valueAfter * 2) + 1;
             if (toLevel < 1) toLevel = 1;
 
             return new GameAction

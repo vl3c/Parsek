@@ -149,7 +149,7 @@ namespace Parsek.Tests
         [Fact]
         public void ConvertEvent_FacilityUpgraded_ReturnsFacilityUpgrade()
         {
-            // Normalized level 0.5 = level 1 (out of 2), target = round(0.5*2) = 1
+            // Normalized level 0.5 = KSP tier 2.
             var evt = MakeEvent(GameStateEventType.FacilityUpgraded, 3000.0,
                 key: "LaunchPad", detail: "cost=75000",
                 valBefore: 0.0, valAfter: 0.5);
@@ -158,20 +158,20 @@ namespace Parsek.Tests
             Assert.NotNull(action);
             Assert.Equal(GameActionType.FacilityUpgrade, action.Type);
             Assert.Equal("LaunchPad", action.FacilityId);
-            Assert.Equal(1, action.ToLevel);
+            Assert.Equal(2, action.ToLevel);
             Assert.Equal(75000f, action.FacilityCost);
         }
 
         [Fact]
-        public void ConvertEvent_FacilityUpgraded_FullUpgrade_Level2()
+        public void ConvertEvent_FacilityUpgraded_FullUpgrade_Level3()
         {
-            // Normalized level 1.0 = level 2 (fully upgraded)
+            // Normalized level 1.0 = KSP tier 3 (fully upgraded).
             var evt = MakeEvent(GameStateEventType.FacilityUpgraded, 4000.0,
                 key: "VehicleAssemblyBuilding", valBefore: 0.5, valAfter: 1.0);
             var action = GameStateEventConverter.ConvertEvent(evt, "rec5");
 
             Assert.NotNull(action);
-            Assert.Equal(2, action.ToLevel);
+            Assert.Equal(3, action.ToLevel);
         }
 
         // ================================================================
