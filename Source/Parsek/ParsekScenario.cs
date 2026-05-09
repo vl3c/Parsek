@@ -37,6 +37,7 @@ namespace Parsek
         // the empty-default on pre-feature saves.
         public List<RewindPoint> RewindPoints = new List<RewindPoint>();
         public List<RecordingSupersedeRelation> RecordingSupersedes = new List<RecordingSupersedeRelation>();
+        public List<RecordingRewindRetirement> RecordingRewindRetirements = new List<RecordingRewindRetirement>();
         public List<LedgerTombstone> LedgerTombstones = new List<LedgerTombstone>();
 
         /// <summary>Singleton; non-null only during an active re-fly session.</summary>
@@ -47,8 +48,8 @@ namespace Parsek
 
         // Phase 2 (Rewind-to-Staging): state-version counters consumed by
         // <see cref="EffectiveState"/> to invalidate ERS/ELS caches. Production
-        // code bumps these whenever <see cref="RecordingSupersedes"/> or
-        // <see cref="LedgerTombstones"/> mutate; the OnLoad path bumps on load
+        // code bumps these whenever <see cref="RecordingSupersedes"/>,
+        // <see cref="RecordingRewindRetirements"/>, or <see cref="LedgerTombstones"/> mutate; the OnLoad path bumps on load
         // (every load invalidates caches). Public field so test helpers can
         // read the counter value for cache-invalidation assertions.
         public int SupersedeStateVersion;
@@ -57,6 +58,7 @@ namespace Parsek
         /// <summary>
         /// Bumps <see cref="SupersedeStateVersion"/>. Called by any code path
         /// that adds / removes / clears entries in <see cref="RecordingSupersedes"/>
+        /// or <see cref="RecordingRewindRetirements"/>
         /// so <see cref="EffectiveState.ComputeERS"/> knows to rebuild.
         /// </summary>
         public void BumpSupersedeStateVersion()
@@ -76,7 +78,7 @@ namespace Parsek
 
         // Phase 2 (Rewind-to-Staging): static accessor for the live scenario
         // module. EffectiveState reads <see cref="RecordingSupersedes"/>,
-        // <see cref="LedgerTombstones"/>, and <see cref="ActiveReFlySessionMarker"/>
+        // <see cref="RecordingRewindRetirements"/>, <see cref="LedgerTombstones"/>, and <see cref="ActiveReFlySessionMarker"/>
         // through this field. Maintained by OnAwake / OnDestroy so the value
         // tracks whichever ScenarioModule KSP currently owns.
         private static ParsekScenario s_instance;
@@ -899,6 +901,7 @@ namespace Parsek
         {
             node.RemoveNodes("REWIND_POINTS");
             node.RemoveNodes("RECORDING_SUPERSEDES");
+            node.RemoveNodes("RECORDING_REWIND_RETIREMENTS");
             node.RemoveNodes("LEDGER_TOMBSTONES");
             node.RemoveNodes(ReFlySessionMarker.NodeName);
             node.RemoveNodes(MergeJournal.NodeName);
@@ -924,6 +927,18 @@ namespace Parsek
                     if (RecordingSupersedes[i] == null) continue;
                     RecordingSupersedes[i].SaveInto(parent);
                     supersedeCount++;
+                }
+            }
+
+            int retirementCount = 0;
+            if (RecordingRewindRetirements != null && RecordingRewindRetirements.Count > 0)
+            {
+                var parent = node.AddNode("RECORDING_REWIND_RETIREMENTS");
+                for (int i = 0; i < RecordingRewindRetirements.Count; i++)
+                {
+                    if (RecordingRewindRetirements[i] == null) continue;
+                    RecordingRewindRetirements[i].SaveInto(parent);
+                    retirementCount++;
                 }
             }
 
@@ -962,6 +977,7 @@ namespace Parsek
             // works even when the summary line changes shape.
             ParsekLog.Info("Rewind", $"RewindPoints saved: {rpCount}");
             ParsekLog.Info("Supersede", $"RecordingSupersedes saved: {supersedeCount}");
+            ParsekLog.Info("Rewind", $"RecordingRewindRetirements saved: {retirementCount}");
             ParsekLog.Info("LedgerSwap", $"LedgerTombstones saved: {tombCount}");
             ParsekLog.Info("ReFlySession",
                 $"Marker saved: {(markerWritten ? (markerSessionId ?? "<no-id>") : "none")}");
@@ -970,6 +986,7 @@ namespace Parsek
 
             ParsekLog.Info("Scenario",
                 $"OnSave: rewind-staging persist: rewindPoints={rpCount} supersedes={supersedeCount} " +
+                $"rewindRetirements={retirementCount} " +
                 $"tombstones={tombCount} marker={markerWritten} journal={journalWritten}");
         }
 
@@ -982,6 +999,7 @@ namespace Parsek
         {
             RewindPoints = new List<RewindPoint>();
             RecordingSupersedes = new List<RecordingSupersedeRelation>();
+            RecordingRewindRetirements = new List<RecordingRewindRetirement>();
             LedgerTombstones = new List<LedgerTombstone>();
             ActiveReFlySessionMarker = null;
             ActiveMergeJournal = null;
@@ -1007,6 +1025,14 @@ namespace Parsek
                 var entries = sParent.GetNodes("ENTRY");
                 for (int i = 0; i < entries.Length; i++)
                     RecordingSupersedes.Add(RecordingSupersedeRelation.LoadFrom(entries[i]));
+            }
+
+            ConfigNode rParent = node.GetNode("RECORDING_REWIND_RETIREMENTS");
+            if (rParent != null)
+            {
+                var entries = rParent.GetNodes("ENTRY");
+                for (int i = 0; i < entries.Length; i++)
+                    RecordingRewindRetirements.Add(RecordingRewindRetirement.LoadFrom(entries[i]));
             }
 
             ConfigNode tParent = node.GetNode("LEDGER_TOMBSTONES");
@@ -1058,6 +1084,8 @@ namespace Parsek
             ParsekLog.Info("Rewind", $"RewindPoints loaded: {RewindPoints.Count}");
             ParsekLog.Info("Supersede",
                 $"RecordingSupersedes loaded: {RecordingSupersedes.Count}");
+            ParsekLog.Info("Rewind",
+                $"RecordingRewindRetirements loaded: {RecordingRewindRetirements.Count}");
             ParsekLog.Info("LedgerSwap",
                 $"LedgerTombstones loaded: {LedgerTombstones.Count}");
             ParsekLog.Info("ReFlySession",
@@ -1067,7 +1095,8 @@ namespace Parsek
 
             ParsekLog.Info("Scenario",
                 $"OnLoad: rewind-staging load: rewindPoints={RewindPoints.Count} " +
-                $"supersedes={RecordingSupersedes.Count} tombstones={LedgerTombstones.Count} " +
+                $"supersedes={RecordingSupersedes.Count} rewindRetirements={RecordingRewindRetirements.Count} " +
+                $"tombstones={LedgerTombstones.Count} " +
                 $"marker={(ActiveReFlySessionMarker != null)} journal={(ActiveMergeJournal != null)}");
 
             // Phase 2: a new load invalidates every derived cache. Bump both

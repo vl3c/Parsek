@@ -109,6 +109,7 @@ namespace Parsek
 
             int rpsPurged = PurgeRewindPoints(scenario, branchPointIds, treeId);
             int supersedesPurged = PurgeSupersedeRelations(scenario, recordingIds, treeId);
+            int retirementsPurged = PurgeRewindRetirements(scenario, recordingIds, treeId);
             int tombstonesPurged = PurgeLedgerTombstones(scenario, recordingIds, treeId);
 
             // Recompute reservations whenever tombstones shrunk (kerbals in
@@ -129,12 +130,13 @@ namespace Parsek
             bool markerCleared = ClearMarkerIfScopedToTree(scenario, treeId);
             bool journalCleared = ClearJournalIfScopedToTree(scenario, treeId);
 
-            if (supersedesPurged > 0) scenario.BumpSupersedeStateVersion();
+            if (supersedesPurged > 0 || retirementsPurged > 0) scenario.BumpSupersedeStateVersion();
             if (tombstonesPurged > 0) scenario.BumpTombstoneStateVersion();
 
             ParsekLog.Info(RewindTag,
                 $"PurgeTree: tree={treeId} rps={rpsPurged.ToString(CultureInfo.InvariantCulture)} " +
                 $"supersedes={supersedesPurged.ToString(CultureInfo.InvariantCulture)} " +
+                $"rewindRetirements={retirementsPurged.ToString(CultureInfo.InvariantCulture)} " +
                 $"tombstones={tombstonesPurged.ToString(CultureInfo.InvariantCulture)} " +
                 $"markerCleared={markerCleared.ToString()} journalCleared={journalCleared.ToString()}");
         }
@@ -343,6 +345,35 @@ namespace Parsek
                 ParsekLog.Info(SupersedeTag,
                     $"Purged supersede relation={rel.RelationId ?? "<no-id>"} " +
                     $"old={rel.OldRecordingId ?? "<no-id>"} new={rel.NewRecordingId ?? "<no-id>"} tree={treeId}");
+                purged++;
+            }
+            return purged;
+        }
+
+        private static int PurgeRewindRetirements(
+            ParsekScenario scenario, HashSet<string> recordingIds, string treeId)
+        {
+            if (scenario.RecordingRewindRetirements == null || scenario.RecordingRewindRetirements.Count == 0)
+                return 0;
+            if (recordingIds == null || recordingIds.Count == 0)
+                return 0;
+
+            int purged = 0;
+            for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
+            {
+                var retirement = scenario.RecordingRewindRetirements[i];
+                if (retirement == null) continue;
+                bool retiredIn = !string.IsNullOrEmpty(retirement.RecordingId)
+                                 && recordingIds.Contains(retirement.RecordingId);
+                bool restoredIn = !string.IsNullOrEmpty(retirement.RestoredRecordingId)
+                                  && recordingIds.Contains(retirement.RestoredRecordingId);
+                if (!retiredIn && !restoredIn) continue;
+
+                scenario.RecordingRewindRetirements.RemoveAt(i);
+                ParsekLog.Info(SupersedeTag,
+                    $"Purged rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
+                    $"recording={retirement.RecordingId ?? "<no-id>"} " +
+                    $"restored={retirement.RestoredRecordingId ?? "<no-id>"} tree={treeId}");
                 purged++;
             }
             return purged;

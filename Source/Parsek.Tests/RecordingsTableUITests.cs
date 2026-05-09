@@ -1803,6 +1803,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildGroupTreeData_RewindRetiredRecording_HidesFork()
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_fork",
+                        RecordingId = "rewound-fork",
+                        RestoredRecordingId = "restored-original",
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            var committed = new List<Recording>
+            {
+                new Recording
+                {
+                    RecordingId = "restored-original",
+                    VesselName = "Restored Original",
+                    RecordingGroups = new List<string> { "Launch" }
+                },
+                new Recording
+                {
+                    RecordingId = "rewound-fork",
+                    VesselName = "Rewound Fork",
+                    RecordingGroups = new List<string> { "Launch" }
+                }
+            };
+
+            ParsekUI.BuildGroupTreeData(
+                committed, new int[] { 0, 1 }, new List<string>(),
+                out var grpToRecs, out var chainToRecs, out var grpChildren,
+                out var rootGrps, out var rootChainIds);
+
+            Assert.True(grpToRecs.ContainsKey("Launch"));
+            Assert.Contains(0, grpToRecs["Launch"]);
+            Assert.DoesNotContain(1, grpToRecs["Launch"]);
+        }
+
+        [Fact]
         public void BuildGroupTreeData_ChainWithNoGroups_IsRootChain()
         {
             var committed = new List<Recording>

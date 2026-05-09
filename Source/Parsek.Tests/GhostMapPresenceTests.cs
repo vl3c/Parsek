@@ -3292,6 +3292,53 @@ namespace Parsek.Tests
             Assert.False(shouldOld);
         }
 
+        [Fact]
+        public void ChainAware_RewindRetirementSuppressesRetiredRecording()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording
+                {
+                    RecordingId = "rewound-probe-booster",
+                    ExplicitStartUT = 100,
+                    TerminalStateValue = null,
+                    TerminalOrbitBody = "Kerbin",
+                    TerminalOrbitSemiMajorAxis = 700000
+                },
+                new Recording
+                {
+                    RecordingId = "restored-probe-booster",
+                    ExplicitStartUT = 100,
+                    TerminalStateValue = null,
+                    TerminalOrbitBody = "Kerbin",
+                    TerminalOrbitSemiMajorAxis = 800000
+                }
+            };
+            var retirements = new List<RecordingRewindRetirement>
+            {
+                new RecordingRewindRetirement
+                {
+                    RetirementId = "rrt_probe",
+                    RecordingId = "rewound-probe-booster",
+                    RestoredRecordingId = "restored-probe-booster",
+                    Reason = RecordingRewindRetirement.DefaultReason
+                }
+            };
+
+            var suppressed = GhostMapPresence.FindTrackingStationSuppressedRecordingIds(
+                recs,
+                300,
+                supersedes: null,
+                retirements: retirements);
+
+            Assert.Contains("rewound-probe-booster", suppressed);
+            Assert.DoesNotContain("restored-probe-booster", suppressed);
+
+            var (shouldRetired, _) = GhostMapPresence.ShouldCreateTrackingStationGhost(
+                recs[0], suppressed.Contains(recs[0].RecordingId), 300);
+            Assert.False(shouldRetired);
+        }
+
         /// <summary>
         /// Standalone recording (no chain) with orbit data: ghost created.
         /// </summary>

@@ -36,6 +36,20 @@ mainline tests they remember were Rewind-without-prior-Re-Fly (no supersedes
 existed → no suppression → ghost replays). The stack tests were
 Rewind-after-Re-Fly. Same flow on mainline produces the same suppression.
 
+## Follow-up: relation drop alone restored too much
+
+The first rollback fix correctly restored the old source recording, but it also
+left the future fork recording committed and playable. In the PR #776/#777
+watch-mode repro (`logs/2026-05-09_0002_double-ghost-probe-booster`), dropping
+the probe supersede row restored original probe branch `#8` while Re-Fly
+continuation `#11` remained active, so watch mode rendered both.
+
+The follow-up plan and implementation live in
+`docs/dev/plans/fix-watch-double-probe-ghost-after-rewind.md`. The relation drop
+now pairs with `RecordingRewindRetirement`: the old source becomes active again,
+and the rewound-out fork is persisted as inactive timeline state with
+`rewind-retired` playback/log reason.
+
 ## Goals
 
 - After Rewind-to-Launch on a recording, supersede relations whose forks
