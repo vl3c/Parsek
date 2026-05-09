@@ -3142,8 +3142,15 @@ namespace Parsek
                 }
                 else
                 {
+                    // Same vesselTransform contract as TryResolveBackgroundAnchorPoseForCandidate:
+                    // the seed fallback (used when both queued-parent-seed and
+                    // recorded-parent-pose resolution fail) and the live candidate's
+                    // stored WorldPos must share the surface-pose frame the parent's
+                    // recorded lla lives in. GetWorldPos3D (CoMD) here would re-introduce
+                    // a smaller version of the same CoM-vs-vesselTransform mismatch on
+                    // the warn-logged failure path.
                     var liveAnchorPose = new AnchorPose(
-                        parentVessel.GetWorldPos3D(),
+                        (Vector3d)parentVessel.transform.position,
                         parentVessel.transform.rotation,
                         -1,
                         treeRecForDebris.DebrisParentRecordingId);
@@ -4588,8 +4595,18 @@ namespace Parsek
                 Vessel liveAnchor = FlightRecorder.FindVesselByPid(candidate.DiagnosticPid);
                 if (liveAnchor != null && liveAnchor.loaded)
                 {
+                    // Match the recorded surface-pose frame: KSP's UpdatePosVel writes
+                    // Vessel.latitude/longitude/altitude from vesselTransform.position
+                    // and srfRelRotation from vesselTransform.rotation, so playback
+                    // (body.GetWorldSurfacePosition of the recorded lla) reconstructs
+                    // a vesselTransform-aligned anchor world position. The previous
+                    // GetWorldPos3D (CoM) source baked the parent's CoM-to-vesselTransform
+                    // vector into every relative ordinary offset. Use vessel.transform
+                    // explicitly, not GetTransform() — the latter follows
+                    // ReferenceTransform ("Control From Here") which is not the surface
+                    // pose contract.
                     pose = new AnchorPose(
-                        liveAnchor.GetWorldPos3D(),
+                        (Vector3d)liveAnchor.transform.position,
                         liveAnchor.transform.rotation,
                         -1,
                         candidate.RecordingId);

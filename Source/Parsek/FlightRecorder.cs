@@ -7424,8 +7424,18 @@ namespace Parsek
                 Vessel liveAnchor = FindVesselByPid(candidate.DiagnosticPid);
                 if (liveAnchor != null && liveAnchor.loaded)
                 {
+                    // Match the recorded surface-pose frame: KSP's UpdatePosVel writes
+                    // Vessel.latitude/longitude/altitude from vesselTransform.position
+                    // and srfRelRotation from vesselTransform.rotation, so playback
+                    // (body.GetWorldSurfacePosition of the recorded lla) reconstructs
+                    // a vesselTransform-aligned anchor world position. The previous
+                    // GetWorldPos3D (CoM) source baked the parent's CoM-to-vesselTransform
+                    // vector into every relative ordinary offset. Use vessel.transform
+                    // explicitly, not GetTransform() — the latter follows
+                    // ReferenceTransform ("Control From Here") which is not the surface
+                    // pose contract.
                     pose = new AnchorPose(
-                        liveAnchor.GetWorldPos3D(),
+                        (Vector3d)liveAnchor.transform.position,
                         liveAnchor.transform.rotation,
                         -1,
                         candidate.RecordingId);
