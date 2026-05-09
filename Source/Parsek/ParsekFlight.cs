@@ -7713,25 +7713,32 @@ namespace Parsek
                 {
                     KspStatePatcher.PatchFacilities(LedgerOrchestrator.Facilities);
                     ParsekLog.Info("WarpFacilities",
-                        $"Warp start at UT={warpStartUT:F2} — patched facility visuals");
+                        "Warp start at UT="
+                        + warpStartUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " — patched facility visuals");
                 }
             }
 
             // Detect warp exit: was warping, now at 1x — recalculate ledger
             if (wasWarpActive && !isWarpNow)
             {
+                // Snapshot the handler-fire UT. Exact alignment with KSP's internal
+                // warp boundary is out of scope for this cutoff seam.
                 double warpEndUT = Planetarium.GetUniversalTime();
-                ParsekLog.Info("LedgerOrchestrator",
-                    "Warp exit detected — recalculating ledger");
-                LedgerOrchestrator.RecalculateAndPatch();
+                RecalculateLedgerAfterWarpExit(warpEndUT);
 
                 // Log whether any facility actions were crossed during this warp session
                 if (LedgerOrchestrator.IsInitialized &&
                     LedgerOrchestrator.HasFacilityActionsInRange(warpStartUT, warpEndUT))
                 {
                     ParsekLog.Info("WarpFacilities",
-                        $"Warp exit at UT={warpEndUT:F2} — facility actions crossed " +
-                        $"in range ({warpStartUT:F2}, {warpEndUT:F2}]");
+                        "Warp exit at UT="
+                        + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " — facility actions crossed in range ("
+                        + warpStartUT.ToString("R", CultureInfo.InvariantCulture)
+                        + ", "
+                        + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "]");
                 }
             }
             wasWarpActive = isWarpNow;
@@ -7783,6 +7790,42 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("Checkpoint",
                 $"warp-rate-changed-on-rails-{warpRateKey}",
                 "Active vessel orbit segments handled by on-rails events");
+        }
+
+        internal static void RecalculateLedgerAfterWarpExit(double warpEndUT)
+        {
+            RecalculateLedgerAfterWarpExit(
+                warpEndUT,
+                LedgerOrchestrator.RecalculateAndPatchForTimeJump);
+        }
+
+        internal static void RecalculateLedgerAfterWarpExit(
+            double warpEndUT,
+            Action<double> recalculateAndPatchForTimeJump)
+        {
+            if (recalculateAndPatchForTimeJump == null)
+                throw new ArgumentNullException(nameof(recalculateAndPatchForTimeJump));
+
+            try
+            {
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Warp exit ledger recalculation started: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture));
+                recalculateAndPatchForTimeJump(warpEndUT);
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Warp exit ledger recalculation complete: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("LedgerOrchestrator",
+                    "Warp exit ledger recalculation failed: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " error="
+                    + ex.GetType().Name
+                    + ": "
+                    + ex.Message);
+            }
         }
 
         internal static bool ShouldSkipDuplicateWarpCheckpointEvent(
