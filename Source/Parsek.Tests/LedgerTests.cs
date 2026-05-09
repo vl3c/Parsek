@@ -222,6 +222,44 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("Loaded ledger") && l.Contains("actions=5"));
         }
 
+        [Fact]
+        public void LoadFromFile_Version1FacilityUpgradeLevels_MigratesToLedgerTiers()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 100.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/MissionControl",
+                ToLevel = 1,
+                FacilityCost = 75000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 200.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/ResearchAndDevelopment",
+                ToLevel = 2,
+                FacilityCost = 451000f
+            });
+
+            Assert.True(Ledger.SaveToFile(LedgerPath));
+            string content = File.ReadAllText(LedgerPath);
+            Assert.Contains("version = 2", content);
+            File.WriteAllText(LedgerPath, content.Replace("version = 2", "version = 1"));
+
+            Ledger.ResetForTesting();
+            logLines.Clear();
+
+            Assert.True(Ledger.LoadFromFile(LedgerPath));
+
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Equal(2, Ledger.Actions[0].ToLevel);
+            Assert.Equal(3, Ledger.Actions[1].ToLevel);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") &&
+                l.Contains("Migrated 2 legacy facility upgrade level"));
+        }
+
         // ================================================================
         // Reconcile — Earning pruning
         // ================================================================

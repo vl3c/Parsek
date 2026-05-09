@@ -15,9 +15,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 - ~~Facility-derived contract and strategy slot limits could stay one recalculation behind after warp exit or an instant time jump.~~ Source: review finding [P3]. `LedgerOrchestrator.RecalculateAndPatchCore` primed slot limits from the previous `FacilitiesModule` state before the walk, then a single warp-exit recalc walked the facility upgrade without refreshing the final Mission Control/Admin-derived availability.
 
-**Fix:** `RecalculateAndPatchCore` now refreshes slot limits again after the recalculation walk, when `FacilitiesModule` contains the final state for the current cutoff/full timeline. `GameStateEventConverter.ConvertFacilityUpgraded` also maps KSP's normalized 0/0.5/1.0 facility levels to Parsek's 1/2/3 levels so production facility events feed the same slot tiers as the module-level tests.
+**Fix:** `RecalculateAndPatchCore` now refreshes slot limits again after the recalculation walk, when `FacilitiesModule` contains the final state for the current cutoff/full timeline. `GameStateEventConverter.ConvertFacilityUpgraded` maps KSP's normalized 0/0.5/1.0 facility levels to Parsek's 1/2/3 ledger tiers, `FacilityStatePatcher` translates those tiers back to KSP's zero-based `SetLevel` index, and ledger v1 load migration upgrades old facility rows into the new tier contract.
 
-**Coverage:** `GameStateEventConverterTests.ConvertEvent_FacilityUpgraded_ReturnsFacilityUpgrade`, `GameStateEventConverterTests.ConvertEvent_FacilityUpgraded_FullUpgrade_Level3`, `LedgerOrchestratorTests.RecalculateAndPatch_UpdatesContractSlotsFromFacilityUpgradeInSameWalk`, and `LedgerOrchestratorTests.RecalculateAndPatch_UpdatesStrategySlotsFromFacilityUpgradeInSameWalk`.
+**Coverage:** `GameStateEventConverterTests.ConvertEvent_FacilityUpgraded_ReturnsFacilityUpgrade`, `GameStateEventConverterTests.ConvertEvent_FacilityUpgraded_FullUpgrade_Level3`, `KspStatePatcherTests.ToKspFacilityLevel_ConvertsLedgerTierToSetLevelIndex`, `LedgerTests.LoadFromFile_Version1FacilityUpgradeLevels_MigratesToLedgerTiers`, `LedgerOrchestratorTests.RecalculateAndPatch_UpdatesContractSlotsFromFacilityUpgradeInSameWalk`, and `LedgerOrchestratorTests.RecalculateAndPatch_UpdatesStrategySlotsFromFacilityUpgradeInSameWalk`.
 
 ---
 
