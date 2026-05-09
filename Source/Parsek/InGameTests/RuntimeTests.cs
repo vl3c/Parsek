@@ -9820,6 +9820,58 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "ExplosionFx", Scene = GameScenes.FLIGHT,
+            Description = "Visual-only stock explosion spawn: instantiates an FXMonger explosion prefab with audio muted; run from Ctrl+Shift+T in the Flight scene")]
+        public IEnumerator TryInstantiateStockExplosionVisual_LiveFxMonger_SpawnsMutedPrefab()
+        {
+            if (!GhostVisualBuilder.IsFxMongerLive())
+            {
+                InGameAssert.Skip("FXMonger.fetch not live in this scene");
+                yield break;
+            }
+
+            // Snapshot existing AudioSources so we can find the new ones (if any) the
+            // visual-only spawn produced and verify they were muted.
+            var beforeIds = new HashSet<int>(
+                UnityEngine.Object.FindObjectsOfType<AudioSource>()
+                    .Select(s => s.GetInstanceID()));
+
+            Vector3 spawnPos = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.transform.position
+                  + FlightGlobals.ActiveVessel.transform.forward * 200f
+                : Vector3.zero;
+
+            bool ok = GhostVisualBuilder.TryInstantiateStockExplosionVisual(
+                spawnPos,
+                power: 0.5,
+                out string failureReason);
+            InGameAssert.IsTrue(ok,
+                $"TryInstantiateStockExplosionVisual must succeed with a live FXMonger: {failureReason}");
+
+            // Allow Unity one frame to instantiate the prefab and run any Awake/Start logic.
+            yield return null;
+
+            // Inspect any newly-introduced AudioSources — the visual-only path mutes them
+            // (and stops them, and disables playOnAwake) so they should not be playing.
+            var newSources = UnityEngine.Object.FindObjectsOfType<AudioSource>()
+                .Where(s => s != null && !beforeIds.Contains(s.GetInstanceID()))
+                .ToList();
+            for (int i = 0; i < newSources.Count; i++)
+            {
+                var src = newSources[i];
+                runner.TrackForCleanup(src.gameObject);
+                InGameAssert.IsTrue(src.mute,
+                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must be muted");
+                InGameAssert.IsFalse(src.isPlaying,
+                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must not be playing");
+                InGameAssert.IsFalse(src.playOnAwake,
+                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must have playOnAwake=false");
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"Visual-only stock explosion spawned at {spawnPos}; new audio sources inspected: {newSources.Count} (all muted)");
+        }
+
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
             Description = "#265: Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio iterates all ghost states")]
         public void EngineLevel_PauseUnpauseGhostAudio_NoCrash()

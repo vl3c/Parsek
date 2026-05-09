@@ -6809,7 +6809,10 @@ namespace Parsek
         // without the per-call cost of Object.FindObjectOfType<FXMonger>() scanning the scene.
         private static System.Reflection.FieldInfo fxMongerFetchField;
 
-        internal static bool IsFxMongerLive()
+        // Returns the live FXMonger singleton or null. Centralises the reflection
+        // accessor so callers that need the instance (to read `explosions[]`) and
+        // callers that just need an availability check share one cached lookup.
+        internal static FXMonger ResolveLiveFxMonger()
         {
             if (fxMongerFetchField == null)
             {
@@ -6817,11 +6820,16 @@ namespace Parsek
                     "fetch",
                     System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
                 if (fxMongerFetchField == null)
-                    return false;
+                    return null;
             }
             // Unity's == operator treats destroyed objects as null, so this stays correct
             // across scene transitions that clear FXMonger.fetch in OnDestroy.
-            return (fxMongerFetchField.GetValue(null) as FXMonger) != null;
+            return fxMongerFetchField.GetValue(null) as FXMonger;
+        }
+
+        internal static bool IsFxMongerLive()
+        {
+            return ResolveLiveFxMonger() != null;
         }
 
         /// <summary>
@@ -6853,6 +6861,86 @@ namespace Parsek
                     // in its queued ProtoExplosion.sources list for merge bookkeeping and never
                     // dereferences it. Ghost explosions have no owning Part to supply.
                     FXMonger.Explode(null, worldPosition, power);
+
+                failureReason = null;
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                failureReason = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Instantiates KSP's stock explosion prefab (visual only) at the given position
+        /// without contributing an audio source. Used when the explosion-sound gate is
+        /// busy and another stock explosion's audio is still mixing — the visual still
+        /// renders correctly but the SHIP_VOLUME explosion clip is not added to Unity's
+        /// mixer (which would clip when several stock explosions overlap).
+        ///
+        /// Mirrors the prefab/index logic in the decompiled FXMonger.LateUpdate (per-power
+        /// index into the `explosions` GameObject array, same up-axis assignment) so the
+        /// visual is indistinguishable from a regular FXMonger.Explode burst. The only
+        /// stock side effect we suppress is the per-instance AudioSource that LateUpdate
+        /// would otherwise add and PlayOneShot at SHIP_VOLUME.
+        /// </summary>
+        internal static bool TryInstantiateStockExplosionVisual(
+            Vector3 worldPosition,
+            double power,
+            out string failureReason,
+            System.Func<FXMonger> resolveLiveFxMonger = null,
+            System.Func<GameObject, GameObject> instantiatePrefab = null)
+        {
+            FXMonger fetch = resolveLiveFxMonger != null
+                ? resolveLiveFxMonger()
+                : ResolveLiveFxMonger();
+            if (fetch == null)
+            {
+                failureReason = "no live FXMonger instance";
+                return false;
+            }
+
+            GameObject[] prefabs = fetch.explosions;
+            if (prefabs == null || prefabs.Length == 0)
+            {
+                failureReason = "FXMonger.explosions array is empty";
+                return false;
+            }
+
+            float clamped = Mathf.Clamp01((float)power);
+            int idx = Mathf.Clamp((int)(clamped * (prefabs.Length - 1)), 0, prefabs.Length - 1);
+            GameObject prefab = prefabs[idx];
+            if (prefab == null)
+            {
+                failureReason = $"FXMonger.explosions[{idx}] is null";
+                return false;
+            }
+
+            try
+            {
+                GameObject vfx = instantiatePrefab != null
+                    ? instantiatePrefab(prefab)
+                    : UnityEngine.Object.Instantiate(prefab);
+                if (vfx == null)
+                {
+                    failureReason = "Instantiate returned null";
+                    return false;
+                }
+                vfx.SetActive(true);
+                vfx.transform.position = worldPosition;
+                vfx.transform.up = FlightGlobals.upAxis;
+
+                // Mute any AudioSource baked into the prefab. FXMonger normally adds an
+                // AudioSource here and PlayOneShots the explosion clip at SHIP_VOLUME;
+                // the visual-only path skips both so it adds no mixer voice.
+                AudioSource[] sources = vfx.GetComponentsInChildren<AudioSource>(includeInactive: true);
+                for (int i = 0; i < sources.Length; i++)
+                {
+                    sources[i].playOnAwake = false;
+                    sources[i].mute = true;
+                    sources[i].Stop();
+                }
 
                 failureReason = null;
                 return true;
