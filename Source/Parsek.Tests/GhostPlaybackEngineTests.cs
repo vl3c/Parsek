@@ -1057,6 +1057,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CoverageRetiredHelper_LineageProtectedSibling_DoesNotEmitExitWatch()
+        {
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var cameraEvents = new List<CameraActionEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            var ctx = new FrameContext
+            {
+                protectedIndex = 7,
+                protectedLoopCycleIndex = -1,
+            };
+            bool emitExitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredStateForTesting(
+                index: 3,
+                state: null,
+                ctx: ctx);
+
+            bool handled = engine.TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
+                index: 3,
+                traj: traj,
+                state: null,
+                playbackUT: 111.0,
+                currentUT: 111.0,
+                warpRate: 1f,
+                emitExitWatch: emitExitWatch,
+                out _);
+
+            Assert.True(handled);
+            Assert.False(emitExitWatch);
+            Assert.Empty(cameraEvents);
+        }
+
+        [Fact]
         public void CoverageRetiredCycle_WatchingDifferentOverlapCycle_DoesNotExitWatch()
         {
             var ctx = new FrameContext

@@ -963,6 +963,9 @@ namespace Parsek
                     out ghostActive))
                 return true;
 
+            // This intentionally precedes permanent flag-event playback. Parent-anchored
+            // debris recordings are structural fragments, not flag-planting vessels, so an
+            // out-of-coverage debris frame has no standalone flag world state to preserve.
             // Flag events spawn permanent world vessels — apply regardless of ghost state,
             // zone distance, or spawn-throttle (#249, #414). Unlike visual part events (mesh
             // toggles), flags are independent entities that must exist whether or not the
@@ -4205,6 +4208,9 @@ namespace Parsek
             => TryHandleParentAnchoredDebrisCoverageRetired(
                 index, traj, state, playbackUT, currentUT, warpRate,
                 "test", emitExitWatch, out ghostActive);
+        internal static bool ShouldExitWatchForCoverageRetiredStateForTesting(
+            int index, GhostPlaybackState state, FrameContext ctx)
+            => ShouldExitWatchForCoverageRetiredState(index, state, ctx);
         internal static bool ShouldExitWatchForCoverageRetiredCycleForTesting(
             int index, long loopCycleIndex, FrameContext ctx)
             => ShouldExitWatchForCoverageRetiredCycle(index, loopCycleIndex, ctx);
@@ -4549,19 +4555,20 @@ namespace Parsek
             state.anchorRetiredThisFrame = false;
             double primePlaybackUT = ResolveVisiblePlaybackUT(traj, state, playbackUT);
             PositionLoadedGhostAtPlaybackUT(index, traj, state, primePlaybackUT);
-            bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+            bool primeAnchorRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
-            // Hidden priming is allowed to apply persistent part state, but it
-            // must not emit transient FX before the playback transform is visible.
+            // Hidden priming is allowed to apply persistent part state after a clean
+            // position. If any anchor-retire path fired, not only deterministic debris
+            // coverage retirement, skip part events and camera retarget from this prime.
             var visualPolicy = HiddenPrimeVisualPolicy();
             ApplyFrameVisuals(index, traj, state, primePlaybackUT, TimeWarp.CurrentRate,
-                retired ? true : visualPolicy.skipPartEvents,
+                primeAnchorRetired || visualPolicy.skipPartEvents,
                 visualPolicy.suppressVisualFx,
                 visualPolicy.allowTransientEffects);
             if (state.ghost.activeSelf)
                 state.ghost.SetActive(false);
             ResetGhostAppearanceTracking(state);
-            return retired;
+            return primeAnchorRetired;
         }
 
         internal static (bool skipPartEvents, bool suppressVisualFx, bool allowTransientEffects)
