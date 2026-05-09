@@ -842,5 +842,384 @@ namespace Parsek.Tests
             Assert.Contains("rec_child", closure);
             Assert.Equal(2, closure.Count);
         }
+
+        // =====================================================================
+        // Debris-children expansion via Recording.DebrisParentRecordingId (v12)
+        // =====================================================================
+
+        [Fact]
+        public void DebrisChildren_DestroyedParent_NoChildBranchPointId_AllAdmitted()
+        {
+            // Reproduces the Kerbal X re-fly bug from
+            // logs/2026-05-09_1846_refly-upper-stage-debris-visible: a destroyed
+            // parent recording with N>1 breakup BPs has NO `ChildBranchPointId`
+            // set (single-slot field, multiple BPs), so the BP-back-pointer walk
+            // exits at the null check before reaching debris children. The v12
+            // DebrisParentRecordingId direct ownership link must admit them
+            // anyway, regardless of differing PIDs.
+            var origin = Rec("rec_origin", "tree_1");
+            origin.VesselPersistentId = 100u;
+
+            // Five debris children, each with its own KSP-assigned PID and a
+            // distinct breakup BP — exactly the topology from the bug save.
+            var debris = new List<Recording>();
+            var bps = new List<BranchPoint>();
+            for (int i = 0; i < 5; i++)
+            {
+                string id = $"rec_debris_{i}";
+                string bpId = $"bp_breakup_{i}";
+                var d = Rec(id, "tree_1", parentBranchPointId: bpId);
+                d.VesselPersistentId = (uint)(200 + i);
+                d.IsDebris = true;
+                d.DebrisParentRecordingId = "rec_origin";
+                debris.Add(d);
+                bps.Add(Bp(bpId, BranchPointType.Breakup,
+                    parents: new List<string> { "rec_origin" },
+                    children: new List<string> { id }));
+            }
+
+            var allRecs = new List<Recording> { origin };
+            allRecs.AddRange(debris);
+
+            InstallTree("tree_1", allRecs, bps);
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            for (int i = 0; i < 5; i++)
+                Assert.Contains($"rec_debris_{i}", closure);
+            Assert.Equal(6, closure.Count);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("SessionSuppressedSubtree")
+                && l.Contains("debrisAdded=5"));
+        }
+
+        [Fact]
+        public void DebrisChildren_BypassSamePidSideOffGate()
+        {
+            // Even if the parent has ChildBranchPointId set and the BP walk runs,
+            // debris would be culled by the same-PID side-off gate (different
+            // VesselPersistentId by construction). The DebrisParentRecordingId
+            // edge admits them via a separate path before that gate fires.
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_breakup");
+            origin.VesselPersistentId = 100u;
+
+            var debris = Rec("rec_debris", "tree_1", parentBranchPointId: "bp_breakup");
+            debris.VesselPersistentId = 999u; // different PID
+            debris.IsDebris = true;
+            debris.DebrisParentRecordingId = "rec_origin";
+
+            var bp = Bp("bp_breakup", BranchPointType.Breakup,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_debris" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, debris },
+                new List<BranchPoint> { bp });
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.Contains("rec_debris", closure);
+            Assert.Equal(2, closure.Count);
+        }
+
+        [Fact]
+        public void DebrisChildren_LegacyV11WithoutDebrisParentRecordingId_NotAdmitted()
+        {
+            // Legacy v11 debris loaded without DebrisParentRecordingId stays
+            // un-suppressed by this edge. Project policy: pre-1.0 no
+            // backward-compat for old recordings.
+            var origin = Rec("rec_origin", "tree_1");
+            origin.VesselPersistentId = 100u;
+
+            var legacyDebris = Rec("rec_legacy", "tree_1");
+            legacyDebris.VesselPersistentId = 200u;
+            legacyDebris.IsDebris = true;
+            // legacyDebris.DebrisParentRecordingId left null
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, legacyDebris },
+                new List<BranchPoint>());
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.DoesNotContain("rec_legacy", closure);
+            Assert.Single(closure);
+        }
+
+        [Fact]
+        public void DebrisChildren_OtherParentsDebris_NotAdmitted()
+        {
+            // Debris pointing at an unrelated parent is not pulled in just
+            // because it lives in the same store. The closure only admits
+            // debris whose DebrisParentRecordingId matches a recording already
+            // in the closure.
+            var origin = Rec("rec_origin", "tree_1");
+            origin.VesselPersistentId = 100u;
+
+            var unrelated = Rec("rec_unrelated", "tree_1");
+            unrelated.VesselPersistentId = 300u;
+
+            var unrelatedDebris = Rec("rec_unrelated_debris", "tree_1");
+            unrelatedDebris.VesselPersistentId = 400u;
+            unrelatedDebris.IsDebris = true;
+            unrelatedDebris.DebrisParentRecordingId = "rec_unrelated";
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, unrelated, unrelatedDebris },
+                new List<BranchPoint>());
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.DoesNotContain("rec_unrelated", closure);
+            Assert.DoesNotContain("rec_unrelated_debris", closure);
+            Assert.Single(closure);
+        }
+
+        [Fact]
+        public void DebrisChildren_DifferentTree_NotAdmitted()
+        {
+            // Defensive symmetry with EnqueueChainSiblings / EnqueuePidPeerSiblings:
+            // a debris candidate whose TreeId differs from the dequeued parent's
+            // is rejected. Debris is always recorded into the parent's tree at
+            // breakup time, so a cross-tree DebrisParentRecordingId match would
+            // be corrupted or hand-spliced data.
+            var origin = Rec("rec_origin", "tree_a");
+            origin.VesselPersistentId = 100u;
+
+            var crossTreeDebris = Rec("rec_cross_tree_debris", "tree_b");
+            crossTreeDebris.VesselPersistentId = 200u;
+            crossTreeDebris.IsDebris = true;
+            crossTreeDebris.DebrisParentRecordingId = "rec_origin";
+
+            // Install both trees side-by-side (InstallTree alone wipes existing
+            // trees, so build the second tree manually after the first).
+            InstallTree("tree_a",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var treeB = new RecordingTree
+            {
+                Id = "tree_b",
+                TreeName = "Test_tree_b",
+                BranchPoints = new List<BranchPoint>()
+            };
+            treeB.AddOrReplaceRecording(crossTreeDebris);
+            RecordingStore.AddRecordingWithTreeForTesting(crossTreeDebris, "tree_b");
+            // AddRecordingWithTreeForTesting created a single-node tree for the
+            // debris; replace it with the shared tree_b instance.
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = trees.Count - 1; i >= 0; i--)
+                if (string.Equals(trees[i].Id, "tree_b", StringComparison.Ordinal))
+                    trees.RemoveAt(i);
+            trees.Add(treeB);
+
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.DoesNotContain("rec_cross_tree_debris", closure);
+            Assert.Single(closure);
+        }
+
+        [Fact]
+        public void DebrisChildren_NotCommittedDebris_StillAdmitted()
+        {
+            // The closure builder reads RecordingStore.CommittedRecordings without
+            // pre-filtering on MergeState — supersede / NotCommitted filtering is
+            // applied later by ComputeERS. Debris that an earlier re-fly already
+            // marked NotCommitted must still enter this session's closure so the
+            // current re-fly's supersede commit covers it; pin that semantic.
+            var origin = Rec("rec_origin", "tree_1");
+            origin.VesselPersistentId = 100u;
+
+            var notCommittedDebris = Rec("rec_not_committed_debris", "tree_1",
+                parentBranchPointId: "bp_breakup",
+                state: MergeState.NotCommitted);
+            notCommittedDebris.VesselPersistentId = 200u;
+            notCommittedDebris.IsDebris = true;
+            notCommittedDebris.DebrisParentRecordingId = "rec_origin";
+
+            var bp = Bp("bp_breakup", BranchPointType.Breakup,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_not_committed_debris" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, notCommittedDebris },
+                new List<BranchPoint> { bp });
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.Contains("rec_not_committed_debris", closure);
+            Assert.Equal(2, closure.Count);
+        }
+
+        [Fact]
+        public void DebrisChildren_TransitiveDebrisOfDebris_Admitted()
+        {
+            // Re-entrancy: a debris recording dequeued from the work queue
+            // also runs the debris pass on its own children. Covers the
+            // (unusual but possible) case of debris produced by debris.
+            var origin = Rec("rec_origin", "tree_1");
+            origin.VesselPersistentId = 100u;
+
+            var debris1 = Rec("rec_debris1", "tree_1", parentBranchPointId: "bp_breakup_1");
+            debris1.VesselPersistentId = 200u;
+            debris1.IsDebris = true;
+            debris1.DebrisParentRecordingId = "rec_origin";
+
+            var debris2 = Rec("rec_debris2", "tree_1", parentBranchPointId: "bp_breakup_2");
+            debris2.VesselPersistentId = 300u;
+            debris2.IsDebris = true;
+            debris2.DebrisParentRecordingId = "rec_debris1";
+
+            var bp1 = Bp("bp_breakup_1", BranchPointType.Breakup,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_debris1" });
+            var bp2 = Bp("bp_breakup_2", BranchPointType.Breakup,
+                parents: new List<string> { "rec_debris1" },
+                children: new List<string> { "rec_debris2" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, debris1, debris2 },
+                new List<BranchPoint> { bp1, bp2 });
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.Contains("rec_debris1", closure);
+            Assert.Contains("rec_debris2", closure);
+            Assert.Equal(3, closure.Count);
+        }
+
+        [Fact]
+        public void DebrisChildren_AnchorOnlyBackgroundSplit_NotAdmitted()
+        {
+            // Reproduces the v12 sampling-anchor pattern from
+            // BackgroundRecorder.RegisterChildRecordingsFromSplit
+            // (BackgroundRecorder.cs:724-741, 1115): a background split
+            // creates a parent continuation (same VesselPersistentId as the
+            // pre-split parent) plus side-off debris (different PID), and
+            // the debris's DebrisParentRecordingId is deliberately re-pointed
+            // at the parent continuation as its relative-sampling anchor.
+            // Re-flying the parent continuation must NOT enqueue the
+            // anchor-only side-off debris, because the split BP's parent is
+            // the pre-split recording (not the continuation) and the BP
+            // type is typically Decouple. The same-PID side-off filter
+            // already protects the existing closure walk; this gate keeps
+            // the new debris edge from defeating it.
+            var preSplit = Rec("rec_preSplit", "tree_1", childBranchPointId: "bp_split");
+            preSplit.VesselPersistentId = 100u;
+            preSplit.ExplicitStartUT =0.0;
+
+            var parentCont = Rec("rec_parentCont", "tree_1", parentBranchPointId: "bp_split");
+            parentCont.VesselPersistentId = 100u; // same PID — continuation
+            parentCont.ExplicitStartUT =10.0;
+
+            var sideOffDebris = Rec("rec_sideOff", "tree_1", parentBranchPointId: "bp_split");
+            sideOffDebris.VesselPersistentId = 200u;
+            sideOffDebris.ExplicitStartUT =10.0;
+            sideOffDebris.IsDebris = true;
+            // Anchor (NOT topology) link points at the parent continuation.
+            sideOffDebris.DebrisParentRecordingId = "rec_parentCont";
+
+            // Background split BPs are typed Decouple in production; the BP
+            // type alone rejects the candidate. The parent-mismatch gate is
+            // exercised by the Breakup-typed variant below.
+            var splitBp = Bp("bp_split", BranchPointType.JointBreak,
+                parents: new List<string> { "rec_preSplit" },
+                children: new List<string> { "rec_parentCont", "rec_sideOff" });
+
+            InstallTree("tree_1",
+                new List<Recording> { preSplit, parentCont, sideOffDebris },
+                new List<BranchPoint> { splitBp });
+
+            // InvokedUT well after the split so the same-PID pre-split peer
+            // is excluded by the EnqueuePidPeerSiblings StartUT guard and
+            // can't smuggle debris in via a different edge.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                TreeId = "tree_1",
+                ActiveReFlyRecordingId = "rec_provisional",
+                OriginChildRecordingId = "rec_parentCont",
+                RewindPointId = "rp_1",
+                InvokedUT = 20.0
+            };
+            InstallScenario(marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.Contains("rec_parentCont", closure);
+            Assert.DoesNotContain("rec_sideOff", closure);
+            Assert.DoesNotContain("rec_preSplit", closure);
+            Assert.Single(closure);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("SessionSuppressedSubtree")
+                && l.Contains("debrisAnchorOnlySkips=1"));
+        }
+
+        [Fact]
+        public void DebrisChildren_AnchorOnlyBreakupBp_ParentMismatch_NotAdmitted()
+        {
+            // Defense-in-depth variant of the previous test: even if the
+            // background-split BP were typed Breakup (not the production
+            // case but conceivable in odd structural-failure paths), the
+            // BP's parent is still the pre-split recording, not the parent
+            // continuation. The parents-must-include-currentRec gate
+            // rejects the anchor-only candidate.
+            var preSplit = Rec("rec_preSplit", "tree_1", childBranchPointId: "bp_split");
+            preSplit.VesselPersistentId = 100u;
+            preSplit.ExplicitStartUT =0.0;
+
+            var parentCont = Rec("rec_parentCont", "tree_1", parentBranchPointId: "bp_split");
+            parentCont.VesselPersistentId = 100u;
+            parentCont.ExplicitStartUT =10.0;
+
+            var sideOffDebris = Rec("rec_sideOff", "tree_1", parentBranchPointId: "bp_split");
+            sideOffDebris.VesselPersistentId = 200u;
+            sideOffDebris.ExplicitStartUT =10.0;
+            sideOffDebris.IsDebris = true;
+            sideOffDebris.DebrisParentRecordingId = "rec_parentCont";
+
+            var splitBp = Bp("bp_split", BranchPointType.Breakup,
+                parents: new List<string> { "rec_preSplit" },
+                children: new List<string> { "rec_parentCont", "rec_sideOff" });
+
+            InstallTree("tree_1",
+                new List<Recording> { preSplit, parentCont, sideOffDebris },
+                new List<BranchPoint> { splitBp });
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                TreeId = "tree_1",
+                ActiveReFlyRecordingId = "rec_provisional",
+                OriginChildRecordingId = "rec_parentCont",
+                RewindPointId = "rp_1",
+                InvokedUT = 20.0
+            };
+            InstallScenario(marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.Contains("rec_parentCont", closure);
+            Assert.DoesNotContain("rec_sideOff", closure);
+            Assert.Single(closure);
+        }
     }
 }
