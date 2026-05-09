@@ -126,6 +126,69 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DoesPointMatchSectionFrame_ReturnsFalseWithoutContainingSectionOrFrames()
+        {
+            var point = new TrajectoryPoint { ut = 10.0, latitude = 1.0, longitude = 2.0, altitude = 3.0 };
+
+            Assert.False(GhostPlaybackEngine.DoesPointMatchSectionFrame(
+                hasContainingSection: false,
+                section: new TrackSection { frames = new List<TrajectoryPoint> { point } },
+                point: point));
+            Assert.False(GhostPlaybackEngine.DoesPointMatchSectionFrame(
+                hasContainingSection: true,
+                section: new TrackSection { frames = null },
+                point: point));
+        }
+
+        [Fact]
+        public void DoesPointMatchSectionFrame_MatchesExactOrWithinTolerance()
+        {
+            var point = new TrajectoryPoint { ut = 10.0, latitude = 1.0, longitude = 2.0, altitude = 3.0 };
+            var section = new TrackSection
+            {
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10.0 + 5e-7,
+                        latitude = 1.0 - 5e-7,
+                        longitude = 2.0,
+                        altitude = 3.0 + 5e-7
+                    }
+                }
+            };
+
+            Assert.True(GhostPlaybackEngine.DoesPointMatchSectionFrame(
+                hasContainingSection: true,
+                section: section,
+                point: point));
+        }
+
+        [Fact]
+        public void DoesPointMatchSectionFrame_RejectsValuesOutsideTolerance()
+        {
+            var point = new TrajectoryPoint { ut = 10.0, latitude = 1.0, longitude = 2.0, altitude = 3.0 };
+            var section = new TrackSection
+            {
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10.0,
+                        latitude = 1.0,
+                        longitude = 2.0,
+                        altitude = 3.0 + 2e-6
+                    }
+                }
+            };
+
+            Assert.False(GhostPlaybackEngine.DoesPointMatchSectionFrame(
+                hasContainingSection: true,
+                section: section,
+                point: point));
+        }
+
+        [Fact]
         public void TryGetGhostActivationStartUT_PrefersFirstPlayableFrameOverExplicitStartAndSectionBoundary()
         {
             var rec = new Recording

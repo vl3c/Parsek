@@ -9133,10 +9133,10 @@ namespace Parsek
             string name = part.partInfo?.name ?? part.name ?? "unknown";
             uint parentPid = part.parent?.persistentId ?? 0u;
             string origin = part.transform != null
-                ? FormatVector3d(part.transform.position)
+                ? DiagnosticFormatters.FormatVector3d(part.transform.position)
                 : "no-transform";
             string rotation = part.transform != null
-                ? FormatQuaternionForDiagnostics(part.transform.rotation)
+                ? DiagnosticFormatters.FormatQuaternion(part.transform.rotation)
                 : "no-transform";
             return string.Format(
                 CultureInfo.InvariantCulture,
@@ -9147,26 +9147,7 @@ namespace Parsek
                 parentPid,
                 origin,
                 rotation,
-                DescribeDecoupleSurfaceAttachForDiagnostics(part));
-        }
-
-        private static string DescribeDecoupleSurfaceAttachForDiagnostics(Part part)
-        {
-            AttachNode node = part?.srfAttachNode;
-            if (node == null)
-                return "none";
-
-            string world = part.transform != null
-                ? FormatVector3d(part.transform.TransformPoint(node.position))
-                : "no-transform";
-            uint attachedPid = node.attachedPart?.persistentId ?? 0u;
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "local={0} world={1} orient={2} attachedPid={3}",
-                FormatVector3(node.position),
-                world,
-                FormatVector3(node.orientation),
-                attachedPid);
+                DiagnosticFormatters.DescribeSurfaceAttachNode(part));
         }
 
         private static Part FindFirstDirectChildPart(Part rootPart, IList<Part> parts)
@@ -9182,33 +9163,6 @@ namespace Parsek
             }
 
             return null;
-        }
-
-        private static bool DoesPendingJointSeedListContainPid(string pendingJointChildSeedPids, uint pid)
-        {
-            if (pid == 0u || string.IsNullOrEmpty(pendingJointChildSeedPids))
-                return false;
-
-            string needle = pid.ToString(CultureInfo.InvariantCulture);
-            string[] parts = pendingJointChildSeedPids.Split(',');
-            for (int i = 0; i < parts.Length; i++)
-            {
-                if (string.Equals(parts[i], needle, StringComparison.Ordinal))
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static string FormatQuaternionForDiagnostics(Quaternion value)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "({0:F3},{1:F3},{2:F3},{3:F3})",
-                value.x,
-                value.y,
-                value.z,
-                value.w);
         }
 
         internal static double ResolveDeferredSplitBranchUT(
@@ -9322,6 +9276,7 @@ namespace Parsek
             uint rootPartPersistentId = newVessel.rootPart?.persistentId ?? 0u;
             string seedSource = "none";
             string pendingJointChildSeedPids = "none";
+            bool rootMatchesPendingJointChildSeed = false;
             if (decoupleCreatedTrajectoryPoints != null
                 && !decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
             {
@@ -9329,6 +9284,8 @@ namespace Parsek
                 TryResolveTrajectoryPoint resolvePartOriginSeed = null;
                 if (seedRecorder != null)
                 {
+                    rootMatchesPendingJointChildSeed =
+                        seedRecorder.ContainsPendingJointChildPartOriginSeed(rootPartPersistentId);
                     resolvePartOriginSeed = seedRecorder.TryConsumePendingJointChildPartOriginSeed;
                     pendingJointChildSeedPids =
                         seedRecorder.DescribePendingJointChildPartOriginSeedIdsForDiagnostics();
@@ -9368,7 +9325,7 @@ namespace Parsek
             Part rootPart = newVessel.rootPart;
             ParsekLog.Verbose("Flight",
                 $"Decouple created vessel diagnostics: pid={newVessel.persistentId} " +
-                $"rootMatchesPendingJointChildSeed={(DoesPendingJointSeedListContainPid(pendingJointChildSeedPids, rootPartPersistentId) ? "T" : "F")} " +
+                $"rootMatchesPendingJointChildSeed={(rootMatchesPendingJointChildSeed ? "T" : "F")} " +
                 $"{DescribeDecouplePartForDiagnostics("root", rootPart)} " +
                 $"{DescribeDecouplePartForDiagnostics("firstChild", FindFirstDirectChildPart(rootPart, newVessel.parts))}");
         }

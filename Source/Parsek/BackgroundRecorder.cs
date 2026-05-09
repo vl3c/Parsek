@@ -3599,7 +3599,7 @@ namespace Parsek
                 childVessel,
                 out Vector3d seedWorld);
             string seedAnchorDelta = hasSeedWorld
-                ? FormatVector3dForDiagnostics(seedWorld - anchorPose.WorldPos)
+                ? DiagnosticFormatters.FormatVector3d(seedWorld - anchorPose.WorldPos)
                 : "unresolved";
 
             ParsekLog.Verbose("BgRecorder",
@@ -3610,10 +3610,10 @@ namespace Parsek
                 $"seedUT={absoluteSeedPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"init-seed-dt={(initUT - absoluteSeedPoint.ut).ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"seedAbs={DescribeTrajectoryPointForDiagnostics(absoluteSeedPoint)} " +
-                $"seedWorld={(hasSeedWorld ? FormatVector3dForDiagnostics(seedWorld) : "unresolved")} " +
-                $"anchorWorld={FormatVector3dForDiagnostics(anchorPose.WorldPos)} " +
+                $"seedWorld={(hasSeedWorld ? DiagnosticFormatters.FormatVector3d(seedWorld) : "unresolved")} " +
+                $"anchorWorld={DiagnosticFormatters.FormatVector3d(anchorPose.WorldPos)} " +
                 $"seed-anchor={seedAnchorDelta} " +
-                $"relativeOffset={FormatVector3dForDiagnostics(new Vector3d(relativeSeedPoint.latitude, relativeSeedPoint.longitude, relativeSeedPoint.altitude))} " +
+                $"relativeOffset={DiagnosticFormatters.FormatVector3d(new Vector3d(relativeSeedPoint.latitude, relativeSeedPoint.longitude, relativeSeedPoint.altitude))} " +
                 $"{DescribeVesselRootForDiagnostics("child", childVessel)} " +
                 $"{DescribeVesselRootForDiagnostics("parent", parentVessel)}");
         }
@@ -3645,7 +3645,7 @@ namespace Parsek
                 : Vector3d.zero;
             bool hasRootWorld = bgVessel?.rootPart?.transform != null;
             string absoluteRootDelta = hasAbsoluteWorld && hasRootWorld
-                ? FormatVector3dForDiagnostics(absoluteWorld - rootWorld)
+                ? DiagnosticFormatters.FormatVector3d(absoluteWorld - rootWorld)
                 : "unresolved";
             string seedToSampleDt = IsFiniteUT(state.lastRecordedUT)
                 ? (sampleUT - state.lastRecordedUT).ToString("F3", CultureInfo.InvariantCulture)
@@ -3660,10 +3660,10 @@ namespace Parsek
                 $"relativeApplied={(relativeApplied ? "T" : "F")} " +
                 $"absolutePoint={DescribeTrajectoryPointForDiagnostics(absolutePoint)} " +
                 $"recordedPoint={DescribeTrajectoryPointForDiagnostics(recordedPoint)} " +
-                $"absoluteWorld={(hasAbsoluteWorld ? FormatVector3dForDiagnostics(absoluteWorld) : "unresolved")} " +
-                $"rootWorld={(hasRootWorld ? FormatVector3dForDiagnostics(rootWorld) : "unresolved")} " +
+                $"absoluteWorld={(hasAbsoluteWorld ? DiagnosticFormatters.FormatVector3d(absoluteWorld) : "unresolved")} " +
+                $"rootWorld={(hasRootWorld ? DiagnosticFormatters.FormatVector3d(rootWorld) : "unresolved")} " +
                 $"absolute-root={absoluteRootDelta} " +
-                $"{DescribeVesselRootForDiagnostics("sampleVessel", bgVessel)}");
+                $"{DescribeVesselRootForDiagnostics("sample", bgVessel)}");
         }
 
         private static bool TryResolveTrajectoryPointWorldPosition(
@@ -3717,7 +3717,7 @@ namespace Parsek
             }
 
             string rootWorld = rootPart.transform != null
-                ? FormatVector3dForDiagnostics(rootPart.transform.position)
+                ? DiagnosticFormatters.FormatVector3d(rootPart.transform.position)
                 : "no-transform";
             return string.Format(
                 CultureInfo.InvariantCulture,
@@ -3729,7 +3729,7 @@ namespace Parsek
                 rootPart.partInfo?.name ?? rootPart.name ?? "unknown",
                 rootPart.persistentId,
                 rootWorld,
-                DescribeSurfaceAttachNodeForDiagnostics(rootPart));
+                DiagnosticFormatters.DescribeSurfaceAttachNode(rootPart));
         }
 
         private static string SafeFormatVesselWorldPosition(Vessel vessel)
@@ -3737,7 +3737,7 @@ namespace Parsek
             try
             {
                 return vessel != null
-                    ? FormatVector3dForDiagnostics(vessel.GetWorldPos3D())
+                    ? DiagnosticFormatters.FormatVector3d(vessel.GetWorldPos3D())
                     : "null";
             }
             catch (Exception)
@@ -3746,25 +3746,6 @@ namespace Parsek
                 // world position during scene/load transitions.
                 return "unresolved";
             }
-        }
-
-        private static string DescribeSurfaceAttachNodeForDiagnostics(Part part)
-        {
-            AttachNode node = part?.srfAttachNode;
-            if (node == null)
-                return "none";
-
-            string world = part.transform != null
-                ? FormatVector3dForDiagnostics(part.transform.TransformPoint(node.position))
-                : "no-transform";
-            uint attachedPid = node.attachedPart?.persistentId ?? 0u;
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "local={0} world={1} orient={2} attachedPid={3}",
-                FormatVector3ForDiagnostics(node.position),
-                world,
-                FormatVector3ForDiagnostics(node.orientation),
-                attachedPid);
         }
 
         private static string DescribeTrajectoryPointForDiagnostics(TrajectoryPoint point)
@@ -3777,39 +3758,8 @@ namespace Parsek
                 point.latitude,
                 point.longitude,
                 point.altitude,
-                FormatQuaternionForDiagnostics(point.rotation),
-                FormatVector3ForDiagnostics(point.velocity));
-        }
-
-        private static string FormatVector3ForDiagnostics(Vector3 value)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "({0:F3},{1:F3},{2:F3})",
-                value.x,
-                value.y,
-                value.z);
-        }
-
-        private static string FormatVector3dForDiagnostics(Vector3d value)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "({0:F3},{1:F3},{2:F3})",
-                value.x,
-                value.y,
-                value.z);
-        }
-
-        private static string FormatQuaternionForDiagnostics(Quaternion value)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "({0:F3},{1:F3},{2:F3},{3:F3})",
-                value.x,
-                value.y,
-                value.z,
-                value.w);
+                DiagnosticFormatters.FormatQuaternion(point.rotation),
+                DiagnosticFormatters.FormatVector3(point.velocity));
         }
 
         internal static bool ShouldPreferRootPartSurfacePoseForBackgroundSample(Recording treeRec)

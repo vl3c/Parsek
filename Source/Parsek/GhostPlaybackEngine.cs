@@ -5390,7 +5390,7 @@ namespace Parsek
             return DescribeAbsoluteRecordingStartPoint(firstPoint, rootPos, frame.ToString());
         }
 
-        private static bool DoesPointMatchSectionFrame(
+        internal static bool DoesPointMatchSectionFrame(
             bool hasContainingSection,
             TrackSection section,
             TrajectoryPoint point)

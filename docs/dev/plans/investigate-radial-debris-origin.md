@@ -12,6 +12,8 @@ Initial retained log bundle: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-05-
 
 Diagnostic retained log bundle: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-05-09_1135_radial-debris-diagnostics`
 
+Status: Phase 1 diagnostics plus the narrow parent-anchored debris root-pose background-sample fix landed in PR #780. Contact-node / joint-anchor correction phases are deferred until post-fix in-game validation proves a residual interface offset.
+
 Bundle capture commit: `1a274030` (`Clamp debris first visible frame to seed bridge end`). The investigation worktree is based on the later `85cf25ac`; relevant files changed between those commits (`FlightRecorder.cs`, `GhostPlaybackEngine.cs`, `ParsekFlight.cs`, `RelativeAnchorResolver.cs`, and tests), so implementation must recheck the exact current-HEAD contracts before changing behavior. The seed, appearance, and Relative-frame conclusions below were rechecked against `85cf25ac`.
 
 ## Problem

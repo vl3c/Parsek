@@ -247,17 +247,61 @@ namespace Parsek
 
         internal string DescribePendingJointChildPartOriginSeedIdsForDiagnostics(int maxIds = 8)
         {
-            if (pendingJointChildPartOriginSeeds.Count == 0)
+            return FormatPendingJointChildPartOriginSeedIdsForDiagnostics(
+                pendingJointChildPartOriginSeeds.Keys,
+                maxIds);
+        }
+
+        internal bool ContainsPendingJointChildPartOriginSeed(uint partPersistentId)
+        {
+            return PendingJointChildPartOriginSeedIdsContainPidForDiagnostics(
+                pendingJointChildPartOriginSeeds.Keys,
+                partPersistentId);
+        }
+
+        internal static string FormatPendingJointChildPartOriginSeedIdsForDiagnostics(
+            IEnumerable<uint> partPersistentIds,
+            int maxIds = 8)
+        {
+            if (partPersistentIds == null)
                 return "none";
 
-            var ids = pendingJointChildPartOriginSeeds.Keys
-                .Take(Math.Max(1, maxIds))
-                .Select(pid => pid.ToString(CultureInfo.InvariantCulture))
-                .ToList();
-            string suffix = pendingJointChildPartOriginSeeds.Count > ids.Count
-                ? ",..."
-                : string.Empty;
+            int limit = Math.Max(1, maxIds);
+            var ids = new List<string>();
+            bool truncated = false;
+            foreach (uint pid in partPersistentIds)
+            {
+                if (ids.Count < limit)
+                {
+                    ids.Add(pid.ToString(CultureInfo.InvariantCulture));
+                    continue;
+                }
+
+                truncated = true;
+                break;
+            }
+
+            if (ids.Count == 0)
+                return "none";
+
+            string suffix = truncated ? ",..." : string.Empty;
             return string.Join(",", ids.ToArray()) + suffix;
+        }
+
+        internal static bool PendingJointChildPartOriginSeedIdsContainPidForDiagnostics(
+            IEnumerable<uint> partPersistentIds,
+            uint partPersistentId)
+        {
+            if (partPersistentId == 0u || partPersistentIds == null)
+                return false;
+
+            foreach (uint pid in partPersistentIds)
+            {
+                if (pid == partPersistentId)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -1057,10 +1101,10 @@ namespace Parsek
             string vesselName = part.vessel?.vesselName ?? "unknown";
             uint parentPid = part.parent?.persistentId ?? 0u;
             string origin = part.transform != null
-                ? FormatVector3dForDiagnostics(part.transform.position)
+                ? DiagnosticFormatters.FormatVector3d(part.transform.position)
                 : "no-transform";
             string rotation = part.transform != null
-                ? FormatQuaternionForDiagnostics(part.transform.rotation)
+                ? DiagnosticFormatters.FormatQuaternion(part.transform.rotation)
                 : "no-transform";
 
             return string.Format(
@@ -1074,57 +1118,7 @@ namespace Parsek
                 vesselName,
                 origin,
                 rotation,
-                DescribeSurfaceAttachNodeForDiagnostics(part));
-        }
-
-        private static string DescribeSurfaceAttachNodeForDiagnostics(Part part)
-        {
-            AttachNode node = part?.srfAttachNode;
-            if (node == null)
-                return "none";
-
-            string world = part.transform != null
-                ? FormatVector3dForDiagnostics(part.transform.TransformPoint(node.position))
-                : "no-transform";
-            uint attachedPid = node.attachedPart?.persistentId ?? 0u;
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "local={0} world={1} orient={2} attachedPid={3}",
-                FormatVector3ForDiagnostics(node.position),
-                world,
-                FormatVector3ForDiagnostics(node.orientation),
-                attachedPid);
-        }
-
-        private static string FormatVector3ForDiagnostics(Vector3 value)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "({0:F3},{1:F3},{2:F3})",
-                value.x,
-                value.y,
-                value.z);
-        }
-
-        private static string FormatVector3dForDiagnostics(Vector3d value)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "({0:F3},{1:F3},{2:F3})",
-                value.x,
-                value.y,
-                value.z);
-        }
-
-        private static string FormatQuaternionForDiagnostics(Quaternion value)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "({0:F3},{1:F3},{2:F3},{3:F3})",
-                value.x,
-                value.y,
-                value.z,
-                value.w);
+                DiagnosticFormatters.DescribeSurfaceAttachNode(part));
         }
 
         private void OnPartJointBreak(PartJoint joint, float breakForce)
@@ -1158,8 +1152,8 @@ namespace Parsek
                 $"{DescribeJointPartForDiagnostics("parent", joint.Parent)} " +
                 $"{DescribeJointPartForDiagnostics("host", joint.Host)} " +
                 $"{DescribeJointPartForDiagnostics("target", joint.Target)} " +
-                $"hostAnchor={FormatVector3ForDiagnostics(joint.HostAnchor)} " +
-                $"targetAnchor={FormatVector3ForDiagnostics(joint.TgtAnchor)}",
+                $"hostAnchor={DiagnosticFormatters.FormatVector3(joint.HostAnchor)} " +
+                $"targetAnchor={DiagnosticFormatters.FormatVector3(joint.TgtAnchor)}",
                 2.0);
             if (!structuralJointBreak)
             {
