@@ -1555,7 +1555,7 @@ namespace Parsek
         ///
         /// <para>
         /// Walks the Effective Ledger Set (tombstoned actions filtered out per
-        /// §3.2) and replays every surviving <see cref="GameActionType.KerbalAssignment"/>
+        /// §3.2) and replays every surviving kerbal assignment / roster-creation
         /// action through <see cref="KerbalsModule.ProcessAction"/>, then calls
         /// <see cref="KerbalsModule.PostWalk"/> and
         /// <see cref="KerbalsModule.ApplyToRoster"/> so the
@@ -1598,24 +1598,30 @@ namespace Parsek
             }
 
             // ELS = ledger minus tombstones (design §3.2). This is the only
-            // source of truth for "which kerbal assignments are still effective."
+            // source of truth for "which kerbal actions are still effective."
+            // Feed roster-creation rows as well as assignments so tombstoned
+            // roster cleanup can preserve kerbals still created by surviving ELS.
             var els = EffectiveState.ComputeELS();
-            var kerbalAssignments = new List<GameAction>();
+            var kerbalActions = new List<GameAction>();
             if (els != null)
             {
                 for (int i = 0; i < els.Count; i++)
                 {
                     var a = els[i];
                     if (a == null) continue;
-                    if (a.Type != GameActionType.KerbalAssignment) continue;
-                    kerbalAssignments.Add(a);
+                    if (a.Type != GameActionType.KerbalAssignment
+                        && a.Type != GameActionType.KerbalHire
+                        && a.Type != GameActionType.KerbalRescue
+                        && a.Type != GameActionType.KerbalStandIn)
+                        continue;
+                    kerbalActions.Add(a);
                 }
             }
 
             kerbals.Reset();
-            kerbals.PrePass(kerbalAssignments);
-            for (int i = 0; i < kerbalAssignments.Count; i++)
-                kerbals.ProcessAction(kerbalAssignments[i]);
+            kerbals.PrePass(kerbalActions);
+            for (int i = 0; i < kerbalActions.Count; i++)
+                kerbals.ProcessAction(kerbalActions[i]);
             kerbals.PostWalk();
 
             // ApplyToRoster refreshes the replacement dictionary via

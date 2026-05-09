@@ -102,6 +102,23 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction RosterCreationAction(
+            string recordingId,
+            string kerbalName,
+            GameActionType type = GameActionType.KerbalRescue,
+            double ut = 100.0)
+        {
+            return new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                Type = type,
+                RecordingId = recordingId,
+                KerbalName = kerbalName,
+                KerbalRole = "Pilot",
+                UT = ut,
+            };
+        }
+
         private static ParsekScenario InstallScenarioWithTombstones(
             params LedgerTombstone[] tombstones)
         {
@@ -169,6 +186,86 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecomputeAfterTombstones_DifferentRetryCrew_ReleasesOldCrewKeepsRetryCrew()
+        {
+            var original = MakeRecording("rec_original", "tree_1", new[] { "Jeb" });
+            var retry = MakeRecording("rec_retry", "tree_1", new[] { "Val" });
+            RecordingStore.AddRecordingWithTreeForTesting(original);
+            RecordingStore.AddRecordingWithTreeForTesting(retry);
+
+            var oldAssignment = KerbalAssignmentAction(
+                "rec_original", "Jeb", KerbalEndState.Aboard, 100.0);
+            var retryAssignment = KerbalAssignmentAction(
+                "rec_retry", "Val", KerbalEndState.Aboard, 120.0);
+            Ledger.AddAction(oldAssignment);
+            Ledger.AddAction(retryAssignment);
+
+            var kerbals = new KerbalsModule();
+            LedgerOrchestrator.SetKerbalsForTesting(kerbals);
+
+            InstallScenarioWithTombstones();
+            CrewReservationManager.RecomputeAfterTombstones();
+            Assert.True(kerbals.Reservations.ContainsKey("Jeb"),
+                "Before tombstones: original crew is still reserved from the old branch");
+            Assert.True(kerbals.Reservations.ContainsKey("Val"),
+                "Before tombstones: retry crew is reserved from the retry branch");
+
+            InstallScenarioWithTombstones(new LedgerTombstone
+            {
+                TombstoneId = "tomb_old_crew",
+                ActionId = oldAssignment.ActionId,
+                RetiringRecordingId = "rec_retry",
+                UT = 150.0,
+                CreatedRealTime = DateTime.UtcNow.ToString("o"),
+            });
+
+            CrewReservationManager.RecomputeAfterTombstones();
+
+            Assert.False(kerbals.Reservations.ContainsKey("Jeb"),
+                "After broad tombstones: original crew assignment leaves ELS");
+            Assert.True(kerbals.Reservations.ContainsKey("Val"),
+                "After broad tombstones: retry crew assignment remains reserved");
+        }
+
+        [Fact]
+        public void RecomputeAfterTombstones_SurvivingRosterCreationRowPreservesQueuedCleanup()
+        {
+            var oldRescue = RosterCreationAction(
+                "rec_old", "Rescuee Kerman", GameActionType.KerbalRescue, 100.0);
+            var retryRescue = RosterCreationAction(
+                "rec_retry", "Rescuee Kerman", GameActionType.KerbalRescue, 120.0);
+            Ledger.AddAction(oldRescue);
+            Ledger.AddAction(retryRescue);
+
+            var kerbals = new KerbalsModule();
+            LedgerOrchestrator.SetKerbalsForTesting(kerbals);
+            kerbals.QueueTombstonedRosterKerbal("Rescuee Kerman");
+
+            InstallScenarioWithTombstones(new LedgerTombstone
+            {
+                TombstoneId = "tomb_old_rescue",
+                ActionId = oldRescue.ActionId,
+                RetiringRecordingId = "rec_retry",
+                UT = 150.0,
+                CreatedRealTime = DateTime.UtcNow.ToString("o"),
+            });
+
+            CrewReservationManager.RecomputeAfterTombstones();
+
+            Assert.Contains("Rescuee Kerman", kerbals.LedgerCreatedKerbals);
+
+            var roster = new TombstoneCleanupFakeRoster();
+            roster.Add("Rescuee Kerman", ProtoCrewMember.RosterStatus.Available);
+            kerbals.ApplyToRoster(roster);
+
+            Assert.True(roster.Contains("Rescuee Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Tombstoned roster cleanup:")
+                && l.Contains("preserved=1"));
+        }
+
+        [Fact]
         public void RecomputeAfterTombstones_LogsCount()
         {
             var rec = MakeRecording("rec_1", "tree_1", new[] { "Jeb" });
@@ -227,6 +324,53 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[CrewReservations]") &&
                 l.Contains("no KerbalsModule"));
+        }
+
+        private sealed class TombstoneCleanupFakeRoster : KerbalsModule.IKerbalRosterFacade
+        {
+            private readonly Dictionary<string, ProtoCrewMember.RosterStatus> statuses =
+                new Dictionary<string, ProtoCrewMember.RosterStatus>();
+
+            public void Add(string name, ProtoCrewMember.RosterStatus status)
+            {
+                statuses[name] = status;
+            }
+
+            public bool Contains(string name)
+            {
+                return statuses.ContainsKey(name);
+            }
+
+            public bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status)
+            {
+                return statuses.TryGetValue(name, out status);
+            }
+
+            public bool TryCreateGeneratedStandIn(string trait, out string generatedName)
+            {
+                generatedName = null;
+                return false;
+            }
+
+            public bool TryRecreateStandIn(string desiredName, string trait)
+            {
+                return false;
+            }
+
+            public bool TryRemove(string name)
+            {
+                return statuses.Remove(name);
+            }
+
+            public bool IsKerbalOnLiveVessel(string kerbalName)
+            {
+                return false;
+            }
+
+            public bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId)
+            {
+                return false;
+            }
         }
     }
 }

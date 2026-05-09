@@ -238,7 +238,9 @@ namespace Parsek.Tests
             h.ghostBuildsThisSession = 7;
             h.ghostDestroysThisSession = 6;
 
+            int gcGen0BeforeReset = GC.CollectionCount(0);
             h.Reset();
+            int gcGen0AfterReset = GC.CollectionCount(0);
 
             Assert.Equal(0, h.waypointCacheHits);
             Assert.Equal(0, h.waypointCacheMisses);
@@ -247,8 +249,9 @@ namespace Parsek.Tests
             Assert.Equal(0, h.spawnRetries);
             Assert.Equal(0, h.ghostBuildsThisSession);
             Assert.Equal(0, h.ghostDestroysThisSession);
-            // gcGen0Baseline should be set to current GC count, not zero
-            Assert.Equal(GC.CollectionCount(0), h.gcGen0Baseline);
+            // gcGen0Baseline should be set to the current GC count; the count can
+            // advance between Reset and this assertion under a full-suite run.
+            Assert.InRange(h.gcGen0Baseline, gcGen0BeforeReset, gcGen0AfterReset);
         }
     }
 

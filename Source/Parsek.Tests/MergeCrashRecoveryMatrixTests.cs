@@ -51,6 +51,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             MergeJournalOrchestrator.ResetTestOverrides();
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
 
             MergeJournalOrchestrator.DurableSaveForTesting =
                 label => durableSaveCheckpoints.Add(label);
@@ -67,6 +68,7 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
+            KspStatePatcher.ResetForTesting();
         }
 
         // ------------------------------------------------------------------

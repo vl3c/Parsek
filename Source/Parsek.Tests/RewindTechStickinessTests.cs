@@ -35,6 +35,7 @@ namespace Parsek.Tests
 
         private const string PreRpTechId = "basicScience";
         private const string PostRpTechId = "engineering101";
+        private const string TombstonedTechId = "advConstruction";
 
         private const double PreRpUt = 100.0;
         private const double RpUt = 150.0;
@@ -182,6 +183,66 @@ namespace Parsek.Tests
             Assert.DoesNotContain(PostRpTechId, target);
         }
 
+        [Fact]
+        public void BuildTargetTechIdsForPatch_BaselineExclusion_RemovesTombstonedUnlock()
+        {
+            var baseline = new GameStateBaseline { ut = PostRpUt };
+            baseline.researchedTechIds.Add(PreRpTechId);
+            baseline.researchedTechIds.Add(TombstonedTechId);
+            var baselines = new List<GameStateBaseline> { baseline };
+            var exclusions = new HashSet<string>(StringComparer.Ordinal)
+            {
+                TombstonedTechId,
+            };
+
+            var target = KspStatePatcher.BuildTargetTechIdsForPatch(
+                baselines,
+                actions: new List<GameAction>(),
+                utCutoff: double.MaxValue,
+                baselineTechExclusions: exclusions);
+
+            Assert.NotNull(target);
+            Assert.Single(target);
+            Assert.Contains(PreRpTechId, target);
+            Assert.DoesNotContain(TombstonedTechId, target);
+        }
+
+        [Fact]
+        public void BuildTargetTechIdsForPatch_BaselineExclusion_SurvivingActionAddsNodeBack()
+        {
+            var baseline = new GameStateBaseline { ut = PostRpUt };
+            baseline.researchedTechIds.Add(PreRpTechId);
+            baseline.researchedTechIds.Add(TombstonedTechId);
+            var baselines = new List<GameStateBaseline> { baseline };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = PostRpUt,
+                    Type = GameActionType.ScienceSpending,
+                    NodeId = TombstonedTechId,
+                    Cost = 45f,
+                    Affordable = true,
+                    RecordingId = "rec-retry"
+                }
+            };
+            var exclusions = new HashSet<string>(StringComparer.Ordinal)
+            {
+                TombstonedTechId,
+            };
+
+            var target = KspStatePatcher.BuildTargetTechIdsForPatch(
+                baselines,
+                actions,
+                utCutoff: double.MaxValue,
+                baselineTechExclusions: exclusions);
+
+            Assert.NotNull(target);
+            Assert.Equal(2, target.Count);
+            Assert.Contains(PreRpTechId, target);
+            Assert.Contains(TombstonedTechId, target);
+        }
+
         // ================================================================
         // RecalculateAndPatch end-to-end — the cutoff being non-null is what
         // flips bypassPatchDeferral=true and routes the walk through the
@@ -203,7 +264,7 @@ namespace Parsek.Tests
             // tech set built including both the baseline tech and the post-RP unlock).
             Assert.Contains(logLines, l =>
                 l.Contains(OrchestratorTag)
-                && l.Contains("rewind-path tech-tree patch enabled")
+                && l.Contains("tech-tree patch enabled")
                 && l.Contains("targetCount=2"));
 
             // The non-rewind skip log MUST NOT have fired — otherwise the post-RP unlock
@@ -243,7 +304,7 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains(OrchestratorTag)
-                && l.Contains("rewind-path tech-tree patch enabled"));
+                && l.Contains("tech-tree patch enabled"));
         }
     }
 }
