@@ -43,6 +43,9 @@ namespace Parsek.Rendering
 
             if (rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion)
             {
+                RelativeAnchorResolveFailure chainFailure = default;
+                bool boundaryHasAbsoluteShadow =
+                    relSection.absoluteFrames != null && relSection.absoluteFrames.Count > 0;
                 // V11 path: resolve the anchor-local boundary through the
                 // recorded anchor chain. If the chain misses, fall back to the
                 // v7+ absolute shadow below instead of failing outright.
@@ -56,7 +59,8 @@ namespace Parsek.Rendering
                         relSection,
                         relIdx,
                         pt.ut,
-                        out AnchorPose pose))
+                        out AnchorPose pose,
+                        out chainFailure))
                 {
                     worldPos = pose.WorldPos;
                     return IsFinite(worldPos);
@@ -84,7 +88,12 @@ namespace Parsek.Rendering
                             relIdx,
                             side,
                             boundaryUT,
-                            relSection.anchorRecordingId ?? "(missing)"),
+                            relSection.anchorRecordingId ?? "(missing)")
+                            + string.Format(
+                                CultureInfo.InvariantCulture,
+                                " chainOutcome={0} chainReason={1}",
+                                chainFailure.Outcome,
+                                RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)")),
                         5.0);
                     return true;
                 }
@@ -98,13 +107,16 @@ namespace Parsek.Rendering
                         side),
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} legacyAnchorPid={5}",
+                        "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} legacyAnchorPid={5} outcome={6} reason={7} boundaryHasAbsoluteShadow={8}",
                         rec.RecordingId ?? "(none)",
                         relIdx,
                         side,
                         boundaryUT,
                         relSection.anchorRecordingId ?? "(missing)",
-                        relSection.anchorVesselId),
+                        relSection.anchorVesselId,
+                        chainFailure.Outcome,
+                        RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)"),
+                        boundaryHasAbsoluteShadow),
                     5.0);
                 return false;
             }
@@ -126,7 +138,8 @@ namespace Parsek.Rendering
             TrackSection relSection,
             int relIdx,
             double ut,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             return RelativeAnchorResolver.TryResolveRelativeSectionPose(
                 context,
@@ -135,7 +148,8 @@ namespace Parsek.Rendering
                 relIdx,
                 ut,
                 new HashSet<string>(StringComparer.Ordinal),
-                out pose);
+                out pose,
+                out failure);
         }
 
         public bool TryResolveOrbitalCheckpointWorldPos(

@@ -610,16 +610,21 @@ namespace Parsek.Tests
         private static void SetRecordedAnchorResolvedForTesting(string expectedAnchorRecordingId)
         {
             FlightRecorder.RecordedAnchorPoseOverrideForTesting =
-                (string anchorRecordingId, double ut, out AnchorPose pose, out string reason) =>
+                (string anchorRecordingId, double ut, out AnchorPose pose, out RelativeAnchorResolveFailure failure) =>
                 {
                     pose = default;
+                    failure = default;
                     if (anchorRecordingId == expectedAnchorRecordingId)
                     {
-                        reason = null;
                         return true;
                     }
 
-                    reason = "test-anchor-unresolved";
+                    failure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.Other,
+                        "test-anchor-unresolved",
+                        null,
+                        anchorRecordingId,
+                        ut);
                     return false;
                 };
         }
