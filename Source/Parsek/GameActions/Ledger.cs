@@ -487,6 +487,43 @@ namespace Parsek
                     continue;
                 }
 
+                // Contract lifecycle rows consume slots and/or resolve accepted
+                // contracts. Keep them as a timeline-consistent group before the
+                // generic earning/spending branches so a future accept cannot be
+                // pruned while its future completion survives as an earning.
+                if (IsContractLifecycleType(action.Type))
+                {
+                    if (action.UT > maxUT)
+                    {
+                        IncrementContractLifecyclePrunedCounter(action.Type,
+                            ref prunedEarnings,
+                            ref prunedSpendings,
+                            ref prunedOther);
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned contract lifecycle: type={action.Type}, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
+                            $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"recordingId='{action.RecordingId ?? "(null)"}'");
+                    }
+                    else if (action.RecordingId != null && !validRecordingIds.Contains(action.RecordingId))
+                    {
+                        IncrementContractLifecyclePrunedCounter(action.Type,
+                            ref prunedEarnings,
+                            ref prunedSpendingsByRecordingId,
+                            ref prunedOther);
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned contract lifecycle: type={action.Type}, " +
+                            $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+                    else
+                    {
+                        surviving.Add(action);
+                        kept++;
+                    }
+                    continue;
+                }
+
                 // Earning actions: classified by type, validated by recordingId.
                 // Null recordingId is valid for KSC spending actions (milestones achieved
                 // outside any recording, e.g. FirstCrewToSurvive at recovery).
@@ -529,39 +566,6 @@ namespace Parsek
                         prunedSpendingsByRecordingId++;
                         ParsekLog.Verbose("Ledger",
                             $"Pruned spending: type={action.Type}, " +
-                            $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
-                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
-                    }
-                    else
-                    {
-                        surviving.Add(action);
-                        kept++;
-                    }
-                    continue;
-                }
-
-                // ContractAccept consumes active contract slots and can credit advance funds.
-                // Even when tagged to a still-valid recording, a future accept must not
-                // survive an earlier load and later patch future contract/funds state.
-                // Paired complete/fail/cancel rows cannot become in-range orphans here:
-                // stock emits them at or after accept UT, so timeline pruning removes
-                // matching future outcomes with the future accept.
-                if (action.Type == GameActionType.ContractAccept)
-                {
-                    if (action.UT > maxUT)
-                    {
-                        prunedOther++;
-                        ParsekLog.Verbose("Ledger",
-                            $"Pruned other: type={action.Type}, " +
-                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
-                            $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
-                            $"recordingId='{action.RecordingId ?? "(null)"}'");
-                    }
-                    else if (action.RecordingId != null && !validRecordingIds.Contains(action.RecordingId))
-                    {
-                        prunedOther++;
-                        ParsekLog.Verbose("Ledger",
-                            $"Pruned other: type={action.Type}, " +
                             $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
                             $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
@@ -619,6 +623,29 @@ namespace Parsek
                 $"prunedOther={prunedOther}, " +
                 $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                 $"validRecordingIds={validRecordingIds.Count}");
+        }
+
+        private static bool IsContractLifecycleType(GameActionType type)
+        {
+            return type == GameActionType.ContractAccept
+                || type == GameActionType.ContractComplete
+                || type == GameActionType.ContractFail
+                || type == GameActionType.ContractCancel;
+        }
+
+        private static void IncrementContractLifecyclePrunedCounter(
+            GameActionType type,
+            ref int prunedEarnings,
+            ref int prunedSpendings,
+            ref int prunedOther)
+        {
+            if (type == GameActionType.ContractComplete)
+                prunedEarnings++;
+            else if (type == GameActionType.ContractFail
+                || type == GameActionType.ContractCancel)
+                prunedSpendings++;
+            else
+                prunedOther++;
         }
 
         // ================================================================

@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Load reconciliation now prunes future `ContractAccept` ledger rows even when they are tagged to a valid recording, preventing earlier loads from later restoring future active contracts or contract advance funds while keeping in-range KSC and recording-scoped accepts.
+- Load reconciliation now prunes future contract lifecycle ledger rows (`ContractAccept`, `ContractComplete`, `ContractFail`, and `ContractCancel`) even when they are tagged to a valid recording, preventing earlier loads or legacy migration from later restoring future active contracts, advances, completions, or penalties while keeping in-range KSC and recording-scoped rows.
 - Stable landed/splashed EVA side-branches created during tree commits now auto-seal their rewind slot instead of being promoted to an open Unfinished Flight. This prevents cases where a safe, landed EVA row exposed only Seal while Fly was globally blocked by the active Re-Fly session marker.
 - Rewind and time-jump cutoff recalculations now rebuild crew reservations from the full committed timeline while keeping funds/science/tech at the cutoff UT, so crew from unrecovered future recordings no longer reappear in the VAB/SPH crew picker after rewinding.
 - Timeline now shows Fly/Seal for every STASH-eligible recording, including active-parent breakup slots, so the Re-Fly filter matches the Recordings table.

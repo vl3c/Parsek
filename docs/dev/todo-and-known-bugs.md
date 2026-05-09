@@ -13,11 +13,11 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ## Done - v0.9.2 future ContractAccept load reconciliation
 
-- ~~A future `ContractAccept` ledger row tagged to a still-valid recording could survive an earlier load reconciliation because `ContractAccept` was handled as a generic "other" action and valid recording IDs bypassed `maxUT` pruning.~~ Review finding [P1]. The surviving row could later restore future active-contract state and let `FundsModule` re-credit `AdvanceFunds`.
+- ~~A future `ContractAccept` ledger row tagged to a still-valid recording could survive an earlier load reconciliation because `ContractAccept` was handled as a generic "other" action and valid recording IDs bypassed `maxUT` pruning.~~ Review finding [P1]. The surviving row could later restore future active-contract state and let `FundsModule` re-credit `AdvanceFunds`; a paired future `ContractComplete` could also survive through the generic earning branch and pay rewards after the accept was pruned.
 
-**Fix:** `Ledger.Reconcile` now applies `maxUT` pruning to `ContractAccept` before the recording-id validity check, while preserving in-range KSC-scope and recording-scoped accepts.
+**Fix:** `Ledger.Reconcile` now applies `maxUT` pruning to the full contract lifecycle group (`ContractAccept`, `ContractComplete`, `ContractFail`, and `ContractCancel`) before the recording-id validity check, while preserving in-range KSC-scope and recording-scoped rows. `LedgerOrchestrator.OnKspLoad` also runs a final reconcile after legacy migration/recovery so old-save `ContractAccepted`/outcome events cannot bypass the cutoff on first load.
 
-**Coverage:** `LedgerTests.Reconcile_ContractAcceptWithValidRecordingIdAfterMaxUt_Pruned` and `LedgerTests.Reconcile_ContractAcceptInRange_KeepsValidRecordingAndKscRows`.
+**Coverage:** `LedgerTests.Reconcile_ContractAcceptWithValidRecordingIdAfterMaxUt_Pruned`, `Reconcile_FutureContractAcceptAndCompleteWithValidRecordingId_PrunesBoth`, `Reconcile_FutureContractResolutionWithValidRecordingId_PrunedByMaxUt`, `Reconcile_ContractLifecycleRowsAtMaxUt_AreKept`, `Reconcile_ContractAcceptInRange_KeepsValidRecordingAndKscRows`, and `GameStateRecorderLedgerTests.OnKspLoad_MigratedFutureContractLifecycleRows_PrunedByMaxUt`.
 
 **Status:** CLOSED 2026-05-06.
 

@@ -609,11 +609,112 @@ namespace Parsek.Tests
             Assert.Empty(Ledger.Actions);
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]")
-                && l.Contains("Pruned other")
+                && l.Contains("Pruned contract lifecycle")
                 && l.Contains("ContractAccept")
                 && l.Contains("maxUT=18000"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") && l.Contains("prunedOther=1"));
+        }
+
+        [Fact]
+        public void Reconcile_FutureContractAcceptAndCompleteWithValidRecordingId_PrunesBoth()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = "rec_future",
+                ContractId = "contract-future",
+                AdvanceFunds = 5000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20100.0,
+                Type = GameActionType.ContractComplete,
+                RecordingId = "rec_future",
+                ContractId = "contract-future",
+                FundsReward = 10000f
+            });
+
+            var valid = new HashSet<string> { "rec_future" };
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("Pruned contract lifecycle")
+                && l.Contains("ContractAccept")
+                && l.Contains("maxUT=18000"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("Pruned contract lifecycle")
+                && l.Contains("ContractComplete")
+                && l.Contains("maxUT=18000"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedEarnings=1")
+                && l.Contains("prunedOther=1"));
+        }
+
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void Reconcile_FutureContractResolutionWithValidRecordingId_PrunedByMaxUt(
+            GameActionType type)
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = type,
+                RecordingId = "rec_future",
+                ContractId = "contract-future",
+                FundsPenalty = 1000f
+            });
+
+            var valid = new HashSet<string> { "rec_future" };
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("Pruned contract lifecycle")
+                && l.Contains(type.ToString())
+                && l.Contains("maxUT=18000"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("prunedSpendings=1"));
+        }
+
+        [Fact]
+        public void Reconcile_ContractLifecycleRowsAtMaxUt_AreKept()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 18000.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = "rec_current",
+                ContractId = "contract-boundary",
+                AdvanceFunds = 5000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 18000.0,
+                Type = GameActionType.ContractComplete,
+                RecordingId = "rec_current",
+                ContractId = "contract-boundary",
+                FundsReward = 10000f
+            });
+
+            var valid = new HashSet<string> { "rec_current" };
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ContractAccept);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ContractComplete);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("kept=2")
+                && l.Contains("prunedEarnings=0")
+                && l.Contains("prunedOther=0"));
         }
 
         [Fact]

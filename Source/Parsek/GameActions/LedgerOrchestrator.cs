@@ -1800,7 +1800,7 @@ namespace Parsek
         /// then recalculate and patch.
         /// </summary>
         /// <param name="validRecordingIds">Set of recording IDs present in the loaded save.</param>
-        /// <param name="maxUT">Current UT — spending actions after this are pruned.</param>
+        /// <param name="maxUT">Current UT — future spendings and contract lifecycle rows after this are pruned.</param>
         internal static void OnKspLoad(HashSet<string> validRecordingIds, double maxUT)
         {
             Initialize();
@@ -1879,6 +1879,11 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     $"TryRecoverBrokenLedgerOnLoad failed during OnKspLoad: {ex.GetType().Name}: {ex.Message}");
             }
+
+            // Migration/recovery can synthesize timeline rows after the first
+            // reconcile. Run a final pass so future contract accepts and outcomes
+            // from old event stores cannot bypass maxUT pruning on first load.
+            Ledger.Reconcile(validRecordingIds, maxUT);
 
             RecalculateAndPatch();
             KerbalLoadRepairDiagnostics.EmitAndReset();
