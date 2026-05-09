@@ -1226,6 +1226,141 @@ namespace Parsek.Tests
             Assert.Equal(child.RecordingId, failure.AnchorRecordingId);
         }
 
+        [Fact]
+        public void ResolverFalseReturns_HaveStructuredFailure()
+        {
+            var context = MakeContext(new RecordingTree { Id = "tree" });
+            RelativeAnchorResolveFailure failure;
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                "",
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("empty anchor recording id", resolved, failure);
+
+            resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                "cycle",
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal) { "cycle" },
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("anchor cycle", resolved, failure);
+
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                null,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("null recording", resolved, failure);
+
+            Recording loopAnchor = MakeAbsoluteRecording(
+                "loop-anchor",
+                "tree",
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            loopAnchor.LoopAnchorVesselId = 123u;
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                loopAnchor,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("loop anchor", resolved, failure);
+
+            var missingSections = new Recording
+            {
+                RecordingId = "missing-sections",
+                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                TreeId = "tree",
+            };
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                missingSections,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("missing track sections", resolved, failure);
+
+            Recording unknownFrame = MakeAbsoluteRecording(
+                "unknown-frame",
+                "tree",
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            TrackSection unknownSection = unknownFrame.TrackSections[0];
+            unknownSection.referenceFrame = (ReferenceFrame)999;
+            unknownFrame.TrackSections[0] = unknownSection;
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                unknownFrame,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("unknown section frame", resolved, failure);
+
+            Recording relativeMissingAnchor = MakeRelativeRecording(
+                "relative-missing-anchor",
+                "tree",
+                new Vector3d(1, 0, 0));
+            resolved = RelativeAnchorResolver.TryResolveRelativeSectionPose(
+                context,
+                relativeMissingAnchor,
+                relativeMissingAnchor.TrackSections[0],
+                0,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("relative section missing anchor", resolved, failure);
+
+            var orbitalWithoutResolver = new Recording
+            {
+                RecordingId = "orbital-anchor",
+                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                TreeId = "tree",
+            };
+            orbitalWithoutResolver.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 0.0,
+                endUT = 10.0,
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Checkpoint,
+            });
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                orbitalWithoutResolver,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("orbital resolver missing", resolved, failure);
+        }
+
+        private static void AssertFalseWithStructuredFailure(
+            string scenario,
+            bool resolved,
+            RelativeAnchorResolveFailure failure)
+        {
+            Assert.False(resolved);
+            Assert.True(
+                failure.HasFailure,
+                scenario + " returned false with default failure");
+            Assert.NotEqual(RelativeAnchorResolveOutcome.None, failure.Outcome);
+            Assert.False(
+                string.IsNullOrWhiteSpace(failure.Reason),
+                scenario + " returned false without a reason");
+        }
+
         private static RelativeAnchorResolverContext MakeContext(
             RecordingTree tree,
             Func<Recording, TrackSection, int, string> anchorRecordingIdResolver = null,
