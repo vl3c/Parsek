@@ -109,6 +109,128 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyBackgroundRelativeFrameContract_RecordedActiveSnapshot_IsFrozenReFly()
+        {
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
+                "recorded",
+                AnchorCandidateSource.Ghost,
+                hasCurrentAnchorCandidate: false,
+                activeReFlyParentMatch: true,
+                hasPreReFlyAnchorSnapshot: true);
+
+            Assert.Equal("frozen-refly", frameContract);
+        }
+
+        [Fact]
+        public void ClassifyBackgroundRelativeFrameContract_RecordedWithoutSnapshot_IsRecorded()
+        {
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
+                "recorded",
+                AnchorCandidateSource.Ghost,
+                hasCurrentAnchorCandidate: false,
+                activeReFlyParentMatch: true,
+                hasPreReFlyAnchorSnapshot: false);
+
+            Assert.Equal("recorded", frameContract);
+        }
+
+        [Fact]
+        public void ClassifyBackgroundRelativeFrameContract_LiveWarnFallback_IsLive()
+        {
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
+                "live-warn-fallback",
+                AnchorCandidateSource.Live,
+                hasCurrentAnchorCandidate: true,
+                activeReFlyParentMatch: true,
+                hasPreReFlyAnchorSnapshot: true);
+
+            Assert.Equal("live", frameContract);
+        }
+
+        [Fact]
+        public void ClassifyBackgroundRelativeFrameContract_QueuedParentSeed_IsRecorded()
+        {
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
+                "queued-parent-seed",
+                AnchorCandidateSource.Live,
+                hasCurrentAnchorCandidate: true,
+                activeReFlyParentMatch: true,
+                hasPreReFlyAnchorSnapshot: true);
+
+            Assert.Equal("recorded", frameContract);
+        }
+
+        [Fact]
+        public void ClassifyBackgroundRelativeFrameContract_QueuedParentSeedWithoutCurrentCandidate_IsRecorded()
+        {
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
+                "queued-parent-seed",
+                AnchorCandidateSource.Live,
+                hasCurrentAnchorCandidate: false,
+                activeReFlyParentMatch: true,
+                hasPreReFlyAnchorSnapshot: true);
+
+            Assert.Equal("recorded", frameContract);
+        }
+
+        [Fact]
+        public void IsActiveReFlyParentMatch_RequiresActiveIdAndParentMatch()
+        {
+            Assert.True(BackgroundRecorder.IsActiveReFlyParentMatch("active-refly", "active-refly"));
+            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatch("active-refly", "other"));
+            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatch(null, "active-refly"));
+            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatch("active-refly", null));
+        }
+
+        [Fact]
+        public void FormatActiveReFlyParentDriftFromRecorded_ReturnsNullOutsideActiveParentMatch()
+        {
+            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecorded(
+                activeReFlyParentMatch: false,
+                liveResolved: true,
+                liveWorldPos: new Vector3d(3.0, 4.0, 0.0),
+                recordedResolved: true,
+                recordedWorldPos: Vector3d.zero);
+
+            Assert.Null(drift);
+        }
+
+        [Fact]
+        public void FormatActiveReFlyParentDriftFromRecorded_ReturnsUnresolvedWhenLiveParentMissing()
+        {
+            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecorded(
+                activeReFlyParentMatch: true,
+                liveResolved: false,
+                liveWorldPos: Vector3d.zero,
+                recordedResolved: true,
+                recordedWorldPos: Vector3d.zero);
+
+            Assert.Equal("(unresolved)", drift);
+        }
+
+        [Fact]
+        public void FormatActiveReFlyParentDriftFromRecorded_ComputesMeterDelta()
+        {
+            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecorded(
+                activeReFlyParentMatch: true,
+                liveResolved: true,
+                liveWorldPos: new Vector3d(3.0, 4.0, 0.0),
+                recordedResolved: true,
+                recordedWorldPos: Vector3d.zero);
+
+            Assert.Equal("5.000", drift);
+        }
+
+        [Fact]
+        public void FormatParentDriftLogField_OmitsKeyWhenGuardSkipped()
+        {
+            Assert.Equal(string.Empty, BackgroundRecorder.FormatParentDriftLogField(null));
+            Assert.Equal(
+                "parentDriftFromRecorded=(unresolved) ",
+                BackgroundRecorder.FormatParentDriftLogField("(unresolved)"));
+        }
+
+        [Fact]
         public void IsPendingDebrisSeedParentAnchorUsable_AcceptsMatchingParentAndUT()
         {
             Assert.True(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
