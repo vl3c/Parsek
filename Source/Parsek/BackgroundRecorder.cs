@@ -118,6 +118,13 @@ namespace Parsek
         private Dictionary<uint, TrajectoryPoint> pendingInitialTrajectoryPoints
             = new Dictionary<uint, TrajectoryPoint>();
 
+        // Focused-vessel breakup can create debris before the active parent's open
+        // TrackSection has been flushed into tree.Recordings. Queue the parent
+        // structural-event point so the debris seed can still use the split-UT
+        // parent pose instead of the live parent pose at background initialization.
+        private Dictionary<uint, (string parentRecordingId, TrajectoryPoint point)> pendingDebrisSeedParentAnchorPoints
+            = new Dictionary<uint, (string, TrajectoryPoint)>();
+
         // Reusable buffer for transition-check methods (avoids per-frame List<PartEvent> allocations)
         private readonly List<PartEvent> reusableEventBuffer = new List<PartEvent>();
 
@@ -1979,6 +1986,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Queues the focused parent's split-time pose for a debris child seed.
+        /// </summary>
+        internal void QueueDebrisSeedParentAnchorPoint(
+            uint vesselPid,
+            string parentRecordingId,
+            TrajectoryPoint parentAnchorPoint)
+        {
+            if (vesselPid == 0u || string.IsNullOrWhiteSpace(parentRecordingId))
+                return;
+
+            pendingDebrisSeedParentAnchorPoints[vesselPid] = (parentRecordingId, parentAnchorPoint);
+            ParsekLog.Verbose("BgRecorder",
+                $"Queued debris seed parent anchor point: pid={vesselPid} " +
+                $"parentRecId={parentRecordingId} " +
+                $"anchorUT={parentAnchorPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"flags={parentAnchorPoint.flags}");
+        }
+
+        /// <summary>
         /// Called when a vessel is added to the background map (transition or branch creation).
         /// </summary>
         public void OnVesselBackgrounded(uint vesselPid, InheritedEngineState? inherited = null,
@@ -2098,6 +2124,7 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(vesselPid);
             pendingInitialTrajectoryPoints.Remove(vesselPid);
+            pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
             finalizationCaches.Remove(vesselPid);
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
@@ -3102,6 +3129,7 @@ namespace Parsek
                     : null;
                 if (parentRec == null || parentVessel == null)
                 {
+                    pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
                     ParsekLog.Warn("BgRecorder",
                         $"InitializeLoadedState: debris contract applies but parent unavailable, " +
                         $"falling back to Absolute seed: pid={vesselPid} recId={recordingId} " +
@@ -3134,11 +3162,28 @@ namespace Parsek
 
                     AnchorPose seedAnchorPose = liveAnchorPose;
                     string seedAnchorSource = "live";
-                    if (TryResolveBackgroundRecordedAnchorPose(
+                    string queuedSeedAnchorReason;
+                    string recordedSeedAnchorReason = null;
+                    if (TryConsumePendingDebrisSeedParentAnchorPose(
+                            vesselPid,
+                            treeRecForDebris.DebrisParentRecordingId,
+                            initialTrajectoryPoint.ut,
+                            out AnchorPose queuedSeedAnchorPose,
+                            out queuedSeedAnchorReason))
+                    {
+                        seedAnchorPose = queuedSeedAnchorPose;
+                        seedAnchorSource = "queued-parent-seed";
+                        ParsekLog.Verbose("BgRecorder",
+                            $"InitializeLoadedState: consumed queued debris seed parent anchor: " +
+                            $"pid={vesselPid} recId={recordingId} " +
+                            $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
+                            $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)}");
+                    }
+                    else if (TryResolveBackgroundRecordedAnchorPose(
                             treeRecForDebris.DebrisParentRecordingId,
                             initialTrajectoryPoint.ut,
                             out AnchorPose recordedSeedAnchorPose,
-                            out string recordedSeedAnchorReason))
+                            out recordedSeedAnchorReason))
                     {
                         seedAnchorPose = recordedSeedAnchorPose;
                         seedAnchorSource = "recorded";
@@ -3150,6 +3195,7 @@ namespace Parsek
                             $"falling back to live parent pose: pid={vesselPid} recId={recordingId} " +
                             $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
                             $"reason={recordedSeedAnchorReason ?? "unknown"} " +
+                            $"queuedReason={queuedSeedAnchorReason ?? "unknown"} " +
                             $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
                             $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)}");
                     }
@@ -4870,6 +4916,165 @@ namespace Parsek
 
             point = default(TrajectoryPoint);
             return false;
+        }
+
+        internal static bool IsPendingDebrisSeedParentAnchorUsable(
+            string queuedParentRecordingId,
+            string expectedParentRecordingId,
+            double queuedUT,
+            double seedUT,
+            out string reason,
+            double toleranceSeconds = 1e-6)
+        {
+            reason = null;
+            if (string.IsNullOrWhiteSpace(queuedParentRecordingId))
+            {
+                reason = "queued-parent-recording-id-missing";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(expectedParentRecordingId))
+            {
+                reason = "expected-parent-recording-id-missing";
+                return false;
+            }
+
+            if (!string.Equals(queuedParentRecordingId, expectedParentRecordingId, StringComparison.Ordinal))
+            {
+                reason = "queued-parent-recording-id-mismatch";
+                return false;
+            }
+
+            if (double.IsNaN(queuedUT)
+                || double.IsInfinity(queuedUT)
+                || double.IsNaN(seedUT)
+                || double.IsInfinity(seedUT))
+            {
+                reason = "queued-parent-anchor-ut-invalid";
+                return false;
+            }
+
+            if (double.IsNaN(toleranceSeconds)
+                || double.IsInfinity(toleranceSeconds)
+                || toleranceSeconds < 0.0)
+            {
+                reason = "queued-parent-anchor-tolerance-invalid";
+                return false;
+            }
+
+            if (Math.Abs(queuedUT - seedUT) > toleranceSeconds)
+            {
+                reason = "queued-parent-anchor-ut-mismatch";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryConsumePendingDebrisSeedParentAnchorPose(
+            uint vesselPid,
+            string expectedParentRecordingId,
+            double seedUT,
+            out AnchorPose pose,
+            out string reason)
+        {
+            pose = default;
+            reason = null;
+            if (!pendingDebrisSeedParentAnchorPoints.TryGetValue(
+                    vesselPid,
+                    out (string parentRecordingId, TrajectoryPoint point) pending))
+            {
+                reason = "queued-parent-anchor-missing";
+                return false;
+            }
+
+            pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
+            if (!IsPendingDebrisSeedParentAnchorUsable(
+                    pending.parentRecordingId,
+                    expectedParentRecordingId,
+                    pending.point.ut,
+                    seedUT,
+                    out reason))
+            {
+                return false;
+            }
+
+            if (!TryCreateAnchorPoseFromAbsolutePoint(
+                    pending.point,
+                    expectedParentRecordingId,
+                    out pose,
+                    out reason))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryCreateAnchorPoseFromAbsolutePoint(
+            TrajectoryPoint point,
+            string recordingId,
+            out AnchorPose pose,
+            out string reason)
+        {
+            pose = default;
+            reason = null;
+            CelestialBody body = FindBackgroundBody(point.bodyName);
+            if (body == null || body.bodyTransform == null)
+            {
+                reason = "queued-parent-anchor-body-unresolved";
+                return false;
+            }
+
+            Vector3d worldPos;
+            try
+            {
+                worldPos = body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            }
+            catch (Exception)
+            {
+                reason = "queued-parent-anchor-world-position-unresolved";
+                return false;
+            }
+
+            Quaternion worldRotation = TrajectoryMath.PureMultiply(
+                body.bodyTransform.rotation,
+                TrajectoryMath.SanitizeQuaternion(point.rotation));
+            pose = new AnchorPose(worldPos, worldRotation, -1, recordingId);
+            if (!IsFiniteAnchorPose(pose))
+            {
+                reason = "queued-parent-anchor-pose-nonfinite";
+                pose = default;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsFiniteAnchorPose(AnchorPose pose)
+        {
+            return IsFinite(pose.WorldPos)
+                && IsFinite(pose.WorldRotation);
+        }
+
+        private static bool IsFinite(Vector3d value)
+        {
+            return IsFinite(value.x)
+                && IsFinite(value.y)
+                && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(Quaternion value)
+        {
+            return IsFinite(value.x)
+                && IsFinite(value.y)
+                && IsFinite(value.z)
+                && IsFinite(value.w);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         /// <summary>

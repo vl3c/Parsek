@@ -5502,6 +5502,29 @@ namespace Parsek
             InheritedEngineState? breakupEngineState = recorder != null
                 ? InheritedEngineState.FromRecorder(recorder) : null;
 
+            TrajectoryPoint? focusedParentSeedAnchorPoint = null;
+            if (recorder != null
+                && !recorder.CurrentTrackSectionUsesRelativeFrame
+                && FlightRecorder.TryFindStructuralEventSnapshotPointForUT(
+                    recorder?.Recording,
+                    breakupBp.UT,
+                    out TrajectoryPoint parentSeedAnchorPoint))
+            {
+                focusedParentSeedAnchorPoint = parentSeedAnchorPoint;
+                ParsekLog.Verbose("Coalescer",
+                    $"ProcessBreakupEvent: focused parent seed anchor point available: " +
+                    $"parentRec={activeRecId} ut={parentSeedAnchorPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"flags={parentSeedAnchorPoint.flags}");
+            }
+            else
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"ProcessBreakupEvent: focused parent seed anchor point unavailable: " +
+                    $"parentRec={activeRecId} breakupUT={breakupBp.UT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"recorderPoints={recorder?.Recording?.Count ?? 0} " +
+                    $"currentSectionRelative={recorder?.CurrentTrackSectionUsesRelativeFrame ?? false}");
+            }
+
             // Create child recording segments for controlled children (vessels with probe
             // cores that survive the breakup).
             // These are NOT debris — they record indefinitely (no TTL) and can serve as
@@ -5627,6 +5650,13 @@ namespace Parsek
                         }
                         initialPoint = ApplyStructuralEventFlagToChildSeed(initialPoint, breakupBp.UT);
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
+                        if (focusedParentSeedAnchorPoint.HasValue)
+                        {
+                            backgroundRecorder.QueueDebrisSeedParentAnchorPoint(
+                                pid,
+                                activeRecId,
+                                focusedParentSeedAnchorPoint.Value);
+                        }
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
                             breakupEngineState,

@@ -947,6 +947,9 @@ namespace Parsek
         /// </summary>
         internal double LastRecordedUT => lastRecordedUT < 0 ? double.NaN : lastRecordedUT;
 
+        internal bool CurrentTrackSectionUsesRelativeFrame =>
+            trackSectionActive && currentTrackSection.referenceFrame == ReferenceFrame.Relative;
+
         /// <summary>
         /// Altitude (m) of the most recently committed point. Double.NaN until the
         /// first point is recorded. Exposed so callers (e.g. HandleSoiAutoSplit in
@@ -8455,6 +8458,44 @@ namespace Parsek
         {
             pt.flags = (byte)((TrajectoryPointFlags)pt.flags | TrajectoryPointFlags.StructuralEventSnapshot);
             return pt;
+        }
+
+        internal static bool TryFindStructuralEventSnapshotPointForUT(
+            IEnumerable<TrajectoryPoint> points,
+            double eventUT,
+            out TrajectoryPoint point,
+            double toleranceSeconds = 1e-6)
+        {
+            point = default;
+            if (points == null
+                || double.IsNaN(eventUT)
+                || double.IsInfinity(eventUT)
+                || double.IsNaN(toleranceSeconds)
+                || toleranceSeconds < 0.0)
+            {
+                return false;
+            }
+
+            bool found = false;
+            double bestDelta = double.MaxValue;
+            foreach (TrajectoryPoint candidate in points)
+            {
+                if (((TrajectoryPointFlags)candidate.flags & TrajectoryPointFlags.StructuralEventSnapshot)
+                    != TrajectoryPointFlags.StructuralEventSnapshot)
+                {
+                    continue;
+                }
+
+                double delta = Math.Abs(candidate.ut - eventUT);
+                if (delta > toleranceSeconds || delta >= bestDelta)
+                    continue;
+
+                bestDelta = delta;
+                point = candidate;
+                found = true;
+            }
+
+            return found;
         }
 
         /// <summary>

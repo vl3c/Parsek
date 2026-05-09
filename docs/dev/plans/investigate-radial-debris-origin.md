@@ -14,7 +14,9 @@ Diagnostic retained log bundle: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-
 
 Post-root-pose validation bundle: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-05-09_1229_radial-debris-too-far-forward`
 
-Status: Phase 1 diagnostics plus the narrow parent-anchored debris root-pose background-sample fix landed in PR #780. The post-root-pose validation bundle shows the ordinary-sample root mismatch is fixed (`absolute-root` about `0.01 m`) and exposes the remaining seed bridge: the structural seed was converted against the live parent pose about `0.52 s` after the seed UT. PR #780 now converts that seed against the recorded parent pose at seed UT and bounds the debris seed-bridge hide to large synthetic local gaps. Contact-node / joint-anchor correction phases are deferred until post-fix in-game validation proves a residual interface offset.
+Latest retained validation bundle: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-05-09_1312_radial-booster-init-still-forward-latest`
+
+Status: Phase 1 diagnostics plus the narrow parent-anchored debris root-pose background-sample fix landed in PR #780. The post-root-pose validation bundle shows the ordinary-sample root mismatch is fixed (`absolute-root` about `0.01 m`) and exposes the remaining seed bridge: the structural seed was converted against the live parent pose about `0.52 s` after the seed UT. The latest bundle shows the tree-recorded parent pose lookup still failed at background initialization (`recorded-anchor-unresolved`) even though the final saved parent sidecar later contains the seed-UT sections. That makes the current fix a focused-breakup handoff: queue the active recorder's structural parent point for the debris child and consume that split-UT parent pose before falling back to the tree resolver or live parent pose. Contact-node / joint-anchor correction phases are deferred until post-fix in-game validation proves a residual interface offset.
 
 Bundle capture commit: `1a274030` (`Clamp debris first visible frame to seed bridge end`). The investigation worktree is based on the later `85cf25ac`; relevant files changed between those commits (`FlightRecorder.cs`, `GhostPlaybackEngine.cs`, `ParsekFlight.cs`, `RelativeAnchorResolver.cs`, and tests), so implementation must recheck the exact current-HEAD contracts before changing behavior. The seed, appearance, and Relative-frame conclusions below were rechecked against `85cf25ac`.
 
@@ -55,7 +57,7 @@ This rules out COM and makes contact-node correction a second-order follow-up, n
 
 Post-root-pose validation from `2026-05-09_1229_radial-debris-too-far-forward` proved that ordinary samples now share the root-part contract: all six radial `First debris ordinary sample diagnostics` lines report `absolute-root=(0.005,0.000,0.008)`. The visible symptom then moved to the hidden seed bridge. For example, recording `d641fda9` has a corrected first ordinary frame at UT `536.541` with local `(1.394,-4.445,-0.783)`, but its structural seed at UT `535.981` was converted with an anchor pose from initialization UT `536.501`, producing local `(-6.485,-48.374,-0.576)`. The same pattern appears across the other radial boosters. That confirms a parent-pose timing bug in `BackgroundRecorder.InitializeLoadedState`, not a residual ordinary-sample or ghost visual root bug.
 
-The follow-up fix should use the recorded parent pose at the seed UT for converting the initial debris seed. Future ordinary samples can keep using the live parent pose at their own sample UT. Once the seed is time-aligned, the playback-side `debris-seed-bridge` hide should be gated by an anchor-local distance threshold so genuinely corrected seed-to-first-sample motion is visible, while the old tens-of-metres synthetic bridge remains hidden for legacy/newly malformed data.
+The follow-up fix should use the parent pose at the seed UT for converting the initial debris seed. For focused-vessel breakups, that pose may only exist in the active recorder buffer until the open parent TrackSection is flushed into the tree recording, so the seed path needs an explicit active-parent handoff before falling back to tree-recorded parent pose. Future ordinary samples can keep using the live parent pose at their own sample UT. Once the seed is time-aligned, the playback-side `debris-seed-bridge` hide should be gated by an anchor-local distance threshold so genuinely corrected seed-to-first-sample motion is visible, while the old tens-of-metres synthetic bridge remains hidden for legacy/newly malformed data.
 
 ## Relevant Code Paths
 
@@ -117,7 +119,7 @@ The ghost visual root transform looks correct for the data it receives: the ghos
 
 The huge seed-to-next-frame delta is a seed bridge / parent-pose timing artifact: the seed is at the split UT, but the relative conversion used a later live parent pose during `BackgroundRecorder.InitializeLoadedState`. PR #776 hid/clamped that bridge to prevent the old slide, but after the ordinary-sample fix that means radial debris first appears at the post-separation ordinary sample instead of at the decoupler.
 
-The root-pose validation run proved the first ordinary frame is no longer the bad data point: its `absolutePoint` is the root-part pose to about a centimetre. The remaining fix is to convert the seed with the recorded parent pose at the seed UT and stop hiding corrected, small-distance seed bridges.
+The root-pose validation run proved the first ordinary frame is no longer the bad data point: its `absolutePoint` is the root-part pose to about a centimetre. The remaining fix is to convert the seed with a parent pose from the seed UT, using the active recorder's structural parent point for focused-vessel breakups when tree-recorded TrackSections are not flushed yet, and stop hiding corrected, small-distance seed bridges.
 
 ### 5. Does undocking share the same problem?
 
@@ -137,7 +139,7 @@ Two secondary observations affect implementation:
 
 ## Narrowest Safe Fix Surface
 
-Do not start with a broad render-side correction. Phase 1 diagnostics confirmed two narrow recorder/playback fixes: v12+ parent-anchored debris ordinary loaded-background samples should use root-part surface pose, and the initial debris seed should convert against the recorded parent pose at the seed UT. Playback should only hide the seed bridge when the seed-to-first-ordinary anchor-local gap is large enough to identify a synthetic bridge. Contact-point correction remains deferred until a post-fix run proves a residual contact/reference mismatch.
+Do not start with a broad render-side correction. Phase 1 diagnostics confirmed two narrow recorder/playback fixes: v12+ parent-anchored debris ordinary loaded-background samples should use root-part surface pose, and the initial debris seed should convert against a parent pose from the seed UT. For focused breakups that means consuming a queued active-recorder structural parent point before trying the tree-recorded resolver. Playback should only hide the seed bridge when the seed-to-first-ordinary anchor-local gap is large enough to identify a synthetic bridge. Contact-point correction remains deferred until a post-fix run proves a residual contact/reference mismatch.
 
 ### Phase 1: Add bounded diagnostics only
 

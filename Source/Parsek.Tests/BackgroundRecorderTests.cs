@@ -108,6 +108,57 @@ namespace Parsek.Tests
             Assert.True(BackgroundRecorder.ShouldPreferRootPartSurfacePoseForBackgroundSample(rec));
         }
 
+        [Fact]
+        public void IsPendingDebrisSeedParentAnchorUsable_AcceptsMatchingParentAndUT()
+        {
+            Assert.True(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
+                "parent-rec",
+                "parent-rec",
+                queuedUT: 42.0000004,
+                seedUT: 42.0,
+                out string reason,
+                toleranceSeconds: 1e-6));
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void IsPendingDebrisSeedParentAnchorUsable_RejectsParentMismatch()
+        {
+            Assert.False(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
+                "other-parent",
+                "parent-rec",
+                queuedUT: 42.0,
+                seedUT: 42.0,
+                out string reason));
+            Assert.Equal("queued-parent-recording-id-mismatch", reason);
+        }
+
+        [Fact]
+        public void IsPendingDebrisSeedParentAnchorUsable_RejectsUTMismatch()
+        {
+            Assert.False(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
+                "parent-rec",
+                "parent-rec",
+                queuedUT: 42.01,
+                seedUT: 42.0,
+                out string reason,
+                toleranceSeconds: 1e-6));
+            Assert.Equal("queued-parent-anchor-ut-mismatch", reason);
+        }
+
+        [Fact]
+        public void IsPendingDebrisSeedParentAnchorUsable_RejectsInvalidTolerance()
+        {
+            Assert.False(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
+                "parent-rec",
+                "parent-rec",
+                queuedUT: 42.0,
+                seedUT: 42.0,
+                out string reason,
+                toleranceSeconds: double.NaN));
+            Assert.Equal("queued-parent-anchor-tolerance-invalid", reason);
+        }
+
         #region 9.1 On-Rails State Management
 
         [Fact]

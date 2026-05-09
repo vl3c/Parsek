@@ -59,6 +59,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindStructuralEventSnapshotPointForUT_SelectsFlaggedPointWithinTolerance()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 10.0, altitude = 1.0 },
+                new TrajectoryPoint
+                {
+                    ut = 10.0000004,
+                    altitude = 2.0,
+                    flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                },
+                new TrajectoryPoint
+                {
+                    ut = 10.0000001,
+                    altitude = 3.0,
+                    flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                }
+            };
+
+            Assert.True(FlightRecorder.TryFindStructuralEventSnapshotPointForUT(
+                points,
+                10.0,
+                out TrajectoryPoint point));
+            Assert.Equal(3.0, point.altitude);
+        }
+
+        [Fact]
+        public void TryFindStructuralEventSnapshotPointForUT_RejectsUnflaggedOrOutsideTolerance()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 20.0, altitude = 1.0 },
+                new TrajectoryPoint
+                {
+                    ut = 20.01,
+                    altitude = 2.0,
+                    flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                }
+            };
+
+            Assert.False(FlightRecorder.TryFindStructuralEventSnapshotPointForUT(
+                points,
+                20.0,
+                out _,
+                toleranceSeconds: 1e-6));
+        }
+
+        [Fact]
         public void ComputeRelativeLocalRotationFromAbsolutePointRotation_UsesSurfaceRelativePointRotation()
         {
             Quaternion bodyWorldRotation = TrajectoryMath.PureAngleAxis(30f, Vector3.up);
