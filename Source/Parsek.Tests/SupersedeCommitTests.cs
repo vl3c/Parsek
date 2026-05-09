@@ -42,6 +42,9 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            RecalculationEngine.ClearModules();
+            KspStatePatcher.SuppressUnityCallsForTesting = true;
         }
 
         public void Dispose()
@@ -55,6 +58,9 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            RecalculationEngine.ClearModules();
+            KspStatePatcher.ResetForTesting();
         }
 
         // ---------- Helpers -------------------------------------------------

@@ -1884,18 +1884,25 @@ namespace Parsek
 
             // Compute distance to focused vessel and determine proximity-based sample interval
             double distance = ComputeDistanceToFocusedVessel(bgVessel);
-            double proximityInterval = ProximityRateSelector.GetSampleInterval(distance);
+            double rawProximityInterval = ProximityRateSelector.GetSampleInterval(distance);
+            double proximityInterval = ResolveDebrisAwareSampleInterval(rawProximityInterval, treeRec);
             bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(state, ut, distance);
 
             // Log when sample rate changes for this vessel
             if (proximityInterval != state.currentSampleInterval)
             {
-                float newHz = ProximityRateSelector.GetSampleRateHz(distance);
+                float newHz = (proximityInterval > 0 && proximityInterval < ProximityRateSelector.OutOfRangeInterval)
+                    ? (float)(1.0 / proximityInterval)
+                    : 0f;
                 string distStr = distance.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
                 string hzStr = newHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+                bool capApplied = proximityInterval != rawProximityInterval;
+                string capSuffix = capApplied
+                    ? $" debris-cap=applied (rawTier={FormatInterval(rawProximityInterval)})"
+                    : string.Empty;
                 ParsekLog.Info("BgRecorder",
                     $"Sample rate changed: pid={pid} dist={distStr}m " +
-                    $"interval={FormatInterval(proximityInterval)} ({hzStr} Hz)");
+                    $"interval={FormatInterval(proximityInterval)} ({hzStr} Hz){capSuffix}");
                 state.currentSampleInterval = proximityInterval;
             }
 
@@ -1923,6 +1930,9 @@ namespace Parsek
                 highFidelityActive,
                 maxSampleInterval,
                 minSampleInterval);
+            effectiveMaxSampleInterval = ResolveDebrisAwareMaxSampleInterval(
+                effectiveMaxSampleInterval,
+                treeRec);
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
                 ut, state.lastRecordedUT,
@@ -3168,9 +3178,10 @@ namespace Parsek
                     SetBackgroundCurrentAnchor(state, liveCandidate);
 
                     AnchorPose seedAnchorPose = liveAnchorPose;
-                    string seedAnchorSource = "live";
+                    string seedAnchorSource = "live-warn-fallback";
                     string queuedSeedAnchorReason;
                     string recordedSeedAnchorReason = null;
+                    string seedRecordedFallbackFrameContract = "unresolved";
                     if (TryConsumePendingDebrisSeedParentAnchorPose(
                             vesselPid,
                             treeRecForDebris.DebrisParentRecordingId,
@@ -3194,6 +3205,13 @@ namespace Parsek
                     {
                         seedAnchorPose = recordedSeedAnchorPose;
                         seedAnchorSource = "recorded";
+                        seedRecordedFallbackFrameContract = ClassifyBackgroundRelativeFrameContract(
+                            treeRecForDebris.DebrisParentRecordingId,
+                            seedAnchorSource,
+                            AnchorCandidateSource.Ghost,
+                            hasCurrentAnchorCandidate: false,
+                            hasPreReFlyAnchorSnapshot: HasActiveReFlyPreReFlyAnchorSnapshot(
+                                treeRecForDebris.DebrisParentRecordingId));
                     }
                     else
                     {
@@ -3220,6 +3238,19 @@ namespace Parsek
                         parentVessel.persistentId,
                         logSample: true,
                         sourceLabel: seedAnchorSource);
+                    string seedFrameContract = ClassifyBackgroundRelativeFrameContract(
+                        treeRecForDebris.DebrisParentRecordingId,
+                        seedAnchorSource,
+                        AnchorCandidateSource.Live,
+                        hasCurrentAnchorCandidate: string.Equals(seedAnchorSource, "live-warn-fallback", StringComparison.Ordinal),
+                        hasPreReFlyAnchorSnapshot: HasActiveReFlyPreReFlyAnchorSnapshot(
+                            treeRecForDebris.DebrisParentRecordingId));
+                    string seedParentDrift = FormatActiveReFlyParentDriftFromRecorded(
+                        treeRecForDebris.DebrisParentRecordingId,
+                        parentVessel.persistentId,
+                        initialTrajectoryPoint.ut);
+                    string seedParentDriftField = FormatParentDriftLogField(seedParentDrift);
+                    string seedFocusRecordingId = string.IsNullOrEmpty(recordingId) ? "(missing)" : recordingId;
                     LogDebrisSeedRelativeConversionDiagnostics(
                         vesselPid,
                         recordingId,
@@ -3230,6 +3261,10 @@ namespace Parsek
                         initialTrajectoryPoint,
                         seedAnchorPose,
                         seedAnchorSource,
+                        seedFrameContract,
+                        seedParentDrift,
+                        seedFocusRecordingId,
+                        seedRecordedFallbackFrameContract,
                         seedRelativeApplied,
                         ut);
                     if (!seedRelativeApplied)
@@ -3253,6 +3288,10 @@ namespace Parsek
                         $"Debris parent-anchor contract applied at seed: pid={vesselPid} " +
                         $"recId={recordingId} parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
                         $"parentPid={parentVessel.persistentId} " +
+                        $"frameContract={seedFrameContract} " +
+                        seedParentDriftField +
+                        $"seedAnchorSource={seedAnchorSource} seedFocusRecordingId={seedFocusRecordingId} " +
+                        $"seedRecordedFallbackFrameContract={seedRecordedFallbackFrameContract} " +
                         $"seedUT={initialTrajectoryPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
                         $"|offset|=(dx={initialTrajectoryPoint.latitude:F2},dy={initialTrajectoryPoint.longitude:F2},dz={initialTrajectoryPoint.altitude:F2})");
                 }
@@ -3669,6 +3708,10 @@ namespace Parsek
             TrajectoryPoint relativeSeedPoint,
             AnchorPose anchorPose,
             string anchorSource,
+            string frameContract,
+            string parentDriftFromRecorded,
+            string seedFocusRecordingId,
+            string seedRecordedFallbackFrameContract,
             bool relativeApplied,
             double initUT)
         {
@@ -3679,6 +3722,7 @@ namespace Parsek
             string seedAnchorDelta = hasSeedWorld
                 ? DiagnosticFormatters.FormatVector3d(seedWorld - anchorPose.WorldPos)
                 : "unresolved";
+            string parentDriftField = FormatParentDriftLogField(parentDriftFromRecorded);
 
             ParsekLog.Verbose("BgRecorder",
                 $"Debris seed relative conversion diagnostics: pid={vesselPid} " +
@@ -3688,6 +3732,10 @@ namespace Parsek
                 $"seedUT={absoluteSeedPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"init-seed-dt={(initUT - absoluteSeedPoint.ut).ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"anchorSource={anchorSource ?? "unknown"} " +
+                $"frameContract={frameContract ?? "unknown"} " +
+                parentDriftField +
+                $"seedFocusRecordingId={seedFocusRecordingId ?? "(missing)"} " +
+                $"seedRecordedFallbackFrameContract={seedRecordedFallbackFrameContract ?? "unresolved"} " +
                 $"seedAbs={DescribeTrajectoryPointForDiagnostics(absoluteSeedPoint)} " +
                 $"seedWorld={(hasSeedWorld ? DiagnosticFormatters.FormatVector3d(seedWorld) : "unresolved")} " +
                 $"anchorWorld={DiagnosticFormatters.FormatVector3d(anchorPose.WorldPos)} " +
@@ -4308,6 +4356,9 @@ namespace Parsek
 
             string previousAnchorRecordingId = state.currentAnchorRecordingId;
             bool wasRelative = state.isRelativeMode;
+            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            bool markerActive = marker != null && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId);
+            bool mutableActiveReFlyAnchor = IsActiveReFlyParentMatch(marker, parentRecId);
 
             // Resolve the parent vessel by its persistent id so we can author a Live
             // anchor candidate when the parent is loaded. The recorded-anchor pose
@@ -4369,6 +4420,9 @@ namespace Parsek
                         $"recordingId={treeRec.RecordingId} parentRecId={parentRecId} " +
                         $"previousAnchorRecordingId={previousAnchorRecordingId ?? "(none)"} " +
                         $"parentVesselLoaded={parentVessel != null && parentVessel.loaded} " +
+                        $"mutableActiveReFlyAnchor={(mutableActiveReFlyAnchor ? "true" : "false")} " +
+                        $"markerActive={(markerActive ? "true" : "false")} " +
+                        $"markerActiveReFlyId={marker?.ActiveReFlyRecordingId ?? "(none)"} " +
                         $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
                 }
             }
@@ -4429,7 +4483,12 @@ namespace Parsek
                 return false;
             }
 
-            if (!TryResolveBackgroundCurrentAnchorPose(state, ut, out AnchorPose anchorPose, out string reason))
+            if (!TryResolveBackgroundCurrentAnchorPose(
+                    state,
+                    ut,
+                    out AnchorPose anchorPose,
+                    out string reason,
+                    out string anchorPoseSourceLabel))
             {
                 ParsekLog.Warn("BgRecorder",
                     $"RELATIVE sample unresolved: pid={state.vesselPid} " +
@@ -4447,7 +4506,8 @@ namespace Parsek
                 state.currentAnchorRecordingId,
                 state.currentAnchorCandidate.Source,
                 state.currentAnchorCandidate.DiagnosticPid,
-                logSample: true);
+                logSample: true,
+                sourceLabel: anchorPoseSourceLabel);
         }
 
         private bool SeedBackgroundRelativeBoundaryPoint(
@@ -4536,14 +4596,34 @@ namespace Parsek
 
             if (logSample)
             {
+                double sampleUT = point.ut;
                 ParsekLog.VerboseRateLimited("BgRecorder",
                     "bg-relative-offset|" + state.vesselPid,
-                    $"RELATIVE sample: pid={state.vesselPid} " +
-                    $"contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
-                    $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                    $"anchorRecordingId={anchorRecordingId} source={sourceLabel ?? source.ToString()} " +
-                    $"diagnosticPid={diagnosticPid} " +
-                    $"|offset|={offset.magnitude:F2}m",
+                    () =>
+                    {
+                        string effectiveSource = sourceLabel
+                            ?? (state.hasCurrentAnchorCandidate ? source.ToString() : "recorded");
+                        string frameContract = ClassifyBackgroundRelativeFrameContract(
+                            anchorRecordingId,
+                            effectiveSource,
+                            source,
+                            state.hasCurrentAnchorCandidate,
+                            HasActiveReFlyPreReFlyAnchorSnapshot(anchorRecordingId));
+                        string parentDrift = FormatActiveReFlyParentDriftFromRecorded(
+                            anchorRecordingId,
+                            diagnosticPid,
+                            sampleUT);
+                        string parentDriftField = FormatParentDriftLogField(parentDrift);
+
+                        return $"RELATIVE sample: pid={state.vesselPid} " +
+                               $"contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                               $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
+                               $"anchorRecordingId={anchorRecordingId} source={effectiveSource} " +
+                               $"frameContract={frameContract} " +
+                               parentDriftField +
+                               $"diagnosticPid={diagnosticPid} " +
+                               $"|offset|={offset.magnitude:F2}m";
+                    },
                     2.0);
             }
 
@@ -4554,8 +4634,10 @@ namespace Parsek
             BackgroundVesselState state,
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out string reason,
+            out string sourceLabel)
         {
+            sourceLabel = null;
             if (state.hasCurrentAnchorCandidate
                 && string.Equals(
                     state.currentAnchorCandidate.RecordingId,
@@ -4566,14 +4648,18 @@ namespace Parsek
                     state.currentAnchorCandidate,
                     ut,
                     out pose,
-                    out reason);
+                    out reason,
+                    out sourceLabel);
             }
 
-            return TryResolveBackgroundRecordedAnchorPose(
+            bool resolved = TryResolveBackgroundRecordedAnchorPose(
                 state.currentAnchorRecordingId,
                 ut,
                 out pose,
                 out reason);
+            if (resolved)
+                sourceLabel = "recorded";
+            return resolved;
         }
 
         private bool TryResolveBackgroundAnchorPoseForCandidate(
@@ -4582,8 +4668,24 @@ namespace Parsek
             out AnchorPose pose,
             out string reason)
         {
+            return TryResolveBackgroundAnchorPoseForCandidate(
+                candidate,
+                ut,
+                out pose,
+                out reason,
+                out _);
+        }
+
+        private bool TryResolveBackgroundAnchorPoseForCandidate(
+            RecordingAnchorCandidate candidate,
+            double ut,
+            out AnchorPose pose,
+            out string reason,
+            out string sourceLabel)
+        {
             pose = default;
             reason = null;
+            sourceLabel = null;
             if (string.IsNullOrWhiteSpace(candidate.RecordingId))
             {
                 reason = "anchor-recording-id-missing";
@@ -4610,6 +4712,7 @@ namespace Parsek
                         liveAnchor.transform.rotation,
                         -1,
                         candidate.RecordingId);
+                    sourceLabel = "live";
                     return true;
                 }
 
@@ -4621,7 +4724,10 @@ namespace Parsek
                     5.0);
             }
 
-            return TryResolveBackgroundRecordedAnchorPose(candidate.RecordingId, ut, out pose, out reason);
+            bool resolved = TryResolveBackgroundRecordedAnchorPose(candidate.RecordingId, ut, out pose, out reason);
+            if (resolved)
+                sourceLabel = "recorded";
+            return resolved;
         }
 
         private bool TryResolveBackgroundRecordedAnchorPose(
@@ -4833,6 +4939,59 @@ namespace Parsek
                     currentUT,
                     state.highFidelitySamplingUntilUT,
                     proximityDistanceMeters);
+        }
+
+        // Predicate gate for the v12+ debris parent-anchored sampling caps below.
+        // Both the proximity-tier (min) cap and the configured-max backstop cap
+        // share this gate so they always engage or disengage together.
+        internal static bool IsDebrisAwareSampleCapEligible(Recording treeRec)
+        {
+            return treeRec != null
+                && treeRec.IsDebris
+                && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId);
+        }
+
+        // For v12+ debris recordings whose parent recording id is known, cap the
+        // proximity-derived sample interval (the adaptive sampler's MIN floor)
+        // at MidInterval (0.5 s) regardless of distance from the focused vessel.
+        // Without this cap, radial debris that flies past 1000 m of its parent
+        // during high-velocity breakup falls into the FarRange tier (2.0 s gap),
+        // producing visibly choppy trajectory rendering.
+        //
+        // Out-of-range tier (vessel exited the physics bubble) is preserved as-is
+        // — the early-return at the OutOfRangeInterval check is the correct path
+        // when the BG vessel is no longer loaded. Legacy v11 debris (no
+        // DebrisParentRecordingId) and non-debris BG vessels keep the unaltered
+        // tier table.
+        internal static double ResolveDebrisAwareSampleInterval(
+            double tierInterval,
+            Recording treeRec)
+        {
+            if (!IsDebrisAwareSampleCapEligible(treeRec)) return tierInterval;
+            if (tierInterval >= ProximityRateSelector.OutOfRangeInterval) return tierInterval;
+            return Math.Min(tierInterval, ProximityRateSelector.MidInterval);
+        }
+
+        // Companion to ResolveDebrisAwareSampleInterval that bounds the adaptive
+        // sampler's MAX backstop at MidInterval (0.5 s). Without this cap,
+        // parent-anchored debris with stable velocity after the 3-second
+        // high-fidelity post-decouple window only samples when the configured
+        // max backstop fires — 3.0 s on Medium and 8.0 s on Low — even though
+        // the proximity-tier floor was capped to 0.5 s. ShouldRecordPoint takes
+        // the backstop as `if (elapsed >= maxInterval) return true`, so the
+        // floor cap alone does not enforce the claimed 0.5 s sample-gap ceiling
+        // for stable-velocity drift.
+        //
+        // Capped value composes with FlightRecorder.ResolveEffectiveMaxSampleInterval:
+        // during the high-fidelity window that helper already returns
+        // min(configuredMax, configuredMin) which is tighter than 0.5 s, so the
+        // cap here is a no-op inside the window and a 0.5 s ceiling outside it.
+        internal static float ResolveDebrisAwareMaxSampleInterval(
+            float configuredMax,
+            Recording treeRec)
+        {
+            if (!IsDebrisAwareSampleCapEligible(treeRec)) return configuredMax;
+            return Math.Min(configuredMax, (float)ProximityRateSelector.MidInterval);
         }
 
         private static void ActivateBackgroundHighFidelitySampling(
@@ -5066,6 +5225,171 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        internal static string ClassifyBackgroundRelativeFrameContract(
+            string sourceLabel,
+            AnchorCandidateSource source,
+            bool hasCurrentAnchorCandidate,
+            bool activeReFlyParentMatch,
+            bool hasPreReFlyAnchorSnapshot)
+        {
+            string normalized = sourceLabel ?? string.Empty;
+            if (string.Equals(normalized, "queued-parent-seed", StringComparison.Ordinal))
+                return "recorded";
+
+            if (string.Equals(normalized, "live", StringComparison.Ordinal)
+                || string.Equals(normalized, "live-warn-fallback", StringComparison.Ordinal))
+            {
+                return "live";
+            }
+
+            if (string.Equals(normalized, "recorded", StringComparison.Ordinal)
+                || !hasCurrentAnchorCandidate)
+            {
+                return activeReFlyParentMatch && hasPreReFlyAnchorSnapshot
+                    ? "frozen-refly"
+                    : "recorded";
+            }
+
+            return source == AnchorCandidateSource.Live ? "live" : "recorded";
+        }
+
+        internal static bool IsActiveReFlyParentMatch(
+            string activeReFlyRecordingId,
+            string parentRecordingId)
+        {
+            return !string.IsNullOrEmpty(activeReFlyRecordingId)
+                && !string.IsNullOrEmpty(parentRecordingId)
+                && string.Equals(activeReFlyRecordingId, parentRecordingId, StringComparison.Ordinal);
+        }
+
+        private string ClassifyBackgroundRelativeFrameContract(
+            string anchorRecordingId,
+            string sourceLabel,
+            AnchorCandidateSource source,
+            bool hasCurrentAnchorCandidate,
+            bool hasPreReFlyAnchorSnapshot)
+        {
+            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            return ClassifyBackgroundRelativeFrameContract(
+                sourceLabel,
+                source,
+                hasCurrentAnchorCandidate,
+                IsActiveReFlyParentMatch(marker, anchorRecordingId),
+                hasPreReFlyAnchorSnapshot);
+        }
+
+        private bool HasActiveReFlyPreReFlyAnchorSnapshot(string anchorRecordingId)
+        {
+            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (!IsActiveReFlyParentMatch(marker, anchorRecordingId)
+                || tree?.Recordings == null
+                || !tree.Recordings.TryGetValue(anchorRecordingId, out Recording anchorRecording)
+                || anchorRecording == null)
+            {
+                return false;
+            }
+
+            return anchorRecording.HasPreReFlyAnchorTrajectory(marker.SessionId);
+        }
+
+        private static bool IsActiveReFlyParentMatch(
+            ReFlySessionMarker marker,
+            string parentRecordingId)
+        {
+            return marker != null
+                && IsActiveReFlyParentMatch(
+                    marker.ActiveReFlyRecordingId,
+                    parentRecordingId);
+        }
+
+        private string FormatActiveReFlyParentDriftFromRecorded(
+            string parentRecordingId,
+            uint diagnosticPid,
+            double ut)
+        {
+            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            bool activeReFlyParentMatch = IsActiveReFlyParentMatch(marker, parentRecordingId);
+            if (!activeReFlyParentMatch)
+                return null;
+
+            bool liveResolved = TryResolveLiveParentWorldPosition(
+                parentRecordingId,
+                diagnosticPid,
+                out Vector3d liveWorldPos);
+            bool recordedResolved = TryResolveBackgroundRecordedAnchorPose(
+                parentRecordingId,
+                ut,
+                out AnchorPose recordedPose,
+                out _);
+
+            return FormatActiveReFlyParentDriftFromRecorded(
+                activeReFlyParentMatch,
+                liveResolved,
+                liveWorldPos,
+                recordedResolved,
+                recordedPose.WorldPos);
+        }
+
+        internal static string FormatActiveReFlyParentDriftFromRecorded(
+            bool activeReFlyParentMatch,
+            bool liveResolved,
+            Vector3d liveWorldPos,
+            bool recordedResolved,
+            Vector3d recordedWorldPos)
+        {
+            if (!activeReFlyParentMatch)
+                return null;
+
+            if (!liveResolved
+                || !recordedResolved
+                || !IsFinite(liveWorldPos)
+                || !IsFinite(recordedWorldPos))
+            {
+                return "(unresolved)";
+            }
+
+            double drift = (liveWorldPos - recordedWorldPos).magnitude;
+            return IsFinite(drift)
+                ? drift.ToString("F3", CultureInfo.InvariantCulture)
+                : "(unresolved)";
+        }
+
+        internal static string FormatParentDriftLogField(string parentDriftFromRecorded)
+        {
+            return parentDriftFromRecorded != null
+                ? $"parentDriftFromRecorded={parentDriftFromRecorded} "
+                : string.Empty;
+        }
+
+        private bool TryResolveLiveParentWorldPosition(
+            string parentRecordingId,
+            uint diagnosticPid,
+            out Vector3d liveWorldPos)
+        {
+            liveWorldPos = Vector3d.zero;
+
+            Vessel liveParent = diagnosticPid != 0u
+                ? FlightRecorder.FindVesselByPid(diagnosticPid)
+                : null;
+            if ((liveParent == null || !liveParent.loaded)
+                && tree?.Recordings != null
+                && !string.IsNullOrEmpty(parentRecordingId)
+                && tree.Recordings.TryGetValue(parentRecordingId, out Recording parentRecording)
+                && parentRecording != null
+                && parentRecording.VesselPersistentId != 0u)
+            {
+                liveParent = FlightRecorder.FindVesselByPid(parentRecording.VesselPersistentId);
+            }
+
+            if (liveParent != null && liveParent.loaded && liveParent.transform != null)
+            {
+                liveWorldPos = (Vector3d)liveParent.transform.position;
+                return IsFinite(liveWorldPos);
+            }
+
+            return false;
         }
 
         private static bool IsFiniteAnchorPose(AnchorPose pose)

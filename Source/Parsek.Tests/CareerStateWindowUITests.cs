@@ -440,15 +440,16 @@ namespace Parsek.Tests
         public void Build_FacilityLevelsEchoed_ContractsUseMissionControl_StrategiesUseAdministration()
         {
             // Regression: guards against the two tabs reading the wrong facility for slot math.
-            // Per LedgerOrchestrator.UpdateSlotLimitsFromFacilities (LedgerOrchestrator.cs:1440-1446)
+            // Per LedgerOrchestrator.UpdateSlotLimitsFromFacilities, production
+            // facility-upgrade events use KSP's SpaceCenter/<id> keys.
             // contracts slots derive from MissionControl level; strategies slots derive from
             // Administration level. Upgrading Administration alone must NOT bump contract slots
             // and vice versa — an earlier Phase-1 revision had this crossed.
             var (c, s, f, m) = Modules();
             var actions = new List<GameAction>
             {
-                Upgrade("MissionControl", 2, ut: 50.0),
-                Upgrade("Administration", 2, ut: 100.0)
+                Upgrade("SpaceCenter/MissionControl", 2, ut: 50.0),
+                Upgrade("SpaceCenter/Administration", 2, ut: 100.0)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
@@ -465,6 +466,23 @@ namespace Parsek.Tests
             // GetStrategySlots(2) == 3 per LedgerOrchestrator.cs:1476.
             Assert.Equal(3, vm.Strategies.CurrentMaxSlots);
             Assert.Equal(3, vm.Strategies.ProjectedMaxSlots);
+        }
+
+        [Fact]
+        public void Build_FacilityUpgrade_ProductionSpaceCenterIdDisplaysOnStockRow()
+        {
+            var (c, s, f, m) = Modules();
+            var actions = new List<GameAction>
+            {
+                Upgrade("SpaceCenter/LaunchPad", 2, ut: 100.0)
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
+                Game.Modes.CAREER, c, s, f, m);
+
+            var pad = vm.Facilities.Rows.First(r => r.FacilityId == "LaunchPad");
+            Assert.Equal(2, pad.CurrentLevel);
+            Assert.Equal(2, pad.ProjectedLevel);
         }
 
         [Fact]

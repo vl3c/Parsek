@@ -59,6 +59,57 @@ namespace Parsek.Tests
             }
         }
 
+        private static GameAction FundsSeed(float amount)
+        {
+            return new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = amount
+            };
+        }
+
+        private static GameAction ContractAcceptWithDeadline(double ut, string contractId,
+            float advance, float deadlineUt, float fundsPenalty, float repPenalty = 0f)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.ContractAccept,
+                ContractId = contractId,
+                AdvanceFunds = advance,
+                DeadlineUT = deadlineUt,
+                FundsPenalty = fundsPenalty,
+                RepPenalty = repPenalty
+            };
+        }
+
+        private static GameAction ContractComplete(double ut, string contractId,
+            float funds, float rep = 0f, float sci = 0f)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.ContractComplete,
+                ContractId = contractId,
+                FundsReward = funds,
+                RepReward = rep,
+                ScienceReward = sci
+            };
+        }
+
+        private static GameAction ContractPenalty(GameActionType type, double ut,
+            string contractId, float fundsPenalty)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = type,
+                ContractId = contractId,
+                FundsPenalty = fundsPenalty
+            };
+        }
+
         // ================================================================
         // SortActions — UT ordering
         // ================================================================
@@ -511,6 +562,230 @@ namespace Parsek.Tests
             Assert.Equal(2, secondTier.ProcessedActions.Count);
             Assert.Equal(2, strategy.ProcessedActions.Count);
             Assert.Equal(2, facilities.ProcessedActions.Count);
+        }
+
+        [Fact]
+        public void Recalculate_ContractCompleteBeforeDeadline_PaysRewards()
+        {
+            var contracts = new ContractsModule();
+            var science = new ScienceModule();
+            var funds = new FundsModule();
+            var reputation = new ReputationModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+
+            var complete = ContractComplete(400.0, "c-before", funds: 1000f, rep: 10f, sci: 5f);
+            var actions = new List<GameAction>
+            {
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-before",
+                    advance: 100f, deadlineUt: 500f, fundsPenalty: 500f, repPenalty: 4f),
+                complete
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.True(complete.Effective);
+            Assert.Equal(11100.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(5.0, science.GetRunningScience(), 3);
+            Assert.True(complete.EffectiveRep > 0f);
+            Assert.Equal(0, contracts.GetActiveContractCount());
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("injected synthetic ContractFail") &&
+                l.Contains("c-before"));
+        }
+
+        [Fact]
+        public void Recalculate_ContractCompleteAfterDeadline_FailsDeadlineAndSkipsRewards()
+        {
+            var contracts = new ContractsModule();
+            var science = new ScienceModule();
+            var funds = new FundsModule();
+            var reputation = new ReputationModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+
+            var complete = ContractComplete(600.0, "c-late", funds: 1000f, rep: 10f, sci: 5f);
+            var actions = new List<GameAction>
+            {
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-late",
+                    advance: 100f, deadlineUt: 500f, fundsPenalty: 500f, repPenalty: 4f),
+                complete
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.False(complete.Effective);
+            Assert.Equal(9600.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, science.GetRunningScience(), 3);
+            Assert.Equal(0f, complete.EffectiveRep);
+            Assert.True(reputation.GetRunningRep() < 0f);
+            Assert.Equal(0, contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("injected synthetic ContractFail") &&
+                l.Contains("c-late"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("Complete") &&
+                l.Contains("effective=false") &&
+                l.Contains("deadline expired"));
+        }
+
+        [Fact]
+        public void Recalculate_ContractCompleteAtDeadline_FailsDeadlineAndSkipsRewards()
+        {
+            var contracts = new ContractsModule();
+            var science = new ScienceModule();
+            var funds = new FundsModule();
+            var reputation = new ReputationModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+
+            var complete = ContractComplete(500.0, "c-boundary", funds: 1000f, rep: 10f, sci: 5f);
+            var actions = new List<GameAction>
+            {
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-boundary",
+                    advance: 100f, deadlineUt: 500f, fundsPenalty: 500f, repPenalty: 4f),
+                complete
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.False(complete.Effective);
+            Assert.Equal(9600.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, science.GetRunningScience(), 3);
+            Assert.Equal(0f, complete.EffectiveRep);
+            Assert.True(reputation.GetRunningRep() < 0f);
+            Assert.Equal(0, contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("injected synthetic ContractFail") &&
+                l.Contains("c-boundary"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("Complete") &&
+                l.Contains("effective=false") &&
+                l.Contains("deadline expired"));
+        }
+
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void Recalculate_ExplicitFailOrCancelAfterDeadline_StillAppliesOnlyExplicitPenalty(
+            GameActionType type)
+        {
+            var contracts = new ContractsModule();
+            var funds = new FundsModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+
+            var actions = new List<GameAction>
+            {
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-explicit",
+                    advance: 100f, deadlineUt: 500f, fundsPenalty: 500f),
+                ContractPenalty(type, 600.0, "c-explicit", fundsPenalty: 300f)
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.Equal(9800.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(0, contracts.GetActiveContractCount());
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("injected synthetic ContractFail") &&
+                l.Contains("c-explicit"));
+        }
+
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void Recalculate_CompleteAfterExplicitFailOrCancel_DoesNotPayRewards(
+            GameActionType type)
+        {
+            var contracts = new ContractsModule();
+            var funds = new FundsModule();
+            var science = new ScienceModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.SecondTier);
+
+            var complete = ContractComplete(600.0, "c-terminal", funds: 1000f, sci: 7f);
+            var actions = new List<GameAction>
+            {
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-terminal",
+                    advance: 100f, deadlineUt: 500f, fundsPenalty: 500f),
+                ContractPenalty(type, 400.0, "c-terminal", fundsPenalty: 300f),
+                complete
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.False(complete.Effective);
+            Assert.Equal(9800.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, science.GetRunningScience(), 3);
+            Assert.False(contracts.IsContractCredited("c-terminal"));
+            Assert.Equal(0, contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("Complete") &&
+                l.Contains("effective=false") &&
+                l.Contains("explicitly resolved"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("injected synthetic ContractFail") &&
+                l.Contains("c-terminal"));
+        }
+
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void Recalculate_CompleteSameUtAsExplicitFailOrCancel_DoesNotPayRewards(
+            GameActionType type)
+        {
+            var contracts = new ContractsModule();
+            var funds = new FundsModule();
+            var science = new ScienceModule();
+            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.SecondTier);
+
+            var complete = ContractComplete(400.0, "c-same-ut", funds: 1000f, sci: 7f);
+            complete.Sequence = 2;
+            var penalty = ContractPenalty(type, 400.0, "c-same-ut", fundsPenalty: 300f);
+            penalty.Sequence = 1;
+            var actions = new List<GameAction>
+            {
+                FundsSeed(10000f),
+                ContractAcceptWithDeadline(100.0, "c-same-ut",
+                    advance: 100f, deadlineUt: 500f, fundsPenalty: 500f),
+                penalty,
+                complete
+            };
+
+            RecalculationEngine.Recalculate(actions);
+
+            Assert.False(complete.Effective);
+            Assert.Equal(9800.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(0.0, science.GetRunningScience(), 3);
+            Assert.False(contracts.IsContractCredited("c-same-ut"));
+            Assert.Equal(0, contracts.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("Complete") &&
+                l.Contains("effective=false") &&
+                l.Contains("same/prior UT"));
         }
 
         [Fact]

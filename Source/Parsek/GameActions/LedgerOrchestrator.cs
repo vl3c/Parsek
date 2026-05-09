@@ -173,6 +173,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Ensures the kerbal module exists before queuing merge-tombstone roster
+        /// cleanup work. Does not reinitialize a partially initialized orchestrator.
+        /// </summary>
+        internal static bool TryEnsureKerbalsModuleForTombstoneRosterCleanup()
+        {
+            if (kerbalsModule != null)
+                return true;
+
+            if (initialized)
+            {
+                ParsekLog.Warn(Tag,
+                    "Tombstoned roster cleanup queue skipped: LedgerOrchestrator is initialized but KerbalsModule is missing");
+                return false;
+            }
+
+            ParsekLog.Warn(Tag,
+                "Tombstoned roster cleanup requested before LedgerOrchestrator.Initialize; initializing modules before queueing cleanup");
+            Initialize();
+
+            if (kerbalsModule != null)
+                return true;
+
+            ParsekLog.Warn(Tag,
+                "Tombstoned roster cleanup queue skipped: KerbalsModule unavailable after initialization");
+            return false;
+        }
+
+        /// <summary>
         /// Called when a recording is committed. Converts events to GameActions,
         /// adds to ledger, recalculates, and patches KSP state.
         /// </summary>
@@ -199,6 +227,13 @@ namespace Parsek
         /// <see cref="ResetForTesting"/>.
         /// </summary>
         internal static Action<string> OnRecordingCommittedPostSciencePersistFaultInjector;
+
+        /// <summary>
+        /// Test-only hook fired after old-save event migration has had its targeted
+        /// reconcile pass on load. Used to prove later load-time synthesizers are not
+        /// swept by a broad second reconcile.
+        /// </summary>
+        internal static Action OnKspLoadAfterOldSaveEventReconcileForTesting;
 
         /// <summary>
         /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
@@ -1267,7 +1302,8 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: utCutoff.HasValue,
-                authoritativeRepeatableRecordState: utCutoff.HasValue);
+                authoritativeRepeatableRecordState: utCutoff.HasValue,
+                techPatchCutoff: utCutoff);
         }
 
         /// <summary>
@@ -1282,7 +1318,8 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: false,
-                authoritativeRepeatableRecordState: false);
+                authoritativeRepeatableRecordState: false,
+                techPatchCutoff: utCutoff);
         }
 
         /// <summary>
@@ -1297,7 +1334,32 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: false,
-                authoritativeRepeatableRecordState: false);
+                authoritativeRepeatableRecordState: false,
+                techPatchCutoff: utCutoff);
+        }
+
+        /// <summary>
+        /// Post-supersede tombstone refresh. The broad tombstone scope can remove
+        /// career effects from the full ELS after the normal commit-time recalc has
+        /// already run, so this path walks the full timeline, bypasses live-tree
+        /// deferral, and still enables an authoritative repeatable-record patch.
+        /// Tech-tree patching stays disabled unless the current tombstone pass
+        /// retired a ScienceSpending row that may need a baseline-seeded unlock
+        /// removed.
+        /// </summary>
+        internal static void RecalculateAndPatchAfterTombstones(
+            IReadOnlyCollection<string> currentTombstonedScienceSpendingNodeIds)
+        {
+            bool patchTechTree = currentTombstonedScienceSpendingNodeIds != null &&
+                currentTombstonedScienceSpendingNodeIds.Count > 0;
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                BuildTombstonedFacilityIdsForPatch());
+            RecalculateAndPatchCore(
+                utCutoff: null,
+                bypassPatchDeferral: true,
+                authoritativeRepeatableRecordState: true,
+                techPatchCutoff: patchTechTree ? double.MaxValue : (double?)null,
+                excludeTombstonedTechFromBaseline: patchTechTree);
         }
 
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
@@ -1537,7 +1599,9 @@ namespace Parsek
         private static void RecalculateAndPatchCore(
             double? utCutoff,
             bool bypassPatchDeferral,
-            bool authoritativeRepeatableRecordState)
+            bool authoritativeRepeatableRecordState,
+            double? techPatchCutoff,
+            bool excludeTombstonedTechFromBaseline = false)
         {
             Initialize();
 
@@ -1545,15 +1609,6 @@ namespace Parsek
             // Baselines can represent legitimate zero science/rep values; once such
             // a seed exists it must not be upgraded later from future live state.
             SeedInitialResourceBalances();
-
-            // Update contract and strategy slot limits based on facility levels
-            // from the previous recalculation walk. On the very first call, defaults
-            // (2 contracts / 1 strategy) apply — correct for unupgraded buildings.
-            // Subsequent calls use facility state derived from the prior walk,
-            // so slot limits are always one walk behind facility upgrades. This is
-            // acceptable because RecalculateAndPatch runs on every trigger (commit,
-            // rewind, warp exit, load), converging within two calls at most.
-            UpdateSlotLimitsFromFacilities();
 
             // End-state population safety net: catch recordings with unpopulated end states
             PopulateUnpopulatedCrewEndStates();
@@ -1572,6 +1627,12 @@ namespace Parsek
             LogRecalculationInputSummary(actions, utCutoff);
 
             RecalculationEngine.Recalculate(actions, utCutoff);
+
+            // FacilitiesModule is dispatched after contracts/strategies, so a
+            // facility upgrade's final slot limit is only known after the walk.
+            // Refresh now so callers that perform a single recalc after warp exit
+            // or a time jump expose the final Mission Control/Admin availability.
+            UpdateSlotLimitsFromFacilities();
 
             // #440 Phase E2: post-walk reconciliation for strategy-transformed
             // and curve-applied reward types. Runs once per walk, log-only,
@@ -1605,15 +1666,17 @@ namespace Parsek
                 ApplyRecalculatedStateToKsp(
                     actions,
                     utCutoff,
-                    authoritativeRepeatableRecordState);
+                    authoritativeRepeatableRecordState,
+                    techPatchCutoff,
+                    excludeTombstonedTechFromBaseline);
             }
 
-            // #391: rebuild committedScienceSubjects from the walk's authoritative
-            // per-subject credits. This prunes stale entries left behind when a
-            // recording was deleted (the old dictionary was only ever appended to,
-            // never pruned). Without this, TryRecoverBrokenLedgerOnLoad would
-            // synthesize ghost ScienceEarning actions for the stale subjects.
-            RebuildCommittedScienceFromWalk();
+            // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
+            // the full surviving ledger, not from the current-UT ScienceModule. Cutoff
+            // walks intentionally leave the live module at the rewind/jump target, but
+            // the persisted cache is a load-recovery source and must retain future
+            // committed science rows that still survive in the ledger.
+            RebuildCommittedScienceFromSurvivingLedger(actions);
 
             string completeStateKey = string.Format(
                 CultureInfo.InvariantCulture,
@@ -1695,7 +1758,9 @@ namespace Parsek
         private static void ApplyRecalculatedStateToKsp(
             List<GameAction> actions,
             double? utCutoff,
-            bool authoritativeRepeatableRecordState)
+            bool authoritativeRepeatableRecordState,
+            double? techPatchCutoff,
+            bool excludeTombstonedTechFromBaseline)
         {
             // KSP state mutations (PostWalk already called by engine). Repeatable
             // Records* nodes only rebuild strictly from ledger-backed thresholds on
@@ -1710,19 +1775,26 @@ namespace Parsek
             // through PatchTechTree's existing null-target guard.
             HashSet<string> targetTechIds = null;
             double? techBaselineUt = null;
-            if (utCutoff.HasValue)
+            HashSet<string> baselineTechExclusions = null;
+            if (techPatchCutoff.HasValue)
             {
+                if (excludeTombstonedTechFromBaseline)
+                    baselineTechExclusions = BuildTombstonedScienceSpendingNodeIds();
+
                 targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
                     GameStateStore.Baselines,
                     actions,
-                    utCutoff);
+                    techPatchCutoff,
+                    baselineTechExclusions);
                 techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
                     GameStateStore.Baselines,
-                    utCutoff);
+                    techPatchCutoff);
                 ParsekLog.Verbose(Tag,
-                    "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
-                    $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                    "RecalculateAndPatch: tech-tree patch enabled " +
+                    $"(walkCutoff={(utCutoff.HasValue ? utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                    $"techCutoff={techPatchCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
                     $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                    $"baselineTechExclusions={(baselineTechExclusions == null ? "0" : baselineTechExclusions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))}, " +
                     $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
             }
             else
@@ -1735,8 +1807,125 @@ namespace Parsek
                 milestonesModule, facilitiesModule, contractsModule,
                 targetTechIds,
                 authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
-                techUtCutoff: utCutoff,
+                techUtCutoff: techPatchCutoff,
                 techBaselineUt: techBaselineUt);
+        }
+
+        internal static HashSet<string> BuildTombstonedFacilityIdsForPatch()
+        {
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
+                return null;
+
+            var facilityIds = new HashSet<string>(StringComparer.Ordinal);
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.FacilityId))
+                {
+                    continue;
+                }
+
+                switch (action.Type)
+                {
+                    case GameActionType.FacilityUpgrade:
+                    case GameActionType.FacilityDestruction:
+                    case GameActionType.FacilityRepair:
+                        if (tombstonedActionIds.Contains(action.ActionId))
+                            facilityIds.Add(action.FacilityId);
+                        break;
+                }
+            }
+
+            return facilityIds.Count == 0 ? null : facilityIds;
+        }
+
+        internal static HashSet<Guid> BuildTombstonedContractGuidsForPatch()
+        {
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
+                return null;
+
+            var contractIds = new HashSet<Guid>();
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.ContractId) ||
+                    !tombstonedActionIds.Contains(action.ActionId))
+                {
+                    continue;
+                }
+
+                switch (action.Type)
+                {
+                    case GameActionType.ContractAccept:
+                    case GameActionType.ContractComplete:
+                    case GameActionType.ContractFail:
+                    case GameActionType.ContractCancel:
+                        Guid contractGuid;
+                        if (Guid.TryParse(action.ContractId, out contractGuid))
+                            contractIds.Add(contractGuid);
+                        break;
+                }
+            }
+
+            return contractIds.Count == 0 ? null : contractIds;
+        }
+
+        private static HashSet<string> BuildTombstonedScienceSpendingNodeIds()
+        {
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
+                return null;
+
+            var excludedTechIds = new HashSet<string>(StringComparer.Ordinal);
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceSpending ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.NodeId))
+                {
+                    continue;
+                }
+
+                if (tombstonedActionIds.Contains(action.ActionId))
+                    excludedTechIds.Add(action.NodeId);
+            }
+
+            return excludedTechIds.Count == 0 ? null : excludedTechIds;
+        }
+
+        private static HashSet<string> BuildTombstonedActionIds()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) ||
+                scenario.LedgerTombstones == null ||
+                scenario.LedgerTombstones.Count == 0)
+            {
+                return null;
+            }
+
+            var tombstonedActionIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var tombstone = scenario.LedgerTombstones[i];
+                if (tombstone == null || string.IsNullOrEmpty(tombstone.ActionId))
+                    continue;
+                tombstonedActionIds.Add(tombstone.ActionId);
+            }
+
+            if (tombstonedActionIds.Count == 0)
+                return null;
+            return tombstonedActionIds;
         }
 
         internal static bool HasActionsAfterUT(double ut)
@@ -1782,24 +1971,106 @@ namespace Parsek
         /// <summary>
         /// Rebuilds the committed science subjects dictionary via
         /// <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
-        /// from the <see cref="ScienceModule"/> walk state. After a recalculation
-        /// walk, the module has authoritative per-subject credited totals — these
-        /// are the source of truth because they derive purely from surviving ledger
-        /// actions. Replaces the stale append-only dictionary.
+        /// from the full surviving ledger action set. This is intentionally separate
+        /// from the live <see cref="ScienceModule"/> state: cutoff walks keep that
+        /// module at the current UT for KSP patching, while this persisted cache is
+        /// used as a future load-recovery source of truth.
         /// </summary>
-        private static void RebuildCommittedScienceFromWalk()
+        private static void RebuildCommittedScienceFromSurvivingLedger(
+            IReadOnlyList<GameAction> actions)
         {
-            if (scienceModule == null) return;
+            int scienceActionCount;
+            var pairs = BuildCommittedScienceSubjectCredits(actions, out scienceActionCount);
+            GameStateStore.RebuildCommittedScienceSubjects(pairs);
 
-            var walkSubjects = scienceModule.GetAllSubjects();
-            var pairs = new List<KeyValuePair<string, float>>(walkSubjects.Count);
-            foreach (var kvp in walkSubjects)
+            int actionCount = actions == null ? 0 : actions.Count;
+            ParsekLog.Verbose(Tag,
+                "RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects " +
+                $"from surviving ledger (subjects={pairs.Count}, scienceActions={scienceActionCount}, " +
+                $"actions={actionCount})");
+        }
+
+        private struct CommittedScienceCreditState
+        {
+            public double CreditedTotal;
+            public double MaxValue;
+        }
+
+        internal static List<KeyValuePair<string, float>> BuildCommittedScienceSubjectCredits(
+            IReadOnlyList<GameAction> actions,
+            out int scienceActionCount)
+        {
+            scienceActionCount = 0;
+            var pairs = new List<KeyValuePair<string, float>>();
+            if (actions == null || actions.Count == 0)
+                return pairs;
+
+            var scienceActions = new List<GameAction>();
+            for (int i = 0; i < actions.Count; i++)
             {
-                if (kvp.Value.CreditedTotal > 0.0)
-                    pairs.Add(new KeyValuePair<string, float>(kvp.Key, (float)kvp.Value.CreditedTotal));
+                var action = actions[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceEarning ||
+                    string.IsNullOrEmpty(action.SubjectId) ||
+                    action.ScienceAwarded <= 0f)
+                {
+                    continue;
+                }
+
+                scienceActions.Add(action);
             }
 
-            GameStateStore.RebuildCommittedScienceSubjects(pairs);
+            scienceActionCount = scienceActions.Count;
+            if (scienceActionCount == 0)
+                return pairs;
+
+            var sorted = RecalculationEngine.SortActions(scienceActions);
+            var credits = new Dictionary<string, CommittedScienceCreditState>(
+                StringComparer.Ordinal);
+
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var action = sorted[i];
+                string subjectId = action.SubjectId;
+
+                CommittedScienceCreditState state;
+                if (!credits.TryGetValue(subjectId, out state))
+                {
+                    state = new CommittedScienceCreditState
+                    {
+                        CreditedTotal = 0.0,
+                        MaxValue = action.SubjectMaxValue
+                    };
+                }
+
+                // Monotonic max-value assumption: a KSP science subject's cap should
+                // stay stable or only increase across surviving ledger rows. Keep the
+                // largest observed cap so older/migration rows with smaller caps cannot
+                // reduce headroom that was available to later committed science.
+                if (action.SubjectMaxValue > state.MaxValue)
+                    state.MaxValue = action.SubjectMaxValue;
+
+                double headroom = state.MaxValue - state.CreditedTotal;
+                if (headroom < 0.0)
+                    headroom = 0.0;
+
+                double effectiveScience = Math.Min((double)action.ScienceAwarded, headroom);
+                if (effectiveScience < 0.0)
+                    effectiveScience = 0.0;
+
+                state.CreditedTotal += effectiveScience;
+                credits[subjectId] = state;
+            }
+
+            foreach (var kvp in credits)
+            {
+                if (kvp.Value.CreditedTotal > 0.0)
+                    pairs.Add(new KeyValuePair<string, float>(
+                        kvp.Key,
+                        (float)kvp.Value.CreditedTotal));
+            }
+
+            return pairs;
         }
 
         /// <summary>
@@ -1807,7 +2078,7 @@ namespace Parsek
         /// then recalculate and patch.
         /// </summary>
         /// <param name="validRecordingIds">Set of recording IDs present in the loaded save.</param>
-        /// <param name="maxUT">Current UT — spending actions after this are pruned.</param>
+        /// <param name="maxUT">Current UT — future spendings and contract lifecycle rows after this are pruned.</param>
         internal static void OnKspLoad(HashSet<string> validRecordingIds, double maxUT)
         {
             Initialize();
@@ -1853,12 +2124,19 @@ namespace Parsek
             // Migration: if ledger is still empty after reconcile but committed recordings exist,
             // this is an old save being loaded for the first time with the ledger system.
             // Convert existing GameStateStore events into GameActions.
-            // Done AFTER reconcile so migrated actions are not pruned (they have null recordingId
-            // which would be pruned for earning types if reconcile ran after).
+            // Done AFTER the existing-ledger reconcile, then immediately reconciled so
+            // future rows from the old event store cannot bypass maxUT on first load.
             if (Ledger.Actions.Count == 0 && validRecordingIds != null && validRecordingIds.Count > 0)
             {
+                int beforeOldSaveMigration = Ledger.Actions.Count;
                 MigrateOldSaveEvents(validRecordingIds);
+                if (Ledger.Actions.Count != beforeOldSaveMigration)
+                {
+                    Ledger.Reconcile(validRecordingIds, maxUT);
+                }
             }
+
+            OnKspLoadAfterOldSaveEventReconcileForTesting?.Invoke();
 
             // Migration: ensure all committed recordings have KerbalAssignment actions.
             // Old saves predating the KerbalAssignment feature have recordings but no
@@ -1879,7 +2157,7 @@ namespace Parsek
             // reason: their recording ids are no longer part of the current timeline.
             try
             {
-                TryRecoverBrokenLedgerOnLoad();
+                TryRecoverBrokenLedgerOnLoad(maxUT);
             }
             catch (Exception ex)
             {
@@ -2273,9 +2551,9 @@ namespace Parsek
         /// One-shot save recovery migration for legacy saves with missing funds,
         /// contract, or science ledger rows.
         /// </summary>
-        internal static int TryRecoverBrokenLedgerOnLoad()
+        internal static int TryRecoverBrokenLedgerOnLoad(double? maxUT = null)
         {
-            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad();
+            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad(maxUT);
         }
 
         /// <summary>Pure: event types the migration can synthesize actions for.</summary>
@@ -3209,8 +3487,8 @@ namespace Parsek
             // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
             // leak into affordability.
             // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
-            // any tombstoned action (kerbal deaths + bundled rep penalties) is
-            // excluded from the affordability probe's walk.
+            // any explicitly tombstoned action is excluded from the affordability
+            // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
             RecalculationEngine.Recalculate(actions, nowUT);
@@ -3243,8 +3521,8 @@ namespace Parsek
             // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
             // leak into affordability.
             // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
-            // any tombstoned action (kerbal deaths + bundled rep penalties) is
-            // excluded from the affordability probe's walk.
+            // any explicitly tombstoned action is excluded from the affordability
+            // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
             RecalculationEngine.Recalculate(actions, nowUT);
@@ -3287,6 +3565,7 @@ namespace Parsek
             OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
+            OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
@@ -3297,25 +3576,41 @@ namespace Parsek
 
         /// <summary>
         /// Updates ContractsModule and StrategiesModule max slot counts based on
-        /// current facility levels tracked by FacilitiesModule. Called before each
-        /// recalculation walk so slot limits reflect the most recent facility state.
+        /// current facility levels tracked by FacilitiesModule. Called around each
+        /// recalculation walk so final slot limits reflect the just-walked facility state.
         /// </summary>
         private static void UpdateSlotLimitsFromFacilities()
         {
             if (facilitiesModule == null || contractsModule == null || strategiesModule == null)
                 return;
 
-            int missionControlLevel = facilitiesModule.GetFacilityLevel("MissionControl");
+            int missionControlLevel = GetUpgradeableFacilityLevel("MissionControl");
             int contractSlots = GetContractSlots(missionControlLevel);
             contractsModule.SetMaxSlots(contractSlots);
 
-            int adminLevel = facilitiesModule.GetFacilityLevel("Administration");
+            int adminLevel = GetUpgradeableFacilityLevel("Administration");
             int strategySlots = GetStrategySlots(adminLevel);
             strategiesModule.SetMaxSlots(strategySlots);
 
             ParsekLog.Verbose(Tag,
                 $"UpdateSlotLimits: MissionControl level={missionControlLevel} -> {contractSlots} contract slots, " +
                 $"Administration level={adminLevel} -> {strategySlots} strategy slots");
+        }
+
+        private static int GetUpgradeableFacilityLevel(string displayFacilityId)
+        {
+            if (facilitiesModule == null)
+                return 1;
+
+            FacilitiesModule.FacilityState state;
+            string kspFacilityId = KspFacilityIds.ToUpgradeableFacilityId(displayFacilityId);
+            if (facilitiesModule.TryGetFacilityState(kspFacilityId, out state))
+                return state.Level;
+
+            if (facilitiesModule.TryGetFacilityState(displayFacilityId, out state))
+                return state.Level;
+
+            return 1;
         }
 
         /// <summary>
