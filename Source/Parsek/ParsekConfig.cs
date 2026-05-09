@@ -203,6 +203,15 @@ namespace Parsek
         internal const double InitialDebrisSeedBridgeActivationHiddenMaxSeconds = 1.0;
 
         /// <summary>
+        /// Minimum anchor-local distance that marks a v12+ debris structural seed
+        /// bridge as synthetic enough to hide. Correctly anchored radial debris
+        /// should start near the parent and separate only a few metres before the
+        /// first ordinary sample; the bad live-parent-at-init conversion produced
+        /// tens of metres of bridge motion.
+        /// </summary>
+        internal const double InitialDebrisSeedBridgeActivationHiddenMinDistanceMeters = 20.0;
+
+        /// <summary>
         /// Minimum rendered-frame hold for fresh activation and predicted
         /// orbit-tail handoff hides. This keeps the guard effective under
         /// time warp, where the UT window can elapse inside one render tick.

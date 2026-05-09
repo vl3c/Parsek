@@ -245,6 +245,65 @@ namespace Parsek
             return true;
         }
 
+        internal string DescribePendingJointChildPartOriginSeedIdsForDiagnostics(int maxIds = 8)
+        {
+            return FormatPendingJointChildPartOriginSeedIdsForDiagnostics(
+                pendingJointChildPartOriginSeeds.Keys,
+                maxIds);
+        }
+
+        internal bool ContainsPendingJointChildPartOriginSeed(uint partPersistentId)
+        {
+            return PendingJointChildPartOriginSeedIdsContainPidForDiagnostics(
+                pendingJointChildPartOriginSeeds.Keys,
+                partPersistentId);
+        }
+
+        internal static string FormatPendingJointChildPartOriginSeedIdsForDiagnostics(
+            IEnumerable<uint> partPersistentIds,
+            int maxIds = 8)
+        {
+            if (partPersistentIds == null)
+                return "none";
+
+            int limit = Math.Max(1, maxIds);
+            var ids = new List<string>();
+            bool truncated = false;
+            foreach (uint pid in partPersistentIds)
+            {
+                if (ids.Count < limit)
+                {
+                    ids.Add(pid.ToString(CultureInfo.InvariantCulture));
+                    continue;
+                }
+
+                truncated = true;
+                break;
+            }
+
+            if (ids.Count == 0)
+                return "none";
+
+            string suffix = truncated ? ",..." : string.Empty;
+            return string.Join(",", ids.ToArray()) + suffix;
+        }
+
+        internal static bool PendingJointChildPartOriginSeedIdsContainPidForDiagnostics(
+            IEnumerable<uint> partPersistentIds,
+            uint partPersistentId)
+        {
+            if (partPersistentId == 0u || partPersistentIds == null)
+                return false;
+
+            foreach (uint pid in partPersistentIds)
+            {
+                if (pid == partPersistentId)
+                    return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Clears atmosphere-boundary and SOI-change flags without stopping or restarting
         /// the recorder. Used when tree mode intercepts a boundary crossing — the recorder
@@ -888,6 +947,9 @@ namespace Parsek
         /// </summary>
         internal double LastRecordedUT => lastRecordedUT < 0 ? double.NaN : lastRecordedUT;
 
+        internal bool CurrentTrackSectionUsesRelativeFrame =>
+            trackSectionActive && currentTrackSection.referenceFrame == ReferenceFrame.Relative;
+
         /// <summary>
         /// Altitude (m) of the most recently committed point. Double.NaN until the
         /// first point is recorded. Exposed so callers (e.g. HandleSoiAutoSplit in
@@ -1032,6 +1094,36 @@ namespace Parsek
             return true;
         }
 
+        private static string DescribeJointPartForDiagnostics(string label, Part part)
+        {
+            if (part == null)
+                return label + "=null";
+
+            string partName = part.partInfo?.name ?? part.name ?? "unknown";
+            uint vesselPid = part.vessel?.persistentId ?? 0u;
+            string vesselName = part.vessel?.vesselName ?? "unknown";
+            uint parentPid = part.parent?.persistentId ?? 0u;
+            string origin = part.transform != null
+                ? DiagnosticFormatters.FormatVector3d(part.transform.position)
+                : "no-transform";
+            string rotation = part.transform != null
+                ? DiagnosticFormatters.FormatQuaternion(part.transform.rotation)
+                : "no-transform";
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}='{1}' pid={2} parentPid={3} vesselPid={4} vessel='{5}' origin={6} rot={7} srfAttach={8}",
+                label,
+                partName,
+                part.persistentId,
+                parentPid,
+                vesselPid,
+                vesselName,
+                origin,
+                rotation,
+                DiagnosticFormatters.DescribeSurfaceAttachNode(part));
+        }
+
         private void OnPartJointBreak(PartJoint joint, float breakForce)
         {
             if (!IsRecording) return;
@@ -1046,10 +1138,33 @@ namespace Parsek
             // Skip non-structural joint breaks (e.g., wheel suspension stress)
             // Part.attachJoint is the structural connection to parent — only that indicates real separation
             var childAttachJoint = joint.Child.attachJoint;
-            if (!IsStructuralJointBreak(joint == childAttachJoint, childAttachJoint != null))
+            bool childAttachMatchesJoint = joint == childAttachJoint;
+            bool childAttachJointPresent = childAttachJoint != null;
+            bool structuralJointBreak = IsStructuralJointBreak(
+                childAttachMatchesJoint,
+                childAttachJointPresent);
+            double jointBreakUT = Planetarium.GetUniversalTime();
+            ParsekLog.VerboseRateLimited("Recorder",
+                $"joint-break-diag-{joint.Child.persistentId}",
+                $"OnPartJointBreak diagnostics: ut={jointBreakUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"structural={(structuralJointBreak ? "T" : "F")} " +
+                $"childAttachMatchesJoint={(childAttachMatchesJoint ? "T" : "F")} " +
+                $"childAttachJointPresent={(childAttachJointPresent ? "T" : "F")} " +
+                $"{DescribeJointPartForDiagnostics("child", joint.Child)} " +
+                $"{DescribeJointPartForDiagnostics("parent", joint.Parent)} " +
+                $"{DescribeJointPartForDiagnostics("host", joint.Host)} " +
+                $"{DescribeJointPartForDiagnostics("target", joint.Target)} " +
+                $"hostAnchor={DiagnosticFormatters.FormatVector3(joint.HostAnchor)} " +
+                $"targetAnchor={DiagnosticFormatters.FormatVector3(joint.TgtAnchor)}",
+                2.0);
+            if (!structuralJointBreak)
             {
                 ParsekLog.VerboseRateLimited("Recorder", $"joint-break-nonstructural-{joint.Child.persistentId}",
-                    $"OnPartJointBreak: non-structural joint break on '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} (breakForce={breakForce:F1}), skipping");
+                    $"OnPartJointBreak: non-structural joint break on '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
+                    $"childAttachMatchesJoint={(childAttachMatchesJoint ? "T" : "F")} " +
+                    $"childAttachJointPresent={(childAttachJointPresent ? "T" : "F")} " +
+                    $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)}, skipping");
                 return;
             }
 
@@ -1062,7 +1177,6 @@ namespace Parsek
             }
             decoupledPartIds.Add(joint.Child.persistentId);
 
-            double jointBreakUT = Planetarium.GetUniversalTime();
             if (TryCreateAbsoluteTrajectoryPointFromPartOrigin(
                     joint.Child,
                     jointBreakUT,
@@ -1078,7 +1192,8 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Recorder",
                     $"joint-break-part-origin-seed-miss-{joint.Child.persistentId}",
                     $"Joint child part-origin seed unavailable: part='{joint.Child.partInfo?.name}' " +
-                    $"pid={joint.Child.persistentId} ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                    $"pid={joint.Child.persistentId} vesselPacked={(joint.Child.vessel?.packed == true ? "T" : "F")} " +
+                    $"ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
             }
 
             PartEvents.Add(new PartEvent
@@ -7170,8 +7285,16 @@ namespace Parsek
                     focusWorldPos,
                     anchorPose.WorldPos,
                     anchorPose.WorldRotation);
+                Quaternion focusWorldRotation;
+                if (!TryResolveAbsolutePointWorldRotationForRelativeOffset(
+                        point,
+                        v,
+                        out focusWorldRotation))
+                {
+                    focusWorldRotation = v.transform.rotation;
+                }
                 point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
-                    v.transform.rotation,
+                    focusWorldRotation,
                     anchorPose.WorldRotation);
             }
             else
@@ -7740,6 +7863,46 @@ namespace Parsek
             }
         }
 
+        internal static Quaternion ComputeRelativeLocalRotationFromAbsolutePointRotation(
+            Quaternion surfaceRelativeRotation,
+            Quaternion bodyWorldRotation,
+            Quaternion anchorWorldRotation)
+        {
+            Quaternion focusWorldRotation = TrajectoryMath.PureMultiply(
+                TrajectoryMath.SanitizeQuaternion(bodyWorldRotation),
+                TrajectoryMath.SanitizeQuaternion(surfaceRelativeRotation));
+            return TrajectoryMath.ComputeRelativeLocalRotation(
+                focusWorldRotation,
+                anchorWorldRotation);
+        }
+
+        internal static bool TryResolveAbsolutePointWorldRotationForRelativeOffset(
+            TrajectoryPoint point,
+            Vessel fallbackVessel,
+            out Quaternion worldRotation)
+        {
+            worldRotation = fallbackVessel?.transform != null
+                ? fallbackVessel.transform.rotation
+                : Quaternion.identity;
+            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            if (body == null)
+                body = fallbackVessel?.mainBody;
+            if (body?.bodyTransform == null)
+                return fallbackVessel?.transform != null;
+
+            try
+            {
+                worldRotation = TrajectoryMath.PureMultiply(
+                    body.bodyTransform.rotation,
+                    TrajectoryMath.SanitizeQuaternion(point.rotation));
+                return true;
+            }
+            catch
+            {
+                return fallbackVessel?.transform != null;
+            }
+        }
+
         private static void LogReFlyRecordingFrameCanonicalized(
             string subsystem,
             string recordingId,
@@ -8295,6 +8458,44 @@ namespace Parsek
         {
             pt.flags = (byte)((TrajectoryPointFlags)pt.flags | TrajectoryPointFlags.StructuralEventSnapshot);
             return pt;
+        }
+
+        internal static bool TryFindStructuralEventSnapshotPointForUT(
+            IEnumerable<TrajectoryPoint> points,
+            double eventUT,
+            out TrajectoryPoint point,
+            double toleranceSeconds = 1e-6)
+        {
+            point = default;
+            if (points == null
+                || double.IsNaN(eventUT)
+                || double.IsInfinity(eventUT)
+                || double.IsNaN(toleranceSeconds)
+                || toleranceSeconds < 0.0)
+            {
+                return false;
+            }
+
+            bool found = false;
+            double bestDelta = double.MaxValue;
+            foreach (TrajectoryPoint candidate in points)
+            {
+                if (((TrajectoryPointFlags)candidate.flags & TrajectoryPointFlags.StructuralEventSnapshot)
+                    != TrajectoryPointFlags.StructuralEventSnapshot)
+                {
+                    continue;
+                }
+
+                double delta = Math.Abs(candidate.ut - eventUT);
+                if (delta > toleranceSeconds || delta >= bestDelta)
+                    continue;
+
+                bestDelta = delta;
+                point = candidate;
+                found = true;
+            }
+
+            return found;
         }
 
         /// <summary>

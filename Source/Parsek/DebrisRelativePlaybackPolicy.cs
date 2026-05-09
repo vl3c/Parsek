@@ -85,8 +85,31 @@ namespace Parsek
             if (bridgeDuration <= UtEpsilon || bridgeDuration > maxBridgeSeconds)
                 return false;
 
+            if (!IsSyntheticSeedBridgeDistance(
+                    seed,
+                    firstOrdinaryPoint,
+                    GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMinDistanceMeters))
+            {
+                return false;
+            }
+
             bridgeEndUT = firstOrdinaryPoint.ut;
             return true;
+        }
+
+        internal static bool IsSyntheticSeedBridgeDistance(
+            TrajectoryPoint seed,
+            TrajectoryPoint firstOrdinaryPoint,
+            double minDistanceMeters)
+        {
+            if (minDistanceMeters <= 0.0)
+                return true;
+
+            double dx = firstOrdinaryPoint.latitude - seed.latitude;
+            double dy = firstOrdinaryPoint.longitude - seed.longitude;
+            double dz = firstOrdinaryPoint.altitude - seed.altitude;
+            double distanceSquared = dx * dx + dy * dy + dz * dz;
+            return distanceSquared >= minDistanceMeters * minDistanceMeters;
         }
 
         private static bool TryFindFirstOrdinaryPointAfterSeed(

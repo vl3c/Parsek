@@ -5548,6 +5548,8 @@ namespace Parsek
             TrajectoryPoint firstPoint = traj.Points[0];
             ReferenceFrame frame = ReferenceFrame.Absolute;
             string anchorRecordingId = null;
+            TrackSection containingSection = default;
+            bool hasContainingSection = false;
 
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
@@ -5555,6 +5557,8 @@ namespace Parsek
                 if (sectionIdx >= 0 && sectionIdx < traj.TrackSections.Count)
                 {
                     TrackSection section = traj.TrackSections[sectionIdx];
+                    containingSection = section;
+                    hasContainingSection = true;
                     frame = section.referenceFrame;
                     anchorRecordingId = section.anchorRecordingId;
                 }
@@ -5562,6 +5566,19 @@ namespace Parsek
 
             if (frame == ReferenceFrame.Relative)
             {
+                if (!DoesPointMatchSectionFrame(hasContainingSection, containingSection, firstPoint))
+                {
+                    string flatSummary = DescribeAbsoluteRecordingStartPoint(
+                        firstPoint,
+                        rootPos,
+                        "FlatFallback");
+                    return
+                        $"{flatSummary} sectionFrame=Relative " +
+                        (!string.IsNullOrEmpty(anchorRecordingId)
+                            ? $"anchorRec={anchorRecordingId}"
+                            : "anchorRec=missing");
+                }
+
                 Vector3d offset = new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
                 return
                     $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
@@ -5571,12 +5588,41 @@ namespace Parsek
                         : "anchorRec=missing");
             }
 
+            return DescribeAbsoluteRecordingStartPoint(firstPoint, rootPos, frame.ToString());
+        }
+
+        internal static bool DoesPointMatchSectionFrame(
+            bool hasContainingSection,
+            TrackSection section,
+            TrajectoryPoint point)
+        {
+            if (!hasContainingSection || section.frames == null)
+                return false;
+
+            for (int i = 0; i < section.frames.Count; i++)
+            {
+                TrajectoryPoint frame = section.frames[i];
+                if (Math.Abs(frame.ut - point.ut) <= 1e-6
+                    && Math.Abs(frame.latitude - point.latitude) <= 1e-6
+                    && Math.Abs(frame.longitude - point.longitude) <= 1e-6
+                    && Math.Abs(frame.altitude - point.altitude) <= 1e-6)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string DescribeAbsoluteRecordingStartPoint(
+            TrajectoryPoint firstPoint,
+            Vector3d rootPos,
+            string frameLabel)
+        {
             string rawSummary =
                 $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"frame={frame} body={firstPoint.bodyName ?? "unknown"} " +
+                $"frame={frameLabel} body={firstPoint.bodyName ?? "unknown"} " +
                 $"lla={FormatVector3d(new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude))}";
 
-            CelestialBody body = FlightGlobals.GetBodyByName(firstPoint.bodyName);
+            CelestialBody body = TryGetBodyByNameForAppearance(firstPoint.bodyName);
             if (body == null)
                 return $"{rawSummary} world=unresolved";
 
@@ -5589,6 +5635,23 @@ namespace Parsek
                 $"{rawSummary} world={FormatVector3d(worldPos)} " +
                 $"recordingStart-root={FormatVector3d(worldRootDelta)} " +
                 $"recordingStartRot={FormatQuaternion(worldRot)}";
+        }
+
+        private static CelestialBody TryGetBodyByNameForAppearance(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return null;
+
+            try
+            {
+                return FlightGlobals.GetBodyByName(bodyName);
+            }
+            catch (Exception)
+            {
+                // Headless xUnit can trip FlightGlobals static initialization; the
+                // appearance diagnostic should degrade to world=unresolved instead.
+                return null;
+            }
         }
 
         private static bool TryGetCombinedVisibleRendererBounds(
