@@ -1642,7 +1642,7 @@ namespace Parsek
             {
                 ParsekLog.Info(LedgerSwapTag,
                     "Tombstoned 0 career actions (Contract=0, Milestone=0, Facility=0, " +
-                    "Strategy=0, Tech=0, Science=0, Funds=0, Reputation=0, Kerbal=0, Other=0); " +
+                    "Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=0, Kerbal=0, Other=0); " +
                     "0 excluded (Seed=0, Rollout=0)");
                 ParsekLog.Info(Tag,
                     "Supersede tombstone effects: tombstoned 0 recording-scoped career actions; ELS unchanged.");
@@ -1686,7 +1686,7 @@ namespace Parsek
             int milestoneCount = 0;
             int facilityCount = 0;
             int strategyCount = 0;
-            int techCount = 0;
+            int scienceSpendingCount = 0;
             int scienceCount = 0;
             int fundsCount = 0;
             int reputationCount = 0;
@@ -1733,7 +1733,7 @@ namespace Parsek
                         ref milestoneCount,
                         ref facilityCount,
                         ref strategyCount,
-                        ref techCount,
+                        ref scienceSpendingCount,
                         ref scienceCount,
                         ref fundsCount,
                         ref reputationCount,
@@ -1761,28 +1761,33 @@ namespace Parsek
             }
 
             int tombstoned = contractCount + milestoneCount + facilityCount + strategyCount
-                + techCount + scienceCount + fundsCount + reputationCount + kerbalCount + otherCount;
+                + scienceSpendingCount + scienceCount + fundsCount + reputationCount + kerbalCount + otherCount;
             int excluded = seedExcluded + rolloutExcluded + otherExcluded;
 
             ParsekLog.Info(LedgerSwapTag,
                 $"Tombstoned {tombstoned} career actions " +
                 $"(Contract={contractCount}, Milestone={milestoneCount}, " +
-                $"Facility={facilityCount}, Strategy={strategyCount}, Tech={techCount}, " +
+                $"Facility={facilityCount}, Strategy={strategyCount}, ScienceSpending={scienceSpendingCount}, " +
                 $"Science={scienceCount}, Funds={fundsCount}, Reputation={reputationCount}, " +
                 $"Kerbal={kerbalCount}, Other={otherCount}); " +
                 $"{excluded} excluded (Seed={seedExcluded}, Rollout={rolloutExcluded}, Other={otherExcluded})");
 
             ParsekLog.Info(Tag,
                 $"Supersede tombstone effects: tombstoned {tombstoned} recording-scoped career actions; " +
-                "contracts/milestones/facilities/strategies/tech/science/funds/reputation/kerbals from the old subtree are removed from ELS.");
+                "contracts/milestones/facilities/strategies/science-spending/science/funds/reputation/kerbals from the old subtree are removed from ELS.");
 
             scenario.BumpTombstoneStateVersion();
+
+            // Queue tombstoned roster cleanup BEFORE the reservation recompute so
+            // the ApplyToRoster walk it triggers drains the queue in a single pass.
+            // The post-recalc ApplyToRoster (via RecalculateAndPatchAfterTombstones)
+            // then runs against an already-empty queue.
+            if (tombstonedRosterActions.Count > 0 && LedgerOrchestrator.Kerbals != null)
+                LedgerOrchestrator.Kerbals.QueueTombstonedRosterKerbals(tombstonedRosterActions);
 
             // Design §6.6 step 6 / §7.16: reservation walker re-derives so
             // old-subtree crew assignments disappear from reservations.
             CrewReservationManager.RecomputeAfterTombstones();
-            if (tombstonedRosterActions.Count > 0 && LedgerOrchestrator.Kerbals != null)
-                LedgerOrchestrator.Kerbals.QueueTombstonedRosterKerbals(tombstonedRosterActions);
 
             RecalculateAfterTombstones(tombstoned);
         }
@@ -1803,7 +1808,7 @@ namespace Parsek
             ref int milestone,
             ref int facility,
             ref int strategy,
-            ref int tech,
+            ref int scienceSpending,
             ref int science,
             ref int funds,
             ref int reputation,
@@ -1831,7 +1836,7 @@ namespace Parsek
                     strategy++;
                     break;
                 case GameActionType.ScienceSpending:
-                    tech++;
+                    scienceSpending++;
                     break;
                 case GameActionType.ScienceEarning:
                     science++;
