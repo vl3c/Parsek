@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** `Ledger.Reconcile` treats the full contract lifecycle as timeline state. Any lifecycle action with `UT > maxUT` is pruned even if its `RecordingId` is otherwise valid; in-range recording-scoped and KSC/null-scoped rows are still preserved.
 
-**Coverage:** `LedgerTests.Reconcile_FutureContractAcceptAndCompleteWithValidRecordingId_PrunesBoth`, `LedgerTests.Reconcile_FutureContractResolutionWithValidRecordingId_PrunedByMaxUt`, `LedgerTests.Reconcile_ContractLifecycleRowsAtMaxUt_AreKept`, and `GameStateRecorderLedgerTests.OnKspLoad_MigratedFutureContractLifecycleRows_PrunedByMaxUt`.
+**Coverage:** `LedgerTests.Reconcile_FutureContractAcceptAndCompleteWithValidRecordingId_PrunesBoth`, `LedgerTests.Reconcile_FutureContractResolutionWithValidRecordingId_PrunedByMaxUt`, `LedgerTests.Reconcile_ContractResolutionWithInvalidRecordingId_PrunedByRecordingId`, `LedgerTests.Reconcile_ContractLifecycleRowsAtMaxUt_AreKept`, and `GameStateRecorderLedgerTests.OnKspLoad_MigratedFutureContractLifecycleRows_PrunedByMaxUt`.
 
 ---
 

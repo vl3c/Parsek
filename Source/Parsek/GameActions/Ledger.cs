@@ -501,6 +501,7 @@ namespace Parsek
                             ref prunedOther);
                         ParsekLog.Verbose("Ledger",
                             $"Pruned contract lifecycle: type={action.Type}, " +
+                            $"contractId='{action.ContractId ?? "(null)"}', " +
                             $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
                             $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                             $"recordingId='{action.RecordingId ?? "(null)"}'");
@@ -513,6 +514,7 @@ namespace Parsek
                             ref prunedOther);
                         ParsekLog.Verbose("Ledger",
                             $"Pruned contract lifecycle: type={action.Type}, " +
+                            $"contractId='{action.ContractId ?? "(null)"}', " +
                             $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
                             $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
                     }

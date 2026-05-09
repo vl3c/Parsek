@@ -684,6 +684,45 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]") && l.Contains("prunedSpendings=1"));
         }
 
+        [Theory]
+        [InlineData(GameActionType.ContractComplete)]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void Reconcile_ContractResolutionWithInvalidRecordingId_PrunedByRecordingId(
+            GameActionType type)
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 17000.0,
+                Type = type,
+                RecordingId = "rec_deleted",
+                ContractId = "contract-orphan",
+                FundsReward = 1000f,
+                FundsPenalty = 1000f
+            });
+
+            var valid = new HashSet<string> { "rec_current" };
+            Ledger.Reconcile(valid, 18000.0);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("Pruned contract lifecycle")
+                && l.Contains(type.ToString())
+                && l.Contains("contract-orphan")
+                && l.Contains("not in validRecordingIds"));
+            if (type == GameActionType.ContractComplete)
+            {
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Ledger]") && l.Contains("prunedEarnings=1"));
+            }
+            else
+            {
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Ledger]") && l.Contains("prunedSpendingsByRecordingId=1"));
+            }
+        }
+
         [Fact]
         public void Reconcile_ContractLifecycleRowsAtMaxUt_AreKept()
         {
