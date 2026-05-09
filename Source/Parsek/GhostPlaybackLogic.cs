@@ -58,7 +58,7 @@ namespace Parsek
         internal enum StockExplosionFxWithAudioGateResult
         {
             StockQueued,
-            AudioBusyCustomVisualSpawned,
+            StockVisualOnlyDuringAudioBusy,
             StockFailedCustomVisualSpawned
         }
 
@@ -3135,6 +3135,18 @@ namespace Parsek
             return GhostAudioPresets.ExplosionOneShotFallbackDurationSeconds;
         }
 
+        // Triggers KSP's stock terminal explosion FX. The audio gate exists to prevent
+        // Unity's mixer from clipping when many SHIP_VOLUME explosion clips overlap (each
+        // FXMonger.Explode call adds its own AudioSource per the decompiled LateUpdate);
+        // it does NOT exist to prevent visual overlap. Three paths:
+        //   1. Gate free      -> FXMonger.Explode (visual + audio).
+        //   2. Gate busy      -> stock visual prefab instantiated directly with audio
+        //                        muted — visual is identical to FXMonger.Explode but no
+        //                        SHIP_VOLUME mixer voice is added on top of the in-flight
+        //                        clip. This is the path the user's reported "old custom
+        //                        explosion" bug landed on; the previous implementation
+        //                        fell back to Parsek's particle burst here instead.
+        //   3. Stock unavailable / both stock paths fail -> custom particle fallback.
         internal static bool TryTriggerStockExplosionFxWithAudioGate(
             Vector3 worldPosition,
             double power,
@@ -3145,6 +3157,7 @@ namespace Parsek
             TryReserveExplosionSoundDelegate reserveExplosionSound = null,
             Action<double> releaseExplosionSoundReservation = null,
             TryTriggerStockExplosionFxDelegate triggerStockExplosionFx = null,
+            TryTriggerStockExplosionFxDelegate triggerStockExplosionVisualOnly = null,
             Action<Vector3, float> spawnExplosionFx = null,
             Action<StockExplosionFxWithAudioGateResult> recordResult = null)
         {
@@ -3158,6 +3171,7 @@ namespace Parsek
                 ?? ((float length, out double busyUntil) => TryReserveExplosionSound(length, out busyUntil));
             Action<Vector3, float> spawnCustom =
                 spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnExplosionFx(pos, len));
+
             double explosionSoundReservedUntil;
             if (reserveSound(explosionSoundDuration, out explosionSoundReservedUntil))
             {
@@ -3181,12 +3195,27 @@ namespace Parsek
                 return false;
             }
 
-            ParsekLog.VerboseRateLimited("GhostAudio", busyLogKey ?? "stock-explosion-audio-busy",
-                $"Stock explosion FX skipped for {context} because another explosion sound is still active; " +
-                "spawning custom visual FX only",
-                1.0);
+            // Gate busy: render the stock visual without its audio. The visual is
+            // identical to a regular FXMonger.Explode burst (same prefab, same per-power
+            // index); only the SHIP_VOLUME PlayOneShot is suppressed so we don't pile a
+            // second clip onto the in-flight one and trigger Unity mixer clipping.
+            TryTriggerStockExplosionFxDelegate triggerVisualOnly = triggerStockExplosionVisualOnly
+                ?? ((Vector3 pos, double pwr, out string failure) =>
+                    GhostVisualBuilder.TryInstantiateStockExplosionVisual(pos, pwr, out failure));
+            if (triggerVisualOnly(worldPosition, power, out string visualOnlyFailure))
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", busyLogKey ?? "stock-explosion-visual-only-busy",
+                    $"Stock visual-only explosion for {context} (audio gate busy, suppressed SHIP_VOLUME clip to avoid mixer clipping)",
+                    1.0);
+                recordResult?.Invoke(StockExplosionFxWithAudioGateResult.StockVisualOnlyDuringAudioBusy);
+                return true;
+            }
+
+            ParsekLog.Warn("ExplosionFx",
+                $"Stock visual-only spawn failed for {context}; " +
+                $"falling back to custom FX: {visualOnlyFailure}");
             spawnCustom(worldPosition, vesselLength);
-            recordResult?.Invoke(StockExplosionFxWithAudioGateResult.AudioBusyCustomVisualSpawned);
+            recordResult?.Invoke(StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned);
             return false;
         }
 

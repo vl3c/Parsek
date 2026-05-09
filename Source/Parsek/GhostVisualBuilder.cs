@@ -6809,7 +6809,18 @@ namespace Parsek
         // without the per-call cost of Object.FindObjectOfType<FXMonger>() scanning the scene.
         private static System.Reflection.FieldInfo fxMongerFetchField;
 
-        internal static bool IsFxMongerLive()
+        // Cached FieldInfo for FXMonger's protected `explosionObjects` list. Registering
+        // visual-only spawns here is what makes FXMonger.OffsetPositions(offset) shift the
+        // root transform + world-space particles on a Krakensbane / floating-origin event,
+        // matching what FXMonger.Explode-spawned visuals get for free via LateUpdate's
+        // own Add to the same list. The field is `protected`, not public, so reflection
+        // is required even though the list itself is freely mutable.
+        private static System.Reflection.FieldInfo fxMongerExplosionObjectsField;
+
+        // Returns the live FXMonger singleton or null. Centralises the reflection
+        // accessor so callers that need the instance (to read `explosions[]`) and
+        // callers that just need an availability check share one cached lookup.
+        internal static FXMonger ResolveLiveFxMonger()
         {
             if (fxMongerFetchField == null)
             {
@@ -6817,11 +6828,36 @@ namespace Parsek
                     "fetch",
                     System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
                 if (fxMongerFetchField == null)
-                    return false;
+                    return null;
             }
             // Unity's == operator treats destroyed objects as null, so this stays correct
             // across scene transitions that clear FXMonger.fetch in OnDestroy.
-            return (fxMongerFetchField.GetValue(null) as FXMonger) != null;
+            return fxMongerFetchField.GetValue(null) as FXMonger;
+        }
+
+        internal static bool IsFxMongerLive()
+        {
+            return ResolveLiveFxMonger() != null;
+        }
+
+        // Reflectively reads FXMonger's protected `explosionObjects` list on the live
+        // singleton so the visual-only spawner can register itself for floating-origin
+        // tracking. Returns null if `fetch` is gone or the field has been renamed (the
+        // caller logs once and falls open — rendering the visual without offset tracking
+        // is still better than dropping all the way to the custom particle burst).
+        internal static List<FXObject> ResolveFxMongerExplosionObjects(FXMonger fetch)
+        {
+            if (fetch == null)
+                return null;
+            if (fxMongerExplosionObjectsField == null)
+            {
+                fxMongerExplosionObjectsField = typeof(FXMonger).GetField(
+                    "explosionObjects",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (fxMongerExplosionObjectsField == null)
+                    return null;
+            }
+            return fxMongerExplosionObjectsField.GetValue(fetch) as List<FXObject>;
         }
 
         /// <summary>
@@ -6853,6 +6889,127 @@ namespace Parsek
                     // in its queued ProtoExplosion.sources list for merge bookkeeping and never
                     // dereferences it. Ghost explosions have no owning Part to supply.
                     FXMonger.Explode(null, worldPosition, power);
+
+                failureReason = null;
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                failureReason = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Instantiates KSP's stock explosion prefab (visual only) at the given position
+        /// without contributing an audio source. Used when the explosion-sound gate is
+        /// busy and another stock explosion's audio is still mixing — the visual still
+        /// renders correctly but the SHIP_VOLUME explosion clip is not added to Unity's
+        /// mixer (which would clip when several stock explosions overlap).
+        ///
+        /// Mirrors the prefab/index logic in the decompiled FXMonger.LateUpdate (per-power
+        /// index into the `explosions` GameObject array, same up-axis assignment) so the
+        /// visual is indistinguishable from a regular FXMonger.Explode burst. The only
+        /// stock side effect we suppress is the per-instance AudioSource that LateUpdate
+        /// would otherwise add and PlayOneShot at SHIP_VOLUME.
+        /// </summary>
+        internal static bool TryInstantiateStockExplosionVisual(
+            Vector3 worldPosition,
+            double power,
+            out string failureReason,
+            System.Func<FXMonger> resolveLiveFxMonger = null,
+            System.Func<GameObject, GameObject> instantiatePrefab = null)
+        {
+            FXMonger fetch = resolveLiveFxMonger != null
+                ? resolveLiveFxMonger()
+                : ResolveLiveFxMonger();
+            if (fetch == null)
+            {
+                failureReason = "no live FXMonger instance";
+                return false;
+            }
+
+            GameObject[] prefabs = fetch.explosions;
+            if (prefabs == null || prefabs.Length == 0)
+            {
+                failureReason = "FXMonger.explosions array is empty";
+                return false;
+            }
+
+            float clamped = Mathf.Clamp01((float)power);
+            int idx = Mathf.Clamp((int)(clamped * (prefabs.Length - 1)), 0, prefabs.Length - 1);
+            GameObject prefab = prefabs[idx];
+            if (prefab == null)
+            {
+                failureReason = $"FXMonger.explosions[{idx}] is null";
+                return false;
+            }
+
+            try
+            {
+                GameObject vfx = instantiatePrefab != null
+                    ? instantiatePrefab(prefab)
+                    : UnityEngine.Object.Instantiate(prefab);
+                if (vfx == null)
+                {
+                    failureReason = "Instantiate returned null";
+                    return false;
+                }
+                vfx.transform.position = worldPosition;
+                vfx.transform.up = FlightGlobals.upAxis;
+
+                // Mute any AudioSource baked into the prefab BEFORE we activate the
+                // hierarchy. The decompiled FXMonger.LateUpdate calls SetActive(true)
+                // explicitly after Instantiate, which strongly implies the explosion
+                // prefab is loaded inactive — so Awake has not yet fired and any
+                // playOnAwake AudioSource will not be queued until our subsequent
+                // SetActive call. By muting / Stop-ing first we guarantee the source
+                // never adds a SHIP_VOLUME voice to Unity's mixer, even on the first
+                // frame after activation. Stop() on an idle source is documented as a
+                // no-op so the mute pass is safe regardless of the prefab's actual
+                // load-time active state.
+                AudioSource[] sources = vfx.GetComponentsInChildren<AudioSource>(includeInactive: true);
+                for (int i = 0; i < sources.Length; i++)
+                {
+                    sources[i].playOnAwake = false;
+                    sources[i].mute = true;
+                    sources[i].Stop();
+                }
+
+                // Register with FXMonger so FloatingOrigin shifts apply to this visual.
+                // Mirrors stock FXMonger.LateUpdate (decompiled ~line 553-573):
+                //   FXObject fXObject = new FXObject(gameObject);
+                //   gameObject.AddComponent<FXObjectPhoneHome>().parent = fXObject;
+                //   explosionObjects.Add(fXObject);
+                // FXObject's constructor populates `systems` from the GameObject's child
+                // ParticleSystems, which is what FXMonger.OffsetPositions iterates to
+                // shift world-space particle positions on a Krakensbane / floating-origin
+                // event. FXObjectPhoneHome.OnDestroy calls FXMonger.RemoveFXOjbect to
+                // unregister us when the prefab's particle system finishes and self-
+                // destructs, so the list does not leak.
+                var fxObject = new FXObject(vfx);
+                vfx.AddComponent<FXObjectPhoneHome>().parent = fxObject;
+                List<FXObject> explosionObjects = ResolveFxMongerExplosionObjects(fetch);
+                if (explosionObjects != null)
+                {
+                    explosionObjects.Add(fxObject);
+                }
+                else
+                {
+                    // Reflection lookup against FXMonger's protected `explosionObjects`
+                    // failed — likely a future-KSP rename. Fail open: the visual still
+                    // renders, just without floating-origin tracking. Drift will only
+                    // be visible if a Krakensbane shift fires within the explosion's
+                    // ~2 s lifetime (rare for terminal-impact ghost explosions, which
+                    // happen at low / zero velocity at the impact site). One-shot warn
+                    // surfaces the layout change for the next investigator.
+                    ParsekLog.Warn("ExplosionFx",
+                        "FXMonger.explosionObjects field not resolvable via reflection — " +
+                        "visual-only stock explosion will not be offset on floating-origin shifts. " +
+                        "Stock FXMonger layout may have changed.");
+                }
+
+                vfx.SetActive(true);
 
                 failureReason = null;
                 return true;

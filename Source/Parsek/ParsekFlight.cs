@@ -13694,7 +13694,7 @@ namespace Parsek
                         power,
                         len,
                         $"manual preview \"{previewRecording.VesselName}\"",
-                        "manual-preview-stock-explosion-audio-busy");
+                        "manual-preview-stock-explosion-visual-only-busy");
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);
