@@ -11,11 +11,12 @@ namespace Parsek.Tests
     /// <list type="bullet">
     ///   <item>The pure <see cref="SceneExitInterceptor.ShouldShowDialogBeforeSceneChange"/> decision matrix.</item>
     ///   <item>The <see cref="SceneExitInterceptor.s_AllowNextLoadScene"/> + destination-match watchdog.</item>
+    ///   <item>The finalized-pending-tree <see cref="HighLogic_LoadScene_Patch.Prefix"/> branch via the dialog test seam.</item>
     ///   <item>The <see cref="SceneExitInterceptor.SafeWritePersistent"/> save-failure-on-MAINMENU hard-block contract via the test seam.</item>
     /// </list>
     ///
-    /// <para>The Harmony prefix itself, the <see cref="MergeDialog.ShowTreeDialog"/>
-    /// PopupDialog spawn, and the live-state wrapper
+    /// <para>The production <see cref="MergeDialog.ShowTreeDialog"/> PopupDialog
+    /// spawn and the live-active-tree wrapper
     /// <c>ShouldShowDialogBeforeSceneChangeLive</c> all touch
     /// <see cref="FlightGlobals"/> / <see cref="HighLogic"/> singletons
     /// that are unavailable in xUnit. Those layers are exercised via the
@@ -41,6 +42,7 @@ namespace Parsek.Tests
 
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            ParsekScenario.SetCachedAutoMergeForTesting(false);
             SceneExitInterceptor.ResetTestOverrides();
         }
 
@@ -52,9 +54,31 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = priorStoreSuppress;
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            ParsekScenario.SetCachedAutoMergeForTesting(false);
         }
 
         // ---------- Decision helper matrix ------------------------------
+
+        private static RecordingTree MakePendingTree(
+            string treeId,
+            TerminalState terminalState)
+        {
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Pending Tree",
+                RootRecordingId = "root",
+                ActiveRecordingId = "root"
+            };
+            tree.Recordings["root"] = new Recording
+            {
+                RecordingId = "root",
+                TreeId = treeId,
+                VesselName = "Pending Root",
+                TerminalStateValue = terminalState
+            };
+            return tree;
+        }
 
         [Fact]
         public void Decision_NoActiveTree_ReturnsNone()
@@ -66,6 +90,110 @@ namespace Parsek.Tests
                 isAutoMerge: false,
                 activeVesselLandedOrSplashed: false);
             Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
+        }
+
+        [Fact]
+        public void Decision_PendingFinalizedTree_AutoMergeOff_ReturnsRegularMerge()
+        {
+            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeForPendingTree(
+                GameScenes.SPACECENTER,
+                hasFinalizedPendingTree: true,
+                reFlyActive: false,
+                isAutoMerge: false,
+                pendingRootLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
+        }
+
+        [Fact]
+        public void Decision_PendingFinalizedTree_ReFlyActive_ReturnsReFlyAttempt()
+        {
+            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeForPendingTree(
+                GameScenes.TRACKSTATION,
+                hasFinalizedPendingTree: true,
+                reFlyActive: true,
+                isAutoMerge: true,
+                pendingRootLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.ReFlyAttempt, v);
+        }
+
+        [Fact]
+        public void Decision_PendingNotFinalized_ReturnsNone()
+        {
+            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChangeForPendingTree(
+                GameScenes.SPACECENTER,
+                hasFinalizedPendingTree: false,
+                reFlyActive: false,
+                isAutoMerge: false,
+                pendingRootLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
+        }
+
+        [Fact]
+        public void LivePendingTreeDecision_FinalizedLandedPendingTree_AutoMergeOn_ReturnsRegularMerge()
+        {
+            ParsekScenario.SetCachedAutoMergeForTesting(true);
+            RecordingStore.StashPendingTree(
+                MakePendingTree("pending_landed", TerminalState.Landed),
+                PendingTreeState.Finalized);
+
+            var v = SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(
+                GameScenes.SPACECENTER);
+
+            Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
+        }
+
+        [Fact]
+        public void LivePendingTreeDecision_LimboPendingTree_ReturnsNone()
+        {
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_pending_limbo"
+                }
+            });
+            RecordingStore.StashPendingTree(
+                MakePendingTree("pending_limbo", TerminalState.Destroyed),
+                PendingTreeState.Limbo);
+
+            var v = SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(
+                GameScenes.TRACKSTATION);
+
+            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
+        }
+
+        [Fact]
+        public void Prefix_NoActiveTree_FinalizedPending_InvokesShowDialogForTesting()
+        {
+            GameScenes priorScene = HighLogic.LoadedScene;
+            GameScenes? capturedScene = null;
+            SceneExitInterceptor.DialogVariant? capturedVariant = null;
+            SceneExitInterceptor.ShowDialogForTesting = (scene, variant) =>
+            {
+                capturedScene = scene;
+                capturedVariant = variant;
+            };
+            RecordingStore.StashPendingTree(
+                MakePendingTree("pending_prefix", TerminalState.Destroyed),
+                PendingTreeState.Finalized);
+
+            try
+            {
+                HighLogic.LoadedScene = GameScenes.FLIGHT;
+
+                bool allowStockLoad = HighLogic_LoadScene_Patch.Prefix(
+                    GameScenes.SPACECENTER);
+
+                Assert.False(allowStockLoad);
+                Assert.Equal(GameScenes.SPACECENTER, capturedScene);
+                Assert.Equal(
+                    SceneExitInterceptor.DialogVariant.RegularMerge,
+                    capturedVariant);
+            }
+            finally
+            {
+                HighLogic.LoadedScene = priorScene;
+            }
         }
 
         [Fact]

@@ -275,6 +275,235 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_AnchorSectionGap_UsesLocalFlatPointFallback()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteGapAnchor(
+                "absolute-anchor",
+                tree.Id,
+                gapStartUT: 10.0,
+                gapEndUT: 10.04);
+            Recording child = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.02,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(111.02, pose.WorldPos.x, 6);
+            Assert.Equal(0.0, pose.WorldPos.y, 6);
+            Assert.Equal(0.0, pose.WorldPos.z, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("small section gap") &&
+                l.Contains("recordingId=absolute-anchor") &&
+                l.Contains("previousSectionIndex=0") &&
+                l.Contains("nextSectionIndex=1"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("relative-anchor-unresolved") &&
+                l.Contains("recordingId=absolute-anchor"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AnchorSectionGap_WideGapFailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteGapAnchor(
+                "absolute-anchor",
+                tree.Id,
+                gapStartUT: 10.0,
+                gapEndUT: 10.50);
+            Recording child = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.25,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _);
+
+            Assert.False(resolved);
+            Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("recordingId=absolute-anchor"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AnchorSectionGap_WithoutLocalFlatBracketFailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteGapAnchor(
+                "absolute-anchor",
+                tree.Id,
+                gapStartUT: 10.0,
+                gapEndUT: 10.04,
+                includeFlatPoints: false);
+            anchor.Points.Add(MakePoint(0.0, GapWorld(100.0, 0.0), Quaternion.identity));
+            anchor.Points.Add(MakePoint(20.0, GapWorld(100.0, 20.0), Quaternion.identity));
+            Recording child = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.02,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _);
+
+            Assert.False(resolved);
+            Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("recordingId=absolute-anchor"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_RelativeAnchorSectionGap_UsesAbsoluteShadowFallback()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeRelativeGapAnchor(
+                "relative-anchor",
+                tree.Id,
+                includeAbsoluteShadows: true);
+            Recording child = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.02,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(211.02, pose.WorldPos.x, 6);
+            Assert.Equal(0.0, pose.WorldPos.y, 6);
+            Assert.Equal(0.0, pose.WorldPos.z, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("small section gap") &&
+                l.Contains("recordingId=relative-anchor"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("relative-anchor-unresolved") &&
+                l.Contains("recordingId=relative-anchor"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_RelativeAnchorSectionGap_NonFiniteShadowUTFailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeRelativeGapAnchor(
+                "relative-anchor",
+                tree.Id,
+                includeAbsoluteShadows: true);
+            anchor.TrackSections[0].absoluteFrames.Insert(
+                1,
+                MakePoint(double.NaN, GapWorld(200.0, 10.01), Quaternion.identity));
+            Recording child = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.02,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _);
+
+            Assert.False(resolved);
+            Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("recordingId=relative-anchor"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_RelativeAnchorSectionGap_WithoutAbsoluteShadowFailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeRelativeGapAnchor(
+                "relative-anchor",
+                tree.Id,
+                includeAbsoluteShadows: false);
+            Recording child = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.02,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _);
+
+            Assert.False(resolved);
+            Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("recordingId=relative-anchor"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_TwoLinkRelativeChain_ComposesThroughRecordedAnchors()
         {
             var tree = new RecordingTree { Id = "tree" };
@@ -790,6 +1019,135 @@ namespace Parsek.Tests
                 source = TrackSectionSource.Active,
             });
             return rec;
+        }
+
+        private static Recording MakeAbsoluteGapAnchor(
+            string recordingId,
+            string treeId,
+            double gapStartUT,
+            double gapEndUT,
+            bool includeFlatPoints = true)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                TreeId = treeId,
+                VesselName = recordingId,
+            };
+            var beforeGap = MakePoint(gapStartUT, GapWorld(100.0, gapStartUT), Quaternion.identity);
+            var afterGap = MakePoint(gapEndUT, GapWorld(100.0, gapEndUT), Quaternion.identity);
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 0.0,
+                endUT = gapStartUT,
+                sampleRateHz = 50f,
+                frames = new List<TrajectoryPoint>
+                {
+                    MakePoint(0.0, GapWorld(100.0, 0.0), Quaternion.identity),
+                    beforeGap,
+                },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = gapEndUT,
+                endUT = 20.0,
+                sampleRateHz = 50f,
+                frames = new List<TrajectoryPoint>
+                {
+                    afterGap,
+                    MakePoint(20.0, GapWorld(100.0, 20.0), Quaternion.identity),
+                },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            });
+
+            if (includeFlatPoints)
+            {
+                rec.Points.Add(MakePoint(0.0, GapWorld(100.0, 0.0), Quaternion.identity));
+                rec.Points.Add(beforeGap);
+                rec.Points.Add(afterGap);
+                rec.Points.Add(MakePoint(20.0, GapWorld(100.0, 20.0), Quaternion.identity));
+            }
+
+            return rec;
+        }
+
+        private static Recording MakeRelativeGapAnchor(
+            string recordingId,
+            string treeId,
+            bool includeAbsoluteShadows)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                TreeId = treeId,
+                VesselName = recordingId,
+            };
+            var firstSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 0.0,
+                endUT = 10.0,
+                sampleRateHz = 50f,
+                anchorRecordingId = "root-anchor",
+                frames = new List<TrajectoryPoint>
+                {
+                    MakePoint(0.0, new Vector3d(0, 0, 0), Quaternion.identity),
+                    MakePoint(10.0, new Vector3d(0, 0, 0), Quaternion.identity),
+                },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            };
+            var secondSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 10.04,
+                endUT = 20.0,
+                sampleRateHz = 50f,
+                anchorRecordingId = "root-anchor",
+                frames = new List<TrajectoryPoint>
+                {
+                    MakePoint(10.04, new Vector3d(0, 0, 0), Quaternion.identity),
+                    MakePoint(20.0, new Vector3d(0, 0, 0), Quaternion.identity),
+                },
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Active,
+            };
+
+            if (includeAbsoluteShadows)
+            {
+                firstSection.absoluteFrames = new List<TrajectoryPoint>
+                {
+                    MakePoint(0.0, GapWorld(200.0, 0.0), Quaternion.identity),
+                    MakePoint(10.0, GapWorld(200.0, 10.0), Quaternion.identity),
+                };
+                secondSection.absoluteFrames = new List<TrajectoryPoint>
+                {
+                    MakePoint(10.04, GapWorld(200.0, 10.04), Quaternion.identity),
+                    MakePoint(20.0, GapWorld(200.0, 20.0), Quaternion.identity),
+                };
+            }
+
+            rec.TrackSections.Add(firstSection);
+            rec.TrackSections.Add(secondSection);
+            rec.Points.Add(MakePoint(10.0, new Vector3d(900, 0, 0), Quaternion.identity));
+            rec.Points.Add(MakePoint(10.04, new Vector3d(904, 0, 0), Quaternion.identity));
+            return rec;
+        }
+
+        private static Vector3d GapWorld(double baseX, double ut)
+        {
+            return new Vector3d(baseX + ut, 0, 0);
         }
 
         private static TrajectoryPoint MakePoint(double ut, Vector3d xyz, Quaternion rotation)

@@ -37,7 +37,7 @@ warning popups (atmosphere / throttle / quit confirmation) must still run first.
 | Quit-to-Main-Menu | Show dialog (drop force-auto-merge) |
 | Tree finalize timing | Defer ALL finalize work to the dialog button callback (Opus pass-2/pass-3 redesign) |
 | Cancel button on regular dialog | None - click commits the player to leaving |
-| Re-Fly-aware dialog | Reuse `MergeDialog.ShowTreeDialog` with Re-Fly-attempt-scoped button labels and body copy (existing dialog already handles Re-Fly merge / discard correctly inside `MergeCommit` / `MergeDiscard`) |
+| Re-Fly-aware dialog | Reuse `MergeDialog.ShowTreeDialog` with the short Merge / Discard labels and Re-Fly-scoped body copy (existing dialog already handles Re-Fly merge / discard correctly inside `MergeCommit` / `MergeDiscard`) |
 | autoMerge ON + Re-Fly active | **Behaviour change**: previously this combination silent-auto-committed via `AutoCommitTreeGhostOnly` (`ParsekScenario.cs:1700-1716`) without invoking `TryCommitReFlySupersede`. The new pre-transition path always shows the Re-Fly dialog, routing through `MergeDialog.MergeCommit` -> `TryCommitReFlySupersede` for full supersede / tombstone semantics. This is a real change beyond UX timing: previously-silent commits now require a click. Documented as intentional - the silent path was arguably under-implementing the supersede contract. |
 | Stock KSP danger / quit confirmations | Must run first (see patch chokepoint below) |
 
@@ -691,8 +691,7 @@ construction.
   the new overload - implementer's choice; the labels enum carrying
   copy is the simpler option).
 - New `MergeDialogButtonLabels` enum: `Default` -> "Merge to
-  Timeline" / "Discard"; `ReFlyAttempt` -> "Merge Re-Fly to
-  Timeline" / "Discard Re-Fly attempt".
+  Timeline" / "Discard"; `ReFlyAttempt` -> "Merge" / "Discard".
 - Existing `OnDismiss -> ClearPendingFlag` path stays
   (`MergeDialog.cs:217-223`). No change needed.
 - New `ShowTreeDialog(RecordingTree liveTree, MergeDialogButtonLabels
@@ -1221,7 +1220,7 @@ Per `.claude/CLAUDE.md` "Documentation Updates - Per Commit, Not Per PR":
 
 - `CHANGELOG.md`: "Merge confirmation dialog now appears before leaving
   flight, not after the destination scene loads. Quit to Main Menu also
-  shows the dialog (previously force-auto-merged). Re-Fly sessions show
-  Re-Fly-attempt-scoped button labels on the same dialog."
+  shows the dialog (previously force-auto-merged). Re-Fly sessions use
+  the same short Merge / Discard labels on the same dialog."
 - `docs/dev/todo-and-known-bugs.md`: add the dialog-timing item if
   missing; mark closed once shipped.

@@ -70,6 +70,8 @@ namespace Parsek.Tests
             Assert.Equal((double)(float)LoopTiming.DefaultLoopIntervalSeconds, (double)defaults.AutoLoopIntervalSeconds, 6);
             Assert.Equal(LoopTimeUnit.Sec, defaults.AutoLoopDisplayUnit);
             Assert.True(defaults.ShowGhostsInTrackingStation);
+            Assert.True(defaults.ShowCommittedFutureOverlays);
+            Assert.True(defaults.BlockCommittedActions);
         }
     }
 }
