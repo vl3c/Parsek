@@ -255,6 +255,29 @@ namespace Parsek.Tests
             Assert.Equal(3, module.GetAvailableSlots());
         }
 
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void CompleteAfterExplicitFailOrCancel_NotEffective(GameActionType resolutionType)
+        {
+            module.ProcessAction(MakeAccept("c1", ut: 100, deadlineUT: 500f));
+            var resolution = resolutionType == GameActionType.ContractFail
+                ? MakeFail("c1", ut: 400)
+                : MakeCancel("c1", ut: 400);
+            module.ProcessAction(resolution);
+
+            var complete = MakeComplete("c1", ut: 600);
+            module.ProcessAction(complete);
+
+            Assert.False(complete.Effective);
+            Assert.False(module.IsContractCredited("c1"));
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("effective=false (explicitly resolved)") &&
+                l.Contains("c1"));
+        }
+
         [Fact]
         public void DuplicateCompletion_NotEffective()
         {

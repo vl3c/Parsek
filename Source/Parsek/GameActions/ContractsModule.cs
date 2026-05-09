@@ -36,6 +36,12 @@ namespace Parsek
         private readonly HashSet<string> deadlineExpiredContracts = new HashSet<string>();
 
         /// <summary>
+        /// Contract IDs that reached an explicit terminal state (fail/cancel) during
+        /// the current walk. Later stale completions for the same id are ineffective.
+        /// </summary>
+        private readonly HashSet<string> explicitlyResolvedContracts = new HashSet<string>();
+
+        /// <summary>
         /// Mission Control slot limit. Determined by building level.
         /// Default 2 for level 1 (KSP stock).
         /// </summary>
@@ -71,14 +77,16 @@ namespace Parsek
             int prevActive = activeContracts.Count;
             int prevCredited = creditedContracts.Count;
             int prevExpired = deadlineExpiredContracts.Count;
+            int prevResolved = explicitlyResolvedContracts.Count;
 
             activeContracts.Clear();
             creditedContracts.Clear();
             deadlineExpiredContracts.Clear();
+            explicitlyResolvedContracts.Clear();
 
             ParsekLog.Verbose(Tag,
                 $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts, " +
-                $"{prevExpired} deadline-expired contracts");
+                $"{prevExpired} deadline-expired contracts, {prevResolved} explicitly resolved contracts");
         }
 
         /// <inheritdoc/>
@@ -224,6 +232,8 @@ namespace Parsek
             }
 
             activeContracts[id] = action;
+            deadlineExpiredContracts.Remove(id);
+            explicitlyResolvedContracts.Remove(id);
 
             // Advance funds flow to Funds module via action.AdvanceFunds —
             // the Funds module reads that field from the action directly.
@@ -254,6 +264,15 @@ namespace Parsek
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=false (deadline expired), " +
+                    $"rewards zeroed");
+            }
+            else if (explicitlyResolvedContracts.Contains(id))
+            {
+                // Explicit fail/cancel already resolved this contract; rewards zeroed.
+                action.Effective = false;
+
+                ParsekLog.Info(Tag,
+                    $"Complete: contractId='{id}' effective=false (explicitly resolved), " +
                     $"rewards zeroed");
             }
             else
@@ -320,6 +339,7 @@ namespace Parsek
 
             // Penalties apply unconditionally
             bool wasActive = activeContracts.Remove(id);
+            explicitlyResolvedContracts.Add(id);
 
             ParsekLog.Info(Tag,
                 $"Fail: contractId='{id}' fundsPenalty={action.FundsPenalty} " +
@@ -334,6 +354,7 @@ namespace Parsek
 
             // Penalties apply unconditionally
             bool wasActive = activeContracts.Remove(id);
+            explicitlyResolvedContracts.Add(id);
 
             ParsekLog.Info(Tag,
                 $"Cancel: contractId='{id}' fundsPenalty={action.FundsPenalty} " +
