@@ -1114,6 +1114,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_SingleAbsoluteFrameFailure_ReportsRequestedUT()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            TrackSection section = absolute.TrackSections[0];
+            section.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(10.0, new Vector3d(100, 0, 0), Quaternion.identity),
+            };
+            absolute.TrackSections[0] = section;
+            tree.AddOrReplaceRecording(absolute);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(
+                    tree,
+                    absoluteWorldPositionResolver: p => new Vector3d(double.NaN, double.NaN, double.NaN)),
+                absolute.RecordingId,
+                15.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.Other, failure.Outcome);
+            Assert.Equal("absolute-position-unresolved", failure.Reason);
+            Assert.Equal(15.0, failure.RequestedUT, 6);
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_SmallSectionGapResolverFailureDoesNotEmitOuterRangeWarning()
         {
             var tree = new RecordingTree { Id = "tree" };

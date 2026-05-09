@@ -21600,7 +21600,8 @@ namespace Parsek
                         target,
                         targetUT,
                         ref cachedIndex,
-                        out interpResult))
+                        out interpResult,
+                        resolverFailure: firstFailure))
                     return;
 
                 RetireUnresolvedRecordedRelative(
@@ -21658,7 +21659,8 @@ namespace Parsek
                         target,
                         targetUT,
                         ref cachedIndex,
-                        out interpResult))
+                        out interpResult,
+                        resolverFailure: pointFailure))
                     return;
 
                 RetireUnresolvedRecordedRelative(
@@ -21741,7 +21743,8 @@ namespace Parsek
                         target,
                         targetUT,
                         ref cachedIndex,
-                        out interpResult))
+                        out interpResult,
+                        resolverFailure: anchorFailure))
                     return;
 
                 RetireUnresolvedRecordedRelative(
@@ -22356,19 +22359,24 @@ namespace Parsek
             IPlaybackTrajectory trajectory,
             RelativeSectionPlaybackTarget target,
             GhostPlaybackState retireSignalState,
+            RelativeAnchorResolveFailure resolverFailure,
             out InterpolationResult interpResult)
         {
             interpResult = InterpolationResult.Zero;
             if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(trajectory))
                 return false;
 
+            string resolverOutcome = resolverFailure.HasFailure ? resolverFailure.Outcome.ToString() : null;
+            string resolverReason = RelativeAnchorResolveFailure.ReasonOrFallback(resolverFailure, null);
             RetireUnresolvedRecordedRelative(
                 ghost,
                 recordingIndex,
                 recordingVesselName,
                 target,
                 retireSignalState,
-                "InterpolateAndPositionRecordedRelative.parent-anchored-debris");
+                "InterpolateAndPositionRecordedRelative.parent-anchored-debris",
+                resolverOutcome,
+                resolverReason);
             return true;
         }
 
@@ -22380,7 +22388,8 @@ namespace Parsek
             double targetUT,
             ref int playbackIdx,
             out InterpolationResult interpResult,
-            bool suppressFallbackWarn = false)
+            bool suppressFallbackWarn = false,
+            RelativeAnchorResolveFailure resolverFailure = default(RelativeAnchorResolveFailure))
         {
             interpResult = InterpolationResult.Zero;
             // Parent-anchored v12+ debris has a strict recorded-relative
@@ -22395,6 +22404,7 @@ namespace Parsek
                     trajectory,
                     target,
                     state,
+                    resolverFailure,
                     out interpResult))
                 return true;
 

@@ -903,6 +903,7 @@ namespace Parsek
                 return TryBuildAbsolutePoseFromPoint(
                     context,
                     before,
+                    before.ut + (after.ut - before.ut) * t,
                     resolvedSectionIndex,
                     resolvedRecordingId,
                     out pose,
@@ -1133,6 +1134,7 @@ namespace Parsek
                 return TryBuildAbsolutePoseFromPoint(
                     context,
                     frames[0],
+                    ut,
                     resolvedSectionIndex,
                     resolvedRecordingId,
                     out pose,
@@ -1203,6 +1205,7 @@ namespace Parsek
         private static bool TryBuildAbsolutePoseFromPoint(
             RelativeAnchorResolverContext context,
             TrajectoryPoint point,
+            double requestedUT,
             int resolvedSectionIndex,
             string resolvedRecordingId,
             out AnchorPose pose,
@@ -1217,7 +1220,7 @@ namespace Parsek
                     "absolute-position-unresolved",
                     resolvedRecordingId,
                     resolvedRecordingId,
-                    point.ut,
+                    requestedUT,
                     resolvedSectionIndex);
                 return false;
             }
@@ -1235,7 +1238,7 @@ namespace Parsek
                 "absolute-pose-nonfinite",
                 resolvedRecordingId,
                 resolvedRecordingId,
-                point.ut,
+                requestedUT,
                 resolvedSectionIndex);
             return false;
         }
