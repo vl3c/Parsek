@@ -15,9 +15,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 - ~~Warp exit recorded `warpEndUT`, then called the full-timeline `RecalculateAndPatch`, so committed future actions after the warp-exit UT could be replayed and patched into KSP immediately.~~ Source: review finding [P1].
 
-**Fix:** the warp-exit path now routes through `RecalculateAndPatchForTimeJump(warpEndUT)` via a small testable seam, preserving the cutoff semantics already used by explicit time jumps.
+**Fix:** the warp-exit path now routes through `RecalculateAndPatchForTimeJump(warpEndUT)` via a small testable seam, preserving the cutoff semantics already used by explicit time jumps. The seam has no full-timeline fallback and matches `TimeJumpManager` by logging and swallowing recalculation failures after recording the exact cutoff UT.
 
-**Coverage:** `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly` verifies the cutoff callback is used and the full-timeline fallback is not called.
+**Coverage:** `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly` verifies the cutoff callback is used, and `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_LogsAndSwallowsRecalculationFailure` verifies non-fatal failure logging.
 
 ---
 

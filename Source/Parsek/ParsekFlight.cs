@@ -7683,7 +7683,9 @@ namespace Parsek
                 {
                     KspStatePatcher.PatchFacilities(LedgerOrchestrator.Facilities);
                     ParsekLog.Info("WarpFacilities",
-                        $"Warp start at UT={warpStartUT:F2} — patched facility visuals");
+                        "Warp start at UT="
+                        + warpStartUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " — patched facility visuals");
                 }
             }
 
@@ -7700,8 +7702,13 @@ namespace Parsek
                     LedgerOrchestrator.HasFacilityActionsInRange(warpStartUT, warpEndUT))
                 {
                     ParsekLog.Info("WarpFacilities",
-                        $"Warp exit at UT={warpEndUT:F2} — facility actions crossed " +
-                        $"in range ({warpStartUT:F2}, {warpEndUT:F2}]");
+                        "Warp exit at UT="
+                        + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " — facility actions crossed in range ("
+                        + warpStartUT.ToString("R", CultureInfo.InvariantCulture)
+                        + ", "
+                        + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "]");
                 }
             }
             wasWarpActive = isWarpNow;
@@ -7759,24 +7766,36 @@ namespace Parsek
         {
             RecalculateLedgerAfterWarpExit(
                 warpEndUT,
-                LedgerOrchestrator.RecalculateAndPatchForTimeJump,
-                () => LedgerOrchestrator.RecalculateAndPatch());
+                LedgerOrchestrator.RecalculateAndPatchForTimeJump);
         }
 
         internal static void RecalculateLedgerAfterWarpExit(
             double warpEndUT,
-            Action<double> recalculateAndPatchForTimeJump,
-            Action recalculateAndPatchFullTimeline)
+            Action<double> recalculateAndPatchForTimeJump)
         {
             if (recalculateAndPatchForTimeJump == null)
                 throw new ArgumentNullException(nameof(recalculateAndPatchForTimeJump));
-            if (recalculateAndPatchFullTimeline == null)
-                throw new ArgumentNullException(nameof(recalculateAndPatchFullTimeline));
 
-            ParsekLog.Info("LedgerOrchestrator",
-                "Warp exit detected - recalculating ledger cutoffUT="
-                + warpEndUT.ToString("R", CultureInfo.InvariantCulture));
-            recalculateAndPatchForTimeJump(warpEndUT);
+            try
+            {
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Warp exit ledger recalculation started: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture));
+                recalculateAndPatchForTimeJump(warpEndUT);
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Warp exit ledger recalculation complete: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("LedgerOrchestrator",
+                    "Warp exit ledger recalculation failed: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " error="
+                    + ex.GetType().Name
+                    + ": "
+                    + ex.Message);
+            }
         }
 
         internal static bool ShouldSkipDuplicateWarpCheckpointEvent(
