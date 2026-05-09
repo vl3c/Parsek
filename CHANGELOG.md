@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Capsule impacts that destroy the vessel during a pending stage-separation pause are now committed as `Destroyed` instead of being misclassified as `Splashed` after the scene exits. The pre-crash vessel snapshot is preserved for ghost geometry.
 - Debris ghosts no longer pop into place when playback starts inside a tiny gap between adjacent parent-section samples. New false-alarm resume seams also stay covered so future recordings avoid that gap.
 - Parent-anchored debris now disappears when its recorded parent path no longer covers the requested time, preventing stale debris from lingering after the recorded split has ended. A follow-up keeps that retirement decision ahead of all visual, camera, and watch activation paths. Older debris without parent metadata keeps the previous compatibility path.
 

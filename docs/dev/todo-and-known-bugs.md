@@ -88,6 +88,8 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 **Status:** OPEN 2026-05-07. Design choice required from the user before implementation.
 
+**Partial fix (2026-05-09):** `logs/2026-05-09_1135_radial-debris-diagnostics` exposed a narrower variant where `StopRecordingForChainBoundary` froze `CaptureAtStop` with `VesselDestroyed=false`, then `OnVesselWillDestroy` fired during the pending split before `FallbackCommitSplitRecorder` appended that stale capture. The pending-split fallback now bridges `FlightRecorder.VesselDestroyedDuringRecording` into the frozen capture's `VesselDestroyed` flag before tree append / standalone commit, so this explicit-destruction path persists the active capsule as `Destroyed` instead of letting scene-exit live-vessel finalization reclassify it as `Splashed`. `ChainSegmentManager.CommitSegmentCore` remains outside this partial fix because it services legacy chain commits, not the tree-mode `pendingSplitRecorder` path shown in this log; a separate legacy-chain stop/commit destruction race should get its own repro and fix. The broader KSP water-impact lenience case remains open for recordings that never get an explicit destruction callback.
+
 ---
 
 ## Open - Splashed-on-ocean ghost mesh sinks below waterline during Watch playback
