@@ -964,7 +964,7 @@ namespace Parsek.Tests
             {
                 ut = 10.0,
                 eventType = GameStateEventType.FacilityUpgraded,
-                key = "MissionControl",
+                key = "SpaceCenter/MissionControl",
                 valueBefore = 0.0,
                 valueAfter = 0.5
             }, null));
@@ -979,7 +979,7 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch();
 
-            Assert.Equal(2, LedgerOrchestrator.Facilities.GetFacilityLevel("MissionControl"));
+            Assert.Equal(2, LedgerOrchestrator.Facilities.GetFacilityLevel("SpaceCenter/MissionControl"));
             Assert.Equal(7 - 1, LedgerOrchestrator.Contracts.GetAvailableSlots());
 
             Assert.Contains(logLines, l =>
@@ -997,7 +997,7 @@ namespace Parsek.Tests
             {
                 ut = 10.0,
                 eventType = GameStateEventType.FacilityUpgraded,
-                key = "Administration",
+                key = "SpaceCenter/Administration",
                 valueBefore = 0.5,
                 valueAfter = 1.0
             }, null));
@@ -1014,7 +1014,7 @@ namespace Parsek.Tests
 
             LedgerOrchestrator.RecalculateAndPatch();
 
-            Assert.Equal(3, LedgerOrchestrator.Facilities.GetFacilityLevel("Administration"));
+            Assert.Equal(3, LedgerOrchestrator.Facilities.GetFacilityLevel("SpaceCenter/Administration"));
             Assert.Equal(5 - 1, LedgerOrchestrator.Strategies.GetAvailableSlots());
 
             Assert.Contains(logLines, l =>
@@ -1035,7 +1035,7 @@ namespace Parsek.Tests
             {
                 ut = 10.0,
                 eventType = GameStateEventType.FacilityUpgraded,
-                key = "MissionControl",
+                key = "SpaceCenter/MissionControl",
                 valueBefore = 0.0,
                 valueAfter = 0.5
             }, null));
@@ -1043,10 +1043,10 @@ namespace Parsek.Tests
             logLines.Clear();
             LedgerOrchestrator.RecalculateAndPatch();
 
-            Assert.Equal(2, LedgerOrchestrator.Facilities.GetFacilityLevel("MissionControl"));
+            Assert.Equal(2, LedgerOrchestrator.Facilities.GetFacilityLevel("SpaceCenter/MissionControl"));
             Assert.Contains(logLines, l =>
                 l.Contains("[KspStatePatcher]") &&
-                l.Contains("PatchFacilities: resolved 'MissionControl'") &&
+                l.Contains("PatchFacilities: resolved 'SpaceCenter/MissionControl'") &&
                 l.Contains("ledgerLevel=2") &&
                 l.Contains("targetLevel=1"));
         }

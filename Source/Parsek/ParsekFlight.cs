@@ -5502,6 +5502,29 @@ namespace Parsek
             InheritedEngineState? breakupEngineState = recorder != null
                 ? InheritedEngineState.FromRecorder(recorder) : null;
 
+            TrajectoryPoint? focusedParentSeedAnchorPoint = null;
+            if (recorder != null
+                && !recorder.CurrentTrackSectionUsesRelativeFrame
+                && FlightRecorder.TryFindStructuralEventSnapshotPointForUT(
+                    recorder?.Recording,
+                    breakupBp.UT,
+                    out TrajectoryPoint parentSeedAnchorPoint))
+            {
+                focusedParentSeedAnchorPoint = parentSeedAnchorPoint;
+                ParsekLog.Verbose("Coalescer",
+                    $"ProcessBreakupEvent: focused parent seed anchor point available: " +
+                    $"parentRec={activeRecId} ut={parentSeedAnchorPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"flags={parentSeedAnchorPoint.flags}");
+            }
+            else
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"ProcessBreakupEvent: focused parent seed anchor point unavailable: " +
+                    $"parentRec={activeRecId} breakupUT={breakupBp.UT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"recorderPoints={recorder?.Recording?.Count ?? 0} " +
+                    $"currentSectionRelative={recorder?.CurrentTrackSectionUsesRelativeFrame ?? false}");
+            }
+
             // Create child recording segments for controlled children (vessels with probe
             // cores that survive the breakup).
             // These are NOT debris — they record indefinitely (no TTL) and can serve as
@@ -5627,6 +5650,13 @@ namespace Parsek
                         }
                         initialPoint = ApplyStructuralEventFlagToChildSeed(initialPoint, breakupBp.UT);
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
+                        if (focusedParentSeedAnchorPoint.HasValue)
+                        {
+                            backgroundRecorder.QueueDebrisSeedParentAnchorPoint(
+                                pid,
+                                activeRecId,
+                                focusedParentSeedAnchorPoint.Value);
+                        }
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
                             breakupEngineState,
@@ -7683,25 +7713,32 @@ namespace Parsek
                 {
                     KspStatePatcher.PatchFacilities(LedgerOrchestrator.Facilities);
                     ParsekLog.Info("WarpFacilities",
-                        $"Warp start at UT={warpStartUT:F2} — patched facility visuals");
+                        "Warp start at UT="
+                        + warpStartUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " — patched facility visuals");
                 }
             }
 
             // Detect warp exit: was warping, now at 1x — recalculate ledger
             if (wasWarpActive && !isWarpNow)
             {
+                // Snapshot the handler-fire UT. Exact alignment with KSP's internal
+                // warp boundary is out of scope for this cutoff seam.
                 double warpEndUT = Planetarium.GetUniversalTime();
-                ParsekLog.Info("LedgerOrchestrator",
-                    "Warp exit detected — recalculating ledger");
-                LedgerOrchestrator.RecalculateAndPatch();
+                RecalculateLedgerAfterWarpExit(warpEndUT);
 
                 // Log whether any facility actions were crossed during this warp session
                 if (LedgerOrchestrator.IsInitialized &&
                     LedgerOrchestrator.HasFacilityActionsInRange(warpStartUT, warpEndUT))
                 {
                     ParsekLog.Info("WarpFacilities",
-                        $"Warp exit at UT={warpEndUT:F2} — facility actions crossed " +
-                        $"in range ({warpStartUT:F2}, {warpEndUT:F2}]");
+                        "Warp exit at UT="
+                        + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " — facility actions crossed in range ("
+                        + warpStartUT.ToString("R", CultureInfo.InvariantCulture)
+                        + ", "
+                        + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "]");
                 }
             }
             wasWarpActive = isWarpNow;
@@ -7753,6 +7790,42 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("Checkpoint",
                 $"warp-rate-changed-on-rails-{warpRateKey}",
                 "Active vessel orbit segments handled by on-rails events");
+        }
+
+        internal static void RecalculateLedgerAfterWarpExit(double warpEndUT)
+        {
+            RecalculateLedgerAfterWarpExit(
+                warpEndUT,
+                LedgerOrchestrator.RecalculateAndPatchForTimeJump);
+        }
+
+        internal static void RecalculateLedgerAfterWarpExit(
+            double warpEndUT,
+            Action<double> recalculateAndPatchForTimeJump)
+        {
+            if (recalculateAndPatchForTimeJump == null)
+                throw new ArgumentNullException(nameof(recalculateAndPatchForTimeJump));
+
+            try
+            {
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Warp exit ledger recalculation started: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture));
+                recalculateAndPatchForTimeJump(warpEndUT);
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Warp exit ledger recalculation complete: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("LedgerOrchestrator",
+                    "Warp exit ledger recalculation failed: cutoffUT="
+                    + warpEndUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " error="
+                    + ex.GetType().Name
+                    + ": "
+                    + ex.Message);
+            }
         }
 
         internal static bool ShouldSkipDuplicateWarpCheckpointEvent(
@@ -9163,6 +9236,46 @@ namespace Parsek
                 && undockedPartPersistentId == rootPartPersistentId;
         }
 
+        private static string DescribeDecouplePartForDiagnostics(string label, Part part)
+        {
+            if (part == null)
+                return label + "=null";
+
+            string name = part.partInfo?.name ?? part.name ?? "unknown";
+            uint parentPid = part.parent?.persistentId ?? 0u;
+            string origin = part.transform != null
+                ? DiagnosticFormatters.FormatVector3d(part.transform.position)
+                : "no-transform";
+            string rotation = part.transform != null
+                ? DiagnosticFormatters.FormatQuaternion(part.transform.rotation)
+                : "no-transform";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}='{1}' pid={2} parentPid={3} origin={4} rot={5} srfAttach={6}",
+                label,
+                name,
+                part.persistentId,
+                parentPid,
+                origin,
+                rotation,
+                DiagnosticFormatters.DescribeSurfaceAttachNode(part));
+        }
+
+        private static Part FindFirstDirectChildPart(Part rootPart, IList<Part> parts)
+        {
+            if (rootPart == null || parts == null)
+                return null;
+
+            for (int i = 0; i < parts.Count; i++)
+            {
+                Part part = parts[i];
+                if (part != null && part.parent == rootPart)
+                    return part;
+            }
+
+            return null;
+        }
+
         internal static double ResolveDeferredSplitBranchUT(
             double fallbackUT,
             double exactTriggerUT,
@@ -9273,13 +9386,21 @@ namespace Parsek
             double splitUT = Planetarium.GetUniversalTime();
             uint rootPartPersistentId = newVessel.rootPart?.persistentId ?? 0u;
             string seedSource = "none";
+            string pendingJointChildSeedPids = "none";
+            bool rootMatchesPendingJointChildSeed = false;
             if (decoupleCreatedTrajectoryPoints != null
                 && !decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
             {
                 FlightRecorder seedRecorder = recorder ?? pendingSplitRecorder;
                 TryResolveTrajectoryPoint resolvePartOriginSeed = null;
                 if (seedRecorder != null)
+                {
+                    rootMatchesPendingJointChildSeed =
+                        seedRecorder.ContainsPendingJointChildPartOriginSeed(rootPartPersistentId);
                     resolvePartOriginSeed = seedRecorder.TryConsumePendingJointChildPartOriginSeed;
+                    pendingJointChildSeedPids =
+                        seedRecorder.DescribePendingJointChildPartOriginSeedIdsForDiagnostics();
+                }
                 // On stock decoupler splits, KSP roots the new debris vessel at
                 // joint.Child; if it chooses a different root, this misses cleanly and
                 // falls back to the post-split root-part sample below.
@@ -9309,8 +9430,15 @@ namespace Parsek
                 $"name='{newVessel.vesselName}' type={newVessel.vesselType} " +
                 $"parts={newVessel.parts?.Count ?? 0} hasController={hasController} " +
                 $"rootPartPid={rootPartPersistentId} seedSource={seedSource} " +
+                $"pendingJointChildSeedPids={pendingJointChildSeedPids} " +
                 $"splitUT={splitUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"capturedSeed={(decoupleCreatedTrajectoryPoints != null && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId) ? "T" : "F")}");
+            Part rootPart = newVessel.rootPart;
+            ParsekLog.Verbose("Flight",
+                $"Decouple created vessel diagnostics: pid={newVessel.persistentId} " +
+                $"rootMatchesPendingJointChildSeed={(rootMatchesPendingJointChildSeed ? "T" : "F")} " +
+                $"{DescribeDecouplePartForDiagnostics("root", rootPart)} " +
+                $"{DescribeDecouplePartForDiagnostics("firstChild", FindFirstDirectChildPart(rootPart, newVessel.parts))}");
         }
 
         /// <summary>
@@ -20431,7 +20559,17 @@ namespace Parsek
                 return false;
             }
 
-            Vector3d anchorWorld = anchor.GetWorldPos3D();
+            // Match the recorder's live-anchor frame (FlightRecorder /
+            // BackgroundRecorder TryResolveAnchorPoseForCandidate). The recorder
+            // writes loop-relative offsets against vesselTransform.position; the
+            // matching rotation is vesselTransform.rotation. GetWorldPos3D (CoMD)
+            // here would re-introduce the same CoM-vs-vesselTransform mismatch
+            // the recorder fix removed, but inverted at playback time. Use
+            // anchor.transform explicitly (not GetTransform(), which follows
+            // ReferenceTransform / "Control From Here").
+            Vector3d anchorWorld = anchor.transform != null
+                ? (Vector3d)anchor.transform.position
+                : anchor.GetWorldPos3D();
             if (!IsFiniteVector3d(anchorWorld))
             {
                 GhostRenderTrace.EmitRelativeResolver(

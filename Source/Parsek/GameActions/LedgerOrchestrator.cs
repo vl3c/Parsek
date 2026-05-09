@@ -3302,17 +3302,33 @@ namespace Parsek
             if (facilitiesModule == null || contractsModule == null || strategiesModule == null)
                 return;
 
-            int missionControlLevel = facilitiesModule.GetFacilityLevel("MissionControl");
+            int missionControlLevel = GetUpgradeableFacilityLevel("MissionControl");
             int contractSlots = GetContractSlots(missionControlLevel);
             contractsModule.SetMaxSlots(contractSlots);
 
-            int adminLevel = facilitiesModule.GetFacilityLevel("Administration");
+            int adminLevel = GetUpgradeableFacilityLevel("Administration");
             int strategySlots = GetStrategySlots(adminLevel);
             strategiesModule.SetMaxSlots(strategySlots);
 
             ParsekLog.Verbose(Tag,
                 $"UpdateSlotLimits: MissionControl level={missionControlLevel} -> {contractSlots} contract slots, " +
                 $"Administration level={adminLevel} -> {strategySlots} strategy slots");
+        }
+
+        private static int GetUpgradeableFacilityLevel(string displayFacilityId)
+        {
+            if (facilitiesModule == null)
+                return 1;
+
+            FacilitiesModule.FacilityState state;
+            string kspFacilityId = KspFacilityIds.ToUpgradeableFacilityId(displayFacilityId);
+            if (facilitiesModule.TryGetFacilityState(kspFacilityId, out state))
+                return state.Level;
+
+            if (facilitiesModule.TryGetFacilityState(displayFacilityId, out state))
+                return state.Level;
+
+            return 1;
         }
 
         /// <summary>

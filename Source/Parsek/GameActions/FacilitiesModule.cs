@@ -222,6 +222,17 @@ namespace Parsek
             return new FacilityState { Level = 1, Destroyed = false };
         }
 
+        internal bool TryGetFacilityState(string facilityId, out FacilityState state)
+        {
+            if (facilityId == null)
+            {
+                state = default(FacilityState);
+                return false;
+            }
+
+            return facilities.TryGetValue(facilityId, out state);
+        }
+
         /// <summary>
         /// Returns a read-only view of all tracked facilities for patching KSP state on warp exit.
         /// The dictionary maps facilityId to current FacilityState.
