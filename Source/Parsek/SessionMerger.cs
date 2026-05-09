@@ -17,6 +17,8 @@ namespace Parsek
         private const double OrbitScalarTolerance = 1e-9;
         private const double OrbitDistanceTolerance = 1e-6;
         private const double OrbitVectorTolerance = 1e-6;
+        private const double BoundaryPointUtTolerance = 1e-6;
+        private const double RelativeAnchorLocalDeltaMaxDtSeconds = 0.001;
 
         /// <summary>
         /// Stock KSP body equatorial radii in meters. Used by ComputeBoundaryDiscontinuity
@@ -91,12 +93,15 @@ namespace Parsek
                 int inputSectionCount = srcRec.TrackSections != null ? srcRec.TrackSections.Count : 0;
 
                 // Resolve overlapping TrackSections
+                int recordingFormatVersion = srcRec.RecordingFormatVersion;
                 List<TrackSection> mergedSections = ResolveOverlaps(
-                    srcRec.TrackSections ?? new List<TrackSection>());
+                    srcRec.TrackSections ?? new List<TrackSection>(),
+                    recordingFormatVersion);
                 int healedUnrecordedGaps = HealBackgroundActiveUnrecordedGapBoundaries(
-                    recId, srcRec.VesselName, mergedSections, out List<TrackSection> preHealMergedSections);
+                    recId, srcRec.VesselName, mergedSections, recordingFormatVersion,
+                    out List<TrackSection> preHealMergedSections);
                 if (healedUnrecordedGaps > 0)
-                    RecomputeBoundaryDiscontinuities(mergedSections);
+                    RecomputeBoundaryDiscontinuities(mergedSections, recordingFormatVersion);
 
                 // Merge PartEvents (source recording may only have one list, just deduplicate+sort)
                 List<PartEvent> mergedEvents = MergePartEvents(
@@ -146,7 +151,8 @@ namespace Parsek
                 result[recId] = merged;
 
                 LogMergeDiagnostics(recId, srcRec.VesselName, inputSectionCount,
-                    srcRec.TrackSections ?? new List<TrackSection>(), mergedSections);
+                    srcRec.TrackSections ?? new List<TrackSection>(), mergedSections,
+                    recordingFormatVersion);
                 ParsekLog.Verbose(Tag,
                     $"MergeTree: recording='{recId}' flatSync={flatSyncMode}");
             }
@@ -421,7 +427,8 @@ namespace Parsek
         /// </summary>
         private static void LogMergeDiagnostics(
             string recId, string vesselName, int inputSectionCount,
-            List<TrackSection> inputSections, List<TrackSection> mergedSections)
+            List<TrackSection> inputSections, List<TrackSection> mergedSections,
+            int recordingFormatVersion)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -451,7 +458,25 @@ namespace Parsek
             // root cause is visible at-a-glance instead of needing log-archaeology).
             for (int i = 0; i < mergedSections.Count; i++)
             {
-                float disc = mergedSections[i].boundaryDiscontinuityMeters;
+                BoundaryDiscontinuityMeasurement measurement = i > 0
+                    ? MeasureBoundaryDiscontinuity(
+                        mergedSections[i - 1], mergedSections[i], recordingFormatVersion)
+                    : BoundaryDiscontinuityMeasurement.Zero("first-section", "no-prev");
+                if (i > 0 && !string.IsNullOrEmpty(measurement.SkipReason))
+                {
+                    string prevRef = mergedSections[i - 1].referenceFrame.ToString();
+                    string prevSrc = mergedSections[i - 1].source.ToString();
+                    ParsekLog.Verbose(Tag,
+                        $"MergeTree: boundary discontinuity skipped at section[{i}] " +
+                        $"ut={mergedSections[i].startUT.ToString("F2", ic)} " +
+                        $"vessel='{vesselName}' recId={recId} " +
+                        $"prevRef={prevRef} nextRef={mergedSections[i].referenceFrame} " +
+                        $"prevSrc={prevSrc} nextSrc={mergedSections[i].source} " +
+                        $"branch={measurement.Branch} reason={measurement.SkipReason} " +
+                        $"prevPoint={measurement.PrevPointSource} nextPoint={measurement.NextPointSource}");
+                }
+
+                float disc = measurement.Meters;
                 if (disc > 1.0f)
                 {
                     string prevRef = i > 0 ? mergedSections[i - 1].referenceFrame.ToString() : "?";
@@ -615,6 +640,13 @@ namespace Parsek
         /// </summary>
         internal static List<TrackSection> ResolveOverlaps(List<TrackSection> sections)
         {
+            ParsekLog.Verbose(Tag, "ResolveOverlaps: current-format wrapper used");
+            return ResolveOverlaps(sections, RecordingStore.CurrentRecordingFormatVersion);
+        }
+
+        internal static List<TrackSection> ResolveOverlaps(
+            List<TrackSection> sections, int recordingFormatVersion)
+        {
             var ic = CultureInfo.InvariantCulture;
 
             if (sections == null || sections.Count == 0)
@@ -769,7 +801,7 @@ namespace Parsek
             // Sort final output by startUT
             output.Sort((a, b) => a.startUT.CompareTo(b.startUT));
 
-            RecomputeBoundaryDiscontinuities(output);
+            RecomputeBoundaryDiscontinuities(output, recordingFormatVersion);
 
             ParsekLog.Verbose(Tag,
                 $"ResolveOverlaps: input={sections.Count} output={output.Count}");
@@ -777,47 +809,353 @@ namespace Parsek
             return output;
         }
 
-        /// <summary>
-        /// Computes the Euclidean distance in meters between the last trajectory point
-        /// of the previous section and the first trajectory point of the next section.
-        /// Uses lat/lon/alt to compute approximate distance. Returns 0 if either section
-        /// has no trajectory frames, or if the sections use different reference frames
-        /// (lat/lon/alt fields have different semantics across ABSOLUTE vs RELATIVE).
-        /// </summary>
         internal static float ComputeBoundaryDiscontinuity(TrackSection prev, TrackSection next)
         {
-            if (prev.frames == null || prev.frames.Count == 0)
-                return 0f;
-            if (next.frames == null || next.frames.Count == 0)
-                return 0f;
+            ParsekLog.Verbose(Tag, "ComputeBoundaryDiscontinuity: current-format wrapper used");
+            return ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+        }
 
-            // Cross-reference-frame boundaries use different coordinate semantics
-            // (ABSOLUTE stores lat/lon/alt, RELATIVE stores dx/dy/dz offsets) —
-            // comparing them is meaningless (#283).
-            if (prev.referenceFrame != next.referenceFrame)
-                return 0f;
+        internal static float ComputeBoundaryDiscontinuity(
+            TrackSection prev, TrackSection next, int recordingFormatVersion)
+        {
+            return MeasureBoundaryDiscontinuity(
+                prev, next, recordingFormatVersion).Meters;
+        }
+
+        private struct BoundaryDiscontinuityMeasurement
+        {
+            public float Meters;
+            public string Branch;
+            public string SkipReason;
+            public double DtSeconds;
+            public string AnchorKey;
+            public string PrevPointSource;
+            public string NextPointSource;
+
+            public static BoundaryDiscontinuityMeasurement Zero(string branch, string reason)
+            {
+                return new BoundaryDiscontinuityMeasurement
+                {
+                    Meters = 0f,
+                    Branch = branch ?? "not-measurable",
+                    SkipReason = reason,
+                    DtSeconds = 0.0,
+                    AnchorKey = string.Empty,
+                    PrevPointSource = string.Empty,
+                    NextPointSource = string.Empty
+                };
+            }
+        }
+
+        private static BoundaryDiscontinuityMeasurement MeasureBoundaryDiscontinuity(
+            TrackSection prev, TrackSection next, int recordingFormatVersion)
+        {
+            if (prev.frames == null || prev.frames.Count == 0)
+                return BoundaryDiscontinuityMeasurement.Zero("not-measurable", "prev-no-frames");
+            if (next.frames == null || next.frames.Count == 0)
+                return BoundaryDiscontinuityMeasurement.Zero("not-measurable", "next-no-frames");
 
             TrajectoryPoint lastPrev = prev.frames[prev.frames.Count - 1];
             TrajectoryPoint firstNext = next.frames[0];
+            double dtSeconds = firstNext.ut - lastPrev.ut;
 
-            // Use direct position delta from lat/lon/alt
-            // For KSP, approximate distance using coordinate differences
-            // Altitude difference is straightforward in meters
+            if (prev.referenceFrame == ReferenceFrame.Relative
+                || next.referenceFrame == ReferenceFrame.Relative)
+            {
+                return MeasureRelativeAwareBoundary(
+                    prev, next, recordingFormatVersion, lastPrev, firstNext, dtSeconds);
+            }
+
+            if (prev.referenceFrame != ReferenceFrame.Absolute
+                || next.referenceFrame != ReferenceFrame.Absolute)
+            {
+                BoundaryDiscontinuityMeasurement skipped =
+                    BoundaryDiscontinuityMeasurement.Zero(
+                        "not-measurable", "orbital-checkpoint-boundary");
+                skipped.DtSeconds = dtSeconds;
+                return skipped;
+            }
+
+            return MeasureBodyFixedBoundary(
+                lastPrev, firstNext, dtSeconds, "absolute", string.Empty,
+                "prev.frames.last", "next.frames.first");
+        }
+
+        private static BoundaryDiscontinuityMeasurement MeasureRelativeAwareBoundary(
+            TrackSection prev, TrackSection next, int recordingFormatVersion,
+            TrajectoryPoint lastPrev, TrajectoryPoint firstNext, double dtSeconds)
+        {
+            bool sameAnchorLargeDtRequiresShadow = false;
+            if (prev.referenceFrame == ReferenceFrame.Relative
+                && next.referenceFrame == ReferenceFrame.Relative)
+            {
+                string anchorKey;
+                bool sameAnchor = HasSameRelativeAnchorIdentity(prev, next, out anchorKey);
+                if (sameAnchor
+                    && recordingFormatVersion >= RecordingStore.RelativeLocalFrameFormatVersion
+                    && IsFinite(dtSeconds)
+                    && Math.Abs(dtSeconds) <= RelativeAnchorLocalDeltaMaxDtSeconds)
+                {
+                    double dx = firstNext.latitude - lastPrev.latitude;
+                    double dy = firstNext.longitude - lastPrev.longitude;
+                    double dz = firstNext.altitude - lastPrev.altitude;
+                    double dist = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    if (!IsFinite(dist))
+                        return BoundaryDiscontinuityMeasurement.Zero(
+                            "not-measurable", "relative-anchor-local-nonfinite");
+
+                    return new BoundaryDiscontinuityMeasurement
+                    {
+                        Meters = (float)dist,
+                        Branch = "anchor-local",
+                        SkipReason = null,
+                        DtSeconds = dtSeconds,
+                        AnchorKey = anchorKey,
+                        PrevPointSource = "prev.frames.last",
+                        NextPointSource = "next.frames.first"
+                    };
+                }
+
+                sameAnchorLargeDtRequiresShadow = sameAnchor
+                    && recordingFormatVersion >= RecordingStore.RelativeLocalFrameFormatVersion;
+            }
+
+            string prevSource;
+            string nextSource;
+            string skipReason;
+            TrajectoryPoint prevBodyFixed;
+            TrajectoryPoint nextBodyFixed;
+            if (!TryGetBodyFixedBoundaryPoint(
+                    prev, useLast: true, recordingFormatVersion: recordingFormatVersion,
+                    out prevBodyFixed, out prevSource, out skipReason))
+            {
+                return SkippedRelativeAwareMeasurement(
+                    prev, next, dtSeconds,
+                    sameAnchorLargeDtRequiresShadow
+                        ? "same-anchor-shadow-required"
+                        : "prev-" + skipReason);
+            }
+            if (!TryGetBodyFixedBoundaryPoint(
+                    next, useLast: false, recordingFormatVersion: recordingFormatVersion,
+                    out nextBodyFixed, out nextSource, out skipReason))
+            {
+                return SkippedRelativeAwareMeasurement(
+                    prev, next, dtSeconds,
+                    sameAnchorLargeDtRequiresShadow
+                        ? "same-anchor-shadow-required"
+                        : "next-" + skipReason);
+            }
+
+            string branch = prev.referenceFrame == ReferenceFrame.Relative
+                || next.referenceFrame == ReferenceFrame.Relative
+                    ? "absolute-shadow"
+                    : "absolute";
+            return MeasureBodyFixedBoundary(
+                prevBodyFixed, nextBodyFixed, dtSeconds, branch, string.Empty,
+                prevSource, nextSource);
+        }
+
+        private static BoundaryDiscontinuityMeasurement SkippedRelativeAwareMeasurement(
+            TrackSection prev, TrackSection next, double dtSeconds, string reason)
+        {
+            string branch = prev.referenceFrame == ReferenceFrame.Relative
+                || next.referenceFrame == ReferenceFrame.Relative
+                    ? "not-measurable"
+                    : "absolute";
+            return new BoundaryDiscontinuityMeasurement
+            {
+                Meters = 0f,
+                Branch = branch,
+                SkipReason = reason,
+                DtSeconds = dtSeconds,
+                AnchorKey = string.Empty,
+                PrevPointSource = string.Empty,
+                NextPointSource = string.Empty
+            };
+        }
+
+        private static BoundaryDiscontinuityMeasurement MeasureBodyFixedBoundary(
+            TrajectoryPoint lastPrev, TrajectoryPoint firstNext, double dtSeconds,
+            string branch, string anchorKey, string prevSource, string nextSource)
+        {
+            string prevBody = lastPrev.bodyName;
+            string nextBody = firstNext.bodyName;
+            if (!string.IsNullOrEmpty(prevBody)
+                && !string.IsNullOrEmpty(nextBody)
+                && !string.Equals(prevBody, nextBody, StringComparison.Ordinal))
+            {
+                return new BoundaryDiscontinuityMeasurement
+                {
+                    Meters = 0f,
+                    Branch = branch,
+                    SkipReason = "body-mismatch",
+                    DtSeconds = dtSeconds,
+                    AnchorKey = anchorKey ?? string.Empty,
+                    PrevPointSource = prevSource ?? string.Empty,
+                    NextPointSource = nextSource ?? string.Empty
+                };
+            }
+
+            if (!IsFinite(lastPrev.latitude) || !IsFinite(lastPrev.longitude)
+                || !IsFinite(lastPrev.altitude) || !IsFinite(firstNext.latitude)
+                || !IsFinite(firstNext.longitude) || !IsFinite(firstNext.altitude))
+            {
+                return new BoundaryDiscontinuityMeasurement
+                {
+                    Meters = 0f,
+                    Branch = branch,
+                    SkipReason = "point-data-nonfinite",
+                    DtSeconds = dtSeconds,
+                    AnchorKey = anchorKey ?? string.Empty,
+                    PrevPointSource = prevSource ?? string.Empty,
+                    NextPointSource = nextSource ?? string.Empty
+                };
+            }
+
             double dAlt = firstNext.altitude - lastPrev.altitude;
-
-            // Lat/lon to approximate meters using the body radius from the last point
-            // of the previous section. Approximate but sufficient for discontinuity diagnostics.
             double bodyRadius = GetBodyRadius(lastPrev.bodyName);
             double dLat = (firstNext.latitude - lastPrev.latitude) * Math.PI / 180.0;
             double dLon = (firstNext.longitude - lastPrev.longitude) * Math.PI / 180.0;
             double avgLat = (firstNext.latitude + lastPrev.latitude) * 0.5 * Math.PI / 180.0;
             double r = bodyRadius + (firstNext.altitude + lastPrev.altitude) * 0.5;
-
             double dNorth = dLat * r;
             double dEast = dLon * r * Math.Cos(avgLat);
-
             double dist = Math.Sqrt(dNorth * dNorth + dEast * dEast + dAlt * dAlt);
-            return (float)dist;
+
+            if (!IsFinite(dist))
+            {
+                return new BoundaryDiscontinuityMeasurement
+                {
+                    Meters = 0f,
+                    Branch = branch,
+                    SkipReason = "distance-nonfinite",
+                    DtSeconds = dtSeconds,
+                    AnchorKey = anchorKey ?? string.Empty,
+                    PrevPointSource = prevSource ?? string.Empty,
+                    NextPointSource = nextSource ?? string.Empty
+                };
+            }
+
+            return new BoundaryDiscontinuityMeasurement
+            {
+                Meters = (float)dist,
+                Branch = branch,
+                SkipReason = null,
+                DtSeconds = dtSeconds,
+                AnchorKey = anchorKey ?? string.Empty,
+                PrevPointSource = prevSource ?? string.Empty,
+                NextPointSource = nextSource ?? string.Empty
+            };
+        }
+
+        private static bool TryGetBodyFixedBoundaryPoint(
+            TrackSection section, bool useLast, int recordingFormatVersion,
+            out TrajectoryPoint point, out string source, out string reason)
+        {
+            point = default(TrajectoryPoint);
+            source = string.Empty;
+            reason = null;
+
+            if (section.referenceFrame == ReferenceFrame.Absolute)
+            {
+                if (section.frames == null || section.frames.Count == 0)
+                {
+                    reason = "absolute-no-frames";
+                    return false;
+                }
+
+                int index = useLast ? section.frames.Count - 1 : 0;
+                point = section.frames[index];
+                source = useLast ? "frames.last" : "frames.first";
+                return true;
+            }
+
+            if (section.referenceFrame != ReferenceFrame.Relative)
+            {
+                reason = "orbital-checkpoint-no-body-fixed-frame";
+                return false;
+            }
+
+            if (recordingFormatVersion < RecordingStore.RelativeLocalFrameFormatVersion)
+            {
+                reason = "legacy-relative-not-measurable";
+                return false;
+            }
+
+            if (recordingFormatVersion < RecordingStore.RelativeAbsoluteShadowFormatVersion)
+            {
+                reason = "relative-shadow-format-unavailable";
+                return false;
+            }
+
+            if (section.frames == null || section.frames.Count == 0)
+            {
+                reason = "relative-no-frames";
+                return false;
+            }
+            if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+            {
+                reason = "relative-shadow-missing";
+                return false;
+            }
+
+            TrajectoryPoint ordinary = useLast
+                ? section.frames[section.frames.Count - 1]
+                : section.frames[0];
+            if (!IsFinite(ordinary.ut))
+            {
+                reason = "relative-frame-ut-nonfinite";
+                return false;
+            }
+
+            int start = useLast ? section.absoluteFrames.Count - 1 : 0;
+            int step = useLast ? -1 : 1;
+            for (int i = start; i >= 0 && i < section.absoluteFrames.Count; i += step)
+            {
+                TrajectoryPoint candidate = section.absoluteFrames[i];
+                if (IsFinite(candidate.ut)
+                    && Math.Abs(candidate.ut - ordinary.ut) <= BoundaryPointUtTolerance)
+                {
+                    point = candidate;
+                    source = useLast ? "absoluteFrames.match-last" : "absoluteFrames.match-first";
+                    return true;
+                }
+            }
+
+            reason = "relative-shadow-ut-mismatch";
+            return false;
+        }
+
+        private static bool HasSameRelativeAnchorIdentity(
+            TrackSection prev, TrackSection next, out string anchorKey)
+        {
+            anchorKey = string.Empty;
+            if (prev.referenceFrame != ReferenceFrame.Relative
+                || next.referenceFrame != ReferenceFrame.Relative)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(prev.anchorRecordingId)
+                || !string.IsNullOrWhiteSpace(next.anchorRecordingId))
+            {
+                if (string.IsNullOrWhiteSpace(prev.anchorRecordingId)
+                    || string.IsNullOrWhiteSpace(next.anchorRecordingId)
+                    || !StringComparer.Ordinal.Equals(
+                        prev.anchorRecordingId, next.anchorRecordingId))
+                    return false;
+
+                anchorKey = "recording:" + prev.anchorRecordingId;
+                return true;
+            }
+
+            if (prev.anchorVesselId == 0u || next.anchorVesselId == 0u)
+                return false;
+
+            if (prev.anchorVesselId != next.anchorVesselId)
+                return false;
+
+            anchorKey = "pid:" + prev.anchorVesselId.ToString(CultureInfo.InvariantCulture);
+            return true;
         }
 
         internal static string AnchorIdentityKey(TrackSection section)
@@ -828,12 +1166,15 @@ namespace Parsek
             if (!string.IsNullOrEmpty(section.anchorRecordingId))
                 return "recording:" + section.anchorRecordingId;
 
+            if (section.anchorVesselId == 0u)
+                return string.Empty;
+
             return "pid:" + section.anchorVesselId.ToString(CultureInfo.InvariantCulture);
         }
 
         private static int HealBackgroundActiveUnrecordedGapBoundaries(
             string recId, string vesselName, List<TrackSection> sections,
-            out List<TrackSection> preHealSections)
+            int recordingFormatVersion, out List<TrackSection> preHealSections)
         {
             preHealSections = null;
             if (sections == null || sections.Count < 2)
@@ -853,18 +1194,14 @@ namespace Parsek
                 if (prev.source != TrackSectionSource.Background
                     || next.source != TrackSectionSource.Active
                     || prev.referenceFrame != next.referenceFrame
-                    || prev.referenceFrame == ReferenceFrame.OrbitalCheckpoint
-                    || (prev.referenceFrame == ReferenceFrame.Relative
-                        && !StringComparer.Ordinal.Equals(
-                            AnchorIdentityKey(prev),
-                            AnchorIdentityKey(next))))
+                    || prev.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
                 {
                     continue;
                 }
 
-                float disc = next.boundaryDiscontinuityMeters > 0f
-                    ? next.boundaryDiscontinuityMeters
-                    : ComputeBoundaryDiscontinuity(prev, next);
+                BoundaryDiscontinuityMeasurement measurement =
+                    MeasureBoundaryDiscontinuity(prev, next, recordingFormatVersion);
+                float disc = measurement.Meters;
                 if (disc <= 1.0f)
                     continue;
 
@@ -878,6 +1215,17 @@ namespace Parsek
                     out string cause);
                 if (cause != "unrecorded-gap")
                     continue;
+
+                if (prev.referenceFrame == ReferenceFrame.Relative)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"MergeTree: skipped unrecorded-gap heal at section[{i}] " +
+                        $"ut={next.startUT.ToString("F2", ic)} vessel='{vesselName}' " +
+                        $"recId={recId} prevSrc={prev.source} nextSrc={next.source} " +
+                        $"dt={dt.ToString("F2", ic)}s expectedFromVel={expectedM.ToString("F2", ic)}m " +
+                        $"reason=relative-healer-deferred branch={measurement.Branch}");
+                    continue;
+                }
 
                 if (!TryBuildBoundarySeamPoint(
                         prev, next, next.startUT, out TrajectoryPoint seamPoint, out string reason))
@@ -910,7 +1258,8 @@ namespace Parsek
                 sections[i] = next;
                 healed++;
 
-                float residual = ComputeBoundaryDiscontinuity(prev, next);
+                float residual = ComputeBoundaryDiscontinuity(
+                    prev, next, recordingFormatVersion);
                 ParsekLog.Info(Tag,
                     $"MergeTree: healed unrecorded-gap at section[{i}] " +
                     $"ut={next.startUT.ToString("F2", ic)} vessel='{vesselName}' " +
@@ -924,7 +1273,8 @@ namespace Parsek
             return healed;
         }
 
-        private static void RecomputeBoundaryDiscontinuities(List<TrackSection> sections)
+        private static void RecomputeBoundaryDiscontinuities(
+            List<TrackSection> sections, int recordingFormatVersion)
         {
             if (sections == null || sections.Count == 0)
                 return;
@@ -937,7 +1287,8 @@ namespace Parsek
             {
                 TrackSection section = sections[i];
                 section.boundaryDiscontinuityMeters =
-                    ComputeBoundaryDiscontinuity(sections[i - 1], section);
+                    ComputeBoundaryDiscontinuity(
+                        sections[i - 1], section, recordingFormatVersion);
                 sections[i] = section;
             }
         }
