@@ -832,6 +832,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRecordEngineAsIgnited_RejectsNonFiniteThrust()
+        {
+            Assert.False(FlightRecorder.ShouldRecordEngineAsIgnited(
+                engineIgnited: true,
+                isOperational: true,
+                finalThrust: float.NaN));
+            Assert.False(FlightRecorder.ShouldRecordEngineAsIgnited(
+                engineIgnited: true,
+                isOperational: true,
+                finalThrust: float.PositiveInfinity));
+            Assert.False(FlightRecorder.ShouldRecordEngineAsIgnited(
+                engineIgnited: true,
+                isOperational: true,
+                finalThrust: float.NegativeInfinity));
+        }
+
+        [Fact]
         public void ComputeRecordedEnginePower_UsesThrottleWhenPresent()
         {
             Assert.Equal(0.7f, FlightRecorder.ComputeRecordedEnginePower(
@@ -847,6 +864,40 @@ namespace Parsek.Tests
                 currentThrottle: 0f,
                 finalThrust: 25f,
                 maxThrust: 100f));
+        }
+
+        [Fact]
+        public void ComputeRecordedEnginePower_IgnoresNonFiniteThrottleAndFallsBackToThrust()
+        {
+            Assert.Equal(0.25f, FlightRecorder.ComputeRecordedEnginePower(
+                currentThrottle: float.NaN,
+                finalThrust: 25f,
+                maxThrust: 100f));
+            Assert.Equal(0.25f, FlightRecorder.ComputeRecordedEnginePower(
+                currentThrottle: float.PositiveInfinity,
+                finalThrust: 25f,
+                maxThrust: 100f));
+            Assert.Equal(0.25f, FlightRecorder.ComputeRecordedEnginePower(
+                currentThrottle: float.NegativeInfinity,
+                finalThrust: 25f,
+                maxThrust: 100f));
+        }
+
+        [Fact]
+        public void ComputeRecordedEnginePower_ReturnsZeroForInvalidThrustFallback()
+        {
+            Assert.Equal(0f, FlightRecorder.ComputeRecordedEnginePower(
+                currentThrottle: 0f,
+                finalThrust: float.NaN,
+                maxThrust: 100f));
+            Assert.Equal(0f, FlightRecorder.ComputeRecordedEnginePower(
+                currentThrottle: 0f,
+                finalThrust: 25f,
+                maxThrust: float.PositiveInfinity));
+            Assert.Equal(0f, FlightRecorder.ComputeRecordedEnginePower(
+                currentThrottle: 0f,
+                finalThrust: 25f,
+                maxThrust: 0f));
         }
 
         #endregion

@@ -337,7 +337,7 @@ namespace Parsek
                         engine.currentThrottle, engine.finalThrust, engine.maxThrust);
                     sets.lastThrottle[key] = power;
                     ParsekLog.Verbose(logTag,
-                        $"Seeded already-active engine: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} throttle={power:F2} finalThrust={engine.finalThrust:F2}");
+                        $"Seeded already-active engine: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} recordedPower={power:F2} finalThrust={engine.finalThrust:F2}");
                 }
             }
         }

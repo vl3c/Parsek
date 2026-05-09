@@ -5799,14 +5799,14 @@ namespace Parsek
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
                 bool ignited = FlightRecorder.ShouldRecordEngineAsIgnited(
                     engine.EngineIgnited, engine.isOperational, engine.finalThrust);
-                float throttle = FlightRecorder.ComputeRecordedEnginePower(
+                float recordedPower = FlightRecorder.ComputeRecordedEnginePower(
                     engine.currentThrottle, engine.finalThrust, engine.maxThrust);
 
                 reusableEventBuffer.Clear();
                 FlightRecorder.CheckEngineTransition(
                     key, part.persistentId, moduleIndex,
                     part.partInfo?.name ?? "unknown",
-                    ignited, throttle,
+                    ignited, recordedPower,
                     state.activeEngineKeys, state.lastThrottle, ut, reusableEventBuffer);
 
                 for (int e = 0; e < reusableEventBuffer.Count; e++)

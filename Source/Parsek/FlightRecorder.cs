@@ -3620,7 +3620,7 @@ namespace Parsek
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
                 bool ignited = ShouldRecordEngineAsIgnited(
                     engine.EngineIgnited, engine.isOperational, engine.finalThrust);
-                float throttle = ComputeRecordedEnginePower(
+                float recordedPower = ComputeRecordedEnginePower(
                     engine.currentThrottle, engine.finalThrust, engine.maxThrust);
                 if (loggedEngineModuleKeys.Add(key))
                 {
@@ -3636,7 +3636,7 @@ namespace Parsek
                 CheckEngineTransition(
                     key, part.persistentId, moduleIndex,
                     part.partInfo?.name ?? "unknown",
-                    ignited, throttle,
+                    ignited, recordedPower,
                     activeEngineKeys, lastThrottle, ut, reusableEventBuffer);
 
                 for (int e = 0; e < reusableEventBuffer.Count; e++)
