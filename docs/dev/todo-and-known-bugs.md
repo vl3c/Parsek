@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 warp-exit ledger cutoff
+
+- ~~Warp exit recorded `warpEndUT`, then called the full-timeline `RecalculateAndPatch`, so committed future actions after the warp-exit UT could be replayed and patched into KSP immediately.~~ Source: review finding [P1].
+
+**Fix:** the warp-exit path now routes through `RecalculateAndPatchForTimeJump(warpEndUT)` via a small testable seam, preserving the cutoff semantics already used by explicit time jumps. The seam has no full-timeline fallback and matches `TimeJumpManager` by logging and swallowing recalculation failures after recording the exact cutoff UT.
+
+**Coverage:** `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly` verifies the cutoff callback is used, and `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_LogsAndSwallowsRecalculationFailure` verifies non-fatal failure logging.
+
+**Known imprecision (low risk, tracked):** the cutoff UT passed to `RecalculateAndPatchForTimeJump` is `Planetarium.GetUniversalTime()` sampled at the moment the `OnTimeWarpRateChanged` handler fires (`Source/Parsek/ParsekFlight.cs:7695-7696`), not KSP's exact internal warp-end boundary. The handler-fire UT typically lands a partial frame past the true boundary, so a committed action authored at `warpEndUT - ε` (sub-frame precision relative to the boundary) could fall on the included side of the cutoff and be replayed/patched immediately on warp exit instead of staying gated until live UT reaches it. The seam comment at `ParsekFlight.cs:7695-7696` documents this — exact alignment with KSP's internal warp boundary is out of scope for the cutoff seam. In practice committed actions are not authored at sub-frame precision relative to a warp boundary the player did not control, so the risk is low; revisit if a future feature introduces UT-precise authoring near warp transitions.
+
+---
+
 ## Open - radial booster debris origin alignment remains inexact after initial-slide fix
 
 - The retained `logs/2026-05-09_0042_radial-booster-position-inexact` bundle shows PR #776's hide/clamp path working (`firstFrameClamped=T`, first visible frames are Relative, no `SinglePoint` fallback), but radial side-booster debris still appears a few metres offset from the expected decoupler/booster contact. The concrete recordings (`61573dc3`, `5679c491`, `f44b52af`, `cf08fb37`) all root their ghost craft at `radialDecoupler1-2`, while the visible booster tank is a child offset from that root. See `docs/dev/plans/investigate-radial-debris-origin.md`.
