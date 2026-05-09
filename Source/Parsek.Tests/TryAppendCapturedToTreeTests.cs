@@ -182,6 +182,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PendingSplitDestructionOverride_FlipsStaleCaptureAndKeepsSnapshot()
+        {
+            var captured = MakeCaptured(120.0, 180.0, destroyed: false);
+            captured.RecordingId = "late-capture";
+            captured.TerminalStateValue = TerminalState.Splashed;
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Kerbal X");
+            captured.VesselSnapshot = snapshot;
+
+            bool changed = ParsekFlight.ApplyPendingSplitDestructionToCapturedRecording(
+                captured,
+                vesselDestroyedDuringRecording: true,
+                source: "FallbackCommitSplitRecorder.entry");
+
+            Assert.True(changed);
+            Assert.True(captured.VesselDestroyed);
+            Assert.Equal(TerminalState.Splashed, captured.TerminalStateValue);
+            Assert.Same(snapshot, captured.VesselSnapshot);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][Flight]") &&
+                l.Contains("Pending split destruction override") &&
+                l.Contains("late-capture") &&
+                l.Contains("source=FallbackCommitSplitRecorder.entry") &&
+                l.Contains("priorTerminal=Splashed"));
+        }
+
+        [Fact]
         public void TreeMode_AppendsPartEventsAndOrbitSegments()
         {
             var tree = MakeTree("root-001");
