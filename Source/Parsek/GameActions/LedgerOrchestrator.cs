@@ -1829,10 +1829,10 @@ namespace Parsek
                 }
 
                 scienceActions.Add(action);
-                scienceActionCount++;
             }
 
-            if (scienceActions.Count == 0)
+            scienceActionCount = scienceActions.Count;
+            if (scienceActionCount == 0)
                 return pairs;
 
             var sorted = RecalculationEngine.SortActions(scienceActions);
