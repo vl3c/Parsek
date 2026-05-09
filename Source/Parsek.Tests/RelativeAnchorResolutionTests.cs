@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
-using System.Threading;
 using UnityEngine;
 using Xunit;
 
@@ -147,121 +145,6 @@ namespace Parsek.Tests
                 frames, 2, out _, out _));
         }
 
-        [Fact]
-        public void FastAnchorLocalMotionShadowGuard_UsesShadowWhenOffsetSpeedIsAbnormal()
-        {
-            TrackSection section = RelativeSectionWithAbsoluteShadow(2);
-
-            bool useShadow = ParsekFlight.ShouldUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-                new Vector3d(0.0, 0.0, 0.0),
-                new Vector3d(0.0, 500.0, 0.0),
-                0.5,
-                section,
-                100.0,
-                out double offsetSpanMeters,
-                out double offsetSpeedMetersPerSecond);
-
-            Assert.True(useShadow);
-            Assert.Equal(500.0, offsetSpanMeters, precision: 3);
-            Assert.Equal(1000.0, offsetSpeedMetersPerSecond, precision: 3);
-        }
-
-        [Fact]
-        public void FastAnchorLocalMotionShadowGuard_KeepsRecordedRelativeWhenShadowIsMissing()
-        {
-            TrackSection section = RelativeSectionWithAbsoluteShadow(0);
-
-            bool useShadow = ParsekFlight.ShouldUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-                new Vector3d(0.0, 0.0, 0.0),
-                new Vector3d(0.0, 500.0, 0.0),
-                0.5,
-                section,
-                100.0,
-                out double offsetSpanMeters,
-                out double offsetSpeedMetersPerSecond);
-
-            Assert.False(useShadow);
-            Assert.True(double.IsNaN(offsetSpanMeters));
-            Assert.True(double.IsNaN(offsetSpeedMetersPerSecond));
-        }
-
-        [Fact]
-        public void FastAnchorLocalMotionShadowGuard_KeepsRecordedRelativeForNormalOffsetSpeed()
-        {
-            TrackSection section = RelativeSectionWithAbsoluteShadow(2);
-
-            bool useShadow = ParsekFlight.ShouldUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-                new Vector3d(0.0, 0.0, 0.0),
-                new Vector3d(0.0, 5.0, 0.0),
-                0.5,
-                section,
-                100.0,
-                out double offsetSpanMeters,
-                out double offsetSpeedMetersPerSecond);
-
-            Assert.False(useShadow);
-            Assert.Equal(5.0, offsetSpanMeters, precision: 3);
-            Assert.Equal(10.0, offsetSpeedMetersPerSecond, precision: 3);
-        }
-
-        [Fact]
-        public void FastAnchorLocalMotionShadowGuard_RejectsZeroDuration()
-        {
-            TrackSection section = RelativeSectionWithAbsoluteShadow(2);
-
-            bool useShadow = ParsekFlight.ShouldUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-                new Vector3d(0.0, 0.0, 0.0),
-                new Vector3d(0.0, 500.0, 0.0),
-                0.0,
-                section,
-                100.0,
-                out double offsetSpanMeters,
-                out double offsetSpeedMetersPerSecond);
-
-            Assert.False(useShadow);
-            Assert.True(double.IsNaN(offsetSpanMeters));
-            Assert.True(double.IsNaN(offsetSpeedMetersPerSecond));
-        }
-
-        [Fact]
-        public void BuildRecordedRelativeShadowGuardLog_UsesInvariantCultureAndContext()
-        {
-            CultureInfo savedCulture = Thread.CurrentThread.CurrentCulture;
-            CultureInfo savedUICulture = Thread.CurrentThread.CurrentUICulture;
-            try
-            {
-                Thread.CurrentThread.CurrentCulture = new CultureInfo("fr-FR");
-                Thread.CurrentThread.CurrentUICulture = new CultureInfo("fr-FR");
-
-                string line = ParsekFlight.BuildRecordedRelativeShadowGuardLog(
-                    recordingIndex: 7,
-                    recordingVesselName: "Kerbal X Debris",
-                    recordingId: "abcdef1234567890",
-                    sectionIndex: 2,
-                    offsetSpanMeters: 500.25,
-                    segmentDuration: 0.5,
-                    offsetSpeedMetersPerSecond: 1000.5,
-                    thresholdMetersPerSecond: 100.0,
-                    shadowFrameCount: 66);
-
-                Assert.Contains("RELATIVE shadow guard", line);
-                Assert.Contains("recording=#7 \"Kerbal X Debris\"", line);
-                Assert.Contains("recordingId=abcdef12", line);
-                Assert.Contains("sectionIndex=2", line);
-                Assert.Contains("offsetSpan=500.3m", line);
-                Assert.Contains("duration=0.500s", line);
-                Assert.Contains("speed=1000.5m/s", line);
-                Assert.Contains("threshold=100m/s", line);
-                Assert.Contains("shadowFrames=66", line);
-                Assert.DoesNotContain("500,3", line);
-            }
-            finally
-            {
-                Thread.CurrentThread.CurrentCulture = savedCulture;
-                Thread.CurrentThread.CurrentUICulture = savedUICulture;
-            }
-        }
-
         private static TrajectoryPoint RelativeFrame(double ut, double dx, double dy, double dz)
         {
             return new TrajectoryPoint
@@ -272,29 +155,6 @@ namespace Parsek.Tests
                 altitude = dz,
                 bodyName = "Kerbin"
             };
-        }
-
-        private static TrackSection RelativeSectionWithAbsoluteShadow(int shadowFrames)
-        {
-            var section = new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                environment = SegmentEnvironment.Atmospheric,
-                startUT = 10.0,
-                endUT = 11.0,
-                frames = new List<TrajectoryPoint>(),
-                absoluteFrames = shadowFrames > 0 ? new List<TrajectoryPoint>() : null,
-            };
-            for (int i = 0; i < shadowFrames; i++)
-            {
-                section.absoluteFrames.Add(new TrajectoryPoint
-                {
-                    ut = 10.0 + i * 0.5,
-                    bodyName = "Kerbin",
-                });
-            }
-
-            return section;
         }
 
         #endregion

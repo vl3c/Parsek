@@ -21677,33 +21677,6 @@ namespace Parsek
                 return;
             }
 
-            // This guard is deliberately after recorded-anchor resolution:
-            // v12+ parent-anchored debris must still retire on an anchor miss.
-            // The shadow is only a world-space interpolation substitute when
-            // the recorded anchor itself resolved but endpoint-local offsets
-            // imply an abnormal anchor-local sweep between adjacent frames.
-            if (ShouldUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-                    beforeOffset,
-                    afterOffset,
-                    segmentDuration,
-                    target.Section,
-                    out double fastAnchorOffsetSpanMeters,
-                    out double fastAnchorOffsetSpeedMetersPerSecond)
-                && TryUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-                    recordingIndex,
-                    traj,
-                    retireSignalState,
-                    target,
-                    targetUT,
-                    ref cachedIndex,
-                    fastAnchorOffsetSpanMeters,
-                    segmentDuration,
-                    fastAnchorOffsetSpeedMetersPerSecond,
-                    out interpResult))
-            {
-                return;
-            }
-
             Vector3d ghostPos = TrajectoryMath.ResolveRelativePlaybackPosition(
                 anchorPose.worldPos,
                 anchorPose.worldRotation,
@@ -21800,7 +21773,6 @@ namespace Parsek
 
         internal const double RecordedRelativeOffsetSpikeNeighborMaxMeters = 5.0;
         internal const double RecordedRelativeOffsetSpikeMinDeviationMeters = 15.0;
-        internal const double RecordedRelativeFastAnchorLocalMotionGuardMetersPerSecond = 100.0;
 
         internal static bool TryCorrectIsolatedRecordedRelativeOffsetSpike(
             IList<TrajectoryPoint> frames,
@@ -21841,90 +21813,6 @@ namespace Parsek
             double nextDistance = Vector3d.Distance(currentOffset, nextOffset);
             return prevDistance >= RecordedRelativeOffsetSpikeMinDeviationMeters
                 && nextDistance >= RecordedRelativeOffsetSpikeMinDeviationMeters;
-        }
-
-        internal static bool ShouldUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-            Vector3d beforeOffset,
-            Vector3d afterOffset,
-            double segmentDuration,
-            TrackSection section,
-            out double offsetSpanMeters,
-            out double offsetSpeedMetersPerSecond)
-        {
-            return ShouldUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-                beforeOffset,
-                afterOffset,
-                segmentDuration,
-                section,
-                RecordedRelativeFastAnchorLocalMotionGuardMetersPerSecond,
-                out offsetSpanMeters,
-                out offsetSpeedMetersPerSecond);
-        }
-
-        internal static bool ShouldUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-            Vector3d beforeOffset,
-            Vector3d afterOffset,
-            double segmentDuration,
-            TrackSection section,
-            double thresholdMetersPerSecond,
-            out double offsetSpanMeters,
-            out double offsetSpeedMetersPerSecond)
-        {
-            offsetSpanMeters = double.NaN;
-            offsetSpeedMetersPerSecond = double.NaN;
-
-            if (!IsFinite(segmentDuration)
-                || segmentDuration <= 0.0
-                || !IsFinite(thresholdMetersPerSecond)
-                || thresholdMetersPerSecond <= 0.0)
-            {
-                return false;
-            }
-
-            if (section.referenceFrame != ReferenceFrame.Relative
-                || section.absoluteFrames == null
-                || section.absoluteFrames.Count == 0
-                || !IsFinite(beforeOffset)
-                || !IsFinite(afterOffset))
-            {
-                return false;
-            }
-
-            offsetSpanMeters = (afterOffset - beforeOffset).magnitude;
-            if (!IsFinite(offsetSpanMeters))
-                return false;
-
-            offsetSpeedMetersPerSecond = offsetSpanMeters / segmentDuration;
-            return IsFinite(offsetSpeedMetersPerSecond)
-                && offsetSpeedMetersPerSecond > thresholdMetersPerSecond;
-        }
-
-        internal static string BuildRecordedRelativeShadowGuardLog(
-            int recordingIndex,
-            string recordingVesselName,
-            string recordingId,
-            int sectionIndex,
-            double offsetSpanMeters,
-            double segmentDuration,
-            double offsetSpeedMetersPerSecond,
-            double thresholdMetersPerSecond,
-            int shadowFrameCount)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "RELATIVE shadow guard: recording=#{0} \"{1}\" recordingId={2} " +
-                "sectionIndex={3} offsetSpan={4:F1}m duration={5:F3}s " +
-                "speed={6:F1}m/s threshold={7:F0}m/s shadowFrames={8} " +
-                "reason=fast-anchor-local-motion",
-                recordingIndex,
-                recordingVesselName ?? "(unknown)",
-                ShortRecordingId(recordingId),
-                sectionIndex,
-                offsetSpanMeters,
-                segmentDuration,
-                offsetSpeedMetersPerSecond,
-                thresholdMetersPerSecond,
-                shadowFrameCount);
         }
 
         private static Vector3d RecordedRelativeOffset(TrajectoryPoint point)
@@ -22313,51 +22201,6 @@ namespace Parsek
             return true;
         }
 
-        private bool TryUseRelativeAbsoluteShadowForFastAnchorLocalMotion(
-            int recordingIndex,
-            IPlaybackTrajectory trajectory,
-            GhostPlaybackState state,
-            RelativeSectionPlaybackTarget target,
-            double targetUT,
-            ref int playbackIdx,
-            double offsetSpanMeters,
-            double segmentDuration,
-            double offsetSpeedMetersPerSecond,
-            out InterpolationResult interpResult)
-        {
-            if (!TryInterpolateRelativeAbsoluteShadow(
-                    recordingIndex,
-                    state,
-                    target,
-                    targetUT,
-                    ref playbackIdx,
-                    out interpResult))
-            {
-                return false;
-            }
-
-            string key = string.Concat(
-                "recorded-relative-shadow-rotation-guard|",
-                target.RecordingId ?? "(none)",
-                "|",
-                target.SectionIndex.ToString(CultureInfo.InvariantCulture));
-            ParsekLog.VerboseRateLimited(
-                "Flight",
-                key,
-                BuildRecordedRelativeShadowGuardLog(
-                    recordingIndex,
-                    trajectory?.VesselName,
-                    target.RecordingId,
-                    target.SectionIndex,
-                    offsetSpanMeters,
-                    segmentDuration,
-                    offsetSpeedMetersPerSecond,
-                    RecordedRelativeFastAnchorLocalMotionGuardMetersPerSecond,
-                    target.Section.absoluteFrames?.Count ?? 0),
-                2.0);
-            return true;
-        }
-
         private bool TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
             GameObject ghost,
             int recordingIndex,
@@ -22407,16 +22250,28 @@ namespace Parsek
                     out interpResult))
                 return true;
 
-            if (!TryInterpolateRelativeAbsoluteShadow(
-                    recordingIndex,
-                    state,
-                    target,
-                    targetUT,
-                    ref playbackIdx,
-                    out interpResult))
+            if (state?.ghost == null
+                || target.Section.referenceFrame != ReferenceFrame.Relative
+                || target.Section.absoluteFrames == null
+                || target.Section.absoluteFrames.Count == 0)
             {
                 return false;
             }
+
+            int absolutePlaybackIdx = playbackIdx;
+            InterpolateAndPosition(
+                state.ghost,
+                target.Section.absoluteFrames,
+                null,
+                ref absolutePlaybackIdx,
+                targetUT,
+                recordingIndex * 10000,
+                out interpResult,
+                allowActivation: ShouldAutoActivateGhost(state),
+                skipOrbitSegments: true,
+                recordingId: target.RecordingId,
+                sectionIndex: target.SectionIndex);
+            playbackIdx = absolutePlaybackIdx;
 
             // PR 3c review follow-up: skip the [WARN] entirely (don't even
             // populate the dedupe set) when called by the legacy-debris gate —
@@ -22445,40 +22300,6 @@ namespace Parsek
                         $"sectionUT=[{target.Section.startUT:F1},{target.Section.endUT:F1}]");
                 }
             }
-            return true;
-        }
-
-        private bool TryInterpolateRelativeAbsoluteShadow(
-            int recordingIndex,
-            GhostPlaybackState state,
-            RelativeSectionPlaybackTarget target,
-            double targetUT,
-            ref int playbackIdx,
-            out InterpolationResult interpResult)
-        {
-            interpResult = InterpolationResult.Zero;
-            if (state?.ghost == null
-                || target.Section.referenceFrame != ReferenceFrame.Relative
-                || target.Section.absoluteFrames == null
-                || target.Section.absoluteFrames.Count == 0)
-            {
-                return false;
-            }
-
-            int absolutePlaybackIdx = playbackIdx;
-            InterpolateAndPosition(
-                state.ghost,
-                target.Section.absoluteFrames,
-                null,
-                ref absolutePlaybackIdx,
-                targetUT,
-                recordingIndex * 10000,
-                out interpResult,
-                allowActivation: ShouldAutoActivateGhost(state),
-                skipOrbitSegments: true,
-                recordingId: target.RecordingId,
-                sectionIndex: target.SectionIndex);
-            playbackIdx = absolutePlaybackIdx;
             return true;
         }
 
