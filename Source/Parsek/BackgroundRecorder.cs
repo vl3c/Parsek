@@ -3114,7 +3114,7 @@ namespace Parsek
                 }
                 else
                 {
-                    var anchorPose = new AnchorPose(
+                    var liveAnchorPose = new AnchorPose(
                         parentVessel.GetWorldPos3D(),
                         parentVessel.transform.rotation,
                         -1,
@@ -3122,8 +3122,8 @@ namespace Parsek
 
                     var liveCandidate = new RecordingAnchorCandidate(
                         treeRecForDebris.DebrisParentRecordingId,
-                        anchorPose.WorldPos,
-                        anchorPose.WorldRotation,
+                        liveAnchorPose.WorldPos,
+                        liveAnchorPose.WorldRotation,
                         AnchorCandidateSource.Live,
                         diagnosticPid: parentVessel.persistentId,
                         ghostIndex: -1,
@@ -3132,6 +3132,28 @@ namespace Parsek
                         isSameVesselLineage: false);
                     SetBackgroundCurrentAnchor(state, liveCandidate);
 
+                    AnchorPose seedAnchorPose = liveAnchorPose;
+                    string seedAnchorSource = "live";
+                    if (TryResolveBackgroundRecordedAnchorPose(
+                            treeRecForDebris.DebrisParentRecordingId,
+                            initialTrajectoryPoint.ut,
+                            out AnchorPose recordedSeedAnchorPose,
+                            out string recordedSeedAnchorReason))
+                    {
+                        seedAnchorPose = recordedSeedAnchorPose;
+                        seedAnchorSource = "recorded";
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("BgRecorder",
+                            $"InitializeLoadedState: debris seed recorded parent pose unavailable, " +
+                            $"falling back to live parent pose: pid={vesselPid} recId={recordingId} " +
+                            $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
+                            $"reason={recordedSeedAnchorReason ?? "unknown"} " +
+                            $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                            $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)}");
+                    }
+
                     StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Relative,
                         initialTrajectoryPoint.ut);
                     TrajectoryPoint absoluteSeedPoint = initialTrajectoryPoint;
@@ -3139,11 +3161,12 @@ namespace Parsek
                         state,
                         ref initialTrajectoryPoint,
                         v,
-                        anchorPose,
+                        seedAnchorPose,
                         treeRecForDebris.DebrisParentRecordingId,
                         AnchorCandidateSource.Live,
                         parentVessel.persistentId,
-                        logSample: true);
+                        logSample: true,
+                        sourceLabel: seedAnchorSource);
                     LogDebrisSeedRelativeConversionDiagnostics(
                         vesselPid,
                         recordingId,
@@ -3152,7 +3175,8 @@ namespace Parsek
                         parentVessel,
                         absoluteSeedPoint,
                         initialTrajectoryPoint,
-                        anchorPose,
+                        seedAnchorPose,
+                        seedAnchorSource,
                         seedRelativeApplied,
                         ut);
                     if (!seedRelativeApplied)
@@ -3591,6 +3615,7 @@ namespace Parsek
             TrajectoryPoint absoluteSeedPoint,
             TrajectoryPoint relativeSeedPoint,
             AnchorPose anchorPose,
+            string anchorSource,
             bool relativeApplied,
             double initUT)
         {
@@ -3609,6 +3634,7 @@ namespace Parsek
                 $"initUT={initUT.ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"seedUT={absoluteSeedPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"init-seed-dt={(initUT - absoluteSeedPoint.ut).ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"anchorSource={anchorSource ?? "unknown"} " +
                 $"seedAbs={DescribeTrajectoryPointForDiagnostics(absoluteSeedPoint)} " +
                 $"seedWorld={(hasSeedWorld ? DiagnosticFormatters.FormatVector3d(seedWorld) : "unresolved")} " +
                 $"anchorWorld={DiagnosticFormatters.FormatVector3d(anchorPose.WorldPos)} " +
@@ -4420,7 +4446,8 @@ namespace Parsek
             string anchorRecordingId,
             AnchorCandidateSource source,
             uint diagnosticPid,
-            bool logSample)
+            bool logSample,
+            string sourceLabel = null)
         {
             if (state == null || vessel == null || string.IsNullOrWhiteSpace(anchorRecordingId))
                 return false;
@@ -4461,7 +4488,8 @@ namespace Parsek
                     $"RELATIVE sample: pid={state.vesselPid} " +
                     $"contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
                     $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                    $"anchorRecordingId={anchorRecordingId} source={source} diagnosticPid={diagnosticPid} " +
+                    $"anchorRecordingId={anchorRecordingId} source={sourceLabel ?? source.ToString()} " +
+                    $"diagnosticPid={diagnosticPid} " +
                     $"|offset|={offset.magnitude:F2}m",
                     2.0);
             }

@@ -3502,7 +3502,7 @@ namespace Parsek.Tests
                         bodyName = "Kerbin",
                         flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
                     },
-                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin", longitude = 48.0 }
                 },
             });
             var state = new GhostPlaybackState
@@ -3514,6 +3514,39 @@ namespace Parsek.Tests
             double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 100.538);
 
             Assert.Equal(100.52, visibleUT, 3);
+        }
+
+        [Fact]
+        public void ResolveVisiblePlaybackUT_DoesNotClampSmallDebrisSeedBridge()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin", longitude = 4.0 }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 100.538);
+
+            Assert.Equal(100.538, visibleUT, 3);
         }
 
         [Fact]
@@ -3535,7 +3568,7 @@ namespace Parsek.Tests
                         bodyName = "Kerbin",
                         flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
                     },
-                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin", longitude = 48.0 }
                 },
             });
             var state = new GhostPlaybackState
@@ -3596,7 +3629,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldHoldInitialDebrisSeedBridgeActivationHidden_ParentAnchoredStructuralSeed_ReturnsTrueUntilFirstOrdinarySample()
+        public void ShouldHoldInitialDebrisSeedBridgeActivationHidden_LargeParentAnchoredStructuralSeedGap_ReturnsTrueUntilFirstOrdinarySample()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
@@ -3614,7 +3647,7 @@ namespace Parsek.Tests
                         bodyName = "Kerbin",
                         flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
                     },
-                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin", longitude = 48.0 }
                 },
             });
             var state = new GhostPlaybackState
@@ -3629,6 +3662,54 @@ namespace Parsek.Tests
                 traj, state, 100.52));
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
                 traj, state, 100.53));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialDebrisSeedBridgeActivationHidden_SmallParentAnchoredStructuralSeedGap_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        bodyName = "Kerbin",
+                        flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
+                    },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin", longitude = 4.0 }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
+                traj, state, 100.25));
+        }
+
+        [Fact]
+        public void IsSyntheticSeedBridgeDistance_UsesRelativeLocalDistance()
+        {
+            var seed = new TrajectoryPoint { latitude = -6.0, longitude = -48.0, altitude = -0.5 };
+            var ordinary = new TrajectoryPoint { latitude = 1.0, longitude = -4.0, altitude = -0.8 };
+
+            Assert.True(DebrisRelativePlaybackPolicy.IsSyntheticSeedBridgeDistance(
+                seed,
+                ordinary,
+                20.0));
+            Assert.False(DebrisRelativePlaybackPolicy.IsSyntheticSeedBridgeDistance(
+                seed,
+                ordinary,
+                50.0));
         }
 
         [Fact]
@@ -3650,7 +3731,7 @@ namespace Parsek.Tests
                         bodyName = "Kerbin",
                         flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
                     },
-                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin", longitude = 48.0 }
                 },
             });
             var state = new GhostPlaybackState
@@ -3699,7 +3780,7 @@ namespace Parsek.Tests
                         bodyName = "Kerbin",
                         flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
                     },
-                    new TrajectoryPoint { ut = 101.50, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 101.50, bodyName = "Kerbin", longitude = 48.0 }
                 },
             });
             var state = new GhostPlaybackState
@@ -3731,7 +3812,7 @@ namespace Parsek.Tests
                         bodyName = "Kerbin",
                         flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
                     },
-                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin", longitude = 48.0 }
                 },
             });
             var state = new GhostPlaybackState
@@ -3764,7 +3845,7 @@ namespace Parsek.Tests
                         bodyName = "Kerbin",
                         flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot
                     },
-                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin", longitude = 48.0 }
                 },
             });
             var state = new GhostPlaybackState
