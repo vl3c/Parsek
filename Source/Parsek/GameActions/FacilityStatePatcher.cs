@@ -11,6 +11,12 @@ namespace Parsek
     {
         private const string Tag = "KspStatePatcher";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        private static readonly HashSet<string> lastPatchedFacilityIds =
+            new HashSet<string>(System.StringComparer.Ordinal);
+        private static readonly HashSet<string> defaultFacilityIdsOnNextPatch =
+            new HashSet<string>(System.StringComparer.Ordinal);
+        private static string patchHistorySaveFolder;
+        private static string defaultFacilityIdsSaveFolder;
 
         private static void VerboseStablePatchState(string identity, string stateKey, string message)
         {
@@ -26,6 +32,8 @@ namespace Parsek
         /// </summary>
         internal static void PatchFacilities(FacilitiesModule facilities)
         {
+            ResetPatchHistoryForSaveChange(GetCurrentSaveFolderForPatchHistory());
+
             if (facilities == null)
             {
                 ParsekLog.Warn(Tag, "PatchFacilities: null FacilitiesModule — skipping");
@@ -39,7 +47,18 @@ namespace Parsek
                 return;
             }
 
-            var allFacilities = facilities.GetAllFacilities();
+            List<string> facilityIdsToDefault = null;
+            if (defaultFacilityIdsOnNextPatch.Count > 0)
+            {
+                facilityIdsToDefault = new List<string>(defaultFacilityIdsOnNextPatch);
+                ParsekLog.Verbose(Tag,
+                    $"PatchFacilities: forcing default targets for {facilityIdsToDefault.Count.ToString(IC)} tombstoned facility id(s)");
+            }
+
+            var allFacilities = BuildFacilityPatchTargets(
+                facilities.GetAllFacilities(),
+                lastPatchedFacilityIds,
+                facilityIdsToDefault);
             int patchedCount = 0;
             int skippedCount = 0;
             int notFoundCount = 0;
@@ -48,6 +67,14 @@ namespace Parsek
             {
                 string facilityId = kvp.Key;
                 var state = kvp.Value;
+
+                int targetLedgerLevel = state.Level;
+                int targetLevel = ToKspFacilityLevel(targetLedgerLevel);
+
+                ParsekLog.Verbose(Tag,
+                    $"PatchFacilities: resolved '{facilityId}' " +
+                    $"ledgerLevel={targetLedgerLevel.ToString(IC)} -> " +
+                    $"targetLevel={targetLevel.ToString(IC)}");
 
                 ScenarioUpgradeableFacilities.ProtoUpgradeable proto;
                 if (!ScenarioUpgradeableFacilities.protoUpgradeables.TryGetValue(
@@ -64,9 +91,14 @@ namespace Parsek
                     notFoundCount++;
                     continue;
                 }
+                lastPatchedFacilityIds.Add(facilityId);
+                if (defaultFacilityIdsOnNextPatch.Remove(facilityId) &&
+                    defaultFacilityIdsOnNextPatch.Count == 0)
+                {
+                    defaultFacilityIdsSaveFolder = null;
+                }
 
                 int currentLevel = facility.FacilityLevel;
-                int targetLevel = state.Level;
 
                 if (currentLevel == targetLevel)
                 {
@@ -79,7 +111,8 @@ namespace Parsek
 
                 ParsekLog.Verbose(Tag,
                     $"PatchFacilities: '{facilityId}' level {currentLevel.ToString(IC)} -> " +
-                    $"{targetLevel.ToString(IC)} (destroyed={state.Destroyed.ToString(IC)})");
+                    $"{targetLevel.ToString(IC)} (ledgerLevel={targetLedgerLevel.ToString(IC)}, " +
+                    $"destroyed={state.Destroyed.ToString(IC)})");
             }
 
             // Bug #596: gate INFO on changed-state-or-not-found-diagnostic only.
@@ -122,6 +155,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Converts the ledger/module facility tier (1 = basic, 2 = upgraded,
+        /// 3 = fully upgraded) to KSP's zero-based UpgradeableFacility.SetLevel index.
+        /// </summary>
+        internal static int ToKspFacilityLevel(int ledgerLevel)
+        {
+            if (ledgerLevel <= 1) return 0;
+            if (ledgerLevel >= 3) return 2;
+            return ledgerLevel - 1;
+        }
+
+        /// <summary>
         /// Patches DestructibleBuilding components to match the module's destroyed/intact state.
         /// Collects all DestructibleBuilding objects once, then iterates facilities to find matches.
         /// Uses exact ID matching between FacilityId and DestructibleBuilding.id.
@@ -137,7 +181,20 @@ namespace Parsek
                 return;
             }
 
-            var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
+            DestructibleBuilding[] destructibles;
+            try
+            {
+                destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
+            }
+            catch (System.Exception ex)
+            {
+                VerboseStablePatchState(
+                    "patch-skip|destruction|find-objects",
+                    ex.GetType().Name,
+                    $"PatchDestructionState: FindObjectsOfType unavailable - skipping ({ex.GetType().Name}: {ex.Message})");
+                return;
+            }
+
             if (destructibles == null || destructibles.Length == 0)
             {
                 VerboseStablePatchState("patch-skip|destruction|destructibles", "none-found",
@@ -197,6 +254,161 @@ namespace Parsek
                 $"noMatch={noMatchCount.ToString(IC)}, " +
                 $"buildings={buildingById.Count}, " +
                 $"facilities={allFacilities.Count}");
+        }
+
+        internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(
+            IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities)
+        {
+            return BuildFacilityPatchTargets(currentFacilities, lastPatchedFacilityIds);
+        }
+
+        internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(
+            IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities,
+            IEnumerable<string> previouslyPatchedFacilityIds)
+        {
+            return BuildFacilityPatchTargets(
+                currentFacilities,
+                previouslyPatchedFacilityIds,
+                knownFacilityIdsToDefault: null);
+        }
+
+        internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(
+            IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities,
+            IEnumerable<string> previouslyPatchedFacilityIds,
+            IEnumerable<string> knownFacilityIdsToDefault)
+        {
+            var targets = new Dictionary<string, FacilitiesModule.FacilityState>(
+                System.StringComparer.Ordinal);
+            AddDefaultFacilityTargets(targets, knownFacilityIdsToDefault);
+            AddDefaultFacilityTargets(targets, previouslyPatchedFacilityIds);
+            if (currentFacilities != null)
+            {
+                foreach (var kvp in currentFacilities)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Key))
+                        targets[kvp.Key] = kvp.Value;
+                }
+            }
+            return targets;
+        }
+
+        private static void AddDefaultFacilityTargets(
+            Dictionary<string, FacilitiesModule.FacilityState> targets,
+            IEnumerable<string> facilityIds)
+        {
+            if (targets == null || facilityIds == null)
+                return;
+
+            foreach (string facilityId in facilityIds)
+            {
+                if (string.IsNullOrEmpty(facilityId))
+                    continue;
+                targets[facilityId] = new FacilitiesModule.FacilityState
+                {
+                    Level = 1,
+                    Destroyed = false
+                };
+            }
+        }
+
+        internal static void ForceDefaultFacilitiesForNextPatch(IEnumerable<string> facilityIds)
+        {
+            string currentSaveFolder = GetCurrentSaveFolderForPatchHistory();
+            if (defaultFacilityIdsOnNextPatch.Count > 0 &&
+                !System.String.Equals(
+                    defaultFacilityIdsSaveFolder ?? "",
+                    currentSaveFolder,
+                    System.StringComparison.Ordinal))
+            {
+                int staleCount = defaultFacilityIdsOnNextPatch.Count;
+                defaultFacilityIdsOnNextPatch.Clear();
+                defaultFacilityIdsSaveFolder = null;
+                ParsekLog.Verbose(Tag,
+                    $"PatchFacilities: cleared {staleCount.ToString(IC)} stale pending default target(s) before scheduling for current save");
+            }
+
+            int added = 0;
+            if (facilityIds != null)
+            {
+                foreach (string facilityId in facilityIds)
+                {
+                    if (string.IsNullOrEmpty(facilityId))
+                        continue;
+                    if (defaultFacilityIdsOnNextPatch.Add(facilityId))
+                        added++;
+                }
+            }
+
+            if (added == 0)
+                return;
+
+            defaultFacilityIdsSaveFolder = currentSaveFolder;
+            ParsekLog.Verbose(Tag,
+                $"PatchFacilities: scheduled default targets for {added.ToString(IC)} tombstoned facility id(s)");
+        }
+
+        /// <summary>
+        /// Clears static facility patch history when the active save folder changes.
+        /// Test fixtures that exercise facility patching should call
+        /// <see cref="KspStatePatcher.ResetForTesting"/> or
+        /// <see cref="ResetForTesting"/> so first-call initialization cannot inherit
+        /// history from an earlier test.
+        /// </summary>
+        internal static void ResetPatchHistoryForSaveChange(string saveFolder)
+        {
+            string normalized = saveFolder ?? "";
+            if (patchHistorySaveFolder == null)
+            {
+                patchHistorySaveFolder = normalized;
+                return;
+            }
+
+            if (System.String.Equals(
+                    patchHistorySaveFolder,
+                    normalized,
+                    System.StringComparison.Ordinal))
+                return;
+
+            int previousCount = lastPatchedFacilityIds.Count;
+            int pendingDefaultCount = defaultFacilityIdsOnNextPatch.Count;
+            bool pendingDefaultsMatchNewSave = pendingDefaultCount > 0
+                && System.String.Equals(
+                    defaultFacilityIdsSaveFolder ?? "",
+                    normalized,
+                    System.StringComparison.Ordinal);
+            lastPatchedFacilityIds.Clear();
+            if (!pendingDefaultsMatchNewSave)
+            {
+                defaultFacilityIdsOnNextPatch.Clear();
+                defaultFacilityIdsSaveFolder = null;
+            }
+            patchHistorySaveFolder = normalized;
+
+            ParsekLog.Verbose(Tag,
+                $"PatchFacilities: cleared facility patch history after save change " +
+                $"(previous={previousCount.ToString(IC)}, " +
+                $"pendingDefaults={pendingDefaultCount.ToString(IC)}, " +
+                $"preservedPendingDefaults={pendingDefaultsMatchNewSave.ToString(IC)})");
+        }
+
+        private static string GetCurrentSaveFolderForPatchHistory()
+        {
+            try
+            {
+                return HighLogic.SaveFolder ?? "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        internal static void ResetForTesting()
+        {
+            lastPatchedFacilityIds.Clear();
+            defaultFacilityIdsOnNextPatch.Clear();
+            defaultFacilityIdsSaveFolder = null;
+            patchHistorySaveFolder = null;
         }
     }
 }
