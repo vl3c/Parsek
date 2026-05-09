@@ -1930,6 +1930,9 @@ namespace Parsek
                 highFidelityActive,
                 maxSampleInterval,
                 minSampleInterval);
+            effectiveMaxSampleInterval = ResolveDebrisAwareMaxSampleInterval(
+                effectiveMaxSampleInterval,
+                treeRec);
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
                 ut, state.lastRecordedUT,
@@ -4842,12 +4845,22 @@ namespace Parsek
                     proximityDistanceMeters);
         }
 
+        // Predicate gate for the v12+ debris parent-anchored sampling caps below.
+        // Both the proximity-tier (min) cap and the configured-max backstop cap
+        // share this gate so they always engage or disengage together.
+        internal static bool IsDebrisAwareSampleCapEligible(Recording treeRec)
+        {
+            return treeRec != null
+                && treeRec.IsDebris
+                && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId);
+        }
+
         // For v12+ debris recordings whose parent recording id is known, cap the
-        // proximity-derived sample interval at MidInterval (0.5 s) regardless of
-        // distance from the focused vessel. Without this cap, radial debris that
-        // flies past 1000 m of its parent during high-velocity breakup falls into
-        // the FarRange tier (2.0 s gap), producing visibly choppy trajectory
-        // rendering for the recording's ~14-25 s lifetime.
+        // proximity-derived sample interval (the adaptive sampler's MIN floor)
+        // at MidInterval (0.5 s) regardless of distance from the focused vessel.
+        // Without this cap, radial debris that flies past 1000 m of its parent
+        // during high-velocity breakup falls into the FarRange tier (2.0 s gap),
+        // producing visibly choppy trajectory rendering.
         //
         // Out-of-range tier (vessel exited the physics bubble) is preserved as-is
         // — the early-return at the OutOfRangeInterval check is the correct path
@@ -4858,11 +4871,31 @@ namespace Parsek
             double tierInterval,
             Recording treeRec)
         {
-            if (treeRec == null) return tierInterval;
-            if (!treeRec.IsDebris) return tierInterval;
-            if (string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)) return tierInterval;
+            if (!IsDebrisAwareSampleCapEligible(treeRec)) return tierInterval;
             if (tierInterval >= ProximityRateSelector.OutOfRangeInterval) return tierInterval;
             return Math.Min(tierInterval, ProximityRateSelector.MidInterval);
+        }
+
+        // Companion to ResolveDebrisAwareSampleInterval that bounds the adaptive
+        // sampler's MAX backstop at MidInterval (0.5 s). Without this cap,
+        // parent-anchored debris with stable velocity after the 3-second
+        // high-fidelity post-decouple window only samples when the configured
+        // max backstop fires — 3.0 s on Medium and 8.0 s on Low — even though
+        // the proximity-tier floor was capped to 0.5 s. ShouldRecordPoint takes
+        // the backstop as `if (elapsed >= maxInterval) return true`, so the
+        // floor cap alone does not enforce the claimed 0.5 s sample-gap ceiling
+        // for stable-velocity drift.
+        //
+        // Capped value composes with FlightRecorder.ResolveEffectiveMaxSampleInterval:
+        // during the high-fidelity window that helper already returns
+        // min(configuredMax, configuredMin) which is tighter than 0.5 s, so the
+        // cap here is a no-op inside the window and a 0.5 s ceiling outside it.
+        internal static float ResolveDebrisAwareMaxSampleInterval(
+            float configuredMax,
+            Recording treeRec)
+        {
+            if (!IsDebrisAwareSampleCapEligible(treeRec)) return configuredMax;
+            return Math.Min(configuredMax, (float)ProximityRateSelector.MidInterval);
         }
 
         private static void ActivateBackgroundHighFidelitySampling(
