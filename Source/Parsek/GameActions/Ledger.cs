@@ -450,8 +450,8 @@ namespace Parsek
         ///   are removed (null-tagged earnings/spendings are career-level and survive the
         ///   recording-set check — e.g. milestones achieved at recovery or KSC-side
         ///   purchases).
-        /// - Spending actions and contract accepts whose UT is strictly after maxUT are
-        ///   removed regardless of their RecordingId.
+        /// - Spending actions and contract lifecycle rows whose UT is strictly after maxUT
+        ///   are removed regardless of their RecordingId.
         /// Earnings and spendings are classified by <see cref="RecalculationEngine.IsEarningType"/>
         /// and <see cref="RecalculationEngine.IsSpendingType"/>.
         /// FundsInitial actions are always kept.
@@ -468,6 +468,7 @@ namespace Parsek
             int prunedEarnings = 0;
             int prunedSpendings = 0;
             int prunedSpendingsByRecordingId = 0;
+            int prunedContractLifecycle = 0;
             int prunedOther = 0;
             int kept = 0;
 
@@ -499,6 +500,7 @@ namespace Parsek
                             ref prunedEarnings,
                             ref prunedSpendings,
                             ref prunedOther);
+                        prunedContractLifecycle++;
                         ParsekLog.Verbose("Ledger",
                             $"Pruned contract lifecycle: type={action.Type}, " +
                             $"contractId='{action.ContractId ?? "(null)"}', " +
@@ -512,6 +514,7 @@ namespace Parsek
                             ref prunedEarnings,
                             ref prunedSpendingsByRecordingId,
                             ref prunedOther);
+                        prunedContractLifecycle++;
                         ParsekLog.Verbose("Ledger",
                             $"Pruned contract lifecycle: type={action.Type}, " +
                             $"contractId='{action.ContractId ?? "(null)"}', " +
@@ -622,6 +625,7 @@ namespace Parsek
                 $"Reconcile complete: before={before}, kept={kept}, " +
                 $"prunedEarnings={prunedEarnings}, prunedSpendings={prunedSpendings}, " +
                 $"prunedSpendingsByRecordingId={prunedSpendingsByRecordingId}, " +
+                $"prunedContractLifecycle={prunedContractLifecycle}, " +
                 $"prunedOther={prunedOther}, " +
                 $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                 $"validRecordingIds={validRecordingIds.Count}");

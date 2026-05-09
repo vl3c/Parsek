@@ -120,6 +120,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnKspLoad_PostMigrationSyntheticFutureContractAccept_SurvivesTargetedReconcile()
+        {
+            var oldSaveAccept = new GameStateEvent
+            {
+                ut = 20000.0,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "old-event-future",
+                detail = "title=Old Future;deadline=NaN;type=PartTest;funds=5000;failFunds=1000;failRep=1"
+            };
+            GameStateStore.AddEvent(ref oldSaveAccept);
+
+            LedgerOrchestrator.OnKspLoadAfterOldSaveEventReconcileForTesting = () =>
+            {
+                Ledger.AddAction(new GameAction
+                {
+                    Type = GameActionType.ContractAccept,
+                    UT = 21000.0,
+                    RecordingId = "rec-current",
+                    ContractId = "post-migration-synthetic",
+                    ContractType = "PartTest",
+                    DeadlineUT = float.NaN
+                });
+            };
+
+            LedgerOrchestrator.OnKspLoad(
+                new HashSet<string> { "rec-current" },
+                maxUT: 18000.0);
+
+            Assert.DoesNotContain(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractAccept
+                && a.ContractId == "old-event-future");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractAccept
+                && a.ContractId == "post-migration-synthetic");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedContractLifecycle=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("TryRecoverBrokenLedgerOnLoad")
+                && l.Contains("skippedFuture=1"));
+        }
+
+        [Fact]
         public void OnKscSpending_ContractCompleted_AddsContractCompleteAction()
         {
             var evt = new GameStateEvent
