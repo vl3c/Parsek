@@ -1884,18 +1884,25 @@ namespace Parsek
 
             // Compute distance to focused vessel and determine proximity-based sample interval
             double distance = ComputeDistanceToFocusedVessel(bgVessel);
-            double proximityInterval = ProximityRateSelector.GetSampleInterval(distance);
+            double rawProximityInterval = ProximityRateSelector.GetSampleInterval(distance);
+            double proximityInterval = ResolveDebrisAwareSampleInterval(rawProximityInterval, treeRec);
             bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(state, ut, distance);
 
             // Log when sample rate changes for this vessel
             if (proximityInterval != state.currentSampleInterval)
             {
-                float newHz = ProximityRateSelector.GetSampleRateHz(distance);
+                float newHz = (proximityInterval > 0 && proximityInterval < ProximityRateSelector.OutOfRangeInterval)
+                    ? (float)(1.0 / proximityInterval)
+                    : 0f;
                 string distStr = distance.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
                 string hzStr = newHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+                bool capApplied = proximityInterval != rawProximityInterval;
+                string capSuffix = capApplied
+                    ? $" debris-cap=applied (rawTier={FormatInterval(rawProximityInterval)})"
+                    : string.Empty;
                 ParsekLog.Info("BgRecorder",
                     $"Sample rate changed: pid={pid} dist={distStr}m " +
-                    $"interval={FormatInterval(proximityInterval)} ({hzStr} Hz)");
+                    $"interval={FormatInterval(proximityInterval)} ({hzStr} Hz){capSuffix}");
                 state.currentSampleInterval = proximityInterval;
             }
 
@@ -4833,6 +4840,29 @@ namespace Parsek
                     currentUT,
                     state.highFidelitySamplingUntilUT,
                     proximityDistanceMeters);
+        }
+
+        // For v12+ debris recordings whose parent recording id is known, cap the
+        // proximity-derived sample interval at MidInterval (0.5 s) regardless of
+        // distance from the focused vessel. Without this cap, radial debris that
+        // flies past 1000 m of its parent during high-velocity breakup falls into
+        // the FarRange tier (2.0 s gap), producing visibly choppy trajectory
+        // rendering for the recording's ~14-25 s lifetime.
+        //
+        // Out-of-range tier (vessel exited the physics bubble) is preserved as-is
+        // — the early-return at the OutOfRangeInterval check is the correct path
+        // when the BG vessel is no longer loaded. Legacy v11 debris (no
+        // DebrisParentRecordingId) and non-debris BG vessels keep the unaltered
+        // tier table.
+        internal static double ResolveDebrisAwareSampleInterval(
+            double tierInterval,
+            Recording treeRec)
+        {
+            if (treeRec == null) return tierInterval;
+            if (!treeRec.IsDebris) return tierInterval;
+            if (string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)) return tierInterval;
+            if (tierInterval >= ProximityRateSelector.OutOfRangeInterval) return tierInterval;
+            return Math.Min(tierInterval, ProximityRateSelector.MidInterval);
         }
 
         private static void ActivateBackgroundHighFidelitySampling(
