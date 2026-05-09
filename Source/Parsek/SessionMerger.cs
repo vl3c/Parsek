@@ -94,14 +94,17 @@ namespace Parsek
 
                 // Resolve overlapping TrackSections
                 int recordingFormatVersion = srcRec.RecordingFormatVersion;
+                List<BoundaryDiscontinuityMeasurement> boundaryMeasurements;
                 List<TrackSection> mergedSections = ResolveOverlaps(
                     srcRec.TrackSections ?? new List<TrackSection>(),
-                    recordingFormatVersion);
+                    recordingFormatVersion,
+                    out boundaryMeasurements);
                 int healedUnrecordedGaps = HealBackgroundActiveUnrecordedGapBoundaries(
                     recId, srcRec.VesselName, mergedSections, recordingFormatVersion,
                     out List<TrackSection> preHealMergedSections);
                 if (healedUnrecordedGaps > 0)
-                    RecomputeBoundaryDiscontinuities(mergedSections, recordingFormatVersion);
+                    boundaryMeasurements =
+                        RecomputeBoundaryDiscontinuities(mergedSections, recordingFormatVersion);
 
                 // Merge PartEvents (source recording may only have one list, just deduplicate+sort)
                 List<PartEvent> mergedEvents = MergePartEvents(
@@ -152,7 +155,7 @@ namespace Parsek
 
                 LogMergeDiagnostics(recId, srcRec.VesselName, inputSectionCount,
                     srcRec.TrackSections ?? new List<TrackSection>(), mergedSections,
-                    recordingFormatVersion);
+                    recordingFormatVersion, boundaryMeasurements);
                 ParsekLog.Verbose(Tag,
                     $"MergeTree: recording='{recId}' flatSync={flatSyncMode}");
             }
@@ -428,7 +431,8 @@ namespace Parsek
         private static void LogMergeDiagnostics(
             string recId, string vesselName, int inputSectionCount,
             List<TrackSection> inputSections, List<TrackSection> mergedSections,
-            int recordingFormatVersion)
+            int recordingFormatVersion,
+            List<BoundaryDiscontinuityMeasurement> boundaryMeasurements)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -458,10 +462,9 @@ namespace Parsek
             // root cause is visible at-a-glance instead of needing log-archaeology).
             for (int i = 0; i < mergedSections.Count; i++)
             {
-                BoundaryDiscontinuityMeasurement measurement = i > 0
-                    ? MeasureBoundaryDiscontinuity(
-                        mergedSections[i - 1], mergedSections[i], recordingFormatVersion)
-                    : BoundaryDiscontinuityMeasurement.Zero("first-section", "no-prev");
+                BoundaryDiscontinuityMeasurement measurement =
+                    GetBoundaryMeasurement(
+                        mergedSections, boundaryMeasurements, i, recordingFormatVersion);
                 if (i > 0 && !string.IsNullOrEmpty(measurement.SkipReason))
                 {
                     string prevRef = mergedSections[i - 1].referenceFrame.ToString();
@@ -647,7 +650,17 @@ namespace Parsek
         internal static List<TrackSection> ResolveOverlaps(
             List<TrackSection> sections, int recordingFormatVersion)
         {
+            return ResolveOverlaps(
+                sections, recordingFormatVersion,
+                out List<BoundaryDiscontinuityMeasurement> _);
+        }
+
+        private static List<TrackSection> ResolveOverlaps(
+            List<TrackSection> sections, int recordingFormatVersion,
+            out List<BoundaryDiscontinuityMeasurement> boundaryMeasurements)
+        {
             var ic = CultureInfo.InvariantCulture;
+            boundaryMeasurements = new List<BoundaryDiscontinuityMeasurement>();
 
             if (sections == null || sections.Count == 0)
             {
@@ -801,7 +814,8 @@ namespace Parsek
             // Sort final output by startUT
             output.Sort((a, b) => a.startUT.CompareTo(b.startUT));
 
-            RecomputeBoundaryDiscontinuities(output, recordingFormatVersion);
+            boundaryMeasurements =
+                RecomputeBoundaryDiscontinuities(output, recordingFormatVersion);
 
             ParsekLog.Verbose(Tag,
                 $"ResolveOverlaps: input={sections.Count} output={output.Count}");
@@ -821,6 +835,27 @@ namespace Parsek
         {
             return MeasureBoundaryDiscontinuity(
                 prev, next, recordingFormatVersion).Meters;
+        }
+
+        private static BoundaryDiscontinuityMeasurement GetBoundaryMeasurement(
+            List<TrackSection> sections,
+            List<BoundaryDiscontinuityMeasurement> measurements,
+            int index,
+            int recordingFormatVersion)
+        {
+            if (measurements != null
+                && index >= 0
+                && index < measurements.Count
+                && measurements.Count == (sections?.Count ?? 0))
+            {
+                return measurements[index];
+            }
+
+            if (index <= 0)
+                return BoundaryDiscontinuityMeasurement.Zero("first-section", "no-prev");
+
+            return MeasureBoundaryDiscontinuity(
+                sections[index - 1], sections[index], recordingFormatVersion);
         }
 
         private struct BoundaryDiscontinuityMeasurement
@@ -873,7 +908,7 @@ namespace Parsek
                 BoundaryDiscontinuityMeasurement skipped =
                     BoundaryDiscontinuityMeasurement.Zero(
                         "not-measurable", "orbital-checkpoint-boundary");
-                skipped.DtSeconds = dtSeconds;
+                skipped.DtSeconds = SanitizeMeasurementDt(dtSeconds);
                 return skipped;
             }
 
@@ -910,7 +945,7 @@ namespace Parsek
                         Meters = (float)dist,
                         Branch = "anchor-local",
                         SkipReason = null,
-                        DtSeconds = dtSeconds,
+                        DtSeconds = SanitizeMeasurementDt(dtSeconds),
                         AnchorKey = anchorKey,
                         PrevPointSource = "prev.frames.last",
                         NextPointSource = "next.frames.first"
@@ -968,7 +1003,7 @@ namespace Parsek
                 Meters = 0f,
                 Branch = branch,
                 SkipReason = reason,
-                DtSeconds = dtSeconds,
+                DtSeconds = SanitizeMeasurementDt(dtSeconds),
                 AnchorKey = string.Empty,
                 PrevPointSource = string.Empty,
                 NextPointSource = string.Empty
@@ -990,7 +1025,7 @@ namespace Parsek
                     Meters = 0f,
                     Branch = branch,
                     SkipReason = "body-mismatch",
-                    DtSeconds = dtSeconds,
+                    DtSeconds = SanitizeMeasurementDt(dtSeconds),
                     AnchorKey = anchorKey ?? string.Empty,
                     PrevPointSource = prevSource ?? string.Empty,
                     NextPointSource = nextSource ?? string.Empty
@@ -1006,7 +1041,7 @@ namespace Parsek
                     Meters = 0f,
                     Branch = branch,
                     SkipReason = "point-data-nonfinite",
-                    DtSeconds = dtSeconds,
+                    DtSeconds = SanitizeMeasurementDt(dtSeconds),
                     AnchorKey = anchorKey ?? string.Empty,
                     PrevPointSource = prevSource ?? string.Empty,
                     NextPointSource = nextSource ?? string.Empty
@@ -1030,7 +1065,7 @@ namespace Parsek
                     Meters = 0f,
                     Branch = branch,
                     SkipReason = "distance-nonfinite",
-                    DtSeconds = dtSeconds,
+                    DtSeconds = SanitizeMeasurementDt(dtSeconds),
                     AnchorKey = anchorKey ?? string.Empty,
                     PrevPointSource = prevSource ?? string.Empty,
                     NextPointSource = nextSource ?? string.Empty
@@ -1042,7 +1077,7 @@ namespace Parsek
                 Meters = (float)dist,
                 Branch = branch,
                 SkipReason = null,
-                DtSeconds = dtSeconds,
+                DtSeconds = SanitizeMeasurementDt(dtSeconds),
                 AnchorKey = anchorKey ?? string.Empty,
                 PrevPointSource = prevSource ?? string.Empty,
                 NextPointSource = nextSource ?? string.Empty
@@ -1158,6 +1193,16 @@ namespace Parsek
             return true;
         }
 
+        private static double SanitizeMeasurementDt(double dtSeconds)
+        {
+            return IsFinite(dtSeconds) ? dtSeconds : 0.0;
+        }
+
+        /// <summary>
+        /// Returns an anchor identity for Relative sections, or empty when the section
+        /// has no usable anchor identity. Missing anchors are intentionally not reported
+        /// as pid:0 because two malformed sections must not compare as same-anchor.
+        /// </summary>
         internal static string AnchorIdentityKey(TrackSection section)
         {
             if (section.referenceFrame != ReferenceFrame.Relative)
@@ -1273,24 +1318,30 @@ namespace Parsek
             return healed;
         }
 
-        private static void RecomputeBoundaryDiscontinuities(
+        private static List<BoundaryDiscontinuityMeasurement> RecomputeBoundaryDiscontinuities(
             List<TrackSection> sections, int recordingFormatVersion)
         {
+            var measurements = new List<BoundaryDiscontinuityMeasurement>();
             if (sections == null || sections.Count == 0)
-                return;
+                return measurements;
 
             TrackSection first = sections[0];
             first.boundaryDiscontinuityMeters = 0f;
             sections[0] = first;
+            measurements.Add(BoundaryDiscontinuityMeasurement.Zero("first-section", "no-prev"));
 
             for (int i = 1; i < sections.Count; i++)
             {
                 TrackSection section = sections[i];
-                section.boundaryDiscontinuityMeters =
-                    ComputeBoundaryDiscontinuity(
+                BoundaryDiscontinuityMeasurement measurement =
+                    MeasureBoundaryDiscontinuity(
                         sections[i - 1], section, recordingFormatVersion);
+                section.boundaryDiscontinuityMeters = measurement.Meters;
                 sections[i] = section;
+                measurements.Add(measurement);
             }
+
+            return measurements;
         }
 
         private static List<TrackSection> CloneTrackSections(List<TrackSection> sections)
