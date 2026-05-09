@@ -212,7 +212,10 @@ namespace Parsek
             }
 
             // Update maxValue if the incoming action reports a higher cap
-            // (in practice this should be consistent, but be defensive)
+            // (in practice this should be consistent, but be defensive). Mirror of
+            // the same monotonic-cap defense in
+            // LedgerOrchestrator.BuildCommittedScienceSubjectCredits — keep both
+            // sites in sync.
             if (subjectMaxValue > state.MaxValue)
                 state.MaxValue = subjectMaxValue;
 

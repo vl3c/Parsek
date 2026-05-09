@@ -256,6 +256,61 @@ namespace Parsek.Tests
             Assert.Equal(3, module.GetAvailableSlots());
         }
 
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void CompleteAfterExplicitFailOrCancel_NotEffective(GameActionType resolutionType)
+        {
+            module.ProcessAction(MakeAccept("c1", ut: 100, deadlineUT: 500f));
+            var resolution = resolutionType == GameActionType.ContractFail
+                ? MakeFail("c1", ut: 400)
+                : MakeCancel("c1", ut: 400);
+            module.ProcessAction(resolution);
+
+            var complete = MakeComplete("c1", ut: 600);
+            module.ProcessAction(complete);
+
+            Assert.False(complete.Effective);
+            Assert.False(module.IsContractCredited("c1"));
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("effective=false (explicitly resolved)") &&
+                l.Contains("c1"));
+        }
+
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void CompleteAtSameUtAsExplicitFailOrCancel_NotEffectiveAfterPrePass(
+            GameActionType resolutionType)
+        {
+            var accept = MakeAccept("c1", ut: 100, deadlineUT: 1000f);
+            var complete = MakeComplete("c1", ut: 400);
+            var resolution = resolutionType == GameActionType.ContractFail
+                ? MakeFail("c1", ut: 400)
+                : MakeCancel("c1", ut: 400);
+            var actions = RecalculationEngine.SortActions(new List<GameAction>
+            {
+                accept,
+                resolution,
+                complete
+            });
+
+            module.PrePass(actions);
+            for (int i = 0; i < actions.Count; i++)
+                module.ProcessAction(actions[i]);
+
+            Assert.False(complete.Effective);
+            Assert.False(module.IsContractCredited("c1"));
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") &&
+                l.Contains("effective=false") &&
+                l.Contains("same/prior UT") &&
+                l.Contains("c1"));
+        }
+
         [Fact]
         public void DuplicateCompletion_NotEffective()
         {
@@ -465,6 +520,19 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
+        public void DeadlineHelpers_TreatExactDeadlineAsElapsed()
+        {
+            Assert.True(ContractsModule.IsBeforeContractDeadline(499.999, 500f));
+            Assert.False(ContractsModule.IsBeforeContractDeadline(500.0, 500f));
+            Assert.False(ContractsModule.IsBeforeContractDeadline(500.001, 500f));
+
+            Assert.False(ContractsModule.HasContractDeadlineElapsed(499.999, 500f));
+            Assert.True(ContractsModule.HasContractDeadlineElapsed(500.0, 500f));
+            Assert.True(ContractsModule.HasContractDeadlineElapsed(500.001, 500f));
+            Assert.False(ContractsModule.HasContractDeadlineElapsed(500.0, float.NaN));
+        }
+
+        [Fact]
         public void DeadlineExpired_FreesSlot()
         {
             // Contract accepted at UT=100 with deadline at UT=500.
@@ -542,6 +610,52 @@ namespace Parsek.Tests
 
             Assert.Equal(0, module.GetActiveContractCount());
             Assert.DoesNotContain(logLines, l => l.Contains("DeadlineExpired"));
+        }
+
+        [Fact]
+        public void CompletedAtDeadline_NotEffectiveAndNotCredited()
+        {
+            module.SetMaxSlots(3);
+
+            module.ProcessAction(MakeAccept("c1", ut: 100, deadlineUT: 500f));
+
+            var complete = MakeComplete("c1", ut: 500);
+            module.ProcessAction(complete);
+
+            Assert.False(complete.Effective);
+            Assert.False(module.IsContractCredited("c1"));
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Equal(3, module.GetAvailableSlots());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("DeadlineExpired") &&
+                l.Contains("c1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Complete") &&
+                l.Contains("effective=false") && l.Contains("deadline expired"));
+        }
+
+        [Fact]
+        public void CompletedAfterDeadline_NotEffectiveAndNotCredited()
+        {
+            module.SetMaxSlots(3);
+
+            module.ProcessAction(MakeAccept("c1", ut: 100, deadlineUT: 500f));
+
+            var complete = MakeComplete("c1", ut: 600);
+            module.ProcessAction(complete);
+
+            Assert.False(complete.Effective);
+            Assert.False(module.IsContractCredited("c1"));
+            Assert.Equal(0, module.GetActiveContractCount());
+            Assert.Equal(3, module.GetAvailableSlots());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("DeadlineExpired") &&
+                l.Contains("c1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Complete") &&
+                l.Contains("effective=false") && l.Contains("deadline expired"));
         }
 
         [Fact]
@@ -659,6 +773,79 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PrePass_InjectsFailWhenCompletionAfterDeadline()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                MakeComplete("c1", ut: 600)
+            };
+            actions[0].FundsPenalty = 8000f;
+            actions[0].RepPenalty = 3f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(3, actions.Count);
+            var injected = actions[2];
+            Assert.Equal(GameActionType.ContractFail, injected.Type);
+            Assert.Equal("c1", injected.ContractId);
+            Assert.Equal(500f, (float)injected.UT);
+            Assert.Equal(8000f, injected.FundsPenalty);
+            Assert.Equal(3f, injected.RepPenalty);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("PrePass") &&
+                l.Contains("synthetic ContractFail") && l.Contains("c1"));
+        }
+
+        [Fact]
+        public void PrePass_InjectsFailWhenCompletionAtDeadline()
+        {
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                MakeComplete("c1", ut: 500)
+            };
+            actions[0].FundsPenalty = 8000f;
+            actions[0].RepPenalty = 3f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(3, actions.Count);
+            var injected = actions[2];
+            Assert.Equal(GameActionType.ContractFail, injected.Type);
+            Assert.Equal("c1", injected.ContractId);
+            Assert.Equal(500f, (float)injected.UT);
+            Assert.Equal(8000f, injected.FundsPenalty);
+            Assert.Equal(3f, injected.RepPenalty);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("PrePass") &&
+                l.Contains("synthetic ContractFail") && l.Contains("c1"));
+        }
+
+        [Theory]
+        [InlineData(GameActionType.ContractFail)]
+        [InlineData(GameActionType.ContractCancel)]
+        public void PrePass_ExplicitFailOrCancelAfterDeadline_NoSyntheticDuplicate(GameActionType type)
+        {
+            var explicitResolution = type == GameActionType.ContractFail
+                ? MakeFail("c1", ut: 600, fundsPenalty: 300f)
+                : MakeCancel("c1", ut: 600, fundsPenalty: 300f);
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100, deadlineUT: 500f),
+                explicitResolution
+            };
+            actions[0].FundsPenalty = 8000f;
+
+            module.PrePass(actions);
+
+            Assert.Equal(2, actions.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("synthetic ContractFail"));
+        }
+
+        [Fact]
         public void PrePass_NoInjectionWhenDeadlineNaN()
         {
             // Contract with no deadline (NaN) — should never inject.
@@ -734,6 +921,37 @@ namespace Parsek.Tests
             module.PrePass(new List<GameAction>());
             module.PrePass(null);
             // Should not throw
+        }
+
+        [Fact]
+        public void Accept_Fail_Reaccept_Complete_Effective()
+        {
+            // Coverage for the re-accept path: a contract is accepted, explicitly
+            // failed, re-accepted (new lifecycle epoch), then completed. The final
+            // Complete must be effective. PrePass clears prepassExplicitResolutionUT
+            // at walk start (line 125) and again on the second Accept (line 138),
+            // so the prior Fail's same-id explicit-resolution UT does not survive
+            // into the re-accepted epoch and the Complete is not wrongly suppressed.
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100),
+                MakeFail("c1", ut: 400),
+                MakeAccept("c1", ut: 500),
+                MakeComplete("c1", ut: 800)
+            };
+            var sorted = RecalculationEngine.SortActions(actions);
+
+            module.PrePass(sorted);
+            for (int i = 0; i < sorted.Count; i++)
+                module.ProcessAction(sorted[i]);
+
+            var complete = sorted[sorted.Count - 1];
+            Assert.Equal(GameActionType.ContractComplete, complete.Type);
+            Assert.True(complete.Effective);
+            Assert.True(module.IsContractCredited("c1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Complete") &&
+                l.Contains("effective=true") && l.Contains("c1"));
         }
 
         [Fact]

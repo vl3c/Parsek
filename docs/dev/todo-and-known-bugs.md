@@ -20,6 +20,57 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Coverage:** `TombstoneEligibilityTests.SupersedeTombstoneEligibility_CareerActionsEligible`, `SupersedeTombstoneEligibility_PreservesSeedsNullScopeAndRollout`, `SupersedeTombstoneEligibility_UnknownFutureType_PreservedUntilReviewed`, `CrewReservationRecomputeTests.RecomputeAfterTombstones_DifferentRetryCrew_ReleasesOldCrewKeepsRetryCrew`, `PatchContractsPreservationTests.Partition_TombstonedContractAccept_RemovesStaleActiveContract`, `PatchContractsPreservationTests.Partition_TombstonedTerminalContract_Removed`, `KspStatePatcherTests.BuildSubjectIdsForPatch_IncludesPreviouslyCommittedStaleSubjects`, `KspStatePatcherTests.BuildFacilityPatchTargets_PreviouslyPatchedMissingFacilityTargetsDefault`, `KspStatePatcherTests.BuildFacilityPatchTargets_KnownFacilityMissingAfterTombstoneTargetsDefault`, `KspStatePatcherTests.ResetPatchHistoryForSaveChange_ClearsStaticFacilityHistory`, `KerbalReservationTests.ApplyToRoster_TombstonedAvailableRosterKerbal_Removed`, `KerbalReservationTests.ApplyToRoster_TombstonedRosterKerbalStillCreatedByELS_Preserved`, `SupersedeCommitTombstoneTests.CommitTombstones_KerbalRescueInOldBranch_RemovedFromELS`, `SupersedeCommitTombstoneTests.CommitTombstones_ScienceAndContractOldBranch_DoNotBlockRetryReplay`, `SupersedeCommitTombstoneTests.CommitTombstones_RecalculatesModulesFromPostTombstoneELS`, plus updated contract/milestone/reputation/rollout tombstone coverage.
 
 ---
+## Done - v0.9.2 cutoff committed-science cache preservation
+
+- ~~Cutoff recalculations rebuilt the persisted committed-science recovery cache from the cutoff-filtered `ScienceModule`, so saving after a rewind or time jump could serialize only the past slice of `SCIENCE_SUBJECTS` and delete the recovery source for future committed science.~~ Source: review finding [P2].
+
+**Fix:** `LedgerOrchestrator` now rebuilds the committed-science cache from the full surviving post-tombstone ledger, while the live `ScienceModule` still respects the requested cutoff. This keeps recovery metadata for future committed science without leaking that future science into the live cutoff state.
+
+**Coverage:** `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffWalk_KeepsFutureScienceInCommittedCacheOnly`, `CommittedScienceCacheRebuildTests.RecalculateAndPatch_FullWalk_PrunesDeletedScienceSubjectsFromCommittedCache`, and `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffThenFullWalk_DoesNotDriftCommittedCache`.
+
+---
+
+## Done - v0.9.2 late contract completion replay
+
+- ~~Recorded or recovered contract completions after the accepted deadline could suppress the synthetic deadline failure and still pay completion rewards.~~ A related replay gap allowed a completion after an explicit fail or cancel to pay out against an already-resolved contract id.
+
+**Fix:** `ContractsModule` now treats contract deadlines as non-inclusive for completion credit, injects synthetic deadline failures before late completions can clear the active accept, and records explicit fail/cancel resolution UTs during `PrePass` so stale completions after fail/cancel replay as ineffective even when sort tie-breakers process the completion first at the same UT.
+
+**Coverage:** `ContractsModuleTests.CompletedAtDeadline_NotEffectiveAndNotCredited`, `ContractsModuleTests.CompletedAfterDeadline_NotEffectiveAndNotCredited`, `ContractsModuleTests.CompleteAfterExplicitFailOrCancel_NotEffective`, `ContractsModuleTests.CompleteAtSameUtAsExplicitFailOrCancel_NotEffectiveAfterPrePass`, `RecalculationEngineTests.Recalculate_CompleteAfterExplicitFailOrCancel_DoesNotPayRewards`, `RecalculationEngineTests.Recalculate_CompleteSameUtAsExplicitFailOrCancel_DoesNotPayRewards`, and the existing explicit fail/cancel deadline replay coverage.
+
+---
+
+## Done - v0.9.2 warp-exit ledger cutoff
+
+- ~~Warp exit recorded `warpEndUT`, then called the full-timeline `RecalculateAndPatch`, so committed future actions after the warp-exit UT could be replayed and patched into KSP immediately.~~ Source: review finding [P1].
+
+**Fix:** the warp-exit path now routes through `RecalculateAndPatchForTimeJump(warpEndUT)` via a small testable seam, preserving the cutoff semantics already used by explicit time jumps. The seam has no full-timeline fallback and matches `TimeJumpManager` by logging and swallowing recalculation failures after recording the exact cutoff UT.
+
+**Coverage:** `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly` verifies the cutoff callback is used, and `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_LogsAndSwallowsRecalculationFailure` verifies non-fatal failure logging.
+
+**Known imprecision (low risk, tracked):** the cutoff UT passed to `RecalculateAndPatchForTimeJump` is `Planetarium.GetUniversalTime()` sampled at the moment the `OnTimeWarpRateChanged` handler fires (`Source/Parsek/ParsekFlight.cs:7695-7696`), not KSP's exact internal warp-end boundary. The handler-fire UT typically lands a partial frame past the true boundary, so a committed action authored at `warpEndUT - ε` (sub-frame precision relative to the boundary) could fall on the included side of the cutoff and be replayed/patched immediately on warp exit instead of staying gated until live UT reaches it. The seam comment at `ParsekFlight.cs:7695-7696` documents this — exact alignment with KSP's internal warp boundary is out of scope for the cutoff seam. In practice committed actions are not authored at sub-frame precision relative to a warp boundary the player did not control, so the risk is low; revisit if a future feature introduces UT-precise authoring near warp transitions.
+
+---
+
+## Open - radial booster debris origin alignment remains inexact after initial-slide fix
+
+- The retained `logs/2026-05-09_0042_radial-booster-position-inexact` bundle shows PR #776's hide/clamp path working (`firstFrameClamped=T`, first visible frames are Relative, no `SinglePoint` fallback), but radial side-booster debris still appears a few metres offset from the expected decoupler/booster contact. The concrete recordings (`61573dc3`, `5679c491`, `f44b52af`, `cf08fb37`) all root their ghost craft at `radialDecoupler1-2`, while the visible booster tank is a child offset from that root. See `docs/dev/plans/investigate-radial-debris-origin.md`.
+- **Fix direction:** the retained `logs/2026-05-09_1135_radial-debris-diagnostics` bundle showed the seed and split callback already matching the radial-decoupler root (`rootMatchesPendingJointChildSeed=T`), while the first ordinary loaded-background samples were vessel-pose samples `2.9-4.0 m` away from the live root part. PR #780 routes v12+ parent-anchored debris ordinary background samples through root-part surface pose so the seed, ordinary samples, Relative frames, absolute shadow, and ghost visual root share the same reference. Follow-up logs from `logs/2026-05-09_1229_radial-debris-too-far-forward` proved that fix landed (`absolute-root` about `0.01 m`) and exposed the remaining seed bridge: the structural seed was still converted against the live parent pose at background initialization about `0.52 s` later, producing tens-of-metres local offsets and causing playback to hide until the first ordinary sample. `logs/2026-05-09_1312_radial-booster-init-still-forward-latest` then showed why the recorded-parent lookup did not fire: the final saved parent sidecar has the seed-UT sections, but the active parent tree recording has not flushed its open TrackSection when `InitializeLoadedState` runs. PR #780 now queues the active recorder's structural parent point for focused breakup debris and consumes that queued split-UT parent pose before falling back to the tree resolver or live parent pose. Contact-node correction remains deferred unless post-fix logs show a smaller residual interface offset.
+- **Follow-up fix (`logs/2026-05-09_1416_radial-booster-still-too-forward-after-pr780-revert`):** After PR #780 the seed alignment was correct (`seed-anchor` magnitude matched the booster→parent vesselTransform distance), but every first-ordinary sample collapsed to a much smaller offset. The recorder's live anchor pose for relative recordings used `liveAnchor.GetWorldPos3D()` (CoM, per the decompiled `CoMD` path) for the position field while the rotation field used `liveAnchor.transform.rotation` (vesselTransform), and KSP's `UpdatePosVel` writes `Vessel.latitude/longitude/altitude` from `vesselTransform.position` so playback's `body.GetWorldSurfacePosition` resolves to vesselTransform-aligned. The position/rotation reference asymmetry baked the parent's CoM-to-vesselTransform vector (~10 m for Kerbal X) into every ordinary offset, rendering radial booster ghosts ~10 m forward of true position throughout playback. Fix: live anchor position now uses `(Vector3d)liveAnchor.transform.position` (explicitly `vessel.transform`, not `GetTransform()` — the latter follows `ReferenceTransform` / "Control From Here" which is a separate contract) in `BackgroundRecorder.TryResolveBackgroundAnchorPoseForCandidate`, `FlightRecorder.TryResolveAnchorPoseForCandidate`, the debris seed fallback in `BackgroundRecorder.InitializeLoadedState`, the loop-relative playback path (`ParsekFlight.TryResolveLoopLiveAnchorPose` — also covers the LateUpdate reapplication call site), and `ProductionAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos`. The recorder and playback now share the same vesselTransform contract end-to-end.
+
+**Status:** OPEN 2026-05-09 pending in-game validation of the live-anchor vesselTransform fix.
+
+---
+
+## Done - v0.9.2 contract lifecycle reconcile cutoff
+
+- ~~Future `ContractAccept` rows with valid recording ids survived load reconciliation even when `maxUT` should have pruned them.~~ Follow-up review extended the same rule to `ContractComplete`, `ContractFail`, and `ContractCancel`, because preserving only part of a future contract lifecycle can restore active contracts, advances, completions, or penalties after loading an earlier save.
+
+**Fix:** `Ledger.Reconcile` treats the full contract lifecycle as timeline state. Any lifecycle action with `UT > maxUT` is pruned even if its `RecordingId` is otherwise valid; `OnKspLoad` reconciles old-save event migration output immediately and bounds broken-ledger event-store recovery by `maxUT` instead of running a broad second pass over later load-time rows.
+
+**Coverage:** `LedgerTests.Reconcile_FutureContractAcceptAndCompleteWithValidRecordingId_PrunesBoth`, `LedgerTests.Reconcile_FutureContractResolutionWithValidRecordingId_PrunedByMaxUt`, `LedgerTests.Reconcile_ContractResolutionWithInvalidRecordingId_PrunedByRecordingId`, `LedgerTests.Reconcile_ContractLifecycleRowsAtMaxUt_AreKept`, `GameStateRecorderLedgerTests.OnKspLoad_MigratedFutureContractLifecycleRows_PrunedByMaxUt`, and `GameStateRecorderLedgerTests.OnKspLoad_PostMigrationSyntheticFutureContractAccept_SurvivesTargetedReconcile`.
+
+---
 
 ## Open - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
 

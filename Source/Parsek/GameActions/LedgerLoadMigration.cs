@@ -932,7 +932,7 @@ namespace Parsek
         ///
         /// Idempotent: the LedgerHasMatchingAction guard makes repeat loads a no-op.
         /// </summary>
-        internal static int TryRecoverBrokenLedgerOnLoad()
+        internal static int TryRecoverBrokenLedgerOnLoad(double? maxUT = null)
         {
             LedgerOrchestrator.Initialize();
             GameStateStore.RepairLegacyPartPurchaseEventsForCurrentSemantics();
@@ -941,6 +941,7 @@ namespace Parsek
             int recoveredContracts = 0;
             int recoveredScience = 0;
             int skippedHidden = 0;
+            int skippedFuture = 0;
 
             // 1) Funds + contract events
             var events = GameStateStore.Events;
@@ -953,6 +954,11 @@ namespace Parsek
                     continue;
                 }
                 if (!IsRecoverableEventType(evt.eventType)) continue;
+                if (maxUT.HasValue && evt.ut > maxUT.Value)
+                {
+                    skippedFuture++;
+                    continue;
+                }
                 if (LedgerHasMatchingAction(evt)) continue;
 
                 var action = GameStateEventConverter.ConvertEvent(evt, null);
@@ -1016,13 +1022,13 @@ namespace Parsek
                 ParsekLog.Warn(LedgerOrchestrator.Tag,
                     $"TryRecoverBrokenLedgerOnLoad: synthesized {recoveredFundsParts} funds/part, " +
                     $"{recoveredContracts} contract, {recoveredScience} science actions from store " +
-                    $"(skippedHidden={skippedHidden}).");
+                    $"(skippedHidden={skippedHidden}, skippedFuture={skippedFuture}).");
             }
             else
             {
                 ParsekLog.Verbose(LedgerOrchestrator.Tag,
                     $"TryRecoverBrokenLedgerOnLoad: no recovery needed " +
-                    $"(skippedHidden={skippedHidden})");
+                    $"(skippedHidden={skippedHidden}, skippedFuture={skippedFuture})");
             }
 
             return totalRecovered;

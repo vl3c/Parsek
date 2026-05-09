@@ -76,7 +76,7 @@ Types to create:
 Functionality:
 - `SaveToFile(string path, List<GameAction> actions)` — safe-write (.tmp + rename)
 - `LoadFromFile(string path) → List<GameAction>` — parse all actions from file
-- `Reconcile(List<GameAction> actions, HashSet<string> validRecordingIds, double maxUT)` — prune orphaned earnings and future spendings (design doc 2.3). Note: "after" means `> maxUT` (strictly after), not `>=`.
+- `Reconcile(List<GameAction> actions, HashSet<string> validRecordingIds, double maxUT)` — prune orphaned earnings plus future spendings and contract lifecycle rows (design doc 2.3). Note: "after" means `> maxUT` (strictly after), not `>=`.
 - Path utilities: use `RecordingPaths.EnsureGameStateDirectory()` and `ResolveSaveScopedPath("Parsek/GameState/ledger.pgld")`
 - **Initial seeding:** On first init for a career save, extract starting funds from save file and write `FundsInitial` action (design doc 2.5). Seeded once, immutable thereafter.
 

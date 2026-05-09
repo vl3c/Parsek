@@ -537,7 +537,7 @@ KSP load is authoritative — the loaded save defines truth. Parsek reconciles t
 ```
 KSP LOAD:
   1. KSP loads save (KSP state = save state).
-  2. Parsek reconciles ledger (prune orphaned earnings and future spendings).
+  2. Parsek reconciles ledger (prune orphaned earnings plus future spendings and contract lifecycle rows).
   3. Parsek recalculates from UT=0 to loaded UT.
   4. Parsek patches KSP state.
 ```
