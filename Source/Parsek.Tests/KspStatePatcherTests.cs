@@ -460,6 +460,18 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]") && l.Contains("null FacilitiesModule"));
         }
 
+        [Theory]
+        [InlineData(0, 0)]
+        [InlineData(1, 0)]
+        [InlineData(2, 1)]
+        [InlineData(3, 2)]
+        [InlineData(4, 2)]
+        public void ToKspFacilityLevel_ConvertsLedgerTierToSetLevelIndex(
+            int ledgerLevel, int expectedKspLevel)
+        {
+            Assert.Equal(expectedKspLevel, FacilityStatePatcher.ToKspFacilityLevel(ledgerLevel));
+        }
+
         // ================================================================
         // PatchAll — suppression flags
         // ================================================================
