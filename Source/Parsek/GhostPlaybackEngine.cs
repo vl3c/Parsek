@@ -32,6 +32,7 @@ namespace Parsek
     internal class GhostPlaybackEngine
     {
         private readonly IGhostPositioner positioner;
+        private bool ghostAudioPaused;
 
         #region Ghost state
 
@@ -1398,6 +1399,8 @@ namespace Parsek
             GhostPlaybackState state, double ut, float warpRate,
             bool skipPartEvents, bool suppressVisualFx, bool allowTransientEffects = true)
         {
+            state.audioPaused = ghostAudioPaused;
+
             if (!skipPartEvents)
             {
                 GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state, allowTransientEffects);
@@ -3934,7 +3937,8 @@ namespace Parsek
                 partEventIndex = 0,
                 flagEventIndex = 0,
                 pendingSpawnLifecycle = lifecycle,
-                pendingSpawnFlags = flags
+                pendingSpawnFlags = flags,
+                audioPaused = ghostAudioPaused
             };
 
             if (TryResolvePendingPlaybackInterpolation(traj, playbackUT, out InterpolationResult initialPlayback))
@@ -4267,6 +4271,7 @@ namespace Parsek
 
             if (state == null)
                 return GhostVisualLoadStatus.Failed;
+            state.audioPaused = ghostAudioPaused;
 
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
             GhostBuildResult buildResult = null;
@@ -5548,6 +5553,8 @@ namespace Parsek
             TrajectoryPoint firstPoint = traj.Points[0];
             ReferenceFrame frame = ReferenceFrame.Absolute;
             string anchorRecordingId = null;
+            TrackSection containingSection = default;
+            bool hasContainingSection = false;
 
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
@@ -5555,6 +5562,8 @@ namespace Parsek
                 if (sectionIdx >= 0 && sectionIdx < traj.TrackSections.Count)
                 {
                     TrackSection section = traj.TrackSections[sectionIdx];
+                    containingSection = section;
+                    hasContainingSection = true;
                     frame = section.referenceFrame;
                     anchorRecordingId = section.anchorRecordingId;
                 }
@@ -5562,6 +5571,19 @@ namespace Parsek
 
             if (frame == ReferenceFrame.Relative)
             {
+                if (!DoesPointMatchSectionFrame(hasContainingSection, containingSection, firstPoint))
+                {
+                    string flatSummary = DescribeAbsoluteRecordingStartPoint(
+                        firstPoint,
+                        rootPos,
+                        "FlatFallback");
+                    return
+                        $"{flatSummary} sectionFrame=Relative " +
+                        (!string.IsNullOrEmpty(anchorRecordingId)
+                            ? $"anchorRec={anchorRecordingId}"
+                            : "anchorRec=missing");
+                }
+
                 Vector3d offset = new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
                 return
                     $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
@@ -5571,12 +5593,41 @@ namespace Parsek
                         : "anchorRec=missing");
             }
 
+            return DescribeAbsoluteRecordingStartPoint(firstPoint, rootPos, frame.ToString());
+        }
+
+        internal static bool DoesPointMatchSectionFrame(
+            bool hasContainingSection,
+            TrackSection section,
+            TrajectoryPoint point)
+        {
+            if (!hasContainingSection || section.frames == null)
+                return false;
+
+            for (int i = 0; i < section.frames.Count; i++)
+            {
+                TrajectoryPoint frame = section.frames[i];
+                if (Math.Abs(frame.ut - point.ut) <= 1e-6
+                    && Math.Abs(frame.latitude - point.latitude) <= 1e-6
+                    && Math.Abs(frame.longitude - point.longitude) <= 1e-6
+                    && Math.Abs(frame.altitude - point.altitude) <= 1e-6)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string DescribeAbsoluteRecordingStartPoint(
+            TrajectoryPoint firstPoint,
+            Vector3d rootPos,
+            string frameLabel)
+        {
             string rawSummary =
                 $"recordingStart@{firstPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"frame={frame} body={firstPoint.bodyName ?? "unknown"} " +
+                $"frame={frameLabel} body={firstPoint.bodyName ?? "unknown"} " +
                 $"lla={FormatVector3d(new Vector3d(firstPoint.latitude, firstPoint.longitude, firstPoint.altitude))}";
 
-            CelestialBody body = FlightGlobals.GetBodyByName(firstPoint.bodyName);
+            CelestialBody body = TryGetBodyByNameForAppearance(firstPoint.bodyName);
             if (body == null)
                 return $"{rawSummary} world=unresolved";
 
@@ -5589,6 +5640,23 @@ namespace Parsek
                 $"{rawSummary} world={FormatVector3d(worldPos)} " +
                 $"recordingStart-root={FormatVector3d(worldRootDelta)} " +
                 $"recordingStartRot={FormatQuaternion(worldRot)}";
+        }
+
+        private static CelestialBody TryGetBodyByNameForAppearance(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return null;
+
+            try
+            {
+                return FlightGlobals.GetBodyByName(bodyName);
+            }
+            catch (Exception)
+            {
+                // Headless xUnit can trip FlightGlobals static initialization; the
+                // appearance diagnostic should degrade to world=unresolved instead.
+                return null;
+            }
         }
 
         private static bool TryGetCombinedVisibleRendererBounds(
@@ -5901,6 +5969,7 @@ namespace Parsek
         /// </summary>
         internal void PauseAllGhostAudio()
         {
+            ghostAudioPaused = true;
             int pausedPrimary = 0, pausedOverlap = 0;
             foreach (var kvp in ghostStates)
             {
@@ -5915,8 +5984,10 @@ namespace Parsek
                     pausedOverlap++;
                 }
             }
+            int pausedOneShots = GhostPlaybackLogic.PauseExplosionOneShotAudio();
             ParsekLog.Verbose("GhostAudio",
-                $"PauseAllGhostAudio: paused {pausedPrimary} primary + {pausedOverlap} overlap ghost(s)");
+                $"PauseAllGhostAudio: paused {pausedPrimary} primary + {pausedOverlap} overlap ghost(s), " +
+                $"{pausedOneShots} independent explosion one-shot source(s)");
         }
 
         /// <summary>
@@ -5924,6 +5995,7 @@ namespace Parsek
         /// </summary>
         internal void UnpauseAllGhostAudio()
         {
+            ghostAudioPaused = false;
             int resumedPrimary = 0, resumedOverlap = 0;
             foreach (var kvp in ghostStates)
             {
@@ -5938,8 +6010,10 @@ namespace Parsek
                     resumedOverlap++;
                 }
             }
+            int resumedOneShots = GhostPlaybackLogic.UnpauseExplosionOneShotAudio();
             ParsekLog.Verbose("GhostAudio",
-                $"UnpauseAllGhostAudio: resumed {resumedPrimary} primary + {resumedOverlap} overlap ghost(s)");
+                $"UnpauseAllGhostAudio: resumed {resumedPrimary} primary + {resumedOverlap} overlap ghost(s), " +
+                $"{resumedOneShots} independent explosion one-shot source(s)");
         }
 
         /// <summary>
@@ -5985,18 +6059,29 @@ namespace Parsek
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
             double power = Mathf.Clamp01(vesselLength / 20f);
-            ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-{recIdx}",
-                $"Stock FXMonger.Explode for ghost #{recIdx} \"{traj.VesselName}\" " +
-                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
-                $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
-                10.0);
 
-            GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
-                worldPos,
-                power,
-                vesselLength,
-                $"ghost #{recIdx} \"{traj.VesselName}\"",
-                $"stock-explosion-visual-only-busy-{recIdx}");
+            if (state.audioPaused)
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-paused-{recIdx}",
+                    $"Stock explosion audio suppressed for ghost #{recIdx} \"{traj.VesselName}\" " +
+                    "because the pause menu is open; spawning custom visual FX only",
+                    10.0);
+                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-{recIdx}",
+                    $"Stock FXMonger.Explode for ghost #{recIdx} \"{traj.VesselName}\" " +
+                    $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
+                    $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                    10.0);
+                GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                    worldPos,
+                    power,
+                    vesselLength,
+                    $"ghost #{recIdx} \"{traj.VesselName}\"",
+                    $"stock-explosion-visual-only-busy-{recIdx}");
+            }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
             ParsekLog.VerboseRateLimited("Engine", "parts-hidden-explosion",
