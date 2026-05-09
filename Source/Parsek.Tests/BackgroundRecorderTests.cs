@@ -64,6 +64,50 @@ namespace Parsek.Tests
             return tree;
         }
 
+        [Fact]
+        public void ShouldPreferRootPartSurfacePoseForBackgroundSample_ReturnsFalseForNullRecording()
+        {
+            Assert.False(BackgroundRecorder.ShouldPreferRootPartSurfacePoseForBackgroundSample(null));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void ShouldPreferRootPartSurfacePoseForBackgroundSample_ReturnsFalseWithoutParentAnchor(string parentRecordingId)
+        {
+            var rec = new Recording
+            {
+                IsDebris = true,
+                DebrisParentRecordingId = parentRecordingId
+            };
+
+            Assert.False(BackgroundRecorder.ShouldPreferRootPartSurfacePoseForBackgroundSample(rec));
+        }
+
+        [Fact]
+        public void ShouldPreferRootPartSurfacePoseForBackgroundSample_ReturnsTrueForParentAnchoredDebrisContract()
+        {
+            var rec = new Recording
+            {
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec"
+            };
+
+            Assert.True(BackgroundRecorder.ShouldPreferRootPartSurfacePoseForBackgroundSample(rec));
+        }
+
+        [Fact]
+        public void ShouldPreferRootPartSurfacePoseForBackgroundSample_FollowsParentAnchorContractField()
+        {
+            var rec = new Recording
+            {
+                IsDebris = false,
+                DebrisParentRecordingId = "parent-rec"
+            };
+
+            Assert.True(BackgroundRecorder.ShouldPreferRootPartSurfacePoseForBackgroundSample(rec));
+        }
+
         #region 9.1 On-Rails State Management
 
         [Fact]

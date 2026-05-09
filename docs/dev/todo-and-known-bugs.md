@@ -14,9 +14,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 ## Open - radial booster debris origin alignment remains inexact after initial-slide fix
 
 - The retained `logs/2026-05-09_0042_radial-booster-position-inexact` bundle shows PR #776's hide/clamp path working (`firstFrameClamped=T`, first visible frames are Relative, no `SinglePoint` fallback), but radial side-booster debris still appears a few metres offset from the expected decoupler/booster contact. The concrete recordings (`61573dc3`, `5679c491`, `f44b52af`, `cf08fb37`) all root their ghost craft at `radialDecoupler1-2`, while the visible booster tank is a child offset from that root. See `docs/dev/plans/investigate-radial-debris-origin.md`.
-- **Fix direction:** diagnostics first. Log joint child/root PID correspondence, radial decoupler and booster-child `srfAttachNode` candidates, seed-to-Relative conversion, and the first ordinary background sample before deciding whether the correct target is the contact node, joint anchor, or simply a later first-frame sample. Avoid COM alignment and broad render-side legacy correction until the target point is proven.
+- **Fix direction:** the retained `logs/2026-05-09_1135_radial-debris-diagnostics` bundle showed the seed and split callback already matching the radial-decoupler root (`rootMatchesPendingJointChildSeed=T`), while the first ordinary loaded-background samples were vessel-pose samples `2.9-4.0 m` away from the live root part. PR #780 now routes v12+ parent-anchored debris ordinary background samples through root-part surface pose so the seed, ordinary samples, Relative frames, absolute shadow, and ghost visual root share the same reference. Contact-node correction remains deferred unless post-fix logs show a smaller residual interface offset.
 
-**Status:** OPEN 2026-05-09. PR #780 adds the investigation plan and bounded diagnostics.
+**Status:** OPEN 2026-05-09 pending in-game validation of the PR #780 behavior fix.
 
 ---
 

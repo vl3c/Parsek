@@ -1925,7 +1925,12 @@ namespace Parsek
                 return;
             }
 
-            TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(bgVessel, ut, currentVelocity);
+            bool preferRootPartSurfacePose = ShouldPreferRootPartSurfacePoseForBackgroundSample(treeRec);
+            TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(
+                bgVessel,
+                ut,
+                currentVelocity,
+                preferRootPartSurfacePose: preferRootPartSurfacePose);
             TryCanonicalizeBackgroundReFlyRecordingPoint(
                 state.recordingId,
                 ref point,
@@ -3805,6 +3810,14 @@ namespace Parsek
                 value.y,
                 value.z,
                 value.w);
+        }
+
+        internal static bool ShouldPreferRootPartSurfacePoseForBackgroundSample(Recording treeRec)
+        {
+            // v12+ parent-anchored debris snapshots and seed samples are root-part based.
+            // Keep periodic background samples on the same pose contract so the ghost root
+            // does not jump from a root-part seed to a vessel-origin ordinary sample.
+            return treeRec != null && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId);
         }
 
         internal static TrajectoryPoint CreateAbsoluteTrajectoryPointFromVessel(
