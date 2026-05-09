@@ -6927,13 +6927,19 @@ namespace Parsek
                     failureReason = "Instantiate returned null";
                     return false;
                 }
-                vfx.SetActive(true);
                 vfx.transform.position = worldPosition;
                 vfx.transform.up = FlightGlobals.upAxis;
 
-                // Mute any AudioSource baked into the prefab. FXMonger normally adds an
-                // AudioSource here and PlayOneShots the explosion clip at SHIP_VOLUME;
-                // the visual-only path skips both so it adds no mixer voice.
+                // Mute any AudioSource baked into the prefab BEFORE we activate the
+                // hierarchy. The decompiled FXMonger.LateUpdate calls SetActive(true)
+                // explicitly after Instantiate, which strongly implies the explosion
+                // prefab is loaded inactive — so Awake has not yet fired and any
+                // playOnAwake AudioSource will not be queued until our subsequent
+                // SetActive call. By muting / Stop-ing first we guarantee the source
+                // never adds a SHIP_VOLUME voice to Unity's mixer, even on the first
+                // frame after activation. Stop() on an idle source is documented as a
+                // no-op so the mute pass is safe regardless of the prefab's actual
+                // load-time active state.
                 AudioSource[] sources = vfx.GetComponentsInChildren<AudioSource>(includeInactive: true);
                 for (int i = 0; i < sources.Length; i++)
                 {
@@ -6941,6 +6947,8 @@ namespace Parsek
                     sources[i].mute = true;
                     sources[i].Stop();
                 }
+
+                vfx.SetActive(true);
 
                 failureReason = null;
                 return true;
