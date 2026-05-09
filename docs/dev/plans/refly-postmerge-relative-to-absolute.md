@@ -782,12 +782,11 @@ The implementation PR must run the existing terminal-tip collector tests
 with zero expectation changes so the richer helper does not broaden the
 merge-dialog spawn-default behavior by accident.
 
-Current `main` note: runtime bypass policy in
-`RelativeAnchorResolution.ShouldBypassLiveAnchorForActiveReFly` is broader
-than this helper's parent-chain promotion scope. Keep this plan's
-promotion scope conservative for the first implementation. Persisting the
-broader "any non-active victim section anchored to the active Re-Fly PID"
-runtime policy is plausible follow-up work, but it needs separate product
+Current `main` note: Phase D removed the old active-Re-Fly live-anchor
+bypass policy from runtime playback. Keep this plan's promotion scope
+conservative for the first implementation. Reintroducing any broader
+"any non-active victim section anchored to the active Re-Fly PID" policy
+would need separate product
 policy and regression tests for docking / logistics-loop cases where
 RELATIVE anchoring is intentionally live.
 

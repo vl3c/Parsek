@@ -208,7 +208,39 @@ namespace Parsek
 
             // Loop-anchored recordings still depend on live anchor PIDs by design.
             // They are not valid roots for the non-loop recorded-anchor DAG.
-            return candidateRecording.LoopAnchorVesselId == 0u;
+            if (candidateRecording.LoopAnchorVesselId != 0u)
+                return false;
+
+            // PR 3b regression-fix (2026-05-07): debris recordings are not eligible
+            // as anchor candidates for OTHER recordings. Pre-PR-3b debris was
+            // robust as an anchor (often Absolute by hysteresis, lifetime tied
+            // only to the debris vessel). Post-PR-3b debris is always-Relative-
+            // to-parent (Decision §5 Option C) and is ended by `CheckDebrisTTL`
+            // when its own parent recording becomes closed/superseded
+            // (Decision §10) — so any non-debris recording that picked a debris
+            // as a live anchor would lose resolvability the moment the debris's
+            // parent gets superseded by a Re-Fly. Observed in
+            // `logs/2026-05-07_2157_refly-debris-regression`: a controlled
+            // child probe recording was anchored to a sibling debris at 8m,
+            // then after the upper-stage Re-Fly the debris was TTL-ended, the
+            // probe's Relative section past the debris's end UT became
+            // unresolvable, and playback fell back to absolute shadow with a
+            // visibly unstable ghost. Excluding debris from candidacy avoids
+            // creating these fragile cross-recording anchors at recording time.
+            //
+            // Self-reference: a debris recording's OWN contract path
+            // (`BackgroundRecorder.UpdateBackgroundAnchorDetection` early-return
+            // when `treeRec.DebrisParentRecordingId != null`) bypasses this
+            // helper entirely and pins the anchor to the parent recording, so
+            // a debris focus never reaches this rejection path. Two-debris
+            // anchoring (debris-A as candidate for debris-B) is also impossible
+            // by construction: debris-B's contract path forces it to anchor
+            // to its own parent (a non-debris parent recording), bypassing the
+            // candidate scan.
+            if (candidateRecording.IsDebris)
+                return false;
+
+            return true;
         }
 
         internal static bool IsRecordingAnchorDAGOrderEligible(

@@ -37,6 +37,7 @@ namespace Parsek
         // the empty-default on pre-feature saves.
         public List<RewindPoint> RewindPoints = new List<RewindPoint>();
         public List<RecordingSupersedeRelation> RecordingSupersedes = new List<RecordingSupersedeRelation>();
+        public List<RecordingRewindRetirement> RecordingRewindRetirements = new List<RecordingRewindRetirement>();
         public List<LedgerTombstone> LedgerTombstones = new List<LedgerTombstone>();
 
         /// <summary>Singleton; non-null only during an active re-fly session.</summary>
@@ -47,8 +48,8 @@ namespace Parsek
 
         // Phase 2 (Rewind-to-Staging): state-version counters consumed by
         // <see cref="EffectiveState"/> to invalidate ERS/ELS caches. Production
-        // code bumps these whenever <see cref="RecordingSupersedes"/> or
-        // <see cref="LedgerTombstones"/> mutate; the OnLoad path bumps on load
+        // code bumps these whenever <see cref="RecordingSupersedes"/>,
+        // <see cref="RecordingRewindRetirements"/>, or <see cref="LedgerTombstones"/> mutate; the OnLoad path bumps on load
         // (every load invalidates caches). Public field so test helpers can
         // read the counter value for cache-invalidation assertions.
         public int SupersedeStateVersion;
@@ -57,6 +58,7 @@ namespace Parsek
         /// <summary>
         /// Bumps <see cref="SupersedeStateVersion"/>. Called by any code path
         /// that adds / removes / clears entries in <see cref="RecordingSupersedes"/>
+        /// or <see cref="RecordingRewindRetirements"/>
         /// so <see cref="EffectiveState.ComputeERS"/> knows to rebuild.
         /// </summary>
         public void BumpSupersedeStateVersion()
@@ -76,7 +78,7 @@ namespace Parsek
 
         // Phase 2 (Rewind-to-Staging): static accessor for the live scenario
         // module. EffectiveState reads <see cref="RecordingSupersedes"/>,
-        // <see cref="LedgerTombstones"/>, and <see cref="ActiveReFlySessionMarker"/>
+        // <see cref="RecordingRewindRetirements"/>, <see cref="LedgerTombstones"/>, and <see cref="ActiveReFlySessionMarker"/>
         // through this field. Maintained by OnAwake / OnDestroy so the value
         // tracks whichever ScenarioModule KSP currently owns.
         private static ParsekScenario s_instance;
@@ -92,6 +94,11 @@ namespace Parsek
         internal static void ResetInstanceForTesting()
         {
             s_instance = null;
+        }
+
+        internal static void SetCachedAutoMergeForTesting(bool value)
+        {
+            cachedAutoMerge = value;
         }
 
         /// <summary>
@@ -894,6 +901,7 @@ namespace Parsek
         {
             node.RemoveNodes("REWIND_POINTS");
             node.RemoveNodes("RECORDING_SUPERSEDES");
+            node.RemoveNodes("RECORDING_REWIND_RETIREMENTS");
             node.RemoveNodes("LEDGER_TOMBSTONES");
             node.RemoveNodes(ReFlySessionMarker.NodeName);
             node.RemoveNodes(MergeJournal.NodeName);
@@ -919,6 +927,18 @@ namespace Parsek
                     if (RecordingSupersedes[i] == null) continue;
                     RecordingSupersedes[i].SaveInto(parent);
                     supersedeCount++;
+                }
+            }
+
+            int retirementCount = 0;
+            if (RecordingRewindRetirements != null && RecordingRewindRetirements.Count > 0)
+            {
+                var parent = node.AddNode("RECORDING_REWIND_RETIREMENTS");
+                for (int i = 0; i < RecordingRewindRetirements.Count; i++)
+                {
+                    if (RecordingRewindRetirements[i] == null) continue;
+                    RecordingRewindRetirements[i].SaveInto(parent);
+                    retirementCount++;
                 }
             }
 
@@ -957,6 +977,7 @@ namespace Parsek
             // works even when the summary line changes shape.
             ParsekLog.Info("Rewind", $"RewindPoints saved: {rpCount}");
             ParsekLog.Info("Supersede", $"RecordingSupersedes saved: {supersedeCount}");
+            ParsekLog.Info("Rewind", $"RecordingRewindRetirements saved: {retirementCount}");
             ParsekLog.Info("LedgerSwap", $"LedgerTombstones saved: {tombCount}");
             ParsekLog.Info("ReFlySession",
                 $"Marker saved: {(markerWritten ? (markerSessionId ?? "<no-id>") : "none")}");
@@ -965,6 +986,7 @@ namespace Parsek
 
             ParsekLog.Info("Scenario",
                 $"OnSave: rewind-staging persist: rewindPoints={rpCount} supersedes={supersedeCount} " +
+                $"rewindRetirements={retirementCount} " +
                 $"tombstones={tombCount} marker={markerWritten} journal={journalWritten}");
         }
 
@@ -977,6 +999,7 @@ namespace Parsek
         {
             RewindPoints = new List<RewindPoint>();
             RecordingSupersedes = new List<RecordingSupersedeRelation>();
+            RecordingRewindRetirements = new List<RecordingRewindRetirement>();
             LedgerTombstones = new List<LedgerTombstone>();
             ActiveReFlySessionMarker = null;
             ActiveMergeJournal = null;
@@ -1002,6 +1025,14 @@ namespace Parsek
                 var entries = sParent.GetNodes("ENTRY");
                 for (int i = 0; i < entries.Length; i++)
                     RecordingSupersedes.Add(RecordingSupersedeRelation.LoadFrom(entries[i]));
+            }
+
+            ConfigNode rParent = node.GetNode("RECORDING_REWIND_RETIREMENTS");
+            if (rParent != null)
+            {
+                var entries = rParent.GetNodes("ENTRY");
+                for (int i = 0; i < entries.Length; i++)
+                    RecordingRewindRetirements.Add(RecordingRewindRetirement.LoadFrom(entries[i]));
             }
 
             ConfigNode tParent = node.GetNode("LEDGER_TOMBSTONES");
@@ -1053,6 +1084,8 @@ namespace Parsek
             ParsekLog.Info("Rewind", $"RewindPoints loaded: {RewindPoints.Count}");
             ParsekLog.Info("Supersede",
                 $"RecordingSupersedes loaded: {RecordingSupersedes.Count}");
+            ParsekLog.Info("Rewind",
+                $"RecordingRewindRetirements loaded: {RecordingRewindRetirements.Count}");
             ParsekLog.Info("LedgerSwap",
                 $"LedgerTombstones loaded: {LedgerTombstones.Count}");
             ParsekLog.Info("ReFlySession",
@@ -1062,7 +1095,8 @@ namespace Parsek
 
             ParsekLog.Info("Scenario",
                 $"OnLoad: rewind-staging load: rewindPoints={RewindPoints.Count} " +
-                $"supersedes={RecordingSupersedes.Count} tombstones={LedgerTombstones.Count} " +
+                $"supersedes={RecordingSupersedes.Count} rewindRetirements={RecordingRewindRetirements.Count} " +
+                $"tombstones={LedgerTombstones.Count} " +
                 $"marker={(ActiveReFlySessionMarker != null)} journal={(ActiveMergeJournal != null)}");
 
             // Phase 2: a new load invalidates every derived cache. Bump both
@@ -1171,6 +1205,17 @@ namespace Parsek
                 // from .sfs rather than reusing stale in-memory state.
                 loadPhase = "rewind-staging";
                 LoadRewindStagingState(node);
+
+                // PR #774 cross-LoadScene fix: re-apply the rewind-time supersede drop
+                // performed in RecordingStore.InitiateRewind. The in-memory mutation
+                // there is reverted by KSP's scenario-state restoration across the
+                // LoadScene boundary, so without this re-apply the dropped rows return
+                // and downstream branch ghosts stay suppressed by
+                // `reason=superseded-by-relation` for the rest of the session. Gated
+                // internally on `RewindContext.IsRewinding` so non-rewind loads are
+                // a no-op.
+                loadPhase = "supersede-rewind-reapply";
+                RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
 
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
                 loadPhase = "game-state-recorder";
@@ -4100,7 +4145,7 @@ namespace Parsek
                     // set on the active recording (FilesDirty / SidecarLoadFailed /
                     // SidecarLoadFailureReason / ContinuationBoundaryIndex /
                     // PreContinuationVesselSnapshot / PreContinuationGhostSnapshot /
-                    // PreReFlyAnchor* / PreReFlyOriginal* snapshots).
+                    // PreReFlyAnchor* snapshots).
                     bool isActive = !string.IsNullOrEmpty(activeRecordingId)
                         && string.Equals(recId, activeRecordingId, StringComparison.Ordinal);
 
@@ -4232,8 +4277,8 @@ namespace Parsek
         /// have already set on the loaded copy: <c>FilesDirty</c>,
         /// <c>SidecarLoadFailed</c>, <c>SidecarLoadFailureReason</c>,
         /// <c>ContinuationBoundaryIndex</c>, <c>PreContinuationVesselSnapshot</c>,
-        /// <c>PreContinuationGhostSnapshot</c>, <c>PreReFlyAnchor*</c>,
-        /// and <c>PreReFlyOriginal*</c> snapshots. The preserve-mode exists because
+        /// <c>PreContinuationGhostSnapshot</c>, and <c>PreReFlyAnchor*</c>
+        /// snapshots. The preserve-mode exists because
         /// the structural overwrite happens to land on the same recording the
         /// recorder will later rebind to, and downstream save paths look at
         /// <c>FilesDirty</c> / <c>SidecarLoadFailed</c> to decide whether to
@@ -4300,9 +4345,9 @@ namespace Parsek
             // Audit anchor: the [NonSerialized] flag set in Recording.cs is
             // {FilesDirty, SidecarLoadFailed, SidecarLoadFailureReason,
             // ContinuationBoundaryIndex, PreContinuationVesselSnapshot,
-            // PreContinuationGhostSnapshot, PreReFlyAnchor*, PreReFlyOriginal*}. Add to this preserve-list when
-            // any new [NonSerialized] flag tracking per-session live state
-            // is added to Recording.
+            // PreContinuationGhostSnapshot, PreReFlyAnchor*}. Add to this
+            // preserve-list when any new [NonSerialized] flag tracking
+            // per-session live state is added to Recording.
             bool savedFilesDirty = loadedRec.FilesDirty;
             bool savedSidecarLoadFailed = loadedRec.SidecarLoadFailed;
             string savedSidecarLoadFailureReason = loadedRec.SidecarLoadFailureReason;
@@ -4313,8 +4358,6 @@ namespace Parsek
             List<TrajectoryPoint> savedPreReFlyAnchorPoints = loadedRec.PreReFlyAnchorPoints;
             List<OrbitSegment> savedPreReFlyAnchorOrbitSegments = loadedRec.PreReFlyAnchorOrbitSegments;
             List<TrackSection> savedPreReFlyAnchorTrackSections = loadedRec.PreReFlyAnchorTrackSections;
-            string savedPreReFlyOriginalSessionId = loadedRec.PreReFlyOriginalSessionId;
-            Recording savedPreReFlyOriginalRecording = loadedRec.PreReFlyOriginalRecording;
 
             Recording sourceClone = Recording.DeepClone(committedRec);
             loadedRec.ApplyPersistenceArtifactsFrom(sourceClone);
@@ -4365,8 +4408,6 @@ namespace Parsek
                 loadedRec.PreReFlyAnchorPoints = savedPreReFlyAnchorPoints;
                 loadedRec.PreReFlyAnchorOrbitSegments = savedPreReFlyAnchorOrbitSegments;
                 loadedRec.PreReFlyAnchorTrackSections = savedPreReFlyAnchorTrackSections;
-                loadedRec.PreReFlyOriginalSessionId = savedPreReFlyOriginalSessionId;
-                loadedRec.PreReFlyOriginalRecording = savedPreReFlyOriginalRecording;
             }
 
             return true;

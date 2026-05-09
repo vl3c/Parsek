@@ -36,7 +36,7 @@ namespace Parsek
         // One-time log tracking (avoids repeating the same log every frame)
         private HashSet<int> loggedGhostSpawn = new HashSet<int>();
         private HashSet<int> loggedReshow = new HashSet<int>();
-        private HashSet<long> loggedKscRelativeAnchorNotFound = new HashSet<long>();
+        private HashSet<string> loggedKscRelativeAnchorNotFound = new HashSet<string>();
 
         // #443: Non-spamming cadence-adjustment log — one INFO per
         // (recording index, userPeriod, effectiveCadence, duration) tuple.
@@ -52,6 +52,8 @@ namespace Parsek
         private bool pauseMenuOpen;
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
         internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
+        internal static Func<int> PauseExplosionOneShotAudioAction = GhostPlaybackLogic.PauseExplosionOneShotAudio;
+        internal static Func<int> UnpauseExplosionOneShotAudioAction = GhostPlaybackLogic.UnpauseExplosionOneShotAudio;
 
         // Tunables live in ParsekConfig.cs. KSC reuses the flight cap
         // (GhostPlayback.MaxOverlapGhostsPerRecording) so the two scenes stay
@@ -60,6 +62,9 @@ namespace Parsek
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
         private const float GhostCullDistanceSq = DistanceThresholds.KscGhosts.CullDistanceSq;
+        // KSC playback is a Kerbin-surface scene; do not read GhostPlaybackState.atmosphereFactor
+        // here because flight's per-frame atmosphere refresh does not run in KSC.
+        private const float KscExplosionAtmosphereFactor = 1f;
 
         private readonly struct AutoLoopQueueCandidate
         {
@@ -100,13 +105,13 @@ namespace Parsek
             internal Quaternion WorldRot;
             internal string Branch;
             internal string FailureReason;
-            internal uint AnchorPid;
+            internal string AnchorRecordingId;
 
             internal static KscPoseResolution Success(
                 Vector3d worldPos,
                 Quaternion worldRot,
                 string branch,
-                uint anchorPid)
+                string anchorRecordingId)
             {
                 return new KscPoseResolution
                 {
@@ -115,14 +120,14 @@ namespace Parsek
                     WorldRot = worldRot,
                     Branch = branch,
                     FailureReason = null,
-                    AnchorPid = anchorPid
+                    AnchorRecordingId = anchorRecordingId
                 };
             }
 
             internal static KscPoseResolution Failure(
                 string branch,
                 string failureReason,
-                uint anchorPid)
+                string anchorRecordingId)
             {
                 return new KscPoseResolution
                 {
@@ -131,7 +136,7 @@ namespace Parsek
                     WorldRot = Quaternion.identity,
                     Branch = branch,
                     FailureReason = failureReason,
-                    AnchorPid = anchorPid
+                    AnchorRecordingId = anchorRecordingId
                 };
             }
         }
@@ -144,8 +149,11 @@ namespace Parsek
             out Vector3d worldPos,
             out Quaternion bodyWorldRot);
 
-        internal delegate bool KscAnchorLookup(
-            uint anchorVesselId,
+        internal delegate bool KscRecordedAnchorLookup(
+            Recording rec,
+            TrackSection section,
+            int sectionIndex,
+            double targetUT,
             out KscAnchorFrame anchorFrame);
 
         internal const int KscFlatPointFrameSourceKey = 0;
@@ -234,11 +242,12 @@ namespace Parsek
             // TODO(phase 6+): migrate ParsekKSC to EffectiveRecordingId-keyed ghost dicts.
             var committed = RecordingStore.CommittedRecordings;
             var supersedes = CurrentRecordingSupersedes();
+            var retirements = CurrentRecordingRewindRetirements();
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 string termKey = rec.TerminalStateValue?.ToString() ?? "<null>";
-                if (ShouldShowInKSC(rec, supersedes))
+                if (ShouldShowInKSC(rec, supersedes, retirements))
                 {
                     ghostCount++;
                     if (rec.LoopPlayback) loopingCount++;
@@ -316,6 +325,7 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             if (committed.Count == 0) return;
             var supersedes = CurrentRecordingSupersedes();
+            var retirements = CurrentRecordingRewindRetirements();
 
             double currentUT = Planetarium.GetUniversalTime();
 
@@ -331,12 +341,14 @@ namespace Parsek
             {
                 var rec = committed[i];
 
-                if (EffectiveState.IsSupersededByRelation(rec, supersedes))
+                TimelineInactiveReason inactiveReason;
+                bool inactive = IsTimelineInactiveForKsc(rec, supersedes, retirements, out inactiveReason);
+                if (inactive)
                 {
                     if (kscGhosts.ContainsKey(i))
                     {
                         ParsekLog.Verbose("KSCGhost",
-                            $"Ghost #{i} \"{rec.VesselName}\" superseded by relation - destroying");
+                            $"Ghost #{i} \"{rec.VesselName}\" inactive timeline reason={inactiveReason} - destroying");
                         DestroyKscGhost(kscGhosts[i], i);
                         kscGhosts.Remove(i);
                         loggedGhostSpawn.Remove(i);
@@ -609,10 +621,18 @@ namespace Parsek
             return !pauseMenuOpen && inCullRange;
         }
 
+        internal static bool ShouldQueueKscExplicitExplosionAudio(
+            bool pauseMenuOpen,
+            GhostPlaybackLogic.StockExplosionFxWithAudioGateResult stockResult)
+        {
+            return !pauseMenuOpen
+                && stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned;
+        }
+
         void PauseGhostAudioIfMenuOpen(GhostPlaybackState state)
         {
             if (!pauseMenuOpen) return;
-            GhostPlaybackLogic.PauseAllAudio(state);
+            PauseGhostAudioAction(state);
         }
 
         /// <summary>
@@ -622,6 +642,11 @@ namespace Parsek
         {
             pauseMenuOpen = true;
             ApplyAudioActionToActiveGhosts(PauseGhostAudioAction, "OnGamePause");
+            int pausedOneShots = PauseExplosionOneShotAudioAction != null
+                ? PauseExplosionOneShotAudioAction()
+                : 0;
+            ParsekLog.Verbose("GhostAudio",
+                $"KSC OnGamePause: paused {pausedOneShots} independent explosion one-shot source(s)");
         }
 
         /// <summary>
@@ -631,6 +656,11 @@ namespace Parsek
         {
             pauseMenuOpen = false;
             ApplyAudioActionToActiveGhosts(UnpauseGhostAudioAction, "OnGameUnpause");
+            int unpausedOneShots = UnpauseExplosionOneShotAudioAction != null
+                ? UnpauseExplosionOneShotAudioAction()
+                : 0;
+            ParsekLog.Verbose("GhostAudio",
+                $"KSC OnGameUnpause: resumed {unpausedOneShots} independent explosion one-shot source(s)");
         }
 
         /// <summary>
@@ -1047,13 +1077,15 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldShowInKSC(Recording rec)
         {
-            return ShouldShowInKSC(rec, CurrentRecordingSupersedes());
+            return ShouldShowInKSC(rec, CurrentRecordingSupersedes(), CurrentRecordingRewindRetirements());
         }
 
         internal static bool ShouldShowInKSC(
-            Recording rec, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements = null)
         {
-            return !EffectiveState.IsSupersededByRelation(rec, supersedes)
+            return !IsTimelineInactiveForKsc(rec, supersedes, retirements, out _)
                 && IsKscStructurallyEligible(rec)
                 && rec.PlaybackEnabled;
         }
@@ -1064,6 +1096,36 @@ namespace Parsek
             return object.ReferenceEquals(null, scenario)
                 ? null
                 : scenario.RecordingSupersedes;
+        }
+
+        private static IReadOnlyList<RecordingRewindRetirement> CurrentRecordingRewindRetirements()
+        {
+            var scenario = ParsekScenario.Instance;
+            return object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingRewindRetirements;
+        }
+
+        private static bool IsTimelineInactiveForKsc(
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements,
+            out TimelineInactiveReason reason)
+        {
+            if (EffectiveState.IsSupersededByRelation(rec, supersedes))
+            {
+                reason = TimelineInactiveReason.SupersededByRelation;
+                return true;
+            }
+
+            if (EffectiveState.IsRewindRetired(rec, retirements))
+            {
+                reason = TimelineInactiveReason.RewindRetired;
+                return true;
+            }
+
+            reason = TimelineInactiveReason.None;
+            return false;
         }
 
         /// <summary>
@@ -1096,6 +1158,7 @@ namespace Parsek
 
             var state = new GhostPlaybackState
             {
+                vesselName = rec.VesselName ?? "Unknown",
                 ghost = ghost,
                 // cameraPivot intentionally null — RecalculateCameraPivot no-ops
                 // reentryFxInfo intentionally null — RebuildReentryMeshes no-ops
@@ -1150,7 +1213,7 @@ namespace Parsek
                     ref cachedFrameSourceKey,
                     targetUT,
                     TryLookupKscSurfacePose,
-                    TryLookupKscAnchorFrame,
+                    TryResolveRecordedKscAnchorFrame,
                     out pose))
             {
                 if (pose.FailureReason == "relative-anchor-unresolved")
@@ -1159,11 +1222,11 @@ namespace Parsek
                     if (hideUntilFirstPose && ghost != null)
                         ghost.SetActive(false);
 
-                    long key = ((long)pose.AnchorPid << 32) ^ (uint)(rec?.RecordingId?.GetHashCode() ?? 0);
+                    string key = (rec?.RecordingId ?? "(none)") + "|" + (pose.AnchorRecordingId ?? "(missing)");
                     if (loggedKscRelativeAnchorNotFound.Add(key))
                     {
                         ParsekLog.Warn("KSCGhost",
-                            $"RELATIVE KSC playback: anchor vessel pid={pose.AnchorPid} not found; " +
+                            $"RELATIVE KSC playback: anchor recording id={pose.AnchorRecordingId ?? "(missing)"} unresolved; " +
                             (hideUntilFirstPose
                                 ? "ghost hidden until first valid anchor pose"
                                 : "ghost frozen at last known position"));
@@ -1237,10 +1300,10 @@ namespace Parsek
             ref int cachedFrameSourceKey,
             double targetUT,
             KscSurfaceLookup surfaceLookup,
-            KscAnchorLookup anchorLookup,
+            KscRecordedAnchorLookup anchorLookup,
             out KscPoseResolution pose)
         {
-            pose = KscPoseResolution.Failure("none", "recording-null", 0);
+            pose = KscPoseResolution.Failure("none", "recording-null", null);
             if (rec == null)
             {
                 ParsekLog.Verbose("KSCGhost",
@@ -1258,7 +1321,7 @@ namespace Parsek
                 pose = KscPoseResolution.Failure(
                     targetSection.HasValue ? targetSection.Value.referenceFrame.ToString() : "no-section",
                     "no-points",
-                    targetSection.HasValue ? targetSection.Value.anchorVesselId : 0);
+                    targetSection.HasValue ? NormalizeKscAnchorRecordingId(targetSection.Value) : null);
                 ParsekLog.Verbose("KSCGhost",
                     $"KSC pose interpolation skipped: no points recording={rec.DebugName} " +
                     $"targetUT={targetUT:F2} sections={rec.TrackSections?.Count ?? 0}");
@@ -1285,7 +1348,7 @@ namespace Parsek
             {
                 if (frames.Count == 0)
                 {
-                    pose = KscPoseResolution.Failure("none", "no-points", 0);
+                    pose = KscPoseResolution.Failure("none", "no-points", null);
                     return false;
                 }
 
@@ -1370,7 +1433,7 @@ namespace Parsek
             TrajectoryPoint point,
             TrackSection? section,
             KscSurfaceLookup surfaceLookup,
-            KscAnchorLookup anchorLookup,
+            KscRecordedAnchorLookup anchorLookup,
             out KscPoseResolution pose)
         {
             if (point.bodyName != "Kerbin")
@@ -1378,7 +1441,7 @@ namespace Parsek
                 pose = KscPoseResolution.Failure(
                     DescribeKscBranch(section),
                     "non-kerbin",
-                    section.HasValue ? section.Value.anchorVesselId : 0);
+                    section.HasValue ? NormalizeKscAnchorRecordingId(section.Value) : null);
                 ParsekLog.VerboseRateLimited("KSCGhost", "ksc-point-non-kerbin",
                     $"KSC point skipped: body={point.bodyName ?? "null"} ut={point.ut:F2}");
                 return false;
@@ -1396,7 +1459,9 @@ namespace Parsek
                     point.longitude,
                     point.altitude,
                     storedRot,
-                    section.Value.anchorVesselId,
+                    section.Value,
+                    FindKscTrackSectionIndex(rec, point.ut),
+                    point.ut,
                     anchorLookup,
                     out pose);
             }
@@ -1411,7 +1476,7 @@ namespace Parsek
                     out worldPos,
                     out bodyWorldRot))
             {
-                pose = KscPoseResolution.Failure("absolute", "body-not-found", 0);
+                pose = KscPoseResolution.Failure("absolute", "body-not-found", null);
                 ParsekLog.VerboseRateLimited("KSCGhost", "interp-no-body",
                     $"Body not found: {point.bodyName ?? "null"}");
                 return false;
@@ -1420,7 +1485,7 @@ namespace Parsek
             Quaternion worldRot = TrajectoryMath.PureMultiply(
                 bodyWorldRot,
                 TrajectoryMath.SanitizeQuaternion(point.rotation));
-            pose = KscPoseResolution.Success(worldPos, worldRot, DescribeKscBranch(section), 0);
+            pose = KscPoseResolution.Success(worldPos, worldRot, DescribeKscBranch(section), null);
             ParsekLog.VerboseRateLimited("KSCGhost", "ksc-surface-position",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
                 $"ut={point.ut:F2} body={point.bodyName} branch={pose.Branch}",
@@ -1435,7 +1500,7 @@ namespace Parsek
             float t,
             TrackSection? section,
             KscSurfaceLookup surfaceLookup,
-            KscAnchorLookup anchorLookup,
+            KscRecordedAnchorLookup anchorLookup,
             out KscPoseResolution pose)
         {
             if (before.bodyName != "Kerbin" || after.bodyName != "Kerbin")
@@ -1443,7 +1508,7 @@ namespace Parsek
                 pose = KscPoseResolution.Failure(
                     DescribeKscBranch(section),
                     "non-kerbin",
-                    section.HasValue ? section.Value.anchorVesselId : 0);
+                    section.HasValue ? NormalizeKscAnchorRecordingId(section.Value) : null);
                 ParsekLog.VerboseRateLimited("KSCGhost", "ksc-segment-non-kerbin",
                     $"KSC segment skipped: beforeBody={before.bodyName ?? "null"} " +
                     $"afterBody={after.bodyName ?? "null"} targetUT={before.ut + (after.ut - before.ut) * t:F2}");
@@ -1465,7 +1530,9 @@ namespace Parsek
                     dy,
                     dz,
                     storedRot,
-                    section.Value.anchorVesselId,
+                    section.Value,
+                    FindKscTrackSectionIndex(rec, before.ut + (after.ut - before.ut) * t),
+                    before.ut + (after.ut - before.ut) * t,
                     anchorLookup,
                     out pose);
             }
@@ -1489,7 +1556,7 @@ namespace Parsek
                     out posAfter,
                     out bodyRotAfter))
             {
-                pose = KscPoseResolution.Failure("absolute", "body-not-found", 0);
+                pose = KscPoseResolution.Failure("absolute", "body-not-found", null);
                 ParsekLog.VerboseRateLimited("KSCGhost", "interp-no-body",
                     $"Body not found: before={before.bodyName ?? "null"} after={after.bodyName ?? "null"}");
                 return false;
@@ -1513,7 +1580,7 @@ namespace Parsek
                 interpolatedPos,
                 worldRot,
                 DescribeKscBranch(section),
-                0);
+                null);
             ParsekLog.VerboseRateLimited("KSCGhost", "ksc-surface-position",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
                 $"targetUT={before.ut + (after.ut - before.ut) * t:F2} branch={pose.Branch}",
@@ -1527,32 +1594,35 @@ namespace Parsek
             double dy,
             double dz,
             Quaternion storedRot,
-            uint anchorVesselId,
-            KscAnchorLookup anchorLookup,
+            TrackSection section,
+            int sectionIndex,
+            double targetUT,
+            KscRecordedAnchorLookup anchorLookup,
             out KscPoseResolution pose)
         {
-            if (anchorVesselId == 0 || anchorLookup == null)
+            string anchorRecordingId = NormalizeKscAnchorRecordingId(section);
+            if (string.IsNullOrEmpty(anchorRecordingId) || anchorLookup == null)
             {
                 pose = KscPoseResolution.Failure(
                     "relative",
                     "relative-anchor-unresolved",
-                    anchorVesselId);
+                    anchorRecordingId);
                 ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-anchor-unresolved",
                     $"RELATIVE KSC playback skipped: recording={rec.DebugName} " +
-                    $"anchorPid={anchorVesselId} reason=no-anchor-lookup");
+                    $"anchorRec={anchorRecordingId ?? "(missing)"} reason=no-recorded-anchor-lookup");
                 return false;
             }
 
             KscAnchorFrame anchor;
-            if (!anchorLookup(anchorVesselId, out anchor))
+            if (!anchorLookup(rec, section, sectionIndex, targetUT, out anchor))
             {
                 pose = KscPoseResolution.Failure(
                     "relative",
                     "relative-anchor-unresolved",
-                    anchorVesselId);
+                    anchorRecordingId);
                 ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-anchor-unresolved",
                     $"RELATIVE KSC playback skipped: recording={rec.DebugName} " +
-                    $"anchorPid={anchorVesselId} reason=anchor-not-found");
+                    $"anchorRec={anchorRecordingId} reason=anchor-recording-unresolved");
                 return false;
             }
 
@@ -1567,21 +1637,28 @@ namespace Parsek
             {
                 ParsekLog.Warn("KSCGhost",
                     $"RELATIVE KSC playback produced NaN position; using anchor position " +
-                    $"recording={rec.DebugName} anchorPid={anchorVesselId}");
+                    $"recording={rec.DebugName} anchorRec={anchorRecordingId}");
                 worldPos = anchor.WorldPos;
             }
 
             Quaternion worldRot = TrajectoryMath.ResolveRelativePlaybackRotation(
                 anchor.WorldRot,
                 storedRot);
-            pose = KscPoseResolution.Success(worldPos, worldRot, "relative", anchorVesselId);
+            pose = KscPoseResolution.Success(worldPos, worldRot, "relative", anchorRecordingId);
             ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-position",
                 $"RELATIVE KSC playback resolved: recording={rec.DebugName} " +
                 $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
                 $"version={rec.RecordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
-                $"anchorPid={anchorVesselId} |offset|={Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m",
+                $"anchorRec={anchorRecordingId} |offset|={Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m",
                 2.0);
             return true;
+        }
+
+        private static string NormalizeKscAnchorRecordingId(TrackSection section)
+        {
+            return string.IsNullOrWhiteSpace(section.anchorRecordingId)
+                ? null
+                : section.anchorRecordingId.Trim();
         }
 
         private static string DescribeKscBranch(TrackSection? section)
@@ -1616,19 +1693,26 @@ namespace Parsek
             return true;
         }
 
-        internal bool TryLookupKscAnchorFrame(uint anchorVesselId, out KscAnchorFrame anchorFrame)
+        private static bool TryResolveRecordedKscAnchorFrame(
+            Recording rec,
+            TrackSection section,
+            int sectionIndex,
+            double targetUT,
+            out KscAnchorFrame anchorFrame)
         {
             anchorFrame = default(KscAnchorFrame);
-            if (anchorVesselId == 0)
+            if (!RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose(
+                    rec,
+                    section,
+                    targetUT,
+                    out AnchorPose pose))
+            {
                 return false;
-
-            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
-            if (anchor == null)
-                return false;
+            }
 
             anchorFrame = new KscAnchorFrame(
-                anchor.GetWorldPos3D(),
-                anchor.transform != null ? anchor.transform.rotation : Quaternion.identity);
+                pose.WorldPos,
+                pose.WorldRotation);
             return true;
         }
 
@@ -1858,14 +1942,59 @@ namespace Parsek
             // returns the actual vessel mesh size (not inflated by engine plume particles).
             float vesselLength = GhostVisualBuilder.ComputeGhostLength(state.ghost);
 
+            string vesselName = rec.VesselName ?? "Unknown";
+            string context = $"KSC ghost #{recIdx} \"{vesselName}\"";
+
             ParsekLog.Info("KSCGhost",
-                $"Explosion for ghost #{recIdx} \"{rec.VesselName}\" " +
+                $"Explosion for ghost #{recIdx} \"{vesselName}\" " +
                 $"vesselLength={vesselLength:F1}m");
 
-            // KSC scene has no FXMonger instance (it's a flight-scene MonoBehaviour); keep the custom FX here.
-            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
-            if (explosion != null)
-                Destroy(explosion, 6f);
+            double power = Mathf.Clamp01(vesselLength / 20f);
+            GhostPlaybackLogic.StockExplosionFxWithAudioGateResult stockResult =
+                GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned;
+
+            if (GhostVisualBuilder.IsFxMongerLive())
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-explode-{recIdx}",
+                    $"Stock FXMonger.Explode for {context} " +
+                    $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
+                    $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                    10.0);
+
+                GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                    worldPos,
+                    power,
+                    vesselLength,
+                    context,
+                    $"ksc-stock-explosion-audio-busy-{recIdx}",
+                    recordResult: result => stockResult = result);
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-unavailable-{recIdx}",
+                    $"Stock explosion FX unavailable for {context}; spawning custom visual FX and using explicit gated audio",
+                    10.0);
+                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
+            }
+
+            if (ShouldQueueKscExplicitExplosionAudio(pauseMenuOpen, stockResult))
+            {
+                // If a live stock controller fails after reserving the gate, the helper releases
+                // before this explicit fallback. KSC playback runs on Unity's single update thread,
+                // so no other ghost can interleave between result capture and this reservation.
+                GhostPlaybackLogic.TryPlayExplosionOneShotWithAudioGate(
+                    worldPos,
+                    KscExplosionAtmosphereFactor,
+                    GhostPlaybackLogic.ResolveAudioPriorityDistance(state),
+                    context,
+                    $"ksc-explicit-explosion-audio-busy-{recIdx}");
+            }
+            else if (pauseMenuOpen && stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned)
+            {
+                ParsekLog.VerboseRateLimited("GhostAudio", $"ksc-explicit-explosion-audio-paused-{recIdx}",
+                    $"Explosion one-shot skipped for {context} because the pause menu is open",
+                    1.0);
+            }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
         }

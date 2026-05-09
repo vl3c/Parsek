@@ -136,6 +136,7 @@ namespace Parsek.Tests
         private static ParsekScenario InstallScenario(
             List<RewindPoint> rps = null,
             List<RecordingSupersedeRelation> supersedes = null,
+            List<RecordingRewindRetirement> retirements = null,
             List<LedgerTombstone> tombstones = null,
             ReFlySessionMarker marker = null,
             MergeJournal journal = null)
@@ -144,6 +145,7 @@ namespace Parsek.Tests
             {
                 RewindPoints = rps ?? new List<RewindPoint>(),
                 RecordingSupersedes = supersedes ?? new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = retirements ?? new List<RecordingRewindRetirement>(),
                 LedgerTombstones = tombstones ?? new List<LedgerTombstone>(),
                 ActiveReFlySessionMarker = marker,
                 ActiveMergeJournal = journal,
@@ -246,6 +248,62 @@ namespace Parsek.Tests
                 l.Contains("[Supersede]") && l.Contains("Purged supersede relation=rsr_1"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]") && l.Contains("Purged supersede relation=rsr_2"));
+        }
+
+        [Fact]
+        public void PurgeTree_RemovesRewindRetirementsWithEndpointInTree()
+        {
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_retired", "tree_1"),
+                },
+                new List<BranchPoint>());
+            InstallTree("tree_2",
+                new List<Recording>
+                {
+                    Rec("rec_restored", "tree_2"),
+                    Rec("rec_unrelated", "tree_2"),
+                },
+                new List<BranchPoint>());
+
+            var retiredIn = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_retired_in",
+                RecordingId = "rec_retired",
+                RestoredRecordingId = "rec_restored",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var restoredIn = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_restored_in",
+                RecordingId = "rec_unrelated",
+                RestoredRecordingId = "rec_retired",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var unrelated = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_unrelated",
+                RecordingId = "rec_unrelated",
+                RestoredRecordingId = "rec_restored",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(retirements: new List<RecordingRewindRetirement>
+            {
+                retiredIn, restoredIn, unrelated,
+            });
+
+            TreeDiscardPurge.PurgeTree("tree_1");
+
+            Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("rrt_unrelated", scenario.RecordingRewindRetirements[0].RetirementId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]") && l.Contains("Purged rewind-retirement=rrt_retired_in"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]") && l.Contains("Purged rewind-retirement=rrt_restored_in"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("rewindRetirements=2"));
         }
 
         [Fact]

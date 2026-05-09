@@ -798,6 +798,160 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region IsRecordingAnchorEligible -- debris-as-anchor exclusion (PR 3b regression fix)
+
+        // PR 3b regression-fix tests (2026-05-07): debris recordings cannot be
+        // anchor candidates for non-debris focuses. Pre-PR-3b debris was a
+        // robust anchor (often Absolute by hysteresis, lifetime tied only to
+        // the debris vessel). Post-PR-3b debris is always-Relative-to-parent
+        // (Decision §5 Option C) and ended by `CheckDebrisTTL` when its parent
+        // recording becomes closed/superseded (Decision §10) — so any
+        // non-debris recording that picked debris as a live anchor would
+        // lose resolvability the moment the debris's parent gets superseded
+        // (e.g. by a Re-Fly).
+        //
+        // Observed in `logs/2026-05-07_2157_refly-debris-regression`: a
+        // controlled child probe recording was anchored to a sibling debris
+        // at 8m, then after the upper-stage Re-Fly the debris was
+        // TTL-ended, the probe's Relative section past the debris's end UT
+        // became unresolvable, and playback fell back to absolute shadow
+        // with a visibly unstable ghost. These tests pin the AnchorDetector
+        // exclusion that prevents creating those fragile cross-recording
+        // anchors at recording time.
+
+        [Fact]
+        public void IsRecordingAnchorEligible_DebrisCandidate_NonDebrisFocus_Rejected()
+        {
+            var focus = new Recording
+            {
+                RecordingId = "controlled-probe",
+                IsDebris = false
+            };
+            var debrisCandidate = new Recording
+            {
+                RecordingId = "kerbal-x-debris",
+                IsDebris = true
+            };
+
+            Assert.False(AnchorDetector.IsRecordingAnchorEligible(focus, debrisCandidate));
+        }
+
+        [Fact]
+        public void IsRecordingAnchorEligible_DebrisCandidate_DebrisFocus_Rejected()
+        {
+            // Two-debris anchoring is also rejected. By PR 3b construction,
+            // debris-of-debris should never reach the candidate path —
+            // debris.DebrisParentRecordingId points at its own parent
+            // (a non-debris parent recording) via the contract, and
+            // BackgroundRecorder.UpdateBackgroundAnchorDetection's
+            // early-return short-circuits the candidate scan for debris
+            // recordings entirely. This test pins that defensive
+            // rejection so a future refactor that drops the early-return
+            // doesn't silently introduce two-debris anchoring.
+            var debrisFocus = new Recording
+            {
+                RecordingId = "debris-a",
+                IsDebris = true
+            };
+            var debrisCandidate = new Recording
+            {
+                RecordingId = "debris-b",
+                IsDebris = true
+            };
+
+            Assert.False(AnchorDetector.IsRecordingAnchorEligible(debrisFocus, debrisCandidate));
+        }
+
+        [Fact]
+        public void IsRecordingAnchorEligible_NonDebrisCandidate_Accepted()
+        {
+            // Sanity: the typical case (controlled vessel anchored to
+            // another controlled vessel) still works.
+            var focus = new Recording
+            {
+                RecordingId = "probe-recording",
+                IsDebris = false
+            };
+            var nonDebrisCandidate = new Recording
+            {
+                RecordingId = "kerbal-x-rec",
+                IsDebris = false
+            };
+
+            Assert.True(AnchorDetector.IsRecordingAnchorEligible(focus, nonDebrisCandidate));
+        }
+
+        [Fact]
+        public void TryCreateRecordingAnchorCandidate_DebrisCandidate_Returns_False()
+        {
+            // End-to-end: the candidate-builder path that
+            // BackgroundRecorder.BuildBackgroundRecordingAnchorCandidates
+            // and FlightRecorder.BuildRecordingAnchorCandidateList both
+            // route through must correctly drop debris candidates.
+            var focus = new Recording
+            {
+                RecordingId = "non-debris-focus",
+                IsDebris = false,
+                TreeId = "tree-1",
+                TreeOrder = 5
+            };
+            var debrisCandidate = new Recording
+            {
+                RecordingId = "debris-rec",
+                IsDebris = true,
+                TreeId = "tree-1",
+                TreeOrder = 3
+            };
+
+            bool created = AnchorDetector.TryCreateRecordingAnchorCandidate(
+                focus,
+                debrisCandidate,
+                new Vector3d(100, 0, 0),
+                Quaternion.identity,
+                AnchorCandidateSource.Live,
+                diagnosticPid: 12345u,
+                ghostIndex: -1,
+                out RecordingAnchorCandidate candidate);
+
+            Assert.False(created);
+            // Default candidate — RecordingId not stamped.
+            Assert.Null(candidate.RecordingId);
+        }
+
+        [Fact]
+        public void TryCreateRecordingAnchorCandidate_NonDebrisCandidate_Returns_True()
+        {
+            var focus = new Recording
+            {
+                RecordingId = "non-debris-focus",
+                IsDebris = false,
+                TreeId = "tree-1",
+                TreeOrder = 5
+            };
+            var nonDebrisCandidate = new Recording
+            {
+                RecordingId = "non-debris-cand",
+                IsDebris = false,
+                TreeId = "tree-1",
+                TreeOrder = 3
+            };
+
+            bool created = AnchorDetector.TryCreateRecordingAnchorCandidate(
+                focus,
+                nonDebrisCandidate,
+                new Vector3d(50, 0, 0),
+                Quaternion.identity,
+                AnchorCandidateSource.Live,
+                diagnosticPid: 99u,
+                ghostIndex: -1,
+                out RecordingAnchorCandidate candidate);
+
+            Assert.True(created);
+            Assert.Equal("non-debris-cand", candidate.RecordingId);
+        }
+
+        #endregion
     }
 
     [Collection("Sequential")]

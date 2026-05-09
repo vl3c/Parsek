@@ -47,6 +47,9 @@ namespace Parsek
         /// <summary>Snapshot of <see cref="ParsekScenario.RecordingSupersedes"/>.</summary>
         public List<RecordingSupersedeRelation> RecordingSupersedes;
 
+        /// <summary>Snapshot of <see cref="ParsekScenario.RecordingRewindRetirements"/>.</summary>
+        public List<RecordingRewindRetirement> RecordingRewindRetirements;
+
         /// <summary>Snapshot of <see cref="ParsekScenario.LedgerTombstones"/>.</summary>
         public List<LedgerTombstone> LedgerTombstones;
 
@@ -82,6 +85,7 @@ namespace Parsek
                 Actions = new List<GameAction>(),
                 RewindPoints = new List<RewindPoint>(),
                 RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>(),
                 LedgerTombstones = new List<LedgerTombstone>(),
                 ActiveReFlySessionMarker = null,
                 ActiveMergeJournal = null,
@@ -123,6 +127,8 @@ namespace Parsek
                     bundle.RewindPoints.AddRange(scenario.RewindPoints);
                 if (scenario.RecordingSupersedes != null)
                     bundle.RecordingSupersedes.AddRange(scenario.RecordingSupersedes);
+                if (scenario.RecordingRewindRetirements != null)
+                    bundle.RecordingRewindRetirements.AddRange(scenario.RecordingRewindRetirements);
                 if (scenario.LedgerTombstones != null)
                     bundle.LedgerTombstones.AddRange(scenario.LedgerTombstones);
                 bundle.ActiveReFlySessionMarker = scenario.ActiveReFlySessionMarker;
@@ -149,6 +155,7 @@ namespace Parsek
                 $"Captured: recs={bundle.Recordings.Count} trees={bundle.Trees.Count} " +
                 $"actions={bundle.Actions.Count} " +
                 $"rps={bundle.RewindPoints.Count} supersedes={bundle.RecordingSupersedes.Count} " +
+                $"rewindRetirements={bundle.RecordingRewindRetirements.Count} " +
                 $"tombstones={bundle.LedgerTombstones.Count} " +
                 $"marker={(bundle.ActiveReFlySessionMarker != null)} " +
                 $"journal={(bundle.ActiveMergeJournal != null)} " +
@@ -199,6 +206,9 @@ namespace Parsek
                 scenario.RecordingSupersedes = bundle.RecordingSupersedes != null
                     ? new List<RecordingSupersedeRelation>(bundle.RecordingSupersedes)
                     : new List<RecordingSupersedeRelation>();
+                scenario.RecordingRewindRetirements = bundle.RecordingRewindRetirements != null
+                    ? new List<RecordingRewindRetirement>(bundle.RecordingRewindRetirements)
+                    : new List<RecordingRewindRetirement>();
                 scenario.BumpSupersedeStateVersion();
 
                 scenario.LedgerTombstones = bundle.LedgerTombstones != null
@@ -246,6 +256,7 @@ namespace Parsek
                 $"Restored: recs={(bundle.Recordings?.Count ?? 0)} trees={(bundle.Trees?.Count ?? 0)} " +
                 $"actions={(bundle.Actions?.Count ?? 0)} " +
                 $"rps={(bundle.RewindPoints?.Count ?? 0)} supersedes={(bundle.RecordingSupersedes?.Count ?? 0)} " +
+                $"rewindRetirements={(bundle.RecordingRewindRetirements?.Count ?? 0)} " +
                 $"tombstones={(bundle.LedgerTombstones?.Count ?? 0)} " +
                 $"marker={(bundle.ActiveReFlySessionMarker != null)} " +
                 $"journal={(bundle.ActiveMergeJournal != null)} " +

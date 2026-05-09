@@ -25,6 +25,8 @@ namespace Parsek
             internal float AutoLoopIntervalSeconds;
             internal LoopTimeUnit AutoLoopDisplayUnit;
             internal bool ShowGhostsInTrackingStation;
+            internal bool ShowCommittedFutureOverlays;
+            internal bool BlockCommittedActions;
         }
 
         internal static bool TryResolveAutoLoopEdit(
@@ -62,7 +64,9 @@ namespace Parsek
                 SamplingDensityLevel = SamplingDensity.Medium,
                 AutoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds,
                 AutoLoopDisplayUnit = LoopTimeUnit.Sec,
-                ShowGhostsInTrackingStation = true
+                ShowGhostsInTrackingStation = true,
+                ShowCommittedFutureOverlays = true,
+                BlockCommittedActions = true
             };
         }
     }

@@ -64,6 +64,16 @@ namespace Parsek
                 || b.LoopIntervalSeconds != LoopTiming.UntouchedLoopIntervalSentinel) return false;
             if (a.LoopAnchorVesselId != 0 || b.LoopAnchorVesselId != 0) return false;
 
+            // PR 3b: contract-corruption defenses. Auto-merge only operates on
+            // consecutive chain segments of the same vessel, so these mismatches
+            // shouldn't normally arise — but if a previously-split debris recording
+            // ever loses the contract on one half, do not silently glue the halves
+            // back together with a partially-set contract. Two debris with different
+            // parents cannot auto-merge either.
+            if (a.IsDebris != b.IsDebris) return false;
+            if (!string.Equals(a.DebrisParentRecordingId, b.DebrisParentRecordingId, StringComparison.Ordinal))
+                return false;
+
             // Different recording groups = user organized them differently
             if (!GroupsEqual(a.RecordingGroups, b.RecordingGroups)) return false;
 
@@ -929,6 +939,10 @@ namespace Parsek
             second.AntennaSpecs = original.AntennaSpecs != null
                 ? new List<AntennaSpec>(original.AntennaSpecs) : null;
             second.IsDebris = original.IsDebris;
+            // PR 3b: propagate the v12+ debris parent-anchor contract to both halves of
+            // a SplitAtSection split. The `original` half retains its field by virtue of
+            // in-place mutation; the `second` (newly-allocated) half needs the explicit copy.
+            second.DebrisParentRecordingId = original.DebrisParentRecordingId;
             second.RecordingFormatVersion = original.RecordingFormatVersion;
             // Both halves are the same vessel — share Generation. (#284)
             second.Generation = original.Generation;
