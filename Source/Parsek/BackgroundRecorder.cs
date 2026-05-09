@@ -4440,8 +4440,16 @@ namespace Parsek
             point.latitude = offset.x;
             point.longitude = offset.y;
             point.altitude = offset.z;
+            Quaternion focusWorldRotation;
+            if (!FlightRecorder.TryResolveAbsolutePointWorldRotationForRelativeOffset(
+                    point,
+                    vessel,
+                    out focusWorldRotation))
+            {
+                focusWorldRotation = vessel.transform.rotation;
+            }
             point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
-                vessel.transform.rotation,
+                focusWorldRotation,
                 anchorPose.WorldRotation);
 
             ApplyBackgroundCurrentAnchorToTrackSection(state);

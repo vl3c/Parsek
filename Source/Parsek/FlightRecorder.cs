@@ -7282,8 +7282,16 @@ namespace Parsek
                     focusWorldPos,
                     anchorPose.WorldPos,
                     anchorPose.WorldRotation);
+                Quaternion focusWorldRotation;
+                if (!TryResolveAbsolutePointWorldRotationForRelativeOffset(
+                        point,
+                        v,
+                        out focusWorldRotation))
+                {
+                    focusWorldRotation = v.transform.rotation;
+                }
                 point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
-                    v.transform.rotation,
+                    focusWorldRotation,
                     anchorPose.WorldRotation);
             }
             else
@@ -7849,6 +7857,46 @@ namespace Parsek
             catch
             {
                 return false;
+            }
+        }
+
+        internal static Quaternion ComputeRelativeLocalRotationFromAbsolutePointRotation(
+            Quaternion surfaceRelativeRotation,
+            Quaternion bodyWorldRotation,
+            Quaternion anchorWorldRotation)
+        {
+            Quaternion focusWorldRotation = TrajectoryMath.PureMultiply(
+                TrajectoryMath.SanitizeQuaternion(bodyWorldRotation),
+                TrajectoryMath.SanitizeQuaternion(surfaceRelativeRotation));
+            return TrajectoryMath.ComputeRelativeLocalRotation(
+                focusWorldRotation,
+                anchorWorldRotation);
+        }
+
+        internal static bool TryResolveAbsolutePointWorldRotationForRelativeOffset(
+            TrajectoryPoint point,
+            Vessel fallbackVessel,
+            out Quaternion worldRotation)
+        {
+            worldRotation = fallbackVessel?.transform != null
+                ? fallbackVessel.transform.rotation
+                : Quaternion.identity;
+            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            if (body == null)
+                body = fallbackVessel?.mainBody;
+            if (body?.bodyTransform == null)
+                return fallbackVessel?.transform != null;
+
+            try
+            {
+                worldRotation = TrajectoryMath.PureMultiply(
+                    body.bodyTransform.rotation,
+                    TrajectoryMath.SanitizeQuaternion(point.rotation));
+                return true;
+            }
+            catch
+            {
+                return fallbackVessel?.transform != null;
             }
         }
 

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -55,6 +56,32 @@ namespace Parsek.Tests
             Assert.False(FlightRecorder.PendingJointChildPartOriginSeedIdsContainPidForDiagnostics(ids, 12));
             Assert.False(FlightRecorder.PendingJointChildPartOriginSeedIdsContainPidForDiagnostics(ids, 0));
             Assert.False(FlightRecorder.PendingJointChildPartOriginSeedIdsContainPidForDiagnostics(null, 123));
+        }
+
+        [Fact]
+        public void ComputeRelativeLocalRotationFromAbsolutePointRotation_UsesSurfaceRelativePointRotation()
+        {
+            Quaternion bodyWorldRotation = TrajectoryMath.PureAngleAxis(30f, Vector3.up);
+            Quaternion pointSurfaceRelativeRotation = TrajectoryMath.PureAngleAxis(45f, Vector3.forward);
+            Quaternion anchorWorldRotation = TrajectoryMath.PureAngleAxis(10f, Vector3.right);
+            Quaternion expectedFocusWorldRotation = TrajectoryMath.PureMultiply(
+                bodyWorldRotation,
+                pointSurfaceRelativeRotation);
+
+            Quaternion storedRelativeRotation =
+                FlightRecorder.ComputeRelativeLocalRotationFromAbsolutePointRotation(
+                    pointSurfaceRelativeRotation,
+                    bodyWorldRotation,
+                    anchorWorldRotation);
+            Quaternion reconstructedWorldRotation =
+                TrajectoryMath.ResolveRelativePlaybackRotation(
+                    anchorWorldRotation,
+                    storedRelativeRotation);
+
+            Assert.True(
+                TrajectoryMath.ComputeQuaternionAngleDegrees(
+                    expectedFocusWorldRotation,
+                    reconstructedWorldRotation) < 0.001f);
         }
     }
 }
