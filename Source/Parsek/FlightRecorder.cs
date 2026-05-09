@@ -3503,6 +3503,42 @@ namespace Parsek
             LogCoverageDetails("Robotics", coverage.RoboticModules);
         }
 
+        internal const float EngineRecordedThrustEpsilon = 0.001f;
+        internal const float EngineRecordedPowerEpsilon = 0.001f;
+
+        internal static bool ShouldRecordEngineAsIgnited(
+            bool engineIgnited, bool isOperational, float finalThrust)
+        {
+            return engineIgnited
+                && isOperational
+                && !float.IsNaN(finalThrust)
+                && !float.IsInfinity(finalThrust)
+                && finalThrust > EngineRecordedThrustEpsilon;
+        }
+
+        internal static float ComputeRecordedEnginePower(
+            float currentThrottle, float finalThrust, float maxThrust)
+        {
+            if (!float.IsNaN(currentThrottle)
+                && !float.IsInfinity(currentThrottle)
+                && currentThrottle > EngineRecordedPowerEpsilon)
+            {
+                return Mathf.Clamp01(currentThrottle);
+            }
+
+            if (!float.IsNaN(finalThrust)
+                && !float.IsInfinity(finalThrust)
+                && finalThrust > EngineRecordedThrustEpsilon
+                && !float.IsNaN(maxThrust)
+                && !float.IsInfinity(maxThrust)
+                && maxThrust > EngineRecordedThrustEpsilon)
+            {
+                return Mathf.Clamp01(finalThrust / maxThrust);
+            }
+
+            return 0f;
+        }
+
         internal static void CheckEngineTransition(
             ulong key, uint pid, int moduleIndex, string partName,
             bool ignited, float throttle,
@@ -3582,8 +3618,10 @@ namespace Parsek
                 if (part == null || engine == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
-                bool ignited = engine.EngineIgnited && engine.isOperational;
-                float throttle = engine.currentThrottle;
+                bool ignited = ShouldRecordEngineAsIgnited(
+                    engine.EngineIgnited, engine.isOperational, engine.finalThrust);
+                float recordedPower = ComputeRecordedEnginePower(
+                    engine.currentThrottle, engine.finalThrust, engine.maxThrust);
                 if (loggedEngineModuleKeys.Add(key))
                 {
                     int thrustTransformCount = engine.thrustTransforms != null
@@ -3598,7 +3636,7 @@ namespace Parsek
                 CheckEngineTransition(
                     key, part.persistentId, moduleIndex,
                     part.partInfo?.name ?? "unknown",
-                    ignited, throttle,
+                    ignited, recordedPower,
                     activeEngineKeys, lastThrottle, ut, reusableEventBuffer);
 
                 for (int e = 0; e < reusableEventBuffer.Count; e++)
