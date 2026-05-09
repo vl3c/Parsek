@@ -111,7 +111,7 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyBackgroundRelativeFrameContract_RecordedActiveSnapshot_IsFrozenReFly()
         {
-            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContractForTesting(
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
                 "recorded",
                 AnchorCandidateSource.Ghost,
                 hasCurrentAnchorCandidate: false,
@@ -124,7 +124,7 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyBackgroundRelativeFrameContract_RecordedWithoutSnapshot_IsRecorded()
         {
-            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContractForTesting(
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
                 "recorded",
                 AnchorCandidateSource.Ghost,
                 hasCurrentAnchorCandidate: false,
@@ -137,7 +137,7 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyBackgroundRelativeFrameContract_LiveWarnFallback_IsLive()
         {
-            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContractForTesting(
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
                 "live-warn-fallback",
                 AnchorCandidateSource.Live,
                 hasCurrentAnchorCandidate: true,
@@ -150,7 +150,7 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyBackgroundRelativeFrameContract_QueuedParentSeed_IsRecorded()
         {
-            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContractForTesting(
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
                 "queued-parent-seed",
                 AnchorCandidateSource.Live,
                 hasCurrentAnchorCandidate: true,
@@ -163,7 +163,7 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyBackgroundRelativeFrameContract_QueuedParentSeedWithoutCurrentCandidate_IsRecorded()
         {
-            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContractForTesting(
+            string frameContract = BackgroundRecorder.ClassifyBackgroundRelativeFrameContract(
                 "queued-parent-seed",
                 AnchorCandidateSource.Live,
                 hasCurrentAnchorCandidate: false,
@@ -176,16 +176,16 @@ namespace Parsek.Tests
         [Fact]
         public void IsActiveReFlyParentMatch_RequiresActiveIdAndParentMatch()
         {
-            Assert.True(BackgroundRecorder.IsActiveReFlyParentMatchForTesting("active-refly", "active-refly"));
-            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatchForTesting("active-refly", "other"));
-            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatchForTesting(null, "active-refly"));
-            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatchForTesting("active-refly", null));
+            Assert.True(BackgroundRecorder.IsActiveReFlyParentMatch("active-refly", "active-refly"));
+            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatch("active-refly", "other"));
+            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatch(null, "active-refly"));
+            Assert.False(BackgroundRecorder.IsActiveReFlyParentMatch("active-refly", null));
         }
 
         [Fact]
         public void FormatActiveReFlyParentDriftFromRecorded_ReturnsNullOutsideActiveParentMatch()
         {
-            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecordedForTesting(
+            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecorded(
                 activeReFlyParentMatch: false,
                 liveResolved: true,
                 liveWorldPos: new Vector3d(3.0, 4.0, 0.0),
@@ -198,7 +198,7 @@ namespace Parsek.Tests
         [Fact]
         public void FormatActiveReFlyParentDriftFromRecorded_ReturnsUnresolvedWhenLiveParentMissing()
         {
-            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecordedForTesting(
+            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecorded(
                 activeReFlyParentMatch: true,
                 liveResolved: false,
                 liveWorldPos: Vector3d.zero,
@@ -211,7 +211,7 @@ namespace Parsek.Tests
         [Fact]
         public void FormatActiveReFlyParentDriftFromRecorded_ComputesMeterDelta()
         {
-            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecordedForTesting(
+            string drift = BackgroundRecorder.FormatActiveReFlyParentDriftFromRecorded(
                 activeReFlyParentMatch: true,
                 liveResolved: true,
                 liveWorldPos: new Vector3d(3.0, 4.0, 0.0),
@@ -224,10 +224,10 @@ namespace Parsek.Tests
         [Fact]
         public void FormatParentDriftLogField_OmitsKeyWhenGuardSkipped()
         {
-            Assert.Equal(string.Empty, BackgroundRecorder.FormatParentDriftLogFieldForTesting(null));
+            Assert.Equal(string.Empty, BackgroundRecorder.FormatParentDriftLogField(null));
             Assert.Equal(
                 "parentDriftFromRecorded=(unresolved) ",
-                BackgroundRecorder.FormatParentDriftLogFieldForTesting("(unresolved)"));
+                BackgroundRecorder.FormatParentDriftLogField("(unresolved)"));
         }
 
         [Fact]

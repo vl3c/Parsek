@@ -3239,7 +3239,7 @@ namespace Parsek
                         treeRecForDebris.DebrisParentRecordingId,
                         parentVessel.persistentId,
                         initialTrajectoryPoint.ut);
-                    string seedParentDriftField = FormatParentDriftLogFieldForTesting(seedParentDrift);
+                    string seedParentDriftField = FormatParentDriftLogField(seedParentDrift);
                     string seedFocusRecordingId = string.IsNullOrEmpty(recordingId) ? "(missing)" : recordingId;
                     LogDebrisSeedRelativeConversionDiagnostics(
                         vesselPid,
@@ -3712,7 +3712,7 @@ namespace Parsek
             string seedAnchorDelta = hasSeedWorld
                 ? DiagnosticFormatters.FormatVector3d(seedWorld - anchorPose.WorldPos)
                 : "unresolved";
-            string parentDriftField = FormatParentDriftLogFieldForTesting(parentDriftFromRecorded);
+            string parentDriftField = FormatParentDriftLogField(parentDriftFromRecorded);
 
             ParsekLog.Verbose("BgRecorder",
                 $"Debris seed relative conversion diagnostics: pid={vesselPid} " +
@@ -4586,29 +4586,34 @@ namespace Parsek
 
             if (logSample)
             {
-                string effectiveSource = sourceLabel ?? (state.hasCurrentAnchorCandidate ? source.ToString() : "recorded");
-                string frameContract = ClassifyBackgroundRelativeFrameContract(
-                    anchorRecordingId,
-                    effectiveSource,
-                    source,
-                    state.hasCurrentAnchorCandidate,
-                    HasActiveReFlyPreReFlyAnchorSnapshot(anchorRecordingId));
-                string parentDrift = FormatActiveReFlyParentDriftFromRecorded(
-                    anchorRecordingId,
-                    diagnosticPid,
-                    point.ut);
-                string parentDriftField = FormatParentDriftLogFieldForTesting(parentDrift);
-
+                double sampleUT = point.ut;
                 ParsekLog.VerboseRateLimited("BgRecorder",
                     "bg-relative-offset|" + state.vesselPid,
-                    $"RELATIVE sample: pid={state.vesselPid} " +
-                    $"contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
-                    $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                    $"anchorRecordingId={anchorRecordingId} source={effectiveSource} " +
-                    $"frameContract={frameContract} " +
-                    parentDriftField +
-                    $"diagnosticPid={diagnosticPid} " +
-                    $"|offset|={offset.magnitude:F2}m",
+                    () =>
+                    {
+                        string effectiveSource = sourceLabel
+                            ?? (state.hasCurrentAnchorCandidate ? source.ToString() : "recorded");
+                        string frameContract = ClassifyBackgroundRelativeFrameContract(
+                            anchorRecordingId,
+                            effectiveSource,
+                            source,
+                            state.hasCurrentAnchorCandidate,
+                            HasActiveReFlyPreReFlyAnchorSnapshot(anchorRecordingId));
+                        string parentDrift = FormatActiveReFlyParentDriftFromRecorded(
+                            anchorRecordingId,
+                            diagnosticPid,
+                            sampleUT);
+                        string parentDriftField = FormatParentDriftLogField(parentDrift);
+
+                        return $"RELATIVE sample: pid={state.vesselPid} " +
+                               $"contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                               $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
+                               $"anchorRecordingId={anchorRecordingId} source={effectiveSource} " +
+                               $"frameContract={frameContract} " +
+                               parentDriftField +
+                               $"diagnosticPid={diagnosticPid} " +
+                               $"|offset|={offset.magnitude:F2}m";
+                    },
                     2.0);
             }
 
@@ -5159,7 +5164,7 @@ namespace Parsek
             return true;
         }
 
-        internal static string ClassifyBackgroundRelativeFrameContractForTesting(
+        internal static string ClassifyBackgroundRelativeFrameContract(
             string sourceLabel,
             AnchorCandidateSource source,
             bool hasCurrentAnchorCandidate,
@@ -5187,7 +5192,7 @@ namespace Parsek
             return source == AnchorCandidateSource.Live ? "live" : "recorded";
         }
 
-        internal static bool IsActiveReFlyParentMatchForTesting(
+        internal static bool IsActiveReFlyParentMatch(
             string activeReFlyRecordingId,
             string parentRecordingId)
         {
@@ -5204,7 +5209,7 @@ namespace Parsek
             bool hasPreReFlyAnchorSnapshot)
         {
             var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            return ClassifyBackgroundRelativeFrameContractForTesting(
+            return ClassifyBackgroundRelativeFrameContract(
                 sourceLabel,
                 source,
                 hasCurrentAnchorCandidate,
@@ -5231,7 +5236,7 @@ namespace Parsek
             string parentRecordingId)
         {
             return marker != null
-                && IsActiveReFlyParentMatchForTesting(
+                && IsActiveReFlyParentMatch(
                     marker.ActiveReFlyRecordingId,
                     parentRecordingId);
         }
@@ -5256,7 +5261,7 @@ namespace Parsek
                 out AnchorPose recordedPose,
                 out _);
 
-            return FormatActiveReFlyParentDriftFromRecordedForTesting(
+            return FormatActiveReFlyParentDriftFromRecorded(
                 activeReFlyParentMatch,
                 liveResolved,
                 liveWorldPos,
@@ -5264,7 +5269,7 @@ namespace Parsek
                 recordedPose.WorldPos);
         }
 
-        internal static string FormatActiveReFlyParentDriftFromRecordedForTesting(
+        internal static string FormatActiveReFlyParentDriftFromRecorded(
             bool activeReFlyParentMatch,
             bool liveResolved,
             Vector3d liveWorldPos,
@@ -5288,7 +5293,7 @@ namespace Parsek
                 : "(unresolved)";
         }
 
-        internal static string FormatParentDriftLogFieldForTesting(string parentDriftFromRecorded)
+        internal static string FormatParentDriftLogField(string parentDriftFromRecorded)
         {
             return parentDriftFromRecorded != null
                 ? $"parentDriftFromRecorded={parentDriftFromRecorded} "

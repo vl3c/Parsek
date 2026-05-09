@@ -61,6 +61,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals
 
+- Background recorder diagnostics now emit PR0 Re-Fly debris frame telemetry (`frameContract=`, guarded `parentDriftFromRecorded=`, seed source metadata, and active-marker metadata) without changing resolver, playback, or save-format behavior. The seed fallback source is logged as `live-warn-fallback` when recorded/queued parent seed resolution fails.
 - New `SceneExitInterceptor` Harmony Prefix on `HighLogic.LoadScene(GameScenes)` (HarmonyPriority.Last). Single chokepoint that catches PauseMenu's `saveAndExit`, PauseMenu's CanRestart no-save, and FlightResultsDialog's KSC/Menu/TS direct LoadScene paths. Decision matrix is pure for unit-testability.
 - New `MergeDialog.ShowTreeDialog(tree, labels, preCommitFinalize, postChoice)` overload. Decision-building (`BuildDefaultVesselDecisions`) runs AFTER `preCommitFinalize` so `CanPersistVessel` reads finalized `TerminalStateValue` rather than the live activeTree's null values.
 - New `MergeDialog.MergeDiscardWithResult` returns `bool` so the pre-transition wrapper can detect a refused discard (merge-journal-active guard) and skip the LoadScene re-invoke - keeping the player in flight.
