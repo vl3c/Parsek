@@ -1546,12 +1546,6 @@ namespace Parsek
             // a seed exists it must not be upgraded later from future live state.
             SeedInitialResourceBalances();
 
-            // Prime contract and strategy slot limits from the last known facility
-            // state for reporting/availability between walks. The authoritative
-            // refresh for just-walked facility state happens after Recalculate;
-            // in-walk slot checks still use the pre-walk ceiling.
-            UpdateSlotLimitsFromFacilities();
-
             // End-state population safety net: catch recordings with unpopulated end states
             PopulateUnpopulatedCrewEndStates();
 

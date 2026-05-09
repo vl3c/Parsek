@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Warp-exit and time-jump ledger recalculations now refresh Mission Control and Administration slot limits from facility upgrades after the recalculation walk, while facility tiers migrate to Parsek's 1/2/3 ledger contract and translate back to KSP's zero-based `SetLevel`.
+- Warp-exit and time-jump ledger recalculations now refresh Mission Control and Administration slot limits after the recalculation walk, so a facility upgrade in the same walk takes effect on availability. Facility tiers also migrate to a 1/2/3 ledger contract that translates back to KSP's zero-based level index.
 - Capsule impacts that destroy the vessel during a pending stage-separation pause are now committed as `Destroyed` instead of being misclassified as `Splashed` after the scene exits. The pre-crash vessel snapshot is preserved for ghost geometry.
 - Debris ghosts no longer pop into place when playback starts inside a tiny gap between adjacent parent-section samples. New false-alarm resume seams also stay covered so future recordings avoid that gap.
 - Parent-anchored debris now disappears when its recorded parent path no longer covers the requested time, preventing stale debris from lingering after the recorded split has ended. A follow-up keeps that retirement decision ahead of all visual, camera, and watch activation paths. Older debris without parent metadata keeps the previous compatibility path.

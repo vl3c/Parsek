@@ -973,7 +973,8 @@ namespace Parsek.Tests
                 UT = 20.0,
                 Type = GameActionType.ContractAccept,
                 ContractId = "contract-after-mc-upgrade",
-                ContractTitle = "After Mission Control Upgrade"
+                ContractTitle = "After Mission Control Upgrade",
+                Sequence = 1
             });
 
             LedgerOrchestrator.RecalculateAndPatch();
@@ -1007,7 +1008,8 @@ namespace Parsek.Tests
                 StrategyId = "strategy-after-admin-upgrade",
                 SourceResource = StrategyResource.Funds,
                 TargetResource = StrategyResource.Reputation,
-                Commitment = 0.25f
+                Commitment = 0.25f,
+                Sequence = 1
             });
 
             LedgerOrchestrator.RecalculateAndPatch();
@@ -1017,6 +1019,36 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("5 strategy slots"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_FacilityUpgrade_PatcherReceivesZeroBasedKspLevel()
+        {
+            LedgerOrchestrator.Initialize();
+
+            // Drive RecalculateAndPatch end-to-end with a FacilityUpgrade for tier 2
+            // (KSP's normalized 0.5 -> ledger 1/2/3 tier 2). The patcher must translate
+            // the 1-based ledger tier back to KSP's zero-based SetLevel index (tier 2 -> 1).
+            // protoUpgradeables is empty in xUnit so SetLevel itself is unreachable, but
+            // the per-facility translation log fires before the proto lookup branch.
+            Ledger.AddAction(GameStateEventConverter.ConvertEvent(new GameStateEvent
+            {
+                ut = 10.0,
+                eventType = GameStateEventType.FacilityUpgraded,
+                key = "MissionControl",
+                valueBefore = 0.0,
+                valueAfter = 0.5
+            }, null));
+
+            logLines.Clear();
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(2, LedgerOrchestrator.Facilities.GetFacilityLevel("MissionControl"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchFacilities: resolved 'MissionControl'") &&
+                l.Contains("ledgerLevel=2") &&
+                l.Contains("targetLevel=1"));
         }
 
         [Fact]

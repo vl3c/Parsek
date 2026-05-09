@@ -49,6 +49,14 @@ namespace Parsek
                 string facilityId = kvp.Key;
                 var state = kvp.Value;
 
+                int targetLedgerLevel = state.Level;
+                int targetLevel = ToKspFacilityLevel(targetLedgerLevel);
+
+                ParsekLog.Verbose(Tag,
+                    $"PatchFacilities: resolved '{facilityId}' " +
+                    $"ledgerLevel={targetLedgerLevel.ToString(IC)} -> " +
+                    $"targetLevel={targetLevel.ToString(IC)}");
+
                 ScenarioUpgradeableFacilities.ProtoUpgradeable proto;
                 if (!ScenarioUpgradeableFacilities.protoUpgradeables.TryGetValue(
                         facilityId, out proto)
@@ -66,8 +74,6 @@ namespace Parsek
                 }
 
                 int currentLevel = facility.FacilityLevel;
-                int targetLedgerLevel = state.Level;
-                int targetLevel = ToKspFacilityLevel(targetLedgerLevel);
 
                 if (currentLevel == targetLevel)
                 {

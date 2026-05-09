@@ -474,7 +474,18 @@ namespace Parsek
             // 0.0 = tier 1, 0.5 = tier 2, 1.0 = tier 3. GameAction.ToLevel is
             // stored as the same 1-based tier number FacilitiesModule uses.
             int toLevel = (int)Math.Round(evt.valueAfter * 2) + 1;
-            if (toLevel < 1) toLevel = 1;
+            bool clamped = false;
+            if (toLevel < 1)
+            {
+                toLevel = 1;
+                clamped = true;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ConvertFacilityUpgraded: facility='{evt.key}' " +
+                $"valueBefore={evt.valueBefore.ToString("R", IC)} " +
+                $"valueAfter={evt.valueAfter.ToString("R", IC)} " +
+                $"toLevel={toLevel.ToString(IC)} clamped={clamped.ToString(IC)}");
 
             return new GameAction
             {
