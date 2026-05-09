@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** the warp-exit path now routes through `RecalculateAndPatchForTimeJump(warpEndUT)` via a small testable seam, preserving the cutoff semantics already used by explicit time jumps.
 
-**Coverage:** `ParsekFlightWarpCheckpointTests.OnTimeWarpRateChanged_WhenWarpDropsToOne_RecalculatesLedgerAtWarpEndCutoff` verifies the cutoff callback is used and the full-timeline fallback is not called.
+**Coverage:** `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly` verifies the cutoff callback is used and the full-timeline fallback is not called.
 
 ---
 
