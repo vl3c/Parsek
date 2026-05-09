@@ -1093,6 +1093,12 @@ namespace Parsek
         // construction). Legacy v11 debris with no `DebrisParentRecordingId`
         // are not reachable through this edge — accepted under the project's
         // pre-1.0 no-backward-compat-for-old-recordings policy.
+        //
+        // TreeId is required to match. Debris is always recorded into its
+        // parent's tree at breakup time, so a candidate whose TreeId differs
+        // from the dequeued parent's would be a corrupted or hand-spliced
+        // link and we refuse to cross tree boundaries silently — matching
+        // the contract of EnqueueChainSiblings / EnqueuePidPeerSiblings.
         private static void EnqueueDebrisChildren(
             Recording rec,
             Dictionary<string, Recording> recById,
@@ -1101,6 +1107,7 @@ namespace Parsek
             ref int debrisAdded)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
+            if (string.IsNullOrEmpty(rec.TreeId)) return;
 
             foreach (var cand in recById.Values)
             {
@@ -1109,6 +1116,7 @@ namespace Parsek
                 if (string.IsNullOrEmpty(cand.RecordingId)) continue;
                 if (string.IsNullOrEmpty(cand.DebrisParentRecordingId)) continue;
                 if (!string.Equals(cand.DebrisParentRecordingId, rec.RecordingId, StringComparison.Ordinal)) continue;
+                if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
                 if (result.Contains(cand.RecordingId)) continue;
 
                 result.Add(cand.RecordingId);

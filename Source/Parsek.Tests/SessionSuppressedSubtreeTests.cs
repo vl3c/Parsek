@@ -986,6 +986,81 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DebrisChildren_DifferentTree_NotAdmitted()
+        {
+            // Defensive symmetry with EnqueueChainSiblings / EnqueuePidPeerSiblings:
+            // a debris candidate whose TreeId differs from the dequeued parent's
+            // is rejected. Debris is always recorded into the parent's tree at
+            // breakup time, so a cross-tree DebrisParentRecordingId match would
+            // be corrupted or hand-spliced data.
+            var origin = Rec("rec_origin", "tree_a");
+            origin.VesselPersistentId = 100u;
+
+            var crossTreeDebris = Rec("rec_cross_tree_debris", "tree_b");
+            crossTreeDebris.VesselPersistentId = 200u;
+            crossTreeDebris.IsDebris = true;
+            crossTreeDebris.DebrisParentRecordingId = "rec_origin";
+
+            // Install both trees side-by-side (InstallTree alone wipes existing
+            // trees, so build the second tree manually after the first).
+            InstallTree("tree_a",
+                new List<Recording> { origin },
+                new List<BranchPoint>());
+            var treeB = new RecordingTree
+            {
+                Id = "tree_b",
+                TreeName = "Test_tree_b",
+                BranchPoints = new List<BranchPoint>()
+            };
+            treeB.AddOrReplaceRecording(crossTreeDebris);
+            RecordingStore.AddRecordingWithTreeForTesting(crossTreeDebris, "tree_b");
+            // AddRecordingWithTreeForTesting created a single-node tree for the
+            // debris; replace it with the shared tree_b instance.
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = trees.Count - 1; i >= 0; i--)
+                if (string.Equals(trees[i].Id, "tree_b", StringComparison.Ordinal))
+                    trees.RemoveAt(i);
+            trees.Add(treeB);
+
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.DoesNotContain("rec_cross_tree_debris", closure);
+            Assert.Single(closure);
+        }
+
+        [Fact]
+        public void DebrisChildren_NotCommittedDebris_StillAdmitted()
+        {
+            // The closure builder reads RecordingStore.CommittedRecordings without
+            // pre-filtering on MergeState — supersede / NotCommitted filtering is
+            // applied later by ComputeERS. Debris that an earlier re-fly already
+            // marked NotCommitted must still enter this session's closure so the
+            // current re-fly's supersede commit covers it; pin that semantic.
+            var origin = Rec("rec_origin", "tree_1");
+            origin.VesselPersistentId = 100u;
+
+            var notCommittedDebris = Rec("rec_not_committed_debris", "tree_1",
+                state: MergeState.NotCommitted);
+            notCommittedDebris.VesselPersistentId = 200u;
+            notCommittedDebris.IsDebris = true;
+            notCommittedDebris.DebrisParentRecordingId = "rec_origin";
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, notCommittedDebris },
+                new List<BranchPoint>());
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.Contains("rec_not_committed_debris", closure);
+            Assert.Equal(2, closure.Count);
+        }
+
+        [Fact]
         public void DebrisChildren_TransitiveDebrisOfDebris_Admitted()
         {
             // Re-entrancy: a debris recording dequeued from the work queue
