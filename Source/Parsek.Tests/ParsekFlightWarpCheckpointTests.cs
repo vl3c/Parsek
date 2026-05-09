@@ -3,6 +3,7 @@ using Xunit;
 
 namespace Parsek.Tests
 {
+    [Collection("Sequential")]
     public class ParsekFlightWarpCheckpointTests
     {
         [Fact]
