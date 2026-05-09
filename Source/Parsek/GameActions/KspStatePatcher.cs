@@ -1748,7 +1748,7 @@ namespace Parsek
                 {
                     Id = c.ContractGuid,
                     IsActive = c.ContractState == Contract.State.Active,
-                    IsTerminal = IsTerminalContractStateName(c.ContractState.ToString())
+                    IsTerminal = IsTerminalContractState(c.ContractState)
                 });
             }
 
@@ -1792,15 +1792,18 @@ namespace Parsek
             return removed;
         }
 
-        private static bool IsTerminalContractStateName(string stateName)
+        private static bool IsTerminalContractState(Contract.State state)
         {
-            return string.Equals(stateName, "Completed", StringComparison.Ordinal)
-                || string.Equals(stateName, "Complete", StringComparison.Ordinal)
-                || string.Equals(stateName, "Failed", StringComparison.Ordinal)
-                || string.Equals(stateName, "Failure", StringComparison.Ordinal)
-                || string.Equals(stateName, "Cancelled", StringComparison.Ordinal)
-                || string.Equals(stateName, "Canceled", StringComparison.Ordinal)
-                || string.Equals(stateName, "DeadlineExpired", StringComparison.Ordinal);
+            switch (state)
+            {
+                case Contract.State.Completed:
+                case Contract.State.Failed:
+                case Contract.State.Cancelled:
+                case Contract.State.DeadlineExpired:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         /// <summary>

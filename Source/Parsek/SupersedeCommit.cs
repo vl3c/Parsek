@@ -1778,10 +1778,10 @@ namespace Parsek
 
             scenario.BumpTombstoneStateVersion();
 
-            // Queue tombstoned roster cleanup BEFORE the reservation recompute so
-            // the ApplyToRoster walk it triggers drains the queue in a single pass.
-            // The post-recalc ApplyToRoster (via RecalculateAndPatchAfterTombstones)
-            // then runs against an already-empty queue.
+            // Queue tombstoned roster cleanup before the reservation recompute so
+            // the next ApplyToRoster pass during RecalculateAndPatchAfterTombstones
+            // sees the cleanup work after reservations and ledger-created kerbals
+            // have been rebuilt from the post-tombstone ELS.
             if (tombstonedRosterActions.Count > 0 && LedgerOrchestrator.Kerbals != null)
                 LedgerOrchestrator.Kerbals.QueueTombstonedRosterKerbals(tombstonedRosterActions);
 
@@ -1961,7 +1961,7 @@ namespace Parsek
             return false;
         }
 
-        internal static double SafeNow()
+        private static double SafeNow()
         {
             try
             {

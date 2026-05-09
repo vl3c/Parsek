@@ -280,6 +280,13 @@ namespace Parsek
                 "PatchFacilities: scheduled all-known-facility default targets for next patch");
         }
 
+        /// <summary>
+        /// Clears static facility patch history when the active save folder changes.
+        /// Test fixtures that exercise facility patching should call
+        /// <see cref="KspStatePatcher.ResetForTesting"/> or
+        /// <see cref="ResetForTesting"/> so first-call initialization cannot inherit
+        /// history from an earlier test.
+        /// </summary>
         internal static void ResetPatchHistoryForSaveChange(string saveFolder)
         {
             string normalized = saveFolder ?? "";
