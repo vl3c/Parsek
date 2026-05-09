@@ -1796,15 +1796,38 @@ namespace Parsek.Tests
             Assert.Equal("invalid-data", cause);
         }
 
+        [Theory]
+        [InlineData("nan")]
+        [InlineData("infinity")]
+        public void ClassifyBoundaryDiscontinuity_NonFiniteDisc_TaggedInvalidData(
+            string nonFiniteDiscKind)
+        {
+            float discMeters = nonFiniteDiscKind == "nan"
+                ? float.NaN
+                : float.PositiveInfinity;
+            var prev = MakeSectionWithFrame(100, 0, 0, 70000, new Vector3(130, 0, 0));
+            var next = MakeSectionWithFrame(101, 0, 0, 70050, Vector3.zero);
+
+            SessionMerger.ClassifyBoundaryDiscontinuity(
+                prev, next, hasPrev: true, discMeters: discMeters,
+                out double dt, out double expected, out string cause);
+
+            Assert.InRange(dt, 0.99, 1.01);
+            Assert.True(double.IsNaN(expected),
+                $"Expected NaN expectedMeters with non-finite disc, got {expected}");
+            Assert.Equal("invalid-data", cause);
+        }
+
         // Parameterised so a regression that hard-codes a single cause (e.g. always
         // emits "cause=no-prev") fails for the other rows instead of slipping past
         // a substring-only assertion.
         [Theory]
-        [InlineData("unrecorded-gap", 100f, 1.0, 110f)]
-        [InlineData("sample-skip",     10f, 0.5, 500f)]
-        [InlineData("frame-mismatch", 130f, 0.0,  50f)]
+        [InlineData("unrecorded-gap", 100f, 1.0, 110f, "ratio=1.10")]
+        [InlineData("sample-skip",     10f, 0.5, 500f, "ratio=100.00")]
+        [InlineData("frame-mismatch", 130f, 0.0,  50f, "ratio=inf")]
         public void MergeTree_DiscontinuityWarning_IncludesClassification(
-            string expectedCause, float prevVelX, double dtSeconds, float altGapMeters)
+            string expectedCause, float prevVelX, double dtSeconds,
+            float altGapMeters, string expectedRatio)
         {
             // Two adjacent Active sections — the WARN should carry dt=,
             // expectedFromVel=, and the exact cause= value matching the scenario.
@@ -1839,6 +1862,7 @@ namespace Parsek.Tests
                 l.Contains("boundary discontinuity=") &&
                 l.Contains("dt=") &&
                 l.Contains("expectedFromVel=") &&
+                l.Contains(expectedRatio) &&
                 l.Contains("cause=" + expectedCause));
         }
 
@@ -1865,7 +1889,40 @@ namespace Parsek.Tests
                 l.Contains("[WARN]") && l.Contains("[Merger]") &&
                 l.Contains("boundary discontinuity=") &&
                 l.Contains("expectedFromVel=NaN") &&
+                l.Contains("ratio=NaN") &&
                 l.Contains("cause=invalid-data"));
+        }
+
+        [Fact]
+        public void MergeTree_DiscontinuityWarning_NonFiniteUt_SanitizesLoggedDt()
+        {
+            const double boundaryUT = 1.0;
+            var prev = MakeSectionWithFrame(boundaryUT, 0, 0, 70000,
+                new Vector3(130, 0, 0));
+            var next = MakeSectionWithFrame(double.NaN, 0, 0, 70050, Vector3.zero);
+            var prevTail = prev;
+            prevTail.startUT = 0.0;
+            prevTail.endUT = boundaryUT;
+            var nextHead = next;
+            nextHead.startUT = boundaryUT + 1.0;
+            nextHead.endUT = boundaryUT + 2.0;
+            var rec = MakeRecording("rec-449-nan-ut", "Diag Vessel",
+                new List<TrackSection> { prevTail, nextHead });
+            var tree = MakeTree("449 Non-Finite UT Test", rec);
+
+            SessionMerger.MergeTree(tree);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("dt=0.00s") &&
+                l.Contains("expectedFromVel=NaN") &&
+                l.Contains("ratio=NaN") &&
+                l.Contains("cause=invalid-data"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("dt=NaN"));
         }
 
         #endregion

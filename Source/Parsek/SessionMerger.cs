@@ -496,14 +496,17 @@ namespace Parsek
                         disc,
                         saveLoadTeleport,
                         out double dt, out double expectedM, out string cause);
+                    double logDt = SanitizeMeasurementDt(dt);
+                    string ratio = FormatBoundaryDiscontinuityRatio(disc, expectedM);
                     ParsekLog.Warn(Tag,
                         $"MergeTree: boundary discontinuity={disc.ToString("F2", ic)}m " +
                         $"at section[{i}] ut={mergedSections[i].startUT.ToString("F2", ic)} " +
                         $"vessel='{vesselName}' " +
                         $"prevRef={prevRef} nextRef={mergedSections[i].referenceFrame} " +
                         $"prevSrc={prevSrc} nextSrc={mergedSections[i].source} " +
-                        $"dt={dt.ToString("F2", ic)}s " +
+                        $"dt={logDt.ToString("F2", ic)}s " +
                         $"expectedFromVel={expectedM.ToString("F2", ic)}m " +
+                        $"ratio={ratio} " +
                         $"cause={cause}");
                 }
             }
@@ -523,8 +526,9 @@ namespace Parsek
         ///   active data from the pre-load future was glued to resumed post-load data.</item>
         ///   <item><c>sample-skip</c> — discontinuity exceeds the velocity-implied gap;
         ///   points at a dropped-sample / drift bug or a source-tag mismatch.</item>
-        ///   <item><c>invalid-data</c> — boundary UTs or the previous tail velocity are
-        ///   non-finite, so the classifier refuses to downgrade the warning to a benign gap.</item>
+        ///   <item><c>invalid-data</c> — boundary UTs, measured discontinuity, or the
+        ///   previous tail velocity are non-finite, so the classifier refuses to
+        ///   downgrade the warning to a benign gap.</item>
         /// </list>
         /// Pure helper so unit tests can verify the classification independently of logging.
         /// </summary>
@@ -563,7 +567,9 @@ namespace Parsek
             TrajectoryPoint firstNext = next.frames[0];
 
             dtSeconds = firstNext.ut - lastPrev.ut;
-            if (!IsFinite(dtSeconds) || !IsFiniteVector3(lastPrev.velocity))
+            if (!IsFinite(dtSeconds)
+                || !IsFinite(discMeters)
+                || !IsFiniteVector3(lastPrev.velocity))
             {
                 expectedMeters = double.NaN;
                 cause = "invalid-data";
@@ -1196,6 +1202,22 @@ namespace Parsek
         private static double SanitizeMeasurementDt(double dtSeconds)
         {
             return IsFinite(dtSeconds) ? dtSeconds : 0.0;
+        }
+
+        private static string FormatBoundaryDiscontinuityRatio(
+            float discMeters, double expectedMeters)
+        {
+            if (!IsFinite(discMeters) || !IsFinite(expectedMeters))
+                return "NaN";
+
+            if (expectedMeters == 0.0)
+                return "inf";
+
+            double ratio = (double)discMeters / expectedMeters;
+            if (!IsFinite(ratio))
+                return ratio > 0.0 ? "inf" : "NaN";
+
+            return ratio.ToString("F2", CultureInfo.InvariantCulture);
         }
 
         /// <summary>
