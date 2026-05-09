@@ -19,6 +19,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Coverage:** `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_InvokesCutoffPathOnly` verifies the cutoff callback is used, and `ParsekFlightWarpCheckpointTests.RecalculateLedgerAfterWarpExit_LogsAndSwallowsRecalculationFailure` verifies non-fatal failure logging.
 
+**Known imprecision (low risk, tracked):** the cutoff UT passed to `RecalculateAndPatchForTimeJump` is `Planetarium.GetUniversalTime()` sampled at the moment the `OnTimeWarpRateChanged` handler fires (`Source/Parsek/ParsekFlight.cs:7695-7696`), not KSP's exact internal warp-end boundary. The handler-fire UT typically lands a partial frame past the true boundary, so a committed action authored at `warpEndUT - ε` (sub-frame precision relative to the boundary) could fall on the included side of the cutoff and be replayed/patched immediately on warp exit instead of staying gated until live UT reaches it. The seam comment at `ParsekFlight.cs:7695-7696` documents this — exact alignment with KSP's internal warp boundary is out of scope for the cutoff seam. In practice committed actions are not authored at sub-frame precision relative to a warp boundary the player did not control, so the risk is low; revisit if a future feature introduces UT-precise authoring near warp transitions.
+
 ---
 
 ## Open - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
