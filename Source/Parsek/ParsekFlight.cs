@@ -818,10 +818,18 @@ namespace Parsek
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
         private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
+        private readonly Dictionary<string, int> reFlyAnchorHoldStartFrameByAnchor =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> reFlyAnchorHoldCountsThisFrame =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> reFlyAnchorHoldReasonsThisFrame =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly List<string> reFlyAnchorHoldReleaseScratch = new List<string>();
         private readonly Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry> reFlyDenseAbsolutePlaybackFrameCache =
             new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
         private readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
             new HashSet<string>(StringComparer.Ordinal);
+        private int reFlySettlePoseLogUntilFrame = -1;
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
         private static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
             new Dictionary<string, TerrainCorrector.TailLiftPlan>();
@@ -999,6 +1007,16 @@ namespace Parsek
 
         #region Unity Lifecycle
 
+        void OnEnable()
+        {
+            ReFlySettleStabilityTracker.Reset();
+            reFlyAnchorHoldStartFrameByAnchor.Clear();
+            reFlyAnchorHoldCountsThisFrame.Clear();
+            reFlyAnchorHoldReasonsThisFrame.Clear();
+            reFlyAnchorHoldReleaseScratch.Clear();
+            reFlySettlePoseLogUntilFrame = -1;
+        }
+
         void Start()
         {
             Instance = this;
@@ -1174,6 +1192,8 @@ namespace Parsek
             ApplyGhostPosEntries(GhostPositionReapplyPhase.LateUpdate);
 
             ClampGhostsToTerrain(GhostPositionReapplyPhase.LateUpdate);
+
+            LogReFlySettleActiveVesselPoseIfArmed("late-update", Time.frameCount);
 
             watchMode.UpdateWatchCamera();
         }
@@ -14825,6 +14845,143 @@ namespace Parsek
                 ParsekLog.Verbose("CameraFollow", message);
         }
 
+        internal static bool ResolveReFlySettleStabilityForTesting(
+            Recording rec,
+            int frame,
+            out string anchorRecordingId,
+            out string reason)
+        {
+            return ResolveReFlySettleStability(rec, frame, out anchorRecordingId, out reason);
+        }
+
+        private static bool ResolveReFlySettleStability(
+            Recording rec,
+            int frame,
+            out string anchorRecordingId,
+            out string reason)
+        {
+            anchorRecordingId = null;
+            reason = null;
+            if (rec == null)
+                return false;
+
+            if (rec.IsDebris
+                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && TryGetReFlySettleStabilityReasonForRecording(
+                    rec.DebrisParentRecordingId, frame, out reason))
+            {
+                anchorRecordingId = rec.DebrisParentRecordingId;
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(rec.RecordingId)
+                && TryGetReFlySettleStabilityReasonForRecording(
+                    rec.RecordingId, frame, out reason))
+            {
+                anchorRecordingId = rec.RecordingId;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetReFlySettleStabilityReasonForRecording(
+            string recordingId,
+            int frame,
+            out string reason)
+        {
+            reason = null;
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+
+            if (FlightRecorder.IsReFlyPostLoadSettleActiveForRecording(recordingId))
+            {
+                reason = "settle-active";
+                return true;
+            }
+
+            return ReFlySettleStabilityTracker.TryGetHoldReasonForRecording(
+                recordingId, frame, out reason);
+        }
+
+        private void RecordReFlyAnchorHoldCandidate(string anchorRecordingId, string reason)
+        {
+            if (string.IsNullOrEmpty(anchorRecordingId))
+                return;
+
+            int count;
+            reFlyAnchorHoldCountsThisFrame.TryGetValue(anchorRecordingId, out count);
+            reFlyAnchorHoldCountsThisFrame[anchorRecordingId] = count + 1;
+            if (!reFlyAnchorHoldReasonsThisFrame.ContainsKey(anchorRecordingId))
+                reFlyAnchorHoldReasonsThisFrame[anchorRecordingId] = reason ?? "(none)";
+        }
+
+        private void LogReFlyAnchorHoldTransitions(int frame)
+        {
+            foreach (var kvp in reFlyAnchorHoldCountsThisFrame)
+            {
+                if (reFlyAnchorHoldStartFrameByAnchor.ContainsKey(kvp.Key))
+                    continue;
+
+                reFlyAnchorHoldStartFrameByAnchor[kvp.Key] = frame;
+                string reason;
+                reFlyAnchorHoldReasonsThisFrame.TryGetValue(kvp.Key, out reason);
+                ParsekLog.Info("ReFlySettle",
+                    $"Anchor ghost visibility hold engaged: anchorRec={ShortRecordingId(kvp.Key)} " +
+                    $"ghosts={kvp.Value.ToString(CultureInfo.InvariantCulture)} " +
+                    $"reason={reason ?? "(none)"} frame={frame.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            reFlyAnchorHoldReleaseScratch.Clear();
+            foreach (var kvp in reFlyAnchorHoldStartFrameByAnchor)
+            {
+                if (!reFlyAnchorHoldCountsThisFrame.ContainsKey(kvp.Key))
+                    reFlyAnchorHoldReleaseScratch.Add(kvp.Key);
+            }
+
+            for (int i = 0; i < reFlyAnchorHoldReleaseScratch.Count; i++)
+            {
+                string anchorId = reFlyAnchorHoldReleaseScratch[i];
+                int startFrame = reFlyAnchorHoldStartFrameByAnchor[anchorId];
+                int heldFrames = Math.Max(0, frame - startFrame);
+                ParsekLog.Info("ReFlySettle",
+                    $"Anchor ghost visibility hold released: anchorRec={ShortRecordingId(anchorId)} " +
+                    $"heldFrames={heldFrames.ToString(CultureInfo.InvariantCulture)} " +
+                    $"frame={frame.ToString(CultureInfo.InvariantCulture)}");
+                reFlyAnchorHoldStartFrameByAnchor.Remove(anchorId);
+            }
+
+            reFlyAnchorHoldReleaseScratch.Clear();
+        }
+
+        private static bool HasAnchorReFlyUnstableFlag(TrajectoryPlaybackFlags[] flags)
+        {
+            if (flags == null)
+                return false;
+
+            for (int i = 0; i < flags.Length; i++)
+            {
+                if (flags[i].anchorReFlyUnstable)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private void LogReFlySettleActiveVesselPoseIfArmed(string phase, int frame)
+        {
+            if (frame > reFlySettlePoseLogUntilFrame)
+                return;
+
+            Vector3d pos = FlightGlobals.ActiveVessel != null
+                ? (Vector3d)FlightGlobals.ActiveVessel.transform.position
+                : Vector3d.zero;
+            ParsekLog.Verbose("ReFlySettle",
+                $"Active vessel pose {phase}: pos={DiagnosticFormatters.FormatVector3d(pos)} " +
+                $"frame={frame.ToString(CultureInfo.InvariantCulture)} " +
+                $"activeVessel={(FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.vesselName : "(none)")}");
+        }
+
         /// <summary>
         /// Pre-computes policy flags for all committed recordings. Called once per frame
         /// before the engine's update loop. Eliminates per-recording RecordingStore queries
@@ -14834,6 +14991,9 @@ namespace Parsek
             IReadOnlyList<Recording> committed, double currentUT)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
+            int frame = FlightRecorder.GetFrameCount();
+            reFlyAnchorHoldCountsThisFrame.Clear();
+            reFlyAnchorHoldReasonsThisFrame.Clear();
             var scenario = ParsekScenario.Instance;
             var timelineInactiveIds = EffectiveState.ComputeTimelineInactiveRecordingIds(
                 committed,
@@ -14881,6 +15041,13 @@ namespace Parsek
                     && !chainSuppressed.suppressed
                     && !supersededByRelation
                     && !rewindRetired;
+                string anchorReFlyUnstableAnchorId;
+                string anchorReFlyUnstableReason;
+                bool anchorReFlyUnstable = ResolveReFlySettleStability(
+                    rec, frame, out anchorReFlyUnstableAnchorId, out anchorReFlyUnstableReason);
+                if (anchorReFlyUnstable)
+                    RecordReFlyAnchorHoldCandidate(
+                        anchorReFlyUnstableAnchorId, anchorReFlyUnstableReason);
 
                 // Log spawn suppression reason for non-debris recordings (diagnostic).
                 // Emit only when the suppression reason flips for this recording —
@@ -14931,8 +15098,10 @@ namespace Parsek
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
+                    anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
+            LogReFlyAnchorHoldTransitions(frame);
             return flags;
         }
 
@@ -14990,6 +15159,12 @@ namespace Parsek
             cachedTrajectories.Clear();
             for (int i = 0; i < committed.Count; i++)
                 cachedTrajectories.Add(committed[i]);
+
+            if (HasAnchorReFlyUnstableFlag(flags))
+            {
+                reFlySettlePoseLogUntilFrame = Time.frameCount;
+                LogReFlySettleActiveVesselPoseIfArmed("pre-engine", Time.frameCount);
+            }
 
             // Run engine rendering
             engine.UpdatePlayback(cachedTrajectories, flags, ctx);

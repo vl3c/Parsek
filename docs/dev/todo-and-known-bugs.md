@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly settle anchor jump
+
+- ~~After Re-Fly load, anchor-dependent ghosts could jump by hundreds of metres for one frame while KSP's floating origin and Krakensbane frames settled.~~ The recorder already held new trajectory samples during the post-load settle window, but playback continued to render old ghosts through the same origin shift.
+
+**Fix:** Added a shared `ReFlySettleStabilityTracker` that records settle-active/clear frames and protected `FloatingOrigin.setOffset(refPos, nonFrame)` shifts. `ParsekFlight` resolves the active recording or debris parent recording into a transient `anchorReFlyUnstable` playback flag, logs hold engage/release and active-vessel poses, and `GhostPlaybackEngine` hides primary and overlap ghosts without destroying their playback state until the hold clears. Background parent-debris suppression now uses the unified settle/hold predicate for periodic samples and structural-event snapshots.
+
+**Coverage:** `FloatingOriginSetOffsetPatchTests`, `ResolveReFlySettleStabilityTests`, `BackgroundRecorderReFlySettleStabilityTests`, `FlightPlaybackExplainabilityTests`, `PlaybackTrajectoryTests`, and in-game `ReFlyPostLoadSettle_GhostMeshHiddenDuringWindow`.
+
+---
+
 ## Done - v0.9.2 facility slot limits after warp recalc
 
 - ~~Facility-derived contract and strategy slot limits could stay one recalculation behind after warp exit or an instant time jump.~~ Source: review finding [P3]. `LedgerOrchestrator.RecalculateAndPatchCore` primed slot limits from the previous `FacilitiesModule` state before the walk, then a single warp-exit recalc walked the facility upgrade without refreshing the final Mission Control/Admin-derived availability.

@@ -1835,7 +1835,7 @@ namespace Parsek
             // unable to walk back to a parent pose. The debris recording's
             // first emitted Relative section starts at parent-settle-release UT.
             if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
-                && FlightRecorder.IsReFlyPostLoadSettleActiveForRecording(treeRec.DebrisParentRecordingId))
+                && ShouldSuppressParentDebrisForReFlySettle(treeRec, FlightRecorder.GetFrameCount()))
             {
                 ParsekLog.VerboseRateLimited("BgRecorder",
                     "debris-parent-settle-suppressed|" + treeRec.RecordingId,
@@ -1993,6 +1993,15 @@ namespace Parsek
                 $"Background point sampled: pid={pid} pts={treeRec.Points.Count} " +
                 $"alt={bgVessel.altitude:F0} dist={distance:F0}m interval={FormatInterval(proximityInterval)} " +
                 $"highFidelity={highFidelityActive} reason={state.highFidelitySamplingReason ?? "(none)"}", 5.0);
+        }
+
+        internal static bool ShouldSuppressParentDebrisForReFlySettle(Recording treeRec, int frame)
+        {
+            return treeRec != null
+                && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
+                && FlightRecorder.IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(
+                    treeRec.DebrisParentRecordingId,
+                    frame);
         }
 
         /// <summary>
@@ -6359,8 +6368,7 @@ namespace Parsek
                 // not walk back to a parent pose. Skip this vessel's snapshot;
                 // subsequent samples after settle release will reopen the section.
                 if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
-                    && FlightRecorder.IsReFlyPostLoadSettleActiveForRecording(
-                            treeRec.DebrisParentRecordingId))
+                    && ShouldSuppressParentDebrisForReFlySettle(treeRec, FlightRecorder.GetFrameCount()))
                 {
                     ParsekLog.VerboseRateLimited("BgRecorder",
                         "debris-parent-settle-suppressed-struct|" + treeRec.RecordingId,
