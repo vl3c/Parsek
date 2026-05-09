@@ -118,6 +118,13 @@ namespace Parsek
         private Dictionary<uint, TrajectoryPoint> pendingInitialTrajectoryPoints
             = new Dictionary<uint, TrajectoryPoint>();
 
+        // Focused-vessel breakup can create debris before the active parent's open
+        // TrackSection has been flushed into tree.Recordings. Queue the parent
+        // structural-event point so the debris seed can still use the split-UT
+        // parent pose instead of the live parent pose at background initialization.
+        private Dictionary<uint, (string parentRecordingId, TrajectoryPoint point)> pendingDebrisSeedParentAnchorPoints
+            = new Dictionary<uint, (string, TrajectoryPoint)>();
+
         // Reusable buffer for transition-check methods (avoids per-frame List<PartEvent> allocations)
         private readonly List<PartEvent> reusableEventBuffer = new List<PartEvent>();
 
@@ -192,6 +199,7 @@ namespace Parsek
             public double currentSampleInterval = ProximityRateSelector.OutOfRangeInterval;
             public double highFidelitySamplingUntilUT = double.NaN;
             public string highFidelitySamplingReason;
+            public bool loggedFirstDebrisOrdinarySample;
 
             // Part event tracking (mirrors FlightRecorder's instance fields)
             public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
@@ -1924,13 +1932,26 @@ namespace Parsek
                 return;
             }
 
-            TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(bgVessel, ut, currentVelocity);
+            bool preferRootPartSurfacePose = ShouldPreferRootPartSurfacePoseForBackgroundSample(treeRec);
+            TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(
+                bgVessel,
+                ut,
+                currentVelocity,
+                preferRootPartSurfacePose: preferRootPartSurfacePose);
             TryCanonicalizeBackgroundReFlyRecordingPoint(
                 state.recordingId,
                 ref point,
                 "physics-sample");
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, bgVessel, ut);
+            LogFirstDebrisOrdinarySampleDiagnostics(
+                state,
+                treeRec,
+                bgVessel,
+                absolutePoint,
+                point,
+                relativeApplied,
+                ut);
 
             // Phase 7 (design doc §13, §18 Phase 7): for surface sections
             // recorded by the loaded-background sampler, capture per-sample
@@ -1962,6 +1983,25 @@ namespace Parsek
                 $"Background point sampled: pid={pid} pts={treeRec.Points.Count} " +
                 $"alt={bgVessel.altitude:F0} dist={distance:F0}m interval={FormatInterval(proximityInterval)} " +
                 $"highFidelity={highFidelityActive} reason={state.highFidelitySamplingReason ?? "(none)"}", 5.0);
+        }
+
+        /// <summary>
+        /// Queues the focused parent's split-time pose for a debris child seed.
+        /// </summary>
+        internal void QueueDebrisSeedParentAnchorPoint(
+            uint vesselPid,
+            string parentRecordingId,
+            TrajectoryPoint parentAnchorPoint)
+        {
+            if (vesselPid == 0u || string.IsNullOrWhiteSpace(parentRecordingId))
+                return;
+
+            pendingDebrisSeedParentAnchorPoints[vesselPid] = (parentRecordingId, parentAnchorPoint);
+            ParsekLog.Verbose("BgRecorder",
+                $"Queued debris seed parent anchor point: pid={vesselPid} " +
+                $"parentRecId={parentRecordingId} " +
+                $"anchorUT={parentAnchorPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"flags={parentAnchorPoint.flags}");
         }
 
         /// <summary>
@@ -2084,6 +2124,7 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(vesselPid);
             pendingInitialTrajectoryPoints.Remove(vesselPid);
+            pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
             finalizationCaches.Remove(vesselPid);
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
@@ -3088,25 +3129,36 @@ namespace Parsek
                     : null;
                 if (parentRec == null || parentVessel == null)
                 {
+                    pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
                     ParsekLog.Warn("BgRecorder",
                         $"InitializeLoadedState: debris contract applies but parent unavailable, " +
                         $"falling back to Absolute seed: pid={vesselPid} recId={recordingId} " +
                         $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
                         $"parentRecResolved={parentRec != null} " +
-                        $"parentVesselResolved={parentVessel != null}");
+                        $"parentVesselResolved={parentVessel != null} " +
+                        $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                        $"seed={DescribeTrajectoryPointForDiagnostics(initialTrajectoryPoint)} " +
+                        $"{DescribeVesselRootForDiagnostics("child", v)}");
                 }
                 else
                 {
-                    var anchorPose = new AnchorPose(
-                        parentVessel.GetWorldPos3D(),
+                    // Same vesselTransform contract as TryResolveBackgroundAnchorPoseForCandidate:
+                    // the seed fallback (used when both queued-parent-seed and
+                    // recorded-parent-pose resolution fail) and the live candidate's
+                    // stored WorldPos must share the surface-pose frame the parent's
+                    // recorded lla lives in. GetWorldPos3D (CoMD) here would re-introduce
+                    // a smaller version of the same CoM-vs-vesselTransform mismatch on
+                    // the warn-logged failure path.
+                    var liveAnchorPose = new AnchorPose(
+                        (Vector3d)parentVessel.transform.position,
                         parentVessel.transform.rotation,
                         -1,
                         treeRecForDebris.DebrisParentRecordingId);
 
                     var liveCandidate = new RecordingAnchorCandidate(
                         treeRecForDebris.DebrisParentRecordingId,
-                        anchorPose.WorldPos,
-                        anchorPose.WorldRotation,
+                        liveAnchorPose.WorldPos,
+                        liveAnchorPose.WorldRotation,
                         AnchorCandidateSource.Live,
                         diagnosticPid: parentVessel.persistentId,
                         ghostIndex: -1,
@@ -3115,17 +3167,72 @@ namespace Parsek
                         isSameVesselLineage: false);
                     SetBackgroundCurrentAnchor(state, liveCandidate);
 
+                    AnchorPose seedAnchorPose = liveAnchorPose;
+                    string seedAnchorSource = "live";
+                    string queuedSeedAnchorReason;
+                    string recordedSeedAnchorReason = null;
+                    if (TryConsumePendingDebrisSeedParentAnchorPose(
+                            vesselPid,
+                            treeRecForDebris.DebrisParentRecordingId,
+                            initialTrajectoryPoint.ut,
+                            out AnchorPose queuedSeedAnchorPose,
+                            out queuedSeedAnchorReason))
+                    {
+                        seedAnchorPose = queuedSeedAnchorPose;
+                        seedAnchorSource = "queued-parent-seed";
+                        ParsekLog.Verbose("BgRecorder",
+                            $"InitializeLoadedState: consumed queued debris seed parent anchor: " +
+                            $"pid={vesselPid} recId={recordingId} " +
+                            $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
+                            $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)}");
+                    }
+                    else if (TryResolveBackgroundRecordedAnchorPose(
+                            treeRecForDebris.DebrisParentRecordingId,
+                            initialTrajectoryPoint.ut,
+                            out AnchorPose recordedSeedAnchorPose,
+                            out recordedSeedAnchorReason))
+                    {
+                        seedAnchorPose = recordedSeedAnchorPose;
+                        seedAnchorSource = "recorded";
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("BgRecorder",
+                            $"InitializeLoadedState: debris seed recorded parent pose unavailable, " +
+                            $"falling back to live parent pose: pid={vesselPid} recId={recordingId} " +
+                            $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
+                            $"reason={recordedSeedAnchorReason ?? "unknown"} " +
+                            $"queuedReason={queuedSeedAnchorReason ?? "unknown"} " +
+                            $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                            $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)}");
+                    }
+
                     StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Relative,
                         initialTrajectoryPoint.ut);
-                    if (!ApplyBackgroundRelativeOffsetForAnchorPose(
-                            state,
-                            ref initialTrajectoryPoint,
-                            v,
-                            anchorPose,
-                            treeRecForDebris.DebrisParentRecordingId,
-                            AnchorCandidateSource.Live,
-                            parentVessel.persistentId,
-                            logSample: true))
+                    TrajectoryPoint absoluteSeedPoint = initialTrajectoryPoint;
+                    bool seedRelativeApplied = ApplyBackgroundRelativeOffsetForAnchorPose(
+                        state,
+                        ref initialTrajectoryPoint,
+                        v,
+                        seedAnchorPose,
+                        treeRecForDebris.DebrisParentRecordingId,
+                        AnchorCandidateSource.Live,
+                        parentVessel.persistentId,
+                        logSample: true,
+                        sourceLabel: seedAnchorSource);
+                    LogDebrisSeedRelativeConversionDiagnostics(
+                        vesselPid,
+                        recordingId,
+                        treeRecForDebris.DebrisParentRecordingId,
+                        v,
+                        parentVessel,
+                        absoluteSeedPoint,
+                        initialTrajectoryPoint,
+                        seedAnchorPose,
+                        seedAnchorSource,
+                        seedRelativeApplied,
+                        ut);
+                    if (!seedRelativeApplied)
                     {
                         ParsekLog.Warn("BgRecorder",
                             $"InitializeLoadedState: debris seed transform failed, " +
@@ -3550,6 +3657,196 @@ namespace Parsek
             altitude = v.mainBody.GetAltitude(worldPos);
             rotation = Quaternion.Inverse(v.mainBody.bodyTransform.rotation) * v.rootPart.transform.rotation;
             return true;
+        }
+
+        private static void LogDebrisSeedRelativeConversionDiagnostics(
+            uint vesselPid,
+            string recordingId,
+            string parentRecordingId,
+            Vessel childVessel,
+            Vessel parentVessel,
+            TrajectoryPoint absoluteSeedPoint,
+            TrajectoryPoint relativeSeedPoint,
+            AnchorPose anchorPose,
+            string anchorSource,
+            bool relativeApplied,
+            double initUT)
+        {
+            bool hasSeedWorld = TryResolveTrajectoryPointWorldPosition(
+                absoluteSeedPoint,
+                childVessel,
+                out Vector3d seedWorld);
+            string seedAnchorDelta = hasSeedWorld
+                ? DiagnosticFormatters.FormatVector3d(seedWorld - anchorPose.WorldPos)
+                : "unresolved";
+
+            ParsekLog.Verbose("BgRecorder",
+                $"Debris seed relative conversion diagnostics: pid={vesselPid} " +
+                $"recId={recordingId} parentRecId={parentRecordingId} " +
+                $"relativeApplied={(relativeApplied ? "T" : "F")} " +
+                $"initUT={initUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"seedUT={absoluteSeedPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"init-seed-dt={(initUT - absoluteSeedPoint.ut).ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"anchorSource={anchorSource ?? "unknown"} " +
+                $"seedAbs={DescribeTrajectoryPointForDiagnostics(absoluteSeedPoint)} " +
+                $"seedWorld={(hasSeedWorld ? DiagnosticFormatters.FormatVector3d(seedWorld) : "unresolved")} " +
+                $"anchorWorld={DiagnosticFormatters.FormatVector3d(anchorPose.WorldPos)} " +
+                $"seed-anchor={seedAnchorDelta} " +
+                $"relativeOffset={DiagnosticFormatters.FormatVector3d(new Vector3d(relativeSeedPoint.latitude, relativeSeedPoint.longitude, relativeSeedPoint.altitude))} " +
+                $"{DescribeVesselRootForDiagnostics("child", childVessel)} " +
+                $"{DescribeVesselRootForDiagnostics("parent", parentVessel)}");
+        }
+
+        private static void LogFirstDebrisOrdinarySampleDiagnostics(
+            BackgroundVesselState state,
+            Recording treeRec,
+            Vessel bgVessel,
+            TrajectoryPoint absolutePoint,
+            TrajectoryPoint recordedPoint,
+            bool relativeApplied,
+            double sampleUT)
+        {
+            if (state == null
+                || treeRec == null
+                || string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
+                || state.loggedFirstDebrisOrdinarySample)
+            {
+                return;
+            }
+
+            state.loggedFirstDebrisOrdinarySample = true;
+            bool hasAbsoluteWorld = TryResolveTrajectoryPointWorldPosition(
+                absolutePoint,
+                bgVessel,
+                out Vector3d absoluteWorld);
+            Vector3d rootWorld = bgVessel?.rootPart?.transform != null
+                ? (Vector3d)bgVessel.rootPart.transform.position
+                : Vector3d.zero;
+            bool hasRootWorld = bgVessel?.rootPart?.transform != null;
+            string absoluteRootDelta = hasAbsoluteWorld && hasRootWorld
+                ? DiagnosticFormatters.FormatVector3d(absoluteWorld - rootWorld)
+                : "unresolved";
+            string seedToSampleDt = IsFiniteUT(state.lastRecordedUT)
+                ? (sampleUT - state.lastRecordedUT).ToString("F3", CultureInfo.InvariantCulture)
+                : "n/a";
+
+            ParsekLog.Verbose("BgRecorder",
+                $"First debris ordinary sample diagnostics: pid={state.vesselPid} " +
+                $"recId={treeRec.RecordingId} parentRecId={treeRec.DebrisParentRecordingId} " +
+                $"sampleUT={sampleUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"prevRecordedUT={(IsFiniteUT(state.lastRecordedUT) ? state.lastRecordedUT.ToString("F3", CultureInfo.InvariantCulture) : "n/a")} " +
+                $"sample-prev-dt={seedToSampleDt} " +
+                $"relativeApplied={(relativeApplied ? "T" : "F")} " +
+                $"absolutePoint={DescribeTrajectoryPointForDiagnostics(absolutePoint)} " +
+                $"recordedPoint={DescribeTrajectoryPointForDiagnostics(recordedPoint)} " +
+                $"absoluteWorld={(hasAbsoluteWorld ? DiagnosticFormatters.FormatVector3d(absoluteWorld) : "unresolved")} " +
+                $"rootWorld={(hasRootWorld ? DiagnosticFormatters.FormatVector3d(rootWorld) : "unresolved")} " +
+                $"absolute-root={absoluteRootDelta} " +
+                $"{DescribeVesselRootForDiagnostics("sample", bgVessel)}");
+        }
+
+        private static bool TryResolveTrajectoryPointWorldPosition(
+            TrajectoryPoint point,
+            Vessel contextVessel,
+            out Vector3d worldPosition)
+        {
+            worldPosition = Vector3d.zero;
+            CelestialBody body = contextVessel?.mainBody;
+            if ((body == null || !string.Equals(body.name, point.bodyName, StringComparison.Ordinal))
+                && FlightGlobals.Bodies != null)
+            {
+                body = FlightGlobals.Bodies.Find(b =>
+                    b != null && string.Equals(b.name, point.bodyName, StringComparison.Ordinal));
+            }
+
+            if (body == null)
+                return false;
+
+            try
+            {
+                worldPosition = body.GetWorldSurfacePosition(
+                    point.latitude,
+                    point.longitude,
+                    point.altitude);
+                return true;
+            }
+            catch (Exception)
+            {
+                worldPosition = Vector3d.zero;
+                return false;
+            }
+        }
+
+        private static string DescribeVesselRootForDiagnostics(string label, Vessel vessel)
+        {
+            if (vessel == null)
+                return label + "=null";
+
+            Part rootPart = vessel.rootPart;
+            string vesselWorld = SafeFormatVesselWorldPosition(vessel);
+            if (rootPart == null)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}Vessel pid={1} name='{2}' vesselWorld={3} root=null",
+                    label,
+                    vessel.persistentId,
+                    vessel.vesselName ?? "unknown",
+                    vesselWorld);
+            }
+
+            string rootWorld = rootPart.transform != null
+                ? DiagnosticFormatters.FormatVector3d(rootPart.transform.position)
+                : "no-transform";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}Vessel pid={1} name='{2}' vesselWorld={3} root='{4}' rootPid={5} rootWorld={6} srfAttach={7}",
+                label,
+                vessel.persistentId,
+                vessel.vesselName ?? "unknown",
+                vesselWorld,
+                rootPart.partInfo?.name ?? rootPart.name ?? "unknown",
+                rootPart.persistentId,
+                rootWorld,
+                DiagnosticFormatters.DescribeSurfaceAttachNode(rootPart));
+        }
+
+        private static string SafeFormatVesselWorldPosition(Vessel vessel)
+        {
+            try
+            {
+                return vessel != null
+                    ? DiagnosticFormatters.FormatVector3d(vessel.GetWorldPos3D())
+                    : "null";
+            }
+            catch (Exception)
+            {
+                // Diagnostics should not fail sampling if KSP cannot resolve the
+                // world position during scene/load transitions.
+                return "unresolved";
+            }
+        }
+
+        private static string DescribeTrajectoryPointForDiagnostics(TrajectoryPoint point)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "ut={0:F3} body={1} lla=({2:F4},{3:F4},{4:F2}) rot={5} vel={6}",
+                point.ut,
+                point.bodyName ?? "unknown",
+                point.latitude,
+                point.longitude,
+                point.altitude,
+                DiagnosticFormatters.FormatQuaternion(point.rotation),
+                DiagnosticFormatters.FormatVector3(point.velocity));
+        }
+
+        internal static bool ShouldPreferRootPartSurfacePoseForBackgroundSample(Recording treeRec)
+        {
+            // v12+ parent-anchored debris snapshots and seed samples are root-part based.
+            // Keep periodic background samples on the same pose contract so the ghost root
+            // does not jump from a root-part seed to a vessel-origin ordinary sample.
+            return treeRec != null && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId);
         }
 
         internal static TrajectoryPoint CreateAbsoluteTrajectoryPointFromVessel(
@@ -4202,7 +4499,8 @@ namespace Parsek
             string anchorRecordingId,
             AnchorCandidateSource source,
             uint diagnosticPid,
-            bool logSample)
+            bool logSample,
+            string sourceLabel = null)
         {
             if (state == null || vessel == null || string.IsNullOrWhiteSpace(anchorRecordingId))
                 return false;
@@ -4222,8 +4520,16 @@ namespace Parsek
             point.latitude = offset.x;
             point.longitude = offset.y;
             point.altitude = offset.z;
+            Quaternion focusWorldRotation;
+            if (!FlightRecorder.TryResolveAbsolutePointWorldRotationForRelativeOffset(
+                    point,
+                    vessel,
+                    out focusWorldRotation))
+            {
+                focusWorldRotation = vessel.transform.rotation;
+            }
             point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
-                vessel.transform.rotation,
+                focusWorldRotation,
                 anchorPose.WorldRotation);
 
             ApplyBackgroundCurrentAnchorToTrackSection(state);
@@ -4235,7 +4541,8 @@ namespace Parsek
                     $"RELATIVE sample: pid={state.vesselPid} " +
                     $"contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
                     $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
-                    $"anchorRecordingId={anchorRecordingId} source={source} diagnosticPid={diagnosticPid} " +
+                    $"anchorRecordingId={anchorRecordingId} source={sourceLabel ?? source.ToString()} " +
+                    $"diagnosticPid={diagnosticPid} " +
                     $"|offset|={offset.magnitude:F2}m",
                     2.0);
             }
@@ -4288,8 +4595,18 @@ namespace Parsek
                 Vessel liveAnchor = FlightRecorder.FindVesselByPid(candidate.DiagnosticPid);
                 if (liveAnchor != null && liveAnchor.loaded)
                 {
+                    // Match the recorded surface-pose frame: KSP's UpdatePosVel writes
+                    // Vessel.latitude/longitude/altitude from vesselTransform.position
+                    // and srfRelRotation from vesselTransform.rotation, so playback
+                    // (body.GetWorldSurfacePosition of the recorded lla) reconstructs
+                    // a vesselTransform-aligned anchor world position. The previous
+                    // GetWorldPos3D (CoM) source baked the parent's CoM-to-vesselTransform
+                    // vector into every relative ordinary offset. Use vessel.transform
+                    // explicitly, not GetTransform() — the latter follows
+                    // ReferenceTransform ("Control From Here") which is not the surface
+                    // pose contract.
                     pose = new AnchorPose(
-                        liveAnchor.GetWorldPos3D(),
+                        (Vector3d)liveAnchor.transform.position,
                         liveAnchor.transform.rotation,
                         -1,
                         candidate.RecordingId);
@@ -4616,6 +4933,165 @@ namespace Parsek
 
             point = default(TrajectoryPoint);
             return false;
+        }
+
+        internal static bool IsPendingDebrisSeedParentAnchorUsable(
+            string queuedParentRecordingId,
+            string expectedParentRecordingId,
+            double queuedUT,
+            double seedUT,
+            out string reason,
+            double toleranceSeconds = 1e-6)
+        {
+            reason = null;
+            if (string.IsNullOrWhiteSpace(queuedParentRecordingId))
+            {
+                reason = "queued-parent-recording-id-missing";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(expectedParentRecordingId))
+            {
+                reason = "expected-parent-recording-id-missing";
+                return false;
+            }
+
+            if (!string.Equals(queuedParentRecordingId, expectedParentRecordingId, StringComparison.Ordinal))
+            {
+                reason = "queued-parent-recording-id-mismatch";
+                return false;
+            }
+
+            if (double.IsNaN(queuedUT)
+                || double.IsInfinity(queuedUT)
+                || double.IsNaN(seedUT)
+                || double.IsInfinity(seedUT))
+            {
+                reason = "queued-parent-anchor-ut-invalid";
+                return false;
+            }
+
+            if (double.IsNaN(toleranceSeconds)
+                || double.IsInfinity(toleranceSeconds)
+                || toleranceSeconds < 0.0)
+            {
+                reason = "queued-parent-anchor-tolerance-invalid";
+                return false;
+            }
+
+            if (Math.Abs(queuedUT - seedUT) > toleranceSeconds)
+            {
+                reason = "queued-parent-anchor-ut-mismatch";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool TryConsumePendingDebrisSeedParentAnchorPose(
+            uint vesselPid,
+            string expectedParentRecordingId,
+            double seedUT,
+            out AnchorPose pose,
+            out string reason)
+        {
+            pose = default;
+            reason = null;
+            if (!pendingDebrisSeedParentAnchorPoints.TryGetValue(
+                    vesselPid,
+                    out (string parentRecordingId, TrajectoryPoint point) pending))
+            {
+                reason = "queued-parent-anchor-missing";
+                return false;
+            }
+
+            pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
+            if (!IsPendingDebrisSeedParentAnchorUsable(
+                    pending.parentRecordingId,
+                    expectedParentRecordingId,
+                    pending.point.ut,
+                    seedUT,
+                    out reason))
+            {
+                return false;
+            }
+
+            if (!TryCreateAnchorPoseFromAbsolutePoint(
+                    pending.point,
+                    expectedParentRecordingId,
+                    out pose,
+                    out reason))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryCreateAnchorPoseFromAbsolutePoint(
+            TrajectoryPoint point,
+            string recordingId,
+            out AnchorPose pose,
+            out string reason)
+        {
+            pose = default;
+            reason = null;
+            CelestialBody body = FindBackgroundBody(point.bodyName);
+            if (body == null || body.bodyTransform == null)
+            {
+                reason = "queued-parent-anchor-body-unresolved";
+                return false;
+            }
+
+            Vector3d worldPos;
+            try
+            {
+                worldPos = body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            }
+            catch (Exception)
+            {
+                reason = "queued-parent-anchor-world-position-unresolved";
+                return false;
+            }
+
+            Quaternion worldRotation = TrajectoryMath.PureMultiply(
+                body.bodyTransform.rotation,
+                TrajectoryMath.SanitizeQuaternion(point.rotation));
+            pose = new AnchorPose(worldPos, worldRotation, -1, recordingId);
+            if (!IsFiniteAnchorPose(pose))
+            {
+                reason = "queued-parent-anchor-pose-nonfinite";
+                pose = default;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsFiniteAnchorPose(AnchorPose pose)
+        {
+            return IsFinite(pose.WorldPos)
+                && IsFinite(pose.WorldRotation);
+        }
+
+        private static bool IsFinite(Vector3d value)
+        {
+            return IsFinite(value.x)
+                && IsFinite(value.y)
+                && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(Quaternion value)
+        {
+            return IsFinite(value.x)
+                && IsFinite(value.y)
+                && IsFinite(value.z)
+                && IsFinite(value.w);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         /// <summary>
@@ -5321,14 +5797,16 @@ namespace Parsek
                 if (part == null || engine == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
-                bool ignited = engine.EngineIgnited && engine.isOperational;
-                float throttle = engine.currentThrottle;
+                bool ignited = FlightRecorder.ShouldRecordEngineAsIgnited(
+                    engine.EngineIgnited, engine.isOperational, engine.finalThrust);
+                float recordedPower = FlightRecorder.ComputeRecordedEnginePower(
+                    engine.currentThrottle, engine.finalThrust, engine.maxThrust);
 
                 reusableEventBuffer.Clear();
                 FlightRecorder.CheckEngineTransition(
                     key, part.persistentId, moduleIndex,
                     part.partInfo?.name ?? "unknown",
-                    ignited, throttle,
+                    ignited, recordedPower,
                     state.activeEngineKeys, state.lastThrottle, ut, reusableEventBuffer);
 
                 for (int e = 0; e < reusableEventBuffer.Count; e++)

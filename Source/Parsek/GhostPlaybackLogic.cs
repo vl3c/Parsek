@@ -2831,6 +2831,23 @@ namespace Parsek
             if (state?.audioInfos == null)
                 return;
 
+            if (state.audioPaused)
+            {
+                foreach (var info in state.audioInfos.Values)
+                {
+                    if (info == null || ReferenceEquals(info.audioSource, null))
+                        continue;
+
+                    if (info.currentPower <= 0f)
+                        StopLoopedGhostAudio(info, "paused-power=0", force: true);
+                    else if (info.audioSource.isPlaying)
+                        info.audioSource.Pause();
+                }
+                if (state.oneShotAudio?.audioSource != null && state.oneShotAudio.audioSource.isPlaying)
+                    state.oneShotAudio.audioSource.Pause();
+                return;
+            }
+
             if (state.audioMuted || state.atmosphereFactor < 0.001f)
             {
                 string stopReason = state.audioMuted ? "muted" : "vacuum";
@@ -2931,6 +2948,12 @@ namespace Parsek
             if (!state.audioInfos.TryGetValue(key, out info)) return false;
 
             info.currentPower = power;
+            if (state.audioPaused)
+            {
+                if (!ReferenceEquals(info.audioSource, null) && power <= 0f)
+                    StopLoopedGhostAudio(info, "paused-power=0", force: true);
+                return true;
+            }
             if (state.audioMuted)
             {
                 // Keep tracked power in sync during warp so unmute resumes the correct state.
@@ -2980,6 +3003,7 @@ namespace Parsek
         internal static void PlayOneShotAtGhost(GhostPlaybackState state, PartEventType eventType)
         {
             if (state.oneShotAudio?.audioSource == null) return;
+            if (state.audioPaused) return;
             // One-shot events (explosions) bypass audioMuted — they're dramatic moments
             // that should always be audible, even for overlap ghosts about to expire.
             if (state.atmosphereFactor < 0.001f) return; // no sound in vacuum
@@ -3516,11 +3540,17 @@ namespace Parsek
         internal static void PauseAllAudio(GhostPlaybackState state)
         {
             if (state == null) return;
+            state.audioPaused = true;
             if (state.audioInfos != null)
             {
                 foreach (var info in state.audioInfos.Values)
                 {
-                    if (info.audioSource != null && info.audioSource.isPlaying)
+                    if (info.audioSource == null)
+                        continue;
+
+                    if (info.currentPower <= 0f)
+                        StopLoopedGhostAudio(info, "paused-power=0", force: true);
+                    else if (info.audioSource.isPlaying)
                         info.audioSource.Pause();
                 }
             }
@@ -3534,11 +3564,17 @@ namespace Parsek
         internal static void UnpauseAllAudio(GhostPlaybackState state)
         {
             if (state == null) return;
+            state.audioPaused = false;
             if (state.audioInfos != null)
             {
                 foreach (var info in state.audioInfos.Values)
                 {
-                    if (info.audioSource != null)
+                    if (info.audioSource == null)
+                        continue;
+
+                    if (info.currentPower <= 0f)
+                        StopLoopedGhostAudio(info, "power=0", force: true);
+                    else
                         info.audioSource.UnPause();
                 }
             }
@@ -3596,7 +3632,7 @@ namespace Parsek
         /// </summary>
         internal static void UpdateAudioAtmosphere(GhostPlaybackState state)
         {
-            if (state == null || state.audioInfos == null || state.audioMuted) return;
+            if (state == null || state.audioInfos == null || state.audioMuted || state.audioPaused) return;
 
             float newFactor = ComputeAtmosphereFactor(state);
 
@@ -3754,10 +3790,21 @@ namespace Parsek
 
         private static void StopLoopedGhostAudio(AudioGhostInfo info, string reason)
         {
-            if (info == null || ReferenceEquals(info.audioSource, null) || !info.audioSource.isPlaying)
+            StopLoopedGhostAudio(info, reason, force: false);
+        }
+
+        private static void StopLoopedGhostAudio(AudioGhostInfo info, string reason, bool force)
+        {
+            if (info == null || ReferenceEquals(info.audioSource, null))
+                return;
+            bool wasPlaying = info.audioSource.isPlaying;
+            if (!force && !wasPlaying)
                 return;
 
             info.audioSource.Stop();
+            if (!wasPlaying)
+                return;
+
             ParsekLog.VerboseRateLimited("GhostAudio",
                 $"audio-stop-{info.partPersistentId}-{info.moduleIndex}",
                 $"Engine audio stopped: pid={info.partPersistentId} midx={info.moduleIndex} reason={reason}",
@@ -4103,7 +4150,7 @@ namespace Parsek
             GhostPlaybackState state)
         {
             var restores = new List<(ulong key, float power)>();
-            if (state?.audioInfos == null || state.audioMuted)
+            if (state?.audioInfos == null || state.audioMuted || state.audioPaused)
                 return restores;
 
             foreach (var kvp in state.audioInfos)
