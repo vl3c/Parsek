@@ -201,6 +201,13 @@ namespace Parsek
         internal static Action<string> OnRecordingCommittedPostSciencePersistFaultInjector;
 
         /// <summary>
+        /// Test-only hook fired after old-save event migration has had its targeted
+        /// reconcile pass on load. Used to prove later load-time synthesizers are not
+        /// swept by a broad second reconcile.
+        /// </summary>
+        internal static Action OnKspLoadAfterOldSaveEventReconcileForTesting;
+
+        /// <summary>
         /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
         /// in a multi-recording tree that should NOT absorb any pending science subjects.
         /// Distinct from <c>null</c>, which means "read from the static list as usual"
@@ -1605,12 +1612,12 @@ namespace Parsek
                     authoritativeRepeatableRecordState);
             }
 
-            // #391: rebuild committedScienceSubjects from the walk's authoritative
-            // per-subject credits. This prunes stale entries left behind when a
-            // recording was deleted (the old dictionary was only ever appended to,
-            // never pruned). Without this, TryRecoverBrokenLedgerOnLoad would
-            // synthesize ghost ScienceEarning actions for the stale subjects.
-            RebuildCommittedScienceFromWalk();
+            // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
+            // the full surviving ledger, not from the current-UT ScienceModule. Cutoff
+            // walks intentionally leave the live module at the rewind/jump target, but
+            // the persisted cache is a load-recovery source and must retain future
+            // committed science rows that still survive in the ledger.
+            RebuildCommittedScienceFromSurvivingLedger(actions);
 
             string completeStateKey = string.Format(
                 CultureInfo.InvariantCulture,
@@ -1779,24 +1786,106 @@ namespace Parsek
         /// <summary>
         /// Rebuilds the committed science subjects dictionary via
         /// <see cref="GameStateStore.RebuildCommittedScienceSubjects"/>
-        /// from the <see cref="ScienceModule"/> walk state. After a recalculation
-        /// walk, the module has authoritative per-subject credited totals — these
-        /// are the source of truth because they derive purely from surviving ledger
-        /// actions. Replaces the stale append-only dictionary.
+        /// from the full surviving ledger action set. This is intentionally separate
+        /// from the live <see cref="ScienceModule"/> state: cutoff walks keep that
+        /// module at the current UT for KSP patching, while this persisted cache is
+        /// used as a future load-recovery source of truth.
         /// </summary>
-        private static void RebuildCommittedScienceFromWalk()
+        private static void RebuildCommittedScienceFromSurvivingLedger(
+            IReadOnlyList<GameAction> actions)
         {
-            if (scienceModule == null) return;
+            int scienceActionCount;
+            var pairs = BuildCommittedScienceSubjectCredits(actions, out scienceActionCount);
+            GameStateStore.RebuildCommittedScienceSubjects(pairs);
 
-            var walkSubjects = scienceModule.GetAllSubjects();
-            var pairs = new List<KeyValuePair<string, float>>(walkSubjects.Count);
-            foreach (var kvp in walkSubjects)
+            int actionCount = actions == null ? 0 : actions.Count;
+            ParsekLog.Verbose(Tag,
+                "RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects " +
+                $"from surviving ledger (subjects={pairs.Count}, scienceActions={scienceActionCount}, " +
+                $"actions={actionCount})");
+        }
+
+        private struct CommittedScienceCreditState
+        {
+            public double CreditedTotal;
+            public double MaxValue;
+        }
+
+        internal static List<KeyValuePair<string, float>> BuildCommittedScienceSubjectCredits(
+            IReadOnlyList<GameAction> actions,
+            out int scienceActionCount)
+        {
+            scienceActionCount = 0;
+            var pairs = new List<KeyValuePair<string, float>>();
+            if (actions == null || actions.Count == 0)
+                return pairs;
+
+            var scienceActions = new List<GameAction>();
+            for (int i = 0; i < actions.Count; i++)
             {
-                if (kvp.Value.CreditedTotal > 0.0)
-                    pairs.Add(new KeyValuePair<string, float>(kvp.Key, (float)kvp.Value.CreditedTotal));
+                var action = actions[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceEarning ||
+                    string.IsNullOrEmpty(action.SubjectId) ||
+                    action.ScienceAwarded <= 0f)
+                {
+                    continue;
+                }
+
+                scienceActions.Add(action);
             }
 
-            GameStateStore.RebuildCommittedScienceSubjects(pairs);
+            scienceActionCount = scienceActions.Count;
+            if (scienceActionCount == 0)
+                return pairs;
+
+            var sorted = RecalculationEngine.SortActions(scienceActions);
+            var credits = new Dictionary<string, CommittedScienceCreditState>(
+                StringComparer.Ordinal);
+
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var action = sorted[i];
+                string subjectId = action.SubjectId;
+
+                CommittedScienceCreditState state;
+                if (!credits.TryGetValue(subjectId, out state))
+                {
+                    state = new CommittedScienceCreditState
+                    {
+                        CreditedTotal = 0.0,
+                        MaxValue = action.SubjectMaxValue
+                    };
+                }
+
+                // Monotonic max-value assumption: a KSP science subject's cap should
+                // stay stable or only increase across surviving ledger rows. Keep the
+                // largest observed cap so older/migration rows with smaller caps cannot
+                // reduce headroom that was available to later committed science.
+                if (action.SubjectMaxValue > state.MaxValue)
+                    state.MaxValue = action.SubjectMaxValue;
+
+                double headroom = state.MaxValue - state.CreditedTotal;
+                if (headroom < 0.0)
+                    headroom = 0.0;
+
+                double effectiveScience = Math.Min((double)action.ScienceAwarded, headroom);
+                if (effectiveScience < 0.0)
+                    effectiveScience = 0.0;
+
+                state.CreditedTotal += effectiveScience;
+                credits[subjectId] = state;
+            }
+
+            foreach (var kvp in credits)
+            {
+                if (kvp.Value.CreditedTotal > 0.0)
+                    pairs.Add(new KeyValuePair<string, float>(
+                        kvp.Key,
+                        (float)kvp.Value.CreditedTotal));
+            }
+
+            return pairs;
         }
 
         /// <summary>
@@ -1804,7 +1893,7 @@ namespace Parsek
         /// then recalculate and patch.
         /// </summary>
         /// <param name="validRecordingIds">Set of recording IDs present in the loaded save.</param>
-        /// <param name="maxUT">Current UT — spending actions after this are pruned.</param>
+        /// <param name="maxUT">Current UT — future spendings and contract lifecycle rows after this are pruned.</param>
         internal static void OnKspLoad(HashSet<string> validRecordingIds, double maxUT)
         {
             Initialize();
@@ -1850,12 +1939,19 @@ namespace Parsek
             // Migration: if ledger is still empty after reconcile but committed recordings exist,
             // this is an old save being loaded for the first time with the ledger system.
             // Convert existing GameStateStore events into GameActions.
-            // Done AFTER reconcile so migrated actions are not pruned (they have null recordingId
-            // which would be pruned for earning types if reconcile ran after).
+            // Done AFTER the existing-ledger reconcile, then immediately reconciled so
+            // future rows from the old event store cannot bypass maxUT on first load.
             if (Ledger.Actions.Count == 0 && validRecordingIds != null && validRecordingIds.Count > 0)
             {
+                int beforeOldSaveMigration = Ledger.Actions.Count;
                 MigrateOldSaveEvents(validRecordingIds);
+                if (Ledger.Actions.Count != beforeOldSaveMigration)
+                {
+                    Ledger.Reconcile(validRecordingIds, maxUT);
+                }
             }
+
+            OnKspLoadAfterOldSaveEventReconcileForTesting?.Invoke();
 
             // Migration: ensure all committed recordings have KerbalAssignment actions.
             // Old saves predating the KerbalAssignment feature have recordings but no
@@ -1876,7 +1972,7 @@ namespace Parsek
             // reason: their recording ids are no longer part of the current timeline.
             try
             {
-                TryRecoverBrokenLedgerOnLoad();
+                TryRecoverBrokenLedgerOnLoad(maxUT);
             }
             catch (Exception ex)
             {
@@ -2270,9 +2366,9 @@ namespace Parsek
         /// One-shot save recovery migration for legacy saves with missing funds,
         /// contract, or science ledger rows.
         /// </summary>
-        internal static int TryRecoverBrokenLedgerOnLoad()
+        internal static int TryRecoverBrokenLedgerOnLoad(double? maxUT = null)
         {
-            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad();
+            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad(maxUT);
         }
 
         /// <summary>Pure: event types the migration can synthesize actions for.</summary>
@@ -3284,6 +3380,7 @@ namespace Parsek
             OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
+            OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }

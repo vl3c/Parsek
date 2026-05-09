@@ -21,6 +21,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 cutoff committed-science cache preservation
+
+- ~~Cutoff recalculations rebuilt the persisted committed-science recovery cache from the cutoff-filtered `ScienceModule`, so saving after a rewind or time jump could serialize only the past slice of `SCIENCE_SUBJECTS` and delete the recovery source for future committed science.~~ Source: review finding [P2].
+
+**Fix:** `LedgerOrchestrator` now rebuilds the committed-science cache from the full surviving post-tombstone ledger, while the live `ScienceModule` still respects the requested cutoff. This keeps recovery metadata for future committed science without leaking that future science into the live cutoff state.
+
+**Coverage:** `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffWalk_KeepsFutureScienceInCommittedCacheOnly`, `CommittedScienceCacheRebuildTests.RecalculateAndPatch_FullWalk_PrunesDeletedScienceSubjectsFromCommittedCache`, and `CommittedScienceCacheRebuildTests.RecalculateAndPatch_CutoffThenFullWalk_DoesNotDriftCommittedCache`.
+
+---
+
 ## Done - v0.9.2 late contract completion replay
 
 - ~~Recorded or recovered contract completions after the accepted deadline could suppress the synthetic deadline failure and still pay completion rewards.~~ A related replay gap allowed a completion after an explicit fail or cancel to pay out against an already-resolved contract id.
@@ -50,6 +60,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 - **Follow-up fix (`logs/2026-05-09_1416_radial-booster-still-too-forward-after-pr780-revert`):** After PR #780 the seed alignment was correct (`seed-anchor` magnitude matched the booster→parent vesselTransform distance), but every first-ordinary sample collapsed to a much smaller offset. The recorder's live anchor pose for relative recordings used `liveAnchor.GetWorldPos3D()` (CoM, per the decompiled `CoMD` path) for the position field while the rotation field used `liveAnchor.transform.rotation` (vesselTransform), and KSP's `UpdatePosVel` writes `Vessel.latitude/longitude/altitude` from `vesselTransform.position` so playback's `body.GetWorldSurfacePosition` resolves to vesselTransform-aligned. The position/rotation reference asymmetry baked the parent's CoM-to-vesselTransform vector (~10 m for Kerbal X) into every ordinary offset, rendering radial booster ghosts ~10 m forward of true position throughout playback. Fix: live anchor position now uses `(Vector3d)liveAnchor.transform.position` (explicitly `vessel.transform`, not `GetTransform()` — the latter follows `ReferenceTransform` / "Control From Here" which is a separate contract) in `BackgroundRecorder.TryResolveBackgroundAnchorPoseForCandidate`, `FlightRecorder.TryResolveAnchorPoseForCandidate`, the debris seed fallback in `BackgroundRecorder.InitializeLoadedState`, the loop-relative playback path (`ParsekFlight.TryResolveLoopLiveAnchorPose` — also covers the LateUpdate reapplication call site), and `ProductionAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos`. The recorder and playback now share the same vesselTransform contract end-to-end.
 
 **Status:** OPEN 2026-05-09 pending in-game validation of the live-anchor vesselTransform fix.
+
+---
+
+## Done - v0.9.2 contract lifecycle reconcile cutoff
+
+- ~~Future `ContractAccept` rows with valid recording ids survived load reconciliation even when `maxUT` should have pruned them.~~ Follow-up review extended the same rule to `ContractComplete`, `ContractFail`, and `ContractCancel`, because preserving only part of a future contract lifecycle can restore active contracts, advances, completions, or penalties after loading an earlier save.
+
+**Fix:** `Ledger.Reconcile` treats the full contract lifecycle as timeline state. Any lifecycle action with `UT > maxUT` is pruned even if its `RecordingId` is otherwise valid; `OnKspLoad` reconciles old-save event migration output immediately and bounds broken-ledger event-store recovery by `maxUT` instead of running a broad second pass over later load-time rows.
+
+**Coverage:** `LedgerTests.Reconcile_FutureContractAcceptAndCompleteWithValidRecordingId_PrunesBoth`, `LedgerTests.Reconcile_FutureContractResolutionWithValidRecordingId_PrunedByMaxUt`, `LedgerTests.Reconcile_ContractResolutionWithInvalidRecordingId_PrunedByRecordingId`, `LedgerTests.Reconcile_ContractLifecycleRowsAtMaxUt_AreKept`, `GameStateRecorderLedgerTests.OnKspLoad_MigratedFutureContractLifecycleRows_PrunedByMaxUt`, and `GameStateRecorderLedgerTests.OnKspLoad_PostMigrationSyntheticFutureContractAccept_SurvivesTargetedReconcile`.
 
 ---
 

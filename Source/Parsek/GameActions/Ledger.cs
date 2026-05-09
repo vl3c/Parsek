@@ -497,8 +497,8 @@ namespace Parsek
         ///   are removed (null-tagged earnings/spendings are career-level and survive the
         ///   recording-set check — e.g. milestones achieved at recovery or KSC-side
         ///   purchases).
-        /// - Spending actions whose UT is strictly after maxUT are removed regardless of
-        ///   their RecordingId.
+        /// - Spending actions and contract lifecycle rows whose UT is strictly after maxUT
+        ///   are removed regardless of their RecordingId.
         /// Earnings and spendings are classified by <see cref="RecalculationEngine.IsEarningType"/>
         /// and <see cref="RecalculationEngine.IsSpendingType"/>.
         /// FundsInitial actions are always kept.
@@ -515,6 +515,7 @@ namespace Parsek
             int prunedEarnings = 0;
             int prunedSpendings = 0;
             int prunedSpendingsByRecordingId = 0;
+            int prunedContractLifecycle = 0;
             int prunedOther = 0;
             int kept = 0;
 
@@ -531,6 +532,47 @@ namespace Parsek
                 {
                     surviving.Add(action);
                     kept++;
+                    continue;
+                }
+
+                // Contract lifecycle rows consume slots and/or resolve accepted
+                // contracts. Keep them as a timeline-consistent group before the
+                // generic earning/spending branches so a future accept cannot be
+                // pruned while its future completion survives as an earning.
+                if (IsContractLifecycleType(action.Type))
+                {
+                    if (action.UT > maxUT)
+                    {
+                        IncrementContractLifecyclePrunedCounter(action.Type,
+                            ref prunedEarnings,
+                            ref prunedSpendings,
+                            ref prunedOther);
+                        prunedContractLifecycle++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned contract lifecycle: type={action.Type}, " +
+                            $"contractId='{action.ContractId ?? "(null)"}', " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)} > " +
+                            $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                            $"recordingId='{action.RecordingId ?? "(null)"}'");
+                    }
+                    else if (action.RecordingId != null && !validRecordingIds.Contains(action.RecordingId))
+                    {
+                        IncrementContractLifecyclePrunedCounter(action.Type,
+                            ref prunedEarnings,
+                            ref prunedSpendingsByRecordingId,
+                            ref prunedOther);
+                        prunedContractLifecycle++;
+                        ParsekLog.Verbose("Ledger",
+                            $"Pruned contract lifecycle: type={action.Type}, " +
+                            $"contractId='{action.ContractId ?? "(null)"}', " +
+                            $"recordingId='{action.RecordingId}' not in validRecordingIds, " +
+                            $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+                    else
+                    {
+                        surviving.Add(action);
+                        kept++;
+                    }
                     continue;
                 }
 
@@ -587,7 +629,7 @@ namespace Parsek
                     continue;
                 }
 
-                // Other action types (e.g. ContractAccept, KerbalAssignment, etc.)
+                // Other action types (e.g. KerbalAssignment, etc.)
                 // that are neither earning nor spending: keep if recordingId is valid
                 // or if they have no recordingId and UT is within range
                 if (action.RecordingId != null)
@@ -630,9 +672,33 @@ namespace Parsek
                 $"Reconcile complete: before={before}, kept={kept}, " +
                 $"prunedEarnings={prunedEarnings}, prunedSpendings={prunedSpendings}, " +
                 $"prunedSpendingsByRecordingId={prunedSpendingsByRecordingId}, " +
+                $"prunedContractLifecycle={prunedContractLifecycle}, " +
                 $"prunedOther={prunedOther}, " +
                 $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                 $"validRecordingIds={validRecordingIds.Count}");
+        }
+
+        private static bool IsContractLifecycleType(GameActionType type)
+        {
+            return type == GameActionType.ContractAccept
+                || type == GameActionType.ContractComplete
+                || type == GameActionType.ContractFail
+                || type == GameActionType.ContractCancel;
+        }
+
+        private static void IncrementContractLifecyclePrunedCounter(
+            GameActionType type,
+            ref int prunedEarnings,
+            ref int prunedSpendings,
+            ref int prunedOther)
+        {
+            if (type == GameActionType.ContractComplete)
+                prunedEarnings++;
+            else if (type == GameActionType.ContractFail
+                || type == GameActionType.ContractCancel)
+                prunedSpendings++;
+            else
+                prunedOther++;
         }
 
         // ================================================================
