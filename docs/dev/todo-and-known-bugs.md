@@ -43,6 +43,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 contract lifecycle reconcile cutoff
+
+- ~~Future `ContractAccept` rows with valid recording ids survived load reconciliation even when `maxUT` should have pruned them.~~ Follow-up review extended the same rule to `ContractComplete`, `ContractFail`, and `ContractCancel`, because preserving only part of a future contract lifecycle can restore active contracts, advances, completions, or penalties after loading an earlier save.
+
+**Fix:** `Ledger.Reconcile` treats the full contract lifecycle as timeline state. Any lifecycle action with `UT > maxUT` is pruned even if its `RecordingId` is otherwise valid; `OnKspLoad` reconciles old-save event migration output immediately and bounds broken-ledger event-store recovery by `maxUT` instead of running a broad second pass over later load-time rows.
+
+**Coverage:** `LedgerTests.Reconcile_FutureContractAcceptAndCompleteWithValidRecordingId_PrunesBoth`, `LedgerTests.Reconcile_FutureContractResolutionWithValidRecordingId_PrunedByMaxUt`, `LedgerTests.Reconcile_ContractResolutionWithInvalidRecordingId_PrunedByRecordingId`, `LedgerTests.Reconcile_ContractLifecycleRowsAtMaxUt_AreKept`, `GameStateRecorderLedgerTests.OnKspLoad_MigratedFutureContractLifecycleRows_PrunedByMaxUt`, and `GameStateRecorderLedgerTests.OnKspLoad_PostMigrationSyntheticFutureContractAccept_SurvivesTargetedReconcile`.
+
+---
+
 ## Open - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
 
 - During the 2026-05-08 playtest of the post-anchor-fix debris-rendering stack, the slot=0 Re-Fly playback emitted 22 `[WARN][RelativeAnchorResolver] relative-anchor-unresolved: reason=anchor-out-of-recorded-range` lines (`logs/2026-05-08_1740_rewind-and-refly-regressions/KSP.log:55431-65652` and follow-ups). Every UT in the warns is exactly `section.endUT + 1e-13..3e-12` — double-precision rounding noise from per-frame UT accumulation pushing the playback query just past the section's recorded endUT. The resolver's `FindTrackSectionForUT` treats this as "past the last section" and returns the unresolved sentinel. Ghost #9 (the Probe fork) showed a 2.5 m positional discontinuity at the UT 50.10 section seam where two adjacent Relative sections each anchored their own offset.

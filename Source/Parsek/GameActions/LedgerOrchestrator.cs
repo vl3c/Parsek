@@ -201,6 +201,13 @@ namespace Parsek
         internal static Action<string> OnRecordingCommittedPostSciencePersistFaultInjector;
 
         /// <summary>
+        /// Test-only hook fired after old-save event migration has had its targeted
+        /// reconcile pass on load. Used to prove later load-time synthesizers are not
+        /// swept by a broad second reconcile.
+        /// </summary>
+        internal static Action OnKspLoadAfterOldSaveEventReconcileForTesting;
+
+        /// <summary>
         /// Sentinel value passed by <see cref="NotifyLedgerTreeCommitted"/> to recordings
         /// in a multi-recording tree that should NOT absorb any pending science subjects.
         /// Distinct from <c>null</c>, which means "read from the static list as usual"
@@ -1807,7 +1814,7 @@ namespace Parsek
         /// then recalculate and patch.
         /// </summary>
         /// <param name="validRecordingIds">Set of recording IDs present in the loaded save.</param>
-        /// <param name="maxUT">Current UT — spending actions after this are pruned.</param>
+        /// <param name="maxUT">Current UT — future spendings and contract lifecycle rows after this are pruned.</param>
         internal static void OnKspLoad(HashSet<string> validRecordingIds, double maxUT)
         {
             Initialize();
@@ -1853,12 +1860,19 @@ namespace Parsek
             // Migration: if ledger is still empty after reconcile but committed recordings exist,
             // this is an old save being loaded for the first time with the ledger system.
             // Convert existing GameStateStore events into GameActions.
-            // Done AFTER reconcile so migrated actions are not pruned (they have null recordingId
-            // which would be pruned for earning types if reconcile ran after).
+            // Done AFTER the existing-ledger reconcile, then immediately reconciled so
+            // future rows from the old event store cannot bypass maxUT on first load.
             if (Ledger.Actions.Count == 0 && validRecordingIds != null && validRecordingIds.Count > 0)
             {
+                int beforeOldSaveMigration = Ledger.Actions.Count;
                 MigrateOldSaveEvents(validRecordingIds);
+                if (Ledger.Actions.Count != beforeOldSaveMigration)
+                {
+                    Ledger.Reconcile(validRecordingIds, maxUT);
+                }
             }
+
+            OnKspLoadAfterOldSaveEventReconcileForTesting?.Invoke();
 
             // Migration: ensure all committed recordings have KerbalAssignment actions.
             // Old saves predating the KerbalAssignment feature have recordings but no
@@ -1879,7 +1893,7 @@ namespace Parsek
             // reason: their recording ids are no longer part of the current timeline.
             try
             {
-                TryRecoverBrokenLedgerOnLoad();
+                TryRecoverBrokenLedgerOnLoad(maxUT);
             }
             catch (Exception ex)
             {
@@ -2273,9 +2287,9 @@ namespace Parsek
         /// One-shot save recovery migration for legacy saves with missing funds,
         /// contract, or science ledger rows.
         /// </summary>
-        internal static int TryRecoverBrokenLedgerOnLoad()
+        internal static int TryRecoverBrokenLedgerOnLoad(double? maxUT = null)
         {
-            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad();
+            return LedgerLoadMigration.TryRecoverBrokenLedgerOnLoad(maxUT);
         }
 
         /// <summary>Pure: event types the migration can synthesize actions for.</summary>
@@ -3287,6 +3301,7 @@ namespace Parsek
             OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
+            OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
