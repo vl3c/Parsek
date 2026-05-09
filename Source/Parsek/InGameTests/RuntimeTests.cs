@@ -13871,6 +13871,66 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "#777 follow-up: parent-anchored debris outside recorded Relative coverage stays inactive and cannot be reactivated by the engine visibility helper")]
+        public void ParentAnchoredDebrisCoverageRetired_HidesRealGhostAndBlocksActivation()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var engine = new GhostPlaybackEngine(new Bug613RetireBranchPositioner());
+            var ghost = new GameObject("ParsekTestGhost_CoverageRetiredDebris");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "CoverageRetiredDebris",
+                ghost = ghost,
+                playbackIndex = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            var traj = new Bug613RelativeTrajectory(
+                bodyName: activeVessel.mainBody.name,
+                latitude: activeVessel.latitude,
+                longitude: activeVessel.longitude,
+                altitude: System.Math.Max(0.0, activeVessel.altitude),
+                parentAnchoredDebris: true,
+                relativeSectionStartUT: 0.0,
+                relativeSectionEndUT: 3.0,
+                recordingId: "test-b777-coverage-retired");
+
+            bool handled = engine.TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
+                index: 0,
+                traj: traj,
+                state: state,
+                playbackUT: 4.0,
+                currentUT: 4.0,
+                warpRate: 1f,
+                emitExitWatch: false,
+                out bool ghostActive);
+
+            InGameAssert.IsTrue(handled,
+                "coverage helper must handle parent-anchored debris when playback UT is outside the recorded Relative section");
+            InGameAssert.IsFalse(ghostActive,
+                "coverage-retired helper must report the ghost inactive to the caller");
+            InGameAssert.IsTrue(state.parentAnchoredDebrisCoverageRetired,
+                "coverage-retired helper must set the persistent activation guard");
+            InGameAssert.IsTrue(state.anchorRetiredThisFrame,
+                "coverage-retired helper must set the frame-local FX/appearance suppression flag");
+            InGameAssert.IsFalse(state.ghost.activeSelf,
+                "coverage-retired parent-anchored debris must end inactive on the real Unity GameObject");
+
+            bool activated = GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting(state);
+
+            InGameAssert.IsFalse(activated,
+                "engine-owned activation helper must refuse to reactivate coverage-retired debris");
+            InGameAssert.IsFalse(state.ghost.activeSelf,
+                "coverage-retired parent-anchored debris must stay inactive after the defensive activation guard");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "#613 finalize-spawn retire gate: fresh LoopEnter and OverlapPrimaryEnter spawns into an unresolved relative section must not emit RetargetToNewGhost from the hidden origin-positioned pivot")]
         public void Bug613_FreshSpawnIntoUnresolvedRelativeSection_NoRetargetAtOrigin()
         {
@@ -16774,15 +16834,28 @@ namespace Parsek.InGameTests
     }
 
     // Bug #613 in-game-test trajectory: a 5-second non-looping recording
-    // whose entire duration lies inside a single Relative track section so
+    // that defaults to full-duration Relative coverage so
     // engine.RenderInRangeGhost routes the positioning call through
     // IGhostPositioner.InterpolateAndPositionRelative regardless of which
-    // playback UT the test picks.
+    // playback UT the test picks. Coverage-retirement tests can shorten the
+    // Relative section while keeping the recording itself in range.
     internal class Bug613RelativeTrajectory : IPlaybackTrajectory
     {
+        private readonly bool _isDebris;
+        private readonly string _debrisParentRecordingId;
+        private readonly string _recordingId;
+
         internal Bug613RelativeTrajectory(
-            string bodyName, double latitude, double longitude, double altitude)
+            string bodyName, double latitude, double longitude, double altitude,
+            bool parentAnchoredDebris = false,
+            double relativeSectionStartUT = 0.0,
+            double relativeSectionEndUT = 5.0,
+            string recordingId = "test-b613")
         {
+            _isDebris = parentAnchoredDebris;
+            _debrisParentRecordingId = parentAnchoredDebris ? "test-b613-parent" : null;
+            _recordingId = recordingId;
+
             Points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint
@@ -16807,17 +16880,18 @@ namespace Parsek.InGameTests
                 },
             };
 
-            // Single Relative section spanning the whole recording so the
-            // engine takes the InterpolateAndPositionRelative branch on
-            // every frame.
+            // Defaults to a single Relative section spanning the whole
+            // recording so existing Bug613 tests take the relative branch on
+            // every frame. The coverage-retirement regression can shorten
+            // this interval while keeping EndUT in range.
             TrackSections = new List<TrackSection>
             {
                 new TrackSection
                 {
                     environment = SegmentEnvironment.ExoBallistic,
                     referenceFrame = ReferenceFrame.Relative,
-                    startUT = 0,
-                    endUT = 5,
+                    startUT = relativeSectionStartUT,
+                    endUT = relativeSectionEndUT,
                     // Anchor pid is irrelevant here — the test's mock
                     // positioner does NOT call FindVesselByPid; it sets
                     // state.anchorRetiredThisFrame directly. The pid value
@@ -16845,7 +16919,7 @@ namespace Parsek.InGameTests
         public ConfigNode GhostVisualSnapshot => null;
         public ConfigNode VesselSnapshot => null;
         public string VesselName => "Bug613TestGhost";
-        public string RecordingId => "test-b613";
+        public string RecordingId => _recordingId;
         public bool LoopPlayback => false;
         public double LoopIntervalSeconds => 10;
         public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Sec;
@@ -16856,8 +16930,8 @@ namespace Parsek.InGameTests
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
-        public bool IsDebris => false;
-        public string DebrisParentRecordingId => null;
+        public bool IsDebris => _isDebris;
+        public string DebrisParentRecordingId => _debrisParentRecordingId;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;

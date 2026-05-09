@@ -130,6 +130,7 @@ namespace Parsek.Tests
             internal int PositionAtPointCalls;
             internal int PositionFromOrbitCalls;
             internal int PositionLoopCalls;
+            internal int ZoneCalls;
             internal double LastUT;
             internal double LastPointUT;
             internal double LastOrbitUT;
@@ -193,6 +194,7 @@ namespace Parsek.Tests
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
                 IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
             {
+                ZoneCalls++;
                 return new ZoneRenderingResult();
             }
 
@@ -971,6 +973,228 @@ namespace Parsek.Tests
             Assert.False(state.anchorRetiredThisFrame);
             Assert.Equal(1, positioner.PositionLoopCalls);
             Assert.Equal(105.0, positioner.LastLoopUT);
+        }
+
+        [Fact]
+        public void CoverageRetiredHelper_StateNull_DoesNotReserveSpawnOrLoadVisuals()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+
+            bool handled = engine.TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
+                index: 3,
+                traj: traj,
+                state: null,
+                playbackUT: 111.0,
+                currentUT: 111.0,
+                warpRate: 1f,
+                emitExitWatch: false,
+                out bool ghostActive);
+
+            Assert.True(handled);
+            Assert.False(ghostActive);
+            Assert.Equal(0, engine.SpawnReserveAttemptCountForTesting);
+            Assert.Equal(0, engine.VisualLoadAttemptCountForTesting);
+            Assert.Equal(0, positioner.ZoneCalls);
+            Assert.Equal(0, positioner.InterpolateCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("recorded-relative-retired")
+                && l.Contains("recordingId=debris-rec")
+                && l.Contains("callsite=test"));
+        }
+
+        [Fact]
+        public void CoverageRetiredHelper_CoveredPlaybackUTClearsRuntimeFlag()
+        {
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var state = new GhostPlaybackState
+            {
+                parentAnchoredDebrisCoverageRetired = true,
+                anchorRetiredThisFrame = true,
+            };
+
+            bool handled = engine.TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
+                index: 3,
+                traj: traj,
+                state: state,
+                playbackUT: 105.0,
+                currentUT: 105.0,
+                warpRate: 1f,
+                emitExitWatch: false,
+                out bool ghostActive);
+
+            Assert.False(handled);
+            Assert.False(ghostActive);
+            Assert.False(state.parentAnchoredDebrisCoverageRetired);
+            Assert.True(state.anchorRetiredThisFrame);
+        }
+
+        [Fact]
+        public void CoverageRetiredHelper_DirectWatch_EmitsExitWatch()
+        {
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var cameraEvents = new List<CameraActionEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+
+            bool handled = engine.TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
+                index: 3,
+                traj: traj,
+                state: null,
+                playbackUT: 111.0,
+                currentUT: 111.0,
+                warpRate: 1f,
+                emitExitWatch: true,
+                out _);
+
+            Assert.True(handled);
+            var evt = Assert.Single(cameraEvents);
+            Assert.Equal(CameraActionType.ExitWatch, evt.Action);
+            Assert.Equal(3, evt.Index);
+            Assert.Same(traj, evt.Trajectory);
+        }
+
+        [Fact]
+        public void CoverageRetiredHelper_LineageProtectedSibling_DoesNotEmitExitWatch()
+        {
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var cameraEvents = new List<CameraActionEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            var ctx = new FrameContext
+            {
+                protectedIndex = 7,
+                protectedLoopCycleIndex = -1,
+            };
+            bool emitExitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredStateForTesting(
+                index: 3,
+                state: null,
+                ctx: ctx);
+
+            bool handled = engine.TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
+                index: 3,
+                traj: traj,
+                state: null,
+                playbackUT: 111.0,
+                currentUT: 111.0,
+                warpRate: 1f,
+                emitExitWatch: emitExitWatch,
+                out _);
+
+            Assert.True(handled);
+            Assert.False(emitExitWatch);
+            Assert.Empty(cameraEvents);
+        }
+
+        [Fact]
+        public void CoverageRetiredCycle_WatchingDifferentOverlapCycle_DoesNotExitWatch()
+        {
+            var ctx = new FrameContext
+            {
+                protectedIndex = 3,
+                protectedLoopCycleIndex = 1,
+            };
+
+            bool exitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredCycleForTesting(
+                index: 3,
+                loopCycleIndex: 2,
+                ctx: ctx);
+
+            Assert.False(exitWatch);
+        }
+
+        [Fact]
+        public void CoverageRetiredCycle_WatchingSameOverlapCycle_ExitsWatch()
+        {
+            var ctx = new FrameContext
+            {
+                protectedIndex = 3,
+                protectedLoopCycleIndex = 2,
+            };
+
+            bool exitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredCycleForTesting(
+                index: 3,
+                loopCycleIndex: 2,
+                ctx: ctx);
+
+            Assert.True(exitWatch);
+        }
+
+        [Fact]
+        public void CoverageRetiredCycle_NonLoopWatch_ExitsWatch()
+        {
+            var ctx = new FrameContext
+            {
+                protectedIndex = 3,
+                protectedLoopCycleIndex = -1,
+            };
+
+            bool exitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredCycleForTesting(
+                index: 3,
+                loopCycleIndex: 2,
+                ctx: ctx);
+
+            Assert.True(exitWatch);
+        }
+
+        [Fact]
+        public void CoverageRetiredCycle_ExplosionHoldSentinel_DoesNotExitWatch()
+        {
+            var ctx = new FrameContext
+            {
+                protectedIndex = 3,
+                protectedLoopCycleIndex = -2,
+            };
+
+            bool exitWatch = GhostPlaybackEngine.ShouldExitWatchForCoverageRetiredCycleForTesting(
+                index: 3,
+                loopCycleIndex: 2,
+                ctx: ctx);
+
+            Assert.False(exitWatch);
+        }
+
+        [Fact]
+        public void ClearLoadedVisualReferences_DoesNotClearCoverageRetiredFlag()
+        {
+            var state = new GhostPlaybackState
+            {
+                parentAnchoredDebrisCoverageRetired = true,
+                anchorRetiredThisFrame = true,
+                deferVisibilityUntilPlaybackSync = true,
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.True(state.parentAnchoredDebrisCoverageRetired);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.deferVisibilityUntilPlaybackSync);
+        }
+
+        [Fact]
+        public void EnsureGhostVisualsLoadedForWatch_ParentAnchoredDebrisOutsideCoverage_DoesNotLoad()
+        {
+            var engine = new GhostPlaybackEngine(positioner: null);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+            };
+            engine.ghostStates[3] = state;
+
+            bool loaded = engine.EnsureGhostVisualsLoadedForWatch(
+                index: 3,
+                traj: traj,
+                playbackUT: 111.0,
+                forceRebuildLoadedVisuals: true);
+
+            Assert.False(loaded);
+            Assert.True(state.parentAnchoredDebrisCoverageRetired);
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(0, engine.VisualLoadAttemptCountForTesting);
         }
 
         [Fact]

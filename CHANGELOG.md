@@ -9,7 +9,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Debris ghosts no longer pop into place when playback starts inside a tiny gap between adjacent parent-section samples. New false-alarm resume seams also stay covered so future recordings avoid that gap.
-- Parent-anchored debris now disappears when its recorded parent path no longer covers the requested time, preventing stale debris from lingering after the recorded split has ended. Older debris without parent metadata keeps the previous compatibility path.
+- Parent-anchored debris now disappears when its recorded parent path no longer covers the requested time, preventing stale debris from lingering after the recorded split has ended. A follow-up keeps that retirement decision ahead of all visual, camera, and watch activation paths. Older debris without parent metadata keeps the previous compatibility path.
 
 - Fresh breakup debris now seeds from the separation part origin when available, improving first-frame alignment for decouples and root-level undocks. Packed-vessel part-origin capture fails closed rather than mixing incompatible velocity frames.
 

@@ -79,6 +79,8 @@ namespace Parsek
         // Bug #414: per-frame counter of throttle-eligible spawns that were deferred because
         // the cap was already exhausted. Reset each frame alongside frameSpawnCount.
         private int frameSpawnDeferred;
+        private int spawnReserveAttemptCountForTesting;
+        private int visualLoadAttemptCountForTesting;
         private int frameSkipBeforeActivation;
         private int frameSkipAnchorMissing;
         private int frameSkipLoopSyncFailed;
@@ -961,6 +963,17 @@ namespace Parsek
             if (allowEarlyDestroyedDebrisCompletion && earlyDestroyedDebrisCompleted.Contains(i))
                 return true;
 
+            double initialCoveragePlaybackUT = ResolveVisiblePlaybackUT(traj, state, ctx.currentUT);
+            if (TryHandleParentAnchoredDebrisCoverageRetired(
+                    i, traj, state, initialCoveragePlaybackUT, ctx.currentUT,
+                    ctx.warpRate, "GhostPlaybackEngine.RenderInRangeGhost.pre-spawn",
+                    ShouldExitWatchForCoverageRetiredState(i, state, ctx),
+                    out ghostActive))
+                return true;
+
+            // This intentionally precedes permanent flag-event playback. Parent-anchored
+            // debris recordings are structural fragments, not flag-planting vessels, so an
+            // out-of-coverage debris frame has no standalone flag world state to preserve.
             // Flag events spawn permanent world vessels — apply regardless of ghost state,
             // zone distance, or spawn-throttle (#249, #414). Unlike visual part events (mesh
             // toggles), flags are independent entities that must exist whether or not the
@@ -1631,6 +1644,13 @@ namespace Parsek
                 }
             }
 
+            if (TryHandleParentAnchoredDebrisCoverageRetired(
+                    index, traj, state, loopUT, ctx.currentUT, ctx.warpRate,
+                    "GhostPlaybackEngine.UpdateLoopingPlayback.pre-spawn",
+                    ShouldExitWatchForCoverageRetiredCycle(index, cycleIndex, ctx),
+                    out ghostActive))
+                return;
+
             // Looped ghost distance gating
             double loopGhostDistance = ResolvePlaybackDistance(
                 index, traj, state, loopUT, ctx.activeVesselPos);
@@ -1858,31 +1878,53 @@ namespace Parsek
                         ParsekLog.VerboseRateLimited("Engine", "overlap-move",
                             $"Ghost #{index} cycle={primaryState.loopCycleIndex} moved to overlap list (audio muted)");
                     }
+                    primaryState = null;
                 }
 
-                // Spawn new primary for lastCycle
-                primaryState = CreatePendingSpawnState(
-                    traj, primaryLoopUT, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
-                primaryState.loopCycleIndex = lastCycle;
-                ghostStates[index] = primaryState;
-                GhostVisualLoadStatus overlapPrimarySpawnStatus = EnsureGhostVisualsLoaded(
-                    index, traj, primaryState, primaryLoopUT, "overlap primary first spawn",
-                    resetCompletedEventDedup: true);
-                if (overlapPrimarySpawnStatus == GhostVisualLoadStatus.Failed)
+                bool retiredBeforePrimarySpawn = TryHandleParentAnchoredDebrisCoverageRetired(
+                    index, traj, primaryState, primaryLoopUT, ctx.currentUT, ctx.warpRate,
+                    "GhostPlaybackEngine.UpdateOverlapPlayback.primary-pre-spawn",
+                    ShouldExitWatchForCoverageRetiredCycle(index, lastCycle, ctx),
+                    out _);
+
+                if (!retiredBeforePrimarySpawn)
                 {
-                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
-                    ghostStates.Remove(index);
-                    ParsekLog.Warn("Engine",
-                        $"Overlap: SpawnGhost failed for #{index} cycle={lastCycle}");
-                    return;
+                    // Spawn new primary for lastCycle
+                    primaryState = CreatePendingSpawnState(
+                        traj, primaryLoopUT, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
+                    primaryState.loopCycleIndex = lastCycle;
+                    ghostStates[index] = primaryState;
+                    GhostVisualLoadStatus overlapPrimarySpawnStatus = EnsureGhostVisualsLoaded(
+                        index, traj, primaryState, primaryLoopUT, "overlap primary first spawn",
+                        resetCompletedEventDedup: true);
+                    if (overlapPrimarySpawnStatus == GhostVisualLoadStatus.Failed)
+                    {
+                        CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                        ghostStates.Remove(index);
+                        ParsekLog.Warn("Engine",
+                            $"Overlap: SpawnGhost failed for #{index} cycle={lastCycle}");
+                        return;
+                    }
+                    primaryAdvanceDeferredThisFrame =
+                        overlapPrimarySpawnStatus == GhostVisualLoadStatus.Pending;
                 }
-                primaryAdvanceDeferredThisFrame =
-                    overlapPrimarySpawnStatus == GhostVisualLoadStatus.Pending;
             }
 
             // Position primary ghost
             // Note: anchor-relative positioning is handled internally by positioner.PositionLoop,
             // which calls ShouldUseLoopAnchor itself. No need to pre-compute here.
+            if (primaryState != null)
+            {
+                if (TryHandleParentAnchoredDebrisCoverageRetired(
+                        index, traj, primaryState, primaryLoopUT, ctx.currentUT, ctx.warpRate,
+                        "GhostPlaybackEngine.UpdateOverlapPlayback.primary-pre-zone",
+                        ShouldExitWatchForCoverageRetiredState(index, primaryState, ctx),
+                        out _))
+                {
+                    primaryState = null;
+                }
+            }
+
             if (primaryState != null)
             {
                 bool primaryReady = true;
@@ -2084,6 +2126,13 @@ namespace Parsek
 
                 phase = Math.Max(0, Math.Min(phase, duration));
                 double loopUT = playbackStartUT + phase;
+                if (TryHandleParentAnchoredDebrisCoverageRetired(
+                        index, traj, ovState, loopUT, ctx.currentUT, ctx.warpRate,
+                        "GhostPlaybackEngine.UpdateExpireAndPositionOverlaps.pre-zone",
+                        ShouldExitWatchForCoverageRetiredState(index, ovState, ctx),
+                        out _))
+                    continue;
+
                 double overlapDistance = ResolvePlaybackDistance(
                     index, traj, ovState, loopUT, ctx.activeVesselPos);
                 double overlapActiveVesselDistance = ResolvePlaybackActiveVesselDistance(
@@ -2525,20 +2574,93 @@ namespace Parsek
             string callsite)
         {
             if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(traj, playbackUT))
+            {
+                if (state != null)
+                    state.parentAnchoredDebrisCoverageRetired = false;
                 return false;
+            }
 
+            MarkParentAnchoredDebrisCoverageRetired(index, traj, state, playbackUT, callsite);
+            return true;
+        }
+
+        private bool TryHandleParentAnchoredDebrisCoverageRetired(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            double currentUT,
+            float warpRate,
+            string callsite,
+            bool emitExitWatch,
+            out bool ghostActive)
+        {
+            ghostActive = HasLoadedGhostVisuals(state);
+            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(traj, playbackUT))
+            {
+                if (state != null)
+                    state.parentAnchoredDebrisCoverageRetired = false;
+                return false;
+            }
+
+            MarkParentAnchoredDebrisCoverageRetired(index, traj, state, playbackUT, callsite);
+            if (state != null)
+            {
+                if (HasLoadedGhostVisuals(state))
+                {
+                    ApplyFrameVisuals(index, traj, state, playbackUT, warpRate,
+                        skipPartEvents: true, suppressVisualFx: true,
+                        allowTransientEffects: false);
+                }
+                ResetGhostAppearanceTracking(state);
+            }
+
+            GhostRenderTrace.EmitGuardSkip(
+                traj, index, currentUT,
+                "parent-anchored-debris-outside-relative-coverage playbackUT="
+                + playbackUT.ToString("R", CultureInfo.InvariantCulture)
+                + " callsite=" + (callsite ?? "(unknown)"));
+
+            if (emitExitWatch)
+            {
+                OnLoopCameraAction?.Invoke(new CameraActionEvent
+                {
+                    Index = index,
+                    Action = CameraActionType.ExitWatch,
+                    Trajectory = traj,
+                    Flags = default(TrajectoryPlaybackFlags)
+                });
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "coverage-retired-exit-watch-" + index.ToString(CultureInfo.InvariantCulture),
+                    $"coverage-retired: exiting direct debris watch for ghost #{index} " +
+                    $"\"{traj?.VesselName ?? state?.vesselName ?? "(unknown)"}\" " +
+                    $"playbackUT={playbackUT.ToString("R", CultureInfo.InvariantCulture)}",
+                    1.0);
+            }
+
+            ghostActive = false;
+            return true;
+        }
+
+        private void MarkParentAnchoredDebrisCoverageRetired(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            string callsite)
+        {
             GameObject ghost = state != null ? state.ghost : null;
             if (!ReferenceEquals(ghost, null))
                 GhostPlaybackLogic.HideGhostForRetire(ghost);
             if (state != null)
+            {
                 state.anchorRetiredThisFrame = true;
+                state.parentAnchoredDebrisCoverageRetired = true;
+            }
 
             string recordingId = traj?.RecordingId ?? "(none)";
-            string key = string.Concat(
-                "parent-anchored-debris-outside-relative-coverage|",
-                recordingId,
-                "|",
-                index.ToString(CultureInfo.InvariantCulture));
+            string key = BuildParentAnchoredDebrisCoverageRetiredKey(index, recordingId);
             // Warn (not Verbose): no covering Relative section is a recording
             // coverage gap, not the transient anchor-miss handled in ParsekFlight.
             ParsekLog.WarnRateLimited(
@@ -2552,7 +2674,41 @@ namespace Parsek
                 $"playbackUT={playbackUT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"callsite={callsite ?? "(unknown)"}",
                 5.0);
-            return true;
+        }
+
+        private static string BuildParentAnchoredDebrisCoverageRetiredKey(
+            int index, string recordingId)
+        {
+            return string.Concat(
+                "parent-anchored-debris-outside-relative-coverage|",
+                recordingId ?? "(none)",
+                "|",
+                index.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static bool ShouldExitWatchForCoverageRetiredState(
+            int index,
+            GhostPlaybackState state,
+            FrameContext ctx)
+        {
+            if (ctx.protectedIndex != index)
+                return false;
+            if (ctx.protectedLoopCycleIndex == -1)
+                return true;
+            if (state == null)
+                return false;
+            return state.loopCycleIndex == ctx.protectedLoopCycleIndex;
+        }
+
+        private static bool ShouldExitWatchForCoverageRetiredCycle(
+            int index,
+            long loopCycleIndex,
+            FrameContext ctx)
+        {
+            if (ctx.protectedIndex != index)
+                return false;
+            return ctx.protectedLoopCycleIndex == -1
+                || loopCycleIndex == ctx.protectedLoopCycleIndex;
         }
 
         private void PositionLoopAtPlaybackUT(
@@ -3416,6 +3572,12 @@ namespace Parsek
         {
             if (!ghostStates.TryGetValue(index, out var state) || state == null)
                 return false;
+            if (TryHandleParentAnchoredDebrisCoverageRetired(
+                    index, traj, state, playbackUT, playbackUT, TimeWarp.CurrentRate,
+                    "GhostPlaybackEngine.EnsureGhostVisualsLoadedForWatch",
+                    emitExitWatch: false,
+                    out _))
+                return false;
             if (forceRebuildLoadedVisuals && HasLoadedGhostVisuals(state))
             {
                 DestroyGhostResourcesWithMetrics(state, lingerParticleSystems: false);
@@ -3680,7 +3842,7 @@ namespace Parsek
             // hides the ghost GO, and resets appearance tracking. Same call
             // the spawn path uses, so reuse and spawn converge on identical
             // post-condition state.
-            PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
+            bool primeRetired = PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
 
             DiagnosticsState.health.ghostReusedAcrossCycleThisSession++;
 
@@ -3710,7 +3872,7 @@ namespace Parsek
             // the retarget event so the watch handler swaps the bridge anchor
             // for the new cycle's pivot, so the suppression only applies when
             // the boundary fired a real explosion.
-            if (emitRetargetEvent)
+            if (emitRetargetEvent && !primeRetired)
             {
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
                 {
@@ -3726,7 +3888,9 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Engine", $"reuse-suppress-retarget-{index}",
                     $"Ghost #{index} \"{state.vesselName}\" loop-cycle reuse: " +
-                    $"RetargetToNewGhost suppressed (caller emitted primary boundary event; cycle={newCycleIndex})",
+                    (primeRetired
+                        ? $"RetargetToNewGhost suppressed (anchor-retired prime; cycle={newCycleIndex})"
+                        : $"RetargetToNewGhost suppressed (caller emitted primary boundary event; cycle={newCycleIndex})"),
                     1.0);
             }
         }
@@ -3946,6 +4110,7 @@ namespace Parsek
         /// </summary>
         private bool TryReserveSpawnSlot(int index, string site)
         {
+            spawnReserveAttemptCountForTesting++;
             if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame))
             {
                 frameSpawnDeferred++;
@@ -3966,6 +4131,8 @@ namespace Parsek
             => frameSpawnCount++;
         internal int FrameSpawnCountForTesting => frameSpawnCount;
         internal int FrameSpawnDeferredForTesting => frameSpawnDeferred;
+        internal int SpawnReserveAttemptCountForTesting => spawnReserveAttemptCountForTesting;
+        internal int VisualLoadAttemptCountForTesting => visualLoadAttemptCountForTesting;
         // Bug #450 B3 test hooks. Narrow seam that lets tests drive the lazy-build
         // decision + throttle without constructing a full Unity scene (TryBuildReentryFx
         // needs a live GameObject, so tests here will stay on the counter/flag observation
@@ -3984,6 +4151,8 @@ namespace Parsek
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
+            spawnReserveAttemptCountForTesting = 0;
+            visualLoadAttemptCountForTesting = 0;
             frameSkipBeforeActivation = 0;
             frameSkipAnchorMissing = 0;
             frameSkipLoopSyncFailed = 0;
@@ -4041,6 +4210,19 @@ namespace Parsek
         // gymnastics to peek at internal state.
         internal int Bug613TestEarlyDestroyedCount => earlyDestroyedDebrisCompleted.Count;
         internal int Bug613TestDeferredCompletedCount => deferredCompletedEvents.Count;
+        internal bool TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state,
+            double playbackUT, double currentUT, float warpRate,
+            bool emitExitWatch, out bool ghostActive)
+            => TryHandleParentAnchoredDebrisCoverageRetired(
+                index, traj, state, playbackUT, currentUT, warpRate,
+                "test", emitExitWatch, out ghostActive);
+        internal static bool ShouldExitWatchForCoverageRetiredStateForTesting(
+            int index, GhostPlaybackState state, FrameContext ctx)
+            => ShouldExitWatchForCoverageRetiredState(index, state, ctx);
+        internal static bool ShouldExitWatchForCoverageRetiredCycleForTesting(
+            int index, long loopCycleIndex, FrameContext ctx)
+            => ShouldExitWatchForCoverageRetiredCycle(index, loopCycleIndex, ctx);
 
         // Bug #450 B2 test seams. These drive the exact loop/overlap lifecycle branches
         // for pending split-build states using MockTrajectory in xUnit, without requiring
@@ -4333,6 +4515,7 @@ namespace Parsek
             double playbackUT, string reason, bool forceImmediateBuild = false,
             bool resetCompletedEventDedup = false)
         {
+            visualLoadAttemptCountForTesting++;
             if (state == null)
                 return GhostVisualLoadStatus.Failed;
             if (HasLoadedGhostVisuals(state))
@@ -4370,27 +4553,31 @@ namespace Parsek
             return status;
         }
 
-        private void PrimeLoadedGhostForPlaybackUT(
+        private bool PrimeLoadedGhostForPlaybackUT(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
             if (state?.ghost == null)
-                return;
+                return false;
 
             state.playbackIndex = 0;
             state.partEventIndex = 0;
             state.anchorRetiredThisFrame = false;
             double primePlaybackUT = ResolveVisiblePlaybackUT(traj, state, playbackUT);
             PositionLoadedGhostAtPlaybackUT(index, traj, state, primePlaybackUT);
-            // Hidden priming is allowed to apply persistent part state, but it
-            // must not emit transient FX before the playback transform is visible.
+            bool primeAnchorRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
+            // Hidden priming is allowed to apply persistent part state after a clean
+            // position. If any anchor-retire path fired, not only deterministic debris
+            // coverage retirement, skip part events and camera retarget from this prime.
             var visualPolicy = HiddenPrimeVisualPolicy();
             ApplyFrameVisuals(index, traj, state, primePlaybackUT, TimeWarp.CurrentRate,
-                visualPolicy.skipPartEvents,
+                primeAnchorRetired || visualPolicy.skipPartEvents,
                 visualPolicy.suppressVisualFx,
                 visualPolicy.allowTransientEffects);
             if (state.ghost.activeSelf)
                 state.ghost.SetActive(false);
             ResetGhostAppearanceTracking(state);
+            return primeAnchorRetired;
         }
 
         internal static (bool skipPartEvents, bool suppressVisualFx, bool allowTransientEffects)
@@ -4613,6 +4800,8 @@ namespace Parsek
         {
             if (state?.ghost == null)
                 return false;
+            if (state.parentAnchoredDebrisCoverageRetired)
+                return false;
 
             bool restoredDeferredState = state.deferVisibilityUntilPlaybackSync;
 
@@ -4622,6 +4811,9 @@ namespace Parsek
             state.deferVisibilityUntilPlaybackSync = false;
             return restoredDeferredState;
         }
+
+        internal static bool ActivateGhostVisualsIfNeededForTesting(GhostPlaybackState state)
+            => ActivateGhostVisualsIfNeeded(state);
 
         internal static bool ShouldRestoreDeferredRuntimeFxState(
             bool activatedDeferredState, bool suppressVisualFx)

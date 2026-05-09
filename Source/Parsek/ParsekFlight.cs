@@ -15994,6 +15994,7 @@ namespace Parsek
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
             if (state == null) return true;
+            if (state.parentAnchoredDebrisCoverageRetired) return false;
             if (state.deferVisibilityUntilPlaybackSync) return false;
             return true;
         }
