@@ -3180,7 +3180,7 @@ namespace Parsek
                     AnchorPose seedAnchorPose = liveAnchorPose;
                     string seedAnchorSource = "live-warn-fallback";
                     string queuedSeedAnchorReason;
-                    string recordedSeedAnchorReason = null;
+                    RelativeAnchorResolveFailure recordedSeedAnchorFailure = default;
                     string seedRecordedFallbackFrameContract = "unresolved";
                     if (TryConsumePendingDebrisSeedParentAnchorPose(
                             vesselPid,
@@ -3201,7 +3201,7 @@ namespace Parsek
                             treeRecForDebris.DebrisParentRecordingId,
                             initialTrajectoryPoint.ut,
                             out AnchorPose recordedSeedAnchorPose,
-                            out recordedSeedAnchorReason))
+                            out recordedSeedAnchorFailure))
                     {
                         seedAnchorPose = recordedSeedAnchorPose;
                         seedAnchorSource = "recorded";
@@ -3219,7 +3219,7 @@ namespace Parsek
                             $"InitializeLoadedState: debris seed recorded parent pose unavailable, " +
                             $"falling back to live parent pose: pid={vesselPid} recId={recordingId} " +
                             $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
-                            $"reason={recordedSeedAnchorReason ?? "unknown"} " +
+                            $"reason={RelativeAnchorResolveFailure.ReasonOrFallback(recordedSeedAnchorFailure, "unknown")} " +
                             $"queuedReason={queuedSeedAnchorReason ?? "unknown"} " +
                             $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
                             $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)}");
@@ -4487,9 +4487,12 @@ namespace Parsek
                     state,
                     ut,
                     out AnchorPose anchorPose,
-                    out string reason,
+                    out RelativeAnchorResolveFailure failure,
                     out string anchorPoseSourceLabel))
             {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    failure,
+                    "recorded-anchor-unresolved");
                 ParsekLog.Warn("BgRecorder",
                     $"RELATIVE sample unresolved: pid={state.vesselPid} " +
                     $"anchorRecordingId={state.currentAnchorRecordingId} reason={reason} " +
@@ -4516,8 +4519,15 @@ namespace Parsek
             RecordingAnchorCandidate candidate,
             double ut)
         {
-            if (!TryResolveBackgroundAnchorPoseForCandidate(candidate, ut, out AnchorPose anchorPose, out string reason))
+            if (!TryResolveBackgroundAnchorPoseForCandidate(
+                    candidate,
+                    ut,
+                    out AnchorPose anchorPose,
+                    out RelativeAnchorResolveFailure failure))
             {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    failure,
+                    "recorded-anchor-unresolved");
                 ParsekLog.Warn("BgRecorder",
                     $"RELATIVE boundary seed skipped: pid={state.vesselPid} " +
                     $"anchorRecordingId={candidate.RecordingId} reason={reason}");
@@ -4634,7 +4644,7 @@ namespace Parsek
             BackgroundVesselState state,
             double ut,
             out AnchorPose pose,
-            out string reason,
+            out RelativeAnchorResolveFailure failure,
             out string sourceLabel)
         {
             sourceLabel = null;
@@ -4648,7 +4658,7 @@ namespace Parsek
                     state.currentAnchorCandidate,
                     ut,
                     out pose,
-                    out reason,
+                    out failure,
                     out sourceLabel);
             }
 
@@ -4656,7 +4666,7 @@ namespace Parsek
                 state.currentAnchorRecordingId,
                 ut,
                 out pose,
-                out reason);
+                out failure);
             if (resolved)
                 sourceLabel = "recorded";
             return resolved;
@@ -4666,13 +4676,13 @@ namespace Parsek
             RecordingAnchorCandidate candidate,
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out RelativeAnchorResolveFailure failure)
         {
             return TryResolveBackgroundAnchorPoseForCandidate(
                 candidate,
                 ut,
                 out pose,
-                out reason,
+                out failure,
                 out _);
         }
 
@@ -4680,15 +4690,20 @@ namespace Parsek
             RecordingAnchorCandidate candidate,
             double ut,
             out AnchorPose pose,
-            out string reason,
+            out RelativeAnchorResolveFailure failure,
             out string sourceLabel)
         {
             pose = default;
-            reason = null;
+            failure = default;
             sourceLabel = null;
             if (string.IsNullOrWhiteSpace(candidate.RecordingId))
             {
-                reason = "anchor-recording-id-missing";
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    null,
+                    candidate.RecordingId,
+                    ut);
                 return false;
             }
 
@@ -4724,7 +4739,7 @@ namespace Parsek
                     5.0);
             }
 
-            bool resolved = TryResolveBackgroundRecordedAnchorPose(candidate.RecordingId, ut, out pose, out reason);
+            bool resolved = TryResolveBackgroundRecordedAnchorPose(candidate.RecordingId, ut, out pose, out failure);
             if (resolved)
                 sourceLabel = "recorded";
             return resolved;
@@ -4734,13 +4749,18 @@ namespace Parsek
             string anchorRecordingId,
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out RelativeAnchorResolveFailure failure)
         {
-            reason = null;
+            failure = default;
             if (string.IsNullOrWhiteSpace(anchorRecordingId))
             {
                 pose = default;
-                reason = "anchor-recording-id-missing";
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    null,
+                    anchorRecordingId,
+                    ut);
                 return false;
             }
 
@@ -4764,15 +4784,23 @@ namespace Parsek
                     anchorRecordingId,
                     ut,
                     visited,
-                    out pose);
+                    out pose,
+                    out failure);
             }
             finally
             {
                 visited.Clear();
             }
 
-            if (!resolved)
-                reason = "recorded-anchor-unresolved";
+            if (!resolved && !failure.HasFailure)
+            {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.Other,
+                    "recorded-anchor-unresolved",
+                    null,
+                    anchorRecordingId,
+                    ut);
+            }
             return resolved;
         }
 
