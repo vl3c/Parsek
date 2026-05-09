@@ -444,6 +444,12 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]")
                 && l.Contains("RecalculateAndPatch complete"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]")
+                && l.Contains("cutoffUT=null"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[CrewReservations]")
+                && l.Contains("after cutoff walk"));
         }
 
         // ---------- Null scope pass-through --------------------------------

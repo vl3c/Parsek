@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -672,6 +673,28 @@ namespace Parsek.Tests
             Assert.False(targets["SpaceCenter/MissionControl"].Destroyed);
             Assert.Equal(1, targets["SpaceCenter/LaunchPad"].Level);
             Assert.False(targets["SpaceCenter/LaunchPad"].Destroyed);
+        }
+
+        [Fact]
+        public void ResetPatchHistoryForSaveChange_ClearsStaticFacilityHistory()
+        {
+            var field = typeof(FacilityStatePatcher).GetField(
+                "lastPatchedFacilityIds",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var history = Assert.IsType<HashSet<string>>(field.GetValue(null));
+            history.Add("SpaceCenter/LaunchPad");
+            FacilityStatePatcher.ForceDefaultAllKnownFacilitiesForNextPatch();
+
+            FacilityStatePatcher.ResetPatchHistoryForSaveChange("save-a");
+            Assert.Single(history);
+
+            FacilityStatePatcher.ResetPatchHistoryForSaveChange("save-b");
+
+            Assert.Empty(history);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("cleared facility patch history after save change")
+                && l.Contains("previous=1"));
         }
 
         // Note: the skipped-only branch (patchedCount==0 && notFoundCount==0

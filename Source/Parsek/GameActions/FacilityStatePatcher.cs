@@ -14,6 +14,7 @@ namespace Parsek
         private static readonly HashSet<string> lastPatchedFacilityIds =
             new HashSet<string>(System.StringComparer.Ordinal);
         private static bool defaultKnownFacilitiesOnNextPatch;
+        private static string patchHistorySaveFolder;
 
         private static void VerboseStablePatchState(string identity, string stateKey, string message)
         {
@@ -29,6 +30,8 @@ namespace Parsek
         /// </summary>
         internal static void PatchFacilities(FacilitiesModule facilities)
         {
+            ResetPatchHistoryForSaveChange(GetCurrentSaveFolderForPatchHistory());
+
             if (facilities == null)
             {
                 ParsekLog.Warn(Tag, "PatchFacilities: null FacilitiesModule — skipping");
@@ -277,10 +280,50 @@ namespace Parsek
                 "PatchFacilities: scheduled all-known-facility default targets for next patch");
         }
 
+        internal static void ResetPatchHistoryForSaveChange(string saveFolder)
+        {
+            string normalized = saveFolder ?? "";
+            if (patchHistorySaveFolder == null)
+            {
+                patchHistorySaveFolder = normalized;
+                return;
+            }
+
+            if (System.String.Equals(
+                    patchHistorySaveFolder,
+                    normalized,
+                    System.StringComparison.Ordinal))
+                return;
+
+            int previousCount = lastPatchedFacilityIds.Count;
+            bool hadPendingDefault = defaultKnownFacilitiesOnNextPatch;
+            lastPatchedFacilityIds.Clear();
+            defaultKnownFacilitiesOnNextPatch = false;
+            patchHistorySaveFolder = normalized;
+
+            ParsekLog.Verbose(Tag,
+                $"PatchFacilities: cleared facility patch history after save change " +
+                $"(previous={previousCount.ToString(IC)}, " +
+                $"pendingDefault={hadPendingDefault.ToString(IC)})");
+        }
+
+        private static string GetCurrentSaveFolderForPatchHistory()
+        {
+            try
+            {
+                return HighLogic.SaveFolder ?? "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
         internal static void ResetForTesting()
         {
             lastPatchedFacilityIds.Clear();
             defaultKnownFacilitiesOnNextPatch = false;
+            patchHistorySaveFolder = null;
         }
     }
 }

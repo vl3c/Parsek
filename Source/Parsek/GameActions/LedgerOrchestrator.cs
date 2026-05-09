@@ -1267,7 +1267,8 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: utCutoff.HasValue,
-                authoritativeRepeatableRecordState: utCutoff.HasValue);
+                authoritativeRepeatableRecordState: utCutoff.HasValue,
+                techPatchCutoff: utCutoff);
         }
 
         /// <summary>
@@ -1282,7 +1283,8 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: false,
-                authoritativeRepeatableRecordState: false);
+                authoritativeRepeatableRecordState: false,
+                techPatchCutoff: utCutoff);
         }
 
         /// <summary>
@@ -1297,24 +1299,25 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: false,
-                authoritativeRepeatableRecordState: false);
+                authoritativeRepeatableRecordState: false,
+                techPatchCutoff: utCutoff);
         }
 
         /// <summary>
         /// Post-supersede tombstone refresh. The broad tombstone scope can remove
         /// career effects from the full ELS after the normal commit-time recalc has
-        /// already run, so this path walks the full timeline and bypasses live-tree
-        /// deferral to patch KSP state immediately. Passing double.MaxValue keeps
-        /// all surviving actions while enabling authoritative tech/repeatable-record
-        /// patching for removed old-branch consequences.
+        /// already run, so this path walks the full timeline, bypasses live-tree
+        /// deferral, and still enables a full-timeline tech/repeatable-record patch
+        /// without pretending this is a cutoff walk.
         /// </summary>
         internal static void RecalculateAndPatchAfterTombstones()
         {
             FacilityStatePatcher.ForceDefaultAllKnownFacilitiesForNextPatch();
             RecalculateAndPatchCore(
-                double.MaxValue,
+                utCutoff: null,
                 bypassPatchDeferral: true,
-                authoritativeRepeatableRecordState: true);
+                authoritativeRepeatableRecordState: true,
+                techPatchCutoff: double.MaxValue);
         }
 
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
@@ -1554,7 +1557,8 @@ namespace Parsek
         private static void RecalculateAndPatchCore(
             double? utCutoff,
             bool bypassPatchDeferral,
-            bool authoritativeRepeatableRecordState)
+            bool authoritativeRepeatableRecordState,
+            double? techPatchCutoff)
         {
             Initialize();
 
@@ -1622,7 +1626,8 @@ namespace Parsek
                 ApplyRecalculatedStateToKsp(
                     actions,
                     utCutoff,
-                    authoritativeRepeatableRecordState);
+                    authoritativeRepeatableRecordState,
+                    techPatchCutoff);
             }
 
             // #391: rebuild committedScienceSubjects from the walk's authoritative
@@ -1712,7 +1717,8 @@ namespace Parsek
         private static void ApplyRecalculatedStateToKsp(
             List<GameAction> actions,
             double? utCutoff,
-            bool authoritativeRepeatableRecordState)
+            bool authoritativeRepeatableRecordState,
+            double? techPatchCutoff)
         {
             // KSP state mutations (PostWalk already called by engine). Repeatable
             // Records* nodes only rebuild strictly from ledger-backed thresholds on
@@ -1727,18 +1733,19 @@ namespace Parsek
             // through PatchTechTree's existing null-target guard.
             HashSet<string> targetTechIds = null;
             double? techBaselineUt = null;
-            if (utCutoff.HasValue)
+            if (techPatchCutoff.HasValue)
             {
                 targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
                     GameStateStore.Baselines,
                     actions,
-                    utCutoff);
+                    techPatchCutoff);
                 techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
                     GameStateStore.Baselines,
-                    utCutoff);
+                    techPatchCutoff);
                 ParsekLog.Verbose(Tag,
-                    "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
-                    $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                    "RecalculateAndPatch: tech-tree patch enabled " +
+                    $"(walkCutoff={(utCutoff.HasValue ? utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                    $"techCutoff={techPatchCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
                     $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
                     $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
             }
@@ -1752,7 +1759,7 @@ namespace Parsek
                 milestonesModule, facilitiesModule, contractsModule,
                 targetTechIds,
                 authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
-                techUtCutoff: utCutoff,
+                techUtCutoff: techPatchCutoff,
                 techBaselineUt: techBaselineUt);
         }
 
