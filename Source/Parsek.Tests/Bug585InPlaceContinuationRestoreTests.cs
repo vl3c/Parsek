@@ -85,6 +85,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-booster",
@@ -102,6 +103,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-OTHER",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule",
@@ -120,6 +122,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule",
@@ -141,6 +144,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule",
@@ -180,6 +184,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
                 TreeId = "tree-1",
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule", null);
@@ -197,7 +202,8 @@ namespace Parsek.Tests
             {
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
-                TreeId = null, // legacy
+                TreeId = null, // legacy,
+                InPlaceContinuation = true,
             };
             var result = ReFlySessionMarker.ResolveInPlaceContinuationTarget(
                 marker, "tree-1", "rec-capsule",
@@ -261,6 +267,7 @@ namespace Parsek.Tests
             {
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
+                InPlaceContinuation = true,
             };
             var committed = new List<Recording>
             {
@@ -282,6 +289,7 @@ namespace Parsek.Tests
             {
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
+                InPlaceContinuation = true,
             };
             var committed = new List<Recording>
             {
@@ -299,6 +307,7 @@ namespace Parsek.Tests
             {
                 ActiveReFlyRecordingId = "rec-booster",
                 OriginChildRecordingId = "rec-booster",
+                InPlaceContinuation = true,
             };
             var committed = new List<Recording>
             {
@@ -307,6 +316,53 @@ namespace Parsek.Tests
 
             Assert.False(ParsekFlight.IsInPlaceContinuationArrivalForMarker(
                 0u, marker, committed));
+        }
+
+        [Fact]
+        public void IsInPlaceContinuationArrival_ForkModeMarker_ReturnsTrue()
+        {
+            // Issue #734 fork shape: distinct ids + InPlaceContinuation flag.
+            // The post-switch auto-record arming suppression must fire here
+            // for the same reason it fires for the legacy active==origin
+            // case -- the player is still on the same physical vessel.
+            const uint forkPid = 3474243253u;
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-fork-of-booster",
+                OriginChildRecordingId = "rec-booster",
+                InPlaceContinuation = true,
+            };
+            var committed = new List<Recording>
+            {
+                new Recording { RecordingId = "rec-booster", VesselPersistentId = forkPid },
+                new Recording { RecordingId = "rec-fork-of-booster", VesselPersistentId = forkPid },
+            };
+
+            Assert.True(ParsekFlight.IsInPlaceContinuationArrivalForMarker(
+                forkPid, marker, committed));
+        }
+
+        [Fact]
+        public void IsInPlaceContinuationArrival_ForkModeMarkerWithoutFlag_ReturnsFalse()
+        {
+            // Distinct ids without the InPlaceContinuation flag is the
+            // ordinary placeholder pattern, not in-place. Suppression must
+            // NOT fire -- the active vessel is a fresh strip-spawned one
+            // and post-switch auto-record arming is correct.
+            const uint placeholderPid = 4444u;
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-placeholder",
+                OriginChildRecordingId = "rec-origin",
+                InPlaceContinuation = false,
+            };
+            var committed = new List<Recording>
+            {
+                new Recording { RecordingId = "rec-placeholder", VesselPersistentId = placeholderPid },
+            };
+
+            Assert.False(ParsekFlight.IsInPlaceContinuationArrivalForMarker(
+                placeholderPid, marker, committed));
         }
 
         [Fact]
@@ -456,6 +512,509 @@ namespace Parsek.Tests
                 "Destroyed recording must not appear in BackgroundMap");
             Assert.False(tree.BackgroundMap.ContainsKey(3474243253u),
                 "ActiveRecordingId must not appear in BackgroundMap");
+        }
+
+        // ============================================================
+        // Issue #734 fork-attach reconciliation
+        // (ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded +
+        //  RewindInvoker.EnsureForkAttachedToTree)
+        // ============================================================
+
+        /// <summary>
+        /// Async-load race fix: when AtomicMarkerWrite ran on a tree handle
+        /// that the restore coroutine has since popped, the fork only lives
+        /// in <see cref="RecordingStore.CommittedRecordings"/>. The
+        /// reconciliation helper looks the fork up by id and attaches it to
+        /// the live tree so <see cref="ReFlySessionMarker.ResolveInPlaceContinuationTarget"/>
+        /// can fire and the recorder's flush has a destination dict entry.
+        /// </summary>
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_ForkMissingFromTree_AttachesFromCommittedList()
+        {
+            try
+            {
+                RecordingStore.SuppressLogging = true;
+                RecordingStore.ResetForTesting();
+
+                const string treeId = "tree-734-reconcile-attach";
+                const string originId = "rec-734-origin";
+                const string forkId = "rec-734-fork";
+
+                var origin = new Recording
+                {
+                    RecordingId = originId,
+                    TreeId = treeId,
+                    VesselName = "Origin",
+                    VesselPersistentId = 100u,
+                    MergeState = MergeState.Immutable,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId,
+                    TreeName = "Tree",
+                    RootRecordingId = originId,
+                    ActiveRecordingId = originId,
+                };
+                tree.AddOrReplaceRecording(origin);
+
+                var fork = new Recording
+                {
+                    RecordingId = forkId,
+                    TreeId = treeId,
+                    VesselName = "Origin",
+                    VesselPersistentId = 100u,
+                    MergeState = MergeState.NotCommitted,
+                    SupersedeTargetId = originId,
+                };
+                RecordingStore.AddCommittedInternal(fork);
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-734-reconcile",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = originId,
+                    SupersedeTargetId = originId,
+                    InPlaceContinuation = true,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.True(attached);
+                Assert.True(tree.Recordings.ContainsKey(forkId));
+                Assert.Same(fork, tree.Recordings[forkId]);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Rewind]")
+                    && l.Contains("RestoreActiveTreeFromPending:reconcile")
+                    && l.Contains("attached in-place fork rec=" + forkId));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
+        }
+
+        /// <summary>
+        /// Issue #734 reviewer P1 (May 2026) - convergence contract for
+        /// any code path that drops two same-id Recording instances into
+        /// the store. Defensive only: the originally-claimed F5/F9 race
+        /// is no longer reachable in production because
+        /// `ParsekScenario.TryRestoreActiveTreeNode` calls
+        /// `RemoveCommittedTreeById` (ParsekScenario.cs:3100) before the
+        /// pending tree is stashed, which strips every recording sharing
+        /// that tree id from CommittedRecordings BEFORE the OnFlightReady
+        /// reconciliation runs - so the committed-list duplicate cannot
+        /// survive into the reconciliation. The contract still matters as
+        /// a safety net: if any future code path (a new restore branch,
+        /// a save-merge edge case, a test harness) drops two same-id
+        /// instances, the reconcile must converge them. Without it the
+        /// recorder appends to one instance, TryCommitReFlySupersede
+        /// resolves from the other, and CommitTree could even add a
+        /// duplicate same-id row by reference.
+        /// </summary>
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_ForkInstanceDivergesFromCommittedList_ConvergesToCommittedInstance()
+        {
+            try
+            {
+                RecordingStore.SuppressLogging = true;
+                RecordingStore.ResetForTesting();
+
+                const string treeId = "tree-734-divergence";
+                const string originId = "rec-734-origin-divergence";
+                const string forkId = "rec-734-fork-divergence";
+
+                // Two distinct Recording instances under the same fork id
+                // -- a defensive convergence contract; the production
+                // RemoveCommittedTreeById path makes this state
+                // unreachable from the F5/F9 mid-Re-Fly flow today.
+                var committedFork = new Recording
+                {
+                    RecordingId = forkId,
+                    TreeId = treeId,
+                    VesselPersistentId = 500u,
+                    VesselName = "Recording-Fork-Live",
+                    SupersedeTargetId = originId,
+                };
+                committedFork.Points.Add(new TrajectoryPoint { ut = 100.0 });
+                committedFork.Points.Add(new TrajectoryPoint { ut = 110.0 });
+                RecordingStore.AddCommittedInternal(committedFork);
+
+                var staleTreeFork = new Recording
+                {
+                    RecordingId = forkId,
+                    TreeId = treeId,
+                    VesselPersistentId = 500u,
+                    VesselName = "Recording-Fork-Stale-Deserialised",
+                    SupersedeTargetId = originId,
+                };
+
+                var origin = new Recording
+                {
+                    RecordingId = originId, TreeId = treeId, VesselPersistentId = 500u,
+                    MergeState = MergeState.Immutable,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = originId, ActiveRecordingId = forkId,
+                };
+                tree.AddOrReplaceRecording(origin);
+                tree.AddOrReplaceRecording(staleTreeFork);
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-divergence",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = originId,
+                    InPlaceContinuation = true,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.True(attached, "instance divergence must trigger convergence to the committed-list instance");
+                Assert.True(tree.Recordings.TryGetValue(forkId, out Recording resolved));
+                Assert.Same(committedFork, resolved);
+                Assert.NotSame(staleTreeFork, resolved);
+                // The recorder's committed-list payload is now what the
+                // tree-side resolver will hand to TryCommitReFlySupersede;
+                // the stale shadow is discarded.
+                Assert.Equal(2, resolved.Points.Count);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
+        }
+
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_ForkAlreadyAttached_NoOp()
+        {
+            try
+            {
+                RecordingStore.SuppressLogging = true;
+                RecordingStore.ResetForTesting();
+
+                const string treeId = "tree-734-noop";
+                const string originId = "rec-734-origin-noop";
+                const string forkId = "rec-734-fork-noop";
+
+                var origin = new Recording
+                {
+                    RecordingId = originId, TreeId = treeId, VesselPersistentId = 200u,
+                };
+                var fork = new Recording
+                {
+                    RecordingId = forkId, TreeId = treeId, VesselPersistentId = 200u,
+                    SupersedeTargetId = originId,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = originId, ActiveRecordingId = forkId,
+                };
+                tree.AddOrReplaceRecording(origin);
+                // Eager attach already done by AtomicMarkerWrite.
+                tree.AddOrReplaceRecording(fork);
+                RecordingStore.AddCommittedInternal(fork);
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-noop",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = originId,
+                    InPlaceContinuation = true,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.False(attached);
+                Assert.True(tree.Recordings.ContainsKey(forkId));
+                Assert.DoesNotContain(logLines, l => l.Contains("attached in-place fork"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
+        }
+
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_LegacyInPlaceShape_NoOp()
+        {
+            // Legacy in-place sessions wrote ActiveReFlyRecordingId == OriginChildRecordingId
+            // and origin is already in tree.Recordings by construction.
+            const string treeId = "tree-legacy";
+            const string originId = "rec-legacy-origin";
+            var origin = new Recording
+            {
+                RecordingId = originId, TreeId = treeId, VesselPersistentId = 300u,
+            };
+            var tree = new RecordingTree
+            {
+                Id = treeId, RootRecordingId = originId, ActiveRecordingId = originId,
+            };
+            tree.AddOrReplaceRecording(origin);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-legacy",
+                TreeId = treeId,
+                ActiveReFlyRecordingId = originId,
+                OriginChildRecordingId = originId,
+                InPlaceContinuation = false, // legacy path predates the flag
+            };
+
+            bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+            Assert.False(attached);
+        }
+
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_NotInPlaceMarker_NoOp()
+        {
+            const string treeId = "tree-non-inplace";
+            var tree = new RecordingTree
+            {
+                Id = treeId, RootRecordingId = "rec-root", ActiveRecordingId = "rec-root",
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = treeId,
+                ActiveReFlyRecordingId = "rec-placeholder",
+                OriginChildRecordingId = "rec-origin",
+                InPlaceContinuation = false,
+            };
+
+            bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+            Assert.False(attached);
+        }
+
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_ForkMissingFromCommittedList_LogsWarn()
+        {
+            try
+            {
+                RecordingStore.SuppressLogging = true;
+                RecordingStore.ResetForTesting();
+
+                const string treeId = "tree-missing-fork";
+                const string originId = "rec-origin-missing";
+                const string forkId = "rec-fork-missing";
+
+                var origin = new Recording
+                {
+                    RecordingId = originId, TreeId = treeId, VesselPersistentId = 400u,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = originId, ActiveRecordingId = originId,
+                };
+                tree.AddOrReplaceRecording(origin);
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-missing",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = originId,
+                    InPlaceContinuation = true,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.False(attached);
+                Assert.False(tree.Recordings.ContainsKey(forkId));
+                // Fixture has the fork missing from BOTH the committed list
+                // AND tree.Recordings, which is the genuine data-loss state -
+                // expect the warn branch.
+                Assert.Contains(logLines, l =>
+                    l.Contains("[WARN]")
+                    && l.Contains("[Flight]")
+                    && l.Contains("ReconcileInPlaceForkIntoTreeIfNeeded")
+                    && l.Contains("missing from BOTH"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
+        }
+
+        /// <summary>
+        /// Regression for Opus reviewer P2: the warn log used to fire on
+        /// every F5/F9 mid-Re-Fly because LoadRecordingTrees skips active
+        /// nodes from CommittedRecordings while TryRestoreActiveTreeNode
+        /// hydrates them only into PendingTree.Recordings. The new branch
+        /// recognises "absent from committed list but present in tree" as
+        /// a normal hydration state and downgrades to Verbose.
+        /// </summary>
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_ForkInTreeButNotCommittedList_LogsVerboseNotWarn()
+        {
+            try
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+
+                const string treeId = "tree-tree-only-fork";
+                const string originId = "rec-origin-tree-only";
+                const string forkId = "rec-fork-tree-only";
+
+                var origin = new Recording
+                {
+                    RecordingId = originId, TreeId = treeId, VesselPersistentId = 401u,
+                };
+                // Fork lives only in tree.Recordings, mirroring TryRestoreActiveTreeNode's
+                // F5/F9 mid-Re-Fly hydration (no AddCommittedInternal).
+                var fork = new Recording
+                {
+                    RecordingId = forkId, TreeId = treeId, VesselPersistentId = 401u,
+                    MergeState = MergeState.NotCommitted,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = originId, ActiveRecordingId = forkId,
+                };
+                tree.AddOrReplaceRecording(origin);
+                tree.AddOrReplaceRecording(fork);
+
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-tree-only",
+                    TreeId = treeId,
+                    ActiveReFlyRecordingId = forkId,
+                    OriginChildRecordingId = originId,
+                    InPlaceContinuation = true,
+                };
+
+                bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+                Assert.False(attached);
+                Assert.True(tree.Recordings.ContainsKey(forkId));
+                // Verbose branch fired - no Warn for the normal hydration state.
+                Assert.Contains(logLines, l =>
+                    l.Contains("[VERBOSE]")
+                    && l.Contains("[Flight]")
+                    && l.Contains("ReconcileInPlaceForkIntoTreeIfNeeded")
+                    && l.Contains("absent from committed list but present in tree.Recordings"));
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[WARN]")
+                    && l.Contains("[Flight]")
+                    && l.Contains("ReconcileInPlaceForkIntoTreeIfNeeded"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+                RecordingStore.SuppressLogging = false;
+            }
+        }
+
+        [Fact]
+        public void ReconcileInPlaceForkIntoTreeIfNeeded_TreeIdMismatch_NoOp()
+        {
+            const string forkId = "rec-fork-mismatch";
+            var tree = new RecordingTree
+            {
+                Id = "tree-loaded", RootRecordingId = "rec-other", ActiveRecordingId = "rec-other",
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree-other",
+                ActiveReFlyRecordingId = forkId,
+                OriginChildRecordingId = "rec-origin",
+                InPlaceContinuation = true,
+            };
+
+            bool attached = ParsekFlight.ReconcileInPlaceForkIntoTreeIfNeeded(tree, marker);
+
+            Assert.False(attached);
+        }
+
+        /// <summary>
+        /// Issue #734: <see cref="RewindInvoker.EnsureForkAttachedToTree"/>
+        /// rebuilds the background map after attach so a stale entry left
+        /// over from before the swap (a non-active sibling pid that the
+        /// rebuild now classifies as ineligible) does not survive into the
+        /// active session. We pin the rebuild by seeding a stale pid into
+        /// the map for a recording that <see cref="IsBackgroundMapEligible"/>
+        /// would not include and asserting the rebuild evicted it.
+        /// </summary>
+        [Fact]
+        public void EnsureForkAttachedToTree_RebuildsBackgroundMap()
+        {
+            const string treeId = "tree-bg-rebuild";
+            const string originId = "rec-bg-origin";
+            const string forkId = "rec-bg-fork";
+            const uint stalePid = 9001u;
+
+            var origin = new Recording
+            {
+                RecordingId = originId, TreeId = treeId, VesselPersistentId = stalePid,
+                MergeState = MergeState.Immutable,
+            };
+            var fork = new Recording
+            {
+                RecordingId = forkId, TreeId = treeId, VesselPersistentId = stalePid,
+                MergeState = MergeState.NotCommitted,
+                SupersedeTargetId = originId,
+            };
+            var tree = new RecordingTree
+            {
+                Id = treeId, RootRecordingId = originId, ActiveRecordingId = forkId,
+            };
+            tree.AddOrReplaceRecording(origin);
+            // Seed a stale background map entry whose recording id is no
+            // longer a tree member -- a clean rebuild must drop it.
+            tree.BackgroundMap[12345u] = "rec-no-longer-in-tree";
+
+            bool attached = RewindInvoker.EnsureForkAttachedToTree(tree, fork, "TestCallSite");
+
+            Assert.True(attached);
+            Assert.True(tree.Recordings.ContainsKey(forkId));
+            Assert.False(tree.BackgroundMap.ContainsKey(12345u),
+                "RebuildBackgroundMap must drop entries pointing at recordings " +
+                "that are no longer in tree.Recordings");
+        }
+
+        [Fact]
+        public void EnsureForkAttachedToTree_AlreadyAttached_NoOp_NoLog()
+        {
+            try
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = false;
+                var localLogs = new List<string>();
+                ParsekLog.TestSinkForTesting = line => localLogs.Add(line);
+
+                const string treeId = "tree-noop-attach";
+                const string forkId = "rec-noop-attach";
+
+                var fork = new Recording
+                {
+                    RecordingId = forkId, TreeId = treeId, VesselPersistentId = 8000u,
+                };
+                var tree = new RecordingTree
+                {
+                    Id = treeId, RootRecordingId = forkId, ActiveRecordingId = forkId,
+                };
+                tree.AddOrReplaceRecording(fork);
+
+                bool attached = RewindInvoker.EnsureForkAttachedToTree(tree, fork, "TestCallSite");
+
+                Assert.False(attached);
+                Assert.DoesNotContain(localLogs, l => l.Contains("attached in-place fork"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
         }
     }
 }

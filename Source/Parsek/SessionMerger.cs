@@ -133,6 +133,8 @@ namespace Parsek
                 if (srcRec.Controllers != null)
                     merged.Controllers = new List<ControllerInfo>(srcRec.Controllers);
                 merged.IsDebris = srcRec.IsDebris;
+                // PR 3b: propagate the v12+ debris parent-anchor contract through merges.
+                merged.DebrisParentRecordingId = srcRec.DebrisParentRecordingId;
 
                 // Location context (Phase 10)
                 merged.StartBodyName = srcRec.StartBodyName;

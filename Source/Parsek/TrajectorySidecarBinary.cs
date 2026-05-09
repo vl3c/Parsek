@@ -60,7 +60,16 @@ namespace Parsek
         // §15.17). Same drift-pinning rationale as BoundarySeamFlagBinaryVersion.
         internal const int StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion;
         internal const int RecordingAnchorChainBinaryVersion = RecordingStore.RecordingAnchorChainFormatVersion;
-        internal const int CurrentBinaryVersion = RecordingAnchorChainBinaryVersion;
+        // PR 3a (format v12): the binary `.prec` LAYOUT is identical to v11 (the
+        // top-level `Recording.DebrisParentRecordingId` is a ConfigNode-codec field,
+        // not trajectory data). The constant exists only so the binary stamp tracks
+        // the recording's RecordingFormatVersion when freshly written — without it,
+        // writing a v12 recording would stamp the sidecar as v11 and break
+        // Probe.FormatVersion == rec.RecordingFormatVersion equality on fresh writes.
+        // No new read/write gates use this constant; v11 gates still cover the
+        // shared layout. See plan §"Format version" and §3a.
+        internal const int DebrisParentRecordingBinaryVersion = RecordingStore.DebrisParentRecordingFormatVersion;
+        internal const int CurrentBinaryVersion = DebrisParentRecordingBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -152,7 +161,12 @@ namespace Parsek
                 flatFallbackPoints != null && !ReferenceEquals(flatFallbackPoints, rec.Points);
             int flatFallbackPointCount = flatFallbackPoints != null ? flatFallbackPoints.Count : 0;
             var table = BuildStringTable(rec);
-            int binaryVersion = rec.RecordingFormatVersion >= RecordingAnchorChainBinaryVersion
+            // v12 layout is identical to v11; the only difference is the stamp.
+            // Pick the highest binary version <= the recording's format version so
+            // a freshly-written v12 recording's probe matches its RecordingFormatVersion.
+            int binaryVersion = rec.RecordingFormatVersion >= DebrisParentRecordingBinaryVersion
+                ? DebrisParentRecordingBinaryVersion
+                : rec.RecordingFormatVersion >= RecordingAnchorChainBinaryVersion
                 ? RecordingAnchorChainBinaryVersion
                 : rec.RecordingFormatVersion >= StructuralEventFlagBinaryVersion
                     ? StructuralEventFlagBinaryVersion
@@ -389,7 +403,8 @@ namespace Parsek
                 || version == BoundarySeamFlagBinaryVersion
                 || version == TerrainGroundClearanceBinaryVersion
                 || version == StructuralEventFlagBinaryVersion
-                || version == RecordingAnchorChainBinaryVersion;
+                || version == RecordingAnchorChainBinaryVersion
+                || version == DebrisParentRecordingBinaryVersion;
         }
 
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)

@@ -54,6 +54,7 @@ namespace Parsek.Tests
             {
                 RewindPoints = new List<RewindPoint>(),
                 RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>(),
                 LedgerTombstones = new List<LedgerTombstone>(),
             };
             ParsekScenario.SetInstanceForTesting(scenario);
@@ -109,6 +110,13 @@ namespace Parsek.Tests
                 NewRecordingId = "rec2",
                 UT = 11.0,
             });
+            scenario.RecordingRewindRetirements.Add(new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_rec2",
+                RecordingId = "rec2",
+                RestoredRecordingId = "rec1",
+                Reason = RecordingRewindRetirement.DefaultReason
+            });
             scenario.LedgerTombstones.Add(new LedgerTombstone
             {
                 TombstoneId = "tomb1",
@@ -143,6 +151,7 @@ namespace Parsek.Tests
             Assert.Equal(2, bundle.Actions.Count);
             Assert.Single(bundle.RewindPoints);
             Assert.Single(bundle.RecordingSupersedes);
+            Assert.Single(bundle.RecordingRewindRetirements);
             Assert.Single(bundle.LedgerTombstones);
             Assert.NotNull(bundle.ActiveReFlySessionMarker);
             Assert.Equal(2, bundle.CrewReplacements.Count);
@@ -155,6 +164,7 @@ namespace Parsek.Tests
             Ledger.Clear();
             scenario.RewindPoints.Clear();
             scenario.RecordingSupersedes.Clear();
+            scenario.RecordingRewindRetirements.Clear();
             scenario.LedgerTombstones.Clear();
             scenario.ActiveReFlySessionMarker = null;
             CrewReservationManager.ResetReplacementsForTesting();
@@ -169,6 +179,8 @@ namespace Parsek.Tests
             Assert.Equal(2, Ledger.Actions.Count);
             Assert.Single(scenario.RewindPoints);
             Assert.Single(scenario.RecordingSupersedes);
+            Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("rec2", scenario.RecordingRewindRetirements[0].RecordingId);
             Assert.Single(scenario.LedgerTombstones);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
             Assert.Equal("sess_before", scenario.ActiveReFlySessionMarker.SessionId);

@@ -85,6 +85,24 @@ namespace Parsek
         /// <summary>Test-only accessor for sticky state.</summary>
         internal static HashSet<string> StickyMarkersForTesting => stickyMarkers;
 
+        internal readonly struct MarkerClickContext
+        {
+            internal MarkerClickContext(string markerKey, string label, int button, Vector2 screenPosition)
+            {
+                MarkerKey = markerKey;
+                Label = label;
+                Button = button;
+                ScreenPosition = screenPosition;
+            }
+
+            internal string MarkerKey { get; }
+            internal string Label { get; }
+            internal int Button { get; }
+            internal Vector2 ScreenPosition { get; }
+        }
+
+        internal delegate bool MarkerClickHandler(MarkerClickContext context);
+
         /// <summary>Test-only accessor for the computed per-type icon entries.
         /// Replaces the old single-atlas/UV-dict pair since #387's follow-up
         /// fix made icons live on multiple atlas textures.</summary>
@@ -137,7 +155,8 @@ namespace Parsek
         /// </summary>
         internal static void DrawMarker(
             Vector3d worldPos, string markerKey, string label, Color color,
-            VesselType vtype = VesselType.Ship)
+            VesselType vtype = VesselType.Ship,
+            MarkerClickHandler onLeftClick = null)
         {
             if (PlanetariumCamera.Camera == null) return;
 
@@ -145,7 +164,13 @@ namespace Parsek
             Vector3 screenPos = PlanetariumCamera.Camera.WorldToScreenPoint(scaledPos);
             if (screenPos.z < 0) return; // behind camera
 
-            DrawMarkerAtScreen(new Vector2(screenPos.x, screenPos.y), markerKey, label, color, vtype);
+            DrawMarkerAtScreen(
+                new Vector2(screenPos.x, screenPos.y),
+                markerKey,
+                label,
+                color,
+                vtype,
+                onLeftClick);
         }
 
         /// <summary>
@@ -158,7 +183,8 @@ namespace Parsek
         /// the z &lt; 0 behind-camera case.</param>
         internal static void DrawMarkerAtScreen(
             Vector2 screenPos, string markerKey, string label, Color color,
-            VesselType vtype = VesselType.Ship)
+            VesselType vtype = VesselType.Ship,
+            MarkerClickHandler onLeftClick = null)
         {
             EnsureResources();
 
@@ -180,7 +206,26 @@ namespace Parsek
                     iconRect.width + ClickPadding * 2, iconRect.height + ClickPadding * 2);
                 mouseOver = hitRect.Contains(Event.current.mousePosition);
 
-                if (mouseOver
+                bool customHandled = false;
+                if (ShouldRouteMarkerClickToHandler(
+                        onLeftClick != null,
+                        mouseOver,
+                        markerKey,
+                        Event.current.type,
+                        Event.current.button))
+                {
+                    int button = Event.current.button;
+                    bool handled = onLeftClick(
+                        new MarkerClickContext(markerKey, label, button, screenPos));
+                    if (handled)
+                    {
+                        customHandled = true;
+                        Event.current.Use();
+                        ParsekLog.Info(Tag, FormatHandledClickLogLine(label, markerKey, button));
+                    }
+                }
+                if (!customHandled
+                    && mouseOver
                     && !string.IsNullOrEmpty(markerKey)
                     && IsToggleClick(Event.current.type, Event.current.button))
                 {
@@ -249,6 +294,19 @@ namespace Parsek
         internal static bool IsToggleClick(EventType type, int button)
             => type == EventType.MouseDown && button == 0;
 
+        internal static bool ShouldRouteMarkerClickToHandler(
+            bool hasHandler,
+            bool mouseOver,
+            string markerKey,
+            EventType type,
+            int button)
+        {
+            return hasHandler
+                && mouseOver
+                && !string.IsNullOrEmpty(markerKey)
+                && IsToggleClick(type, button);
+        }
+
         /// <summary>
         /// Pure: format the INFO log line emitted when the user toggles a
         /// marker's sticky state by clicking its icon. Extracted so tests can
@@ -260,6 +318,12 @@ namespace Parsek
             => string.Format(CultureInfo.InvariantCulture,
                 "Ghost icon '{0}' label sticky={1} key={2} button={3}",
                 label ?? "(null)", nowSticky ? "on" : "off", markerKey, button);
+
+        internal static string FormatHandledClickLogLine(
+            string label, string markerKey, int button)
+            => string.Format(CultureInfo.InvariantCulture,
+                "Ghost icon '{0}' click handled by caller key={1} button={2}",
+                label ?? "(null)", markerKey ?? "(null)", button);
 
         /// <summary>
         /// Pure: flip the sticky state for <paramref name="key"/> in <paramref name="set"/>.

@@ -6809,7 +6809,7 @@ namespace Parsek
         // without the per-call cost of Object.FindObjectOfType<FXMonger>() scanning the scene.
         private static System.Reflection.FieldInfo fxMongerFetchField;
 
-        private static bool IsFxMongerLive()
+        internal static bool IsFxMongerLive()
         {
             if (fxMongerFetchField == null)
             {

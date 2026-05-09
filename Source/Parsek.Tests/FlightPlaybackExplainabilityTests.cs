@@ -59,6 +59,7 @@ namespace Parsek.Tests
             Assert.Equal("visual-load-failed", GhostPlaybackSkipReason.VisualLoadFailed.ToLogToken());
             Assert.Equal("session-suppressed", GhostPlaybackSkipReason.SessionSuppressed.ToLogToken());
             Assert.Equal("superseded-by-relation", GhostPlaybackSkipReason.SupersededByRelation.ToLogToken());
+            Assert.Equal("rewind-retired", GhostPlaybackSkipReason.RewindRetired.ToLogToken());
         }
 
         [Fact]
@@ -89,6 +90,14 @@ namespace Parsek.Tests
                     playbackEnabled: true,
                     externalVesselSuppressed: true,
                     supersededByRelation: true));
+            Assert.Equal(
+                GhostPlaybackSkipReason.RewindRetired,
+                ParsekFlight.ResolveGhostPlaybackSkipReason(
+                    hasRenderableData: true,
+                    playbackEnabled: true,
+                    externalVesselSuppressed: true,
+                    supersededByRelation: true,
+                    rewindRetired: true));
             Assert.Equal(
                 GhostPlaybackSkipReason.None,
                 ParsekFlight.ResolveGhostPlaybackSkipReason(
@@ -235,6 +244,127 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputePlaybackFlags_RewindRetired_SkipsGhostAndSpawn()
+        {
+            RecordingStore.ResetForTesting();
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_old",
+                        RecordingId = "rec-retired",
+                        RestoredRecordingId = "rec-restored",
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                var retired = MakeRecording("rec-retired", "Retired Probe");
+                retired.VesselSnapshot = new ConfigNode("VESSEL");
+                retired.TerminalStateValue = TerminalState.Orbiting;
+                var restored = MakeRecording("rec-restored", "Restored Probe");
+                var committed = new List<Recording> { retired, restored };
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                Assert.True(flags[0].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.RewindRetired, flags[0].skipReason);
+                Assert.False(flags[0].needsSpawn);
+                Assert.False(flags[1].skipGhost);
+                Assert.Contains(logLines, line =>
+                    line.Contains("id=rec-retired")
+                    && line.Contains("reason=rewind-retired")
+                    && line.Contains("rewindRetired=True"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_RewindRetiredRelativeAnchorChain_SkipsBothBeforeAnchorResolution()
+        {
+            RecordingStore.ResetForTesting();
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_anchor",
+                        RecordingId = "rec-retired-anchor",
+                        RestoredRecordingId = "rec-restored-root",
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    },
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_child",
+                        RecordingId = "rec-retired-child",
+                        RestoredRecordingId = "rec-restored-root",
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                var anchor = MakeRecording("rec-retired-anchor", "Retired Anchor");
+                anchor.VesselSnapshot = new ConfigNode("VESSEL");
+                anchor.TerminalStateValue = TerminalState.Orbiting;
+
+                var child = MakeRecording("rec-retired-child", "Retired Relative Child");
+                child.VesselSnapshot = new ConfigNode("VESSEL");
+                child.TerminalStateValue = TerminalState.Orbiting;
+                child.TrackSections.Add(new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    anchorRecordingId = anchor.RecordingId,
+                    startUT = 100.0,
+                    endUT = 101.0,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 100.0 },
+                        new TrajectoryPoint { ut = 101.0 }
+                    }
+                });
+
+                var restored = MakeRecording("rec-restored-root", "Restored Root");
+                var committed = new List<Recording> { anchor, child, restored };
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 100.5);
+
+                Assert.True(flags[0].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.RewindRetired, flags[0].skipReason);
+                Assert.False(flags[0].needsSpawn);
+                Assert.True(flags[1].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.RewindRetired, flags[1].skipReason);
+                Assert.False(flags[1].needsSpawn);
+                Assert.False(flags[2].skipGhost);
+                Assert.Contains(logLines, line =>
+                    line.Contains("id=rec-retired-anchor")
+                    && line.Contains("reason=rewind-retired"));
+                Assert.Contains(logLines, line =>
+                    line.Contains("id=rec-retired-child")
+                    && line.Contains("reason=rewind-retired"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
         public void FrameSummary_IncludesAggregateSkipCounters()
         {
             var counters = new GhostPlaybackFrameCounters
@@ -253,8 +383,9 @@ namespace Parsek.Tests
                 externalVesselSuppressed = 12,
                 sessionSuppressed = 13,
                 supersededByRelation = 14,
-                spawnSuppressedDeadOnArrival = 15,
-                active = 16
+                rewindRetired = 15,
+                spawnSuppressedDeadOnArrival = 16,
+                active = 17
             };
 
             string message = GhostPlaybackEngine.BuildFrameSummaryMessage(counters);
@@ -274,8 +405,9 @@ namespace Parsek.Tests
             Assert.Contains("externalVesselSuppressed=12", message);
             Assert.Contains("sessionSuppressed=13", message);
             Assert.Contains("supersededByRelation=14", message);
-            Assert.Contains("spawnSuppressedDeadOnArrival=15", message);
-            Assert.Contains("active=16", message);
+            Assert.Contains("rewindRetired=15", message);
+            Assert.Contains("spawnSuppressedDeadOnArrival=16", message);
+            Assert.Contains("active=17", message);
         }
 
         [Fact]
@@ -290,6 +422,13 @@ namespace Parsek.Tests
         public void FrameSummary_EmitsWhenSpawnSuppressedDeadOnArrivalNonZero()
         {
             var counters = new GhostPlaybackFrameCounters { spawnSuppressedDeadOnArrival = 1 };
+            Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
+        }
+
+        [Fact]
+        public void FrameSummary_EmitsWhenRewindRetiredNonZero()
+        {
+            var counters = new GhostPlaybackFrameCounters { rewindRetired = 1 };
             Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
         }
 

@@ -1162,12 +1162,11 @@ namespace Parsek.Rendering
 
         private static bool IsInPlaceContinuationMarker(ReFlySessionMarker marker)
         {
-            return marker != null
-                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                && string.Equals(
-                    marker.OriginChildRecordingId,
-                    marker.ActiveReFlyRecordingId,
-                    StringComparison.Ordinal);
+            // Centralised gate accepts both legacy (active == origin) and
+            // post-#734 fork shapes; the rendering pipeline's anchor-rebuild
+            // path needs to recognise both so the empty-in-place install fires
+            // for fork-mode markers too.
+            return ReFlySessionMarker.IsInPlaceContinuation(marker);
         }
 
         private static void InstallEmptyInPlaceContinuationSession(

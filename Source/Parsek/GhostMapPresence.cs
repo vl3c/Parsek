@@ -469,16 +469,13 @@ namespace Parsek
         internal const string TrackingStationGhostSkipStateVectorThreshold = "state-vector-threshold";
         internal const string TrackingStationGhostSkipRelativeFrame = "relative-frame";
         // #583: Relative-frame state-vector ghost CREATION reaches the resolver
-        // when the first map-visible UT lies inside a Relative section. We allow
-        // creation through the existing StateVector source kind iff the section's
-        // anchor vessel is resolvable in the scene (CreateGhostVesselFromStateVectors
-        // already dispatches on referenceFrame and resolves world position via the
-        // anchor in the Relative branch — PR #547). When the anchor is not yet
-        // resolvable, defer with this dedicated skip reason so the pending-create
-        // queue retries on the next tick. Distinct from `relative-frame` (the
-        // legacy "always defer" reason kept for sections without an anchor id —
-        // those have no resolvable anchor by construction and are unreachable
-        // from the new path).
+        // when the first map-visible UT lies inside a Relative section. Creation
+        // flows through the existing StateVector source kind when the section's
+        // recorded anchor chain can resolve for the target UT. If it cannot, defer
+        // with this dedicated skip reason so the pending-create queue retries on
+        // the next tick. Distinct from `relative-frame`, the legacy "always defer"
+        // reason kept for Relative sections that cannot attempt recorded-anchor
+        // state-vector resolution.
         internal const string TrackingStationGhostSkipRelativeAnchorUnresolved = "relative-anchor-unresolved";
         internal const string TrackingStationGhostSkipActiveReFlyRelativeLookahead =
             "active-refly-relative-anchor-lookahead";
@@ -490,6 +487,7 @@ namespace Parsek
         internal const string TrackingStationSpawnSkipIntermediateGhostChainLink = "intermediate-ghost-chain-link";
         internal const string TrackingStationSpawnSkipTerminatedGhostChain = "terminated-ghost-chain";
         internal const string TrackingStationSpawnSkipSupersededByRelation = "superseded-by-relation";
+        internal const string TrackingStationSpawnSkipRewindRetired = "rewind-retired";
         internal const string SoiGapStateVectorFallbackReason = "soi-gap-state-vector-fallback";
         internal const string OrbitalCheckpointStateVectorRejectSaferSegment = "orbital-checkpoint-state-vector-safer-segment-source";
         internal const string OrbitalCheckpointStateVectorRejectNotSoiGap = "orbital-checkpoint-state-vector-not-soi-gap-recovery";
@@ -501,13 +499,6 @@ namespace Parsek
         internal const double StateVectorRemoveSpeed = 30;        // m/s
         private const double LegacyPointCoverageMaxGapSeconds = 30.0;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
-
-        // #583 test seam: production looks the anchor up via
-        // FlightRecorder.FindVesselByPid (which short-circuits to null when
-        // FlightGlobals.Vessels is unavailable, e.g. xUnit). Tests that need
-        // to exercise the "anchor resolvable in scene" branch override this
-        // delegate; ResetForTesting clears it back to null.
-        internal static Func<uint, bool> AnchorResolvableForTesting = null;
 
         internal struct GhostProtoOrbitSeedDiagnostics
         {
@@ -783,12 +774,12 @@ namespace Parsek
         /// <param name="resolutionBranch">Branch label from
         /// <see cref="StateVectorWorldFrame.Branch"/>: <c>"relative"</c> AND
         /// <c>"absolute-shadow"</c> both suppress, because both describe a
-        /// RELATIVE track section (the latter is the v7 absolute-shadow
-        /// sibling of the same section, used when the live anchor is the
-        /// active Re-Fly target). Suppressing only <c>"relative"</c> would
-        /// leak a parent-chain v7 state-vector ghost into the scene during
-        /// active Re-Fly, contradicting the doubled-ProtoVessel guard
-        /// (PR #613 review P2).</param>
+        /// RELATIVE track section. The absolute-shadow branch is a retained
+        /// v7 compatibility branch for callers that already selected the
+        /// recorded shadow point; create-time lookahead no longer performs a
+        /// live-PID anchor scan. Suppressing both labels preserves the
+        /// doubled-ProtoVessel guard without reintroducing non-loop live-anchor
+        /// map resolution (PR #613 review P2).</param>
         /// <param name="resolutionAnchorPid">Anchor pid from the resolution.</param>
         /// <param name="victimRecordingId">RecordingId of the recording being
         /// mapped. Suppression is rejected with
@@ -841,31 +832,24 @@ namespace Parsek
                 return false;
             }
 
-            // Placeholder pattern (provisional != origin): the live vessel
-            // in scene is the player's pre-rewind vessel, NOT a fresh
-            // restoration. Mirror the carve-out in
-            // RewindInvoker.ResolveInPlaceContinuationDebrisToKill — only
-            // in-place continuations (origin == active) trigger the
-            // doubled-vessel placement.
-            if (!string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
+            // Placeholder pattern (active != origin AND no InPlaceContinuation
+            // flag): the live vessel in scene is a fresh strip-spawned
+            // vessel different from origin, not the same physical craft, so
+            // the parent-chain doubled-ProtoVessel risk does not apply.
+            // The post-#734 fork case (InPlaceContinuation=true with active
+            // != origin) DOES need suppression -- the player is still flying
+            // the same physical vessel as origin, just routed through a
+            // separate provisional Recording.
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
             {
                 suppressReason = "not-suppressed-placeholder-pattern";
                 return false;
             }
 
-            // Accept both "relative" and "absolute-shadow" — the latter is
-            // the v7 sibling of the same RELATIVE section, returned by
-            // ResolveStateVectorWorldPosition when the section's anchor PID
-            // matches the active Re-Fly target. The suppression decision
-            // depends on the section's underlying RELATIVE shape, not on
-            // which positioning source the resolver picked. Without this
-            // both-branches check the parent-chain doubled-ProtoVessel
-            // guard would silently break for v7 recordings and let a
-            // wrong-position ghost ProtoVessel into the scene during
-            // active Re-Fly (PR #613 review P2).
+            // Accept both "relative" and "absolute-shadow" for legacy
+            // suppression decisions. Phase D keeps this helper for caller
+            // compatibility, but create-time lookahead no longer performs a
+            // live-PID anchor scan.
             bool branchSuppresses =
                 string.Equals(resolutionBranch, "relative", StringComparison.Ordinal)
                 || string.Equals(resolutionBranch, "absolute-shadow", StringComparison.Ordinal);
@@ -1077,76 +1061,7 @@ namespace Parsek
             IReadOnlyList<RecordingTree> committedTrees,
             out string suppressReason)
         {
-            suppressReason = "lookahead-no-track-sections";
-
-            List<TrackSection> sections = traj?.TrackSections;
-            if (sections == null || sections.Count == 0)
-                return false;
-
-            int candidates = 0;
-            int skippedPast = 0;
-            int skippedNoAnchor = 0;
-            string firstReject = null;
-            string lastReject = null;
-            bool currentUtUsable = !double.IsNaN(currentUT) && !double.IsInfinity(currentUT);
-
-            for (int i = 0; i < sections.Count; i++)
-            {
-                TrackSection section = sections[i];
-                if (section.referenceFrame != ReferenceFrame.Relative)
-                    continue;
-
-                if (section.anchorVesselId == 0u)
-                {
-                    skippedNoAnchor++;
-                    continue;
-                }
-
-                if (currentUtUsable
-                    && !double.IsNaN(section.endUT)
-                    && !double.IsInfinity(section.endUT)
-                    && section.endUT < currentUT)
-                {
-                    skippedPast++;
-                    continue;
-                }
-
-                candidates++;
-                if (ShouldSuppressStateVectorProtoVesselForActiveReFly(
-                        marker,
-                        "relative",
-                        section.anchorVesselId,
-                        victimRecordingId,
-                        committedRecordings,
-                        committedTrees,
-                        out string candidateReason))
-                {
-                    suppressReason = string.Format(ic,
-                        "{0} sectionIndex={1} sectionUT={2:F1}-{3:F1} " +
-                        "sectionAnchorPid={4} currentUT={5:F1} reason=({6})",
-                        TrackingStationGhostSkipActiveReFlyRelativeLookahead,
-                        i,
-                        section.startUT,
-                        section.endUT,
-                        section.anchorVesselId,
-                        currentUT,
-                        candidateReason ?? "(none)");
-                    return true;
-                }
-
-                if (firstReject == null)
-                    firstReject = candidateReason;
-                lastReject = candidateReason;
-            }
-
-            suppressReason = string.Format(ic,
-                "lookahead-no-active-refly-relative-anchor candidates={0} " +
-                "skippedPast={1} skippedNoAnchor={2} firstReject=({3}) lastReject=({4})",
-                candidates,
-                skippedPast,
-                skippedNoAnchor,
-                firstReject ?? "(none)",
-                lastReject ?? "(none)");
+            suppressReason = "lookahead-disabled-recorded-anchor-chain";
             return false;
         }
 
@@ -2733,13 +2648,29 @@ namespace Parsek
                 && PlanetariumCamera.fetch != null
                 && spawned.mapObject != null)
             {
-                PlanetariumCamera.fetch.SetTarget(spawned.mapObject);
-                ParsekLog.Info(Tag,
+                if (TrySetReadyMapObjectTarget(
+                        () => spawned.mapObject.GetName(),
+                        () => PlanetariumCamera.fetch.SetTarget(spawned.mapObject),
+                        out string mapObjectName,
+                        out string mapObjectError))
+                {
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} mapObject='{2}' reason={3}",
+                            handoffState.GhostPid,
+                            spawnedPid,
+                            mapObjectName ?? "(null)",
+                            reason));
+                    return;
+                }
+
+                ParsekLog.Warn(Tag,
                     string.Format(ic,
-                        "Tracking-station handoff restored map focus from ghostPid={0} to spawnedPid={1} reason={2}",
+                        "Tracking-station handoff could not restore map focus for ghostPid={0} spawnedPid={1} reason={2}: {3}",
                         handoffState.GhostPid,
                         spawnedPid,
-                        reason));
+                        reason,
+                        mapObjectError ?? "map object probe failed"));
                 return;
             }
 
@@ -2752,6 +2683,65 @@ namespace Parsek
                     MapView.MapIsEnabled,
                     PlanetariumCamera.fetch != null,
                     spawned.mapObject != null));
+        }
+
+        internal static bool TrySetReadyMapObjectTarget(
+            Func<string> getName,
+            Action setTarget,
+            out string name,
+            out string error)
+        {
+            if (!TryProbeMapObjectName(getName, out name, out error))
+                return false;
+
+            if (setTarget == null)
+            {
+                error = "setTarget-null";
+                return false;
+            }
+
+            try
+            {
+                setTarget();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "SetTarget threw {0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+                return false;
+            }
+        }
+
+        internal static bool TryProbeMapObjectName(
+            Func<string> getName,
+            out string name,
+            out string error)
+        {
+            name = null;
+            error = null;
+
+            if (getName == null)
+            {
+                error = "getName-null";
+                return false;
+            }
+
+            try
+            {
+                name = getName();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "GetName threw {0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+                return false;
+            }
         }
 
         internal static bool TrySelectTrackingStationVessel(
@@ -2771,7 +2761,11 @@ namespace Parsek
                     vesselSelection.GetType());
                 if (setVesselMethod != null)
                 {
-                    setVesselMethod.Invoke(trackingInstance, new[] { vesselSelection });
+                    object[] args = BuildTrackingStationSetVesselArguments(
+                        setVesselMethod,
+                        vesselSelection,
+                        keepFocus: false);
+                    setVesselMethod.Invoke(trackingInstance, args);
                     return true;
                 }
 
@@ -2792,6 +2786,144 @@ namespace Parsek
                 error = ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
+        }
+
+        internal static object[] BuildTrackingStationSetVesselArguments(
+            MethodInfo setVesselMethod,
+            object vesselSelection,
+            bool keepFocus)
+        {
+            if (setVesselMethod == null)
+                return null;
+
+            ParameterInfo[] parameters = setVesselMethod.GetParameters();
+            if (parameters.Length == 2
+                && parameters[1].ParameterType == typeof(bool))
+            {
+                return new[] { vesselSelection, (object)keepFocus };
+            }
+
+            return new[] { vesselSelection };
+        }
+
+        internal static bool TryRefreshLiveTrackingStationVesselList(string reason)
+        {
+            if (!IsTrackingStationSceneForVesselListRefresh())
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Tracking Station vessel list refresh skipped: reason={0} scene={1}",
+                        string.IsNullOrEmpty(reason) ? "(none)" : reason,
+                        GetCurrentSceneName()));
+                return false;
+            }
+
+            SpaceTracking tracking = UnityEngine.Object.FindObjectOfType<SpaceTracking>();
+            return TryInvokeTrackingStationVesselListRefresh(
+                tracking,
+                reason,
+                out _);
+        }
+
+        private static bool IsTrackingStationSceneForVesselListRefresh()
+        {
+            try
+            {
+                return HighLogic.LoadedScene == GameScenes.TRACKSTATION;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        internal static bool TryInvokeTrackingStationVesselListRefresh(
+            object trackingInstance,
+            string reason,
+            out string error)
+        {
+            error = null;
+            string safeReason = string.IsNullOrEmpty(reason) ? "(none)" : reason;
+
+            if (trackingInstance == null)
+            {
+                error = "SpaceTracking instance not found";
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "Tracking Station vessel list refresh failed: reason={0} error={1}",
+                        safeReason,
+                        error));
+                return false;
+            }
+
+            try
+            {
+                MethodInfo buildMethod = FindTrackingStationNoArgMethod(
+                    trackingInstance.GetType(),
+                    "buildVesselsList");
+                if (buildMethod == null)
+                {
+                    error = "buildVesselsList method not found";
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "Tracking Station vessel list refresh failed: reason={0} error={1}",
+                            safeReason,
+                            error));
+                    return false;
+                }
+
+                buildMethod.Invoke(trackingInstance, null);
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Tracking Station vessel list refreshed: reason={0}",
+                        safeReason));
+                return true;
+            }
+            catch (TargetInvocationException ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                error = string.Format(ic,
+                    "buildVesselsList threw {0}: {1}",
+                    inner.GetType().Name,
+                    inner.Message);
+            }
+            catch (Exception ex)
+            {
+                error = string.Format(ic,
+                    "buildVesselsList reflection failed {0}: {1}",
+                    ex.GetType().Name,
+                    ex.Message);
+            }
+
+            ParsekLog.Warn(Tag,
+                string.Format(ic,
+                    "Tracking Station vessel list refresh failed: reason={0} error={1}",
+                    safeReason,
+                    error ?? "(none)"));
+            return false;
+        }
+
+        private static MethodInfo FindTrackingStationNoArgMethod(
+            Type trackingType,
+            string methodName)
+        {
+            if (trackingType == null || string.IsNullOrEmpty(methodName))
+                return null;
+
+            MethodInfo[] methods = trackingType.GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo method = methods[i];
+                if (method == null || method.Name != methodName)
+                    continue;
+
+                ParameterInfo[] parameters = method.GetParameters();
+                if (parameters.Length == 0)
+                    return method;
+            }
+
+            return null;
         }
 
         internal static bool IsTrackingStationRecordingAlreadyMaterialized(Recording rec)
@@ -2824,6 +2956,7 @@ namespace Parsek
 
             MethodInfo[] methods = trackingType.GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            MethodInfo oneArgumentFallback = null;
             for (int i = 0; i < methods.Length; i++)
             {
                 MethodInfo method = methods[i];
@@ -2831,14 +2964,31 @@ namespace Parsek
                     continue;
 
                 ParameterInfo[] parameters = method.GetParameters();
-                if (parameters.Length != 1)
+                if (!IsTrackingStationSetVesselSignature(parameters, selectionType))
                     continue;
 
-                if (parameters[0].ParameterType.IsAssignableFrom(selectionType))
+                if (parameters.Length == 2)
                     return method;
+                if (oneArgumentFallback == null)
+                    oneArgumentFallback = method;
             }
 
-            return null;
+            return oneArgumentFallback;
+        }
+
+        private static bool IsTrackingStationSetVesselSignature(
+            ParameterInfo[] parameters,
+            Type selectionType)
+        {
+            if (parameters == null || selectionType == null)
+                return false;
+            if (parameters.Length != 1 && parameters.Length != 2)
+                return false;
+            if (!parameters[0].ParameterType.IsAssignableFrom(selectionType))
+                return false;
+
+            return parameters.Length == 1
+                || parameters[1].ParameterType == typeof(bool);
         }
 
         private static void RestoreTrackingStationSelectedVessel(
@@ -3708,9 +3858,9 @@ namespace Parsek
             // sits inside a Relative-frame section. The latter widens the gate
             // so a recording with OrbitalCheckpoint segments elsewhere can still
             // get a map ghost while the playback head is in the docking /
-            // rendezvous section — CreateGhostVesselFromStateVectors's Relative
-            // branch (PR #547) handles the world-position resolution against
-            // the anchor vessel.
+            // rendezvous section; CreateGhostVesselFromStateVectors handles
+            // Relative world-position resolution against the recorded anchor
+            // pose for the target UT.
             bool considerStateVector =
                 !traj.HasOrbitSegments
                 || IsInRelativeFrame(traj, currentUT);
@@ -4220,20 +4370,8 @@ namespace Parsek
                 traj,
                 currentUT,
                 ref cachedIndex,
-                ResolveAnchorInScene,
                 out point,
                 out skipReason);
-        }
-
-        // Production anchor-resolvability lookup. Honours the test seam so
-        // pure-xUnit cases can exercise the "anchor resolvable" Relative-frame
-        // branch without instantiating Unity's FlightGlobals.
-        private static bool ResolveAnchorInScene(uint anchorPid)
-        {
-            if (anchorPid == 0u) return false;
-            if (AnchorResolvableForTesting != null)
-                return AnchorResolvableForTesting(anchorPid);
-            return FlightRecorder.FindVesselByPid(anchorPid) != null;
         }
 
         /// <summary>
@@ -4241,18 +4379,16 @@ namespace Parsek
         /// UT and is suitable for ghost map creation. #583: when the current UT
         /// lies inside a Relative-frame section, the recorded
         /// <c>point.altitude</c> is the anchor-local dz offset (metres), not
-        /// geographic altitude — the create/remove altitude thresholds are
-        /// meaningless and are skipped. Creation in that branch is gated on the
-        /// section's anchor being resolvable in the scene; otherwise we defer
-        /// to the next tick so <see cref="ParsekPlaybackPolicy.CheckPendingMapVessels"/>
-        /// can retry. Pure: the caller supplies the anchor-resolvability lookup
-        /// so xUnit tests can exercise both branches without FlightGlobals.
+        /// geographic altitude, so the create/remove altitude thresholds are
+        /// meaningless and are skipped. v11 Relative sections must name an
+        /// anchor recording; the later state-vector world-frame resolver owns
+        /// recorded-pose resolution and skips unresolved chains without live
+        /// vessel PID lookups.
         /// </summary>
         internal static bool TryResolveStateVectorMapPointPure(
             IPlaybackTrajectory traj,
             double currentUT,
             ref int cachedIndex,
-            Func<uint, bool> anchorResolvable,
             out TrajectoryPoint point,
             out string skipReason)
         {
@@ -4272,8 +4408,9 @@ namespace Parsek
                 return false;
             }
 
-            // Resolve the section covering currentUT once — the Relative branch
-            // needs the anchorVesselId, the Absolute branch needs nothing more.
+            // Resolve the section covering currentUT once; the Relative branch
+            // needs the reference-frame metadata, the Absolute branch needs
+            // nothing more.
             TrackSection? currentSection = null;
             if (traj.TrackSections != null && traj.TrackSections.Count > 0)
             {
@@ -4287,18 +4424,7 @@ namespace Parsek
 
             if (inRelative)
             {
-                uint anchorPid = currentSection.Value.anchorVesselId;
-                // Sections without an anchor id (legacy/synthetic) have no
-                // resolvable anchor pose by construction. Surface as the
-                // long-standing `relative-frame` reason to preserve pre-#583
-                // behaviour for that subset (no map presence inside the
-                // section, no log churn from a new reason kind).
-                if (anchorPid == 0u)
-                {
-                    skipReason = TrackingStationGhostSkipRelativeFrame;
-                    return false;
-                }
-                if (anchorResolvable == null || !anchorResolvable(anchorPid))
+                if (string.IsNullOrWhiteSpace(currentSection.Value.anchorRecordingId))
                 {
                     skipReason = TrackingStationGhostSkipRelativeAnchorUnresolved;
                     return false;
@@ -4367,7 +4493,7 @@ namespace Parsek
         /// branches always set it false. Callers that maintain a pending-map
         /// queue use this overload to decide whether to drop the pending entry
         /// on null return or keep it for the next tick (PR #574 review P2:
-        /// retry-later semantics for the active-Re-Fly suppression gate).
+        /// retry-later semantics for transient map ghost creation misses).
         /// </summary>
         internal static Vessel CreateGhostVesselFromSource(
             int recordingIndex,
@@ -4449,11 +4575,13 @@ namespace Parsek
         /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
         /// in the tracking station, this method provides the equivalent.
         /// </summary>
-        internal static void UpdateTrackingStationGhostLifecycle()
+        internal static void UpdateTrackingStationGhostLifecycle(bool refreshStockList = true)
         {
             double currentUT = CurrentUTNow();
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
+            int createdBefore = lifecycleCreatedThisTick;
+            int destroyedBefore = lifecycleDestroyedThisTick;
 
             // Real-vessel materialization intentionally ignores the TS ghost-visibility toggle.
             if (hasCommittedRecordings)
@@ -4490,6 +4618,12 @@ namespace Parsek
 
             if (!hasCommittedRecordings)
             {
+                RefreshTrackingStationVesselListAfterLifecycleMutation(
+                    createdBefore,
+                    destroyedBefore,
+                    refreshStockList,
+                    "tracking-station-lifecycle-empty");
+                EmitLifecycleSummary("tracking-station", currentUT);
                 return;
             }
 
@@ -4558,7 +4692,51 @@ namespace Parsek
                 lifecycleCreated,
                 alreadyTracked);
 
+            RefreshTrackingStationVesselListAfterLifecycleMutation(
+                createdBefore,
+                destroyedBefore,
+                refreshStockList,
+                "tracking-station-lifecycle");
             EmitLifecycleSummary("tracking-station", currentUT);
+        }
+
+        private static void RefreshTrackingStationVesselListAfterLifecycleMutation(
+            int createdBefore,
+            int destroyedBefore,
+            bool refreshStockList,
+            string reason)
+        {
+            if (!refreshStockList)
+                return;
+
+            if (!ShouldRefreshTrackingStationVesselListAfterLifecycleMutation(
+                    createdBefore,
+                    destroyedBefore,
+                    lifecycleCreatedThisTick,
+                    lifecycleDestroyedThisTick))
+            {
+                return;
+            }
+
+            int created = lifecycleCreatedThisTick - createdBefore;
+            int destroyed = lifecycleDestroyedThisTick - destroyedBefore;
+
+            TryRefreshLiveTrackingStationVesselList(
+                string.Format(ic,
+                    "{0} created={1} destroyed={2}",
+                    string.IsNullOrEmpty(reason) ? "tracking-station-lifecycle" : reason,
+                    created,
+                    destroyed));
+        }
+
+        internal static bool ShouldRefreshTrackingStationVesselListAfterLifecycleMutation(
+            int createdBefore,
+            int destroyedBefore,
+            int createdAfter,
+            int destroyedAfter)
+        {
+            return createdAfter - createdBefore > 0
+                || destroyedAfter - destroyedBefore > 0;
         }
 
         private static void RefreshTrackingStationGhosts(
@@ -4730,7 +4908,7 @@ namespace Parsek
                 return;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
-            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
+            var timelineInactiveIds = CurrentTimelineInactiveRecordingIds(committed);
             List<int> eligibleIndices = null;
             for (int i = 0; i < committed.Count; i++)
             {
@@ -4738,7 +4916,7 @@ namespace Parsek
                     committed[i],
                     currentUT,
                     chains,
-                    relationSupersededIds);
+                    timelineInactiveIds);
                 if (!needsSpawn)
                     continue;
 
@@ -4772,12 +4950,12 @@ namespace Parsek
                 return false;
 
             var chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
-            var relationSupersededIds = CurrentRelationSupersededRecordingIds(committed);
+            var timelineInactiveIds = CurrentTimelineInactiveRecordingIds(committed);
             var (needsSpawn, _) = ShouldSpawnAtTrackingStationEnd(
                 committed[index],
                 currentUT,
                 chains,
-                relationSupersededIds);
+                timelineInactiveIds);
             if (!needsSpawn)
                 return false;
 
@@ -4952,6 +5130,14 @@ namespace Parsek
             public uint AnchorPid;         // 0 unless Branch == "relative"
         }
 
+        internal static bool ShouldRetryStateVectorCreationAfterResolutionMiss(
+            StateVectorWorldFrame resolution)
+        {
+            return !resolution.Resolved
+                && string.Equals(resolution.Branch, "relative", StringComparison.Ordinal)
+                && string.Equals(resolution.FailureReason, "anchor-not-found", StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Pure-static resolution: given a trajectory point, the originating section
         /// (or null), the body, and pre-resolved anchor data, return the world-space
@@ -4971,14 +5157,12 @@ namespace Parsek
             TrajectoryPoint? absoluteShadowPoint = null)
         {
             // v7+ Relative sections store an `absoluteFrames` shadow alongside
-            // the anchor-local `frames`. When the caller has determined the
-            // live anchor is unsafe (most commonly: the section is anchored to
-            // the active Re-Fly target PID, so its live pose is being driven
-            // by the player and no longer matches the recording), it can pass
-            // the parallel shadow point here. Resolved through the standard
-            // body-fixed surface lookup it yields the recorded world position
-            // directly — no live anchor multiplication, no rotation drift.
-            // Returns Branch="absolute-shadow" so call-site logs and tests can
+            // the anchor-local `frames`. The state-vector path currently passes
+            // this as null, but the compatibility branch remains available for
+            // callers that already selected the recorded absolute shadow point.
+            // Resolved through the standard body-fixed surface lookup it yields
+            // the recorded world position directly. Returns
+            // Branch="absolute-shadow" so call-site logs and tests can
             // distinguish this fallback from the regular Absolute path.
             if (absoluteShadowPoint.HasValue)
             {
@@ -4990,7 +5174,7 @@ namespace Parsek
                     WorldPos = pos,
                     Branch = "absolute-shadow",
                     FailureReason = null,
-                    AnchorPid = section?.anchorVesselId ?? 0u,
+                    AnchorPid = anchorVesselId,
                 };
             }
             // No track sections at all — fall back to the original Absolute interpretation.
@@ -5033,14 +5217,13 @@ namespace Parsek
                         WorldPos = default(Vector3d),
                         Branch = "relative",
                         FailureReason = "anchor-not-found",
-                        AnchorPid = section.Value.anchorVesselId
+                        AnchorPid = anchorVesselId
                     };
                 }
 
                 // The lat/lon/alt fields are reused as anchor-local XYZ offsets in
                 // RELATIVE sections (TrajectoryPoint.cs:13-15 docstring). Resolve via
-                // the same canonical helper InterpolateAndPositionRelative uses on the
-                // flight-scene playback path (ParsekFlight.cs:13821).
+                // the same canonical helper used by the flight-scene playback path.
                 Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
                     anchorWorldPos,
                     anchorWorldRot,
@@ -5055,7 +5238,7 @@ namespace Parsek
                     WorldPos = worldPos,
                     Branch = "relative",
                     FailureReason = null,
-                    AnchorPid = section.Value.anchorVesselId
+                    AnchorPid = anchorVesselId
                 };
             }
 
@@ -5090,7 +5273,9 @@ namespace Parsek
 
         /// <summary>
         /// KSP-dependent wrapper over <see cref="ResolveStateVectorWorldPositionPure"/>.
-        /// Looks up the section, body, and anchor vessel, then delegates to the pure helper.
+        /// Looks up the section/body and resolves recorded Relative anchors
+        /// through <see cref="RecordedRelativeAnchorPoseResolver"/>, then
+        /// delegates to the pure helper.
         /// </summary>
         private static StateVectorWorldFrame ResolveStateVectorWorldPosition(
             IPlaybackTrajectory traj,
@@ -5109,32 +5294,20 @@ namespace Parsek
             bool anchorFound = false;
             Vector3d anchorPos = default(Vector3d);
             Quaternion anchorRot = Quaternion.identity;
-            uint anchorPid = section?.anchorVesselId ?? 0u;
+            uint anchorPid = 0u;
             if (section.HasValue
                 && section.Value.referenceFrame == ReferenceFrame.Relative
-                && anchorPid != 0u)
+                && RecordedRelativeAnchorPoseResolver.TryFindFocusRecording(traj, out Recording focusRecording)
+                && RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose(
+                    focusRecording,
+                    section.Value,
+                    point.ut,
+                    out AnchorPose anchorPose))
             {
-                Vessel anchor = FlightRecorder.FindVesselByPid(anchorPid);
-                if (anchor != null)
-                {
-                    anchorFound = true;
-                    anchorPos = anchor.GetWorldPos3D();
-                    anchorRot = anchor.transform != null
-                        ? anchor.transform.rotation
-                        : Quaternion.identity;
-                }
+                anchorFound = true;
+                anchorPos = anchorPose.WorldPos;
+                anchorRot = anchorPose.WorldRotation;
             }
-
-            // Active-Re-Fly absolute-shadow opt-in: when this Relative section
-            // is anchored to the vessel currently being re-flown (the live
-            // anchor is being driven by the player, so it no longer matches
-            // the recorded anchor pose), prefer the v7 absolute shadow point
-            // over the live-anchor-multiplied relative offset. Without this
-            // the upper-stage / sibling-chain ghosts get spawned at the
-            // player's current world position with a hundreds-of-metres
-            // offset and visibly bounce around the map.
-            TrajectoryPoint? shadow = TryResolveActiveReFlyAbsoluteShadowPoint(
-                traj, section, anchorPid, point.ut);
 
             int formatVersion = traj?.RecordingFormatVersion ?? 0;
             return ResolveStateVectorWorldPositionPure(
@@ -5147,88 +5320,7 @@ namespace Parsek
                 anchorRot,
                 anchorPid,
                 allowOrbitalCheckpointStateVector,
-                shadow);
-        }
-
-        /// <summary>
-        /// Returns the parallel <c>absoluteFrames</c> entry from the section
-        /// when (a) we are inside an in-place Re-Fly session, (b) the
-        /// section's anchor PID matches the active Re-Fly target's PID, and
-        /// (c) the recording carries the v7 shadow payload. Otherwise null —
-        /// callers fall through to live-anchor relative resolution.
-        /// </summary>
-        private static TrajectoryPoint? TryResolveActiveReFlyAbsoluteShadowPoint(
-            IPlaybackTrajectory traj,
-            TrackSection? section,
-            uint anchorPid,
-            double pointUT)
-        {
-            if (!section.HasValue) return null;
-            if (section.Value.referenceFrame != ReferenceFrame.Relative) return null;
-            if (anchorPid == 0u) return null;
-            if (section.Value.absoluteFrames == null
-                || section.Value.absoluteFrames.Count == 0)
-                return null;
-            if (traj == null || string.IsNullOrEmpty(traj.RecordingId)) return null;
-
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            if (marker == null
-                || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                || string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                || !string.Equals(
-                    marker.ActiveReFlyRecordingId,
-                    marker.OriginChildRecordingId,
-                    StringComparison.Ordinal))
-            {
-                return null;
-            }
-
-            // Resolve active Re-Fly PID via the same composed-trees walk used
-            // elsewhere in this file (#611) so PendingTree placements during
-            // Re-Fly load are honoured.
-            uint activeReFlyPid = 0u;
-            IReadOnlyList<RecordingTree> trees = ComposeSearchTreesForReFlySuppression(
-                RecordingStore.CommittedTrees,
-                RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            if (trees != null)
-            {
-                for (int t = 0; t < trees.Count && activeReFlyPid == 0u; t++)
-                {
-                    var tree = trees[t];
-                    if (tree?.Recordings == null) continue;
-                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out Recording rec)
-                        && rec != null
-                        && rec.VesselPersistentId != 0u)
-                    {
-                        activeReFlyPid = rec.VesselPersistentId;
-                    }
-                }
-            }
-            if (activeReFlyPid == 0u || anchorPid != activeReFlyPid)
-                return null;
-
-            // Find the closest absolute-shadow entry to pointUT. The shadow
-            // list is sample-aligned with the relative `frames` list, so a
-            // simple linear scan picks the matching pair. For robustness
-            // against minor UT drift we accept the closest entry within one
-            // sample interval (~0.1 s); outside that we fall through and let
-            // the regular live-anchor path produce a (possibly wrong) result
-            // rather than synthesising a position from a far-away shadow.
-            const double matchToleranceSeconds = 0.5;
-            var frames = section.Value.absoluteFrames;
-            int bestIdx = -1;
-            double bestDelta = double.PositiveInfinity;
-            for (int i = 0; i < frames.Count; i++)
-            {
-                double delta = System.Math.Abs(frames[i].ut - pointUT);
-                if (delta < bestDelta)
-                {
-                    bestDelta = delta;
-                    bestIdx = i;
-                }
-            }
-            if (bestIdx < 0 || bestDelta > matchToleranceSeconds) return null;
-            return frames[bestIdx];
+                absoluteShadowPoint: null);
         }
 
         /// <summary>
@@ -5236,8 +5328,8 @@ namespace Parsek
         /// Used for physics-only suborbital recordings that have no orbit segments.
         /// Constructs a Keplerian orbit from position + velocity at the given UT.
         /// Honours the originating TrackSection's <see cref="ReferenceFrame"/>: Absolute
-        /// uses surface lat/lon/alt; Relative resolves through the anchor vessel's
-        /// world transform (matches the flight-scene contract in ParsekFlight.cs:13821).
+        /// uses surface lat/lon/alt; Relative resolves through TrackSection.anchorRecordingId
+        /// via the recorded-anchor resolver, then applies the anchor-local offset.
         /// </summary>
         internal static Vessel CreateGhostVesselFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
@@ -5257,13 +5349,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Overload that exposes <paramref name="retryLater"/> = true when the
-        /// PR #574 active-Re-Fly suppression gate fires. Callers that maintain
-        /// a "pending map vessel" queue (cf.
-        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>) keep the
-        /// pending entry alive on (<c>null</c>, <c>retryLater = true</c>) so
-        /// the recording is retried next tick once the Re-Fly session ends —
-        /// rather than silently dropping it forever.
+        /// Overload that exposes <paramref name="retryLater"/> = true when a
+        /// transient state-vector deferral or active-Re-Fly suppression path fires.
+        /// Callers that maintain a "pending map vessel" queue (cf.
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>) keep the pending
+        /// entry alive on (<c>null</c>, <c>retryLater = true</c>) so the recording
+        /// is retried next tick rather than silently dropped forever.
         /// </summary>
         internal static Vessel CreateGhostVesselFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
@@ -5346,6 +5437,10 @@ namespace Parsek
                     allowOrbitalCheckpointStateVector);
             if (!resolution.Resolved)
             {
+                bool retryResolutionLater = ShouldRetryStateVectorCreationAfterResolutionMiss(resolution);
+                if (retryResolutionLater)
+                    retryLater = true;
+
                 var skip = NewDecisionFields("create-state-vector-skip");
                 skip.RecordingId = traj.RecordingId;
                 skip.RecordingIndex = recordingIndex;
@@ -5357,22 +5452,19 @@ namespace Parsek
                 skip.StateVecAlt = point.altitude;
                 skip.StateVecSpeed = point.velocity.magnitude;
                 skip.UT = ut;
-                skip.Reason = resolution.FailureReason ?? "(null)";
+                skip.Reason = retryResolutionLater
+                    ? string.Format(ic, "{0} retryLater=true", resolution.FailureReason ?? "(null)")
+                    : (resolution.FailureReason ?? "(null)");
                 ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(skip));
                 return null;
             }
 
-            // Compute optional anchor metadata for the structured line.
+            // Compute optional recorded-relative metadata for the structured line.
             Vector3d? anchorPosForLog = null;
             Vector3d? localOffsetForLog = null;
-            if (resolution.Branch == "relative" && resolution.AnchorPid != 0u)
+            if (resolution.Branch == "relative")
             {
-                Vessel anchorRef = FlightRecorder.FindVesselByPid(resolution.AnchorPid);
-                if (anchorRef != null)
-                {
-                    anchorPosForLog = anchorRef.GetWorldPos3D();
-                    localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
-                }
+                localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
             }
 
             // Bug #587 third facet: during in-place continuation Re-Fly, the
@@ -5623,17 +5715,12 @@ namespace Parsek
                 return false;
             }
 
-            // Compute optional anchor metadata for the structured line.
+            // Compute optional recorded-relative metadata for the structured line.
             Vector3d? anchorPosForLog = null;
             Vector3d? localOffsetForLog = null;
-            if (resolution.Branch == "relative" && resolution.AnchorPid != 0u)
+            if (resolution.Branch == "relative")
             {
-                Vessel anchorRef = FlightRecorder.FindVesselByPid(resolution.AnchorPid);
-                if (anchorRef != null)
-                {
-                    anchorPosForLog = anchorRef.GetWorldPos3D();
-                    localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
-                }
+                localOffsetForLog = new Vector3d(point.latitude, point.longitude, point.altitude);
             }
 
             IReadOnlyList<RecordingTree> searchTrees = ComposeSearchTreesForReFlySuppression(
@@ -5888,13 +5975,13 @@ namespace Parsek
             // supersede relations here so callers using the convenience
             // overload get the same display-effective spawn eligibility as
             // the batch handoff path.
-            var relationSupersededIds =
-                CurrentRelationSupersededRecordingIds(RecordingStore.CommittedRecordings);
+            var timelineInactiveIds =
+                CurrentTimelineInactiveRecordingIds(RecordingStore.CommittedRecordings);
             return ShouldSpawnAtTrackingStationEnd(
                 rec,
                 currentUT,
                 chains,
-                relationSupersededIds);
+                timelineInactiveIds);
         }
 
         internal static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
@@ -5902,6 +5989,33 @@ namespace Parsek
             double currentUT,
             Dictionary<uint, GhostChain> chains,
             HashSet<string> relationSupersededIds)
+        {
+            IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds = null;
+            if (relationSupersededIds != null && relationSupersededIds.Count > 0)
+            {
+                var dict = new Dictionary<string, TimelineInactiveReason>(
+                    relationSupersededIds.Count,
+                    StringComparer.Ordinal);
+                foreach (var id in relationSupersededIds)
+                {
+                    if (!string.IsNullOrEmpty(id))
+                        dict[id] = TimelineInactiveReason.SupersededByRelation;
+                }
+                timelineInactiveIds = dict;
+            }
+
+            return ShouldSpawnAtTrackingStationEnd(
+                rec,
+                currentUT,
+                chains,
+                timelineInactiveIds);
+        }
+
+        private static (bool needsSpawn, string reason) ShouldSpawnAtTrackingStationEnd(
+            Recording rec,
+            double currentUT,
+            Dictionary<uint, GhostChain> chains,
+            IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds)
         {
             if (rec == null)
                 return (false, "null");
@@ -5913,9 +6027,13 @@ namespace Parsek
                 return (false, TrackingStationSpawnSkipBeforeEnd);
 
             if (!string.IsNullOrEmpty(rec.RecordingId)
-                && relationSupersededIds != null
-                && relationSupersededIds.Contains(rec.RecordingId))
-                return (false, TrackingStationSpawnSkipSupersededByRelation);
+                && timelineInactiveIds != null
+                && timelineInactiveIds.TryGetValue(rec.RecordingId, out var inactiveReason))
+            {
+                return (false, inactiveReason == TimelineInactiveReason.RewindRetired
+                    ? TrackingStationSpawnSkipRewindRetired
+                    : TrackingStationSpawnSkipSupersededByRelation);
+            }
 
             bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId)
                 && RecordingStore.IsChainLooping(rec.ChainId);
@@ -5932,13 +6050,14 @@ namespace Parsek
             return spawnResult;
         }
 
-        private static HashSet<string> CurrentRelationSupersededRecordingIds(
+        private static IReadOnlyDictionary<string, TimelineInactiveReason> CurrentTimelineInactiveRecordingIds(
             IReadOnlyList<Recording> committed)
         {
             var scenario = ParsekScenario.Instance;
-            return EffectiveState.ComputeSupersededRecordingIdsByRelation(
+            return EffectiveState.ComputeTimelineInactiveRecordingIds(
                 committed,
-                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements);
         }
 
         internal static bool ShouldPreserveIdentityForTrackingStationSpawn(
@@ -5992,12 +6111,27 @@ namespace Parsek
             var supersedes = object.ReferenceEquals(null, scenario)
                 ? null
                 : scenario.RecordingSupersedes;
-            return FindTrackingStationSuppressedRecordingIds(recordings, currentUT, supersedes);
+            var retirements = object.ReferenceEquals(null, scenario)
+                ? null
+                : scenario.RecordingRewindRetirements;
+            return FindTrackingStationSuppressedRecordingIds(recordings, currentUT, supersedes, retirements);
         }
 
         internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
             IReadOnlyList<Recording> recordings, double currentUT,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            return FindTrackingStationSuppressedRecordingIds(
+                recordings,
+                currentUT,
+                supersedes,
+                retirements: null);
+        }
+
+        internal static HashSet<string> FindTrackingStationSuppressedRecordingIds(
+            IReadOnlyList<Recording> recordings, double currentUT,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
         {
             var suppressed = new HashSet<string>();
             if (recordings == null)
@@ -6015,6 +6149,7 @@ namespace Parsek
             }
 
             AddSupersedeRelationSuppressedRecordingIds(suppressed, recordings, supersedes);
+            AddRewindRetiredSuppressedRecordingIds(suppressed, recordings, retirements);
             return suppressed;
         }
 
@@ -6030,6 +6165,23 @@ namespace Parsek
             {
                 Recording rec = recordings[i];
                 if (!EffectiveState.IsSupersededByRelation(rec, supersedes))
+                    continue;
+                suppressed.Add(rec.RecordingId);
+            }
+        }
+
+        private static void AddRewindRetiredSuppressedRecordingIds(
+            HashSet<string> suppressed,
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            if (suppressed == null || recordings == null || retirements == null || retirements.Count == 0)
+                return;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (!EffectiveState.IsRewindRetired(rec, retirements))
                     continue;
                 suppressed.Add(rec.RecordingId);
             }
@@ -6629,7 +6781,6 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             CurrentUTNow = GetCurrentUTSafe;
-            AnchorResolvableForTesting = null;
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
