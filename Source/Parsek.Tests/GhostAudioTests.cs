@@ -685,6 +685,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SetEngineAudio_PausedTracksLatestPowerWithoutEnforcingPlaybackCap()
+        {
+            int enforceCount = 0;
+            GhostPlaybackLogic.EnforceLoopedAudioPlaybackCapOverrideForTesting = _ =>
+            {
+                enforceCount++;
+                return true;
+            };
+
+            ulong key = FlightRecorder.EncodeEngineKey(42, 1);
+            var info = new AudioGhostInfo
+            {
+                partPersistentId = 42,
+                moduleIndex = 1,
+                currentPower = 1f
+            };
+            var state = new GhostPlaybackState
+            {
+                audioPaused = true,
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    { key, info }
+                }
+            };
+
+            Assert.True(GhostPlaybackLogic.SetEngineAudio(
+                state,
+                new PartEvent { partPersistentId = 42, moduleIndex = 1 },
+                power: 0f));
+
+            Assert.Equal(0f, info.currentPower);
+            Assert.Equal(0, enforceCount);
+        }
+
+        [Fact]
+        public void CollectDeferredAudioPowerRestores_PausedReturnsEmpty()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(42, 1);
+            var state = new GhostPlaybackState
+            {
+                audioPaused = true,
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    {
+                        key,
+                        new AudioGhostInfo
+                        {
+                            partPersistentId = 42,
+                            moduleIndex = 1,
+                            currentPower = 1f
+                        }
+                    }
+                }
+            };
+
+            Assert.Empty(GhostPlaybackLogic.CollectDeferredAudioPowerRestores(state));
+        }
+
+        [Fact]
         public void SetEngineAudio_DeferredPlaybackCapEnforcesOnceAfterBatch()
         {
             int enforceCount = 0;
@@ -751,6 +810,43 @@ namespace Parsek.Tests
                 Assert.DoesNotContain(infos[i], selected);
             for (int i = 4; i < 8; i++)
                 Assert.Contains(infos[i], selected);
+        }
+
+        #endregion
+
+        #region Recording Gate
+
+        [Theory]
+        [InlineData(true, true, 12f, true)]
+        [InlineData(true, true, 0f, false)]
+        [InlineData(true, false, 12f, false)]
+        [InlineData(false, true, 12f, false)]
+        public void ShouldRecordEngineAsIgnited_RequiresRealThrust(
+            bool engineIgnited,
+            bool isOperational,
+            float finalThrust,
+            bool expected)
+        {
+            Assert.Equal(expected,
+                FlightRecorder.ShouldRecordEngineAsIgnited(engineIgnited, isOperational, finalThrust));
+        }
+
+        [Fact]
+        public void ComputeRecordedEnginePower_UsesThrottleWhenPresent()
+        {
+            Assert.Equal(0.7f, FlightRecorder.ComputeRecordedEnginePower(
+                currentThrottle: 0.7f,
+                finalThrust: 20f,
+                maxThrust: 100f));
+        }
+
+        [Fact]
+        public void ComputeRecordedEnginePower_FallsBackToFinalThrustRatio()
+        {
+            Assert.Equal(0.25f, FlightRecorder.ComputeRecordedEnginePower(
+                currentThrottle: 0f,
+                finalThrust: 25f,
+                maxThrust: 100f));
         }
 
         #endregion

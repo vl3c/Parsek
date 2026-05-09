@@ -5797,8 +5797,10 @@ namespace Parsek
                 if (part == null || engine == null) continue;
 
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
-                bool ignited = engine.EngineIgnited && engine.isOperational;
-                float throttle = engine.currentThrottle;
+                bool ignited = FlightRecorder.ShouldRecordEngineAsIgnited(
+                    engine.EngineIgnited, engine.isOperational, engine.finalThrust);
+                float throttle = FlightRecorder.ComputeRecordedEnginePower(
+                    engine.currentThrottle, engine.finalThrust, engine.maxThrust);
 
                 reusableEventBuffer.Clear();
                 FlightRecorder.CheckEngineTransition(

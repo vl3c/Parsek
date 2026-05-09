@@ -32,6 +32,7 @@ namespace Parsek
     internal class GhostPlaybackEngine
     {
         private readonly IGhostPositioner positioner;
+        private bool ghostAudioPaused;
 
         #region Ghost state
 
@@ -1398,6 +1399,8 @@ namespace Parsek
             GhostPlaybackState state, double ut, float warpRate,
             bool skipPartEvents, bool suppressVisualFx, bool allowTransientEffects = true)
         {
+            state.audioPaused = ghostAudioPaused;
+
             if (!skipPartEvents)
             {
                 GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state, allowTransientEffects);
@@ -3934,7 +3937,8 @@ namespace Parsek
                 partEventIndex = 0,
                 flagEventIndex = 0,
                 pendingSpawnLifecycle = lifecycle,
-                pendingSpawnFlags = flags
+                pendingSpawnFlags = flags,
+                audioPaused = ghostAudioPaused
             };
 
             if (TryResolvePendingPlaybackInterpolation(traj, playbackUT, out InterpolationResult initialPlayback))
@@ -4267,6 +4271,7 @@ namespace Parsek
 
             if (state == null)
                 return GhostVisualLoadStatus.Failed;
+            state.audioPaused = ghostAudioPaused;
 
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
             GhostBuildResult buildResult = null;
@@ -5964,6 +5969,7 @@ namespace Parsek
         /// </summary>
         internal void PauseAllGhostAudio()
         {
+            ghostAudioPaused = true;
             int pausedPrimary = 0, pausedOverlap = 0;
             foreach (var kvp in ghostStates)
             {
@@ -5978,8 +5984,10 @@ namespace Parsek
                     pausedOverlap++;
                 }
             }
+            int pausedOneShots = GhostPlaybackLogic.PauseExplosionOneShotAudio();
             ParsekLog.Verbose("GhostAudio",
-                $"PauseAllGhostAudio: paused {pausedPrimary} primary + {pausedOverlap} overlap ghost(s)");
+                $"PauseAllGhostAudio: paused {pausedPrimary} primary + {pausedOverlap} overlap ghost(s), " +
+                $"{pausedOneShots} independent explosion one-shot source(s)");
         }
 
         /// <summary>
@@ -5987,6 +5995,7 @@ namespace Parsek
         /// </summary>
         internal void UnpauseAllGhostAudio()
         {
+            ghostAudioPaused = false;
             int resumedPrimary = 0, resumedOverlap = 0;
             foreach (var kvp in ghostStates)
             {
@@ -6001,8 +6010,10 @@ namespace Parsek
                     resumedOverlap++;
                 }
             }
+            int resumedOneShots = GhostPlaybackLogic.UnpauseExplosionOneShotAudio();
             ParsekLog.Verbose("GhostAudio",
-                $"UnpauseAllGhostAudio: resumed {resumedPrimary} primary + {resumedOverlap} overlap ghost(s)");
+                $"UnpauseAllGhostAudio: resumed {resumedPrimary} primary + {resumedOverlap} overlap ghost(s), " +
+                $"{resumedOneShots} independent explosion one-shot source(s)");
         }
 
         /// <summary>
@@ -6048,18 +6059,29 @@ namespace Parsek
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
             double power = Mathf.Clamp01(vesselLength / 20f);
-            ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-{recIdx}",
-                $"Stock FXMonger.Explode for ghost #{recIdx} \"{traj.VesselName}\" " +
-                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
-                $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
-                10.0);
 
-            GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
-                worldPos,
-                power,
-                vesselLength,
-                $"ghost #{recIdx} \"{traj.VesselName}\"",
-                $"stock-explosion-visual-only-busy-{recIdx}");
+            if (state.audioPaused)
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-paused-{recIdx}",
+                    $"Stock explosion audio suppressed for ghost #{recIdx} \"{traj.VesselName}\" " +
+                    "because the pause menu is open; spawning custom visual FX only",
+                    10.0);
+                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-{recIdx}",
+                    $"Stock FXMonger.Explode for ghost #{recIdx} \"{traj.VesselName}\" " +
+                    $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
+                    $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                    10.0);
+                GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                    worldPos,
+                    power,
+                    vesselLength,
+                    $"ghost #{recIdx} \"{traj.VesselName}\"",
+                    $"stock-explosion-visual-only-busy-{recIdx}");
+            }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
             ParsekLog.VerboseRateLimited("Engine", "parts-hidden-explosion",

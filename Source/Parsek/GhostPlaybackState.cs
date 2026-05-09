@@ -28,6 +28,7 @@ namespace Parsek
         public Dictionary<ulong, AudioGhostInfo> audioInfos; // engine/RCS audio — keyed same as engineInfos/rcsInfos
         public OneShotAudioInfo oneShotAudio;                // shared one-shot source for decouple/explosion sounds
         public bool audioMuted;                              // true during high warp or when ghost hidden
+        public bool audioPaused;                             // true while stock pause menu is open
         public float atmosphereFactor = 1f;                  // 0 in vacuum, 1 at sea level — updated per frame. Init 1 so first-frame events aren't swallowed.
         public CelestialBody cachedAudioBody;                // cached body for atmosphere lookup (avoid per-frame Find)
         public string cachedAudioBodyName;                   // body name the cache was built for
@@ -109,6 +110,7 @@ namespace Parsek
             audioInfos = null;
             oneShotAudio = null;
             audioMuted = false;
+            audioPaused = false;
             cachedAudioBody = null;
             cachedAudioBodyName = null;
             roboticInfos = null;
