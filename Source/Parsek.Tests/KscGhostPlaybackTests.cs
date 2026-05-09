@@ -1332,7 +1332,7 @@ namespace Parsek.Tests
         [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned, true)]
         [InlineData(true, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned, false)]
         [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockQueued, false)]
-        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.AudioBusyCustomVisualSpawned, false)]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockVisualOnlyDuringAudioBusy, false)]
         public void ShouldQueueKscExplicitExplosionAudio_OnlyWhenUnpausedAndStockFailed(
             bool pauseMenuOpen,
             int stockResultValue,
