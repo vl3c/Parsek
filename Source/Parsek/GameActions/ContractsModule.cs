@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -14,6 +15,7 @@ namespace Parsek
     internal class ContractsModule : IResourceModule, IProjectionCloneableModule
     {
         private const string Tag = "Contracts";
+        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         /// <summary>
         /// Active (accepted, unresolved) contracts. Key = contractId, Value = accept action.
@@ -207,16 +209,16 @@ namespace Parsek
 
                     ParsekLog.Info(Tag,
                         $"PrePass: injected synthetic ContractFail for contractId='{accept.ContractId}' " +
-                        $"at deadlineUT={accept.DeadlineUT} fundsPenalty={accept.FundsPenalty} " +
-                        $"repPenalty={accept.RepPenalty} (nowUT={nowUT} source={nowSource})");
+                        $"at deadlineUT={accept.DeadlineUT.ToString("R", IC)} fundsPenalty={accept.FundsPenalty.ToString("R", IC)} " +
+                        $"repPenalty={accept.RepPenalty.ToString("R", IC)} (nowUT={nowUT.ToString("R", IC)} source={nowSource})");
                 }
             }
 
             if (injected > 0)
             {
                 ParsekLog.Info(Tag,
-                    $"PrePass: injected {injected} synthetic ContractFail action(s) for expired deadlines " +
-                    $"(nowUT={nowUT} source={nowSource})");
+                    $"PrePass: injected {injected.ToString(IC)} synthetic ContractFail action(s) for expired deadlines " +
+                    $"(nowUT={nowUT.ToString("R", IC)} source={nowSource})");
             }
             else
             {

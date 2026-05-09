@@ -923,6 +923,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Accept_Fail_Reaccept_Complete_Effective()
+        {
+            // Coverage for the re-accept path: a contract is accepted, explicitly
+            // failed, re-accepted (new lifecycle epoch), then completed. The final
+            // Complete must be effective. PrePass clears prepassExplicitResolutionUT
+            // at walk start (line 125) and again on the second Accept (line 138),
+            // so the prior Fail's same-id explicit-resolution UT does not survive
+            // into the re-accepted epoch and the Complete is not wrongly suppressed.
+            var actions = new List<GameAction>
+            {
+                MakeAccept("c1", ut: 100),
+                MakeFail("c1", ut: 400),
+                MakeAccept("c1", ut: 500),
+                MakeComplete("c1", ut: 800)
+            };
+            var sorted = RecalculationEngine.SortActions(actions);
+
+            module.PrePass(sorted);
+            for (int i = 0; i < sorted.Count; i++)
+                module.ProcessAction(sorted[i]);
+
+            var complete = sorted[sorted.Count - 1];
+            Assert.Equal(GameActionType.ContractComplete, complete.Type);
+            Assert.True(complete.Effective);
+            Assert.True(module.IsContractCredited("c1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Contracts]") && l.Contains("Complete") &&
+                l.Contains("effective=true") && l.Contains("c1"));
+        }
+
+        [Fact]
         public void PrePass_LogsInjectionCount()
         {
             var actions = new List<GameAction>
