@@ -168,7 +168,14 @@ namespace Parsek.Rendering
             if (anchor == null) return false;
             try
             {
-                worldPos = anchor.GetWorldPos3D();
+                // Match the recorder's live-anchor frame: vesselTransform.position
+                // (FlightRecorder / BackgroundRecorder TryResolveAnchorPoseForCandidate
+                // and TryResolveLoopLiveAnchorPose). GetWorldPos3D (CoMD) would
+                // disagree with the recorded loop offsets by the parent's
+                // CoM-to-vesselTransform vector.
+                worldPos = anchor.transform != null
+                    ? (Vector3d)anchor.transform.position
+                    : anchor.GetWorldPos3D();
             }
             catch
             {
