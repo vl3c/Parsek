@@ -329,12 +329,15 @@ namespace Parsek
                 if (part == null || engine == null) continue;
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
                 sets.allEngineKeys.Add(key);
-                if (engine.EngineIgnited && engine.isOperational)
+                if (FlightRecorder.ShouldRecordEngineAsIgnited(
+                        engine.EngineIgnited, engine.isOperational, engine.finalThrust))
                 {
                     sets.activeEngineKeys.Add(key);
-                    sets.lastThrottle[key] = engine.currentThrottle;
+                    float power = FlightRecorder.ComputeRecordedEnginePower(
+                        engine.currentThrottle, engine.finalThrust, engine.maxThrust);
+                    sets.lastThrottle[key] = power;
                     ParsekLog.Verbose(logTag,
-                        $"Seeded already-active engine: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} throttle={engine.currentThrottle:F2}");
+                        $"Seeded already-active engine: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} recordedPower={power:F2} finalThrust={engine.finalThrust:F2}");
                 }
             }
         }
