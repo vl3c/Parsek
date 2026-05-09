@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- During an active Re-Fly, debris ghosts of the recording being re-flown stay hidden along with their parent. The session-suppressed-subtree closure now follows the v12 `DebrisParentRecordingId` ownership link, so destroyed parents with multiple breakup branch points (which cannot register a back-pointer through the single-slot `ChildBranchPointId` and whose debris carry fresh KSP-assigned vessel ids) propagate suppression to every debris descendant.
 - Warp-exit and time-jump ledger recalculations now refresh Mission Control and Administration slot limits after the recalculation walk, so a facility upgrade in the same walk takes effect on availability. Facility tiers also migrate to a 1/2/3 ledger contract that translates back to KSP's zero-based level index.
 - Loading an earlier save no longer leaves future contract accepts, advances, completions, or penalties active.
 - Contracts completed after an accepted deadline, an explicit fail, or a cancel no longer pay out rewards. Same-UT fail/cancel ties that sort after the completion row also keep the completion ineffective.

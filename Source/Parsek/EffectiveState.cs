@@ -803,6 +803,7 @@ namespace Parsek
                 int siblingsAdded = 0;
                 int pidPeersAdded = 0;
                 int sideOffSkips = 0;
+                int debrisAdded = 0;
 
                 while (queue.Count > 0)
                 {
@@ -839,6 +840,19 @@ namespace Parsek
                     // not collapsed into the closure.
                     EnqueuePidPeerSiblings(
                         currentRec, recById, queue, result, marker, ref pidPeersAdded);
+
+                    // Debris-children expansion (v12 `Recording.DebrisParentRecordingId`):
+                    // Breakup BPs do not register a back-pointer through
+                    // `Recording.ChildBranchPointId` on the parent (that field
+                    // is single-slot and a destroyed parent commonly has many
+                    // breakup BPs), and even when it is set the same-PID gate
+                    // below would cull every debris row because debris is born
+                    // as a fresh KSP-assigned VesselPersistentId. Use the v12
+                    // direct ownership link to admit debris children
+                    // unconditionally — debris is intrinsically owned by the
+                    // parent recording's destruction tail and must be hidden
+                    // alongside it during an active re-fly.
+                    EnqueueDebrisChildren(currentRec, recById, queue, result, ref debrisAdded);
 
                     if (string.IsNullOrEmpty(currentRec.ChildBranchPointId))
                         continue;
@@ -904,7 +918,7 @@ namespace Parsek
                 ParsekLog.Verbose("ReFlySession",
                     $"SessionSuppressedSubtree: {result.Count} recording(s) closed from root={rootOverride} " +
                     $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} " +
-                    $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips})");
+                    $"debrisAdded={debrisAdded} mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips})");
 
                 return suppressionCache;
             }
@@ -1067,6 +1081,38 @@ namespace Parsek
 
                 result.Add(cand.RecordingId);
                 pidPeersAdded++;
+                queue.Enqueue(cand.RecordingId);
+            }
+        }
+
+        // Debris-children expansion via the v12 `Recording.DebrisParentRecordingId`
+        // direct ownership link. Bypasses both the missing-back-pointer gap on
+        // destroyed parents (multi-breakup parents cannot fit N BPs into the
+        // single-slot `Recording.ChildBranchPointId`) and the same-PID side-off
+        // filter (debris is always a fresh KSP-assigned VesselPersistentId by
+        // construction). Legacy v11 debris with no `DebrisParentRecordingId`
+        // are not reachable through this edge — accepted under the project's
+        // pre-1.0 no-backward-compat-for-old-recordings policy.
+        private static void EnqueueDebrisChildren(
+            Recording rec,
+            Dictionary<string, Recording> recById,
+            Queue<string> queue,
+            HashSet<string> result,
+            ref int debrisAdded)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
+
+            foreach (var cand in recById.Values)
+            {
+                if (cand == null) continue;
+                if (!cand.IsDebris) continue;
+                if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                if (string.IsNullOrEmpty(cand.DebrisParentRecordingId)) continue;
+                if (!string.Equals(cand.DebrisParentRecordingId, rec.RecordingId, StringComparison.Ordinal)) continue;
+                if (result.Contains(cand.RecordingId)) continue;
+
+                result.Add(cand.RecordingId);
+                debrisAdded++;
                 queue.Enqueue(cand.RecordingId);
             }
         }
