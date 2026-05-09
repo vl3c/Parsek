@@ -937,8 +937,8 @@ namespace Parsek
 
             pose = default;
             failure = WarnUnresolved(
-                RelativeAnchorResolveOutcome.Other,
-                "absolute-position-unresolved",
+                RelativeAnchorResolveOutcome.PoseNonFinite,
+                "absolute-pose-nonfinite",
                 resolvedRecordingId,
                 resolvedRecordingId,
                 before.ut + (after.ut - before.ut) * t,
@@ -1191,8 +1191,8 @@ namespace Parsek
 
             pose = default;
             failure = WarnUnresolved(
-                RelativeAnchorResolveOutcome.Other,
-                "absolute-position-unresolved",
+                RelativeAnchorResolveOutcome.PoseNonFinite,
+                "absolute-pose-nonfinite",
                 resolvedRecordingId,
                 resolvedRecordingId,
                 ut,
@@ -1231,8 +1231,8 @@ namespace Parsek
 
             pose = default;
             failure = WarnUnresolved(
-                RelativeAnchorResolveOutcome.Other,
-                "absolute-position-unresolved",
+                RelativeAnchorResolveOutcome.PoseNonFinite,
+                "absolute-pose-nonfinite",
                 resolvedRecordingId,
                 resolvedRecordingId,
                 point.ut,
@@ -1486,6 +1486,8 @@ namespace Parsek
 
         private static RelativeAnchorResolveOutcome MapRecordingLookupFailureOutcome(string reason)
         {
+            // TryFindRecording currently emits only these two reasons. Add a
+            // branch here when adding a new lookup failure reason.
             return string.Equals(reason, "anchor-cross-tree-out-of-scope", StringComparison.Ordinal)
                 ? RelativeAnchorResolveOutcome.AnchorOutOfScope
                 : RelativeAnchorResolveOutcome.AnchorRecordingNotFound;

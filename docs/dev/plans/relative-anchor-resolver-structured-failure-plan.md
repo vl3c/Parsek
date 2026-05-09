@@ -38,7 +38,7 @@ the fields it needs.
 
 ## Problem restatement
 
-Sixteen distinct reason keywords flow through 22 `WarnUnresolved`
+Seventeen distinct reason keywords flow through 25 `WarnUnresolved`
 emit sites (`RelativeAnchorResolver.cs:1354-1375`):
 `anchor-out-of-recorded-range`, `anchor-recording-id-missing`,
 `legacy-anchor-recording-id-missing`, `anchor-recording-not-found`,
@@ -46,14 +46,15 @@ emit sites (`RelativeAnchorResolver.cs:1354-1375`):
 `anchor-cross-tree-out-of-scope`, `loop-anchor-out-of-scope`,
 `active-provisional-out-of-scope`, `anchor-section-frame-unknown`,
 `anchor-track-sections-missing`, `relative-pose-nonfinite`,
-`absolute-position-unresolved`, `orbital-pose-resolver-missing`,
-`orbital-pose-unresolved`, `orbital-pose-nonfinite`. All sixteen
+`absolute-position-unresolved`, `absolute-pose-nonfinite`,
+`orbital-pose-resolver-missing`,
+`orbital-pose-unresolved`, `orbital-pose-nonfinite`. All seventeen
 collapse to `bool false` across the API boundary.
 
 ### Real-world reason-string distribution
 
 Mining `C:/Users/vlad3/Documents/Code/Parsek/logs/` shows that only a
-small subset of those 16 reasons actually fires in production:
+small subset of those 17 reasons actually fires in production:
 
 | Reason | Sample bundles |
 |---|---|
@@ -214,6 +215,7 @@ Canonical reason mapping:
 | `anchor-track-sections-missing` | `TrackSectionsMissing` | v6+ recording has no track sections. |
 | `relative-pose-nonfinite` | `PoseNonFinite` | Resolver produced non-finite relative pose; data-corruption signal, not a routine scope miss. |
 | `absolute-position-unresolved` | `Other` | Absolute/body world position could not be resolved. |
+| `absolute-pose-nonfinite` | `PoseNonFinite` | Absolute helper resolved finite inputs but produced a non-finite final pose; data-corruption signal. |
 | `orbital-pose-resolver-missing` | `Other` | Orbital checkpoint resolver delegate absent. |
 | `orbital-pose-unresolved` | `Other` | Orbital checkpoint resolver returned false. |
 | `orbital-pose-nonfinite` | `PoseNonFinite` | Orbital checkpoint resolver returned non-finite pose; data-corruption signal. |
@@ -405,7 +407,8 @@ New tests:
   (`orbital-pose-resolver-missing`, `absolute-position-unresolved`,
   section-level `anchor-recording-id-missing`) asserting they map to `Other` with
   their distinct `Reason` preserved.
-- `relative-pose-nonfinite` and `orbital-pose-nonfinite` map to
+- `relative-pose-nonfinite`, `absolute-pose-nonfinite`, and
+  `orbital-pose-nonfinite` map to
   `PoseNonFinite`, not `Other`, because item (5) may need to treat
   non-finite pose data as corruption.
 - `anchor-recording-not-found` maps to

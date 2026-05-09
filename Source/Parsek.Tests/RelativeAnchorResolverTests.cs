@@ -352,9 +352,15 @@ namespace Parsek.Tests
                 child.RecordingId,
                 10.25,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _, out _);
+                out _,
+                out RelativeAnchorResolveFailure failure);
 
             Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.NoSectionAtUT, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.Equal(-1, failure.SectionIndex);
+            Assert.Equal(0.0, failure.RangeStartUT, 6);
+            Assert.Equal(20.0, failure.RangeEndUT, 6);
             Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
@@ -1077,6 +1083,34 @@ namespace Parsek.Tests
             Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
             Assert.True(double.IsNaN(failure.RangeStartUT));
             Assert.True(double.IsNaN(failure.RangeEndUT));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AbsolutePoseNonFinite_ReturnsPoseNonFiniteFailure()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(double.MaxValue, 0, 0),
+                new Vector3d(-double.MaxValue, 0, 0));
+            tree.AddOrReplaceRecording(absolute);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                absolute.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.PoseNonFinite, failure.Outcome);
+            Assert.Equal("absolute-pose-nonfinite", failure.Reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=absolute-pose-nonfinite") &&
+                l.Contains("recordingId=absolute-anchor"));
         }
 
         [Fact]
