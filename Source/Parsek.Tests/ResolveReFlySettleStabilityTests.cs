@@ -79,6 +79,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void True_WhenAnotherRecordingClearsBeforeFirstHoldExpires()
+        {
+            ReFlySettleStabilityTracker.RecordSettleCleared("rec-first", frame: 100);
+            ReFlySettleStabilityTracker.RecordSettleCleared("rec-second", frame: 120);
+            var first = new Recording { RecordingId = "rec-first" };
+
+            bool result = ParsekFlight.ResolveReFlySettleStabilityForTesting(
+                first,
+                frame: 100 + FlightRecorder.StabilitySettleClearHoldFrames,
+                out string anchorRecordingId,
+                out string reason);
+
+            Assert.True(result);
+            Assert.Equal("rec-first", anchorRecordingId);
+            Assert.Equal("clear-hold", reason);
+        }
+
+        [Fact]
         public void True_WhenShiftExtendsRecentClearHold()
         {
             ReFlySettleStabilityTracker.RecordSettleCleared("rec-focus", frame: 100);

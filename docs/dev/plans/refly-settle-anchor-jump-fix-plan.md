@@ -83,13 +83,15 @@ Do not assign `flags[i].anchorReFlyUnstable` before the initializer — `Traject
 Add one shared predicate, preferably in `FlightRecorder`, so both playback and background sampling use the same stability window:
 
 ```csharp
-internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(
-    string recordingId,
-    int frame = -1)
+internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(string recordingId)
 {
-    int effectiveFrame = frame >= 0 ? frame : Time.frameCount;
+    return IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(recordingId, GetFrameCount());
+}
+
+internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(string recordingId, int frame)
+{
     return IsReFlyPostLoadSettleActiveForRecording(recordingId)
-        || ReFlySettleStabilityTracker.IsHoldActiveForRecording(recordingId, effectiveFrame);
+        || ReFlySettleStabilityTracker.IsHoldActiveForRecording(recordingId, frame);
 }
 ```
 
@@ -141,8 +143,8 @@ The engine never imports `FlightRecorder` or the tracker — the host computed e
 The `FloatingOriginSetOffsetPatch` (§1.1.b) records the wallclock and frame of each origin shift. Add a small `internal static class ReFlySettleStabilityTracker` in the `Parsek` namespace (prefer a new `Source/Parsek/ReFlySettleStabilityTracker.cs` file). It must be accessible from `FlightRecorder`, `ParsekFlight`, `BackgroundRecorder`, `Parsek.Patches.FloatingOriginSetOffsetPatch`, and `Source/Parsek.Tests`; do not make it a private helper inside `ParsekFlight`. It owns:
 
 - `lastFloatingOriginShiftFrame`, `lastFloatingOriginShiftRefPos`, `lastFloatingOriginShiftNonFrame`
-- `lastSettleActiveRecordingId`, `lastSettleActiveFrame` (for reason/logging and shift attribution while settle was recently active; the live active predicate still comes from `FlightRecorder.IsReFlyPostLoadSettleActiveForRecording`)
-- `lastSettleClearedRecordingId`, `lastSettleClearedFrame`
+- `lastSettleActiveFrameByRecording` (for reason/logging and shift attribution while settle was recently active; the live active predicate still comes from `FlightRecorder.IsReFlyPostLoadSettleActiveForRecording`)
+- `lastSettleClearedFrameByRecording`
 
 `FlightRecorder.ShouldHoldReFlyPostLoadSettle` must notify the tracker before resetting its private settle fields:
 
@@ -168,7 +170,7 @@ Constants in `Source/Parsek/FlightRecorder.cs` near `attitudeSampleThresholdDegr
 
 Both internal const for unit-test pinning. After playtest, retune with evidence.
 
-**Tracker static lifecycle:** reset all tracker fields in `ParsekFlight.OnEnable`, which fires when the flight-scene addon attaches at FLIGHT entry. This avoids stale frame counters tripping the gate on first flight frame after re-entering FLIGHT from SPACECENTER/TRACKSTATION without double-resetting from multiple scene hooks.
+**Tracker static lifecycle:** reset all tracker fields in `ParsekFlight.OnEnable`, which fires when the single flight-scene addon attaches at FLIGHT entry. This avoids stale frame counters tripping the gate on first flight frame after re-entering FLIGHT from SPACECENTER/TRACKSTATION without double-resetting from multiple scene hooks.
 
 ## 2. Risk surface
 

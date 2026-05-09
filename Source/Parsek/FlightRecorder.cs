@@ -5910,13 +5910,17 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(string recordingId)
+        {
+            return IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(recordingId, GetFrameCount());
+        }
+
         internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(
             string recordingId,
-            int frame = -1)
+            int frame)
         {
-            int effectiveFrame = frame >= 0 ? frame : GetFrameCount();
             return IsReFlyPostLoadSettleActiveForRecording(recordingId)
-                || ReFlySettleStabilityTracker.IsHoldActiveForRecording(recordingId, effectiveFrame);
+                || ReFlySettleStabilityTracker.IsHoldActiveForRecording(recordingId, frame);
         }
 
         internal TrackSection CurrentTrackSectionForTesting => currentTrackSection;

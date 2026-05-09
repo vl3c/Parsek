@@ -829,7 +829,7 @@ namespace Parsek
             new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
         private readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
             new HashSet<string>(StringComparer.Ordinal);
-        private int reFlySettlePoseLogUntilFrame = -1;
+        private int reFlySettlePoseLogActiveFrame = -1;
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
         private static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
             new Dictionary<string, TerrainCorrector.TailLiftPlan>();
@@ -1009,12 +1009,13 @@ namespace Parsek
 
         void OnEnable()
         {
+            // ParsekFlight is a single FLIGHT-scene addon; clear scene-scoped Re-Fly stability state on entry.
             ReFlySettleStabilityTracker.Reset();
             reFlyAnchorHoldStartFrameByAnchor.Clear();
             reFlyAnchorHoldCountsThisFrame.Clear();
             reFlyAnchorHoldReasonsThisFrame.Clear();
             reFlyAnchorHoldReleaseScratch.Clear();
-            reFlySettlePoseLogUntilFrame = -1;
+            reFlySettlePoseLogActiveFrame = -1;
         }
 
         void Start()
@@ -14874,6 +14875,8 @@ namespace Parsek
                 return true;
             }
 
+            // Defensive: covers loop/overlap re-arming paths that may evaluate the settled
+            // recording itself, even though the live Re-Fly focus normally does not render as a ghost.
             if (!string.IsNullOrEmpty(rec.RecordingId)
                 && TryGetReFlySettleStabilityReasonForRecording(
                     rec.RecordingId, frame, out reason))
@@ -14970,7 +14973,7 @@ namespace Parsek
 
         private void LogReFlySettleActiveVesselPoseIfArmed(string phase, int frame)
         {
-            if (frame > reFlySettlePoseLogUntilFrame)
+            if (frame != reFlySettlePoseLogActiveFrame)
                 return;
 
             Vector3d pos = FlightGlobals.ActiveVessel != null
@@ -15162,7 +15165,7 @@ namespace Parsek
 
             if (HasAnchorReFlyUnstableFlag(flags))
             {
-                reFlySettlePoseLogUntilFrame = Time.frameCount;
+                reFlySettlePoseLogActiveFrame = Time.frameCount;
                 LogReFlySettleActiveVesselPoseIfArmed("pre-engine", Time.frameCount);
             }
 
