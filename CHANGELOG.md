@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Loading an earlier save no longer leaves future contract accepts, advances, completions, or penalties active.
+- Contracts completed after an accepted deadline, an explicit fail, or a cancel no longer pay out rewards. Same-UT fail/cancel ties that sort after the completion row also keep the completion ineffective.
 - Warp exit now runs the same cutoff-preserving ledger recalculation path as explicit time jumps, logs the exact cutoff UT, and treats recalculation failures as logged non-fatal patch failures instead of falling back to the full future timeline.
 - Capsule impacts that destroy the vessel during a pending stage-separation pause are now committed as `Destroyed` instead of being misclassified as `Splashed` after the scene exits. The pre-crash vessel snapshot is preserved for ghost geometry.
 - Debris ghosts no longer pop into place when playback starts inside a tiny gap between adjacent parent-section samples. New false-alarm resume seams also stay covered so future recordings avoid that gap.
