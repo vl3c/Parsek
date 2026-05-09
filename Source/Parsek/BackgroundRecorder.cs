@@ -4588,12 +4588,16 @@ namespace Parsek
                 Vessel liveAnchor = FlightRecorder.FindVesselByPid(candidate.DiagnosticPid);
                 if (liveAnchor != null && liveAnchor.loaded)
                 {
-                    // Use the vessel's transform position (root-part frame) so the live
-                    // anchor matches the rotation reference and the recorded parent's
-                    // lat/lon/alt — Vessel.latitude is also root-part-based, and the
-                    // playback resolver reads the recorded lla through
-                    // body.GetWorldSurfacePosition. Using GetWorldPos3D (CoM) here biased
-                    // every relative ordinary by the parent's CoM-to-root-part vector.
+                    // Match the recorded surface-pose frame: KSP's UpdatePosVel writes
+                    // Vessel.latitude/longitude/altitude from vesselTransform.position
+                    // and srfRelRotation from vesselTransform.rotation, so playback
+                    // (body.GetWorldSurfacePosition of the recorded lla) reconstructs
+                    // a vesselTransform-aligned anchor world position. The previous
+                    // GetWorldPos3D (CoM) source baked the parent's CoM-to-vesselTransform
+                    // vector into every relative ordinary offset. Use vessel.transform
+                    // explicitly, not GetTransform() — the latter follows
+                    // ReferenceTransform ("Control From Here") which is not the surface
+                    // pose contract.
                     pose = new AnchorPose(
                         (Vector3d)liveAnchor.transform.position,
                         liveAnchor.transform.rotation,
