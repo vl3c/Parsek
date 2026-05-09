@@ -7424,8 +7424,14 @@ namespace Parsek
                 Vessel liveAnchor = FindVesselByPid(candidate.DiagnosticPid);
                 if (liveAnchor != null && liveAnchor.loaded)
                 {
+                    // Use the vessel's transform position (root-part frame) so the live
+                    // anchor matches the rotation reference and the recorded parent's
+                    // lat/lon/alt — Vessel.latitude is also root-part-based, and the
+                    // playback resolver reads the recorded lla through
+                    // body.GetWorldSurfacePosition. Using GetWorldPos3D (CoM) here biased
+                    // every relative ordinary by the parent's CoM-to-root-part vector.
                     pose = new AnchorPose(
-                        liveAnchor.GetWorldPos3D(),
+                        (Vector3d)liveAnchor.transform.position,
                         liveAnchor.transform.rotation,
                         -1,
                         candidate.RecordingId);

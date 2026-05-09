@@ -289,6 +289,71 @@ namespace Parsek.Tests
                 "values that would be absurd as degrees but are correct as metres.");
         }
 
+        // Regression: pins that the recorder's live anchor position must match the
+        // position reference encoded in the parent's recorded TrajectoryPoint
+        // (root-part-aligned, via Vessel.latitude → body.GetWorldSurfacePosition).
+        // The parent's recording stores root-part lla; playback resolves through
+        // body.GetWorldSurfacePosition back to the same root-part-aligned world
+        // position. If the recorder builds the live anchor from Vessel.GetWorldPos3D
+        // (CoM), the recorded offset gets shifted by Inverse(R) * (rootPart - CoM)
+        // and playback reconstructs the focus at +(rootPart - CoM) — for a Kerbal X
+        // parent that's ~10 m along the rocket nose axis, hence the "radial debris
+        // appears too far in front" symptom (logs/2026-05-09_1416_radial-booster-
+        // still-too-forward-after-pr780-revert/KSP.log:9533/9587).
+        [Fact]
+        public void RecorderContract_LiveAnchorPositionMustMatchPlaybackAnchorPosition()
+        {
+            // Synthetic Kerbal-X-shaped scenario: parent root part (mk1 capsule) and
+            // parent CoM differ by ~10 m along the rocket nose. Both vessels are far
+            // from world origin to mirror the Krakensbane-corrected scene.
+            Quaternion anchorRot = TrajectoryMath.PureAngleAxis(60f, Vector3.up);
+            var parentRootPartWorld = new Vector3d(-1063.8, -5.25, -225.55);
+            // CoM is below the root part along the rocket's local +y axis (nose),
+            // i.e., world-displaced by anchorRot * (0, -10, 0) in world coords.
+            Vector3d comOffsetWorld = anchorRot * new Vector3(0f, -10.13f, 0f);
+            var parentCoMWorld = parentRootPartWorld + (Vector3d)comOffsetWorld;
+
+            // Booster decoupler 14.39 m from root part (matches the radial-booster
+            // seed offset captured in the bundle).
+            var focusWorld = new Vector3d(-1049.5, -5.79, -224.0);
+
+            // Correct recorder behaviour: live anchor uses Vessel.transform.position
+            // (root part). Offset is computed against the root part.
+            Vector3d correctOffset = TrajectoryMath.ComputeRelativeLocalOffset(
+                focusWorld, parentRootPartWorld, anchorRot);
+
+            // Buggy recorder behaviour (pre-fix): live anchor uses Vessel.GetWorldPos3D
+            // (CoM). Offset is computed against the CoM.
+            Vector3d buggyOffset = TrajectoryMath.ComputeRelativeLocalOffset(
+                focusWorld, parentCoMWorld, anchorRot);
+
+            // Playback always resolves the parent's anchor through the recorded
+            // TrajectoryPoint's lat/lon/alt → root-part-aligned world position.
+            Vector3d correctPlayback = TrajectoryMath.ResolveRelativePlaybackPosition(
+                parentRootPartWorld, anchorRot,
+                correctOffset.x, correctOffset.y, correctOffset.z,
+                RecordingStore.RelativeLocalFrameFormatVersion);
+            Vector3d buggyPlayback = TrajectoryMath.ResolveRelativePlaybackPosition(
+                parentRootPartWorld, anchorRot,
+                buggyOffset.x, buggyOffset.y, buggyOffset.z,
+                RecordingStore.RelativeLocalFrameFormatVersion);
+
+            // Correct round-trip lands on the focus.
+            Assert.Equal(focusWorld.x, correctPlayback.x, 3);
+            Assert.Equal(focusWorld.y, correctPlayback.y, 3);
+            Assert.Equal(focusWorld.z, correctPlayback.z, 3);
+
+            // Buggy round-trip is shifted by exactly +(rootPart - CoM) — the visual
+            // "ghost too far in front" displacement.
+            Vector3d buggyDelta = buggyPlayback - focusWorld;
+            Vector3d expectedDelta = parentRootPartWorld - parentCoMWorld;
+            Assert.Equal(expectedDelta.x, buggyDelta.x, 3);
+            Assert.Equal(expectedDelta.y, buggyDelta.y, 3);
+            Assert.Equal(expectedDelta.z, buggyDelta.z, 3);
+            Assert.True(buggyDelta.magnitude > 9.0,
+                $"CoM-as-live-anchor produces ~10 m playback drift; got {buggyDelta.magnitude:F2} m");
+        }
+
         #endregion
     }
 
