@@ -203,7 +203,7 @@ namespace Parsek.Tests
             // tech set built including both the baseline tech and the post-RP unlock).
             Assert.Contains(logLines, l =>
                 l.Contains(OrchestratorTag)
-                && l.Contains("rewind-path tech-tree patch enabled")
+                && l.Contains("tech-tree patch enabled")
                 && l.Contains("targetCount=2"));
 
             // The non-rewind skip log MUST NOT have fired — otherwise the post-RP unlock
@@ -243,7 +243,7 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains(OrchestratorTag)
-                && l.Contains("rewind-path tech-tree patch enabled"));
+                && l.Contains("tech-tree patch enabled"));
         }
     }
 }

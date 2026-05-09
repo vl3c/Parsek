@@ -1409,69 +1409,54 @@ namespace Parsek
             int currentCount = ContractSystem.Instance.Contracts != null
                 ? ContractSystem.Instance.Contracts.Count
                 : 0;
+            int finishedCount = ContractSystem.Instance.ContractsFinished != null
+                ? ContractSystem.Instance.ContractsFinished.Count
+                : 0;
 
             ParsekLog.Verbose(Tag,
                 $"PatchContracts: ledger has {activeIds.Count.ToString(IC)} active contracts, " +
                 $"{terminalIds.Count.ToString(IC)} terminal contracts, " +
-                $"KSP has {currentCount.ToString(IC)} current contracts");
+                $"KSP has {currentCount.ToString(IC)} current contracts, " +
+                $"{finishedCount.ToString(IC)} finished contracts");
 
             // #404/#756: Filtered remove — touch Active contracts whose id is NOT
             // in the ledger's active set, and terminal stock contracts whose id is
             // NOT in the ledger's terminal set. Offered/Declined entries still stay
             // untouched; terminal entries are only removable because broad Re-Fly
             // tombstones can now remove their ContractComplete/Fail/Cancel source
-            // row from ELS. ContractsFinished is append-only game state — Parsek
-            // must NOT mutate it. Filtering is delegated to PartitionContractsForPatch
-            // for testability.
+            // row from ELS. ContractsFinished is not cleared wholesale; only stale
+            // terminal rows with no surviving ELS terminal action are removed.
+            // Filtering is delegated to PartitionContractsForPatch for testability.
             var currentContracts = ContractSystem.Instance.Contracts;
-            var entries = new List<ContractFilterEntry>();
-            if (currentContracts != null)
-            {
-                for (int i = 0; i < currentContracts.Count; i++)
-                {
-                    var c = currentContracts[i];
-                    if (c == null) continue;
-                    entries.Add(new ContractFilterEntry
-                    {
-                        Id = c.ContractGuid,
-                        IsActive = c.ContractState == Contract.State.Active,
-                        IsTerminal = IsTerminalContractStateName(c.ContractState.ToString())
-                    });
-                }
-            }
+            var finishedContracts = ContractSystem.Instance.ContractsFinished;
+            var currentEntries = BuildContractFilterEntries(currentContracts);
+            var finishedEntries = BuildContractFilterEntries(finishedContracts);
 
-            PartitionContractsForPatch(entries, activeIdSet, terminalIdSet,
-                out var toRemove, out var survivingActiveIds,
+            PartitionContractsForPatch(currentEntries, finishedEntries,
+                activeIdSet, terminalIdSet,
+                out var toRemoveCurrent, out var toRemoveFinished,
+                out var survivingActiveIds,
                 out var survivingTerminalIds);
-            var toRemoveSet = new HashSet<Guid>(toRemove);
+            var toRemoveCurrentSet = new HashSet<Guid>(toRemoveCurrent);
+            var toRemoveFinishedSet = new HashSet<Guid>(toRemoveFinished);
 
             int removedStale = 0;
+            int removedFinishedStale = 0;
             int unregisterFailures = 0;
-            if (currentContracts != null)
-            {
-                for (int i = currentContracts.Count - 1; i >= 0; i--)
-                {
-                    var c = currentContracts[i];
-                    if (c == null) continue;
-                    if (!toRemoveSet.Contains(c.ContractGuid)) continue;
-
-                    try
-                    {
-                        c.Unregister();
-                    }
-                    catch (Exception ex)
-                    {
-                        unregisterFailures++;
-                        ParsekLog.Warn(Tag,
-                            $"PatchContracts: failed to unregister stale contract '{c.ContractGuid}': {ex.Message}");
-                    }
-                    currentContracts.RemoveAt(i);
-                    removedStale++;
-                }
-            }
+            removedStale = RemoveContractsById(
+                currentContracts,
+                toRemoveCurrentSet,
+                unregisterBeforeRemove: true,
+                ref unregisterFailures);
+            removedFinishedStale = RemoveContractsById(
+                finishedContracts,
+                toRemoveFinishedSet,
+                unregisterBeforeRemove: false,
+                ref unregisterFailures);
 
             ParsekLog.Verbose(Tag,
                 $"PatchContracts: removed {removedStale.ToString(IC)} stale Active/terminal contract(s), " +
+                $"{removedFinishedStale.ToString(IC)} stale finished terminal contract(s), " +
                 $"{survivingActiveIds.Count.ToString(IC)} Active contract(s) preserved in place, " +
                 $"{survivingTerminalIds.Count.ToString(IC)} terminal contract(s) preserved in place " +
                 $"(unregisterFailures={unregisterFailures.ToString(IC)})");
@@ -1597,8 +1582,10 @@ namespace Parsek
             }
 
             int kspTotalAfter = currentContracts != null ? currentContracts.Count : 0;
+            int kspFinishedAfter = finishedContracts != null ? finishedContracts.Count : 0;
             ParsekLog.Info(Tag,
                 $"PatchContracts: removedStale={removedStale.ToString(IC)}, " +
+                $"removedFinishedStale={removedFinishedStale.ToString(IC)}, " +
                 $"restored={restored.ToString(IC)}, " +
                 $"registered={registered.ToString(IC)}, " +
                 $"skippedExisting={skippedExisting.ToString(IC)}, " +
@@ -1608,7 +1595,8 @@ namespace Parsek
                 $"loadFailed={loadFailed.ToString(IC)}, " +
                 $"ledgerActive={activeIds.Count.ToString(IC)}, " +
                 $"ledgerTerminal={terminalIds.Count.ToString(IC)}, " +
-                $"kspTotal={kspTotalAfter.ToString(IC)} " +
+                $"kspTotal={kspTotalAfter.ToString(IC)}, " +
+                $"kspFinished={kspFinishedAfter.ToString(IC)} " +
                 $"(Offered preserved; stale terminal filtered)");
         }
 
@@ -1695,6 +1683,85 @@ namespace Parsek
 
                 // Offered/declined/unknown non-terminal stock state is preserved.
             }
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            out List<Guid> toRemoveCurrent,
+            out List<Guid> toRemoveFinished,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
+            PartitionContractsForPatch(currentEntries, activeIdSet, terminalIdSet,
+                out toRemoveCurrent, out survivingActive, out survivingTerminal);
+
+            PartitionContractsForPatch(finishedEntries, new HashSet<Guid>(), terminalIdSet,
+                out toRemoveFinished, out _, out var survivingFinishedTerminal);
+
+            foreach (var id in survivingFinishedTerminal)
+                survivingTerminal.Add(id);
+        }
+
+        private static List<ContractFilterEntry> BuildContractFilterEntries(
+            IReadOnlyList<Contract> contracts)
+        {
+            var entries = new List<ContractFilterEntry>();
+            if (contracts == null)
+                return entries;
+
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                var c = contracts[i];
+                if (c == null) continue;
+                entries.Add(new ContractFilterEntry
+                {
+                    Id = c.ContractGuid,
+                    IsActive = c.ContractState == Contract.State.Active,
+                    IsTerminal = IsTerminalContractStateName(c.ContractState.ToString())
+                });
+            }
+
+            return entries;
+        }
+
+        private static int RemoveContractsById(
+            List<Contract> contracts,
+            HashSet<Guid> toRemove,
+            bool unregisterBeforeRemove,
+            ref int unregisterFailures)
+        {
+            if (contracts == null || toRemove == null || toRemove.Count == 0)
+                return 0;
+
+            int removed = 0;
+            for (int i = contracts.Count - 1; i >= 0; i--)
+            {
+                var c = contracts[i];
+                if (c == null) continue;
+                if (!toRemove.Contains(c.ContractGuid)) continue;
+
+                if (unregisterBeforeRemove)
+                {
+                    try
+                    {
+                        c.Unregister();
+                    }
+                    catch (Exception ex)
+                    {
+                        unregisterFailures++;
+                        ParsekLog.Warn(Tag,
+                            $"PatchContracts: failed to unregister stale contract '{c.ContractGuid}': {ex.Message}");
+                    }
+                }
+
+                contracts.RemoveAt(i);
+                removed++;
+            }
+
+            return removed;
         }
 
         private static bool IsTerminalContractStateName(string stateName)

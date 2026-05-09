@@ -131,6 +131,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Partition_TombstonedFinishedTerminalContract_RemovedFromFinishedBucket()
+        {
+            var tombstonedComplete = Guid.NewGuid();
+            var currentEntries = new List<KspStatePatcher.ContractFilterEntry>();
+            var finishedEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(tombstonedComplete),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid>();
+
+            KspStatePatcher.PartitionContractsForPatch(
+                currentEntries,
+                finishedEntries,
+                ledgerActive,
+                ledgerTerminal,
+                out var toRemoveCurrent,
+                out var toRemoveFinished,
+                out var survivingActive,
+                out var survivingTerminal);
+
+            Assert.Empty(toRemoveCurrent);
+            Assert.Contains(tombstonedComplete, toRemoveFinished);
+            Assert.Empty(survivingActive);
+            Assert.Empty(survivingTerminal);
+        }
+
+        [Fact]
+        public void Partition_FinishedTerminalStillInLedger_Preserved()
+        {
+            var completed = Guid.NewGuid();
+            var currentEntries = new List<KspStatePatcher.ContractFilterEntry>();
+            var finishedEntries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(completed),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid> { completed };
+
+            KspStatePatcher.PartitionContractsForPatch(
+                currentEntries,
+                finishedEntries,
+                ledgerActive,
+                ledgerTerminal,
+                out var toRemoveCurrent,
+                out var toRemoveFinished,
+                out var survivingActive,
+                out var survivingTerminal);
+
+            Assert.Empty(toRemoveCurrent);
+            Assert.Empty(toRemoveFinished);
+            Assert.Empty(survivingActive);
+            Assert.Contains(completed, survivingTerminal);
+        }
+
+        [Fact]
         public void Partition_MixedBucket_RemovesOnlyUnsupportedActiveAndTerminal()
         {
             var activeInLedger = Guid.NewGuid();
