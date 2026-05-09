@@ -9824,7 +9824,8 @@ namespace Parsek.InGameTests
             Description = "Visual-only stock explosion spawn: instantiates an FXMonger explosion prefab with audio muted; run from Ctrl+Shift+T in the Flight scene")]
         public IEnumerator TryInstantiateStockExplosionVisual_LiveFxMonger_SpawnsMutedPrefab()
         {
-            if (!GhostVisualBuilder.IsFxMongerLive())
+            FXMonger fetch = GhostVisualBuilder.ResolveLiveFxMonger();
+            if (fetch == null)
             {
                 InGameAssert.Skip("FXMonger.fetch not live in this scene");
                 yield break;
@@ -9835,6 +9836,15 @@ namespace Parsek.InGameTests
             var beforeIds = new HashSet<int>(
                 UnityEngine.Object.FindObjectsOfType<AudioSource>()
                     .Select(s => s.GetInstanceID()));
+
+            // Snapshot the live FXMonger.explosionObjects count so we can assert the
+            // visual-only spawn registers exactly one entry (registration is what makes
+            // FXMonger.OffsetPositions cover the spawn on Krakensbane / floating-origin
+            // shifts; without it the visual would jump on a frame-origin reset).
+            List<FXObject> explosionObjects = GhostVisualBuilder.ResolveFxMongerExplosionObjects(fetch);
+            InGameAssert.IsNotNull(explosionObjects,
+                "FXMonger.explosionObjects must be reachable via reflection for floating-origin tracking");
+            int beforeCount = explosionObjects.Count;
 
             Vector3 spawnPos = FlightGlobals.ActiveVessel != null
                 ? FlightGlobals.ActiveVessel.transform.position
@@ -9868,8 +9878,53 @@ namespace Parsek.InGameTests
                     $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must have playOnAwake=false");
             }
 
+            // Verify registration: the spawn added exactly one FXObject whose effectObj
+            // sits at our spawnPos. We deliberately do not equality-compare against any
+            // GameObject reference because the registered entry is owned by FXMonger now;
+            // tracking by position is enough to prove the registration ran.
+            int afterCount = explosionObjects.Count;
+            InGameAssert.AreEqual(beforeCount + 1, afterCount,
+                $"Visual-only spawn must register exactly one FXObject; before={beforeCount} after={afterCount}");
+            FXObject registered = explosionObjects[afterCount - 1];
+            InGameAssert.IsNotNull(registered,
+                "Newly-registered FXObject must not be null");
+            InGameAssert.IsNotNull(registered.effectObj,
+                "Registered FXObject.effectObj must reference the live spawn GameObject");
+            runner.TrackForCleanup(registered.effectObj);
+            InGameAssert.ApproxEqual(spawnPos.x, registered.effectObj.transform.position.x, 0.01f,
+                "Registered FXObject root position X must match spawnPos");
+            InGameAssert.ApproxEqual(spawnPos.y, registered.effectObj.transform.position.y, 0.01f,
+                "Registered FXObject root position Y must match spawnPos");
+            InGameAssert.ApproxEqual(spawnPos.z, registered.effectObj.transform.position.z, 0.01f,
+                "Registered FXObject root position Z must match spawnPos");
+
+            // Verify floating-origin tracking actually applies to the spawn: simulate a
+            // 100 m Krakensbane shift by calling FXMonger.OffsetPositions directly and
+            // checking the registered root transform moved by the offset. This is the
+            // exact path FloatingOrigin.SetOffset takes after a recentre (decompiled
+            // FloatingOrigin ~line 721).
+            Vector3 preOffsetPos = registered.effectObj.transform.position;
+            Vector3d offset = new Vector3d(100.0, 0.0, 0.0);
+            FXMonger.OffsetPositions(offset);
+            yield return null;
+            Vector3 postOffsetPos = registered.effectObj.transform.position;
+            InGameAssert.ApproxEqual(preOffsetPos.x + 100f, postOffsetPos.x, 0.1f,
+                "Visual-only spawn must follow FXMonger.OffsetPositions on the X axis");
+            InGameAssert.ApproxEqual(preOffsetPos.y, postOffsetPos.y, 0.1f,
+                "Visual-only spawn Y axis must be unchanged by an X-only offset");
+            InGameAssert.ApproxEqual(preOffsetPos.z, postOffsetPos.z, 0.1f,
+                "Visual-only spawn Z axis must be unchanged by an X-only offset");
+
+            // Reverse the offset so we don't leave the test FX shifted away from the
+            // active vessel (cosmetic only — the prefab self-destructs after particles
+            // expire, but the shift is visible during that window).
+            FXMonger.OffsetPositions(-offset);
+
             ParsekLog.Verbose("TestRunner",
-                $"Visual-only stock explosion spawned at {spawnPos}; new audio sources inspected: {newSources.Count} (all muted)");
+                $"Visual-only stock explosion spawned at {spawnPos}; new audio sources={newSources.Count} (all muted); " +
+                $"explosionObjects registered: {beforeCount}→{afterCount}; offset shift: " +
+                $"({preOffsetPos.x:F1},{preOffsetPos.y:F1},{preOffsetPos.z:F1}) → " +
+                $"({postOffsetPos.x:F1},{postOffsetPos.y:F1},{postOffsetPos.z:F1})");
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,

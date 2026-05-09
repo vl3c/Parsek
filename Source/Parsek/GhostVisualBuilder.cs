@@ -6809,6 +6809,14 @@ namespace Parsek
         // without the per-call cost of Object.FindObjectOfType<FXMonger>() scanning the scene.
         private static System.Reflection.FieldInfo fxMongerFetchField;
 
+        // Cached FieldInfo for FXMonger's protected `explosionObjects` list. Registering
+        // visual-only spawns here is what makes FXMonger.OffsetPositions(offset) shift the
+        // root transform + world-space particles on a Krakensbane / floating-origin event,
+        // matching what FXMonger.Explode-spawned visuals get for free via LateUpdate's
+        // own Add to the same list. The field is `protected`, not public, so reflection
+        // is required even though the list itself is freely mutable.
+        private static System.Reflection.FieldInfo fxMongerExplosionObjectsField;
+
         // Returns the live FXMonger singleton or null. Centralises the reflection
         // accessor so callers that need the instance (to read `explosions[]`) and
         // callers that just need an availability check share one cached lookup.
@@ -6830,6 +6838,26 @@ namespace Parsek
         internal static bool IsFxMongerLive()
         {
             return ResolveLiveFxMonger() != null;
+        }
+
+        // Reflectively reads FXMonger's protected `explosionObjects` list on the live
+        // singleton so the visual-only spawner can register itself for floating-origin
+        // tracking. Returns null if `fetch` is gone or the field has been renamed (the
+        // caller logs once and falls open — rendering the visual without offset tracking
+        // is still better than dropping all the way to the custom particle burst).
+        internal static List<FXObject> ResolveFxMongerExplosionObjects(FXMonger fetch)
+        {
+            if (fetch == null)
+                return null;
+            if (fxMongerExplosionObjectsField == null)
+            {
+                fxMongerExplosionObjectsField = typeof(FXMonger).GetField(
+                    "explosionObjects",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (fxMongerExplosionObjectsField == null)
+                    return null;
+            }
+            return fxMongerExplosionObjectsField.GetValue(fetch) as List<FXObject>;
         }
 
         /// <summary>
@@ -6946,6 +6974,39 @@ namespace Parsek
                     sources[i].playOnAwake = false;
                     sources[i].mute = true;
                     sources[i].Stop();
+                }
+
+                // Register with FXMonger so FloatingOrigin shifts apply to this visual.
+                // Mirrors stock FXMonger.LateUpdate (decompiled ~line 553-573):
+                //   FXObject fXObject = new FXObject(gameObject);
+                //   gameObject.AddComponent<FXObjectPhoneHome>().parent = fXObject;
+                //   explosionObjects.Add(fXObject);
+                // FXObject's constructor populates `systems` from the GameObject's child
+                // ParticleSystems, which is what FXMonger.OffsetPositions iterates to
+                // shift world-space particle positions on a Krakensbane / floating-origin
+                // event. FXObjectPhoneHome.OnDestroy calls FXMonger.RemoveFXOjbect to
+                // unregister us when the prefab's particle system finishes and self-
+                // destructs, so the list does not leak.
+                var fxObject = new FXObject(vfx);
+                vfx.AddComponent<FXObjectPhoneHome>().parent = fxObject;
+                List<FXObject> explosionObjects = ResolveFxMongerExplosionObjects(fetch);
+                if (explosionObjects != null)
+                {
+                    explosionObjects.Add(fxObject);
+                }
+                else
+                {
+                    // Reflection lookup against FXMonger's protected `explosionObjects`
+                    // failed — likely a future-KSP rename. Fail open: the visual still
+                    // renders, just without floating-origin tracking. Drift will only
+                    // be visible if a Krakensbane shift fires within the explosion's
+                    // ~2 s lifetime (rare for terminal-impact ghost explosions, which
+                    // happen at low / zero velocity at the impact site). One-shot warn
+                    // surfaces the layout change for the next investigator.
+                    ParsekLog.Warn("ExplosionFx",
+                        "FXMonger.explosionObjects field not resolvable via reflection — " +
+                        "visual-only stock explosion will not be offset on floating-origin shifts. " +
+                        "Stock FXMonger layout may have changed.");
                 }
 
                 vfx.SetActive(true);
