@@ -3881,7 +3881,7 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Engine", $"reuse-suppress-retarget-{index}",
                     $"Ghost #{index} \"{state.vesselName}\" loop-cycle reuse: " +
                     (primeRetired
-                        ? $"RetargetToNewGhost suppressed (coverage-retired prime; cycle={newCycleIndex})"
+                        ? $"RetargetToNewGhost suppressed (anchor-retired prime; cycle={newCycleIndex})"
                         : $"RetargetToNewGhost suppressed (caller emitted primary boundary event; cycle={newCycleIndex})"),
                     1.0);
             }
