@@ -49,6 +49,14 @@ namespace Parsek
                 string facilityId = kvp.Key;
                 var state = kvp.Value;
 
+                int targetLedgerLevel = state.Level;
+                int targetLevel = ToKspFacilityLevel(targetLedgerLevel);
+
+                ParsekLog.Verbose(Tag,
+                    $"PatchFacilities: resolved '{facilityId}' " +
+                    $"ledgerLevel={targetLedgerLevel.ToString(IC)} -> " +
+                    $"targetLevel={targetLevel.ToString(IC)}");
+
                 ScenarioUpgradeableFacilities.ProtoUpgradeable proto;
                 if (!ScenarioUpgradeableFacilities.protoUpgradeables.TryGetValue(
                         facilityId, out proto)
@@ -66,7 +74,6 @@ namespace Parsek
                 }
 
                 int currentLevel = facility.FacilityLevel;
-                int targetLevel = state.Level;
 
                 if (currentLevel == targetLevel)
                 {
@@ -79,7 +86,8 @@ namespace Parsek
 
                 ParsekLog.Verbose(Tag,
                     $"PatchFacilities: '{facilityId}' level {currentLevel.ToString(IC)} -> " +
-                    $"{targetLevel.ToString(IC)} (destroyed={state.Destroyed.ToString(IC)})");
+                    $"{targetLevel.ToString(IC)} (ledgerLevel={targetLedgerLevel.ToString(IC)}, " +
+                    $"destroyed={state.Destroyed.ToString(IC)})");
             }
 
             // Bug #596: gate INFO on changed-state-or-not-found-diagnostic only.
@@ -119,6 +127,17 @@ namespace Parsek
             // Collect all destructibles once (expensive FindObjectsOfType call),
             // then match against facility states that have destruction data.
             PatchDestructionState(allFacilities);
+        }
+
+        /// <summary>
+        /// Converts the ledger/module facility tier (1 = basic, 2 = upgraded,
+        /// 3 = fully upgraded) to KSP's zero-based UpgradeableFacility.SetLevel index.
+        /// </summary>
+        internal static int ToKspFacilityLevel(int ledgerLevel)
+        {
+            if (ledgerLevel <= 1) return 0;
+            if (ledgerLevel >= 3) return 2;
+            return ledgerLevel - 1;
         }
 
         /// <summary>

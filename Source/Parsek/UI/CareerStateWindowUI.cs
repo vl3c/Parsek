@@ -431,7 +431,7 @@ namespace Parsek
                                 LogSkip("FacilityUpgrade", "Ineffective", a);
                                 break;
                             }
-                            string fid = a.FacilityId ?? "";
+                            string fid = KspFacilityIds.ToDisplayFacilityId(a.FacilityId ?? "");
                             FacilityAcc f;
                             if (!facilityStateTerm.TryGetValue(fid, out f))
                                 f = new FacilityAcc { Level = 1, Destroyed = false };
@@ -518,7 +518,7 @@ namespace Parsek
                 creditedMilestonesCurSnap = new HashSet<string>(creditedMilestonesTerm, StringComparer.Ordinal);
             }
 
-            // --- Facility levels for slot math (matches LedgerOrchestrator.UpdateSlotLimitsFromFacilities:1440-1446) ---
+            // --- Facility levels for slot math (matches LedgerOrchestrator.UpdateSlotLimitsFromFacilities) ---
             // Contracts draw slots from MissionControl level; Strategies draw from Administration level.
             int missionControlLevelCur = 1;
             int missionControlLevelTerm = 1;

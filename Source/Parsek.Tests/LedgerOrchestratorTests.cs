@@ -954,54 +954,101 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecalculateAndPatch_UpdatesContractSlotsFromFacilities()
+        public void RecalculateAndPatch_UpdatesContractSlotsFromFacilityUpgradeInSameWalk()
         {
             LedgerOrchestrator.Initialize();
 
-            // Upgrade Mission Control to level 2
+            // Upgrade Mission Control to tier 2 and accept a contract in the same walk.
+            // The final availability must use level-2 slots after a single recalc.
+            Ledger.AddAction(GameStateEventConverter.ConvertEvent(new GameStateEvent
+            {
+                ut = 10.0,
+                eventType = GameStateEventType.FacilityUpgraded,
+                key = "SpaceCenter/MissionControl",
+                valueBefore = 0.0,
+                valueAfter = 0.5
+            }, null));
             Ledger.AddAction(new GameAction
             {
-                UT = 10.0,
-                Type = GameActionType.FacilityUpgrade,
-                FacilityId = "MissionControl",
-                ToLevel = 2
+                UT = 20.0,
+                Type = GameActionType.ContractAccept,
+                ContractId = "contract-after-mc-upgrade",
+                ContractTitle = "After Mission Control Upgrade",
+                Sequence = 1
             });
 
-            // First recalculate: processes the facility upgrade, but slot limits
-            // were set from prior state (level 1 -> 2 slots) before this walk.
             LedgerOrchestrator.RecalculateAndPatch();
 
-            // Second recalculate: now the facility state shows level 2,
-            // so slot limits update to 7 before the walk.
-            LedgerOrchestrator.RecalculateAndPatch();
-
-            Assert.Equal(7 - 0, LedgerOrchestrator.Contracts.GetAvailableSlots());
+            Assert.Equal(2, LedgerOrchestrator.Facilities.GetFacilityLevel("SpaceCenter/MissionControl"));
+            Assert.Equal(7 - 1, LedgerOrchestrator.Contracts.GetAvailableSlots());
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("7 contract slots"));
         }
 
         [Fact]
-        public void RecalculateAndPatch_UpdatesStrategySlotsFromFacilities()
+        public void RecalculateAndPatch_UpdatesStrategySlotsFromFacilityUpgradeInSameWalk()
         {
             LedgerOrchestrator.Initialize();
 
-            // Upgrade Administration to level 3
+            // Upgrade Administration to tier 3 and activate a strategy in the same walk.
+            // The final availability must use level-3 slots after a single recalc.
+            Ledger.AddAction(GameStateEventConverter.ConvertEvent(new GameStateEvent
+            {
+                ut = 10.0,
+                eventType = GameStateEventType.FacilityUpgraded,
+                key = "SpaceCenter/Administration",
+                valueBefore = 0.5,
+                valueAfter = 1.0
+            }, null));
             Ledger.AddAction(new GameAction
             {
-                UT = 10.0,
-                Type = GameActionType.FacilityUpgrade,
-                FacilityId = "Administration",
-                ToLevel = 3
+                UT = 20.0,
+                Type = GameActionType.StrategyActivate,
+                StrategyId = "strategy-after-admin-upgrade",
+                SourceResource = StrategyResource.Funds,
+                TargetResource = StrategyResource.Reputation,
+                Commitment = 0.25f,
+                Sequence = 1
             });
 
             LedgerOrchestrator.RecalculateAndPatch();
-            LedgerOrchestrator.RecalculateAndPatch(); // second call picks up new level
 
-            Assert.Equal(5 - 0, LedgerOrchestrator.Strategies.GetAvailableSlots());
+            Assert.Equal(3, LedgerOrchestrator.Facilities.GetFacilityLevel("SpaceCenter/Administration"));
+            Assert.Equal(5 - 1, LedgerOrchestrator.Strategies.GetAvailableSlots());
 
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") && l.Contains("5 strategy slots"));
+        }
+
+        [Fact]
+        public void RecalculateAndPatch_FacilityUpgrade_PatcherReceivesZeroBasedKspLevel()
+        {
+            LedgerOrchestrator.Initialize();
+
+            // Drive RecalculateAndPatch end-to-end with a FacilityUpgrade for tier 2
+            // (KSP's normalized 0.5 -> ledger 1/2/3 tier 2). The patcher must translate
+            // the 1-based ledger tier back to KSP's zero-based SetLevel index (tier 2 -> 1).
+            // protoUpgradeables is empty in xUnit so SetLevel itself is unreachable, but
+            // the per-facility translation log fires before the proto lookup branch.
+            Ledger.AddAction(GameStateEventConverter.ConvertEvent(new GameStateEvent
+            {
+                ut = 10.0,
+                eventType = GameStateEventType.FacilityUpgraded,
+                key = "SpaceCenter/MissionControl",
+                valueBefore = 0.0,
+                valueAfter = 0.5
+            }, null));
+
+            logLines.Clear();
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            Assert.Equal(2, LedgerOrchestrator.Facilities.GetFacilityLevel("SpaceCenter/MissionControl"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchFacilities: resolved 'SpaceCenter/MissionControl'") &&
+                l.Contains("ledgerLevel=2") &&
+                l.Contains("targetLevel=1"));
         }
 
         [Fact]

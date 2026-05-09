@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Warp-exit and time-jump ledger recalculations now refresh Mission Control and Administration slot limits after the recalculation walk, so a facility upgrade in the same walk takes effect on availability. Facility tiers also migrate to a 1/2/3 ledger contract that translates back to KSP's zero-based level index.
 - Loading an earlier save no longer leaves future contract accepts, advances, completions, or penalties active.
 - Contracts completed after an accepted deadline, an explicit fail, or a cancel no longer pay out rewards. Same-UT fail/cancel ties that sort after the completion row also keep the completion ineffective.
 - Warp exit now runs the same cutoff-preserving ledger recalculation path as explicit time jumps, logs the exact cutoff UT, and treats recalculation failures as logged non-fatal patch failures instead of falling back to the full future timeline.
