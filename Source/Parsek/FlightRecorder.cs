@@ -245,6 +245,21 @@ namespace Parsek
             return true;
         }
 
+        internal string DescribePendingJointChildPartOriginSeedIdsForDiagnostics(int maxIds = 8)
+        {
+            if (pendingJointChildPartOriginSeeds.Count == 0)
+                return "none";
+
+            var ids = pendingJointChildPartOriginSeeds.Keys
+                .Take(Math.Max(1, maxIds))
+                .Select(pid => pid.ToString(CultureInfo.InvariantCulture))
+                .ToList();
+            string suffix = pendingJointChildPartOriginSeeds.Count > ids.Count
+                ? ",..."
+                : string.Empty;
+            return string.Join(",", ids.ToArray()) + suffix;
+        }
+
         /// <summary>
         /// Clears atmosphere-boundary and SOI-change flags without stopping or restarting
         /// the recorder. Used when tree mode intercepts a boundary crossing — the recorder
@@ -1032,6 +1047,71 @@ namespace Parsek
             return true;
         }
 
+        private static string DescribeJointPartForDiagnostics(string label, Part part)
+        {
+            if (part == null)
+                return label + "=null";
+
+            string partName = part.partInfo?.name ?? part.name ?? "unknown";
+            uint vesselPid = part.vessel?.persistentId ?? 0u;
+            string vesselName = part.vessel?.vesselName ?? "unknown";
+            uint parentPid = part.parent?.persistentId ?? 0u;
+            string origin = part.transform != null
+                ? FormatVector3dForDiagnostics(part.transform.position)
+                : "no-transform";
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}='{1}' pid={2} parentPid={3} vesselPid={4} vessel='{5}' origin={6} srfAttach={7}",
+                label,
+                partName,
+                part.persistentId,
+                parentPid,
+                vesselPid,
+                vesselName,
+                origin,
+                DescribeSurfaceAttachNodeForDiagnostics(part));
+        }
+
+        private static string DescribeSurfaceAttachNodeForDiagnostics(Part part)
+        {
+            AttachNode node = part?.srfAttachNode;
+            if (node == null)
+                return "none";
+
+            string world = part.transform != null
+                ? FormatVector3dForDiagnostics(part.transform.TransformPoint(node.position))
+                : "no-transform";
+            uint attachedPid = node.attachedPart?.persistentId ?? 0u;
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "local={0} world={1} orient={2} attachedPid={3}",
+                FormatVector3ForDiagnostics(node.position),
+                world,
+                FormatVector3ForDiagnostics(node.orientation),
+                attachedPid);
+        }
+
+        private static string FormatVector3ForDiagnostics(Vector3 value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F3},{1:F3},{2:F3})",
+                value.x,
+                value.y,
+                value.z);
+        }
+
+        private static string FormatVector3dForDiagnostics(Vector3d value)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "({0:F3},{1:F3},{2:F3})",
+                value.x,
+                value.y,
+                value.z);
+        }
+
         private void OnPartJointBreak(PartJoint joint, float breakForce)
         {
             if (!IsRecording) return;
@@ -1046,10 +1126,31 @@ namespace Parsek
             // Skip non-structural joint breaks (e.g., wheel suspension stress)
             // Part.attachJoint is the structural connection to parent — only that indicates real separation
             var childAttachJoint = joint.Child.attachJoint;
-            if (!IsStructuralJointBreak(joint == childAttachJoint, childAttachJoint != null))
+            bool childAttachMatchesJoint = joint == childAttachJoint;
+            bool childAttachJointPresent = childAttachJoint != null;
+            bool structuralJointBreak = IsStructuralJointBreak(
+                childAttachMatchesJoint,
+                childAttachJointPresent);
+            double jointBreakUT = Planetarium.GetUniversalTime();
+            ParsekLog.Verbose("Recorder",
+                $"OnPartJointBreak diagnostics: ut={jointBreakUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"structural={(structuralJointBreak ? "T" : "F")} " +
+                $"childAttachMatchesJoint={(childAttachMatchesJoint ? "T" : "F")} " +
+                $"childAttachJointPresent={(childAttachJointPresent ? "T" : "F")} " +
+                $"{DescribeJointPartForDiagnostics("child", joint.Child)} " +
+                $"{DescribeJointPartForDiagnostics("parent", joint.Parent)} " +
+                $"{DescribeJointPartForDiagnostics("host", joint.Host)} " +
+                $"{DescribeJointPartForDiagnostics("target", joint.Target)} " +
+                $"hostAnchor={FormatVector3ForDiagnostics(joint.HostAnchor)} " +
+                $"targetAnchor={FormatVector3ForDiagnostics(joint.TgtAnchor)}");
+            if (!structuralJointBreak)
             {
                 ParsekLog.VerboseRateLimited("Recorder", $"joint-break-nonstructural-{joint.Child.persistentId}",
-                    $"OnPartJointBreak: non-structural joint break on '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} (breakForce={breakForce:F1}), skipping");
+                    $"OnPartJointBreak: non-structural joint break on '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
+                    $"childAttachMatchesJoint={(childAttachMatchesJoint ? "T" : "F")} " +
+                    $"childAttachJointPresent={(childAttachJointPresent ? "T" : "F")} " +
+                    $"breakForce={breakForce.ToString("F1", CultureInfo.InvariantCulture)}, skipping");
                 return;
             }
 
@@ -1062,7 +1163,6 @@ namespace Parsek
             }
             decoupledPartIds.Add(joint.Child.persistentId);
 
-            double jointBreakUT = Planetarium.GetUniversalTime();
             if (TryCreateAbsoluteTrajectoryPointFromPartOrigin(
                     joint.Child,
                     jointBreakUT,
@@ -1078,7 +1178,8 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Recorder",
                     $"joint-break-part-origin-seed-miss-{joint.Child.persistentId}",
                     $"Joint child part-origin seed unavailable: part='{joint.Child.partInfo?.name}' " +
-                    $"pid={joint.Child.persistentId} ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                    $"pid={joint.Child.persistentId} vesselPacked={(joint.Child.vessel?.packed == true ? "T" : "F")} " +
+                    $"ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}");
             }
 
             PartEvents.Add(new PartEvent

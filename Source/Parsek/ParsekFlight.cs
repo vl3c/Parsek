@@ -9125,6 +9125,77 @@ namespace Parsek
                 && undockedPartPersistentId == rootPartPersistentId;
         }
 
+        private static string DescribeDecouplePartForDiagnostics(string label, Part part)
+        {
+            if (part == null)
+                return label + "=null";
+
+            string name = part.partInfo?.name ?? part.name ?? "unknown";
+            uint parentPid = part.parent?.persistentId ?? 0u;
+            string origin = part.transform != null
+                ? FormatVector3d(part.transform.position)
+                : "no-transform";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}='{1}' pid={2} parentPid={3} origin={4} srfAttach={5}",
+                label,
+                name,
+                part.persistentId,
+                parentPid,
+                origin,
+                DescribeDecoupleSurfaceAttachForDiagnostics(part));
+        }
+
+        private static string DescribeDecoupleSurfaceAttachForDiagnostics(Part part)
+        {
+            AttachNode node = part?.srfAttachNode;
+            if (node == null)
+                return "none";
+
+            string world = part.transform != null
+                ? FormatVector3d(part.transform.TransformPoint(node.position))
+                : "no-transform";
+            uint attachedPid = node.attachedPart?.persistentId ?? 0u;
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "local={0} world={1} orient={2} attachedPid={3}",
+                FormatVector3(node.position),
+                world,
+                FormatVector3(node.orientation),
+                attachedPid);
+        }
+
+        private static Part FindFirstDirectChildPart(Part rootPart, IList<Part> parts)
+        {
+            if (rootPart == null || parts == null)
+                return null;
+
+            for (int i = 0; i < parts.Count; i++)
+            {
+                Part part = parts[i];
+                if (part != null && part.parent == rootPart)
+                    return part;
+            }
+
+            return null;
+        }
+
+        private static bool DoesPendingJointSeedListContainPid(string pendingJointChildSeedPids, uint pid)
+        {
+            if (pid == 0u || string.IsNullOrEmpty(pendingJointChildSeedPids))
+                return false;
+
+            string needle = pid.ToString(CultureInfo.InvariantCulture);
+            string[] parts = pendingJointChildSeedPids.Split(',');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (string.Equals(parts[i], needle, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
         internal static double ResolveDeferredSplitBranchUT(
             double fallbackUT,
             double exactTriggerUT,
@@ -9235,13 +9306,18 @@ namespace Parsek
             double splitUT = Planetarium.GetUniversalTime();
             uint rootPartPersistentId = newVessel.rootPart?.persistentId ?? 0u;
             string seedSource = "none";
+            string pendingJointChildSeedPids = "none";
             if (decoupleCreatedTrajectoryPoints != null
                 && !decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
             {
                 FlightRecorder seedRecorder = recorder ?? pendingSplitRecorder;
                 TryResolveTrajectoryPoint resolvePartOriginSeed = null;
                 if (seedRecorder != null)
+                {
                     resolvePartOriginSeed = seedRecorder.TryConsumePendingJointChildPartOriginSeed;
+                    pendingJointChildSeedPids =
+                        seedRecorder.DescribePendingJointChildPartOriginSeedIdsForDiagnostics();
+                }
                 // On stock decoupler splits, KSP roots the new debris vessel at
                 // joint.Child; if it chooses a different root, this misses cleanly and
                 // falls back to the post-split root-part sample below.
@@ -9271,8 +9347,15 @@ namespace Parsek
                 $"name='{newVessel.vesselName}' type={newVessel.vesselType} " +
                 $"parts={newVessel.parts?.Count ?? 0} hasController={hasController} " +
                 $"rootPartPid={rootPartPersistentId} seedSource={seedSource} " +
+                $"pendingJointChildSeedPids={pendingJointChildSeedPids} " +
                 $"splitUT={splitUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"capturedSeed={(decoupleCreatedTrajectoryPoints != null && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId) ? "T" : "F")}");
+            Part rootPart = newVessel.rootPart;
+            ParsekLog.Verbose("Flight",
+                $"Decouple created vessel diagnostics: pid={newVessel.persistentId} " +
+                $"rootMatchesPendingJointChildSeed={(DoesPendingJointSeedListContainPid(pendingJointChildSeedPids, rootPartPersistentId) ? "T" : "F")} " +
+                $"{DescribeDecouplePartForDiagnostics("root", rootPart)} " +
+                $"{DescribeDecouplePartForDiagnostics("firstChild", FindFirstDirectChildPart(rootPart, newVessel.parts))}");
         }
 
         /// <summary>

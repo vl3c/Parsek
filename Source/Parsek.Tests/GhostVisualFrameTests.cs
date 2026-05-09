@@ -36,18 +36,19 @@ namespace Parsek.Tests
         [Fact]
         public void DescribeAppearanceRecordingStartPoint_RelativeFrameLogsOffsetInsteadOfWorldPosition()
         {
+            var point = new TrajectoryPoint
+            {
+                ut = 19.76,
+                latitude = 1.25,
+                longitude = -2.5,
+                altitude = 3.75,
+                bodyName = "Kerbin"
+            };
             var traj = new MockTrajectory
             {
                 Points = new List<TrajectoryPoint>
                 {
-                    new TrajectoryPoint
-                    {
-                        ut = 19.76,
-                        latitude = 1.25,
-                        longitude = -2.5,
-                        altitude = 3.75,
-                        bodyName = "Kerbin"
-                    }
+                    point
                 },
                 TrackSections = new List<TrackSection>
                 {
@@ -56,7 +57,8 @@ namespace Parsek.Tests
                         referenceFrame = ReferenceFrame.Relative,
                         startUT = 19.74,
                         endUT = 22.00,
-                        anchorVesselId = 88
+                        anchorVesselId = 88,
+                        frames = new List<TrajectoryPoint> { point }
                     }
                 }
             };
@@ -71,6 +73,56 @@ namespace Parsek.Tests
             Assert.DoesNotContain("legacyAnchorPid", summary);
             Assert.DoesNotContain("anchorPid", summary);
             Assert.DoesNotContain("world=", summary);
+        }
+
+        [Fact]
+        public void DescribeAppearanceRecordingStartPoint_RelativeSectionFlatPointLabelsFallback()
+        {
+            var traj = new MockTrajectory
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 230.105,
+                        latitude = -0.0978,
+                        longitude = -74.4613,
+                        altitude = 1073.6338,
+                        bodyName = "Kerbin"
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 229.585,
+                        endUT = 253.365,
+                        anchorRecordingId = "parent-rec",
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint
+                            {
+                                ut = 230.105,
+                                latitude = 0.9556,
+                                longitude = -8.8138,
+                                altitude = 0.7526,
+                                bodyName = "Kerbin"
+                            }
+                        }
+                    }
+                }
+            };
+
+            string summary = GhostPlaybackEngine.DescribeAppearanceRecordingStartPoint(
+                traj, new Vector3d(10.0, 20.0, 30.0));
+
+            Assert.Contains("recordingStart@230.11", summary);
+            Assert.Contains("frame=FlatFallback", summary);
+            Assert.Contains("sectionFrame=Relative", summary);
+            Assert.Contains("lla=(-0.10,-74.46,1073.63)", summary);
+            Assert.Contains("anchorRec=parent-rec", summary);
+            Assert.DoesNotContain("frame=Relative offset=", summary);
         }
 
         [Fact]
