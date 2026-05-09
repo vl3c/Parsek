@@ -36,6 +36,9 @@ namespace Parsek
         private HashSet<string> allRecordingCrew = new HashSet<string>();
         private Dictionary<string, HashSet<string>> rawRecordingCrew
             = new Dictionary<string, HashSet<string>>();
+        private HashSet<string> ledgerCreatedKerbals = new HashSet<string>();
+        private readonly HashSet<string> pendingTombstonedRosterKerbals =
+            new HashSet<string>();
 
         // ── Recording metadata cache (built in PrePass) ──
         private Dictionary<string, RecordingMeta> recordingMeta
@@ -122,6 +125,7 @@ namespace Parsek
         internal IReadOnlyDictionary<string, KerbalReservation> Reservations => reservations;
         internal IReadOnlyDictionary<string, KerbalSlot> Slots => slots;
         internal IReadOnlyCollection<string> RetiredKerbals => retiredKerbals;
+        internal IReadOnlyCollection<string> LedgerCreatedKerbals => ledgerCreatedKerbals;
 
         /// <summary>
         /// Returns the list of retired kerbal names for UI display.
@@ -148,6 +152,7 @@ namespace Parsek
             retiredKerbals.Clear();
             allRecordingCrew.Clear();
             rawRecordingCrew.Clear();
+            ledgerCreatedKerbals.Clear();
             recordingMeta.Clear();
             loopingChainIds.Clear();
         }
@@ -221,12 +226,26 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Processes a KerbalAssignment action to build crew reservations.
-        /// Ignores all other action types.
+        /// Processes kerbal ledger actions. KerbalAssignment builds crew
+        /// reservations; roster-creating rows are tracked so a tombstone-triggered
+        /// roster cleanup only removes kerbals whose surviving ELS no longer has a
+        /// matching creation row.
         /// </summary>
         public void ProcessAction(GameAction action)
         {
-            if (action == null || action.Type != GameActionType.KerbalAssignment)
+            if (action == null)
+                return;
+
+            string rosterKerbalName;
+            if (TryGetRosterCreatedKerbalName(action, out rosterKerbalName))
+            {
+                ledgerCreatedKerbals.Add(rosterKerbalName);
+                ParsekLog.Verbose(Tag,
+                    $"Roster-created kerbal retained by ledger: '{rosterKerbalName}' type={action.Type}");
+                return;
+            }
+
+            if (action.Type != GameActionType.KerbalAssignment)
                 return;
 
             if (string.Equals(action.KerbalRole, "Tourist", System.StringComparison.OrdinalIgnoreCase))
@@ -1104,6 +1123,7 @@ namespace Parsek
             {
                 int standInsCreated = 0, standInsRecreated = 0;
                 int deletedUnused = 0, retiredDisplaced = 0, retainedLive = 0;
+                ApplyTombstonedRosterCleanup(roster);
                 var recreatedNames = new HashSet<string>();
 
                 // Step 1: Create missing stand-ins
@@ -1424,6 +1444,117 @@ namespace Parsek
             }
         }
 
+        internal void QueueTombstonedRosterKerbal(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName))
+                return;
+            pendingTombstonedRosterKerbals.Add(kerbalName);
+            ParsekLog.Verbose(Tag,
+                $"Queued tombstoned roster kerbal cleanup for '{kerbalName}'");
+        }
+
+        internal void QueueTombstonedRosterKerbals(IEnumerable<GameAction> actions)
+        {
+            if (actions == null)
+                return;
+
+            int queued = 0;
+            foreach (var action in actions)
+            {
+                string kerbalName;
+                if (!TryGetRosterCreatedKerbalName(action, out kerbalName))
+                    continue;
+                int before = pendingTombstonedRosterKerbals.Count;
+                QueueTombstonedRosterKerbal(kerbalName);
+                if (pendingTombstonedRosterKerbals.Count != before)
+                    queued++;
+            }
+
+            if (queued > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Queued {queued} tombstoned roster kerbal cleanup candidate(s)");
+            }
+        }
+
+        internal static bool TryGetRosterCreatedKerbalName(GameAction action, out string kerbalName)
+        {
+            kerbalName = null;
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.KerbalHire:
+                case GameActionType.KerbalRescue:
+                case GameActionType.KerbalStandIn:
+                    kerbalName = action.KerbalName;
+                    return !string.IsNullOrEmpty(kerbalName);
+                default:
+                    return false;
+            }
+        }
+
+        private void ApplyTombstonedRosterCleanup(IKerbalRosterFacade roster)
+        {
+            if (pendingTombstonedRosterKerbals.Count == 0)
+                return;
+
+            var pending = new List<string>(pendingTombstonedRosterKerbals);
+            pendingTombstonedRosterKerbals.Clear();
+
+            int removed = 0;
+            int preserved = 0;
+            int missing = 0;
+            int skippedStatus = 0;
+            int skippedLive = 0;
+            int failedRemove = 0;
+
+            for (int i = 0; i < pending.Count; i++)
+            {
+                string name = pending[i];
+                if (string.IsNullOrEmpty(name))
+                    continue;
+
+                if (ledgerCreatedKerbals.Contains(name)
+                    || reservations.ContainsKey(name)
+                    || IsKerbalInAnyRecording(name))
+                {
+                    preserved++;
+                    continue;
+                }
+
+                ProtoCrewMember.RosterStatus status;
+                if (!roster.TryGetStatus(name, out status))
+                {
+                    missing++;
+                    continue;
+                }
+
+                if (status != ProtoCrewMember.RosterStatus.Available)
+                {
+                    skippedStatus++;
+                    continue;
+                }
+
+                if (roster.IsKerbalOnLiveVessel(name))
+                {
+                    skippedLive++;
+                    continue;
+                }
+
+                if (roster.TryRemove(name))
+                    removed++;
+                else
+                    failedRemove++;
+            }
+
+            ParsekLog.Info(Tag,
+                $"Tombstoned roster cleanup: candidates={pending.Count} removed={removed} " +
+                $"preserved={preserved} missing={missing} skippedStatus={skippedStatus} " +
+                $"skippedLive={skippedLive} failedRemove={failedRemove}");
+        }
+
         private static ProtoCrewMember FindInRoster(KerbalRoster roster, string name)
         {
             foreach (ProtoCrewMember pcm in roster.Crew)
@@ -1672,6 +1803,9 @@ namespace Parsek
             slots.Clear();
             retiredKerbals.Clear();
             allRecordingCrew.Clear();
+            rawRecordingCrew.Clear();
+            ledgerCreatedKerbals.Clear();
+            pendingTombstonedRosterKerbals.Clear();
             recordingMeta.Clear();
             loopingChainIds.Clear();
         }

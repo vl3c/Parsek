@@ -1310,6 +1310,7 @@ namespace Parsek
         /// </summary>
         internal static void RecalculateAndPatchAfterTombstones()
         {
+            FacilityStatePatcher.ForceDefaultAllKnownFacilitiesForNextPatch();
             RecalculateAndPatchCore(
                 double.MaxValue,
                 bypassPatchDeferral: true,

@@ -5,11 +5,11 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Covers §B/#404 of career-earnings-bundle plan: PatchContracts must preserve the
-    /// Offered + Finished buckets and only remove Active contracts that are no longer
-    /// in the ledger. The old code unconditionally cleared both buckets, which wiped
-    /// Mission Control's Offered list and ContractsFinished game history on every
-    /// recalc.
+    /// Covers §B/#404 of career-earnings-bundle plan plus broad Re-Fly
+    /// tombstones: PatchContracts must preserve Offered/declined stock entries
+    /// while removing Active and terminal contracts that are no longer in the
+    /// ledger. The old code unconditionally cleared buckets, which wiped Mission
+    /// Control's Offered list and contract history on every recalc.
     ///
     /// The real PatchContracts method needs a live KSP ContractSystem. This test
     /// exercises the pure <see cref="KspStatePatcher.PartitionContractsForPatch"/>
@@ -19,8 +19,12 @@ namespace Parsek.Tests
     {
         private static KspStatePatcher.ContractFilterEntry Active(Guid g) =>
             new KspStatePatcher.ContractFilterEntry { Id = g, IsActive = true };
-        private static KspStatePatcher.ContractFilterEntry Inactive(Guid g) =>
+
+        private static KspStatePatcher.ContractFilterEntry Offered(Guid g) =>
             new KspStatePatcher.ContractFilterEntry { Id = g, IsActive = false };
+
+        private static KspStatePatcher.ContractFilterEntry Terminal(Guid g) =>
+            new KspStatePatcher.ContractFilterEntry { Id = g, IsTerminal = true };
 
         [Fact]
         public void Partition_ActiveStillInLedger_Preserved()
@@ -55,8 +59,6 @@ namespace Parsek.Tests
         {
             // A Re-Fly tombstone removes the ContractAccept row from ELS, so the
             // ledger active set no longer includes the stock Active contract id.
-            // PatchContracts reconciles that shape by unregistering/removing the
-            // stale KSP Active contract rather than leaving it orphaned.
             var tombstonedAcceptId = Guid.NewGuid();
             var entries = new List<KspStatePatcher.ContractFilterEntry>
             {
@@ -72,60 +74,99 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Partition_NonActive_NeverTouched()
+        public void Partition_OfferedOrDeclined_NeverTouched()
         {
-            // This is the Offered/Declined/Finished preservation guarantee.
             var offered = Guid.NewGuid();
-            var finished = Guid.NewGuid();
+            var declined = Guid.NewGuid();
             var entries = new List<KspStatePatcher.ContractFilterEntry>
             {
-                Inactive(offered),
-                Inactive(finished),
+                Offered(offered),
+                Offered(declined),
             };
             var ledgerActive = new HashSet<Guid>();
 
             KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive,
                 out var toRemove, out var surviving);
 
-            Assert.Empty(toRemove);     // nothing to remove
-            Assert.Empty(surviving);    // nothing to preserve in-place
-            // The caller's contract: anything not in toRemove AND not in surviving
-            // MUST be left alone. Both non-Actives satisfy that.
+            Assert.Empty(toRemove);
+            Assert.Empty(surviving);
         }
 
         [Fact]
-        public void Partition_MixedBucket_OnlyStaleActivesRemoved()
+        public void Partition_TerminalStillInLedger_Preserved()
+        {
+            var completed = Guid.NewGuid();
+            var entries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(completed),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid> { completed };
+
+            KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive, ledgerTerminal,
+                out var toRemove, out var survivingActive, out var survivingTerminal);
+
+            Assert.Empty(toRemove);
+            Assert.Empty(survivingActive);
+            Assert.Contains(completed, survivingTerminal);
+        }
+
+        [Fact]
+        public void Partition_TombstonedTerminalContract_Removed()
+        {
+            var tombstonedComplete = Guid.NewGuid();
+            var entries = new List<KspStatePatcher.ContractFilterEntry>
+            {
+                Terminal(tombstonedComplete),
+            };
+            var ledgerActive = new HashSet<Guid>();
+            var ledgerTerminal = new HashSet<Guid>();
+
+            KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive, ledgerTerminal,
+                out var toRemove, out var survivingActive, out var survivingTerminal);
+
+            Assert.Contains(tombstonedComplete, toRemove);
+            Assert.Empty(survivingActive);
+            Assert.Empty(survivingTerminal);
+        }
+
+        [Fact]
+        public void Partition_MixedBucket_RemovesOnlyUnsupportedActiveAndTerminal()
         {
             var activeInLedger = Guid.NewGuid();
             var activeStale = Guid.NewGuid();
             var offered = Guid.NewGuid();
-            var finished = Guid.NewGuid();
+            var terminalInLedger = Guid.NewGuid();
+            var terminalStale = Guid.NewGuid();
             var entries = new List<KspStatePatcher.ContractFilterEntry>
             {
                 Active(activeInLedger),
                 Active(activeStale),
-                Inactive(offered),
-                Inactive(finished),
+                Offered(offered),
+                Terminal(terminalInLedger),
+                Terminal(terminalStale),
             };
             var ledgerActive = new HashSet<Guid> { activeInLedger };
+            var ledgerTerminal = new HashSet<Guid> { terminalInLedger };
 
-            KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive,
-                out var toRemove, out var surviving);
+            KspStatePatcher.PartitionContractsForPatch(entries, ledgerActive, ledgerTerminal,
+                out var toRemove, out var surviving, out var survivingTerminal);
 
-            Assert.Single(toRemove);
+            Assert.Equal(2, toRemove.Count);
             Assert.Contains(activeStale, toRemove);
+            Assert.Contains(terminalStale, toRemove);
             Assert.Single(surviving);
             Assert.Contains(activeInLedger, surviving);
+            Assert.Single(survivingTerminal);
+            Assert.Contains(terminalInLedger, survivingTerminal);
 
-            // Non-Actives are not in either list — preservation invariant.
             Assert.DoesNotContain(offered, toRemove);
-            Assert.DoesNotContain(finished, toRemove);
             Assert.DoesNotContain(offered, surviving);
-            Assert.DoesNotContain(finished, surviving);
+            Assert.DoesNotContain(offered, survivingTerminal);
         }
 
         [Fact]
-        public void Partition_EmptyLedger_RemovesAllActiveButPreservesNonActive()
+        public void Partition_EmptyLedger_RemovesAllActiveButPreservesOffered()
         {
             var activeA = Guid.NewGuid();
             var activeB = Guid.NewGuid();
@@ -134,7 +175,7 @@ namespace Parsek.Tests
             {
                 Active(activeA),
                 Active(activeB),
-                Inactive(offered),
+                Offered(offered),
             };
             var ledgerActive = new HashSet<Guid>();
 

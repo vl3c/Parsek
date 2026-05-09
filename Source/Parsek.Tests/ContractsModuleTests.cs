@@ -116,6 +116,7 @@ namespace Parsek.Tests
 
             Assert.True(complete.Effective);
             Assert.True(module.IsContractCredited("orbit-mun"));
+            Assert.Contains("orbit-mun", module.GetTerminalContractIds());
             Assert.Equal(0, module.GetActiveContractCount());
             Assert.Equal(3, module.GetAvailableSlots());
         }

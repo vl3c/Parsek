@@ -30,6 +30,14 @@ namespace Parsek
         private readonly HashSet<string> creditedContracts = new HashSet<string>();
 
         /// <summary>
+        /// Contract IDs that resolved to a terminal state during this walk.
+        /// Used by the KSP patcher to distinguish terminal contracts that should
+        /// remain in stock history from terminal contracts whose ledger row was
+        /// removed by a tombstone.
+        /// </summary>
+        private readonly HashSet<string> terminalContracts = new HashSet<string>();
+
+        /// <summary>
         /// Mission Control slot limit. Determined by building level.
         /// Default 2 for level 1 (KSP stock).
         /// </summary>
@@ -44,12 +52,14 @@ namespace Parsek
         {
             int prevActive = activeContracts.Count;
             int prevCredited = creditedContracts.Count;
+            int prevTerminal = terminalContracts.Count;
 
             activeContracts.Clear();
             creditedContracts.Clear();
+            terminalContracts.Clear();
 
             ParsekLog.Verbose(Tag,
-                $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts");
+                $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts, {prevTerminal} terminal contracts");
         }
 
         /// <inheritdoc/>
@@ -182,6 +192,7 @@ namespace Parsek
             }
 
             activeContracts[id] = action;
+            terminalContracts.Remove(id);
 
             // Advance funds flow to Funds module via action.AdvanceFunds —
             // the Funds module reads that field from the action directly.
@@ -210,6 +221,7 @@ namespace Parsek
                 // First completion — credit awarded
                 action.Effective = true;
                 creditedContracts.Add(id);
+                terminalContracts.Add(id);
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=true, " +
@@ -268,6 +280,7 @@ namespace Parsek
 
             // Penalties apply unconditionally
             bool wasActive = activeContracts.Remove(id);
+            terminalContracts.Add(id);
 
             ParsekLog.Info(Tag,
                 $"Fail: contractId='{id}' fundsPenalty={action.FundsPenalty} " +
@@ -282,6 +295,7 @@ namespace Parsek
 
             // Penalties apply unconditionally
             bool wasActive = activeContracts.Remove(id);
+            terminalContracts.Add(id);
 
             ParsekLog.Info(Tag,
                 $"Cancel: contractId='{id}' fundsPenalty={action.FundsPenalty} " +
@@ -328,6 +342,16 @@ namespace Parsek
         internal IReadOnlyCollection<string> GetActiveContractIds()
         {
             return activeContracts.Keys;
+        }
+
+        /// <summary>
+        /// Returns the set of contract IDs that resolved to terminal state during
+        /// the current walk. Used by KSP state patching to remove only terminal
+        /// stock contracts that no longer have terminal ledger support.
+        /// </summary>
+        internal IReadOnlyCollection<string> GetTerminalContractIds()
+        {
+            return terminalContracts;
         }
 
         /// <summary>

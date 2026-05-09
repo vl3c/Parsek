@@ -1695,6 +1695,7 @@ namespace Parsek
             int seedExcluded = 0;
             int rolloutExcluded = 0;
             int otherExcluded = 0;
+            var tombstonedRosterActions = new List<GameAction>();
 
             foreach (var kv in sliceByRecording)
             {
@@ -1738,6 +1739,9 @@ namespace Parsek
                         ref reputationCount,
                         ref kerbalCount,
                         ref otherCount);
+                    string rosterKerbalName;
+                    if (KerbalsModule.TryGetRosterCreatedKerbalName(a, out rosterKerbalName))
+                        tombstonedRosterActions.Add(a);
 
                     var tomb = new LedgerTombstone
                     {
@@ -1777,6 +1781,8 @@ namespace Parsek
             // Design §6.6 step 6 / §7.16: reservation walker re-derives so
             // old-subtree crew assignments disappear from reservations.
             CrewReservationManager.RecomputeAfterTombstones();
+            if (tombstonedRosterActions.Count > 0 && LedgerOrchestrator.Kerbals != null)
+                LedgerOrchestrator.Kerbals.QueueTombstonedRosterKerbals(tombstonedRosterActions);
 
             RecalculateAfterTombstones(tombstoned);
         }

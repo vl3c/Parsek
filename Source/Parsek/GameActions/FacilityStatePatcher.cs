@@ -13,6 +13,7 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private static readonly HashSet<string> lastPatchedFacilityIds =
             new HashSet<string>(System.StringComparer.Ordinal);
+        private static bool defaultKnownFacilitiesOnNextPatch;
 
         private static void VerboseStablePatchState(string identity, string stateKey, string message)
         {
@@ -41,7 +42,19 @@ namespace Parsek
                 return;
             }
 
-            var allFacilities = BuildFacilityPatchTargets(facilities.GetAllFacilities());
+            IEnumerable<string> knownFacilitiesToDefault = null;
+            if (defaultKnownFacilitiesOnNextPatch)
+            {
+                knownFacilitiesToDefault = ScenarioUpgradeableFacilities.protoUpgradeables.Keys;
+                defaultKnownFacilitiesOnNextPatch = false;
+                ParsekLog.Verbose(Tag,
+                    "PatchFacilities: forcing default targets for all known facilities after tombstone recalc");
+            }
+
+            var allFacilities = BuildFacilityPatchTargets(
+                facilities.GetAllFacilities(),
+                lastPatchedFacilityIds,
+                knownFacilitiesToDefault);
             int patchedCount = 0;
             int skippedCount = 0;
             int notFoundCount = 0;
@@ -212,21 +225,21 @@ namespace Parsek
             IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities,
             IEnumerable<string> previouslyPatchedFacilityIds)
         {
+            return BuildFacilityPatchTargets(
+                currentFacilities,
+                previouslyPatchedFacilityIds,
+                knownFacilityIdsToDefault: null);
+        }
+
+        internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(
+            IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities,
+            IEnumerable<string> previouslyPatchedFacilityIds,
+            IEnumerable<string> knownFacilityIdsToDefault)
+        {
             var targets = new Dictionary<string, FacilitiesModule.FacilityState>(
                 System.StringComparer.Ordinal);
-            if (previouslyPatchedFacilityIds != null)
-            {
-                foreach (string facilityId in previouslyPatchedFacilityIds)
-                {
-                    if (string.IsNullOrEmpty(facilityId))
-                        continue;
-                    targets[facilityId] = new FacilitiesModule.FacilityState
-                    {
-                        Level = 1,
-                        Destroyed = false
-                    };
-                }
-            }
+            AddDefaultFacilityTargets(targets, knownFacilityIdsToDefault);
+            AddDefaultFacilityTargets(targets, previouslyPatchedFacilityIds);
             if (currentFacilities != null)
             {
                 foreach (var kvp in currentFacilities)
@@ -238,9 +251,36 @@ namespace Parsek
             return targets;
         }
 
+        private static void AddDefaultFacilityTargets(
+            Dictionary<string, FacilitiesModule.FacilityState> targets,
+            IEnumerable<string> facilityIds)
+        {
+            if (targets == null || facilityIds == null)
+                return;
+
+            foreach (string facilityId in facilityIds)
+            {
+                if (string.IsNullOrEmpty(facilityId))
+                    continue;
+                targets[facilityId] = new FacilitiesModule.FacilityState
+                {
+                    Level = 1,
+                    Destroyed = false
+                };
+            }
+        }
+
+        internal static void ForceDefaultAllKnownFacilitiesForNextPatch()
+        {
+            defaultKnownFacilitiesOnNextPatch = true;
+            ParsekLog.Verbose(Tag,
+                "PatchFacilities: scheduled all-known-facility default targets for next patch");
+        }
+
         internal static void ResetForTesting()
         {
             lastPatchedFacilityIds.Clear();
+            defaultKnownFacilitiesOnNextPatch = false;
         }
     }
 }

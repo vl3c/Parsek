@@ -651,6 +651,29 @@ namespace Parsek.Tests
             Assert.False(targets["SpaceCenter/LaunchPad"].Destroyed);
         }
 
+        [Fact]
+        public void BuildFacilityPatchTargets_KnownFacilityMissingAfterTombstoneTargetsDefault()
+        {
+            var current = new Dictionary<string, FacilitiesModule.FacilityState>
+            {
+                {
+                    "SpaceCenter/MissionControl",
+                    new FacilitiesModule.FacilityState { Level = 2, Destroyed = false }
+                }
+            };
+
+            var targets = FacilityStatePatcher.BuildFacilityPatchTargets(
+                current,
+                previouslyPatchedFacilityIds: null,
+                knownFacilityIdsToDefault: new[] { "SpaceCenter/LaunchPad", "SpaceCenter/MissionControl" });
+
+            Assert.Equal(2, targets.Count);
+            Assert.Equal(2, targets["SpaceCenter/MissionControl"].Level);
+            Assert.False(targets["SpaceCenter/MissionControl"].Destroyed);
+            Assert.Equal(1, targets["SpaceCenter/LaunchPad"].Level);
+            Assert.False(targets["SpaceCenter/LaunchPad"].Destroyed);
+        }
+
         // Note: the skipped-only branch (patchedCount==0 && notFoundCount==0
         // && skippedCount>0) requires real KSP UpgradeableFacility refs in
         // ScenarioUpgradeableFacilities.protoUpgradeables, which are not

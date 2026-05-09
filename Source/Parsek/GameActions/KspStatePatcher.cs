@@ -1397,6 +1397,13 @@ namespace Parsek
                 if (Guid.TryParse(idStr, out var gid))
                     activeIdSet.Add(gid);
             }
+            var terminalIds = contracts.GetTerminalContractIds();
+            var terminalIdSet = new HashSet<Guid>();
+            foreach (var idStr in terminalIds)
+            {
+                if (Guid.TryParse(idStr, out var gid))
+                    terminalIdSet.Add(gid);
+            }
 
             // If no active contracts in ledger, just log the current KSP state
             int currentCount = ContractSystem.Instance.Contracts != null
@@ -1405,16 +1412,17 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 $"PatchContracts: ledger has {activeIds.Count.ToString(IC)} active contracts, " +
+                $"{terminalIds.Count.ToString(IC)} terminal contracts, " +
                 $"KSP has {currentCount.ToString(IC)} current contracts");
 
-            // #404: Filtered remove — only touch Active contracts whose id is NOT in the
-            // ledger's active set. That includes active KSP contracts whose ContractAccept
-            // row was removed from ELS by a Re-Fly tombstone. Offered/Declined/Cancelled/
-            // Failed/Completed entries MUST stay untouched; the old code unconditionally
-            // cleared currentContracts and ContractsFinished, which wiped the Mission
-            // Control Offered bucket and any game history. ContractsFinished is append-only
-            // game state — Parsek must NOT mutate it. Filtering is delegated to
-            // PartitionContractsForPatch for testability.
+            // #404/#756: Filtered remove — touch Active contracts whose id is NOT
+            // in the ledger's active set, and terminal stock contracts whose id is
+            // NOT in the ledger's terminal set. Offered/Declined entries still stay
+            // untouched; terminal entries are only removable because broad Re-Fly
+            // tombstones can now remove their ContractComplete/Fail/Cancel source
+            // row from ELS. ContractsFinished is append-only game state — Parsek
+            // must NOT mutate it. Filtering is delegated to PartitionContractsForPatch
+            // for testability.
             var currentContracts = ContractSystem.Instance.Contracts;
             var entries = new List<ContractFilterEntry>();
             if (currentContracts != null)
@@ -1426,13 +1434,15 @@ namespace Parsek
                     entries.Add(new ContractFilterEntry
                     {
                         Id = c.ContractGuid,
-                        IsActive = c.ContractState == Contract.State.Active
+                        IsActive = c.ContractState == Contract.State.Active,
+                        IsTerminal = IsTerminalContractStateName(c.ContractState.ToString())
                     });
                 }
             }
 
-            PartitionContractsForPatch(entries, activeIdSet,
-                out var toRemove, out var survivingActiveIds);
+            PartitionContractsForPatch(entries, activeIdSet, terminalIdSet,
+                out var toRemove, out var survivingActiveIds,
+                out var survivingTerminalIds);
             var toRemoveSet = new HashSet<Guid>(toRemove);
 
             int removedStale = 0;
@@ -1461,8 +1471,9 @@ namespace Parsek
             }
 
             ParsekLog.Verbose(Tag,
-                $"PatchContracts: removed {removedStale.ToString(IC)} stale Active contract(s), " +
-                $"{survivingActiveIds.Count.ToString(IC)} Active contract(s) preserved in place " +
+                $"PatchContracts: removed {removedStale.ToString(IC)} stale Active/terminal contract(s), " +
+                $"{survivingActiveIds.Count.ToString(IC)} Active contract(s) preserved in place, " +
+                $"{survivingTerminalIds.Count.ToString(IC)} terminal contract(s) preserved in place " +
                 $"(unregisterFailures={unregisterFailures.ToString(IC)})");
 
             // 2. Rebuild ONLY contracts that are in the ledger but not already present.
@@ -1596,8 +1607,9 @@ namespace Parsek
                 $"typeNotFound={typeNotFound.ToString(IC)}, " +
                 $"loadFailed={loadFailed.ToString(IC)}, " +
                 $"ledgerActive={activeIds.Count.ToString(IC)}, " +
+                $"ledgerTerminal={terminalIds.Count.ToString(IC)}, " +
                 $"kspTotal={kspTotalAfter.ToString(IC)} " +
-                $"(Offered/Finished preserved)");
+                $"(Offered preserved; stale terminal filtered)");
         }
 
         // ================================================================
@@ -1606,28 +1618,30 @@ namespace Parsek
 
         /// <summary>
         /// Represents the current-state classification of a KSP contract for PatchContracts
-        /// filtering. Active contracts are the only ones Parsek considers mutating; every
-        /// other state (Offered, Declined, Cancelled, Failed, Completed, DeadlineExpired)
-        /// is preserved untouched.
+        /// filtering. Active contracts are matched against ledger Active ids; terminal
+        /// contracts are matched against ledger terminal ids; offered/declined/unknown
+        /// non-terminal state is preserved untouched.
         /// </summary>
         internal struct ContractFilterEntry
         {
             public Guid Id;
             public bool IsActive;
+            public bool IsTerminal;
         }
 
         /// <summary>
-        /// Pure helper: partitions the current KSP contract list into {stale Actives to
-        /// remove} and {surviving Actives to keep in place}. Non-Active entries are
-        /// implicitly preserved by being absent from the remove list. Extracted from
-        /// <see cref="PatchContracts"/> so the filtering logic can be unit-tested without
-        /// real KSP Contract instances.
+        /// Pure helper: partitions the current KSP contract list into {stale Active/terminal
+        /// contracts to remove} and {surviving ledger-backed contracts to keep in place}.
+        /// Non-terminal non-Active entries are implicitly preserved by being absent from the
+        /// remove list. Extracted from <see cref="PatchContracts"/> so the filtering logic can
+        /// be unit-tested without real KSP Contract instances.
         ///
         /// The rules:
         /// <list type="number">
         ///   <item>An Active contract whose ID is NOT in the ledger's active set is "stale" and goes to <paramref name="toRemove"/>.</item>
         ///   <item>An Active contract whose ID IS in the ledger's active set is "surviving" and goes to <paramref name="surviving"/>.</item>
-        ///   <item>A non-Active contract is left out of both lists — callers MUST NOT touch it.</item>
+        ///   <item>A terminal contract whose ID is NOT in the ledger's terminal set is "stale" and goes to <paramref name="toRemove"/>.</item>
+        ///   <item>A non-terminal non-Active contract is left out of both lists — callers MUST NOT touch it.</item>
         /// </list>
         /// </summary>
         internal static void PartitionContractsForPatch(
@@ -1636,19 +1650,62 @@ namespace Parsek
             out List<Guid> toRemove,
             out HashSet<Guid> surviving)
         {
+            PartitionContractsForPatch(
+                currentEntries,
+                activeIdSet,
+                new HashSet<Guid>(),
+                out toRemove,
+                out surviving,
+                out _);
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            out List<Guid> toRemove,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
             toRemove = new List<Guid>();
-            surviving = new HashSet<Guid>();
+            survivingActive = new HashSet<Guid>();
+            survivingTerminal = new HashSet<Guid>();
             if (currentEntries == null) return;
 
             for (int i = 0; i < currentEntries.Count; i++)
             {
                 var entry = currentEntries[i];
-                if (!entry.IsActive) continue;        // preserve non-Active
-                if (activeIdSet != null && activeIdSet.Contains(entry.Id))
-                    surviving.Add(entry.Id);
-                else
-                    toRemove.Add(entry.Id);
+                if (entry.IsActive)
+                {
+                    if (activeIdSet != null && activeIdSet.Contains(entry.Id))
+                        survivingActive.Add(entry.Id);
+                    else
+                        toRemove.Add(entry.Id);
+                    continue;
+                }
+
+                if (entry.IsTerminal)
+                {
+                    if (terminalIdSet != null && terminalIdSet.Contains(entry.Id))
+                        survivingTerminal.Add(entry.Id);
+                    else
+                        toRemove.Add(entry.Id);
+                    continue;
+                }
+
+                // Offered/declined/unknown non-terminal stock state is preserved.
             }
+        }
+
+        private static bool IsTerminalContractStateName(string stateName)
+        {
+            return string.Equals(stateName, "Completed", StringComparison.Ordinal)
+                || string.Equals(stateName, "Complete", StringComparison.Ordinal)
+                || string.Equals(stateName, "Failed", StringComparison.Ordinal)
+                || string.Equals(stateName, "Failure", StringComparison.Ordinal)
+                || string.Equals(stateName, "Cancelled", StringComparison.Ordinal)
+                || string.Equals(stateName, "Canceled", StringComparison.Ordinal)
+                || string.Equals(stateName, "DeadlineExpired", StringComparison.Ordinal);
         }
 
         /// <summary>
