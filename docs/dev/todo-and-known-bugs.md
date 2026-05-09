@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 late contract completion replay
+
+- ~~Recorded or recovered contract completions after the accepted deadline could suppress the synthetic deadline failure and still pay completion rewards.~~ A related replay gap allowed a completion after an explicit fail or cancel to pay out against an already-resolved contract id.
+
+**Fix:** `ContractsModule` now treats contract deadlines as non-inclusive for completion credit, injects synthetic deadline failures before late completions can clear the active accept, and records explicit fail/cancel resolution UTs during `PrePass` so stale completions after fail/cancel replay as ineffective even when sort tie-breakers process the completion first at the same UT.
+
+**Coverage:** `ContractsModuleTests.CompletedAtDeadline_NotEffectiveAndNotCredited`, `ContractsModuleTests.CompletedAfterDeadline_NotEffectiveAndNotCredited`, `ContractsModuleTests.CompleteAfterExplicitFailOrCancel_NotEffective`, `ContractsModuleTests.CompleteAtSameUtAsExplicitFailOrCancel_NotEffectiveAfterPrePass`, `RecalculationEngineTests.Recalculate_CompleteAfterExplicitFailOrCancel_DoesNotPayRewards`, `RecalculationEngineTests.Recalculate_CompleteSameUtAsExplicitFailOrCancel_DoesNotPayRewards`, and the existing explicit fail/cancel deadline replay coverage.
+
+---
+
 ## Done - v0.9.2 warp-exit ledger cutoff
 
 - ~~Warp exit recorded `warpEndUT`, then called the full-timeline `RecalculateAndPatch`, so committed future actions after the warp-exit UT could be replayed and patched into KSP immediately.~~ Source: review finding [P1].
