@@ -3682,6 +3682,26 @@ namespace Parsek
             return true;
         }
 
+        internal static bool ApplyPendingSplitDestructionToCapturedRecording(
+            Recording captured,
+            bool vesselDestroyedDuringRecording,
+            string source)
+        {
+            if (captured == null || !vesselDestroyedDuringRecording)
+                return false;
+            if (captured.VesselDestroyed)
+                return false;
+
+            TerminalState? priorTerminal = captured.TerminalStateValue;
+            captured.VesselDestroyed = true;
+
+            ParsekLog.Info("Flight",
+                $"Pending split destruction override: capture='{captured.RecordingId ?? "(null)"}' " +
+                $"source={source ?? "(null)"} priorTerminal={priorTerminal?.ToString() ?? "null"} " +
+                $"points={captured.Points?.Count ?? 0} snapshot={captured.VesselSnapshot != null}");
+            return true;
+        }
+
         /// <summary>
         /// Tags the recording's SegmentPhase and SegmentBodyName based on the vessel's current
         /// body and altitude, if not already set. No-op if SegmentPhase is already non-empty
@@ -4292,6 +4312,10 @@ namespace Parsek
             if (splitRec?.CaptureAtStop == null) return;
 
             var captured = splitRec.CaptureAtStop;
+            ApplyPendingSplitDestructionToCapturedRecording(
+                captured,
+                splitRec.VesselDestroyedDuringRecording,
+                "FallbackCommitSplitRecorder.entry");
 
             // Bug #297: when in tree mode, append to the active tree recording
             // instead of orphaning data as a standalone recording.
