@@ -1,6 +1,6 @@
 # Fix Plan: Sub-orbital orbit segment rejected by distance resolver
 
-Date: 2026-05-10 (rev. 24)
+Date: 2026-05-11 (rev. 25)
 
 Worktree: `C:\Users\vlad3\Documents\Code\Parsek\Parsek-investigate-probe-orbital-jump`
 
@@ -107,6 +107,8 @@ Reproduction bundle: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-05-10_2123`
   - **Map apply failure modes covered:** the update success contract includes validation, missing orbit driver/orbit, `Orbit.SetOrbit`, `updateFromParameters`, and renderer-refresh failures.
   - **False-alarm boundary seed source defined:** suppressed `OrbitalCheckpoint` resumes seed the replacement non-orbit section from the current live absolute sample when available, otherwise from a validated finite checkpoint evaluation or by deferring reopening until the next sample with a log.
   - **Recorder skip logging and docs scope tightened:** transition-to-background atmosphere skips require log assertions, and docs updates must include the new `OrbitResolution` / `IGhostPositioner` contract.
+- **rev. 25:** post-main-merge context update.
+  - **PR #818 cross-reference added:** the same reproduction bundle and `Kerbal X Probe` recording were also used for the separate spawn-time tail-orbit state-vector frame fix; this plan remains scoped to playback distance/orbit-segment rendering.
 
 ## Problem
 
@@ -121,6 +123,7 @@ Reproduction bundle `logs/2026-05-10_2123/`:
 - Active vessel: `pid=ac3846917f`, PRELAUNCH on Launch Pad ([persistent.sfs:1311](../../../../logs/2026-05-10_2123/saves/s15/persistent.sfs)).
 - Watched ghost #1: `e19eb61d…` "Kerbal X" upper-stage continuation, exo, UT [135.30, 469.76].
 - Peer ghost #9: `rec_f1363fc…` "Kerbal X Probe" booster, exo, UT [135.66, 453.66] (active Re-Fly recording from a prior session, now replayed as a ghost from the launch-pad perspective).
+- Cross-reference: PR #818's research doc, [`probe-tail-orbit-spawn-frame-mismatch.md`](../research/probe-tail-orbit-spawn-frame-mismatch.md), uses this same bundle and `Kerbal X Probe` recording to fix a spawn-time `Orbit.UpdateFromStateVectors` frame mismatch. It calls the same section-3 orbit `epoch=142.16, sma=512941, ecc=0.575` a stale ascent segment, but does not change the playback distance resolver SMA guard targeted here.
 - Watch transferred from chain root #0 → upper-stage #1 at 21:21:39 ([KSP.log:88800](../../../../logs/2026-05-10_2123/KSP.log)).
 
 Probe ghost lifecycle around that watch transfer:
