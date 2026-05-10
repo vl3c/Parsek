@@ -104,7 +104,7 @@ namespace Parsek
             string anchorRecordingId,
             double ut,
             out AnchorPose pose,
-            out string reason);
+            out RelativeAnchorResolveFailure failure);
         internal static TryResolveRecordedAnchorPoseOverride RecordedAnchorPoseOverrideForTesting;
 
         // Part event tracking
@@ -6751,8 +6751,11 @@ namespace Parsek
                              resumeAnchorRecordingId,
                              ut,
                              out _,
-                             out string resumeRejectReason))
+                             out RelativeAnchorResolveFailure resumeRejectFailure))
                 {
+                    string resumeRejectReason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                        resumeRejectFailure,
+                        "recorded-anchor-unresolved");
                     ParsekLog.Warn("Anchor",
                         $"RELATIVE resume rejected: anchorRecordingId={resumeAnchorRecordingId} " +
                         $"reason={resumeRejectReason} diagnosticPid={resumeAnchorDiagnosticPid} " +
@@ -7299,8 +7302,14 @@ namespace Parsek
                 return false;
             }
 
-            if (!TryResolveCurrentAnchorPose(point.ut, out AnchorPose anchorPose, out string reason))
+            if (!TryResolveCurrentAnchorPose(
+                    point.ut,
+                    out AnchorPose anchorPose,
+                    out RelativeAnchorResolveFailure failure))
             {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    failure,
+                    "recorded-anchor-unresolved");
                 // Anchor recording no longer resolves — force transition out of RELATIVE mode.
                 // The point keeps its absolute lat/lon/alt from the vessel (correct for ABSOLUTE).
                 // Close the RELATIVE section and start a new ABSOLUTE section so the frame
@@ -7415,8 +7424,11 @@ namespace Parsek
                     candidate,
                     boundaryUT,
                     out AnchorPose anchorPose,
-                    out string reason))
+                    out RelativeAnchorResolveFailure failure))
             {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    failure,
+                    "recorded-anchor-unresolved");
                 ParsekLog.Warn("Anchor",
                     $"RELATIVE boundary seed skipped: anchorRecordingId={candidate.RecordingId} " +
                     $"source={candidate.Source} diagnosticPid={candidate.DiagnosticPid} " +
@@ -7455,7 +7467,7 @@ namespace Parsek
         private bool TryResolveCurrentAnchorPose(
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out RelativeAnchorResolveFailure failure)
         {
             if (hasCurrentAnchorCandidate
                 && string.Equals(
@@ -7467,27 +7479,32 @@ namespace Parsek
                     currentAnchorCandidate,
                     ut,
                     out pose,
-                    out reason);
+                    out failure);
             }
 
             return TryResolveRecordedAnchorPose(
                 currentAnchorRecordingId,
                 ut,
                 out pose,
-                out reason);
+                out failure);
         }
 
         private bool TryResolveAnchorPoseForCandidate(
             RecordingAnchorCandidate candidate,
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
-            reason = null;
+            failure = default;
             if (string.IsNullOrWhiteSpace(candidate.RecordingId))
             {
-                reason = "anchor-recording-id-missing";
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    ActiveTree?.ActiveRecordingId,
+                    candidate.RecordingId,
+                    ut);
                 return false;
             }
 
@@ -7522,25 +7539,30 @@ namespace Parsek
                     5.0);
             }
 
-            return TryResolveRecordedAnchorPose(candidate.RecordingId, ut, out pose, out reason);
+            return TryResolveRecordedAnchorPose(candidate.RecordingId, ut, out pose, out failure);
         }
 
         private bool TryResolveRecordedAnchorPose(
             string anchorRecordingId,
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out RelativeAnchorResolveFailure failure)
         {
-            reason = null;
+            failure = default;
             if (string.IsNullOrWhiteSpace(anchorRecordingId))
             {
                 pose = default;
-                reason = "anchor-recording-id-missing";
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    ActiveTree?.ActiveRecordingId,
+                    anchorRecordingId,
+                    ut);
                 return false;
             }
 
             if (RecordedAnchorPoseOverrideForTesting != null)
-                return RecordedAnchorPoseOverrideForTesting(anchorRecordingId, ut, out pose, out reason);
+                return RecordedAnchorPoseOverrideForTesting(anchorRecordingId, ut, out pose, out failure);
 
             var context = BuildRecorderRelativeAnchorResolverContext();
             recordedAnchorResolverVisited.Clear();
@@ -7552,14 +7574,22 @@ namespace Parsek
                     anchorRecordingId,
                     ut,
                     recordedAnchorResolverVisited,
-                    out pose);
+                    out pose,
+                    out failure);
             }
             finally
             {
                 recordedAnchorResolverVisited.Clear();
             }
-            if (!resolved)
-                reason = "recorded-anchor-unresolved";
+            if (!resolved && !failure.HasFailure)
+            {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.Other,
+                    "recorded-anchor-unresolved",
+                    ActiveTree?.ActiveRecordingId,
+                    anchorRecordingId,
+                    ut);
+            }
             return resolved;
         }
 

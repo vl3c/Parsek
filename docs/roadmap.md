@@ -263,10 +263,10 @@ The pre-implementation spec that drove v0.9 is archived at
 - **Append-only supersede** — merging a re-fly appends a `RecordingSupersede(old, new)` relation.
   The original recording is never mutated or deleted; ghost/claim subsystems filter via the relation
   list. Tree invariant preserved (additive only).
-- **Narrow v1 supersede scope** — the only ledger retirement on supersede is `KerbalDeath` plus
-  reputation penalties bundled with it; kerbals return to active via the normal reservation walk.
-  Contracts, milestones, facilities, strategies, tech, science, and other rep/funds deltas stay
-  sticky in career totals.
+- **Reviewed supersede tombstone scope** — merge tombstones can retire recording-scoped career
+  actions from the superseded subtree, including contracts, milestones, facilities, strategies,
+  science, funds/reputation, and kerbal consequences. Seeds, null-scoped KSC/system rows,
+  already-paid rollout costs, and unknown future action types stay preserved until reviewed.
 - **Crashed re-fly stays rewindable** — merging a crashed attempt commits as `CommittedProvisional`
   and remains an Unfinished Flight the player can try again. Merging a stable outcome seals the slot
   as `Immutable`.
@@ -432,7 +432,8 @@ Phase 11.5: Recording Optimization & Observability (v0.8.x)
     ▼
 Phase 12: Rewind to Separation (v0.9 ✓)
     │  Rewind Points at multi-controllable splits, Unfinished Flights
-    │  group, append-only supersede, narrow v1 scope. Independent of
+    │  group, append-only supersede, broad reviewed-career tombstones.
+    │  Independent of
     │  Phase 13 — both consume Phase 11 resource/inventory/crew manifests.
     │
     ▼

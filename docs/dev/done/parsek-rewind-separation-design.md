@@ -1,5 +1,11 @@
 # Parsek - Rewind-to-Separation Design
 
+> Historical note (v0.9.2): this archived v0.9 design describes the original
+> narrow supersede tombstone scope. Current merge tombstoning is broader:
+> reviewed non-seed, recording-scoped career actions from the superseded subtree
+> are retired from ELS, while null-scoped rows, seed rows, rollout build costs,
+> and unknown future action types are preserved until reviewed.
+
 *Design specification for Rewind Points on multi-controllable split events (staging, undocking, EVA) and the Unfinished Flights group that lets the player go back to a past split and control a sibling vessel they did not originally fly. Enables "fly the booster back" gameplay: launch AB, stage, fly B to orbit, merge, then rewind to the staging moment and fly A down as a self-landing booster.*
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to an immutable timeline, and see previously recorded missions play back as ghost vessels alongside new ones. This document extends the flight recorder, timeline, and ledger systems with mid-mission rewind points.*
@@ -1025,7 +1031,7 @@ Tags: `Rewind`, `RewindSave`, `Supersede`, `LedgerSwap`, `UnfinishedFlights`, `R
 - **MergeLandedReFlyCreatesImmutableSupersede** — relation in list, AB unchanged, AB' Immutable, RP reaps.
 - **MergeCrashedReFlyCreatesCPSupersede** — relation in list, AB' CommittedProvisional Crashed, is an Unfinished Flight, RP does NOT reap.
 - **ReRewindExtendsChain** — after merged crash, invoke RP again; strip uses PidSlotMap; new provisional created; chain extends on next merge.
-- **ContractStickyAcrossSupersede** — contract completed by BG-crash; re-fly merges; contract still complete in KSP's `ContractSystem`; rep unchanged.
+- **ContractTombstonesAcrossSupersede** — contract completed by BG-crash; re-fly merges; old-branch contract actions are tombstoned and absent from ELS.
 - **GhostSuppressionDuringReFly** — no ghost rendering for supersede-target subtree.
 - **KerbalRecoveryOnSupersede** — kerbal returns active; reservation re-derived.
 - **UnfinishedFlightsRenderingAndNoHide.**

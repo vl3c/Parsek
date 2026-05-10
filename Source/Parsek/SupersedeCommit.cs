@@ -1586,18 +1586,15 @@ namespace Parsek
         /// <summary>
         /// Phase 9 of Rewind-to-Staging (design §6.6 step 4 / §7.13-§7.17 /
         /// §7.41 / §7.44 / §10.4): walk <see cref="Ledger.Actions"/> and
-        /// append <see cref="LedgerTombstone"/>s for every action in the
-        /// supersede subtree that is v1 tombstone-eligible.
+        /// append <see cref="LedgerTombstone"/>s for every non-seed,
+        /// recording-scoped career action in the supersede subtree.
         ///
         /// <para>
-        /// v1 narrow scope retires only <see cref="GameActionType.KerbalAssignment"/>
-        /// +Dead actions and the <see cref="GameActionType.ReputationPenalty"/>
-        /// bundled with them (see <see cref="TombstoneEligibility"/>). All
-        /// other action types — contract accepts / completes / fails /
-        /// cancels, milestones, facility upgrades / repairs / destruction,
-        /// strategies, tech research, science spending, funds spending,
-        /// vessel-destruction rep — stay in ELS even when their source
-        /// recording is superseded (§7.13-§7.15, §7.44).
+        /// Null-scoped actions still survive because they are not attributable
+        /// to one superseded recording branch. Seed rows also survive because
+        /// they define the career baseline. Rollout build costs survive because
+        /// Re-Fly reuses the already-paid launch rather than asking KSP to charge
+        /// a fresh rollout.
         /// </para>
         ///
         /// <para>
@@ -1612,8 +1609,9 @@ namespace Parsek
         /// <see cref="ParsekScenario.TombstoneStateVersion"/> so the ELS cache
         /// invalidates on the next <see cref="EffectiveState.ComputeELS"/>
         /// call, then asks <see cref="CrewReservationManager.RecomputeAfterTombstones"/>
-        /// to re-derive the reservation dictionary — death-tombstoned kerbals
-        /// return to active (§7.16).
+        /// to re-derive the reservation dictionary from the broad post-merge
+        /// ELS rather than retaining old-subtree crew assignments (§7.16), and
+        /// refreshes the recalculated KSP state when ledger content was removed.
         /// </para>
         /// </summary>
         internal static void CommitTombstones(
@@ -1638,15 +1636,17 @@ namespace Parsek
 
             string originId = marker != null ? (marker.OriginChildRecordingId ?? "<no-origin>") : "<no-marker>";
 
-            // No subtree → nothing to retire. Still log the advisory line so
-            // the operational trace shows merge-time narrow-scope reinforcement.
+            // No subtree means nothing to retire, but still bump the tombstone
+            // state version so cache invalidation is unconditional at merge time.
             if (subtreeIds == null || subtreeIds.Count == 0)
             {
                 ParsekLog.Info(LedgerSwapTag,
-                    $"Tombstoned 0 (KerbalDeath=0, repBundled=0); 0 type-ineligible " +
-                    $"(Contract=0, Milestone=0, Facility=0, Strategy=0, Tech=0, Science=0, Funds=0, RepUnbundled=0)");
+                    "Tombstoned 0 career actions (Contract=0, Milestone=0, Facility=0, " +
+                    "Strategy=0, ScienceSpending=0, Science=0, Funds=0, Reputation=0, Kerbal=0, Other=0); " +
+                    "0 excluded (Seed=0, Rollout=0)");
                 ParsekLog.Info(Tag,
-                    "Narrow v1 effects: tombstoned 0 actions; career state (contracts/milestones/facilities/strategies/tech) unchanged.");
+                    "Supersede tombstone effects: tombstoned 0 recording-scoped career actions; ELS unchanged.");
+                scenario.BumpTombstoneStateVersion();
                 CrewReservationManager.RecomputeAfterTombstones();
                 return;
             }
@@ -1682,17 +1682,21 @@ namespace Parsek
                 slice.Add(a);
             }
 
-            int kerbalDeathCount = 0;
-            int repBundledCount = 0;
-            int contractIneligible = 0;
-            int milestoneIneligible = 0;
-            int facilityIneligible = 0;
-            int strategyIneligible = 0;
-            int techIneligible = 0;
-            int scienceIneligible = 0;
-            int fundsIneligible = 0;
-            int repUnbundledIneligible = 0;
-            int otherIneligible = 0;
+            int contractCount = 0;
+            int milestoneCount = 0;
+            int facilityCount = 0;
+            int strategyCount = 0;
+            int scienceSpendingCount = 0;
+            int scienceCount = 0;
+            int fundsCount = 0;
+            int reputationCount = 0;
+            int kerbalCount = 0;
+            int otherCount = 0;
+            int seedExcluded = 0;
+            int rolloutExcluded = 0;
+            int otherExcluded = 0;
+            var tombstonedRosterActions = new List<GameAction>();
+            HashSet<string> tombstonedScienceSpendingNodeIds = null;
 
             foreach (var kv in sliceByRecording)
             {
@@ -1714,39 +1718,39 @@ namespace Parsek
                         continue;
                     }
 
-                    bool eligible = false;
-                    if (TombstoneEligibility.IsEligible(a))
+                    bool eligible = TombstoneEligibility.IsSupersedeTombstoneEligible(a);
+
+                    if (!eligible)
                     {
-                        eligible = true;
-                        kerbalDeathCount++;
-                    }
-                    else if (a.Type == GameActionType.ReputationPenalty)
-                    {
-                        GameAction paired;
-                        if (TombstoneEligibility.TryPairBundledRepPenalty(a, slice, out paired))
-                        {
-                            eligible = true;
-                            repBundledCount++;
-                        }
-                        else
-                        {
-                            repUnbundledIneligible++;
-                        }
-                    }
-                    else
-                    {
-                        CountIneligibleByType(a.Type,
-                            ref contractIneligible,
-                            ref milestoneIneligible,
-                            ref facilityIneligible,
-                            ref strategyIneligible,
-                            ref techIneligible,
-                            ref scienceIneligible,
-                            ref fundsIneligible,
-                            ref otherIneligible);
+                        CountExcludedByType(a,
+                            ref seedExcluded,
+                            ref rolloutExcluded,
+                            ref otherExcluded);
+                        continue;
                     }
 
-                    if (!eligible) continue;
+                    CountTombstonedByType(a.Type,
+                        ref contractCount,
+                        ref milestoneCount,
+                        ref facilityCount,
+                        ref strategyCount,
+                        ref scienceSpendingCount,
+                        ref scienceCount,
+                        ref fundsCount,
+                        ref reputationCount,
+                        ref kerbalCount,
+                        ref otherCount);
+                    if (a.Type == GameActionType.ScienceSpending &&
+                        !string.IsNullOrEmpty(a.NodeId))
+                    {
+                        if (tombstonedScienceSpendingNodeIds == null)
+                            tombstonedScienceSpendingNodeIds = new HashSet<string>(
+                                StringComparer.Ordinal);
+                        tombstonedScienceSpendingNodeIds.Add(a.NodeId);
+                    }
+                    string rosterKerbalName;
+                    if (KerbalsModule.TryGetRosterCreatedKerbalName(a, out rosterKerbalName))
+                        tombstonedRosterActions.Add(a);
 
                     var tomb = new LedgerTombstone
                     {
@@ -1765,42 +1769,65 @@ namespace Parsek
                 }
             }
 
-            int tombstoned = kerbalDeathCount + repBundledCount;
-            int typeIneligible = contractIneligible + milestoneIneligible + facilityIneligible
-                + strategyIneligible + techIneligible + scienceIneligible + fundsIneligible
-                + repUnbundledIneligible + otherIneligible;
+            int tombstoned = contractCount + milestoneCount + facilityCount + strategyCount
+                + scienceSpendingCount + scienceCount + fundsCount + reputationCount + kerbalCount + otherCount;
+            int excluded = seedExcluded + rolloutExcluded + otherExcluded;
 
             ParsekLog.Info(LedgerSwapTag,
-                $"Tombstoned {tombstoned} (KerbalDeath={kerbalDeathCount}, repBundled={repBundledCount}); " +
-                $"{typeIneligible} type-ineligible " +
-                $"(Contract={contractIneligible}, Milestone={milestoneIneligible}, " +
-                $"Facility={facilityIneligible}, Strategy={strategyIneligible}, Tech={techIneligible}, " +
-                $"Science={scienceIneligible}, Funds={fundsIneligible}, RepUnbundled={repUnbundledIneligible})");
+                $"Tombstoned {tombstoned} career actions " +
+                $"(Contract={contractCount}, Milestone={milestoneCount}, " +
+                $"Facility={facilityCount}, Strategy={strategyCount}, ScienceSpending={scienceSpendingCount}, " +
+                $"Science={scienceCount}, Funds={fundsCount}, Reputation={reputationCount}, " +
+                $"Kerbal={kerbalCount}, Other={otherCount}); " +
+                $"{excluded} excluded (Seed={seedExcluded}, Rollout={rolloutExcluded}, Other={otherExcluded})");
 
-            // §10.4 advisory log reinforcing the narrow scope for humans reading KSP.log.
             ParsekLog.Info(Tag,
-                $"Narrow v1 effects: tombstoned {tombstoned} actions; career state " +
-                $"(contracts/milestones/facilities/strategies/tech) unchanged.");
+                $"Supersede tombstone effects: tombstoned {tombstoned} recording-scoped career actions; " +
+                "contracts/milestones/facilities/strategies/science-spending/science/funds/reputation/kerbals from the old subtree are removed from ELS.");
 
-            if (tombstoned > 0)
+            scenario.BumpTombstoneStateVersion();
+
+            // Queue tombstoned roster cleanup before the reservation recompute so
+            // the next ApplyToRoster pass during RecalculateAndPatchAfterTombstones
+            // sees the cleanup work after reservations and ledger-created kerbals
+            // have been rebuilt from the post-tombstone ELS.
+            if (tombstonedRosterActions.Count > 0)
             {
-                scenario.BumpTombstoneStateVersion();
+                if (LedgerOrchestrator.TryEnsureKerbalsModuleForTombstoneRosterCleanup())
+                    LedgerOrchestrator.Kerbals.QueueTombstonedRosterKerbals(tombstonedRosterActions);
             }
 
             // Design §6.6 step 6 / §7.16: reservation walker re-derives so
-            // kerbals whose death was just tombstoned return to active.
+            // old-subtree crew assignments disappear from reservations.
             CrewReservationManager.RecomputeAfterTombstones();
+
+            RecalculateAfterTombstones(tombstoned, tombstonedScienceSpendingNodeIds);
         }
 
-        private static void CountIneligibleByType(
+        private static void RecalculateAfterTombstones(
+            int tombstoned,
+            IReadOnlyCollection<string> currentTombstonedScienceSpendingNodeIds)
+        {
+            if (tombstoned <= 0)
+                return;
+
+            ParsekLog.Info(Tag,
+                $"CommitTombstones: refreshing recalculated KSP state after {tombstoned.ToString(CultureInfo.InvariantCulture)} tombstone(s)");
+            LedgerOrchestrator.RecalculateAndPatchAfterTombstones(
+                currentTombstonedScienceSpendingNodeIds);
+        }
+
+        private static void CountTombstonedByType(
             GameActionType type,
             ref int contract,
             ref int milestone,
             ref int facility,
             ref int strategy,
-            ref int tech,
+            ref int scienceSpending,
             ref int science,
             ref int funds,
+            ref int reputation,
+            ref int kerbal,
             ref int other)
         {
             switch (type)
@@ -1824,21 +1851,57 @@ namespace Parsek
                     strategy++;
                     break;
                 case GameActionType.ScienceSpending:
-                    tech++;
+                    scienceSpending++;
                     break;
                 case GameActionType.ScienceEarning:
-                case GameActionType.ScienceInitial:
                     science++;
                     break;
                 case GameActionType.FundsEarning:
                 case GameActionType.FundsSpending:
-                case GameActionType.FundsInitial:
                     funds++;
+                    break;
+                case GameActionType.ReputationEarning:
+                case GameActionType.ReputationPenalty:
+                    reputation++;
+                    break;
+                case GameActionType.KerbalAssignment:
+                case GameActionType.KerbalHire:
+                case GameActionType.KerbalRescue:
+                case GameActionType.KerbalStandIn:
+                    kerbal++;
                     break;
                 default:
                     other++;
                     break;
             }
+        }
+
+        private static void CountExcludedByType(
+            GameAction action,
+            ref int seed,
+            ref int rollout,
+            ref int other)
+        {
+            if (action == null)
+            {
+                other++;
+                return;
+            }
+
+            if (RecalculationEngine.IsSeedType(action.Type))
+            {
+                seed++;
+                return;
+            }
+
+            if (action.Type == GameActionType.FundsSpending
+                && action.FundsSpendingSource == FundsSpendingSource.VesselBuild)
+            {
+                rollout++;
+                return;
+            }
+
+            other++;
         }
 
         /// <summary>
