@@ -4900,7 +4900,7 @@ namespace Parsek
             // OrbitSegment for the same body — the stored segment's elements have been
             // superseded by physics frames (typically a circ burn followed by a coast)
             // that the recorder did not promote to a fresh OrbitSegment.
-            bool triedTail = TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+            bool tailWon = TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec,
                 body,
                 ut,
@@ -4911,8 +4911,9 @@ namespace Parsek
                 out argumentOfPeriapsis,
                 out meanAnomalyAtEpoch,
                 out epoch,
-                out orbitBodyName);
-            if (triedTail)
+                out orbitBodyName,
+                out string tailDeclineReason);
+            if (tailWon)
             {
                 seedSource = "trajectory-tail";
             }
@@ -4938,7 +4939,8 @@ namespace Parsek
                 ParsekLog.Warn("Spawner",
                     $"TryBuildRecordedTerminalOrbitForSpawn: no endpoint-aligned orbit seed " +
                     $"(endpointBody={endpointBody}, terminalBody={rec?.TerminalOrbitBody ?? "(null)"}, " +
-                    $"orbitSegments={rec?.OrbitSegments?.Count ?? 0}, triedTail=true)");
+                    $"orbitSegments={rec?.OrbitSegments?.Count ?? 0}, " +
+                    $"tailDeclineReason={tailDeclineReason ?? "(unknown)"})");
                 return false;
             }
 
@@ -4999,6 +5001,19 @@ namespace Parsek
             }
         }
 
+        // Tail UT must exceed the latest stored OrbitSegment endUT by at least this
+        // many seconds for the tail-derived seed to win. Guards against trivial
+        // boundary noise where a frame and a segment end at the same UT.
+        internal const double TailDerivedOrbitFreshnessEpsilon = 1e-3;
+
+        // Max permitted (spawnUT − tailUT) before the rotation drift between body's
+        // current rotation and its rotation at candidate.ut grows large enough to
+        // shift the orbit's LAN/argPe by more than the spawn safety margin. 30 s on
+        // Kerbin (period 21 600 s) is ~0.5° of LAN drift; on slower bodies (Mun
+        // tidally-locked, Minmus 5.5 h period) the drift is much smaller. Re-Fly
+        // spawns at currentUT ≈ tailUT comfortably satisfy this.
+        internal const double TailDerivedOrbitMaxRotationDriftSeconds = 30.0;
+
         /// <summary>
         /// Derive osculating orbital elements from the recording's most recent valid
         /// trajectory frame when that frame post-dates every stored
@@ -5032,7 +5047,8 @@ namespace Parsek
             out double argumentOfPeriapsis,
             out double meanAnomalyAtEpoch,
             out double epoch,
-            out string bodyName)
+            out string bodyName,
+            out string declineReason)
         {
             inclination = 0.0;
             eccentricity = 0.0;
@@ -5042,6 +5058,7 @@ namespace Parsek
             meanAnomalyAtEpoch = 0.0;
             epoch = 0.0;
             bodyName = null;
+            declineReason = null;
 
             // ResolveBodyName already handles a null body by ReferenceEquals; relying on
             // its empty-string return covers both "null" and "destroyed Unity Object"
@@ -5049,12 +5066,16 @@ namespace Parsek
             // uninitialized test bodies as null even when the C# reference is valid).
             string spawnBodyName = ResolveBodyName(body);
             if (rec == null || string.IsNullOrEmpty(spawnBodyName))
+            {
+                declineReason = "null-input";
                 return false;
+            }
 
             string recId = rec.RecordingId ?? "(null)";
 
             if (!TryFindLatestCoastTrajectoryFrame(rec, spawnBodyName, out TrajectoryPoint candidate))
             {
+                declineReason = "no-absolute-coast-tail";
                 ParsekLog.Verbose("Spawner",
                     string.Format(CultureInfo.InvariantCulture,
                         "Tail-derived terminal orbit skipped: rec={0} reason=no-absolute-coast-tail body={1}",
@@ -5067,6 +5088,7 @@ namespace Parsek
             if (IsFinite(latestStoredSegmentEndUT)
                 && candidate.ut <= latestStoredSegmentEndUT + TailDerivedOrbitFreshnessEpsilon)
             {
+                declineReason = "segment-newer-than-tail";
                 ParsekLog.Verbose("Spawner",
                     string.Format(CultureInfo.InvariantCulture,
                         "Tail-derived terminal orbit skipped: rec={0} reason=segment-newer-than-tail tailUT={1:F2} segmentEndUT={2:F2}",
@@ -5085,6 +5107,7 @@ namespace Parsek
             if (IsFinite(spawnUT)
                 && Math.Abs(spawnUT - candidate.ut) > TailDerivedOrbitMaxRotationDriftSeconds)
             {
+                declineReason = "rotation-drift-out-of-bounds";
                 ParsekLog.Verbose("Spawner",
                     string.Format(CultureInfo.InvariantCulture,
                         "Tail-derived terminal orbit skipped: rec={0} reason=rotation-drift-out-of-bounds tailUT={1:F2} spawnUT={2:F2} drift={3:F2}s limit={4:F2}s",
@@ -5101,7 +5124,10 @@ namespace Parsek
             Vector3d worldVel = new Vector3d(
                 candidate.velocity.x, candidate.velocity.y, candidate.velocity.z);
             if (!IsFinite(worldPos) || !IsFinite(worldVel))
+            {
+                declineReason = "non-finite-state-vector";
                 return false;
+            }
 
             try
             {
@@ -5109,6 +5135,7 @@ namespace Parsek
                 reseeded.UpdateFromStateVectors(worldPos, worldVel, body, candidate.ut);
                 if (!IsFiniteOrbitSeedElements(reseeded))
                 {
+                    declineReason = "non-finite-elements";
                     ParsekLog.Warn("Spawner",
                         string.Format(CultureInfo.InvariantCulture,
                             "Tail-derived terminal orbit rejected: rec={0} reason=non-finite-elements sma={1} ecc={2}",
@@ -5143,24 +5170,12 @@ namespace Parsek
             }
             catch (Exception ex)
             {
+                declineReason = "exception";
                 ParsekLog.Warn("Spawner",
                     $"TryDeriveTerminalOrbitSeedFromTrajectoryTail failed: rec={recId} {ex.Message}");
                 return false;
             }
         }
-
-        // Tail UT must exceed the latest stored OrbitSegment endUT by at least this
-        // many seconds for the tail-derived seed to win. Guards against trivial
-        // boundary noise where a frame and a segment end at the same UT.
-        internal const double TailDerivedOrbitFreshnessEpsilon = 1e-3;
-
-        // Max permitted (spawnUT − tailUT) before the rotation drift between body's
-        // current rotation and its rotation at candidate.ut grows large enough to
-        // shift the orbit's LAN/argPe by more than the spawn safety margin. 30 s on
-        // Kerbin (period 21 600 s) is ~0.5° of LAN drift; on slower bodies (Mun
-        // tidally-locked, Minmus 5.5 h period) the drift is much smaller. Re-Fly
-        // spawns at currentUT ≈ tailUT comfortably satisfy this.
-        internal const double TailDerivedOrbitMaxRotationDriftSeconds = 30.0;
 
         internal static bool TryFindLatestCoastTrajectoryFrame(
             Recording rec, string bodyName, out TrajectoryPoint frame)
@@ -5241,6 +5256,13 @@ namespace Parsek
                 OrbitSegment seg = rec.OrbitSegments[i];
                 if (!string.Equals(seg.bodyName, bodyName, StringComparison.Ordinal))
                     continue;
+                // Mirror the predicate used by RecordingEndpointResolver.TryGetLastMatchingSegment
+                // (RecordingEndpointResolver.cs:321-322): degenerate segments (sma <= 0) are
+                // not picked up by the existing seed path, so they must not block tail-derive
+                // either — otherwise we would defer to a "newer" segment the resolver immediately
+                // rejects, leaving the spawn with no seed at all.
+                if (!IsFinite(seg.semiMajorAxis) || seg.semiMajorAxis <= 0.0)
+                    continue;
                 if (!IsFinite(seg.endUT))
                     continue;
                 if (double.IsNaN(latest) || seg.endUT > latest)
@@ -5265,13 +5287,14 @@ namespace Parsek
         {
             if (orbit == null)
                 return false;
-            // Accept hyperbolic / parabolic seeds (sma <= 0 with ecc >= 1) by only
-            // requiring sma to be finite and nonzero — TerminalOrbitSpawnSafety
-            // computes periapsis altitude from sma * (1 − ecc) which is meaningful
-            // for hyperbolic orbits too (sma negative × (1 − ecc) negative gives the
-            // correct positive periapsis distance), so the safety check can decide
-            // whether to spawn an escape trajectory rather than us silently rejecting
-            // it and falling back to a possibly-stale stored ellipse.
+            // Accept hyperbolic seeds (sma < 0 with ecc > 1) by only requiring sma
+            // to be finite and nonzero — TerminalOrbitSpawnSafety computes periapsis
+            // altitude from sma * (1 − ecc), which is meaningful for hyperbolic
+            // orbits too (sma negative × (1 − ecc) negative gives the correct
+            // positive periapsis distance), so the safety check can decide whether
+            // to spawn an escape trajectory rather than us silently rejecting it
+            // and falling back to a possibly-stale stored ellipse. Parabolic
+            // (sma = ±∞) is excluded by IsFinite — pathological for spawn anyway.
             return IsFinite(orbit.inclination)
                 && IsFinite(orbit.eccentricity)
                 && orbit.eccentricity >= 0.0

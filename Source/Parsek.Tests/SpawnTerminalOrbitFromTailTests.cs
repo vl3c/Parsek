@@ -232,14 +232,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryFindLatestCoastTrajectoryFrame_NonFiniteVelocity_SkipsFrame()
+        public void TryFindLatestCoastTrajectoryFrame_NonFiniteOnlyFrame_FallsThroughToPriorSection()
         {
             var rec = new Recording { RecordingId = "r1" };
             // First section: valid coast frame.
             rec.TrackSections.Add(BuildAbsoluteCoastSection(
                 startUT: 100, endUT: 110,
                 BuildPoint(ut: 105, lat: 0, lon: 0, alt: 200000, vel: new Vector3(1500, 0, 0))));
-            // Last section: corrupted frame (NaN velocity component).
+            // Last section has only one frame and it's corrupt — the in-section
+            // walk-back cannot recover, so the helper falls through to the prior
+            // section. Companion to _NonFiniteTailFrame_WalksBackInSection which
+            // covers the case where the section has earlier valid frames.
             rec.TrackSections.Add(BuildAbsoluteCoastSection(
                 startUT: 110, endUT: 120,
                 BuildPoint(ut: 118, lat: 0, lon: 0, alt: 201000,
@@ -248,9 +251,6 @@ namespace Parsek.Tests
             bool found = VesselSpawner.TryFindLatestCoastTrajectoryFrame(
                 rec, "Kerbin", out TrajectoryPoint frame);
 
-            // The latest section's last frame is corrupt and is skipped — the
-            // current rule rejects the section's tail as a whole rather than
-            // reaching backward inside the same section's frames list.
             Assert.True(found);
             Assert.Equal(105, frame.ut);
         }
@@ -307,6 +307,47 @@ namespace Parsek.Tests
             Assert.Equal(200, endUT);
         }
 
+        [Fact]
+        public void ResolveLatestStoredOrbitSegmentEndUT_SkipsDegenerateSegments()
+        {
+            // Mirror the predicate used by the existing seed picker
+            // (RecordingEndpointResolver.TryGetLastMatchingSegment): segments with
+            // sma <= 0 or non-finite sma are not real orbits and the resolver skips
+            // them. Tail-derive must skip them too — otherwise we would defer to a
+            // "newer" segment the existing path immediately rejects, leaving the
+            // spawn with no seed at all.
+            var rec = new Recording { RecordingId = "r-degen" };
+            // Real segment ending at UT 200.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100, endUT = 200, semiMajorAxis = 700000
+            });
+            // Degenerate sma-zero "segment" ending at UT 9999 — must NOT be picked
+            // as latest.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 200, endUT = 9999, semiMajorAxis = 0.0
+            });
+            // Degenerate negative-sma "segment" — must NOT be picked.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 200, endUT = 8888, semiMajorAxis = -700000
+            });
+            // Non-finite sma — must NOT be picked.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 200, endUT = 7777, semiMajorAxis = double.NaN
+            });
+
+            double endUT = VesselSpawner.ResolveLatestStoredOrbitSegmentEndUT(rec, "Kerbin");
+
+            Assert.Equal(200, endUT);
+        }
+
         // ---------- TryDeriveTerminalOrbitSeedFromTrajectoryTail (negative cases) ----------
         // The success path requires Unity transforms (body.GetWorldSurfacePosition) so it
         // is covered by the in-game test. These tests cover the short-circuit branches.
@@ -318,7 +359,7 @@ namespace Parsek.Tests
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec: null, body: body, spawnUT: 0.0,
-                out _, out _, out _, out _, out _, out _, out _, out _);
+                out _, out _, out _, out _, out _, out _, out _, out _, out _);
 
             Assert.False(ok);
         }
@@ -330,7 +371,7 @@ namespace Parsek.Tests
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec: rec, body: null, spawnUT: 0.0,
-                out _, out _, out _, out _, out _, out _, out _, out _);
+                out _, out _, out _, out _, out _, out _, out _, out _, out _);
 
             Assert.False(ok);
         }
@@ -343,7 +384,7 @@ namespace Parsek.Tests
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec: rec, body: body, spawnUT: 0.0,
-                out _, out _, out _, out _, out _, out _, out _, out _);
+                out _, out _, out _, out _, out _, out _, out _, out _, out _);
 
             Assert.False(ok);
             Assert.Contains(logLines, l =>
@@ -373,7 +414,7 @@ namespace Parsek.Tests
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec: rec, body: body, spawnUT: 0.0,
-                out _, out _, out _, out _, out _, out _, out _, out _);
+                out _, out _, out _, out _, out _, out _, out _, out _, out _);
 
             Assert.False(ok);
             Assert.Contains(logLines, l =>
@@ -385,12 +426,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryDeriveTerminalOrbitSeedFromTrajectoryTail_FreshnessEpsilon_BoundaryTailJustBelowSegmentRejects()
+        public void TryDeriveTerminalOrbitSeedFromTrajectoryTail_FreshnessEpsilon_BoundaryTailEqualsSegmentEndRejects()
         {
             CelestialBody body = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
-            var rec = new Recording { RecordingId = "rec-eps-just-below" };
-            // Coast-frame UT below segmentEndUT by less than the freshness epsilon (1e-3 s).
-            // tailUT (= 200) <= segmentEndUT (= 200) + epsilon → defer.
+            var rec = new Recording { RecordingId = "rec-eps-equal" };
+            // Coast-frame UT exactly at segmentEndUT — the check is `<=`, so equal triggers
+            // the defer to give the existing seed path priority on boundary ties.
             rec.TrackSections.Add(BuildAbsoluteCoastSection(
                 startUT: 195, endUT: 200,
                 BuildPoint(ut: 200, lat: 0, lon: 0, alt: 200000, vel: new Vector3(1500, 0, 0))));
@@ -402,11 +443,53 @@ namespace Parsek.Tests
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec: rec, body: body, spawnUT: 200.0,
-                out _, out _, out _, out _, out _, out _, out _, out _);
+                out _, out _, out _, out _, out _, out _, out _, out _,
+                out string declineReason);
 
             Assert.False(ok);
+            Assert.Equal("segment-newer-than-tail", declineReason);
             Assert.Contains(logLines, l =>
                 l.Contains("reason=segment-newer-than-tail"));
+        }
+
+        [Fact]
+        public void TryDeriveTerminalOrbitSeedFromTrajectoryTail_DegenerateStoredSegment_DoesNotBlockTail()
+        {
+            // M1 from the third Opus review: a stored OrbitSegment with sma <= 0 is
+            // skipped by the existing seed picker. The freshness check must skip it
+            // too, so a valid post-recording coast frame can still drive tail-derive.
+            // Without the filter, this test would land on the segment-newer branch and
+            // both the existing path AND tail-derive would decline → empty WARN.
+            //
+            // Note: this is a freshness-check test, not an end-to-end success test —
+            // body.GetWorldSurfacePosition needs Unity transforms which the test stub
+            // body does not have. We verify the helper progresses past the segment-
+            // newer guard and into the rotation-drift guard (which fires here because
+            // spawnUT - tailUT = 95s > 30s limit).
+            CelestialBody body = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            var rec = new Recording { RecordingId = "rec-degen-segment" };
+            rec.TrackSections.Add(BuildAbsoluteCoastSection(
+                startUT: 100, endUT: 110,
+                BuildPoint(ut: 105, lat: 0, lon: 0, alt: 200000, vel: new Vector3(1500, 0, 0))));
+            // Degenerate segment: zero sma, end UT later than the tail. Must NOT
+            // shadow the tail.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 110, endUT = 9999,
+                semiMajorAxis = 0.0
+            });
+
+            bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+                rec: rec, body: body, spawnUT: 200.0,
+                out _, out _, out _, out _, out _, out _, out _, out _,
+                out string declineReason);
+
+            Assert.False(ok);
+            // Critical: NOT segment-newer-than-tail. The degenerate segment was
+            // properly skipped, so the helper proceeded to the next guard.
+            Assert.NotEqual("segment-newer-than-tail", declineReason);
+            Assert.Equal("rotation-drift-out-of-bounds", declineReason);
         }
 
         [Fact]
@@ -421,9 +504,11 @@ namespace Parsek.Tests
             // drift clamp is what stops us. spawnUT − tailUT = 1000 s ≫ 30 s limit.
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec: rec, body: body, spawnUT: 1105.0,
-                out _, out _, out _, out _, out _, out _, out _, out _);
+                out _, out _, out _, out _, out _, out _, out _, out _,
+                out string declineReason);
 
             Assert.False(ok);
+            Assert.Equal("rotation-drift-out-of-bounds", declineReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[Spawner]")
                 && l.Contains("Tail-derived terminal orbit skipped")

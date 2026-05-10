@@ -762,15 +762,17 @@ namespace Parsek.InGameTests
             rec.TrackSections.Add(coastSection);
 
             // spawnUT == tailUT keeps the rotation-drift clamp at zero.
-            bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+            bool helperOk = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec, kerbin, postBurnFrameUT,
                 out double inclination,
                 out double eccentricity,
                 out double semiMajorAxis,
                 out _, out _, out _, out _,
-                out string bodyName);
+                out string bodyName,
+                out string declineReason);
 
-            InGameAssert.IsTrue(ok, "TryDeriveTerminalOrbitSeedFromTrajectoryTail should succeed");
+            InGameAssert.IsTrue(helperOk,
+                $"TryDeriveTerminalOrbitSeedFromTrajectoryTail should succeed (declineReason={declineReason ?? "(null)"})");
             InGameAssert.AreEqual("Kerbin", bodyName);
             InGameAssert.IsTrue(semiMajorAxis > 0.0,
                 $"Derived sma must be positive, got {semiMajorAxis}");
@@ -779,18 +781,43 @@ namespace Parsek.InGameTests
 
             double periAlt = semiMajorAxis * (1.0 - eccentricity) - kerbin.Radius;
             double apoAlt = semiMajorAxis * (1.0 + eccentricity) - kerbin.Radius;
-            double atmAlt = kerbin.atmosphereDepth;
 
-            // The derived orbit's periapsis must clear the atmosphere — that's the
-            // whole point of the fix. Allow a generous slack because of body-rotation
-            // drift between the recorded UT and current sim UT.
-            InGameAssert.IsTrue(periAlt > atmAlt,
-                $"Derived periapsis ({periAlt:F0} m) must exceed atmosphere depth ({atmAlt:F0} m)");
+            // Drive the full TryBuildRecordedTerminalOrbitForSpawn → safety-evaluate
+            // pipeline that the production spawn path runs. The bug repro requires the
+            // safety check to ACCEPT (not just that the helper produces an orbit).
+            bool buildOk = VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(
+                rec, kerbin, postBurnFrameUT, out Orbit propagatedOrbit);
+            InGameAssert.IsTrue(buildOk,
+                "TryBuildRecordedTerminalOrbitForSpawn should produce an orbit when tail-derive succeeds");
+            InGameAssert.IsNotNull(propagatedOrbit, "Propagated orbit should be non-null");
+
+            double safeAlt = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
+                kerbin.atmosphereDepth, TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters);
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: postBurnAlt,
+                atmosphereDepth: kerbin.atmosphereDepth,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: periAlt,
+                apoapsisAltitude: apoAlt);
+
+            // The whole point of the fix: the recording's stale segment alone would
+            // produce decision=CannotSpawnSafely with reason=periapsis-below-safe-altitude.
+            // After tail-derive, the safety check must return SpawnNow (or at minimum NOT
+            // CannotSpawnSafely). Stronger than periAlt > atmosphereDepth — the safety
+            // margin (typically 5 km above atmosphere) is what TerminalOrbitSpawnSafety
+            // actually gates on at spawn time.
+            InGameAssert.IsTrue(periAlt > safeAlt,
+                $"Derived periapsis ({periAlt:F0} m) must clear safe altitude ({safeAlt:F0} m)");
+            InGameAssert.AreEqual(
+                TerminalOrbitSpawnSafetyAction.SpawnNow,
+                decision.Action,
+                $"Safety decision for tail-derived orbit should be SpawnNow, got {decision.Action} reason={decision.ReasonCode}");
 
             ParsekLog.Info("TestRunner",
                 $"TerminalOrbitFromTail_DerivesPostBurnCircularOrbit: " +
                 $"sma={semiMajorAxis:F1} ecc={eccentricity:F4} " +
-                $"periAlt={periAlt:F0} apoAlt={apoAlt:F0} inc={inclination:F4}");
+                $"periAlt={periAlt:F0} apoAlt={apoAlt:F0} safeAlt={safeAlt:F0} " +
+                $"inc={inclination:F4} decision={decision.Action}");
         }
 
         #endregion
