@@ -1844,18 +1844,33 @@ namespace Parsek
             }
             else
             {
-                // Shadow route: keep the mesh active (the positioner already
-                // wrote the transform via the absoluteFrames lerp) but
-                // suppress FX/events for the frame because the rotation
-                // interp through the parent chain was the artifact source.
-                bool loopEffectiveSuppressVisualFx = effectiveSuppressVisualFx || loopShadowRouted;
-                bool loopSkipPartEvents = skipLoopPartEvents || loopShadowRouted;
                 bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                if (!loopSkipPartEvents)
-                    ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate, false, loopEffectiveSuppressVisualFx);
+                if (loopShadowRouted)
+                {
+                    // Shadow route: keep the mesh active (the positioner
+                    // already wrote the transform via the absoluteFrames
+                    // lerp) but explicitly TEAR DOWN running FX -- plumes,
+                    // RCS, reentry, audio -- because the rotation interp
+                    // through the parent chain was the artifact source and
+                    // we do not want stale transient state continuing
+                    // through the route window. Match the non-loop and
+                    // overlap-loop branches: skipPartEvents=true,
+                    // suppressVisualFx=true, allowTransientEffects=false.
+                    // This is a forced call (not gated on skipLoopPartEvents)
+                    // because skipping the whole call would leave stale FX
+                    // state running.
+                    ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
+                        skipPartEvents: true, suppressVisualFx: true,
+                        allowTransientEffects: false);
+                }
+                else if (!skipLoopPartEvents)
+                {
+                    ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
+                        false, effectiveSuppressVisualFx);
+                }
                 if (ShouldRestoreDeferredRuntimeFxState(
                         activatedDeferredState,
-                        loopEffectiveSuppressVisualFx))
+                        effectiveSuppressVisualFx || loopShadowRouted))
                     GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
             }
         }
@@ -2079,6 +2094,7 @@ namespace Parsek
                             "GhostPlaybackEngine.UpdateOverlapPlayback.primary");
                         bool primaryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                             primaryState.anchorRetiredThisFrame);
+                        bool primaryShadowRouted = primaryState.anchorRotationShadowRoutedThisFrame;
                         GhostRenderTrace.EmitPostUpdate(
                             traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired);
                         if (primaryRetired)
@@ -2089,12 +2105,18 @@ namespace Parsek
                         }
                         else
                         {
+                            // Shadow route: keep mesh active but suppress
+                            // FX/events for the frame (rotation interp was
+                            // the artifact source). Mirrors the non-loop
+                            // and overlap-loop branches.
+                            bool primaryEffectiveSuppressVisualFx = effectiveSuppressVisualFx || primaryShadowRouted;
+                            bool primaryEffectiveSkipPartEvents = zoneResult.skipPartEvents || primaryShadowRouted;
                             bool activatedDeferredState = ActivateGhostVisualsIfNeeded(primaryState);
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
-                                zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                                primaryEffectiveSkipPartEvents, primaryEffectiveSuppressVisualFx);
                             if (ShouldRestoreDeferredRuntimeFxState(
                                     activatedDeferredState,
-                                    effectiveSuppressVisualFx))
+                                    primaryEffectiveSuppressVisualFx))
                                 GhostPlaybackLogic.RestoreDeferredRuntimeFxState(primaryState);
                             TrackGhostAppearance(index, traj, primaryState, primaryLoopUT, "loop-primary");
                         }
