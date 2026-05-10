@@ -188,6 +188,55 @@ namespace Parsek.Tests
             Assert.Equal(preState, RecordingStore.PendingTreeStateValue);
         }
 
+        // ─────────── Bypass-guard variant tests ───────────
+
+        [Fact]
+        public void ResetForBatchFlightBaselineRestoreBypassingGuard_ClearsLiveData_WithoutThrowing()
+        {
+            // The in-game test runner's batch FLIGHT baseline restore flow
+            // calls this variant before quickloading the player's clean
+            // baseline save. The wipe is transient (about to be replaced
+            // from disk via OnLoad) so the live-save guard must NOT fire.
+            var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "BaselineLive");
+            Assert.NotNull(live);
+            RecordingStore.AddRecordingWithTreeForTesting(live);
+            Assert.Single(RecordingStore.CommittedRecordings);
+
+            // Simulate Unity play mode: the regular ResetForTesting() would
+            // throw here. Confirm the bypass variant doesn't.
+            RecordingStore.ApplicationIsPlayingForTesting = () => true;
+
+            RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
+
+            Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.Empty(RecordingStore.CommittedTrees);
+            Assert.False(RecordingStore.HasPendingTree);
+            // The bypass must NOT log the live-save-data error — that line
+            // is the guard's signature and the bypass deliberately skips it.
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("ResetForTesting blocked"));
+        }
+
+        [Fact]
+        public void ResetForBatchFlightBaselineRestoreBypassingGuard_DoesNotWeakenRegularResetGuard()
+        {
+            // Regression guard: the public ResetForTesting() must still
+            // throw on live data even after the bypass variant is in scope.
+            // Pins that the refactor did not silently flip the guard's
+            // sense for the public method.
+            var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "GuardedLive");
+            Assert.NotNull(live);
+            RecordingStore.AddRecordingWithTreeForTesting(live);
+
+            RecordingStore.ApplicationIsPlayingForTesting = () => true;
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => RecordingStore.ResetForTesting());
+            Assert.Contains("ResetForTesting blocked", ex.Message);
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal("GuardedLive", RecordingStore.CommittedRecordings[0].VesselName);
+        }
+
         [Fact]
         public void Snapshot_GuardStillBlocksDirectReset_AfterRestore()
         {

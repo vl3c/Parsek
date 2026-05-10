@@ -12743,12 +12743,12 @@ namespace Parsek.InGameTests
                             yield break;
 
                         // R&D scene-load is heavier than Astronaut Complex / Mission
-                // Control because RDController instantiates the full tech
-                // tree on first show. 8 s wasn't enough on a busy save
-                // (RnDOverlayDecoratesCommittedFutureNode timed out at 8.6 s
-                // in the 2026-05-10_1624 playtest); 15 s aligns with the
-                // surrounding WaitForLoadedScene budget.
-                yield return WaitForRdController(15f);
+                        // Control because RDController instantiates the full tech
+                        // tree on first show. 8 s wasn't enough on a busy save
+                        // (RnDOverlayDecoratesCommittedFutureNode timed out at 8.6 s
+                        // in the 2026-05-10_1624 playtest); 15 s aligns with the
+                        // surrounding WaitForLoadedScene budget.
+                        yield return WaitForRdController(15f);
                         controller = RDController.Instance ?? Object.FindObjectOfType<RDController>();
                         if (!TryPickRdNode(controller, out RDNode node, out string techId, out string reason))
                         {
@@ -14498,17 +14498,19 @@ namespace Parsek.InGameTests
                 anchorRetiredThisFrame = preFrameRetireFlag,
                 // Mark the activation-settle priming step as already
                 // consumed. Without this, ShouldHoldInitialActivationHiddenThisFrame's
-                // `withinActivationSettle` branch (added later in PR #708 by
-                // commit 64fb617e "Hide watch absolute primer handoffs")
-                // hides the ghost on the very first per-frame render pass
-                // because CanEvaluateInitialActivationHidden(traj, state)
-                // returns true (deferVisibilityUntilPlaybackSync=true,
-                // appearanceCount=0) and !state.initialRelativeActivationHiddenPrimed
-                // is the missing fourth conjunct. Production scenes hit
-                // that priming step on the first frame and clear it on the
-                // next; this test scenario fires only one frame, so we
-                // pre-prime here. The matching frame-counter is left at 0
-                // so the second branch (`minimum-frames`) also doesn't fire.
+                // `withinActivationSettle` branch (added in commit 64fb617e
+                // "Hide watch absolute primer handoffs", May 3) hides the
+                // ghost on the very first per-frame render pass because
+                // CanEvaluateInitialActivationHidden(traj, state) returns
+                // true (deferVisibilityUntilPlaybackSync=true, appearanceCount=0)
+                // and the gate's final conjunct
+                // !state.initialRelativeActivationHiddenPrimed is also true
+                // by default. Production scenes consume the priming step on
+                // frame 1 and clear it on frame 2; this test scenario fires
+                // only one frame, so we pre-consume here.
+                // initialRelativeActivationHiddenFramesRemaining=0 also
+                // silences the second `minimum-frames` branch independently
+                // (it requires remaining > 0).
                 initialRelativeActivationHiddenPrimed = true,
                 initialRelativeActivationHiddenFramesRemaining = 0,
             };
