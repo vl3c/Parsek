@@ -5092,8 +5092,12 @@ namespace Parsek
                 seenRetiredIds.Add(oldSideId);
                 counts.OldSidesAdded++;
 
+                // Verbose per-row: a wide rewound subtree can produce many
+                // old-side retirements in one rollback; the summary line
+                // (`retiredOldSides=N` in the rollback summary) carries the
+                // count at INFO. Per CLAUDE.md batch-counting convention.
                 if (!SuppressLogging)
-                    ParsekLog.Info("Rewind",
+                    ParsekLog.Verbose("Rewind",
                         $"Retired rewound-out old-side rec={oldSideId} " +
                         $"startUT={oldSideRec.StartUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)}");
