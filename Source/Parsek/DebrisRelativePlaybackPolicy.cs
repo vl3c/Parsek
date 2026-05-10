@@ -12,8 +12,6 @@ namespace Parsek
     /// </summary>
     internal static class DebrisRelativePlaybackPolicy
     {
-        private const double UtEpsilon = 1e-6;
-
         internal struct ParentAnchoredDebrisCoverageDiagnostic
         {
             internal int SectionIndex;
@@ -104,15 +102,21 @@ namespace Parsek
             double playbackUT)
         {
             List<TrajectoryPoint> frames = ResolveRelativeFrames(traj, section);
-            return RelativeFrameListCoversUT(
-                frames, section.startUT, section.endUT, playbackUT);
+            return DebrisRelativeCoveragePrimitives.RelativeFramesCoverUT(
+                frames,
+                section.startUT,
+                section.endUT,
+                playbackUT,
+                DebrisRelativeCoverageMode.PlaybackCompatible);
         }
 
         internal static bool AbsoluteShadowFramesCoverUT(
             TrackSection section,
             double playbackUT)
         {
-            return AbsoluteShadowFrameListCoversUT(section.absoluteFrames, playbackUT);
+            return DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
+                section.absoluteFrames,
+                playbackUT);
         }
 
         private static ParentAnchoredDebrisCoverageDiagnostic BuildAuthoredCoverageDiagnostic(
@@ -149,11 +153,11 @@ namespace Parsek
             diagnostic.AnchorRecordingId = section.anchorRecordingId;
 
             List<TrajectoryPoint> relativeFrames = ResolveRelativeFrames(traj, section);
-            SetFrameRange(
+            DebrisRelativeCoveragePrimitives.SetFrameRange(
                 relativeFrames,
                 out diagnostic.FirstRelativeFrameUT,
                 out diagnostic.LastRelativeFrameUT);
-            SetFrameRange(
+            DebrisRelativeCoveragePrimitives.SetFrameRange(
                 section.absoluteFrames,
                 out diagnostic.FirstAbsoluteFrameUT,
                 out diagnostic.LastAbsoluteFrameUT);
@@ -164,10 +168,15 @@ namespace Parsek
                 return diagnostic;
             }
 
-            diagnostic.RelativeFramesCoverUT = RelativeFrameListCoversUT(
-                relativeFrames, section.startUT, section.endUT, playbackUT);
-            diagnostic.AbsoluteFramesCoverUT = AbsoluteShadowFrameListCoversUT(
-                section.absoluteFrames, playbackUT);
+            diagnostic.RelativeFramesCoverUT = DebrisRelativeCoveragePrimitives.RelativeFramesCoverUT(
+                relativeFrames,
+                section.startUT,
+                section.endUT,
+                playbackUT,
+                DebrisRelativeCoverageMode.PlaybackCompatible);
+            diagnostic.AbsoluteFramesCoverUT = DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
+                section.absoluteFrames,
+                playbackUT);
 
             if (diagnostic.RelativeFramesCoverUT)
                 diagnostic.Reason = "covered-by-relative-frames";
@@ -199,8 +208,10 @@ namespace Parsek
             if (traj?.Points == null || traj.Points.Count == 0)
                 return null;
 
-            double start = Math.Min(section.startUT, section.endUT) - UtEpsilon;
-            double end = Math.Max(section.startUT, section.endUT) + UtEpsilon;
+            double start = Math.Min(section.startUT, section.endUT)
+                - DebrisRelativeCoveragePrimitives.UtEpsilon;
+            double end = Math.Max(section.startUT, section.endUT)
+                + DebrisRelativeCoveragePrimitives.UtEpsilon;
             var projected = new List<TrajectoryPoint>();
             for (int i = 0; i < traj.Points.Count; i++)
             {
@@ -210,79 +221,6 @@ namespace Parsek
             }
 
             return projected;
-        }
-
-        private static bool RelativeFrameListCoversUT(
-            List<TrajectoryPoint> frames,
-            double sectionStartUT,
-            double sectionEndUT,
-            double playbackUT)
-        {
-            if (frames == null || frames.Count == 0)
-                return false;
-            if (double.IsNaN(playbackUT) || double.IsInfinity(playbackUT))
-                return false;
-
-            if (frames.Count == 1)
-                return SingleRelativeFrameCoversUT(
-                    frames[0], sectionStartUT, sectionEndUT, playbackUT);
-
-            return playbackUT >= frames[0].ut - UtEpsilon
-                && playbackUT <= frames[frames.Count - 1].ut + UtEpsilon;
-        }
-
-        private static bool SingleRelativeFrameCoversUT(
-            TrajectoryPoint point,
-            double sectionStartUT,
-            double sectionEndUT,
-            double playbackUT)
-        {
-            if (Math.Abs(point.ut - playbackUT) <= UtEpsilon)
-                return true;
-            if (double.IsNaN(sectionStartUT)
-                || double.IsNaN(sectionEndUT)
-                || double.IsInfinity(sectionStartUT)
-                || double.IsInfinity(sectionEndUT))
-            {
-                return false;
-            }
-
-            double start = Math.Min(sectionStartUT, sectionEndUT);
-            double end = Math.Max(sectionStartUT, sectionEndUT);
-            return playbackUT >= start - UtEpsilon
-                && playbackUT <= end + UtEpsilon;
-        }
-
-        private static bool AbsoluteShadowFrameListCoversUT(
-            List<TrajectoryPoint> frames,
-            double playbackUT)
-        {
-            // The shadow renderer interpolates between two samples; unlike a
-            // single Relative frame, one absolute shadow point cannot cover a
-            // full section span. See TryPositionFromRelativeAbsoluteShadow.
-            if (frames == null || frames.Count < 2)
-                return false;
-            if (double.IsNaN(playbackUT) || double.IsInfinity(playbackUT))
-                return false;
-
-            return playbackUT >= frames[0].ut - UtEpsilon
-                && playbackUT <= frames[frames.Count - 1].ut + UtEpsilon;
-        }
-
-        private static void SetFrameRange(
-            List<TrajectoryPoint> frames,
-            out double firstUT,
-            out double lastUT)
-        {
-            if (frames == null || frames.Count == 0)
-            {
-                firstUT = double.NaN;
-                lastUT = double.NaN;
-                return;
-            }
-
-            firstUT = frames[0].ut;
-            lastUT = frames[frames.Count - 1].ut;
         }
 
         /// <summary>
@@ -299,7 +237,7 @@ namespace Parsek
         {
             bridgeEndUT = double.NaN;
             if (!ShouldRetireOnRecordedParentAnchorMiss(traj)
-                || maxBridgeSeconds <= UtEpsilon
+                || maxBridgeSeconds <= DebrisRelativeCoveragePrimitives.UtEpsilon
                 || traj.TrackSections == null
                 || traj.TrackSections.Count == 0)
             {
@@ -307,7 +245,7 @@ namespace Parsek
             }
 
             int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
-                traj.TrackSections, activationStartUT + UtEpsilon);
+                traj.TrackSections, activationStartUT + DebrisRelativeCoveragePrimitives.UtEpsilon);
             if (sectionIndex < 0)
                 sectionIndex = TrajectoryMath.FindTrackSectionForUT(
                     traj.TrackSections, activationStartUT);
@@ -324,8 +262,8 @@ namespace Parsek
 
             TrajectoryPoint seed = section.frames[0];
             if (!HasStructuralEventSnapshotFlag(seed)
-                || Math.Abs(seed.ut - activationStartUT) > UtEpsilon
-                || Math.Abs(seed.ut - section.startUT) > UtEpsilon)
+                || Math.Abs(seed.ut - activationStartUT) > DebrisRelativeCoveragePrimitives.UtEpsilon
+                || Math.Abs(seed.ut - section.startUT) > DebrisRelativeCoveragePrimitives.UtEpsilon)
             {
                 return false;
             }
@@ -339,7 +277,7 @@ namespace Parsek
             }
 
             double bridgeDuration = firstOrdinaryPoint.ut - seed.ut;
-            if (bridgeDuration <= UtEpsilon || bridgeDuration > maxBridgeSeconds)
+            if (bridgeDuration <= DebrisRelativeCoveragePrimitives.UtEpsilon || bridgeDuration > maxBridgeSeconds)
                 return false;
 
             if (!IsSyntheticSeedBridgeDistance(
@@ -381,7 +319,7 @@ namespace Parsek
             for (int i = 1; i < frames.Count; i++)
             {
                 TrajectoryPoint point = frames[i];
-                if (point.ut <= seedUT + UtEpsilon)
+                if (point.ut <= seedUT + DebrisRelativeCoveragePrimitives.UtEpsilon)
                     continue;
 
                 if (HasStructuralEventSnapshotFlag(point))

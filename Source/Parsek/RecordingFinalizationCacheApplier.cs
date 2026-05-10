@@ -116,6 +116,10 @@ namespace Parsek
             ApplyTerminalMetadata(recording, cache, retainedSegments);
 
             recording.ExplicitEndUT = cache.TerminalUT;
+            DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                recording,
+                "RecordingFinalizationCacheApplier",
+                refreshEndpointDecision: false);
 
             RecordingEndpointResolver.RefreshEndpointDecision(
                 recording,
@@ -154,6 +158,16 @@ namespace Parsek
         {
             lastAuthoredUT = double.NaN;
             bool found = false;
+
+            if (DebrisRelativeRecorderPolicy.TryGetLastRecorderPersistableAuthoredUT(
+                    recording,
+                    out lastAuthoredUT))
+            {
+                return true;
+            }
+
+            if (DebrisRelativeRecorderPolicy.ShouldNormalizeParentAnchoredDebris(recording))
+                return false;
 
             if (recording?.Points != null)
             {

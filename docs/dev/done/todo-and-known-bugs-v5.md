@@ -328,6 +328,8 @@ Phase 2 is the investigation step: capture a fresh log bundle replaying the `s14
 
 **Fix:** parent-anchored debris coverage now checks authored rendering surfaces, not only `TrackSection.startUT/endUT`. v12 debris with a recorded parent retires when neither its Relative frames nor its absolute shadow frames cover the mapped playback UT; live-anchor loop debris and legacy v11 debris keep their existing contracts. The engine skips the resolver-based anchor-rotation gate across stale child-frame tails, the flight standalone/co-bubble and relative reconstruction paths fail closed instead of clamping, shadow-covered authored gaps beat orbit-tail playback in render/watch/prewarm/pending-spawn/standalone paths, and the retirement WARN keeps the existing `reason=parent-anchored-debris-outside-relative-coverage` with a new `coverageReason=relative-and-shadow-frames-out-of-range` detail.
 
+**Recorder follow-up:** the producer-side invariant now matches the playback contract. Before background v12 parent-anchored debris is persisted or fed to the finalizer cache, stale Relative `TrackSection.endUT` values are clamped to recorder-persistable authored coverage (`section.frames`, two-point `absoluteFrames`, or non-predicted checkpoints), empty Relative sections are dropped, flat-only boundary points are trimmed, and `ExplicitEndUT` / endpoint metadata are refreshed. Real non-relative boundary sections and accepted orbit tails remain valid payload, so loaded-to-on-rails bookkeeping seams can still close the recording at the transition UT without reviving metadata-only Relative tails.
+
 **Status:** CLOSED 2026-05-10. Separate from the closed boundary-epsilon resolver seam and from the still-open sparse in-range debris divergence work above.
 
 ---

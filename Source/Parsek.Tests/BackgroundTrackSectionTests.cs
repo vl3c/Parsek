@@ -776,6 +776,131 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FlushLoadedStateForOnRailsTransitionForTesting_ParentAnchoredDebris_FlatBoundaryDoesNotExtendRelativeTail()
+        {
+            uint pid = 7034;
+            string recId = "rec_parent_debris_flat_boundary";
+            string anchorId = "rec_parent";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[anchorId] = new Recording
+            {
+                RecordingId = anchorId,
+                VesselName = "Parent",
+                VesselPersistentId = 70340u
+            };
+            tree.Recordings[recId].IsDebris = true;
+            tree.Recordings[recId].DebrisParentRecordingId = anchorId;
+            tree.Recordings[recId].Points.Clear();
+            tree.Recordings[recId].ExplicitEndUT = double.NaN;
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.StartRelativeTrackSectionForTesting(
+                pid, anchorId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(2000.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(2005.0));
+
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.ExoBallistic,
+                willHavePlayableOnRailsPayload: true,
+                boundaryPoint: Point(2010.0),
+                ut: 2010.0);
+
+            var rec = tree.Recordings[recId];
+            TrackSection relative = rec.TrackSections.Single(s => s.referenceFrame == ReferenceFrame.Relative);
+            Assert.Equal(2005.0, relative.endUT);
+            Assert.Equal(2005.0, rec.ExplicitEndUT);
+            Assert.Equal(new[] { 2000.0, 2005.0 }, rec.Points.Select(p => p.ut).ToArray());
+            Assert.Contains(logLines, l =>
+                l.Contains("[BgRecorder]")
+                && l.Contains("ParentAnchoredDebrisTailNormalize")
+                && l.Contains("flatTrimmed=1"));
+        }
+
+        [Fact]
+        public void FlushLoadedStateForOnRailsTransitionForTesting_ParentAnchoredDebris_AbsoluteBoundarySectionAllowsExplicitEndUT()
+        {
+            uint pid = 7035;
+            string recId = "rec_parent_debris_boundary_section";
+            string anchorId = "rec_parent_boundary";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[anchorId] = new Recording
+            {
+                RecordingId = anchorId,
+                VesselName = "Parent",
+                VesselPersistentId = 70350u
+            };
+            tree.Recordings[recId].IsDebris = true;
+            tree.Recordings[recId].DebrisParentRecordingId = anchorId;
+            tree.Recordings[recId].Points.Clear();
+            tree.Recordings[recId].ExplicitEndUT = double.NaN;
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.StartRelativeTrackSectionForTesting(
+                pid, anchorId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(2000.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(2005.0));
+
+            bgRecorder.FlushLoadedStateForOnRailsTransitionForTesting(
+                pid,
+                SegmentEnvironment.SurfaceStationary,
+                willHavePlayableOnRailsPayload: false,
+                boundaryPoint: Point(2010.0),
+                ut: 2010.0);
+
+            var rec = tree.Recordings[recId];
+            TrackSection relative = rec.TrackSections.Single(s => s.referenceFrame == ReferenceFrame.Relative);
+            TrackSection boundary = rec.TrackSections.Single(s =>
+                s.referenceFrame == ReferenceFrame.Absolute
+                && s.frames != null
+                && s.frames.Count == 1
+                && s.frames[0].ut == 2010.0);
+            Assert.Equal(2005.0, relative.endUT);
+            Assert.True(boundary.isBoundarySeam);
+            Assert.Equal(2010.0, rec.ExplicitEndUT);
+            Assert.Equal(new[] { 2000.0, 2005.0, 2010.0 }, rec.Points.Select(p => p.ut).ToArray());
+        }
+
+        [Fact]
+        public void FinalizeAllForCommit_ParentAnchoredDebris_DoesNotPersistRelativeMetadataTail()
+        {
+            uint pid = 7036;
+            string recId = "rec_parent_debris_commit";
+            string anchorId = "rec_parent_commit";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[anchorId] = new Recording
+            {
+                RecordingId = anchorId,
+                VesselName = "Parent",
+                VesselPersistentId = 70360u
+            };
+            tree.Recordings[recId].IsDebris = true;
+            tree.Recordings[recId].DebrisParentRecordingId = anchorId;
+            tree.Recordings[recId].Points.Clear();
+            tree.Recordings[recId].ExplicitEndUT = double.NaN;
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.StartRelativeTrackSectionForTesting(
+                pid, anchorId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(2000.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(2005.0));
+
+            bgRecorder.FinalizeAllForCommit(2010.0);
+
+            var rec = tree.Recordings[recId];
+            TrackSection relative = rec.TrackSections.Single(s => s.referenceFrame == ReferenceFrame.Relative);
+            Assert.Equal(2005.0, relative.endUT);
+            Assert.Equal(2005.0, rec.ExplicitEndUT);
+            Assert.Equal(new[] { 2000.0, 2005.0 }, rec.Points.Select(p => p.ut).ToArray());
+        }
+
+        [Fact]
         public void FinalizeAllForCommit_SurfaceMobile_FlushesWithCorrectSource()
         {
             uint pid = 704;
@@ -1052,5 +1177,19 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        private static TrajectoryPoint Point(double ut)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = 1.0,
+                longitude = 2.0,
+                altitude = 100.0,
+                rotation = new UnityEngine.Quaternion(0, 0, 0, 1),
+                bodyName = "Kerbin",
+                velocity = UnityEngine.Vector3.zero
+            };
+        }
     }
 }
