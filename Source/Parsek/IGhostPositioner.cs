@@ -61,6 +61,24 @@ namespace Parsek
             GhostPlaybackState state, double ut, bool suppressFx,
             RelativeSectionPlaybackTarget target);
 
+        /// <summary>
+        /// Position the ghost from the recording's `absoluteFrames` shadow when
+        /// the tumbling-parent gate has classified the parent-relative chain
+        /// rotation as unreliable. Routes through the same `InterpolateAndPosition`
+        /// path the legacy v11 shadow gate uses, so body / altitude / GhostPosEntry
+        /// FloatingOrigin reapply / InterpolationResult population are all reused.
+        /// Returns false when the section has no shadow data or the playback UT
+        /// is outside coverage (caller falls back to <see cref="AnchorRotationUnreliableRoute.Hidden"/>).
+        /// </summary>
+        /// <remarks>
+        /// Phase D: this path is recorded-data-only, never a substitute for live
+        /// anchors, and is reached only after the gate has positively classified
+        /// the parent chain as visually unreliable.
+        /// </remarks>
+        bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+            out double bracketBeforeUT, out double bracketAfterUT);
+
         void PositionAtPoint(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, TrajectoryPoint point);
 

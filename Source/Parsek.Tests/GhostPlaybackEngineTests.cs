@@ -170,11 +170,20 @@ namespace Parsek.Tests
             internal int PositionFromOrbitCalls;
             internal int PositionLoopCalls;
             internal int ZoneCalls;
+            internal int ShadowPositionCalls;
             internal double LastUT;
             internal double LastPointUT;
             internal double LastOrbitUT;
             internal double LastLoopUT;
+            internal double LastShadowUT;
             internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
+            // Test-controlled return value for the shadow positioner. When
+            // false (default) the engine routes through the legacy hide path
+            // exactly as it did pre-route. When true, set
+            // PrimedShadowBracketBeforeUT / PrimedShadowBracketAfterUT.
+            internal bool ShadowPositionShouldSucceed = false;
+            internal double PrimedShadowBracketBeforeUT = double.NaN;
+            internal double PrimedShadowBracketAfterUT = double.NaN;
 
             public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
@@ -191,6 +200,22 @@ namespace Parsek.Tests
                 RelativeSectionPlaybackTarget target)
             {
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
+            }
+
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                ShadowPositionCalls++;
+                LastShadowUT = playbackUT;
+                bracketBeforeUT = PrimedShadowBracketBeforeUT;
+                bracketAfterUT = PrimedShadowBracketAfterUT;
+                if (!ShadowPositionShouldSucceed)
+                    return false;
+                if (state?.ghost != null)
+                    state.ghost.transform.position = PrimedPosition;
+                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 123.0));
+                return true;
             }
 
             public void PositionAtPoint(int index, IPlaybackTrajectory traj,
@@ -1073,6 +1098,156 @@ namespace Parsek.Tests
                 && l.Contains("playbackUT=105"));
         }
 
+        // ===================================================================
+        // Shadow-route FX-flag helpers — pure-static OR pattern + primary-loop
+        // branch decision. The bug class these test pin: clear-without-read
+        // leaks of FX state through the shadow-route window. A reviewer caught
+        // two P1 instances of this in the original engine wiring; the helpers
+        // were extracted afterwards so the OR pattern has one source of truth.
+        // ===================================================================
+
+        [Fact]
+        public void IsInterpolationResultValid_BodyNameNull_TreatsAsFailure()
+        {
+            // Regression guard for the fail-closed contract on the shadow
+            // route. Reviewer P2: TryPositionFromRelativeAbsoluteShadow used
+            // to return true after InterpolateAndPosition even when the
+            // helper had hit body-lookup-miss / empty-points failure paths,
+            // which write InterpolationResult.Zero (bodyName=null) and call
+            // ghost.SetActive(false). The engine then treated the route as
+            // ShadowPositioned and the post-position pipeline could
+            // re-activate the ghost at a stale transform. The new helper
+            // detects this; the positioner falls back to Hidden when it
+            // returns false.
+            Assert.False(GhostPlaybackEngine.IsInterpolationResultValid(InterpolationResult.Zero));
+
+            var nullName = new InterpolationResult { velocity = Vector3.zero, bodyName = null, altitude = 0 };
+            Assert.False(GhostPlaybackEngine.IsInterpolationResultValid(nullName));
+
+            var emptyName = new InterpolationResult { velocity = Vector3.zero, bodyName = "", altitude = 0 };
+            Assert.False(GhostPlaybackEngine.IsInterpolationResultValid(emptyName));
+        }
+
+        [Fact]
+        public void IsInterpolationResultValid_BodyNamePopulated_TreatsAsSuccess()
+        {
+            var success = new InterpolationResult(Vector3.zero, "Kerbin", 100.0);
+            Assert.True(GhostPlaybackEngine.IsInterpolationResultValid(success));
+
+            var minimal = new InterpolationResult { velocity = Vector3.zero, bodyName = "Mun", altitude = 0 };
+            Assert.True(GhostPlaybackEngine.IsInterpolationResultValid(minimal));
+        }
+
+        [Fact]
+        public void AdjustFxFlagsForShadowRoute_NotShadowRouted_PassesBaseFlagsThrough()
+        {
+            // (baseSkip, baseSuppress, shadowRouted=false) -> (baseSkip, baseSuppress)
+            var (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                baseSkipPartEvents: false,
+                baseSuppressVisualFx: false,
+                shadowRouted: false);
+            Assert.False(skip);
+            Assert.False(suppress);
+
+            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                baseSkipPartEvents: true,
+                baseSuppressVisualFx: false,
+                shadowRouted: false);
+            Assert.True(skip);
+            Assert.False(suppress);
+
+            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                baseSkipPartEvents: false,
+                baseSuppressVisualFx: true,
+                shadowRouted: false);
+            Assert.False(skip);
+            Assert.True(suppress);
+
+            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                baseSkipPartEvents: true,
+                baseSuppressVisualFx: true,
+                shadowRouted: false);
+            Assert.True(skip);
+            Assert.True(suppress);
+        }
+
+        [Fact]
+        public void AdjustFxFlagsForShadowRoute_ShadowRouted_ForcesBothFlagsTrue()
+        {
+            // Regression guard: when shadowRouted=true, BOTH outputs must be
+            // true regardless of the base inputs. This is the OR pattern that
+            // a clear-without-read reviewer finding (P1) had broken at three
+            // sites in the original wiring; centralising it here makes future
+            // bypass attempts visible at code-review time.
+            foreach (bool baseSkip in new[] { false, true })
+            foreach (bool baseSuppress in new[] { false, true })
+            {
+                var (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                    baseSkipPartEvents: baseSkip,
+                    baseSuppressVisualFx: baseSuppress,
+                    shadowRouted: true);
+                Assert.True(skip,
+                    $"shadowRouted=true must force skipPartEvents=true (was baseSkip={baseSkip}, baseSuppress={baseSuppress})");
+                Assert.True(suppress,
+                    $"shadowRouted=true must force suppressVisualFx=true (was baseSkip={baseSkip}, baseSuppress={baseSuppress})");
+            }
+        }
+
+        [Fact]
+        public void ResolveLoopShadowFxBranch_ShadowRouted_AlwaysReturnsForcedTeardown()
+        {
+            // Regression guard for primary-loop P1: when the previous logic
+            // OR'd shadowRouted into skipLoopPartEvents and gated the entire
+            // ApplyFrameVisuals call on !skipLoopPartEvents, shadow-routed
+            // frames silently skipped FX teardown -- letting stale plumes /
+            // RCS / reentry / audio continue running through the route.
+            // Forced teardown must fire regardless of the legacy LOD flag.
+            Assert.Equal(
+                GhostPlaybackEngine.LoopShadowFxBranch.ForcedShadowTeardown,
+                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
+                    shadowRouted: true,
+                    skipLoopPartEvents: false));
+            Assert.Equal(
+                GhostPlaybackEngine.LoopShadowFxBranch.ForcedShadowTeardown,
+                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
+                    shadowRouted: true,
+                    skipLoopPartEvents: true));
+        }
+
+        [Fact]
+        public void ResolveLoopShadowFxBranch_NotShadowRouted_RespectsLegacySkipFlag()
+        {
+            Assert.Equal(
+                GhostPlaybackEngine.LoopShadowFxBranch.Normal,
+                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
+                    shadowRouted: false,
+                    skipLoopPartEvents: false));
+            Assert.Equal(
+                GhostPlaybackEngine.LoopShadowFxBranch.Skipped,
+                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
+                    shadowRouted: false,
+                    skipLoopPartEvents: true));
+        }
+
+        [Fact]
+        public void GhostPlaybackState_ClearLoadedVisualReferences_ClearsShadowRoutedFlag()
+        {
+            // Lifecycle clear: the ClearLoadedVisualReferences path (called on
+            // ghost destroy / engine reset / scene cleanup) must reset the new
+            // flag alongside anchorRetiredThisFrame so a future state reuse
+            // does not inherit a stale shadow-route signal. Reviewer P2.
+            var state = new GhostPlaybackState
+            {
+                anchorRetiredThisFrame = true,
+                anchorRotationShadowRoutedThisFrame = true,
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.anchorRotationShadowRoutedThisFrame);
+        }
+
         [Fact]
         public void CoverageRetiredHelper_StateNull_DoesNotReserveSpawnOrLoadVisuals()
         {
@@ -1325,6 +1500,46 @@ namespace Parsek.Tests
                 {
                     new TrajectoryPoint { ut = 100.0 },
                     new TrajectoryPoint { ut = 110.0 },
+                },
+            });
+            return traj;
+        }
+
+        /// <summary>
+        /// Variant with a populated `absoluteFrames` shadow on the Relative
+        /// section -- exercises the new tumbling-quality shadow route.
+        /// </summary>
+        private static MockTrajectory MakeParentAnchoredDebrisWithShadowFrames()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "debris-rec";
+            traj.VesselName = "Kerbal X Debris";
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorRecordingId = "parent-rec",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
                 },
             });
             return traj;

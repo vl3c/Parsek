@@ -16657,6 +16657,163 @@ namespace Parsek
             state.playbackIndex = playbackIdx;
         }
 
+        /// <summary>
+        /// Position the ghost from the recording's `absoluteFrames` shadow when
+        /// the tumbling-parent gate has classified the parent-relative chain
+        /// rotation as unreliable. Routes through the same `InterpolateAndPosition`
+        /// path the legacy v11 shadow gate uses (`TryUseRelativeAbsoluteShadowFallback`
+        /// at `:22711-22722`), so body / altitude / GhostPosEntry FloatingOrigin
+        /// reapply / InterpolationResult population are reused.
+        /// </summary>
+        /// <remarks>
+        /// Phase D contract: this path is recorded-data-only, never a substitute
+        /// for live anchors, and is reached only after the gate has positively
+        /// classified the parent chain as visually unreliable. The legacy v11
+        /// gate's retire-first guard in `TryUseRelativeAbsoluteShadowFallback`
+        /// is intentionally NOT applied here -- the gate has already decided the
+        /// recorded shadow is the right surface to render against, so we bypass
+        /// the v12 retire-on-anchor-miss path and call the shared interpolation
+        /// helper directly.
+        /// </remarks>
+        bool IGhostPositioner.TryPositionFromRelativeAbsoluteShadow(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            RelativeSectionPlaybackTarget target,
+            out double bracketBeforeUT,
+            out double bracketAfterUT)
+        {
+            bracketBeforeUT = double.NaN;
+            bracketAfterUT = double.NaN;
+
+            if (state?.ghost == null
+                || target.Section.referenceFrame != ReferenceFrame.Relative
+                || target.Section.absoluteFrames == null
+                || target.Section.absoluteFrames.Count < 2)
+            {
+                // Single-sample shadow is rejected: InterpolateAndPosition
+                // would snap to that one point and we'd render a stale pose
+                // for the rest of the unstable window. Caller falls back to
+                // the Hidden route.
+                return false;
+            }
+
+            // Reject playback UTs outside the shadow's covered range. Without
+            // this guard InterpolateAndPosition / TrajectoryMath.InterpolatePoints
+            // would clamp at the nearest endpoint and the ghost would silently
+            // freeze at a stale shadow sample for the rest of the window. The
+            // router falls back to Hidden when this returns false. Compare
+            // against the actual absoluteFrames endpoint UTs (NOT the section's
+            // startUT/endUT) because the recorder may have written shadow
+            // samples that don't span the full section bounds.
+            int lastAbsoluteIdx = target.Section.absoluteFrames.Count - 1;
+            double firstShadowUT = target.Section.absoluteFrames[0].ut;
+            double lastShadowUT = target.Section.absoluteFrames[lastAbsoluteIdx].ut;
+            const double shadowCoverageEpsilon = 1e-6;
+            if (playbackUT + shadowCoverageEpsilon < firstShadowUT
+                || playbackUT - shadowCoverageEpsilon > lastShadowUT)
+            {
+                return false;
+            }
+
+            // Bracket UTs are reported back to the caller for the
+            // [Anchor] anchor-rotation-shadow-route log line.
+            ResolveAbsoluteShadowBracketUTs(
+                target.Section.absoluteFrames, playbackUT,
+                out bracketBeforeUT, out bracketAfterUT);
+
+            int playbackIdx = state.playbackIndex;
+            int absolutePlaybackIdx = playbackIdx;
+            // Snapshot the ghost's pre-call active state so we can detect
+            // InterpolateAndPosition's body-lookup-miss / empty-points
+            // failure paths, which call ghost.SetActive(false) and write
+            // InterpolationResult.Zero. See ParsekFlight.cs:17226-17256.
+            bool ghostWasActive = state.ghost.activeSelf;
+            InterpolateAndPosition(
+                state.ghost,
+                target.Section.absoluteFrames,
+                null,
+                ref absolutePlaybackIdx,
+                playbackUT,
+                index * 10000,
+                out InterpolationResult interpResult,
+                allowActivation: ShouldAutoActivateGhost(state),
+                skipOrbitSegments: true,
+                recordingId: target.RecordingId,
+                sectionIndex: target.SectionIndex);
+            state.playbackIndex = absolutePlaybackIdx;
+            // Fail closed when InterpolateAndPosition could not produce a
+            // valid pose. See GhostPlaybackEngine.IsInterpolationResultValid
+            // for the bodyName-null sentinel rationale. Without this guard
+            // the engine would treat the route as ShadowPositioned and the
+            // post-position pipeline's ActivateGhostVisualsIfNeeded would
+            // re-show the ghost at its stale transform, defeating the
+            // body-miss SetActive(false). The router falls back to Hidden
+            // when this returns false.
+            if (!GhostPlaybackEngine.IsInterpolationResultValid(interpResult))
+            {
+                // Restore the pre-call active state so the legacy hide path
+                // (which sets the mesh inactive itself) starts from a known
+                // baseline, and so a future SetActive(false) on the same
+                // GameObject from the legacy path is observable in tests.
+                if (state.ghost != null && state.ghost.activeSelf != ghostWasActive)
+                    state.ghost.SetActive(ghostWasActive);
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
+            }
+            // Match the canonical positioner contract at :16653-16657:
+            // positioner-with-state owns the SetInterpolated call so watch-mode
+            // camera and FX paths read fresh lastInterpolatedBodyName / Altitude
+            // / Velocity. Callers do NOT need to invoke SetInterpolated separately.
+            state.SetInterpolated(interpResult);
+            return true;
+        }
+
+        /// <summary>
+        /// Find the absoluteFrames bracket [before, after] that brackets the
+        /// playback UT. Endpoints clamp at the first / last sample. NaN is
+        /// returned when the section has zero or one frames (the caller's
+        /// log line will report no usable bracket).
+        /// </summary>
+        private static void ResolveAbsoluteShadowBracketUTs(
+            System.Collections.Generic.List<TrajectoryPoint> absoluteFrames,
+            double playbackUT,
+            out double bracketBeforeUT,
+            out double bracketAfterUT)
+        {
+            bracketBeforeUT = double.NaN;
+            bracketAfterUT = double.NaN;
+            if (absoluteFrames == null || absoluteFrames.Count < 2)
+                return;
+            // Linear scan is fine -- shadow lists are typically <200 frames per
+            // section and this is only called on gate-fired frames.
+            for (int i = 0; i < absoluteFrames.Count - 1; i++)
+            {
+                if (absoluteFrames[i].ut <= playbackUT
+                    && absoluteFrames[i + 1].ut >= playbackUT)
+                {
+                    bracketBeforeUT = absoluteFrames[i].ut;
+                    bracketAfterUT = absoluteFrames[i + 1].ut;
+                    return;
+                }
+            }
+            // Out of coverage: endpoints. Surface the closest pair so the log
+            // still records what coverage we tried against.
+            if (playbackUT < absoluteFrames[0].ut)
+            {
+                bracketBeforeUT = absoluteFrames[0].ut;
+                bracketAfterUT = absoluteFrames[1].ut;
+            }
+            else
+            {
+                int last = absoluteFrames.Count - 1;
+                bracketBeforeUT = absoluteFrames[last - 1].ut;
+                bracketAfterUT = absoluteFrames[last].ut;
+            }
+        }
+
         void IGhostPositioner.PositionAtPoint(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, TrajectoryPoint point)
         {
