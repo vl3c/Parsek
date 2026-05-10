@@ -461,11 +461,14 @@ namespace Parsek
                     state.lastHiddenPosition, currentPosition);
             }
 
-            // Open the activation-transition window FIRST so that the
-            // ShouldEmitPhase gate consulted for this very emit also sees the
-            // window open. Subsequent AfterUpdate / LateUpdate rows in the
-            // next ActivationTransitionWindowSeconds are then traceable even
-            // when first-seen has expired.
+            // Open the activation-transition window before the emit so that
+            // any other emitter (e.g. the immediately-following LateUpdate
+            // pass on the same currentUT) sees it open. The emit below uses
+            // force: true and so does not consult the window itself —
+            // activation decisions are rare-per-ghost events and skipping
+            // them on a closed gate would defeat the purpose of the
+            // structured trace. ShouldEmitPhase is consulted only as
+            // defence-in-depth against a future settings flip.
             if (transition == "first-visible")
             {
                 OpenDetailedWindow(
@@ -475,10 +478,6 @@ namespace Parsek
                     "activation-transition");
             }
 
-            // Emit unconditionally — activation decisions are rare-per-ghost
-            // events and skipping them on a closed gate would defeat the
-            // purpose of the structured trace. ShouldEmitPhase is consulted
-            // only as defence-in-depth against a future settings flip.
             if (ShouldEmitPhase(recordingId, currentUT, important: false, force: true))
             {
                 string prevPosToken = state.hasLastHiddenPosition
