@@ -233,26 +233,29 @@ namespace Parsek.Tests
             // The RecordingStore-specific snapshot rollback added earlier
             // covered RecordingStore but not the other six.
             //
-            // Fix: TriggerQuickload was split into a non-destructive
-            // LoadAndValidateGameForQuickload (validates the .sfs without
-            // committing the scene change) and a CommitValidatedGameLoad
-            // (commits via FlightDriver.StartAndFocusVessel).
+            // Fix: TriggerQuickload was split into three phases.
             // RestoreBatchFlightBaselineCore now sequences:
-            //   1. ActivateStagedBatchFlightBaselineRestore (file copy).
-            //   2. LoadAndValidateGameForQuickload (throws/skips on file-shape
-            //      failure -- no in-memory state touched).
-            //   3. PrepareForIsolatedBatchFlightBaselineRestore (the wipe).
-            //   4. CommitValidatedGameLoad (scene change fires OnLoad).
-            //   5. WaitForFlightReady / WaitForBatchBaselineVessel /
-            //      WaitForStockStageManagerReady (post-OnLoad waits).
+            //   1a. ValidateQuicksaveStructure (ConfigNode.Load XML
+            //       parse only; no FlightGlobals mutation).
+            //   2.  ActivateStagedBatchFlightBaselineRestore (on-disk
+            //       Parsek/ swap, file copy + Directory.Move).
+            //   1b. LoadAndValidateGameForQuickload (calls
+            //       GamePersistence.LoadGame; mutates FlightGlobals
+            //       persistent-id dictionaries as a stock-KSP side
+            //       effect, rebuilt by OnLoad on step 4).
+            //   3.  PrepareForIsolatedBatchFlightBaselineRestore (the
+            //       wipe of RecordingStore + 6 other Parsek save-scoped
+            //       stores).
+            //   4.  CommitValidatedGameLoad (scene change fires OnLoad).
+            //   5.  WaitForFlightReady / WaitForBatchBaselineVessel /
+            //       WaitForStockStageManagerReady (post-OnLoad waits).
             //
-            // The wipe at step 3 only runs after validation succeeded at
-            // step 2. The only failure mode that can now strand the wipe
-            // is FlightDriver.StartAndFocusVessel itself throwing
-            // synchronously, which is essentially impossible (it just
-            // queues a scene change). For the wait-timeouts at step 5,
-            // OnLoad has already fired and rebuilt every wiped store
-            // from the loaded game.
+            // The wipe at step 3 only runs after step 1a's structural
+            // validation AND step 1b's Game-object realisation both
+            // succeeded. Step 1a is truly non-destructive (no
+            // FlightGlobals or in-memory Parsek state touched); step 1b
+            // mutates FlightGlobals but is a documented residual in the
+            // production failure-mode comment.
             //
             // SCOPE: this test is DOCUMENTATION-BY-TEST. It pins the
             // contract by simulation -- it does NOT invoke the actual

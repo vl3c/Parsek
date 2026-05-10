@@ -1028,78 +1028,108 @@ namespace Parsek.InGameTests
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
             // Fail-closed live-data recovery for the batch FLIGHT baseline
-            // restore flow. The reordered sequence below puts BOTH the
-            // .sfs validation AND the prep wipe in positions where any
-            // failure leaves the player's combined disk + in-memory
-            // state internally consistent.
+            // restore flow. The sequence below splits validation into a
+            // truly-non-destructive XML structural pre-check and a
+            // potentially-destructive Game-object load, and puts the
+            // wipe between them so that the most common failure modes
+            // leave the player's combined disk + in-memory state
+            // internally consistent.
             //
             // Sequence:
-            //   1. Validate the slot .sfs via
-            //      LoadAndValidateGameForQuickload -- non-destructive,
-            //      reads the slot file at saves/<save>/<slot>.sfs (NOT
-            //      inside the Parsek/ subdir). Throws / skips on missing
-            //      file, null Game, null flightState, null protoVessels,
-            //      invalid activeVesselIdx. None of these touch live
-            //      state -- on disk OR in memory. If this throws, the
-            //      player is left in their pre-call state on every axis.
-            //   2. Stage the Parsek/ snapshot dir on-disk (file copy +
-            //      atomic Directory.Move swap, with attempted rollback
-            //      inside Activate's catch). Now the on-disk Parsek/
-            //      reflects BATCH-START sidecars; live in-memory state
-            //      is still pre-call.
-            //   3. Run the prep wipe (PrepareForIsolatedBatchFlightBaselineRestore).
-            //      Wipes RecordingStore + 6 other Parsek save-scoped
-            //      stores. After this, in-memory is "empty" and on-disk
-            //      Parsek/ is BATCH-START -- the imminent OnLoad will
-            //      reconcile the two.
-            //   4. Commit the scene change via CommitValidatedGameLoad.
-            //   5. Wait for FLIGHT-ready / batch vessel / stock stage
-            //      manager. OnLoad fires during the scene change and
-            //      rebuilds every wiped store from the loaded game.
+            //   1a. Structural pre-validation via
+            //       ValidateQuicksaveStructure. Calls ConfigNode.Load
+            //       (XML parse only) and verifies file existence,
+            //       FLIGHTSTATE node, VESSEL children, and
+            //       activeVesselIdx range. Does NOT call
+            //       GamePersistence.LoadGame, so no FlightGlobals
+            //       persistent-id dictionaries are mutated. Truly
+            //       non-destructive.
+            //   2.  Stage the Parsek/ snapshot dir on-disk (file copy +
+            //       atomic Directory.Move swap, with attempted rollback
+            //       inside Activate's catch). Now the on-disk Parsek/
+            //       reflects BATCH-START sidecars; live in-memory state
+            //       is still pre-call. FlightGlobals untouched.
+            //   1b. Realise the validated .sfs into a Game object via
+            //       LoadAndValidateGameForQuickload. This DOES mutate
+            //       FlightGlobals (LoadGame clears its persistent-id
+            //       dictionaries before returning, per stock KSP
+            //       decompilation 2026-05-10). The dictionaries are
+            //       rebuilt by OnLoad at step 4. If LoadGame fails
+            //       despite step 1a passing -- very rare, requires the
+            //       .sfs to be structurally well-formed but Game-object
+            //       realisation to still fail -- FlightGlobals stays
+            //       cleared until manual user reload. Documented
+            //       residual.
+            //   3.  Run the prep wipe (PrepareForIsolatedBatchFlightBaselineRestore).
+            //       Wipes RecordingStore + 6 other Parsek save-scoped
+            //       stores. After this, in-memory is "empty" and on-disk
+            //       Parsek/ is BATCH-START -- the imminent OnLoad will
+            //       reconcile the two.
+            //   4.  Commit the scene change via CommitValidatedGameLoad.
+            //   5.  Wait for FLIGHT-ready / batch vessel / stock stage
+            //       manager. OnLoad fires during the scene change and
+            //       rebuilds every wiped store from the loaded game.
             //
             // Failure-mode coverage:
-            //   - Step 1 throws (validation fails): no on-disk swap, no
-            //     wipe. All seven save-scoped stores intact. Disk and
-            //     memory untouched.
+            //   - Step 1a throws (structural validation fails): no
+            //     destructive work done. All seven save-scoped stores
+            //     intact. Disk untouched. FlightGlobals untouched.
             //   - Step 2 throws (Activate's own try/catch attempts disk
             //     rollback): in-memory still untouched. Disk in best-
-            //     effort baseline-or-rolled-back state. Snapshot
-            //     rollback is a no-op (RecordingStore wasn't wiped).
+            //     effort baseline-or-rolled-back state. FlightGlobals
+            //     untouched. Snapshot rollback is a no-op.
+            //   - Step 1b throws (LoadGame fails despite step 1a
+            //     passing): on-disk Parsek/ swapped to BATCH-START,
+            //     FlightGlobals cleared. RecordingStore not wiped yet
+            //     so snapshot rollback is a no-op. User has on-disk
+            //     baseline + cleared FlightGlobals + 6 Parsek stores
+            //     intact + RecordingStore intact. Documented residual;
+            //     manual F9 recovers FlightGlobals.
             //   - Step 3 throws (one of the eight Reset functions
             //     misbehaves): partial wipe in memory, on-disk Parsek/
             //     at BATCH-START. RecordingStore snapshot rollback
-            //     restores RecordingStore to BATCH-START -- consistent
-            //     with on-disk. Other 6 stores have partial wipe;
-            //     residual loss documented.
+            //     restores RecordingStore.committedRecordings/Trees/
+            //     pendingTree/state/AutoAssignedStandaloneGroups to
+            //     BATCH-START -- consistent with on-disk. RecordingStoreTestSnapshot
+            //     does NOT capture the additional fields that
+            //     ResetForTestingInternal clears (RewindContext state,
+            //     PendingCleanupPids, suppressNextTreeSceneExitCommit,
+            //     PendingScienceSubjects, etc.); those stay at their
+            //     reset values. Documented residual; manual reload
+            //     recovers.
             //   - Step 4 throws (StartAndFocusVessel rare synchronous
             //     throw): full wipe done, no scene change queued.
-            //     RecordingStore snapshot rollback restores RecordingStore
-            //     to BATCH-START -- consistent with on-disk. Other 6
-            //     stores are wiped; residual loss documented (manual
-            //     F9 quickload recovers).
+            //     RecordingStore snapshot rollback restores its 5
+            //     captured fields. Other 6 Parsek stores wiped + extra
+            //     RecordingStore fields beyond the snapshot scope stay
+            //     reset. Documented residual.
             //   - Step 5 wait timeouts: scene change was queued. OnLoad
             //     either fired (every store rebuilt from disk -- best
             //     case) or LoadScene itself failed (extremely rare; the
-            //     RecordingStore snapshot rollback fires).
+            //     partial RecordingStore snapshot rollback fires).
             //
             // The RecordingStore-specific snapshot rollback covers the
-            // residual edge cases above. Pair with the iterator-disposal
-            // fix in RunCoroutineSafely -- without that, this finally
-            // never runs when a nested wait throws, because
-            // RunCoroutineSafely abandons the parent routine without
-            // disposing it.
+            // bulk of the residual edge cases above; the explicit
+            // residuals (FlightGlobals on step 1b, snapshot-incomplete
+            // fields on steps 3-5) are documented but not snapshotted
+            // -- a manual F9 quickload after a failed restore recovers
+            // every category. Pair with the iterator-disposal fix in
+            // RunCoroutineSafely -- without that, this finally never
+            // runs when a nested wait throws, because RunCoroutineSafely
+            // abandons the parent routine without disposing it.
             RecordingStoreTestSnapshot preWipeSnapshot = baseline?.RecordingStoreSnapshot;
             bool restoreCommitted = false;
             try
             {
-                // Step 1: validate the slot .sfs is loadable. Reads the
-                // slot file (saves/<save>/<slot>.sfs); does NOT depend
-                // on the Parsek/ snapshot dir being staged yet, because
-                // sidecars are read by ParsekScenario.OnLoad later, not
-                // by GamePersistence.LoadGame here. If this throws, no
-                // on-disk or in-memory state has been touched.
-                Helpers.QuickloadResumeHelpers.ValidatedGameLoad validatedLoad =
-                    Helpers.QuickloadResumeHelpers.LoadAndValidateGameForQuickload(baseline.SlotName);
+                // Step 1a: structural pre-validation via ConfigNode.Load.
+                // Truly non-destructive -- parses the .sfs as XML, does
+                // NOT call GamePersistence.LoadGame (which would clear
+                // FlightGlobals.PersistentLoaded dictionaries as a side
+                // effect). Catches the bulk of failure modes (file
+                // missing/empty, malformed XML, no FLIGHTSTATE node,
+                // no VESSEL nodes, invalid activeVessel index) without
+                // mutating any KSP or Parsek state.
+                Helpers.QuickloadResumeHelpers.ValidateQuicksaveStructure(baseline.SlotName);
 
                 using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
                 {
@@ -1109,12 +1139,26 @@ namespace Parsek.InGameTests
                     // move, with attempted rollback inside Activate's
                     // catch on partial failure. Dispose only deletes
                     // residual temp dirs; it cannot roll back a
-                    // committed swap, which is fine because step 1
+                    // committed swap, which is fine because step 1a
                     // already passed and step 3's wipe will follow.
                     ActivateStagedBatchFlightBaselineRestore(
                         stagedSnapshot.Activate,
                         prepareForRestore: null);
                 }
+
+                // Step 1b: realise the validated slot into a Game object
+                // via GamePersistence.LoadGame. This call DOES mutate
+                // FlightGlobals (clears persistent-id dicts) as a side
+                // effect of stock KSP's LoadGame internals -- the
+                // dictionaries are rebuilt by OnLoad on the imminent
+                // scene change. If LoadGame fails despite step 1a's
+                // structural pre-check passing (very rare -- requires
+                // FLIGHTSTATE structurally well-formed but Game-object
+                // realisation still failing), FlightGlobals stays
+                // cleared until the user manually reloads. Documented
+                // residual.
+                Helpers.QuickloadResumeHelpers.ValidatedGameLoad validatedLoad =
+                    Helpers.QuickloadResumeHelpers.LoadAndValidateGameForQuickload(baseline.SlotName);
 
                 // Step 3: prep wipe runs only after validation succeeded
                 // AND the on-disk Parsek/ has been swapped to BATCH-START.

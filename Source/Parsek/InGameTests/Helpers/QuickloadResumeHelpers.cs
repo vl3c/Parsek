@@ -75,19 +75,109 @@ namespace Parsek.InGameTests.Helpers
         }
 
         /// <summary>
-        /// Non-destructive half of <see cref="TriggerQuickload"/>: parses
-        /// the .sfs, validates flight-state shape and active-vessel index,
-        /// returns the loaded <see cref="Game"/> for a subsequent
-        /// <see cref="CommitValidatedGameLoad"/>. KSP's
-        /// <c>GamePersistence.LoadGame</c> does not swap the active game
-        /// or trigger any scene change, so failure throws (or skips) before
-        /// the caller has done anything irreversible. Used by
-        /// <c>InGameTestRunner.RestoreBatchFlightBaselineCore</c> to gate
-        /// the prep wipe of save-scoped in-memory stores -- the wipe only
-        /// runs after this call returns successfully, so a missing /
-        /// corrupt baseline slot can no longer leave RecordingStore +
-        /// six other Parsek stores cleared without the new scene having
-        /// loaded.
+        /// Result of the truly non-destructive structural pre-check on a
+        /// quicksave slot. <see cref="ConfigNode.Load"/> parses the .sfs
+        /// without touching <see cref="FlightGlobals"/> or any other live
+        /// KSP state -- unlike <see cref="GamePersistence.LoadGame"/>,
+        /// which clears FlightGlobals' persistent-id dictionaries before
+        /// returning. Used by callers that need to fail-fast on bad slot
+        /// shape BEFORE doing any other destructive work (in-memory wipe,
+        /// on-disk swap).
+        /// </summary>
+        internal struct StructurallyValidatedSlot
+        {
+            public string SaveName;
+            public string SlotName;
+            public int ActiveVesselIdx;
+            public int ProtoVesselCount;
+        }
+
+        /// <summary>
+        /// Truly non-destructive structural validation of a quicksave
+        /// slot. Calls <see cref="ConfigNode.Load"/> (XML parse only;
+        /// does NOT call <see cref="GamePersistence.LoadGame"/>) and
+        /// verifies:
+        /// <list type="bullet">
+        /// <item><description>The slot file exists and is non-empty.</description></item>
+        /// <item><description>The .sfs parses as a ConfigNode tree.</description></item>
+        /// <item><description>The tree has a <c>FLIGHTSTATE</c> node.</description></item>
+        /// <item><description>FLIGHTSTATE has at least one VESSEL child.</description></item>
+        /// <item><description>FLIGHTSTATE has an <c>activeVessel</c> field whose value is in range against the VESSEL child count.</description></item>
+        /// </list>
+        /// On failure throws / skips before any KSP state has been
+        /// mutated -- in particular, FlightGlobals.PersistentLoaded
+        /// dictionaries are NOT cleared (which the heavier
+        /// <see cref="LoadAndValidateGameForQuickload"/> call would
+        /// have done as a side effect of GamePersistence.LoadGame). Use
+        /// this for the fail-closed pre-check before destructive batch
+        /// FLIGHT baseline restore work; follow up with
+        /// LoadAndValidateGameForQuickload when the .sfs needs to be
+        /// realised into a Game object for the scene change.
+        /// </summary>
+        internal static StructurallyValidatedSlot ValidateQuicksaveStructure(string slotName)
+        {
+            string saveName = HighLogic.SaveFolder;
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(slotName),
+                "ValidateQuicksaveStructure failed: slotName was null/empty");
+
+            string quicksavePath = GetSavePath(saveName, slotName);
+            EnsureQuicksaveFileReady(quicksavePath, saveName, caller: "ValidateQuicksaveStructure");
+
+            ConfigNode root = ConfigNode.Load(quicksavePath);
+            InGameAssert.IsNotNull(root,
+                $"ValidateQuicksaveStructure failed: ConfigNode.Load returned null for '{saveName}/{slotName}'");
+
+            ConfigNode flightStateNode = root.GetNode("FLIGHTSTATE");
+            InGameAssert.IsNotNull(flightStateNode,
+                $"ValidateQuicksaveStructure failed: '{saveName}/{slotName}' has no FLIGHTSTATE node");
+
+            ConfigNode[] vesselNodes = flightStateNode.GetNodes("VESSEL");
+            int vesselCount = vesselNodes != null ? vesselNodes.Length : 0;
+            InGameAssert.IsTrue(vesselCount > 0,
+                $"ValidateQuicksaveStructure failed: '{saveName}/{slotName}' FLIGHTSTATE has no VESSEL nodes");
+
+            int activeVesselIdx = -1;
+            if (!flightStateNode.TryGetValue("activeVessel", ref activeVesselIdx))
+            {
+                InGameAssert.IsTrue(false,
+                    $"ValidateQuicksaveStructure failed: '{saveName}/{slotName}' FLIGHTSTATE has no activeVessel field");
+            }
+            if (activeVesselIdx < 0 || activeVesselIdx >= vesselCount)
+            {
+                InGameAssert.Skip(
+                    $"ValidateQuicksaveStructure skipped: '{saveName}/{slotName}' had invalid activeVesselIdx={activeVesselIdx} " +
+                    $"for VESSEL node count={vesselCount}");
+            }
+
+            return new StructurallyValidatedSlot
+            {
+                SaveName = saveName,
+                SlotName = slotName,
+                ActiveVesselIdx = activeVesselIdx,
+                ProtoVesselCount = vesselCount,
+            };
+        }
+
+        /// <summary>
+        /// Loads + validates a quicksave slot. NOT fully non-destructive:
+        /// <see cref="GamePersistence.LoadGame"/> is called as part of
+        /// validation, and stock KSP's LoadGame clears
+        /// <c>FlightGlobals.PersistentLoaded</c> persistent-id
+        /// dictionaries as a side effect (verified by KSP decompilation,
+        /// 2026-05-10 review of PR #805). On a successful caller-side
+        /// chain (validation succeeds → caller commits the scene change),
+        /// the dictionaries are rebuilt by OnLoad / scene-load. On a
+        /// failure between this call and CommitValidatedGameLoad, the
+        /// FlightGlobals dictionaries stay cleared until the user manually
+        /// reloads.
+        /// <para>
+        /// Callers that need fail-fast pre-validation BEFORE any KSP
+        /// state mutation should call <see cref="ValidateQuicksaveStructure"/>
+        /// first (which uses <see cref="ConfigNode.Load"/> and does NOT
+        /// touch FlightGlobals). The current
+        /// <c>InGameTestRunner.RestoreBatchFlightBaselineCore</c> path
+        /// does that.
+        /// </para>
         /// </summary>
         internal static ValidatedGameLoad LoadAndValidateGameForQuickload(string slotName)
         {
