@@ -3828,6 +3828,10 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Engine]")
                 && l.Contains("RelativeDebrisSpawnGhost")
+                && l.Contains("skipping orbit precedence: authored-frame gap shadow available"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("RelativeDebrisSpawnGhost")
                 && l.Contains("relative absolute shadow point interpolation")
                 && l.Contains("altitude=66000.0"));
             Assert.DoesNotContain(logLines, l =>

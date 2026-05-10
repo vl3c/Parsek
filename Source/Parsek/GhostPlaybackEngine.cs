@@ -5801,6 +5801,13 @@ namespace Parsek
                         $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} surface track section active, skipping orbit precedence"));
                 }
 
+                if (!surfaceSkip && authoredGapHasShadow && canUseOrbitPrecedence)
+                {
+                    string vesselName = traj.VesselName ?? "Unknown";
+                    ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} skipping orbit precedence: authored-frame gap shadow available"));
+                }
+
                 if (!surfaceSkip && !authoredGapHasShadow && canUseOrbitPrecedence)
                 {
                     result = orbitSegmentResult;
