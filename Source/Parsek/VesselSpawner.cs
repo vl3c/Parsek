@@ -5119,20 +5119,47 @@ namespace Parsek
                 return false;
             }
 
-            Vector3d worldPos = body.GetWorldSurfacePosition(
-                candidate.latitude, candidate.longitude, candidate.altitude);
+            // candidate.velocity comes from FlightRecorder.SampleCurrentVelocity
+            // (Y-up Unity world axes, body-relative inertial). The position must
+            // be body-relative + Zup; the velocity must be Zup. OrbitReseed
+            // applies (pos − body.position).xzy and vel.xzy — the contract
+            // Orbit.UpdateFromStateVectors documents but the API does not
+            // enforce. Without these transforms the reseed silently produces
+            // structurally-valid but physically-wrong orbital elements (sma
+            // drifts by the body.position offset, LAN/argPe by the YZ flip).
             Vector3d worldVel = new Vector3d(
                 candidate.velocity.x, candidate.velocity.y, candidate.velocity.z);
-            if (!IsFinite(worldPos) || !IsFinite(worldVel))
+            if (!IsFinite(worldVel))
             {
                 declineReason = "non-finite-state-vector";
+                return false;
+            }
+            // body.position can be non-finite during early scene-load when the
+            // body's Unity transform hasn't been initialised yet. The orbit
+            // helper subtracts body.position to build the body-relative input;
+            // without this guard a transient NaN body.position would propagate
+            // through to a NaN orbit, which IsFiniteOrbitSeedElements catches
+            // but with a less specific decline reason (the "non-finite-elements"
+            // path is for arithmetic underflow / Unity edge cases, not for
+            // missing body init). Distinguishing here keeps the diagnostic
+            // tight when this rare case fires.
+            if (!IsFinite(body.position))
+            {
+                declineReason = "non-finite-body-position";
                 return false;
             }
 
             try
             {
                 Orbit reseeded = new Orbit();
-                reseeded.UpdateFromStateVectors(worldPos, worldVel, body, candidate.ut);
+                OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                    reseeded,
+                    body,
+                    candidate.latitude,
+                    candidate.longitude,
+                    candidate.altitude,
+                    worldVel,
+                    candidate.ut);
                 if (!IsFiniteOrbitSeedElements(reseeded))
                 {
                     declineReason = "non-finite-elements";

@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-Fly spawns now materialize highly-eccentric terminal orbits whose recording's only stored OrbitSegment is older than its post-burn coast tail. Probe-stage Re-Fly forks that ended in stable orbit no longer get permanently rejected by the safety gate from a frame-mismatched orbit reseed.
 - Cheap recoveries such as Jumping Flea and EVA kerbals no longer leave stale "unclaimed recovery request" warnings on rewind, and recovery names now match correctly when KSP reports a localization key instead of the display name.
 - Confirmed background-destruction finalization no longer emits spurious `RejectedTerminalBeforeLastSample` warnings when a stale `Destroyed` cache predates the last authored structural-event sample. Non-destruction debris exits do not receive this retrograde-terminal repair.
 - Re-Fly spawns now materialize circularized upper stages whose recording's only stored OrbitSegment was captured during the pre-burn on-rails coast. The spawn-time orbit picker walks the recording's track sections to the latest post-burn ExoBallistic Absolute coast frame and reseeds the orbit from its state vector instead of trusting a stale segment. Recordings that finalized before the burn (proper OrbitSegment newer than any frame) still use the existing path.
