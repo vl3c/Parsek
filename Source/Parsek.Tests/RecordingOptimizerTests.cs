@@ -4623,7 +4623,7 @@ namespace Parsek.Tests
                     TreeName = "Multistage Optimizer Tree",
                     RootRecordingId = "root_rover",
                     BranchPoints = new List<BranchPoint> { launchBp, sepBp, dockBp },
-                    Recordings = new System.Collections.Generic.Dictionary<string, Recording>
+                    Recordings = new Dictionary<string, Recording>
                     {
                         { "root_rover", rover },
                         { "rover_cont", roverContinuation },
@@ -4678,6 +4678,7 @@ namespace Parsek.Tests
 
                 Assert.Equal(new[] { rocketSegments[1].RecordingId }, sepBp.ParentRecordingIds);
                 Assert.Equal(new[] { capsuleSegments[2].RecordingId }, dockBp.ParentRecordingIds);
+                // Upstream child ids stay on the original head segment; chain traversal follows ChainId for split tails.
                 Assert.Equal(new[] { "rover_cont", "rocket" }, launchBp.ChildRecordingIds);
                 Assert.Equal(new[] { "transfer_stage", "capsule" }, sepBp.ChildRecordingIds);
                 Assert.Equal(new[] { "station_merged" }, dockBp.ChildRecordingIds);
