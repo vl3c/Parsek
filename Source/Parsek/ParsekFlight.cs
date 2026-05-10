@@ -15116,11 +15116,28 @@ namespace Parsek
             return flags;
         }
 
+        internal static bool ShouldEvaluateAnchorRotationReliabilityForTesting(Recording rec)
+            => ShouldEvaluateAnchorRotationReliability(rec);
+
         private static bool ShouldEvaluateAnchorRotationReliability(Recording rec)
         {
+            // PR #803: also exclude live-anchor loop recordings. The resolver
+            // (RelativeAnchorResolver.cs:288-297) already short-circuits on
+            // `LoopAnchorVesselId != 0` with `loop-anchor-out-of-scope`, so
+            // PR #800's gate behaviour is unchanged (the evaluator returned
+            // false for those recordings either way). The check matters for
+            // PR #803's always-shadow path: without it, the new router
+            // would keep going past the failed evaluator into
+            // `TryRouteAnchorRotationToShadow` and route a live-anchor loop
+            // recording's debris through the recorded shadow track, which
+            // breaks the live-anchor contract (debris must follow the live
+            // parent, not the recorded world position frozen at recording
+            // time). The gate predicate is the right place to gate both
+            // paths.
             return rec != null
                 && rec.IsDebris
-                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId);
+                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && rec.LoopAnchorVesselId == 0u;
         }
 
         private bool TryEvaluateAnchorRotationReliability(
@@ -16658,22 +16675,35 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Position the ghost from the recording's `absoluteFrames` shadow when
-        /// the tumbling-parent gate has classified the parent-relative chain
-        /// rotation as unreliable. Routes through the same `InterpolateAndPosition`
-        /// path the legacy v11 shadow gate uses (`TryUseRelativeAbsoluteShadowFallback`
-        /// at `:22711-22722`), so body / altitude / GhostPosEntry FloatingOrigin
-        /// reapply / InterpolationResult population are reused.
+        /// Position the ghost from the recording's `absoluteFrames` shadow track
+        /// for v12+ parent-anchored debris. Routes through the same
+        /// `InterpolateAndPosition` path the legacy v11 shadow gate uses
+        /// (`TryUseRelativeAbsoluteShadowFallback` at `:22711-22722`), so body /
+        /// altitude / GhostPosEntry FloatingOrigin reapply / InterpolationResult
+        /// population are reused.
         /// </summary>
         /// <remarks>
-        /// Phase D contract: this path is recorded-data-only, never a substitute
-        /// for live anchors, and is reached only after the gate has positively
-        /// classified the parent chain as visually unreliable. The legacy v11
-        /// gate's retire-first guard in `TryUseRelativeAbsoluteShadowFallback`
-        /// is intentionally NOT applied here -- the gate has already decided the
-        /// recorded shadow is the right surface to render against, so we bypass
-        /// the v12 retire-on-anchor-miss path and call the shared interpolation
-        /// helper directly.
+        /// PR #803 contract: this is the rendering surface for v12+
+        /// parent-anchored debris (`IsDebris && DebrisParentRecordingId != null
+        /// && LoopAnchorVesselId == 0`) whenever the active Relative section's
+        /// `absoluteFrames` covers the playback UT, regardless of whether the
+        /// tumbling-parent gate (PR #793) is firing this frame. The gate's
+        /// per-frame fire bit drives only the FX-suppression flag
+        /// (`state.anchorRotationShadowRoutedThisFrame`) -- shadow render is
+        /// always-on for in-coverage frames, while FX suppression is gated to
+        /// real-tumble windows so steady-state plumes / RCS / audio play
+        /// normally. The router (`GhostPlaybackEngine.TryRouteAnchorRotationUnreliable`)
+        /// is the only caller; non-v12 / live-anchor cases never reach this
+        /// helper because the host predicate
+        /// `ShouldEvaluateAnchorRotationReliability` excludes them upstream.
+        ///
+        /// Phase D boundary: this path is recorded-data-only, never a substitute
+        /// for live anchors. The legacy v11 gate's retire-first guard in
+        /// `TryUseRelativeAbsoluteShadowFallback` is intentionally NOT applied
+        /// here -- the v12 retire-on-anchor-miss path is for legacy debris that
+        /// lost its parent at runtime, and the always-shadow contract for v12+
+        /// debris with covering shadow data is a separate, recorded-only
+        /// rendering surface.
         /// </remarks>
         bool IGhostPositioner.TryPositionFromRelativeAbsoluteShadow(
             int index,
