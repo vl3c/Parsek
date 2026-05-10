@@ -50,7 +50,15 @@ namespace Parsek.InGameTests
             // The exact value depends on the active vessel's situation, so the
             // test asserts membership rather than a specific value — that way
             // it works whether the player runs it from launchpad (surface),
-            // ascent (atmo/exo), or orbit (exo).
+            // ascent (atmo/exo), or orbit (exo). A future regression where the
+            // helper produces an off-vocabulary string (e.g. "Atmospheric") or
+            // null while the body is non-null will fail the membership check.
+            //
+            // We deliberately do NOT inline-reimplement the classifier here to
+            // cross-check phase=expected — that would just assert f(x)==f(x)
+            // since the helper delegates to the same TagSegmentPhaseIfMissing
+            // we'd be reimplementing. Vocabulary membership + non-null body is
+            // the load-bearing contract.
             string phase = provisional.SegmentPhase;
             InGameAssert.IsTrue(
                 phase == "atmo"
@@ -58,32 +66,6 @@ namespace Parsek.InGameTests
                     || phase == "approach"
                     || phase == "surface",
                 $"SegmentPhase expected one of [atmo, exo, approach, surface]; got '{phase ?? "<null>"}'");
-
-            // Cross-check the classifier choice against the same logic the
-            // helper applies, so the test catches semantic drift between
-            // the Re-Fly path and the rest of the codebase.
-            string expectedPhase;
-            if (v.situation == Vessel.Situations.LANDED
-                || v.situation == Vessel.Situations.SPLASHED
-                || v.situation == Vessel.Situations.PRELAUNCH)
-            {
-                expectedPhase = "surface";
-            }
-            else if (v.mainBody.atmosphere)
-            {
-                expectedPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
-            }
-            else
-            {
-                double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody);
-                expectedPhase = v.altitude < threshold ? "approach" : "exo";
-            }
-
-            InGameAssert.IsTrue(
-                phase == expectedPhase,
-                $"SegmentPhase classifier disagrees: expected '{expectedPhase}' for " +
-                $"situation={v.situation} alt={v.altitude:F0}m body={v.mainBody.name} " +
-                $"(atmosphere={v.mainBody.atmosphere}); got '{phase}'");
 
             ParsekLog.Info("RewindTest",
                 $"TagForkInitialSegmentPhase_FromLiveActiveVessel: classifier produced " +

@@ -338,19 +338,28 @@ proves the helper does the right thing for the live-vessel tag step.
 
 ### 5. Logging
 
-Two log sites at the new tag call:
+Three log sites at the new tag call, all Verbose:
 
 - **Tag fired** (`SelectedVessel != null && mainBody != null` produced a
   classification): `ParsekLog.Verbose("Rewind", $"Fork initial segment phase
-  tagged: rec={...} body={...} phase={...} situation={...}")`. One-shot,
-  Verbose level per codebase convention.
-- **Tag skipped — null `SelectedVessel`**: `ParsekLog.Warn("Rewind", ...)`.
-  This indicates the strip pipeline returned a null vessel handle to a code
-  path that requires it; surface as Warn so it shows up in routine log
-  inspection.
+  tagged: rec={...} pid={...} body={...} phase={...} situation={...}")`.
+  One-shot, Verbose level per codebase convention.
+- **Tag skipped — null `SelectedVessel`**: `ParsekLog.Verbose("Rewind", ...)`.
+  Aligns with the sibling `TryRefreshForkSnapshotsFromLiveVessel` helper
+  which uses Verbose for the same null-vessel-in-test-fixture case; both
+  helpers run on the same call site and both handle the same null branch.
 - **Tag skipped — `SelectedVessel != null` but `mainBody == null`**:
-  `ParsekLog.Verbose(...)`. This is the test-stub / Unity-null shape; not
-  worth a Warn.
+  `ParsekLog.Verbose(...)`. Test-stub / Unity-null shape.
+
+Earlier draft of this plan recommended Warn for the null-`SelectedVessel`
+branch as a diagnostic for upstream strip-pipeline regressions. Demoted to
+Verbose during PR review (#806) because the existing
+`AtomicMarkerWriteTests` in-place test paths use a null `SelectedVessel`
+stub (Vessel is a Unity type, can't be constructed in xUnit), and a Warn
+would pollute the test log sink without an assertion attached. The
+production case where the strip pipeline genuinely returns null in the
+in-place branch is already guarded earlier in `AtomicMarkerWrite`, so the
+Warn was effectively unreachable in production anyway.
 
 The existing `AtomicMarkerWrite: in-place continuation forked — fork ...
 inheritedFrom=origin` line stays; it does not enumerate every inherited

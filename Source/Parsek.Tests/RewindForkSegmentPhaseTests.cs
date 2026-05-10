@@ -115,18 +115,13 @@ namespace Parsek.Tests
         [Fact]
         public void CopyInheritedIdentityForFork_DoesNotClobberPreSetPhaseFields()
         {
-            // Regression canary for the inheritance-line removal: prove that
-            // CopyInheritedIdentityForFork no longer overwrites SegmentPhase
-            // or SegmentBodyName when the provisional already has them set.
-            // If a future refactor reintroduces the two inheritance lines,
-            // this test fails because "atmo" would replace "exo".
-            //
-            // Indirectly anchors the AtomicMarkerWrite call ordering:
-            // TagForkInitialSegmentPhase runs after CopyInheritedIdentityForFork
-            // and would no-op (IsNullOrEmpty guard inside
-            // TagSegmentPhaseIfMissing) if a prior step had set these fields.
-            // Either way — copy-then-tag or tag-then-copy — the post-fix
-            // helper is safe; this test pins the copy half.
+            // Belt-and-suspenders regression canary for the inheritance-line
+            // removal. Largely redundant with DoesNotInheritSegmentPhase above
+            // (both fail if either inheritance line is reintroduced), but
+            // exercises the helper from a different starting state — the
+            // provisional has values, so a buggy reintroduction would fail
+            // the canary even if the parent's values happened to match the
+            // provisional's defaults.
             var inheritFrom = new Recording
             {
                 RecordingId = "parent-rec",
