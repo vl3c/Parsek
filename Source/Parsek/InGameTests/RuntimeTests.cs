@@ -4273,6 +4273,137 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "PR #803 contract regression: the gate evaluator returning FALSE (focus-tree miss / resolver-side issue) must NOT block the shadow render — shadow is always-on for v12+ parent-anchored debris when shadow data covers, regardless of evaluator runtime success")]
+        public void ParentAnchoredDebris_AlwaysShadow_EvaluatorMiss_StillRendersShadow()
+        {
+            // Companion to ParentAnchoredDebris_AlwaysShadow_StableThroughout.
+            // That test pins the evaluator-returned-true case (mode=always with
+            // a populated decision struct). This one pins the evaluator-
+            // returned-false case (mode=always with a defaulted decision
+            // struct -- the runtime evaluator hit a focus-tree miss or a
+            // resolver-side issue, but the host predicate already filtered
+            // the recording in scope at flag-build time, so the shadow render
+            // must still fire).
+            //
+            // Round-1 P2-2 fix accidentally gated the shadow attempt on
+            // gateEvaluated, contradicting the PR contract. Round-2 P2 fix
+            // dropped that gate; this test would have caught the regression.
+
+            var positioner = new TumblingParentShadowPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject("ParsekTestGhost_AlwaysShadow_EvaluatorMiss");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Always-shadow evaluator-miss debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            engine.ghostStates[0] = state;
+
+            var rec = new Recording
+            {
+                RecordingId = "ingame-always-shadow-evaluator-miss",
+                VesselName = "Always-shadow evaluator-miss debris",
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = "ingame-always-shadow-evaluator-miss-parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
+                },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 200.0,
+                anchorRecordingId = "ingame-always-shadow-evaluator-miss-parent",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 200.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            // Host predicate: the runtime evaluator returns FALSE (e.g. focus
+            // tree wasn't found, or the resolver short-circuited internally
+            // for some non-LoopAnchorVesselId reason). The decision struct
+            // stays defaulted. The router must STILL try shadow.
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = 200.0,
+                    recordingId = rec.RecordingId,
+                    tryEvaluateAnchorRotationReliability =
+                        (int idx, IPlaybackTrajectory traj, double playbackUT,
+                            string playbackScope,
+                            out AnchorRotationReliabilityDecision decision) =>
+                        {
+                            decision = default;
+                            return false;
+                        },
+                },
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 150.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 120.0,
+            };
+
+            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+            GhostPlaybackState retainedState;
+            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
+                "evaluator-miss path must preserve ghost state");
+            InGameAssert.IsTrue(ghost.activeSelf,
+                "evaluator-miss must NOT block the shadow render -- mesh stays active");
+            InGameAssert.IsFalse(retainedState.anchorRotationShadowRoutedThisFrame,
+                "FX suppression flag must stay clear (gate evaluator returned false, so fxSuppress is false)");
+            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
+                "evaluator-miss must NOT retire the ghost");
+            InGameAssert.AreEqual(1, positioner.ShadowCalls,
+                "engine MUST still call TryPositionFromRelativeAbsoluteShadow even when the evaluator returned false (this is the regression that the round-1 P2-2 fix introduced)");
+            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
+                "engine must NOT fall back to legacy PositionLoop when shadow successfully runs");
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "Ghost sphere positions correctly at vessel location")]
         public IEnumerator GhostSpherePositioning()
         {

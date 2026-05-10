@@ -2749,26 +2749,24 @@ namespace Parsek
                 out decision);
             bool fxSuppress = gateEvaluated && decision.Unreliable;
 
-            // Tier 1: shadow render. Independent of gate fire bit, but we DO
-            // require the evaluator to have run successfully -- when the
-            // evaluator returns false (no focus tree, resolver miss), the
-            // decision struct is defaulted (zero bracket / rate / offset,
-            // null AnchorRecordingId), and routing through shadow with that
-            // zeroed decision would (a) emit a misleading shadow-route log
-            // line (mode=always with bogus zero fields) and (b) silently
-            // change the pre-PR-803 behaviour for those edge cases (which
-            // returned None and let the legacy resolver chain handle the
-            // recording). Conservative: when the evaluator returned false,
-            // skip shadow and let tier 2 (legacy fallthrough) handle it.
-            //
-            // The shadow track itself is recorder-truth at sample times and
-            // a great-circle slerp / straight-line chord between -- correct
-            // for the entire section. The positioner returns false when the
+            // Tier 1: shadow render. Independent of the gate ENTIRELY -- the
+            // shadow track is recorder-truth at sample times and a
+            // great-circle slerp / straight-line chord between, which is
+            // correct for the entire section. The PR #803 contract is that
+            // shadow renders for every covered frame regardless of whether
+            // the gate evaluator succeeded. When the evaluator returned false
+            // (transient focus-tree miss, resolver-side issue), the decision
+            // struct is defaulted (zero bracket / rate / offset, null
+            // AnchorRecordingId) and the shadow-route log line carries
+            // mode=always with those default fields -- the host predicate
+            // (ShouldEvaluateAnchorRotationReliability) has already filtered
+            // the recording in scope for the always-shadow path, so an
+            // evaluator runtime miss is purely a diagnostic-data gap, not a
+            // signal to skip rendering. The positioner returns false when the
             // active Relative section has no `absoluteFrames` or the playback
             // UT is outside coverage; in that case fall through to tier 2 /
             // tier 3.
-            if (gateEvaluated
-                && state != null
+            if (state != null
                 && TryRouteAnchorRotationToShadow(
                     index, traj, state, playbackUT, decision, fxSuppress, phase, playbackScope))
             {
