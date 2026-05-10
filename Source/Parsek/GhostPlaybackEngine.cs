@@ -2695,14 +2695,58 @@ namespace Parsek
             double playbackUT,
             bool suppressFx)
         {
+            if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    index, traj, state, playbackUT,
+                    "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT"))
+            {
+                return true;
+            }
+
             if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
                 return TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     index, traj, state, playbackUT,
                     "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT");
 
+            if (TryRouteAuthoredFrameGapToShadow(
+                    index,
+                    traj,
+                    state,
+                    playbackUT,
+                    "relative-section-direct"))
+            {
+                return true;
+            }
+
             positioner.InterpolateAndPositionRelative(
                 index, traj, state, playbackUT, suppressFx, target);
             return true;
+        }
+
+        private bool TryRouteAuthoredFrameGapToShadow(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            string phase)
+        {
+            if (!DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+                || !diagnostic.AbsoluteFramesCoverUT)
+            {
+                return false;
+            }
+
+            return TryRouteAnchorRotationToShadow(
+                index,
+                traj,
+                state,
+                playbackUT,
+                default(AnchorRotationReliabilityDecision),
+                fxSuppress: false,
+                phase: phase,
+                playbackScope: "authored-frame-gap-shadow");
         }
 
         /// <summary>

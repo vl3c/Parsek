@@ -22078,7 +22078,7 @@ namespace Parsek
             bool allowActivation,
             out InterpolationResult interpResult)
         {
-            if (DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
                     traj,
                     targetUT,
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
@@ -22090,8 +22090,9 @@ namespace Parsek
                     target,
                     retireSignalState,
                     "InterpolateAndPositionRecordedRelative",
-                    "AuthoredFrameOutOfRange",
-                    diagnostic.Reason ?? "relative-frames-out-of-range");
+                    resolverReason:
+                        "parent-anchored-debris-outside-relative-coverage coverageReason="
+                        + (diagnostic.Reason ?? "relative-and-shadow-frames-out-of-range"));
                 interpResult = InterpolationResult.Zero;
                 return;
             }

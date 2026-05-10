@@ -190,9 +190,7 @@ namespace Parsek.Tests
             {
                 InterpolateCalls++;
                 LastUT = ut;
-                if (state?.ghost != null)
-                    state.ghost.transform.position = PrimedPosition;
-                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 123.0));
+                state?.SetInterpolated(new InterpolationResult(default(Vector3), "Kerbin", 123.0));
             }
 
             public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
@@ -212,9 +210,6 @@ namespace Parsek.Tests
                 bracketAfterUT = PrimedShadowBracketAfterUT;
                 if (!ShadowPositionShouldSucceed)
                     return false;
-                if (state?.ghost != null)
-                    state.ghost.transform.position = PrimedPosition;
-                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 123.0));
                 return true;
             }
 
@@ -223,8 +218,6 @@ namespace Parsek.Tests
             {
                 PositionAtPointCalls++;
                 LastPointUT = point.ut;
-                if (state?.ghost != null)
-                    state.ghost.transform.position = PrimedPosition;
             }
 
             public void PositionAtSurface(int index, IPlaybackTrajectory traj,
@@ -244,8 +237,7 @@ namespace Parsek.Tests
             {
                 PositionLoopCalls++;
                 LastLoopUT = ut;
-                if (state?.ghost != null)
-                    InterpolateAndPosition(index, traj, state, ut, suppressFx);
+                InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
 
             public bool TryResolveExplosionAnchorPosition(int index,
@@ -1094,6 +1086,85 @@ namespace Parsek.Tests
                 && l.Contains("reason=parent-anchored-debris-outside-relative-coverage")
                 && l.Contains("coverageReason=no-covering-section")
                 && l.Contains("recordingId=debris-rec"));
+        }
+
+        [Fact]
+        public void TryPositionRelativeSectionAtPlaybackUT_ParentAnchoredDebrisAfterAuthoredFrames_Retires()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 },
+            };
+            traj.TrackSections[0] = section;
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+
+            bool handled = InvokeTryPositionRelativeSectionAtPlaybackUT(
+                engine,
+                index: 3,
+                traj: traj,
+                state: state,
+                playbackUT: 120.0,
+                suppressFx: true);
+
+            Assert.True(handled);
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(0, positioner.InterpolateCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("recorded-relative-retired")
+                && l.Contains("reason=parent-anchored-debris-outside-relative-coverage")
+                && l.Contains("coverageReason=relative-and-shadow-frames-out-of-range")
+                && l.Contains("recordingId=debris-rec"));
+        }
+
+        [Fact]
+        public void TryPositionRelativeSectionAtPlaybackUT_ShadowCoveredAfterRelativeFrames_DoesNotRetire()
+        {
+            var positioner = new SpawnPrimingPositioner
+            {
+                ShadowPositionShouldSucceed = true,
+                PrimedShadowBracketBeforeUT = 100.0,
+                PrimedShadowBracketAfterUT = 130.0,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 130.0 },
+            };
+            traj.TrackSections[0] = section;
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+
+            bool handled = InvokeTryPositionRelativeSectionAtPlaybackUT(
+                engine,
+                index: 3,
+                traj: traj,
+                state: state,
+                playbackUT: 120.0,
+                suppressFx: true);
+
+            Assert.True(handled);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            Assert.Equal(1, positioner.InterpolateCalls);
+            Assert.Empty(logLines.Where(l => l.Contains("recorded-relative-retired")));
         }
 
         [Fact]
