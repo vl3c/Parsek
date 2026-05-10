@@ -4138,6 +4138,141 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Always-shadow steady state (PR #803): parent-anchored debris with shadow data renders via the absoluteFrames lerp every frame, even when the tumbling-parent gate is INACTIVE; FX suppression flag stays clear so plumes / RCS / audio play normally outside tumble windows")]
+        public void ParentAnchoredDebris_AlwaysShadow_StableThroughout()
+        {
+            // Companion to TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable
+            // -- that test covers the gate=Active branch (mode=gated). This
+            // test covers the new gate=Inactive branch (mode=always) introduced
+            // in PR #803, where shadow renders unconditionally for v12+
+            // parent-anchored debris when shadow data covers the playback UT.
+            // The fix's user-visible promise: zero per-frame instability
+            // pops at the gate-fire / gate-release boundaries that were the
+            // residual artifact in the post-PR-#800 playtest.
+
+            var positioner = new TumblingParentShadowPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject("ParsekTestGhost_AlwaysShadow");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Always-shadow debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            engine.ghostStates[0] = state;
+
+            var rec = new Recording
+            {
+                RecordingId = "ingame-always-shadow-debris",
+                VesselName = "Always-shadow debris",
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = "ingame-always-shadow-parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
+                },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 200.0,
+                anchorRecordingId = "ingame-always-shadow-parent",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 200.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            // Host predicate returns Unreliable=false -- gate does NOT fire,
+            // exercising the new always-on shadow branch.
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = 200.0,
+                    recordingId = rec.RecordingId,
+                    tryEvaluateAnchorRotationReliability =
+                        (int idx, IPlaybackTrajectory traj, double playbackUT,
+                            string playbackScope,
+                            out AnchorRotationReliabilityDecision decision) =>
+                        {
+                            decision = new AnchorRotationReliabilityDecision(
+                                unreliable: false,
+                                anchorRecordingId: "ingame-always-shadow-parent",
+                                bracketDegrees: 4.0,
+                                rateDegreesPerSecond: 18.0,
+                                offsetMeters: 1500.0);
+                            return true;
+                        },
+                },
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 150.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 120.0,
+            };
+
+            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+            GhostPlaybackState retainedState;
+            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
+                "always-shadow path should preserve ghost state");
+            InGameAssert.IsTrue(ghost.activeSelf,
+                "always-shadow path must keep the mesh active outside tumble windows too");
+            InGameAssert.IsFalse(retainedState.anchorRotationShadowRoutedThisFrame,
+                "FX suppression flag must STAY CLEAR when the gate is inactive (steady-state shadow render does not suppress plumes / RCS / audio)");
+            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
+                "always-shadow path must NOT mark anchorRetiredThisFrame=true");
+            InGameAssert.AreEqual(1, positioner.ShadowCalls,
+                "engine must call TryPositionFromRelativeAbsoluteShadow once even though the gate is inactive (this is the PR #803 behaviour change)");
+            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
+                "engine must NOT call positioner.PositionLoop when the shadow positioner succeeds");
+            InGameAssert.AreEqual(0, positioner.InterpolateCalls,
+                "engine must NOT call positioner.InterpolateAndPosition[Relative] when the shadow positioner succeeds");
+            // Ghost transform reflects the shadow positioner's primed position
+            // — confirms it ran end-to-end, not just that the call counter
+            // incremented.
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "Ghost sphere positions correctly at vessel location")]
         public IEnumerator GhostSpherePositioning()
         {
