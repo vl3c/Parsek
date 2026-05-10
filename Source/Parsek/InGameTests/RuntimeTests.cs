@@ -3623,9 +3623,8 @@ namespace Parsek.InGameTests
 
             public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
-                out InterpolationResult result, out double bracketBeforeUT, out double bracketAfterUT)
+                out double bracketBeforeUT, out double bracketAfterUT)
             {
-                result = InterpolationResult.Zero;
                 bracketBeforeUT = double.NaN;
                 bracketAfterUT = double.NaN;
                 return false;
@@ -14054,9 +14053,8 @@ namespace Parsek.InGameTests
 
             public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
-                out InterpolationResult result, out double bracketBeforeUT, out double bracketAfterUT)
+                out double bracketBeforeUT, out double bracketAfterUT)
             {
-                result = InterpolationResult.Zero;
                 bracketBeforeUT = double.NaN;
                 bracketAfterUT = double.NaN;
                 return false;
@@ -14601,9 +14599,8 @@ namespace Parsek.InGameTests
 
             public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
-                out InterpolationResult result, out double bracketBeforeUT, out double bracketAfterUT)
+                out double bracketBeforeUT, out double bracketAfterUT)
             {
-                result = InterpolationResult.Zero;
                 bracketBeforeUT = double.NaN;
                 bracketAfterUT = double.NaN;
                 return false;

@@ -77,7 +77,7 @@ namespace Parsek
         /// </remarks>
         bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
-            out InterpolationResult result, out double bracketBeforeUT, out double bracketAfterUT);
+            out double bracketBeforeUT, out double bracketAfterUT);
 
         void PositionAtPoint(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, TrajectoryPoint point);

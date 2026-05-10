@@ -16682,11 +16682,9 @@ namespace Parsek
             GhostPlaybackState state,
             double playbackUT,
             RelativeSectionPlaybackTarget target,
-            out InterpolationResult result,
             out double bracketBeforeUT,
             out double bracketAfterUT)
         {
-            result = InterpolationResult.Zero;
             bracketBeforeUT = double.NaN;
             bracketAfterUT = double.NaN;
 
@@ -16701,9 +16699,8 @@ namespace Parsek
             // Bracket UTs are reported back to the caller for the
             // [Anchor] anchor-rotation-shadow-route log line. Compute them
             // here against the same frames list InterpolateAndPosition will
-            // walk; if the playback UT is outside coverage the helper still
-            // runs (clamping at endpoints) but we surface that to the caller
-            // via the bracket UTs being NaN.
+            // walk; if the playback UT is outside coverage we still surface
+            // the closest pair so the log records what coverage we had.
             ResolveAbsoluteShadowBracketUTs(
                 target.Section.absoluteFrames, playbackUT,
                 out bracketBeforeUT, out bracketAfterUT);
@@ -16717,11 +16714,16 @@ namespace Parsek
                 ref absolutePlaybackIdx,
                 playbackUT,
                 index * 10000,
-                out result,
+                out InterpolationResult interpResult,
                 allowActivation: ShouldAutoActivateGhost(state),
                 skipOrbitSegments: true,
                 recordingId: target.RecordingId,
                 sectionIndex: target.SectionIndex);
+            // Match the canonical positioner contract at :16653-16657:
+            // positioner-with-state owns the SetInterpolated call so watch-mode
+            // camera and FX paths read fresh lastInterpolatedBodyName / Altitude
+            // / Velocity. Callers do NOT need to invoke SetInterpolated separately.
+            state.SetInterpolated(interpResult);
             state.playbackIndex = absolutePlaybackIdx;
             return true;
         }

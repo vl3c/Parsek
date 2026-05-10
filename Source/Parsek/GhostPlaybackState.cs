@@ -74,6 +74,15 @@ namespace Parsek
         // engine resets it at the top of the next per-frame render pass for
         // this state.
         public bool anchorRetiredThisFrame;
+        // Companion to anchorRetiredThisFrame for the smooth-shadow route
+        // taken when the tumbling-parent gate (PR #793) classifies the parent
+        // chain rotation as unreliable AND the active Relative section has
+        // covering absoluteFrames data. Set true by the engine at the
+        // gate-fire frame; the post-position pipeline reads it to suppress
+        // FX / part events while keeping the mesh active. One-frame scope:
+        // cleared at the top of the next per-frame render pass alongside
+        // anchorRetiredThisFrame.
+        public bool anchorRotationShadowRoutedThisFrame;
         // Runtime-only defensive visibility guard for v12+ parent-anchored
         // debris whose current playback UT is outside recorded Relative
         // coverage. The deterministic predicate over (trajectory, playbackUT)
@@ -133,6 +142,7 @@ namespace Parsek
             simplified = false;
             deferVisibilityUntilPlaybackSync = false;
             anchorRetiredThisFrame = false;
+            anchorRotationShadowRoutedThisFrame = false;
             // Do not clear parentAnchoredDebrisCoverageRetired here. Visual
             // cleanup/rebuild has no trajectory + playbackUT context; only the
             // deterministic coverage helper can prove the debris is covered
