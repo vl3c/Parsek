@@ -153,8 +153,19 @@ namespace Parsek.Tests
             string distance = FlightRecorder.FormatRelativeExitDistanceForLog(
                 anchorFound: true,
                 distanceMeters: 4.06);
+            string message = FlightRecorder.BuildRelativeModeExitedLogMessage(
+                previousAnchorRecordingId: null,
+                diagnosticPid: 528453942u,
+                anchorFound: true,
+                distanceMeters: 4.06,
+                vesselPid: 2708531065u);
 
             Assert.Equal("4.1m", distance);
+            Assert.Equal(
+                "dist=4.1m",
+                FlightRecorder.FormatRelativeExitDistanceFieldForLog(true, 4.06));
+            Assert.Contains("dist=4.1m", message);
+            Assert.DoesNotContain("dist=unresolved", message);
         }
 
         #endregion
