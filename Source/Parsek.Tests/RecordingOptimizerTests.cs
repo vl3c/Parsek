@@ -4488,6 +4488,176 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        [Fact]
+        public void RunOptimizationPass_MultiStageTree_SplitsChildBranchesAndPreservesBranchTopology()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+
+            var rover = new Recording
+            {
+                RecordingId = "root_rover",
+                TreeId = "tree_multistage",
+                VesselName = "Rover",
+                VesselPersistentId = 1001,
+                ChildBranchPointId = "bp_launch"
+            };
+            rover.Points.Add(new TrajectoryPoint { ut = 0, altitude = 0, bodyName = "Kerbin" });
+            rover.Points.Add(new TrajectoryPoint { ut = 10, altitude = 0, bodyName = "Kerbin" });
+            rover.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceMobile,
+                startUT = 0,
+                endUT = 10,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            var roverContinuation = new Recording
+            {
+                RecordingId = "rover_cont",
+                TreeId = "tree_multistage",
+                VesselName = "Rover",
+                VesselPersistentId = 1001,
+                ParentBranchPointId = "bp_launch"
+            };
+            roverContinuation.Points.Add(new TrajectoryPoint { ut = 10, altitude = 0, bodyName = "Kerbin" });
+            roverContinuation.Points.Add(new TrajectoryPoint { ut = 20, altitude = 0, bodyName = "Kerbin" });
+            roverContinuation.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.SurfaceStationary,
+                startUT = 10,
+                endUT = 20,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            var rocket = MakeRecordingWithSections(100, 300, 600,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rocket.RecordingId = "rocket";
+            rocket.TreeId = "tree_multistage";
+            rocket.VesselName = "Rocket";
+            rocket.VesselPersistentId = 2002;
+            rocket.ParentBranchPointId = "bp_launch";
+            rocket.ChildBranchPointId = "bp_sep";
+
+            var transferStage = new Recording
+            {
+                RecordingId = "transfer_stage",
+                TreeId = "tree_multistage",
+                VesselName = "Transfer Stage",
+                VesselPersistentId = 3003,
+                ParentBranchPointId = "bp_sep",
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            transferStage.Points.Add(new TrajectoryPoint { ut = 600, altitude = 90000, bodyName = "Kerbin" });
+            transferStage.Points.Add(new TrajectoryPoint { ut = 700, altitude = 80000, bodyName = "Kerbin" });
+            transferStage.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 600,
+                endUT = 700,
+                frames = new List<TrajectoryPoint>()
+            });
+
+            var capsule = MakeRecordingWith3Sections(
+                600, 860, 1040, 1200,
+                SegmentEnvironment.ExoBallistic,
+                SegmentEnvironment.Atmospheric,
+                SegmentEnvironment.SurfaceStationary,
+                body1: "Kerbin",
+                body2: "Kerbin",
+                body3: "Kerbin");
+            capsule.RecordingId = "capsule";
+            capsule.TreeId = "tree_multistage";
+            capsule.VesselName = "Capsule";
+            capsule.VesselPersistentId = 4004;
+            capsule.ParentBranchPointId = "bp_sep";
+
+            var launchBp = new BranchPoint
+            {
+                Id = "bp_launch",
+                UT = 10,
+                Type = BranchPointType.Launch,
+                ParentRecordingIds = new List<string> { "root_rover" },
+                ChildRecordingIds = new List<string> { "rover_cont", "rocket" }
+            };
+            var sepBp = new BranchPoint
+            {
+                Id = "bp_sep",
+                UT = 600,
+                Type = BranchPointType.JointBreak,
+                ParentRecordingIds = new List<string> { "rocket" },
+                ChildRecordingIds = new List<string> { "transfer_stage", "capsule" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree_multistage",
+                TreeName = "Multistage Optimizer Tree",
+                RootRecordingId = "root_rover",
+                BranchPoints = new List<BranchPoint> { launchBp, sepBp },
+                Recordings = new System.Collections.Generic.Dictionary<string, Recording>
+                {
+                    { "root_rover", rover },
+                    { "rover_cont", roverContinuation },
+                    { "rocket", rocket },
+                    { "transfer_stage", transferStage },
+                    { "capsule", capsule }
+                }
+            };
+            RecordingStore.CommittedTrees.Add(tree);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            RecordingStore.AddRecordingWithTreeForTesting(rover);
+            RecordingStore.AddRecordingWithTreeForTesting(roverContinuation);
+            RecordingStore.AddRecordingWithTreeForTesting(rocket);
+            RecordingStore.AddRecordingWithTreeForTesting(transferStage);
+            RecordingStore.AddRecordingWithTreeForTesting(capsule);
+
+            RecordingStore.RunOptimizationPass();
+
+            Assert.Equal(8, recordings.Count);
+            Assert.Equal(8, tree.Recordings.Count);
+
+            var rocketHead = recordings.Single(r => r.RecordingId == "rocket");
+            Assert.False(string.IsNullOrEmpty(rocketHead.ChainId));
+            var rocketSegments = recordings
+                .Where(r => !string.IsNullOrEmpty(r.ChainId) && r.ChainId == rocketHead.ChainId)
+                .OrderBy(r => r.StartUT)
+                .ToList();
+            Assert.Equal(2, rocketSegments.Count);
+            Assert.Equal("bp_launch", rocketSegments[0].ParentBranchPointId);
+            Assert.Null(rocketSegments[0].ChildBranchPointId);
+            Assert.Equal("bp_sep", rocketSegments[1].ChildBranchPointId);
+            for (int i = 0; i < rocketSegments.Count; i++)
+                Assert.Equal(i, rocketSegments[i].ChainIndex);
+
+            var capsuleHead = recordings.Single(r => r.RecordingId == "capsule");
+            Assert.False(string.IsNullOrEmpty(capsuleHead.ChainId));
+            var capsuleSegments = recordings
+                .Where(r => !string.IsNullOrEmpty(r.ChainId) && r.ChainId == capsuleHead.ChainId)
+                .OrderBy(r => r.StartUT)
+                .ToList();
+            Assert.Equal(3, capsuleSegments.Count);
+            Assert.NotEqual(rocketHead.ChainId, capsuleHead.ChainId);
+            Assert.Equal("bp_sep", capsuleSegments[0].ParentBranchPointId);
+            for (int i = 0; i < capsuleSegments.Count; i++)
+                Assert.Equal(i, capsuleSegments[i].ChainIndex);
+
+            Assert.Equal(new[] { rocketSegments[1].RecordingId }, sepBp.ParentRecordingIds);
+            Assert.Equal(new[] { "rover_cont", "rocket" }, launchBp.ChildRecordingIds);
+            Assert.Equal(new[] { "transfer_stage", "capsule" }, sepBp.ChildRecordingIds);
+
+            foreach (var segment in rocketSegments.Concat(capsuleSegments))
+                Assert.True(tree.Recordings.ContainsKey(segment.RecordingId), segment.RecordingId);
+
+            var lineagePids = GhostChainWalker.GetRootLineageVesselPids(tree);
+            Assert.Contains((uint)1001, lineagePids);
+            Assert.Contains((uint)2002, lineagePids);
+            Assert.Contains((uint)3003, lineagePids);
+            Assert.Contains((uint)4004, lineagePids);
+
+            RecordingStore.ResetForTesting();
+        }
+
         /// <summary>
         /// Verifies that the all-boring leaf trim works end-to-end through RunOptimizationPass.
         /// After splitting Approach from Surface, the Surface leaf (all SurfaceStationary)
