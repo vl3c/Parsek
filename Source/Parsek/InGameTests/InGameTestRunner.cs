@@ -593,6 +593,28 @@ namespace Parsek.InGameTests
                 .ToList();
         }
 
+        /// <summary>
+        /// Decides whether to fire the post-test batch FLIGHT baseline
+        /// restore after a restore-backed test has executed.
+        ///
+        /// Round-7 contract: restore runs unconditionally after any test
+        /// that declared <see cref="InGameTestInfo.RestoreBatchFlightBaselineAfterExecution"/>=true
+        /// and reached <c>RunOneTest</c>, regardless of the test's terminal
+        /// <see cref="TestStatus"/>. Self-skips (<c>InGameAssert.Skip</c>
+        /// thrown from inside the test body after the body has already
+        /// started recording, staged the vessel, or otherwise mutated the
+        /// flight scene) are NOT exempted -- the body may have left the
+        /// session in any state before deciding to skip, so the next
+        /// test must start from the captured baseline. Scene-eligibility
+        /// skips are filtered out by <c>RunBatch</c>'s <c>continue;</c>
+        /// branch BEFORE the test runs, so they never reach this
+        /// predicate (and therefore never trigger an unnecessary restore).
+        /// </summary>
+        internal static bool ShouldRestoreBatchFlightBaselineAfterTest(InGameTestInfo test)
+        {
+            return test != null && test.RestoreBatchFlightBaselineAfterExecution;
+        }
+
         internal static List<InGameTestInfo> PrepareBatchExecution(IEnumerable<InGameTestInfo> tests)
         {
             var ordered = OrderForBatchExecution(tests);
@@ -869,8 +891,7 @@ namespace Parsek.InGameTests
                 activeTestCoroutine = coroutineHost.StartCoroutine(RunOneTest(test));
                 yield return activeTestCoroutine;
                 activeTestCoroutine = null;
-                if (test.RestoreBatchFlightBaselineAfterExecution
-                    && test.Status != TestStatus.Skipped)
+                if (ShouldRestoreBatchFlightBaselineAfterTest(test))
                 {
                     yield return coroutineHost.StartCoroutine(
                         RestoreBatchFlightBaselineAfterExecution(test));
