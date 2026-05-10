@@ -2740,26 +2740,35 @@ namespace Parsek
             // Always evaluate the gate. Its result drives FX suppression even
             // when we render via shadow, and is the sole reason to fall back to
             // Hide when shadow coverage is unavailable.
-            bool fxSuppress = false;
             AnchorRotationReliabilityDecision decision = default;
-            if (flags.tryEvaluateAnchorRotationReliability(
-                    index,
-                    traj,
-                    playbackUT,
-                    playbackScope,
-                    out decision))
-            {
-                fxSuppress = decision.Unreliable;
-            }
+            bool gateEvaluated = flags.tryEvaluateAnchorRotationReliability(
+                index,
+                traj,
+                playbackUT,
+                playbackScope,
+                out decision);
+            bool fxSuppress = gateEvaluated && decision.Unreliable;
 
-            // Tier 1: shadow render. Independent of gate -- the shadow track is
-            // recorder-truth at sample times and a great-circle slerp /
-            // straight-line chord between, which is correct for the entire
-            // section, not just inside tumble windows. The positioner returns
-            // false when the active Relative section has no `absoluteFrames`
-            // or the playback UT is outside coverage; in that case fall
-            // through to tier 2 / tier 3.
-            if (state != null
+            // Tier 1: shadow render. Independent of gate fire bit, but we DO
+            // require the evaluator to have run successfully -- when the
+            // evaluator returns false (no focus tree, resolver miss), the
+            // decision struct is defaulted (zero bracket / rate / offset,
+            // null AnchorRecordingId), and routing through shadow with that
+            // zeroed decision would (a) emit a misleading shadow-route log
+            // line (mode=always with bogus zero fields) and (b) silently
+            // change the pre-PR-803 behaviour for those edge cases (which
+            // returned None and let the legacy resolver chain handle the
+            // recording). Conservative: when the evaluator returned false,
+            // skip shadow and let tier 2 (legacy fallthrough) handle it.
+            //
+            // The shadow track itself is recorder-truth at sample times and
+            // a great-circle slerp / straight-line chord between -- correct
+            // for the entire section. The positioner returns false when the
+            // active Relative section has no `absoluteFrames` or the playback
+            // UT is outside coverage; in that case fall through to tier 2 /
+            // tier 3.
+            if (gateEvaluated
+                && state != null
                 && TryRouteAnchorRotationToShadow(
                     index, traj, state, playbackUT, decision, fxSuppress, phase, playbackScope))
             {

@@ -1277,6 +1277,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AlwaysShadow_EvaluatorReturnsFalse_FallsThroughToLegacy()
+        {
+            // Reviewer P2 (logging accuracy): when the host evaluator predicate
+            // returns false (no focus tree, resolver miss, etc.), the
+            // AnchorRotationReliabilityDecision struct is defaulted (bracketDeg=0,
+            // rateDegPerSec=0, offsetMeters=0, AnchorRecordingId=null). Routing
+            // through the shadow positioner with that zeroed decision would emit
+            // a misleading shadow-route log line (mode=always with bogus zero
+            // fields) and silently change pre-PR-803 behaviour for those edge
+            // cases (which returned None and let legacy handle the recording).
+            //
+            // Conservative fix: gate the shadow attempt on the evaluator having
+            // run successfully. This pins it.
+            var positioner = new SpawnPrimingPositioner
+            {
+                ShadowPositionShouldSucceed = true,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
+            // Predicate present (non-null) but returns false -- mirrors the
+            // host's "no focus tree" / "resolver miss" cases.
+            var flags = new TrajectoryPlaybackFlags
+            {
+                tryEvaluateAnchorRotationReliability =
+                    (int idx, IPlaybackTrajectory trajArg, double playbackUT,
+                        string playbackScope,
+                        out AnchorRotationReliabilityDecision decision) =>
+                    {
+                        decision = default;
+                        return false;
+                    }
+            };
+            var state = new GhostPlaybackState { vesselName = "Kerbal X Debris", ghost = null };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine, index: 4, traj: traj, state: state,
+                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
+                flags: flags,
+                frameUT: 222.0, warpRate: 1f, emitExitWatch: false);
+
+            // Shadow positioner must NOT be called when the evaluator returned
+            // false even though the recording carries absoluteFrames.
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            // Legacy positioner runs as today.
+            Assert.Equal(1, positioner.PositionLoopCalls);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.anchorRotationShadowRoutedThisFrame);
+        }
+
+        [Fact]
         public void AlwaysShadow_NotV12Debris_NoPredicate_FallsThroughToLegacy()
         {
             // Predicate gate: TrajectoryPlaybackFlags.tryEvaluateAnchorRotationReliability
