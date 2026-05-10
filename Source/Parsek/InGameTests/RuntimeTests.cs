@@ -817,24 +817,26 @@ namespace Parsek.InGameTests
             // outcome is forgiving — a near-circular ~200 km orbit clears safety even
             // when `body.position` and `.xzy` are wrong, because the magnitude error is
             // small for a Kerbin-orbit-Kerbin-active-vessel scene. The shape check
-            // below catches the frame-mismatch class of bug: any state vector that
-            // skips `(pos - body.position).xzy` corrupts sma; any that skips `vel.xzy`
-            // leaves sma alone but rotates LAN/argPe/inclination off their expected
-            // values. Tight bounds chosen from the analytic state-vector solution for
-            // (lat=0.79°, lon=8.56°, alt=203 587 m, |v|≈2 098 m/s) — circular at 203 587 m
-            // gives sma = 803 587 m and inc ≈ atan2(vY, |vXZ|) on Kerbin's equator.
+            // below catches the frame-mismatch class of bug: skipping `(pos -
+            // body.position)` corrupts |pos|, which corrupts sma AND inclination AND
+            // ecc; skipping `.xzy` rotates LAN/argPe but leaves sma invariant. So the
+            // ecc bound is what specifically discriminates a `.xzy` failure (a
+            // physically-circular orbit reseeded from axis-swapped state vectors comes
+            // out with non-zero apparent eccentricity). Tight bounds chosen from the
+            // analytic state-vector solution for (lat=0.79°, lon=8.56°, alt=203 587 m,
+            // |v|≈2 098 m/s) — circular at 203 587 m gives sma = 803 587 m and inc ≈
+            // atan2(vY, |vXZ|) on Kerbin's equator.
             InGameAssert.IsTrue(System.Math.Abs(semiMajorAxis - 803_587.0) < 5_000.0,
                 $"sma={semiMajorAxis:F1} should be near 803 587 m (analytic circular at 203.587 km); " +
-                "if this fails, suspect missing `(pos - body.position)` in the reseed call");
+                "if this fails, the (pos - body.position) subtraction is wrong (|pos| went off by the body.position offset)");
             InGameAssert.IsTrue(eccentricity < 0.005,
                 $"ecc={eccentricity:F4} should be near zero for a circular orbit; " +
-                "if this fails, suspect missing `.xzy` on either pos or vel");
+                "if this fails specifically (and sma is right), the `.xzy` flip is missing on either pos or vel");
             // Inclination from the analytic state vector: vY = -1.73, |vXZ| ≈ 2 098, so
             // inc ≈ atan(vY/|vXZ|) × 180/π ≈ 0.047°. Allow 0.5° because the synthetic
             // test rotates the body around its axis between frames.
             InGameAssert.IsTrue(inclination >= 0.0 && inclination < 0.5,
-                $"inclination={inclination:F4}° should be near zero for an equatorial state vector; " +
-                "if this fails, suspect missing `.xzy` (axis swap rotates the orbital plane)");
+                $"inclination={inclination:F4}° should be near zero for an equatorial state vector");
 
             ParsekLog.Info("TestRunner",
                 $"TerminalOrbitFromTail_DerivesPostBurnCircularOrbit: " +
@@ -864,6 +866,20 @@ namespace Parsek.InGameTests
             if (kerbin == null)
             {
                 InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+            // The bug is most observable when `body.position` is non-trivially
+            // offset from the world origin — that's when the missing
+            // `(pos − body.position)` step corrupts sma. If the test happens to
+            // run when Krakensbane has Kerbin sitting at the origin, the buggy
+            // code would produce an accidentally-correct sma and the assertions
+            // below would let the bug slip. Require a non-trivial offset
+            // (|body.position|² > 1 km²) so the test reliably exercises the
+            // frame-correction we care about, and skip with a clear reason
+            // otherwise so the failure is observable rather than silent.
+            if (kerbin.position.sqrMagnitude < 1_000_000.0)
+            {
+                InGameAssert.Skip($"Kerbin.position.sqrMagnitude={kerbin.position.sqrMagnitude:F1} too small to discriminate the body.position offset bug");
                 return;
             }
 

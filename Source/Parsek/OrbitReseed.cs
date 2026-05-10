@@ -1,3 +1,4 @@
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -58,11 +59,31 @@ namespace Parsek
             double ut)
         {
             Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
+            Vector3d bodyRelPos = worldPos - body.position;
             dst.UpdateFromStateVectors(
-                (worldPos - body.position).xzy,
+                bodyRelPos.xzy,
                 recordedVelWorldYup.xzy,
                 body,
                 ut);
+            // Magnitudes captured here are the diagnostic that would have made the
+            // original frame-mismatch bug visible in the log: |worldPos| reflects
+            // the body.position offset, |bodyRelPos| should track Radius+altitude.
+            // If a future regression silently drops the (pos − body.position) step
+            // again, the gap between these two magnitudes will show it.
+            ParsekLog.Verbose("OrbitReseed",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FromLatLonAltAndRecordedVelocity: body={0} ut={1:F2} " +
+                    "lat={2:F4} lon={3:F4} alt={4:F1} " +
+                    "|worldPos|={5:F1} |bodyRelPos|={6:F1} |bodyPos|={7:F1} |vel|={8:F2}",
+                    body?.name ?? "(null)",
+                    ut,
+                    lat,
+                    lon,
+                    alt,
+                    worldPos.magnitude,
+                    bodyRelPos.magnitude,
+                    body != null ? body.position.magnitude : 0.0,
+                    recordedVelWorldYup.magnitude));
         }
 
         /// <summary>
@@ -83,11 +104,22 @@ namespace Parsek
             Vector3d velAlreadyZup,
             double ut)
         {
+            Vector3d bodyRelPos = worldPosYup - body.position;
             dst.UpdateFromStateVectors(
-                (worldPosYup - body.position).xzy,
+                bodyRelPos.xzy,
                 velAlreadyZup,
                 body,
                 ut);
+            ParsekLog.Verbose("OrbitReseed",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FromWorldPosAndZupVelocity: body={0} ut={1:F2} " +
+                    "|worldPos|={2:F1} |bodyRelPos|={3:F1} |bodyPos|={4:F1} |vel|={5:F2}",
+                    body?.name ?? "(null)",
+                    ut,
+                    worldPosYup.magnitude,
+                    bodyRelPos.magnitude,
+                    body != null ? body.position.magnitude : 0.0,
+                    velAlreadyZup.magnitude));
         }
     }
 }

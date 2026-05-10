@@ -5134,6 +5134,20 @@ namespace Parsek
                 declineReason = "non-finite-state-vector";
                 return false;
             }
+            // body.position can be non-finite during early scene-load when the
+            // body's Unity transform hasn't been initialised yet. The orbit
+            // helper subtracts body.position to build the body-relative input;
+            // without this guard a transient NaN body.position would propagate
+            // through to a NaN orbit, which IsFiniteOrbitSeedElements catches
+            // but with a less specific decline reason (the "non-finite-elements"
+            // path is for arithmetic underflow / Unity edge cases, not for
+            // missing body init). Distinguishing here keeps the diagnostic
+            // tight when this rare case fires.
+            if (!IsFinite(body.position))
+            {
+                declineReason = "non-finite-body-position";
+                return false;
+            }
 
             try
             {
