@@ -153,6 +153,10 @@ namespace Parsek
             if (rec == null)
                 throw new ArgumentNullException(nameof(rec));
 
+            RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                rec,
+                markDirty: false,
+                context: "TrajectorySidecarBinary.Write");
             bool sectionAuthoritative = RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(rec);
             List<TrajectoryPoint> flatFallbackPoints = sectionAuthoritative
                 ? null
@@ -263,6 +267,15 @@ namespace Parsek
                 int preHealPointCount = rec.Points.Count;
                 int preHealOrbitSegmentCount = rec.OrbitSegments.Count;
                 bool healedMalformedFlatFallback = false;
+                if (!sectionAuthoritative &&
+                    probe.FormatVersion >= 1 &&
+                    rec.TrackSections.Count > 0)
+                {
+                    RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                        rec,
+                        markDirty: true,
+                        context: "TrajectorySidecarBinary.Read");
+                }
                 if (!sectionAuthoritative &&
                     probe.FormatVersion >= 1 &&
                     rec.TrackSections.Count > 0)

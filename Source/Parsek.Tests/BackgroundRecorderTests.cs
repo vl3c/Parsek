@@ -1409,6 +1409,15 @@ namespace Parsek.Tests
             Assert.Equal(300.0, closedSegment.startUT);
             Assert.Equal(500.0, closedSegment.endUT);
             Assert.Equal("Kerbin", closedSegment.bodyName);
+            Assert.Single(tree.Recordings["rec_bg1"].TrackSections);
+            var checkpoint = tree.Recordings["rec_bg1"].TrackSections[0];
+            Assert.Equal(SegmentEnvironment.ExoBallistic, checkpoint.environment);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, checkpoint.referenceFrame);
+            Assert.Equal(TrackSectionSource.Checkpoint, checkpoint.source);
+            Assert.Empty(checkpoint.frames);
+            Assert.Single(checkpoint.checkpoints);
+            Assert.Equal(300.0, checkpoint.checkpoints[0].startUT);
+            Assert.Equal(500.0, checkpoint.checkpoints[0].endUT);
 
             // Segment is closed but NOT reopened (vessel not found)
             Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));
@@ -1455,9 +1464,67 @@ namespace Parsek.Tests
             Assert.Single(tree.Recordings["rec_bg1"].OrbitSegments);
             Assert.Equal(400.0, tree.Recordings["rec_bg1"].OrbitSegments[0].endUT);
             Assert.Equal("Mun", tree.Recordings["rec_bg1"].OrbitSegments[0].bodyName);
+            Assert.Single(tree.Recordings["rec_bg1"].TrackSections);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint,
+                tree.Recordings["rec_bg1"].TrackSections[0].referenceFrame);
 
             // Vessel 200 had no open segment, so no orbit segments were added
             Assert.Empty(tree.Recordings["rec_bg2"].OrbitSegments);
+            Assert.Empty(tree.Recordings["rec_bg2"].TrackSections);
+        }
+
+        [Fact]
+        public void TryAppendClosedOnRailsCheckpointSection_DoesNotAttachAcrossLaterSection()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_bg_bridge_guard"
+            };
+            var segment = new OrbitSegment
+            {
+                startUT = 300.0,
+                endUT = 500.0,
+                inclination = 30.0,
+                eccentricity = 0.01,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = 300.0,
+                bodyName = "Kerbin"
+            };
+            var historicalEmptyCheckpoint = RecordingStore.BuildOpenOnRailsCheckpointSection(300.0);
+            historicalEmptyCheckpoint.endUT = 500.0;
+            rec.TrackSections.Add(historicalEmptyCheckpoint);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = 600.0,
+                endUT = 610.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 600.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 610.0, bodyName = "Kerbin" }
+                },
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            bool appended = RecordingStore.TryAppendClosedOnRailsCheckpointSection(
+                rec,
+                segment,
+                markDirty: false,
+                out string skipReason);
+
+            Assert.True(appended);
+            Assert.Null(skipReason);
+            Assert.Equal(3, rec.TrackSections.Count);
+            Assert.Empty(rec.TrackSections[0].checkpoints);
+            Assert.Equal(ReferenceFrame.Absolute, rec.TrackSections[1].referenceFrame);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, rec.TrackSections[2].referenceFrame);
+            Assert.Single(rec.TrackSections[2].checkpoints);
+            Assert.Single(rec.OrbitSegments);
         }
 
         [Fact]
@@ -1568,6 +1635,7 @@ namespace Parsek.Tests
                 bgRecorder.CheckpointAllVessels(200.0);
 
                 Assert.Empty(tree.Recordings["rec_bg1"].OrbitSegments);
+                Assert.Empty(tree.Recordings["rec_bg1"].TrackSections);
                 Assert.True(bgRecorder.GetOnRailsHasOpenSegment(100));
                 Assert.Contains(logLines, l =>
                     l.Contains("[BgRecorder]") &&
@@ -1603,6 +1671,8 @@ namespace Parsek.Tests
             Assert.Single(tree.Recordings["rec_bg1"].OrbitSegments);
             Assert.Equal(200.0, tree.Recordings["rec_bg1"].OrbitSegments[0].startUT);
             Assert.Equal(350.0, tree.Recordings["rec_bg1"].OrbitSegments[0].endUT);
+            Assert.Single(tree.Recordings["rec_bg1"].TrackSections);
+            Assert.Equal(350.0, tree.Recordings["rec_bg1"].TrackSections[0].endUT);
 
             // No new segment opened (vessel not found)
             Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));

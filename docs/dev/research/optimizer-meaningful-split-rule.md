@@ -63,7 +63,7 @@ Two recorder pathways write env-tagged TrackSections:
 
 Two pathways do **not** open env-tagged TrackSections:
 
-**D. Background on-rails (`BackgroundOnRailsState`)** — for packed/unloaded background vessels, the recorder accumulates `OrbitSegment` entries on the recording's flat `OrbitSegments` list. No `TrackSection`s are opened by this path. `UpdateOnRails` ([BackgroundRecorder.cs:1348](../../../Source/Parsek/BackgroundRecorder.cs)) only refreshes `ExplicitEndUT`. So a probe that is *purely* on-rails for hundreds of orbits produces zero env-tagged sections, regardless of how many times its trajectory crosses the atmosphere line.
+**D. Background on-rails (`BackgroundOnRailsState`)** — for packed/unloaded background vessels, closed `OrbitSegment` entries are represented as `OrbitalCheckpoint` / `Checkpoint` sections and mirrored into the flat `OrbitSegments` cache. This path still does not open env-classified per-frame sections: `BackgroundOnRailsState` has no `currentTrackSection`, `trackSections`, or `environmentHysteresis`, and packed vessels early-return before environment classification. So a probe that is *purely* on-rails for hundreds of orbits can produce many same-body checkpoint sections, but zero Atmospheric↔ExoBallistic env-tagged toggles regardless of how many times its trajectory crosses the atmosphere line.
 
 **E. Active-vessel pack transition** — when a focused vessel goes on rails, `FlightRecorder` opens a single `OrbitalCheckpoint` TrackSection ([FlightRecorder.cs:6268-6269](../../../Source/Parsek/FlightRecorder.cs)) and stamps it with the env classified at the moment of packing. While packed, no further env transitions are written. The whole on-rails coast is one section.
 

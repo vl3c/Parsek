@@ -17,15 +17,16 @@ namespace Parsek.Tests
     /// optimizer's `FindSplitCandidatesForOptimizer` would split the recording into a
     /// chain of 2N segments after N orbits — unbounded for any long-coasting BG vessel.
     ///
-    /// Three structural facts together prevent this:
+    /// Four structural facts together prevent this:
     ///   1. `BackgroundOnRailsState` carries no TrackSection / EnvironmentHysteresis
     ///      fields (only `BackgroundVesselState` for loaded mode does).
     ///   2. `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`, so the
     ///      env-classification path never runs while on rails.
-    ///   3. `FindSplitCandidatesForOptimizer` iterates `rec.TrackSections` only and
-    ///      ignores `rec.OrbitSegments` (which carry orbital elements, not env tags).
+    ///   3. Packed/on-rails closes may emit only OrbitalCheckpoint/ExoBallistic
+    ///      TrackSections, never per-orbit Atmospheric/ExoBallistic toggles.
+    ///   4. Same-body adjacent checkpoint sections are not splittable boundaries.
     ///
-    /// These tests exercise (1) and (3) directly. Together they trip if any future
+    /// These tests exercise (1), (3), and (4) directly. Together they trip if any future
     /// refactor moves TrackSection state onto the on-rails struct or inverts the
     /// optimizer's splitting predicate.
     ///
@@ -42,6 +43,21 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+        }
+
+        private static TrackSection MakeCheckpointSection(double startUT, double endUT, string bodyName)
+        {
+            var segment = new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = bodyName,
+                semiMajorAxis = 800000.0,
+                eccentricity = 0.18,
+                epoch = startUT
+            };
+
+            return RecordingStore.BuildClosedOnRailsCheckpointSection(segment);
         }
 
         /// <summary>
@@ -137,6 +153,60 @@ namespace Parsek.Tests
                 new List<Recording> { rec });
 
             Assert.Empty(candidates);
+        }
+
+        [Fact]
+        public void N_OnRails_Closes_Same_Body_Same_Env_Produce_Zero_Split_Candidates()
+        {
+            const int checkpointCount = 200;
+            const double segmentDuration = 3600.0;
+            var rec = new Recording
+            {
+                RecordingId = "rec_many_checkpoint_closes",
+                VesselName = "BG Grazing Probe",
+                ChainId = "chain_many",
+                ChainIndex = 0,
+                ChainBranch = 0
+            };
+
+            for (int i = 0; i < checkpointCount; i++)
+            {
+                double startUT = 100.0 + i * segmentDuration;
+                TrackSection section = MakeCheckpointSection(startUT, startUT + segmentDuration, "Kerbin");
+                rec.TrackSections.Add(section);
+                rec.OrbitSegments.Add(section.checkpoints[0]);
+            }
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec });
+
+            Assert.Empty(candidates);
+        }
+
+        [Fact]
+        public void OnRails_Checkpoint_Body_Change_Produces_Split_Candidate()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_checkpoint_soi",
+                VesselName = "BG SOI Probe",
+                ChainId = "chain_soi",
+                ChainIndex = 0,
+                ChainBranch = 0
+            };
+
+            TrackSection kerbin = MakeCheckpointSection(100.0, 300.0, "Kerbin");
+            TrackSection mun = MakeCheckpointSection(300.0, 500.0, "Mun");
+            rec.TrackSections.Add(kerbin);
+            rec.TrackSections.Add(mun);
+            rec.OrbitSegments.Add(kerbin.checkpoints[0]);
+            rec.OrbitSegments.Add(mun.checkpoints[0]);
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec });
+
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
         }
 
         /// <summary>

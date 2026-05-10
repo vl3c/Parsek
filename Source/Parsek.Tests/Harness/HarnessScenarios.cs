@@ -276,23 +276,24 @@ namespace Parsek.Tests.Harness
                 endUT: 10.0);
         }
 
-        // ===== Scenario 8: On-rails background recording (no track
-        // sections). =====
+        // ===== Scenario 8: legacy on-rails background recording without
+        // checkpoint track sections. =====
         //
         // On-rails BG vessels deliberately emit no env-classified
         // TrackSections (per project CLAUDE.md "On-rails BG vessels emit
-        // no env-classified TrackSections"; `BackgroundOnRailsState` omits
+        // no env-classified per-frame TrackSections"; `BackgroundOnRailsState` omits
         // `currentTrackSection`/`trackSections` and `OnBackgroundPhysicsFrame`
-        // early-returns on `bgVessel.packed`). For format-v6+ recordings,
-        // `RelativeAnchorResolver.TryResolveRecordingPose` requires
-        // TrackSections to be non-empty — empty TrackSections + v6+ format
-        // hits the "anchor-track-sections-missing" branch and returns false
-        // for every UT.
+        // early-returns on `bgVessel.packed`). New packed-coast recordings should
+        // wrap closed orbit segments in OrbitalCheckpoint sections, but this harness
+        // intentionally preserves the old missing-wrapper shape. For format-v6+
+        // recordings, `RelativeAnchorResolver.TryResolveRecordingPose` requires
+        // TrackSections to be non-empty, so empty TrackSections + v6+ format hits
+        // the "anchor-track-sections-missing" branch and returns false for every UT.
         //
         // This scenario pins that consistent-fail behavior for on-rails
         // recordings. The recording has Points (legacy flat trajectory
         // list) and OrbitSegments populated to reflect a realistic
-        // on-rails state, but TrackSections is intentionally empty. The
+        // legacy on-rails state, but TrackSections is intentionally empty. The
         // hash captures all-NaN-sentinel samples — if a future change
         // adds a Points-fallback for empty-TrackSections recordings on
         // v6+ format (or routes OrbitSegments through pose resolution

@@ -975,6 +975,66 @@ namespace Parsek.Tests
                 l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:2"));
         }
 
+        [Fact]
+        public void MergeTree_LegacyBackgroundOnRailsOrbitSegments_NormalizesCheckpointBridge()
+        {
+            var firstLoaded = MakeSection(
+                466.23452445989165,
+                477.33452445988155,
+                TrackSectionSource.Background,
+                lat: 0.0,
+                lon: 0.0,
+                alt: 85000.0,
+                endLat: 0.01,
+                endLon: 0.01,
+                endAlt: 90000.0);
+            var resumedLoaded = MakeSection(
+                958.87146746423491,
+                979.7714674642159,
+                TrackSectionSource.Background,
+                lat: 5.0,
+                lon: 5.0,
+                alt: 203251.0,
+                endLat: 5.01,
+                endLon: 5.01,
+                endAlt: 204000.0);
+
+            var rec = MakeRecording(
+                "rec-legacy-bg-gap",
+                "Kerbal X Probe",
+                new List<TrackSection> { firstLoaded, resumedLoaded });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(479.25749137883366, 578.22850700383356, isPredicted: false),
+                MakeOrbitSegment(578.22850700383356, 909.023508884545, isPredicted: false),
+                MakeOrbitSegment(909.023508884545, 960.51459653102938, isPredicted: false)
+            };
+
+            var tree = MakeTree("Legacy BG packed coast", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-legacy-bg-gap"];
+
+            Assert.Equal(5, merged.TrackSections.Count);
+            Assert.Equal(ReferenceFrame.Absolute, merged.TrackSections[0].referenceFrame);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, merged.TrackSections[1].referenceFrame);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, merged.TrackSections[2].referenceFrame);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, merged.TrackSections[3].referenceFrame);
+            Assert.Equal(ReferenceFrame.Absolute, merged.TrackSections[4].referenceFrame);
+            Assert.Equal(TrackSectionSource.Checkpoint, merged.TrackSections[1].source);
+            Assert.Equal(TrackSectionSource.Checkpoint, merged.TrackSections[2].source);
+            Assert.Equal(TrackSectionSource.Checkpoint, merged.TrackSections[3].source);
+            Assert.Equal(3, merged.OrbitSegments.Count);
+            Assert.Equal(479.25749137883366, merged.OrbitSegments[0].startUT);
+            Assert.Equal(960.51459653102938, merged.OrbitSegments[2].endUT);
+            Assert.DoesNotContain(logLines, l => l.Contains("MergeTree: boundary discontinuity"));
+            Assert.Contains(logLines, l =>
+                l.Contains("EnsureCheckpointSectionsForTopLevelOrbitSegments") &&
+                l.Contains("recording=rec-legacy-bg-gap") &&
+                l.Contains("added=3"));
+        }
+
         [Theory]
         [InlineData("non-predicted")]
         [InlineData("non-monotonic")]

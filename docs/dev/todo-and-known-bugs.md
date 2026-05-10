@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 background packed-coast checkpoint bridge
+
+- ~~Background packed/on-rails coasts could survive only as top-level `Recording.OrbitSegments`, leaving the section model with two adjacent Absolute Background sections after a section-authoritative split/re-save.~~ Fresh evidence: `logs/2026-05-10_1713/KSP.log` lines 17718 and 32885 warned `MergeTree: boundary discontinuity=845085.30m ... prevSrc=Background nextSrc=Background ... cause=unrecorded-gap` for `Kerbal X Probe` at `ut=958.87`. The first recording still had top-level orbit segments bridging the packed coast; the later re-merge had only two Absolute Background sections and retained the same gap.
+
+**Fix:** closed background on-rails orbit segments now append orbit-only `OrbitalCheckpoint` / `Checkpoint` `TrackSection`s and keep flat `OrbitSegments` as a rebuilt runtime cache. Legacy non-predicted top-level orbit segments are normalized into checkpoint sections before merge, optimizer split, and sidecar write/read paths can make section-authoritative decisions. Predicted terminal tails stay flat-tail data and are not promoted to real checkpoint sections.
+
+**Coverage:** `BackgroundRecorderTests.CheckpointAllVessels_WithOpenSegment_ClosesSegmentAndSkipsReopenWhenVesselNotFound`, `BackgroundRecorderTests.CheckpointAllVessels_MixedStates_OnlyClosesOpenSegments`, `SessionMergerTests.MergeTree_LegacyBackgroundOnRailsOrbitSegments_NormalizesCheckpointBridge`, `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_LegacyTopLevelOrbitBridge_NormalizesToSectionAuthoritativeCheckpoint`, and `EccentricOrbitOptimizerInvariantTests.N_OnRails_Closes_Same_Body_Same_Env_Produce_Zero_Split_Candidates` / `OnRails_Checkpoint_Body_Change_Produces_Split_Candidate`.
+
+---
+
 ## Done - v0.9.2 facility slot limits after warp recalc
 
 - ~~Facility-derived contract and strategy slot limits could stay one recalculation behind after warp exit or an instant time jump.~~ Source: review finding [P3]. `LedgerOrchestrator.RecalculateAndPatchCore` primed slot limits from the previous `FacilitiesModule` state before the walk, then a single warp-exit recalc walked the facility upgrade without refreshing the final Mission Control/Admin-derived availability.

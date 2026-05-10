@@ -88,6 +88,10 @@ namespace Parsek
                 string recId = kvp.Key;
                 Recording srcRec = kvp.Value;
 
+                RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                    srcRec,
+                    markDirty: true,
+                    context: "SessionMerger.MergeTree");
                 int inputSectionCount = srcRec.TrackSections != null ? srcRec.TrackSections.Count : 0;
 
                 // Resolve overlapping TrackSections

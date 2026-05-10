@@ -87,7 +87,7 @@ Leaf detection MUST walk to the chain TIP via `EffectiveState.ResolveChainTermin
 
 Two related concerns the user flagged, both filed as separate investigation tasks (chips):
 
-1. **Eccentric-orbit chain bloat.** An on-rails BG vessel with periapsis inside atmosphere may emit `Atmospheric` and `ExoBallistic` samples on alternating orbits, causing the optimizer to split each pair. Chain length grows unboundedly. The fix is in the optimizer's split rule.
+1. **Eccentric-orbit chain bloat.** An on-rails BG vessel with periapsis inside atmosphere must not emit per-orbit `Atmospheric` and `ExoBallistic` TrackSection toggles. Packed/on-rails closes may emit orbit-only `OrbitalCheckpoint` sections, but the env-classification path stays behind the packed early-return. The optimizer also treats same-body checkpoint sections as non-boundaries, so chain length does not grow with passive orbit count.
 2. **Meaningful-split-only redesign.** Broader principle: the optimizer should only split at env-class boundaries that correspond to *real* gameplay events (launch, re-entry, landing, take-off, destruction), not passive geometric crossings. Catalogue every (from, to) env-class transition pair and find a discriminator (focus history, thrust at crossing, on/off-rails state, nearby part events) that separates meaningful from passive.
 
 For the leaf-extension feature, both concerns affect chain-walk performance but not correctness. `ResolveChainTerminalRecording` finds the same TIP regardless of chain length. Ship this feature on top of whichever optimizer behaviour is current; expect the optimizer fix to land independently.
