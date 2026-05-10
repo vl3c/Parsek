@@ -1283,7 +1283,7 @@ Call-site evidence: `FlightRecorder.RefreshFinalizationCache` passes `Planetariu
 
 Impact: the active-recorder destruction fix no longer depends on this cache, but cache thrash can still make diagnostics misleading and may affect other paths that do not have `VesselDestroyedDuringRecording` as an authoritative override. Future fix candidates: detect stale/future atmospheric patched-conic tails at destruction-time refresh, clamp or reject predicted segment starts that are implausibly far from `refreshUT` while the live vessel is still low in atmosphere, or add an atmospheric-body impact short-circuit with terrain/atmosphere validation instead of falling through to a 50-year horizon cap.
 
-## 638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan
+## ~~638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan~~
 
 **Status:** Historical, deferred — not active correctness work.
 
@@ -1301,7 +1301,7 @@ parent-chain discovery must be transitive and #614-safe, zero PIDs never
 match, and legacy v6 or partial-shadow skips must retain explicit runtime
 fallback or warning semantics.
 
-## 637. Track remaining refactor opportunities after Refactor-4 archive
+## ~~637. Track remaining refactor opportunities after Refactor-4 archive~~
 
 **Status:** TODO - active reference in
 `docs/dev/plans/refactor-remaining-opportunities.md`, reconciled 2026-04-30.
