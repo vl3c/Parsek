@@ -2746,7 +2746,15 @@ namespace Parsek
             vesselSwitchPending = false;
             vesselSwitchPendingFrame = -1;
 
-            RecordingStore.ResetForTesting();
+            // The next operation after this prep is a quickload from the
+            // baseline save slot, which restores RecordingStore from disk
+            // via OnLoad. The in-memory wipe is transient. Use the
+            // explicit guard-bypassing variant -- ResetForTesting() throws
+            // when committedRecordings/Trees are non-empty (the
+            // PersistenceSplitOptimizerTest 2026-05-01 bug guard), and any
+            // batch FLIGHT test running on a save with live recordings hits
+            // that throw on the prep step before its body runs.
+            RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
             GroupHierarchyStore.ResetForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
             GameStateStore.ResetForTesting();
