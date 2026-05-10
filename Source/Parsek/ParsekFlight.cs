@@ -10266,6 +10266,10 @@ namespace Parsek
                     "RestoreActiveTreeFromPending: PopPendingTree returned null after we verified the tree exists");
                 yield break;
             }
+            // PopPendingTree just emptied the main pending slot; a saved pending
+            // tree from the same save can now move back unless another path filled it.
+            RecordingStore.PromoteSavedPendingTreeAfterActiveRestore(
+                "RestoreActiveTreeFromPending");
 
             // Construct a fresh FlightRecorder pointed at the restored tree.
             recorder = new FlightRecorder();
@@ -10384,6 +10388,10 @@ namespace Parsek
                     "we verified the tree exists");
                 yield break;
             }
+            // PopPendingTree just emptied the main pending slot; a saved pending
+            // tree from the same save can now move back unless another path filled it.
+            RecordingStore.PromoteSavedPendingTreeAfterActiveRestore(
+                "RestoreActiveTreeFromPendingForVesselSwitch");
 
             chainManager.ActiveTreeId = activeTree.Id;
 

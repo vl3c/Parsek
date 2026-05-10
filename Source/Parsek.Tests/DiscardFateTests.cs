@@ -148,6 +148,68 @@ namespace Parsek.Tests
                 l.Contains("DiscardPendingTree"));
         }
 
+        [Fact]
+        public void DiscardPendingTree_CommittedOverlapPreservesTaggedEventsAndPurgesPendingOnly()
+        {
+            RecordingStore.AddRecordingWithTreeForTesting(
+                MakeRecording("rec-shared", "tree-committed-overlap"),
+                "Committed Overlap");
+
+            GameStateStore.AddContractSnapshot("contract-shared", new ConfigNode("CONTRACT"));
+            GameStateStore.AddContractSnapshot("contract-pending", new ConfigNode("CONTRACT"));
+
+            var sharedLive = MakeEvent(
+                GameStateEventType.ContractAccepted, "contract-shared", 100.0, "rec-shared");
+            var pendingLive = MakeEvent(
+                GameStateEventType.ContractAccepted, "contract-pending", 110.0, "rec-pending-only");
+            GameStateStore.AddEvent(ref sharedLive);
+            GameStateStore.AddEvent(ref pendingLive);
+
+            var milestone = new Milestone
+            {
+                MilestoneId = "m-overlap",
+                StartUT = 0,
+                EndUT = 500,
+                RecordingId = "",
+                Epoch = 0,
+                Committed = true,
+                Events = new List<GameStateEvent>
+                {
+                    MakeEvent(GameStateEventType.TechResearched, "tech-shared", 120.0, "rec-shared"),
+                    MakeEvent(GameStateEventType.TechResearched, "tech-pending", 130.0, "rec-pending-only")
+                }
+            };
+            MilestoneStore.AddMilestoneForTesting(milestone);
+
+            var pendingTree = MakeTree("tree-pending-overlap", "rec-shared", "rec-pending-only");
+            RecordingStore.StashPendingTree(pendingTree);
+
+            RecordingStore.DiscardPendingTree();
+
+            Assert.Contains(GameStateStore.Events, e =>
+                e.key == "contract-shared" && e.recordingId == "rec-shared");
+            Assert.DoesNotContain(GameStateStore.Events, e => e.key == "contract-pending");
+            Assert.NotNull(GameStateStore.GetContractSnapshot("contract-shared"));
+            Assert.Null(GameStateStore.GetContractSnapshot("contract-pending"));
+
+            Assert.Equal(1, MilestoneStore.MilestoneCount);
+            var remainingMilestoneEvents = MilestoneStore.Milestones[0].Events;
+            Assert.Contains(remainingMilestoneEvents, e =>
+                e.key == "tech-shared" && e.recordingId == "rec-shared");
+            Assert.DoesNotContain(remainingMilestoneEvents, e => e.key == "tech-pending");
+            Assert.Contains(logLines, l =>
+                l.Contains("[GameStateStore]")
+                && l.Contains("PurgeEventsForRecordings")
+                && l.Contains("live=1")
+                && l.Contains("milestone=1")
+                && l.Contains("snapshots=1")
+                && l.Contains("ids=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][RecordingStore]")
+                && l.Contains("skipped destructive event/milestone purge")
+                && l.Contains("committed-overlap"));
+        }
+
         // --- #3: untagged KSC event survives an unrelated discard ---
 
         [Fact]
