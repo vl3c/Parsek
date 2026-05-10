@@ -11,6 +11,48 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 in-place Re-Fly fork inherited stale SegmentPhase/SegmentBodyName
+
+- ~~The in-place Re-Fly fork's `CopyInheritedIdentityForFork` copied the parent recording's `SegmentPhase` and `SegmentBodyName` onto the new provisional. Those fields describe the recording's own most-recent segment classification, not launch identity, so a Re-Fly off a Suborbital atmo segment that flew on to stable orbit saved with `segmentPhase=atmo` and the recordings table showed "Kerbin atmo" even though `terminalState=Orbiting` and `tOrbEcc=0.32`.~~ Reproduced by `logs/2026-05-10_1713/saves/s14/persistent.sfs` (`rec_b1566ae4…` treeOrder=10 inheriting from `32d9674c…` per `KSP.log:19465 inheritedFrom=origin sourceRec=32d9674c…`). Once non-empty, every runtime tagger that derives the phase from live vessel state guarded on `string.IsNullOrEmpty(SegmentPhase)` and became a no-op, so the inherited value rode through to OnSave.
+
+**Fix:** Drop the two inheritance lines from `RewindInvoker.CopyInheritedIdentityForFork` (`Source/Parsek/RewindInvoker.cs:249-250`) and add a new `RewindInvoker.TagForkInitialSegmentPhase(provisional, stripResult.SelectedVessel, sessionId)` call immediately after `CopyInheritedIdentityForFork` in `AtomicMarkerWrite`. The new helper delegates to `ParsekFlight.TagSegmentPhaseIfMissing` so the fork's tag uses the same body/altitude/situation classification (and same lowercase vocabulary `"atmo"`/`"exo"`/`"approach"`/`"surface"`) as every other recording's first segment. Verbose logs in all three branches (success, null-vessel, null-mainBody) — aligns with the sibling `TryRefreshForkSnapshotsFromLiveVessel` helper which uses Verbose for the same null-vessel-in-test-fixture case (Warn would pollute the existing `AtomicMarkerWriteTests` in-place test paths whose `MakeStripResult` stub returns null `SelectedVessel`).
+
+**Coverage:** `RewindForkSegmentPhaseTests` (new xUnit class — drop-on-inherit, null-vessel, sequencing canary), updated `DebrisParentAnchorContractTests.CopyInheritedIdentityForFork_DebrisProvisional_PropagatesParentRecordingId` (assertion flipped to `Assert.Null` on the two fields, with a comment pinning the rationale), updated `AtomicMarkerWriteTests.AtomicMarkerWrite_PriorTipInCommittedList_InheritsFromChainTipAndForks` (chain-tip inheritance still proven by VesselName/PID/Generation; SegmentPhase no longer inherited), and `ReFlyForkSegmentPhaseTest` (new in-game test under `Category="Rewind"` that runs `TagForkInitialSegmentPhase` against `FlightGlobals.ActiveVessel` and asserts the produced phase is in the lowercase vocabulary `{atmo, exo, approach, surface}` and the body name matches the active vessel's `mainBody.name` — vocabulary membership rather than an inline classifier reimplementation that would just be `f(x) == f(x)` against the same `TagSegmentPhaseIfMissing` the helper delegates to).
+
+**Plan:** [docs/dev/plans/fix-refly-fork-segment-phase-inheritance.md](plans/fix-refly-fork-segment-phase-inheritance.md).
+
+**Stage 2 follow-up (Open):** This PR fixes the stale-inheritance symptom but the saved phase still reflects the fork's START state, not its END state. A Re-Fly that takes off in atmo and stops in orbit will save with `phase=atmo` (the new fork-creation tag) unless the optimizer later splits the recording. See "Open - SegmentPhase saved value reflects start state, not end state" below.
+
+---
+
+## Open - SegmentPhase saved value reflects start state, not end state
+
+- After the in-place Re-Fly fork stale-inheritance fix lands, the fork's saved `SegmentPhase` reflects the live post-Strip vessel's environment at fork creation time. For a Re-Fly that takes off in atmo and stops in orbit, that's `atmo`. Stops happen via `ParsekFlight.StopRecording` (writes to `recorder.CaptureAtStop.SegmentPhase`) and `FlightRecorder.ForceStop` (does not tag `CaptureAtStop` per the explicit comment at `Source/Parsek/FlightRecorder.cs:9327` — "Intentionally does not set CaptureAtStop. Forced stops happen during scene transitions where vessel state may already be changing/unreliable"), but `FlushRecorderToTreeRecording` does not propagate `CaptureAtStop.SegmentPhase` into the tree recording — so the saved phase never reflects the recorder's stop-time state for any non-chain, non-branch recording. This is a separate latent bug that the Stage 1 fix makes more visible (once inheritance no longer hides it, every "linear flight that changes phase" recording will show its start phase, not its end phase, in the recordings table).
+- **Fix direction:** propagate `CaptureAtStop.SegmentPhase` / `SegmentBodyName` to the tree recording at flush/finalize time. Audit every `FlushRecorderToTreeRecording` call site. Also consider tagging in `RefreshActiveEffectiveLeafSnapshot` when the active leaf re-snapshots from the live vessel.
+- **Precedence constraint for Stage 2 — IMPORTANT:** the Stage 1 fork-creation tag (set in `RewindInvoker.TagForkInitialSegmentPhase`) is itself a "start tag" that Stage 2 needs to clobber when an end-state tag is available. Stage 2 must NOT just guard on `IsNullOrEmpty` (that's exactly the no-op trap that produced this whole class of bugs). The correct precedence order is roughly: chain-commit phase (unconditional) > optimizer split phase (unconditional) > end-state tag from `CaptureAtStop` at flush (unconditional, overrides start tag) > Stage 1 fork-creation start tag > inherited (REMOVED in Stage 1). Stage 2 also needs to be careful not to overwrite a chain-set phase mid-flight when the recorder's `CaptureAtStop` is from a later linear continuation.
+
+**Status:** OPEN 2026-05-10. Separate PR. Out of scope for `fix-refly-fork-segment-phase-inheritance`.
+
+---
+
+## Open - dead-code SegmentPhase tag block in `ParsekFlight.StopRecording`
+
+- `ParsekFlight.StopRecording` (`Source/Parsek/ParsekFlight.cs:9847-9869`) writes the final phase tag to `recorder.CaptureAtStop.SegmentPhase`, not to the tree recording. Since `FlushRecorderToTreeRecording` does not propagate the field, this tag never lands on disk for tree-mode recordings. It survives only because some legacy non-tree code paths read `CaptureAtStop` directly. After the in-place Re-Fly inheritance fix it becomes a more visible trap — it looks like it's tagging the saved phase but it isn't.
+- **Fix direction:** either delete the block (the chain-commit and branch-commit paths cover the live-tree path) or rewire it to also write to the active tree recording. Tracked together with the Stage 2 flush-propagation fix above.
+
+**Status:** OPEN 2026-05-10. Separate PR. Out of scope for `fix-refly-fork-segment-phase-inheritance`.
+
+---
+
+## Open - duplicated SegmentPhase classifier in three sites
+
+- `ParsekFlight.TagSegmentPhaseIfMissing` (line 3773), `ParsekFlight.StopRecording` tag block (line 9847), and `ChainSegmentManager.CommitVesselSwitchTermination` (line 773) all duplicate the same body/altitude/situation classification logic verbatim. The Stage 1 Re-Fly fork fix routes through `TagSegmentPhaseIfMissing` so it inherits any future improvement, but the three copies are a drift hazard.
+- **Fix direction:** extract a single `ClassifySegmentPhase(Vessel v, out string phase, out string body)` static helper. Borderline gold-plating; only worth doing if a fourth caller materializes or one of the three sites needs to diverge.
+
+**Status:** OPEN 2026-05-10. Low priority.
+
+---
+
 ## Done - v0.9.2 Re-Fly originals re-appear after post-merge Rewind
 
 - ~~After a successful Re-Fly, opening the Recordings window correctly hid the originals via the freshly-written supersede relations. But if the user then clicked Rewind on the launch row, the originals — including a `Destroyed` outcome the Re-Fly had successfully replaced — re-appeared in the recordings table.~~ Reproduced by `logs/2026-05-10_1713` (Kerbal X probe). Owner is the Kerbal X main rocket recording (StartUT 301.94, rewindAdjustedUT 286.9 after the launch lead-time gap). Subtree carries the four Probe recordings: atmo half `32d9674c`, exo half `cbec2f47` with `terminalState=Destroyed`, exo continuation `97d7d55d`, and the Re-Fly fork `rec_b1566ae4` (Orbiting). Re-Fly committed three supersedes (all-old → fork). Quicksave at the end of the Re-Fly merge has the supersedes; persistent.sfs after the post-merge Rewind has zero supersedes and one retirement entry retiring only the fork — so the Recordings UI re-shows the three originals (`memberCount=9` post-merge → `memberCount=11` post-rewind). The "Destroyed" probe outcome is the smoking-gun visible regression.

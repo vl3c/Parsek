@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- In-place Re-Fly forks no longer inherit the source recording's `SegmentPhase`/`SegmentBodyName` (the parent's most-recent-segment classification). The fork's phase is now classified from the live post-Strip vessel at fork creation. Stage 1 of a two-stage fix: the fork's saved phase now reflects the fork's own start state instead of the parent's terminating phase. A Re-Fly that takes off in atmo and stops in orbit will still save with `phase=atmo` until Stage 2 (which propagates the recorder's stop-time phase to the tree recording so the saved value also reflects the fork's end state for linear flights that change environment without an optimizer split) lands.
 - Re-Fly + post-merge Rewind no longer un-hides the original recordings the Re-Fly successfully replaced. Previously, when the rewind landed before every recording in the rewound subtree, only the Re-Fly fork was retired; the originals it superseded — including a `Destroyed` outcome — re-appeared in the recordings table because their supersede relations were dropped during rollback. The rollback now also retires originals whose start UT is strictly after the rewind point.
 - Fix occasional ghost jumps at relative-section seams.
 - Coasting ExoBallistic SOI transitions now remain one cohesive recording instead of being split solely because the vessel changed bodies. Cross-body exo rows now display a body path such as `Kerbin -> Mun exo`.

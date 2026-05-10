@@ -1119,7 +1119,11 @@ namespace Parsek.Tests
                 MergeState = MergeState.CommittedProvisional,
                 VesselPersistentId = kSlotPid,
                 Generation = 5,
+                // SegmentPhase + SegmentBodyName populated so the post-PR
+                // Assert.Null on the fork below is meaningful: the chain tip
+                // has classification, the fork should not pick it up.
                 SegmentPhase = "atmo",
+                SegmentBodyName = "Kerbin",
             };
             RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_chain");
             RecordingStore.AddRecordingWithTreeForTesting(chainTip, "tree_chain");
@@ -1147,11 +1151,18 @@ namespace Parsek.Tests
                 }
             }
             Assert.NotNull(fork);
-            // Inheritance switched from origin to the chain tip.
+            // Inheritance switched from origin to the chain tip — VesselName,
+            // VesselPersistentId, and Generation flow from the chain tip.
             Assert.Equal("PriorReFlyVessel", fork.VesselName);
             Assert.Equal(kSlotPid, fork.VesselPersistentId);
             Assert.Equal(5, fork.Generation);
-            Assert.Equal("atmo", fork.SegmentPhase);
+            // SegmentPhase / SegmentBodyName are NOT inherited (the fork is a
+            // new flight; phase classification must come from the live
+            // post-Strip vessel via TagForkInitialSegmentPhase, which is a
+            // no-op here because MakeStripResult returns null SelectedVessel).
+            // See fix-refly-fork-segment-phase-inheritance.md.
+            Assert.Null(fork.SegmentPhase);
+            Assert.Null(fork.SegmentBodyName);
             // Origin is left untouched in the fork model.
             Assert.Equal("OriginVessel", origin.VesselName);
             Assert.Equal(MergeState.Immutable, origin.MergeState);
