@@ -4740,6 +4740,9 @@ namespace Parsek
         internal static bool ShouldExitWatchForCoverageRetiredCycleForTesting(
             int index, long loopCycleIndex, FrameContext ctx)
             => ShouldExitWatchForCoverageRetiredCycle(index, loopCycleIndex, ctx);
+        internal static GhostRenderTrace.RenderSurface ResolveRenderSurfaceForTesting(
+            AnchorRotationUnreliableRoute route, bool retired)
+            => ResolveRenderSurface(route, retired);
 
         // Bug #450 B2 test seams. These drive the exact loop/overlap lifecycle branches
         // for pending split-build states using MockTrajectory in xUnit, without requiring

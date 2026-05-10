@@ -1099,6 +1099,221 @@ namespace Parsek.Tests
         }
 
         // ===================================================================
+        // Always-shadow router (PR #803) — fallthrough ladder cases
+        // -------------------------------------------------------------------
+        // Pre-PR-#803 the shadow render only fired when the tumbling-parent
+        // gate also fired. Post-PR-#803 the shadow render fires whenever shadow
+        // data covers the playback UT, regardless of gate state, with the gate
+        // demoted to FX-suppression authority. Hide remains the third tier
+        // when shadow is unavailable AND the gate is firing.
+        //
+        // The success-path tests live in RuntimeTests.cs because exercising
+        // the shadow positioner requires a real Unity GameObject (the engine's
+        // <c>state?.ghost == null</c> short-circuit invokes Unity's overloaded
+        // == on real ghosts). xUnit can only create literal-null
+        // <c>state.ghost</c> values, which trips the short-circuit and bypasses
+        // the shadow path entirely. The four cases below cover the legacy-
+        // and hide-fallthrough branches that work fine with a null ghost.
+        // ===================================================================
+
+        private static TrajectoryPlaybackFlags BuildAnchorRotationFlags(
+            bool unreliable,
+            string anchorRecordingId = "parent-rec",
+            double bracketDegrees = 24.0,
+            double rateDegreesPerSecond = 240.0,
+            double offsetMeters = 1500.0)
+        {
+            return new TrajectoryPlaybackFlags
+            {
+                tryEvaluateAnchorRotationReliability =
+                    (int idx, IPlaybackTrajectory traj, double playbackUT,
+                        string playbackScope,
+                        out AnchorRotationReliabilityDecision decision) =>
+                    {
+                        decision = new AnchorRotationReliabilityDecision(
+                            unreliable: unreliable,
+                            anchorRecordingId: anchorRecordingId,
+                            bracketDegrees: bracketDegrees,
+                            rateDegreesPerSecond: rateDegreesPerSecond,
+                            offsetMeters: offsetMeters);
+                        return true;
+                    }
+            };
+        }
+
+        [Fact]
+        public void AlwaysShadow_GateInactive_NoShadowData_FallsThroughToLegacy()
+        {
+            // Tier 2: older recording without v7+ absoluteFrames (or shadow
+            // filtered out at runtime). Gate doesn't fire. Router must NOT
+            // call the shadow positioner; legacy PositionLoop runs as today.
+            // No FX suppression.
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            // MakeParentAnchoredDebrisWithRelativeSection has Relative section
+            // with frames but absoluteFrames is null.
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var state = new GhostPlaybackState { vesselName = "Kerbal X Debris", ghost = null };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine, index: 4, traj: traj, state: state,
+                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
+                flags: BuildAnchorRotationFlags(unreliable: false),
+                frameUT: 222.0, warpRate: 1f, emitExitWatch: false);
+
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            Assert.Equal(1, positioner.PositionLoopCalls);
+            Assert.Equal(105.0, positioner.LastLoopUT);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.anchorRotationShadowRoutedThisFrame);
+        }
+
+        [Fact]
+        public void AlwaysShadow_GateActive_NoShadowData_FallsThroughToHide()
+        {
+            // Tier 3: no shadow available AND gate fires. Hide is the
+            // third-tier fallback: legacy reconstruction would be visible
+            // chaos for the current frame, so retire the mesh
+            // (anchorRetiredThisFrame=true) and emit the exit-watch event.
+            // This is the same behaviour PR #800 had when it fell through
+            // from shadow-attempt to hide; the ladder shape is unchanged
+            // for this case.
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            GhostPlaybackState state = null;
+            var cameraEvents = new List<CameraActionEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+
+            InvokePositionLoopAtPlaybackUT(
+                engine, index: 4, traj: traj, state: state,
+                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
+                flags: BuildAnchorRotationFlags(unreliable: true),
+                frameUT: 222.0, warpRate: 1f, emitExitWatch: true);
+
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            Assert.Equal(0, positioner.PositionLoopCalls);
+            var evt = Assert.Single(cameraEvents);
+            Assert.Equal(CameraActionType.ExitWatch, evt.Action);
+            // The hide tier emits two log lines: the engine-level exit-watch
+            // (always at Verbose) and a GhostRenderTrace GuardSkip ("hidden"
+            // suffix, gated on verbose+detailed-window). xUnit only captures
+            // the exit-watch line, which the existing legacy hide-path test
+            // also asserts on.
+            Assert.Contains(logLines, l =>
+                l.Contains("anchor-rotation-unreliable")
+                && l.Contains("playbackUT=105"));
+        }
+
+        [Fact]
+        public void AlwaysShadow_NullGhostShortCircuit_GateInactive_FallsThroughToLegacy()
+        {
+            // Defensive guard inside TryRouteAnchorRotationToShadow: when
+            // state?.ghost is null the shadow positioner is never invoked
+            // (pre-flight bail) regardless of whether shadow data covers.
+            // With gate inactive, the router falls through to legacy as
+            // today. This pins the null-ghost short-circuit so a future
+            // refactor that loosens the check has to update the test.
+            var positioner = new SpawnPrimingPositioner
+            {
+                ShadowPositionShouldSucceed = true,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
+            var state = new GhostPlaybackState { vesselName = "Kerbal X Debris", ghost = null };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine, index: 4, traj: traj, state: state,
+                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
+                flags: BuildAnchorRotationFlags(unreliable: false),
+                frameUT: 222.0, warpRate: 1f, emitExitWatch: false);
+
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            Assert.Equal(1, positioner.PositionLoopCalls);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.anchorRotationShadowRoutedThisFrame);
+        }
+
+        [Fact]
+        public void AlwaysShadow_NotV12Debris_NoPredicate_FallsThroughToLegacy()
+        {
+            // Predicate gate: TrajectoryPlaybackFlags.tryEvaluateAnchorRotationReliability
+            // is null for non-v12 debris (host-side ShouldEvaluateAnchorRotationReliability
+            // returns false when IsDebris==false OR DebrisParentRecordingId is
+            // null). The router must early-return None and let legacy
+            // positioning run, even if the recording does carry absoluteFrames.
+            // This protects the live-anchor and non-debris cases from being
+            // unintentionally re-routed.
+            var positioner = new SpawnPrimingPositioner
+            {
+                ShadowPositionShouldSucceed = true,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
+            // Flags with no anchor-rotation predicate -- mirrors the host side
+            // for non-v12 / live-anchor recordings.
+            var flags = new TrajectoryPlaybackFlags();
+            var state = new GhostPlaybackState { vesselName = "Kerbal X Debris", ghost = null };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine, index: 4, traj: traj, state: state,
+                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
+                flags: flags,
+                frameUT: 222.0, warpRate: 1f, emitExitWatch: false);
+
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            Assert.Equal(1, positioner.PositionLoopCalls);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.anchorRotationShadowRoutedThisFrame);
+        }
+
+        [Fact]
+        public void ResolveRenderSurface_RouteShadow_ReturnsShadow()
+        {
+            // Trace surface resolver: pure helper. Shadow route always
+            // resolves to Shadow regardless of retired (the route enum was
+            // ShadowPositioned, so the engine wrote a real position before
+            // any retire signal could fire on the same frame).
+            Assert.Equal(GhostRenderTrace.RenderSurface.Shadow,
+                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
+                    AnchorRotationUnreliableRoute.ShadowPositioned, retired: false));
+            Assert.Equal(GhostRenderTrace.RenderSurface.Shadow,
+                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
+                    AnchorRotationUnreliableRoute.ShadowPositioned, retired: true));
+        }
+
+        [Fact]
+        public void ResolveRenderSurface_RouteHidden_ReturnsHidden()
+        {
+            Assert.Equal(GhostRenderTrace.RenderSurface.Hidden,
+                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
+                    AnchorRotationUnreliableRoute.Hidden, retired: false));
+            Assert.Equal(GhostRenderTrace.RenderSurface.Hidden,
+                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
+                    AnchorRotationUnreliableRoute.Hidden, retired: true));
+        }
+
+        [Fact]
+        public void ResolveRenderSurface_RouteNoneAndRetired_ReturnsHidden()
+        {
+            // Legacy rendering path BUT downstream retire mechanism (e.g. the
+            // recorded-relative coverage gate) marked the ghost retired this
+            // frame. Surface attribution should be Hidden because the mesh is
+            // not visible.
+            Assert.Equal(GhostRenderTrace.RenderSurface.Hidden,
+                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
+                    AnchorRotationUnreliableRoute.None, retired: true));
+        }
+
+        [Fact]
+        public void ResolveRenderSurface_RouteNoneAndNotRetired_ReturnsLegacy()
+        {
+            Assert.Equal(GhostRenderTrace.RenderSurface.Legacy,
+                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
+                    AnchorRotationUnreliableRoute.None, retired: false));
+        }
+
+        // ===================================================================
         // Shadow-route FX-flag helpers — pure-static OR pattern + primary-loop
         // branch decision. The bug class these test pin: clear-without-read
         // leaks of FX state through the shadow-route window. A reviewer caught
