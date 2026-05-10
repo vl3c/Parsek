@@ -165,12 +165,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
+## Done - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
 
 - During the 2026-05-08 playtest of the post-anchor-fix debris-rendering stack, the slot=0 Re-Fly playback emitted 22 `[WARN][RelativeAnchorResolver] relative-anchor-unresolved: reason=anchor-out-of-recorded-range` lines (`logs/2026-05-08_1740_rewind-and-refly-regressions/KSP.log:55431-65652` and follow-ups). Every UT in the warns is exactly `section.endUT + 1e-13..3e-12` — double-precision rounding noise from per-frame UT accumulation pushing the playback query just past the section's recorded endUT. The resolver's `FindTrackSectionForUT` treats this as "past the last section" and returns the unresolved sentinel. Ghost #9 (the Probe fork) showed a 2.5 m positional discontinuity at the UT 50.10 section seam where two adjacent Relative sections each anchored their own offset.
-- **Fix direction:** make `FindTrackSectionForUT` tolerant of `ut ∈ [endUT, endUT + 1e-9]` mapping to the last sample of the matching section (or first of next). Add a regression scenario to PR #766's resolver harness pinning `ut == section.endUT` and `ut == section.endUT + 1e-12` to the expected pose.
+- Later log review found the same resolver/caller mismatch at the terminal edge: some anchor probes arrived exactly one physics tick after the final section end while playback had already held the ghost at its final playable frame.
+- **Fix:** `RelativeAnchorResolver` now uses a resolver-local `1e-9` section seam tolerance for anchor section lookup and same-chain successor filtering while keeping global `TrajectoryMath.FindTrackSectionForUT` strict. After same-chain continuation gets precedence, final-section terminal probes clamp only inside a derived `Time.fixedDeltaTime + 1e-6` window and only to the final playable sample/frame UT; larger misses still fail closed and terminal clamps emit a rate-limited resolver log.
 
-**Status:** OPEN 2026-05-08. Separate PR.
+**Status:** CLOSED 2026-05-10.
 
 ---
 
