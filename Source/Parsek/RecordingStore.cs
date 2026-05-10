@@ -5282,6 +5282,22 @@ namespace Parsek
             foreach (string retiredId in result.RetiredForkRecordingIds)
                 result.RestoredRecordingIds.Remove(retiredId);
 
+            // Also prune any preserved canon ids — a recording can be both
+            // the Old of a dropped relation (added to RestoredRecordingIds
+            // by the apply loop above) AND the New of a preserved Immutable
+            // relation (in SkippedImmutableForkRecordingIds, hence the canon
+            // head). Example: A → B(Imm) → C(Prov) → D(Imm) rewind past A.
+            // B preserves as canon (A→B kept) but is also the priorTip of
+            // the dropped B→C, so it lands in RestoredRecordingIds. The
+            // live caller's Pass 2 (PR #807 old-side retirement) iterates
+            // RestoredRecordingIds and would retire B — leaving NO canon
+            // head visible (A hidden by surviving A→B, B retired by old-side
+            // pass). Canon preservation must win: anything in
+            // SkippedImmutableForkRecordingIds is the canon and stays
+            // visible, never a candidate for old-side retirement.
+            foreach (string preservedId in result.SkippedImmutableForkRecordingIds)
+                result.RestoredRecordingIds.Remove(preservedId);
+
             return result;
         }
 

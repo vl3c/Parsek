@@ -1168,26 +1168,25 @@ namespace Parsek.Tests
             // in pendingRetiredNewIds at any iteration — Pass 2 fixpoint stops
             // at the canon boundary).
             Assert.Single(scenario.RecordingSupersedes);
-            // Retirements: 2 forks (C from Pass 1, D from Pass 2 demote) + 1
-            // old-side (B). The new old-side pass added by PR #807 retires
-            // OldRecordingIds in RestoredRecordingIds whose StartUT >
-            // rewindAdjustedUT. After the apply-drops loop's prune step,
-            // RestoredRecordingIds={B} (B was Old of B→C and not in
-            // RetiredForkRecordingIds={C,D}); B.StartUT=31.5>6.5 so B retires.
-            Assert.Equal(3, scenario.RecordingRewindRetirements.Count);
+            // Retirements: 2 forks only (C from Pass 1, D from Pass 2 demote).
+            // B is NOT retired even though it ended up in RestoredRecordingIds
+            // during the apply-drops phase (B was Old of dropped B→C). The
+            // pure helper's prune step removes ids that are also in
+            // SkippedImmutableForkRecordingIds={B} so the live entry's old-side
+            // pass cannot retire the canon head. Without that prune, B would
+            // be retired as old-side and the canon head would render as hidden
+            // (A hidden by surviving A→B; B retired) → no canon visible.
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
             var retiredIds = new HashSet<string>(
                 scenario.RecordingRewindRetirements.ConvertAll(r => r.RecordingId),
                 System.StringComparer.Ordinal);
-            Assert.Contains("B", retiredIds); // old-side
-            Assert.Contains("C", retiredIds); // fork — Pass 1 drop
-            Assert.Contains("D", retiredIds); // fork — Pass 2 demote
+            Assert.DoesNotContain("B", retiredIds); // canon head — preserved
+            Assert.Contains("C", retiredIds);       // fork — Pass 1 drop
+            Assert.Contains("D", retiredIds);       // fork — Pass 2 demote
             // Reasons distinguish demotion intent from regular retirement.
             // C: Pass 1 drop, default reason. D: explicit demotion → DemotedCanonReason.
-            // B: old-side pass → RewoundOutOldSideReason.
-            var bRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "B");
             var cRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "C");
             var dRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "D");
-            Assert.Equal(RecordingRewindRetirement.RewoundOutOldSideReason, bRetirement.Reason);
             Assert.Equal(RecordingRewindRetirement.DefaultReason, cRetirement.Reason);
             Assert.Equal(RecordingRewindRetirement.DemotedCanonReason, dRetirement.Reason);
             // Defensive Immutable warning must NOT fire — D was explicitly
@@ -1379,6 +1378,78 @@ namespace Parsek.Tests
             Assert.Contains("A", result.RestoredRecordingIds);
             Assert.Empty(result.SkippedImmutableForkRecordingIds);
             Assert.Empty(result.DemotedImmutablePreservationIds);
+        }
+
+        [Fact]
+        public void LiveRollback_FourGenWithCanonHead_PreservedCanonNotRetiredByOldSidePass()
+        {
+            // Live-path regression guard for the canon-head preservation
+            // bug: A(Imm) → B(Imm) → C(Prov) → D(Imm), rewind past A.
+            //
+            // Pass 1 in DropSupersedesRewoundOutOfExistenceDetailedPure:
+            //   A→B preserves (B Imm), B→C drops (C Prov), C→D preserves (D Imm).
+            // Pass 2 fixpoint:
+            //   pendingRetiredNewIds={C} → C→D's Old=C ∈ {C} demote.
+            //   pendingDrops=[B→C, C→D]. SkippedImmutableForkRecordingIds={B}.
+            //
+            // Apply-drops loop adds B (from B→C's Old) and C (from C→D's
+            // Old) to RestoredRecordingIds. Existing prune removes C (it's
+            // retired). Without the new SkippedImmutableForkRecordingIds
+            // prune, RestoredRecordingIds={B} — and the live entry's Pass 2
+            // (PR #807 old-side pass) would iterate {B}, see B.StartUT >
+            // rewindUT, retire B as old-side. End state would be:
+            //   A hidden by surviving A→B (correct).
+            //   B retired by old-side pass (WRONG — B is the canon head).
+            //   C, D retired (correct).
+            // → no canon head visible.
+            //
+            // With the prune fix, RestoredRecordingIds={} after the apply
+            // loop, Pass 2 (old-side) iterates nothing, B remains the
+            // visible canon head.
+            var a = MakeRecWithMergeState("A", startUT: 0.0, MergeState.Immutable);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.CommittedProvisional);
+            var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
+            InstallCommittedTreeForTesting("tree-canon-head", a, b, c, d);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B"),
+                    MakeRel("B", "C"),
+                    MakeRel("C", "D")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(a.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(0.0);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 0.0);
+
+            // 2 drops: B→C (Pass 1) and C→D (Pass 2 demoted). A→B preserves.
+            Assert.Equal(2, dropped);
+            // A→B survives in supersedes — A hidden by it, B is the canon head.
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("A", scenario.RecordingSupersedes[0].OldRecordingId);
+            Assert.Equal("B", scenario.RecordingSupersedes[0].NewRecordingId);
+            // CRITICAL: B (canon head) must NOT be retired by the old-side
+            // pass even though it ended up in RestoredRecordingIds during
+            // the apply-drops phase. Only C (Pass 1 drop) and D (Pass 2
+            // demoted) retire.
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            var retiredIds = new HashSet<string>(
+                scenario.RecordingRewindRetirements.ConvertAll(r => r.RecordingId),
+                System.StringComparer.Ordinal);
+            Assert.Contains("C", retiredIds);
+            Assert.Contains("D", retiredIds);
+            Assert.DoesNotContain("B", retiredIds);
+            Assert.DoesNotContain("A", retiredIds);
+            // ERS-shape proof: B is the canon head — visible (no retirement,
+            // no incoming supersede that lists B as the Old of a relation
+            // with a live New).
+            Assert.False(EffectiveState.IsRewindRetired(b, scenario.RecordingRewindRetirements),
+                "B is the preserved canon head and must not be classified as rewind-retired.");
         }
 
         [Fact]
