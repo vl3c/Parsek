@@ -4122,7 +4122,7 @@ namespace Parsek
             if (!ghostStates.TryGetValue(index, out var state) || state == null)
                 return false;
             if (TryHandleParentAnchoredDebrisCoverageRetired(
-                    index, traj, state, playbackUT, playbackUT, TimeWarp.CurrentRate,
+                    index, traj, state, playbackUT, currentUT, TimeWarp.CurrentRate,
                     "GhostPlaybackEngine.EnsureGhostVisualsLoadedForWatch",
                     emitExitWatch: false,
                     out _))

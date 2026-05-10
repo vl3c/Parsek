@@ -89,7 +89,7 @@ phase=ActivationDecision rec=… ghostIndex=N frame=N currentUT=… playbackUT=�
   hidden=true|false            # ShouldHoldInitialActivationHiddenThisFrame return value
   hideReason=…                 # the reason string (activation-settle / minimum-frames / relative-start / etc.) or "(none)"
   framesRemaining=N            # state.initialRelativeActivationHiddenFramesRemaining (post-decrement)
-  transition=hidden|visible|first-visible
+  transition=hidden|first-visible             # `visible` (steady-state) rows are intentionally suppressed at the API level to avoid a per-frame log flood
   prevHiddenPos=(x,y,z)        # state.lastHiddenPosition (NaN until first hidden frame writes it)
   hiddenPoseDelta=…            # |currentPos - lastHiddenPosition|, only meaningful when transition=first-visible
 ```
