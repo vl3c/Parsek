@@ -48,32 +48,96 @@ namespace Parsek.InGameTests.Helpers
         /// </summary>
         internal static void TriggerQuickload(string slotName = QuicksaveSlotName)
         {
+            // Splitting validation from commit lets the batch-baseline-restore
+            // flow run its prep wipe BETWEEN them: validate the .sfs is
+            // loadable first (cheap, non-destructive parse), then wipe
+            // in-memory state knowing the load is committed-or-imminent,
+            // then commit the scene change. Other callers retain the
+            // bundled "validate + commit" semantics through this wrapper.
+            ValidatedGameLoad load = LoadAndValidateGameForQuickload(slotName);
+            CommitValidatedGameLoad(load);
+        }
+
+        /// <summary>
+        /// Result of the non-destructive validation half of a quickload:
+        /// the .sfs has been parsed, the active-vessel index is in range,
+        /// and the scene change is ready to commit via
+        /// <see cref="CommitValidatedGameLoad"/>. The <see cref="Game"/>
+        /// reference is the one that <c>FlightDriver.StartAndFocusVessel</c>
+        /// will adopt; do not mutate it between validation and commit.
+        /// </summary>
+        internal struct ValidatedGameLoad
+        {
+            public Game Game;
+            public int ActiveVesselIdx;
+            public string SaveName;
+            public string SlotName;
+        }
+
+        /// <summary>
+        /// Non-destructive half of <see cref="TriggerQuickload"/>: parses
+        /// the .sfs, validates flight-state shape and active-vessel index,
+        /// returns the loaded <see cref="Game"/> for a subsequent
+        /// <see cref="CommitValidatedGameLoad"/>. KSP's
+        /// <c>GamePersistence.LoadGame</c> does not swap the active game
+        /// or trigger any scene change, so failure throws (or skips) before
+        /// the caller has done anything irreversible. Used by
+        /// <c>InGameTestRunner.RestoreBatchFlightBaselineCore</c> to gate
+        /// the prep wipe of save-scoped in-memory stores -- the wipe only
+        /// runs after this call returns successfully, so a missing /
+        /// corrupt baseline slot can no longer leave RecordingStore +
+        /// six other Parsek stores cleared without the new scene having
+        /// loaded.
+        /// </summary>
+        internal static ValidatedGameLoad LoadAndValidateGameForQuickload(string slotName)
+        {
             string saveName = HighLogic.SaveFolder;
             InGameAssert.IsTrue(!string.IsNullOrEmpty(slotName),
-                "TriggerQuickload failed: slotName was null/empty");
+                "LoadAndValidateGameForQuickload failed: slotName was null/empty");
 
             string quicksavePath = GetSavePath(saveName, slotName);
-            EnsureQuicksaveFileReady(quicksavePath, saveName, caller: "TriggerQuickload");
+            EnsureQuicksaveFileReady(quicksavePath, saveName, caller: "LoadAndValidateGameForQuickload");
 
             Game game = GamePersistence.LoadGame(slotName, saveName, true, false);
             InGameAssert.IsNotNull(game,
-                $"TriggerQuickload failed: LoadGame returned null for '{saveName}/{slotName}'");
+                $"LoadAndValidateGameForQuickload failed: LoadGame returned null for '{saveName}/{slotName}'");
             InGameAssert.IsNotNull(game.flightState,
-                $"TriggerQuickload failed: loaded game for '{saveName}/{slotName}' had null flightState");
+                $"LoadAndValidateGameForQuickload failed: loaded game for '{saveName}/{slotName}' had null flightState");
             InGameAssert.IsNotNull(game.flightState.protoVessels,
-                $"TriggerQuickload failed: loaded game for '{saveName}/{slotName}' had null protoVessels");
+                $"LoadAndValidateGameForQuickload failed: loaded game for '{saveName}/{slotName}' had null protoVessels");
 
             int activeVesselIdx = game.flightState.activeVesselIdx;
             if (activeVesselIdx < 0 || activeVesselIdx >= game.flightState.protoVessels.Count)
             {
                 InGameAssert.Skip(
-                    $"TriggerQuickload skipped: loaded quicksave '{saveName}/{slotName}' had invalid activeVesselIdx={activeVesselIdx} " +
+                    $"LoadAndValidateGameForQuickload skipped: loaded quicksave '{saveName}/{slotName}' had invalid activeVesselIdx={activeVesselIdx} " +
                     $"for protoVessels.Count={game.flightState.protoVessels.Count}");
             }
 
-            FlightDriver.StartAndFocusVessel(game, activeVesselIdx);
+            return new ValidatedGameLoad
+            {
+                Game = game,
+                ActiveVesselIdx = activeVesselIdx,
+                SaveName = saveName,
+                SlotName = slotName,
+            };
+        }
+
+        /// <summary>
+        /// Commit half of <see cref="TriggerQuickload"/>: hands the
+        /// validated game to <c>FlightDriver.StartAndFocusVessel</c>,
+        /// which schedules the FLIGHT scene change. After this returns
+        /// the caller should yield to <see cref="WaitForFlightReady"/>;
+        /// <c>OnLoad</c> on every ScenarioModule (including
+        /// ParsekScenario, which rebuilds RecordingStore + all the
+        /// save-scoped Parsek stores from the loaded game) fires during
+        /// the scene transition.
+        /// </summary>
+        internal static void CommitValidatedGameLoad(ValidatedGameLoad load)
+        {
+            FlightDriver.StartAndFocusVessel(load.Game, load.ActiveVesselIdx);
             ParsekLog.Info("TestHelper",
-                $"TriggerQuickload: loading '{saveName}/{slotName}' via FlightDriver.StartAndFocusVessel(activeVesselIdx={activeVesselIdx})");
+                $"TriggerQuickload: loading '{load.SaveName}/{load.SlotName}' via FlightDriver.StartAndFocusVessel(activeVesselIdx={load.ActiveVesselIdx})");
         }
 
         private static string GetSavePath(string saveName, string slotName)

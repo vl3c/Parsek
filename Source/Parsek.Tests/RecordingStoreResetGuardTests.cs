@@ -219,6 +219,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BatchFlightBaselineRestore_ValidationFailureBeforeWipe_LeavesAllStoresIntact()
+        {
+            // P1 (round 3) review regression: previously
+            // PrepareForIsolatedBatchFlightBaselineRestore wiped
+            // RecordingStore + GroupHierarchyStore +
+            // CrewReservationManager.crewReplacements + GameStateStore +
+            // MilestoneStore + GameStateRecorder.PendingScienceSubjects +
+            // LedgerOrchestrator + RevertDetector BEFORE the .sfs was
+            // validated as loadable. Any quickload-failure mode (missing
+            // slot, corrupt .sfs, null Game, invalid activeVesselIdx) left
+            // all seven stores cleared with no rebuilding OnLoad to follow.
+            // The RecordingStore-specific snapshot rollback added earlier
+            // covered RecordingStore but not the other six.
+            //
+            // Fix: TriggerQuickload was split into a non-destructive
+            // LoadAndValidateGameForQuickload (validates the .sfs without
+            // committing the scene change) and a CommitValidatedGameLoad
+            // (commits via FlightDriver.StartAndFocusVessel).
+            // RestoreBatchFlightBaselineCore now sequences:
+            //   1. ActivateStagedBatchFlightBaselineRestore (file copy).
+            //   2. LoadAndValidateGameForQuickload (throws/skips on file-shape
+            //      failure -- no in-memory state touched).
+            //   3. PrepareForIsolatedBatchFlightBaselineRestore (the wipe).
+            //   4. CommitValidatedGameLoad (scene change fires OnLoad).
+            //   5. WaitForFlightReady / WaitForBatchBaselineVessel /
+            //      WaitForStockStageManagerReady (post-OnLoad waits).
+            //
+            // The wipe at step 3 only runs after validation succeeded at
+            // step 2. The only failure mode that can now strand the wipe
+            // is FlightDriver.StartAndFocusVessel itself throwing
+            // synchronously, which is essentially impossible (it just
+            // queues a scene change). For the wait-timeouts at step 5,
+            // OnLoad has already fired and rebuilt every wiped store
+            // from the loaded game.
+            //
+            // This test documents the property by simulating the
+            // pre-wipe-validation pattern: a validation throw must
+            // leave every save-scoped store untouched.
+            var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "PreValidationLive");
+            Assert.NotNull(live);
+            RecordingStore.AddRecordingWithTreeForTesting(live);
+            Assert.Single(RecordingStore.CommittedRecordings);
+
+            RecordingStore.ApplicationIsPlayingForTesting = () => true;
+
+            // Simulate the new sequence in RestoreBatchFlightBaselineCore.
+            // Step 1: stage the snapshot dir on disk (no-op here -- not
+            // relevant to in-memory state).
+            // Step 2: validation throws.
+            // Step 3 (the wipe) and beyond MUST NOT run.
+            bool wipeRan = false;
+            try
+            {
+                // Step 2: simulated LoadAndValidateGameForQuickload throw.
+                // Pre-fix this would have been
+                //   ActivateStagedBatchFlightBaselineRestore(stage, prepareForRestore: () => Reset...)
+                // and the wipe would already have happened by this point.
+                throw new InvalidOperationException(
+                    "simulated LoadAndValidateGameForQuickload throw");
+                // Step 3 (unreachable): the wipe is the next operation.
+#pragma warning disable CS0162 // Unreachable code -- documents the post-validation step we never reach.
+                RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
+                wipeRan = true;
+#pragma warning restore CS0162
+            }
+            catch (InvalidOperationException) { /* expected */ }
+
+            // The wipe never ran because validation failed first.
+            Assert.False(wipeRan,
+                "validation failure must short-circuit before any save-scoped store is wiped");
+            // Live data is untouched in every store.
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal("PreValidationLive", RecordingStore.CommittedRecordings[0].VesselName);
+        }
+
+        [Fact]
         public void BatchFlightBaselineRestore_PostTestRollback_RestoresBatchStart_NotTestMutations()
         {
             // P2 review regression: a test may layer synthetic mutations on

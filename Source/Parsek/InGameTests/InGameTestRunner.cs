@@ -1028,31 +1028,44 @@ namespace Parsek.InGameTests
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
             // Fail-closed live-data recovery for the batch FLIGHT baseline
-            // restore flow. ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore
-            // (called below inside ActivateStagedBatchFlightBaselineRestore)
-            // wipes RecordingStore IN MEMORY through
-            // RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard --
-            // intentionally bypassing the live-save guard because the very
-            // next operation is a quickload that re-populates RecordingStore
-            // from disk via OnLoad. But if any step between the wipe and
-            // OnLoad firing throws -- TriggerQuickload (missing/empty
-            // baseline slot, null Game / null flightState / null protoVessels,
-            // invalid activeVesselIdx) or any of the WaitFor* coroutines
-            // (timeout) -- the player's live in-memory recordings have been
-            // wiped with no recovery path, reopening the exact data-loss
-            // class the ResetForTesting guard exists to prevent.
+            // restore flow. The reordered sequence below puts the prep
+            // wipe AFTER the .sfs has been validated as loadable but
+            // BEFORE the scene-change commit. This eliminates the failure
+            // window where the wipe runs with no rebuilding OnLoad to
+            // follow, which previously left seven Parsek save-scoped
+            // stores cleared (RecordingStore + GroupHierarchyStore +
+            // CrewReservationManager.crewReplacements + GameStateStore +
+            // MilestoneStore + GameStateRecorder.PendingScienceSubjects +
+            // LedgerOrchestrator + RevertDetector) on any quickload
+            // failure.
             //
-            // Use the snapshot captured at batch start
-            // (CaptureFlightBatchBaseline) -- NOT a fresh per-call capture.
-            // For the pre-prime call the two are equivalent (the player's
-            // pre-batch state == current state), but for the post-test
-            // call the just-run test may have left synthetic mutations
-            // in RecordingStore. Rolling back to those mutations on
-            // restore failure would preserve test fixture state instead
-            // of the player's authoritative pre-batch state. The single
-            // batch-start snapshot is the correct rollback target for
-            // every restore attempt during the batch.
+            // New sequence:
+            //   1. Stage the .sfs / Parsek snapshot dir (file copy only).
+            //   2. Parse and validate the staged .sfs via
+            //      LoadAndValidateGameForQuickload -- non-destructive.
+            //      Throws / skips on missing file, null Game, null
+            //      flightState, null protoVessels, invalid
+            //      activeVesselIdx. None of these touch live state.
+            //   3. Run the prep wipe (PrepareForIsolatedBatchFlightBaselineRestore).
+            //      The .sfs is already validated; the scene change is
+            //      one synchronous call away. The only failure that can
+            //      now strand the wipe is FlightDriver.StartAndFocusVessel
+            //      itself throwing, which is essentially impossible in
+            //      practice (it just queues a scene change).
+            //   4. Commit the scene change via CommitValidatedGameLoad.
+            //   5. Wait for FLIGHT-ready / batch vessel / stock stage
+            //      manager. By this point OnLoad has fired and rebuilt
+            //      every wiped store from the loaded game; wait timeouts
+            //      mean scene rendering didn't complete in N seconds, but
+            //      the data is already restored from disk.
             //
+            // The RecordingStore-specific snapshot rollback is preserved
+            // as defense-in-depth: it covers the residual edge case where
+            // (1)-(4) succeed but a wait times out before OnLoad has
+            // fully completed its rebuild, AND covers the equally rare
+            // StartAndFocusVessel-throws case for RecordingStore. The
+            // other six stores remain unprotected only in those same
+            // residual cases; a manual quickload (F9) restores them.
             // Pair with the iterator-disposal fix in RunCoroutineSafely
             // -- without that, this finally never runs when a nested
             // wait throws, because RunCoroutineSafely abandons the parent
@@ -1063,16 +1076,36 @@ namespace Parsek.InGameTests
             {
                 using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
                 {
-                    var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
-                        as ParsekScenario;
+                    // Step 1: stage the .sfs / Parsek snapshot dir on disk.
+                    // No in-memory state changes here.
                     ActivateStagedBatchFlightBaselineRestore(
                         stagedSnapshot.Activate,
-                        () => ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
-                            currentScenario != null
-                                ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
-                                : null));
+                        prepareForRestore: null);
                 }
-                Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
+
+                // Step 2: validate the staged .sfs is loadable BEFORE the
+                // wipe. Throws / skips on file-shape failures without
+                // touching any in-memory store.
+                Helpers.QuickloadResumeHelpers.ValidatedGameLoad validatedLoad =
+                    Helpers.QuickloadResumeHelpers.LoadAndValidateGameForQuickload(baseline.SlotName);
+
+                // Step 3: prep wipe runs only after validation succeeded.
+                // Save-scoped in-memory state is now expected to be
+                // rebuilt by the imminent OnLoad fire-after-scene-change.
+                {
+                    var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
+                        as ParsekScenario;
+                    ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
+                        currentScenario != null
+                            ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
+                            : null);
+                }
+
+                // Step 4: commit the scene change.
+                Helpers.QuickloadResumeHelpers.CommitValidatedGameLoad(validatedLoad);
+
+                // Step 5: wait for FLIGHT-ready and the active vessel to
+                // become live. OnLoad fires during this scene change.
                 yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
                     previousFlightInstanceId, timeoutSeconds: 15f);
                 yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
