@@ -866,6 +866,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeAllForCommit_ParentAnchoredDebris_DoesNotPersistRelativeMetadataTail()
+        {
+            uint pid = 7036;
+            string recId = "rec_parent_debris_commit";
+            string anchorId = "rec_parent_commit";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[anchorId] = new Recording
+            {
+                RecordingId = anchorId,
+                VesselName = "Parent",
+                VesselPersistentId = 70360u
+            };
+            tree.Recordings[recId].IsDebris = true;
+            tree.Recordings[recId].DebrisParentRecordingId = anchorId;
+            tree.Recordings[recId].Points.Clear();
+            tree.Recordings[recId].ExplicitEndUT = double.NaN;
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid, recId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.StartRelativeTrackSectionForTesting(
+                pid, anchorId, SegmentEnvironment.Atmospheric, 2000.0);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(2000.0));
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(pid, Point(2005.0));
+
+            bgRecorder.FinalizeAllForCommit(2010.0);
+
+            var rec = tree.Recordings[recId];
+            TrackSection relative = rec.TrackSections.Single(s => s.referenceFrame == ReferenceFrame.Relative);
+            Assert.Equal(2005.0, relative.endUT);
+            Assert.Equal(2005.0, rec.ExplicitEndUT);
+            Assert.Equal(new[] { 2000.0, 2005.0 }, rec.Points.Select(p => p.ut).ToArray());
+        }
+
+        [Fact]
         public void FinalizeAllForCommit_SurfaceMobile_FlushesWithCorrectSource()
         {
             uint pid = 704;

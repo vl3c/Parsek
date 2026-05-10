@@ -157,6 +157,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void NormalizeParentAnchoredRelativeRecording_LiveLoopDebris_DoesNotMutate()
+        {
+            var rec = MakeParentAnchoredDebris();
+            rec.LoopAnchorVesselId = 99u;
+            rec.ExplicitEndUT = 140.0;
+            rec.TrackSections.Add(RelativeSection(100.0, 140.0, 100.0, 110.0));
+
+            var result = DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                rec,
+                "unit-live-loop");
+
+            Assert.False(result.Mutated);
+            Assert.Equal(140.0, rec.TrackSections[0].endUT);
+            Assert.Equal(140.0, rec.ExplicitEndUT);
+        }
+
+        [Fact]
+        public void NormalizeParentAnchoredRelativeRecording_NonDebris_DoesNotMutate()
+        {
+            var rec = MakeParentAnchoredDebris();
+            rec.IsDebris = false;
+            rec.ExplicitEndUT = 140.0;
+            rec.TrackSections.Add(RelativeSection(100.0, 140.0, 100.0, 110.0));
+
+            var result = DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                rec,
+                "unit-non-debris");
+
+            Assert.False(result.Mutated);
+            Assert.Equal(140.0, rec.TrackSections[0].endUT);
+            Assert.Equal(140.0, rec.ExplicitEndUT);
+        }
+
+        [Fact]
         public void NormalizeParentAnchoredRelativeRecording_LaterAbsoluteBoundarySection_AllowsExplicitEndUT()
         {
             var rec = MakeParentAnchoredDebris();
