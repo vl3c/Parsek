@@ -1106,6 +1106,70 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_StableChildBracket_ParentBoundaryT_ReturnsUnevaluated()
+        {
+            // Regression for the playtest run-3 finding: when the child's own
+            // bracket is mid-range (gate would evaluate) but the parent's
+            // bracket is at t=0 or t=1 (gate skips), the resolver must NOT
+            // emit a misleading 'Evaluated=true Unreliable=false offset=0'
+            // decision from the child's own anchor-local rotation site. That
+            // decision was tripping ShouldExit's offset-below-floor branch in
+            // the host hysteresis on every parent sample-boundary frame,
+            // releasing the hold for one frame in lockstep across all debris
+            // children of the same parent.
+            //
+            // Setup: stable parent (no rotation), child with 1500 m offset,
+            // child's own local rotation samples are mid-bracket at the
+            // requested UT, parent's samples align so its bracket is at the
+            // boundary.
+            var tree = new RecordingTree { Id = "tree" };
+            // Parent at exact UTs 100 and 100.2 — stable rotation.
+            Recording parent = MakeAbsoluteRecording(
+                "parent",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.2);
+            parent.TrackSections[0].frames[0] = MakePoint(
+                100.0, new Vector3d(0, 0, 0), Quaternion.identity);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.2, new Vector3d(0, 0, 0), Quaternion.identity);
+            // Child's frames at UT 100.0 and 100.2 too, but we sample at
+            // 100.1 — mid-bracket for both child and parent. Move parent's
+            // second frame to t-boundary by sampling at 100.0 instead.
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1500, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.2);
+
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            // Sample at UT exactly equal to parent's first frame UT — parent
+            // bracket has t at the boundary.
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            // The child gate must NOT contribute a misleading offset=0
+            // evaluation at the top-level. Either the decision is
+            // unevaluated (gate skipped both at child site and parent site)
+            // or it's evaluated with the proper descendant offset (which
+            // here is 1500 m). Critically it must NOT carry offset=0.
+            Assert.False(
+                decision.Evaluated && decision.OffsetMeters < TumblingParentInterpolationGate.MinOffsetMagnitudeMeters,
+                "decision must not surface a Evaluated=true offset<floor outcome from the no-descendant top-level entry");
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_PendingTreeOutsideFocusScope_ReturnsAnchorOutOfScopeFailure()
         {
             var focusTree = new RecordingTree { Id = "focus-tree" };

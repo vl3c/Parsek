@@ -1600,8 +1600,30 @@ namespace Parsek
                 return false;
             }
 
+            // The gate at this site evaluates the CURRENT recording's
+            // anchor-local rotation bracket, with the lever arm carried by
+            // context.DebrisLocalOffsetSquaredMeters — which is the
+            // descendant child's offset already passed in by a recursive
+            // caller. When the chain is debris -> intermediate-relative
+            // -> ... -> root, this site catches a sparse intermediate-relative
+            // rotation that would amplify the descendant's offset.
+            //
+            // At the TOP-LEVEL entry from a debris child, however, there is
+            // no descendant: context.DebrisLocalOffsetSquaredMeters is 0.
+            // Evaluating the gate with offset=0 produces a misleading
+            // 'Evaluated=true Unreliable=false OffsetMeters=0' decision that
+            // would later trip the hysteresis ShouldExit branch
+            // (offset < 50 m) on every parent sample-boundary frame and
+            // release the hold for one frame, producing the synchronized
+            // chaotic flicker observed in the run-2 logs. Gate only fires
+            // when context offset is >= the magnitude floor, which by
+            // construction excludes the no-descendant top-level entry.
             AnchorRotationReliabilityDecision childGateDecision = default;
-            if (Math.Abs(before.ut - after.ut) > UtEpsilon
+            bool childGateApplicable =
+                context.DebrisLocalOffsetSquaredMeters
+                    >= TumblingParentInterpolationGate.MinOffsetMagnitudeSquaredMeters;
+            if (childGateApplicable
+                && Math.Abs(before.ut - after.ut) > UtEpsilon
                 && t > UtEpsilon
                 && t < 1f - UtEpsilon)
             {
@@ -1635,12 +1657,12 @@ namespace Parsek
                 return false;
             }
 
-            // Combine so the child gate's evaluated-and-reliable result is not
+            // Combine so an evaluated reliable child-gate result is not
             // overwritten by an unevaluated parent recursion (e.g. a parent
-            // bracket at t=0 or t=1 where the gate skipped). Without combining,
-            // the host hysteresis would receive default(decision) on every
-            // sample-boundary frame and prematurely release the hold (PR #793
-            // follow-up: synchronized debris flicker observed in run-2 logs).
+            // bracket at t=0 or t=1 where the parent gate skipped). Without
+            // combining, the host hysteresis would receive default(decision)
+            // when the parent gate skipped at a sample boundary even though
+            // the child gate at this site had a real signal to contribute.
             rotationDecision = AnchorRotationReliabilityDecision.Combine(
                 childGateDecision,
                 parentDecision);
