@@ -137,7 +137,7 @@ namespace Parsek.InGameTests.Helpers
         {
             FlightDriver.StartAndFocusVessel(load.Game, load.ActiveVesselIdx);
             ParsekLog.Info("TestHelper",
-                $"TriggerQuickload: loading '{load.SaveName}/{load.SlotName}' via FlightDriver.StartAndFocusVessel(activeVesselIdx={load.ActiveVesselIdx})");
+                $"CommitValidatedGameLoad: loading '{load.SaveName}/{load.SlotName}' via FlightDriver.StartAndFocusVessel(activeVesselIdx={load.ActiveVesselIdx})");
         }
 
         private static string GetSavePath(string saveName, string slotName)

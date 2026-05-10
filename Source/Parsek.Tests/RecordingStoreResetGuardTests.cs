@@ -254,9 +254,20 @@ namespace Parsek.Tests
             // OnLoad has already fired and rebuilt every wiped store
             // from the loaded game.
             //
-            // This test documents the property by simulating the
-            // pre-wipe-validation pattern: a validation throw must
-            // leave every save-scoped store untouched.
+            // SCOPE: this test is DOCUMENTATION-BY-TEST. It pins the
+            // contract by simulation -- it does NOT invoke the actual
+            // LoadAndValidateGameForQuickload (Unity-only) or
+            // ResetForBatchFlightBaselineRestoreBypassingGuard from
+            // inside RestoreBatchFlightBaselineCore. A future refactor
+            // that put the wipe BEFORE validation in the real iterator
+            // would NOT be caught by this test alone -- the throw is
+            // hardcoded, not delegated through the actual helper. Real
+            // integration coverage comes from running the in-game test
+            // batch via Ctrl+Shift+T (Run All + Isolated): the prep
+            // wipe failures that motivated this PR exercise the actual
+            // ordering. This xUnit test serves as a readable
+            // specification of the intended sequence; the in-game
+            // run is the regression detector.
             var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "PreValidationLive");
             Assert.NotNull(live);
             RecordingStore.AddRecordingWithTreeForTesting(live);
@@ -441,6 +452,66 @@ namespace Parsek.Tests
             Assert.NotNull(captured);
             Assert.Equal("parent throws synchronously", captured.Message);
             Assert.Equal(1, parentFinallyCount);
+        }
+
+        [Fact]
+        public void RunCoroutineSafely_NestedFailure_DisposesUsingBlockInsideParent()
+        {
+            // Round-3 P3 review: RestoreBatchFlightBaselineCore wraps the
+            // staging-dir activation in `using (var stagedSnapshot = ...)`.
+            // When a nested wait throws AFTER the using block has exited
+            // (the using's Dispose has already run), the iterator state
+            // machine is suspended at the post-using yield and the parent's
+            // try/finally is still in scope. RunCoroutineSafely's
+            // disposal of the parent must unwind that try/finally without
+            // re-disposing the already-disposed staging snapshot.
+            //
+            // This test models a parent iterator that uses an IDisposable
+            // inside the try, exits the using before yielding, then yields
+            // a nested coroutine that throws. The using's Dispose must
+            // have run exactly once (during normal flow), and the
+            // parent's outer try/finally must run exactly once (during
+            // the parent-iterator disposal triggered by RunCoroutineSafely).
+            int usingDisposeCount = 0;
+            int parentFinallyCount = 0;
+            IEnumerator parentWithUsingAndYieldedThrow()
+            {
+                try
+                {
+                    using (var disposable = new TestDisposable(() => usingDisposeCount++))
+                    {
+                        // No-op inside using -- exits immediately.
+                    }
+                    // using has Disposed by now. Yield a nested-throwing.
+                    yield return ThrowAfterOneTick();
+                }
+                finally
+                {
+                    parentFinallyCount++;
+                }
+            }
+
+            Exception captured = null;
+            var safe = Parsek.InGameTests.InGameTestRunner.RunCoroutineSafely(
+                parentWithUsingAndYieldedThrow(), ex => captured = ex);
+            DriveCoroutineToCompletion(safe);
+
+            Assert.NotNull(captured);
+            Assert.Equal(1, usingDisposeCount);    // using ran exactly once
+            Assert.Equal(1, parentFinallyCount);   // parent finally ran exactly once
+        }
+
+        private static IEnumerator ThrowAfterOneTick()
+        {
+            yield return null;
+            throw new InvalidOperationException("nested failure after one tick");
+        }
+
+        private sealed class TestDisposable : IDisposable
+        {
+            private readonly Action onDispose;
+            public TestDisposable(Action onDispose) { this.onDispose = onDispose; }
+            public void Dispose() => onDispose?.Invoke();
         }
 
         [Fact]
