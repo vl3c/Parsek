@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 recovery-funds stale warnings for zero/sub-threshold stock recoveries
+
+- ~~`logs/2026-05-10_1713/KSP.log` emitted `FlushStalePendingRecoveryFunds (rewind end)` for `Gerdorf Kerman` at UT 286.3 and `#autoLOC_501224` at UT 288.7. Neither had a paired `FundsChanged(VesselRecovery)` event before the rewind boundary.~~ `Gerdorf Kerman` was the stand-in side of the Jebediah -> Gerdorf reservation issue, but the missing pair was not caused by the stand-in name: recovery-funds pairing keys on the stock recovery callback's vessel identity plus a tight UT/funds-event window. `#autoLOC_501224` is the raw localized vessel name for Jumping Flea; the raw key could break name attribution, but it did not explain the missing funds event by itself.
+
+**Fix:** `ParsekScenario` now captures `GameEvents.onVesselRecoveryProcessing` context (`MissionRecoveryDialog.fundsEarned`, vessel type, raw name, normalized name, persistent id) before `onVesselRecovered`. `LedgerOrchestrator.OnVesselRecoveryFunds` still uses a real `FundsChanged(VesselRecovery)` delta for ledger credit, but it no longer enqueues callbacks when stock reports zero recovery funds or a positive payout below `GameStateRecorder.FundsThreshold` (the recorder intentionally suppresses those events); an all-zero dialog funds snapshot is treated as unknown so a potentially uninitialized recovery dialog cannot suppress a real payout. Positive expected payouts still defer and still flush-WARN if the stock funds event never arrives. `GameStateRecorder` stamps recovery funds events with raw/normalized vessel identity, and terminal/pending-owner matching accepts either form, so `#autoLOC_501224` and `Jumping Flea` route to the same recording without bypassing pending-tree ownership.
+
+**Coverage:** `GameStateRecorderLedgerTests` covers zero-payout, sub-threshold localized payout, positive expected-payout stale flush, positive debris contexts, all-zero dialog snapshot fallback, structured raw/normalized detail matching, and existing delayed positive payout/dedup behavior. `LedgerOrchestratorTests` covers commit-time identity matching for stamped recovery events. `ParsekScenarioRecoveryRoutingTests` covers raw/normalized pending-owner matching for immediate-patch gating and terminal-state updates.
+
+**Status:** CLOSED 2026-05-10. Fixed for v0.9.2.
+
+---
+
 ## Done - v0.9.2 parent Rewind retired canon (Immutable) Re-Fly forks
 
 - ~~Parent-tree Rewind retired any Re-Fly fork whose `StartUT >= rewindUT`, regardless of `MergeState`. A merge that committed `MergeState.Immutable` (canon — sealed forever per `MergeState.cs:18`) had no special handling: the rollback dropped the supersede relation, restored the priorTip, and wrote a `RecordingRewindRetirement` for the canon fork. The user's persistent vessel (the live ProtoVessel that the merge had committed to the save state) was deleted by the rewind reload; the canon recording was flagged `rewindRetired=true`; and the spawn-at-recording-end path then refused to re-materialize it. End state: "I merged the orbital Probe to the timeline, then Rewound the parent Kerbal X — the Probe vanished and never spawned again."~~ Source: `logs/2026-05-10_1713/`. The Probe was correctly merged at 17:05:49 (`mergeState=Immutable`, `quicksave.sfs` shows `VESSEL { name = Kerbal X Probe; sit = ORBITING; ORBIT { SMA = 1186923; ECC = 0.323 } }` matching the recording's `tOrbSma`/`tOrbEcc`). The user clicked the parent's Group Rewind button at 17:07:06, UT 301.9 → adjusted 286.9; `[Rewind] Retired rewound-out fork rec=rec_b1566… restored=32d9674c…` fired and the Probe was gone from post-rewind `persistent.sfs`.

@@ -2437,6 +2437,7 @@ namespace Parsek
             // pair after the boundary — stock already fired (or will never fire) the
             // paired FundsChanged(VesselRecovery) event relative to the old timeline.
             LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
+            RecoveryPayoutContextStore.Clear("rewind end");
             RewindContext.EndRewind();
             ParsekLog.RecState("HandleRewindOnLoad:exit", CaptureScenarioRecorderState());
         }
@@ -2815,6 +2816,8 @@ namespace Parsek
         /// </summary>
         private void SubscribeVesselLifecycleEvents()
         {
+            GameEvents.onVesselRecoveryProcessing.Remove(OnVesselRecoveryProcessing);
+            GameEvents.onVesselRecoveryProcessing.Add(OnVesselRecoveryProcessing);
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselRecovered.Add(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
@@ -6150,6 +6153,46 @@ namespace Parsek
                 $"({tree.Recordings.Count} recordings)");
         }
 
+        private void OnVesselRecoveryProcessing(
+            ProtoVessel pv,
+            KSP.UI.Screens.MissionRecoveryDialog recoveryDialog,
+            float recoveryFactor)
+        {
+            if (pv == null) return;
+            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
+            if (RewindContext.IsRewinding) return;
+            if (string.IsNullOrEmpty(pv.vesselName)) return;
+
+            double now = Planetarium.GetUniversalTime();
+            bool hasFundsEarned = recoveryDialog != null;
+            double fundsEarned = hasFundsEarned ? recoveryDialog.fundsEarned : double.NaN;
+            double beforeMissionFunds = hasFundsEarned ? recoveryDialog.beforeMissionFunds : double.NaN;
+            double totalFunds = hasFundsEarned ? recoveryDialog.totalFunds : double.NaN;
+
+            RecoveryPayoutContext context = RecoveryPayoutContextStore.Remember(
+                pv.persistentId,
+                pv.vesselName,
+                pv.vesselType,
+                now,
+                recoveryFactor,
+                hasFundsEarned,
+                fundsEarned,
+                beforeMissionFunds,
+                totalFunds);
+
+            if (context == null)
+                return;
+
+            ParsekLog.Verbose("Scenario",
+                $"Recovery processing captured: {context.Identity.FormatForLog()} " +
+                $"pid={pv.persistentId} vesselType={pv.vesselType} " +
+                $"ut={now.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"fundsEarned={(context.HasFundsEarned ? fundsEarned.ToString("F1", CultureInfo.InvariantCulture) : "(unknown)")} " +
+                $"before={(hasFundsEarned ? beforeMissionFunds.ToString("F1", CultureInfo.InvariantCulture) : "(unknown)")} " +
+                $"total={(hasFundsEarned ? totalFunds.ToString("F1", CultureInfo.InvariantCulture) : "(unknown)")} " +
+                $"recoveryFactor={recoveryFactor.ToString("R", CultureInfo.InvariantCulture)}");
+        }
+
         private void OnVesselRecovered(ProtoVessel pv, bool fromTrackingStation)
         {
             if (pv == null) return;
@@ -6164,13 +6207,19 @@ namespace Parsek
                 return;
             }
 
-            string vesselName = pv.vesselName;
-            if (string.IsNullOrEmpty(vesselName)) return;
+            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(pv.vesselName);
+            if (!identity.HasName) return;
 
             double now = Planetarium.GetUniversalTime();
-            bool updated = UpdateRecordingsForTerminalEvent(vesselName, TerminalState.Recovered, now);
+            RecoveryPayoutContextStore.TryFind(
+                pv.persistentId,
+                identity,
+                now,
+                out RecoveryPayoutContext payoutContext);
+
+            bool updated = UpdateRecordingsForTerminalEvent(identity, TerminalState.Recovered, now);
             if (updated)
-                ParsekLog.Info("Scenario", $"Vessel '{vesselName}' recovered — recording(s) updated with Recovered terminal state");
+                ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' recovered — recording(s) updated with Recovered terminal state");
 
             // #444: when recovery happens outside the Flight scene (tracking station or
             // post-flight summary at KSC), KSP's FundsChanged(VesselRecovery) event lies
@@ -6184,8 +6233,13 @@ namespace Parsek
             // recording end UT. Only patch immediately when no pending-tree recording
             // still owns this vessel; otherwise the commit-time path should emit the
             // recovery action exactly once.
-            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, vesselName))
-                LedgerOrchestrator.OnVesselRecoveryFunds(now, vesselName, fromTrackingStation, pv.vesselType);
+            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity))
+                LedgerOrchestrator.OnVesselRecoveryFunds(
+                    now,
+                    identity,
+                    fromTrackingStation,
+                    pv.vesselType,
+                    payoutContext);
         }
 
         private void OnVesselTerminated(ProtoVessel pv)
@@ -6193,15 +6247,15 @@ namespace Parsek
             if (pv == null) return;
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
-            string vesselName = pv.vesselName;
-            if (string.IsNullOrEmpty(vesselName)) return;
+            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(pv.vesselName);
+            if (!identity.HasName) return;
 
             double now = Planetarium.GetUniversalTime();
             // onVesselTerminated also fires after onVesselRecovered for the same vessel.
             // The guard in UpdateRecordingsForTerminalEvent prevents overwriting Recovered with Destroyed.
-            bool updated = UpdateRecordingsForTerminalEvent(vesselName, TerminalState.Destroyed, now);
+            bool updated = UpdateRecordingsForTerminalEvent(identity, TerminalState.Destroyed, now);
             if (updated)
-                ParsekLog.Info("Scenario", $"Vessel '{vesselName}' terminated — recording(s) updated with Destroyed terminal state");
+                ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' terminated — recording(s) updated with Destroyed terminal state");
         }
 
         /// <summary>
@@ -6213,6 +6267,17 @@ namespace Parsek
         /// </summary>
         internal static bool UpdateRecordingsForTerminalEvent(string vesselName, TerminalState state, double ut)
         {
+            return UpdateRecordingsForTerminalEvent(
+                RecoveredVesselIdentity.FromRawName(vesselName),
+                state,
+                ut);
+        }
+
+        internal static bool UpdateRecordingsForTerminalEvent(
+            RecoveredVesselIdentity identity,
+            TerminalState state,
+            double ut)
+        {
             bool anyUpdated = false;
 
             // Check pending tree recordings
@@ -6220,7 +6285,7 @@ namespace Parsek
             {
                 foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
                 {
-                    if (MatchesVessel(rec, vesselName) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
+                    if (MatchesVessel(rec, identity) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
                     {
                         rec.TerminalStateValue = state;
                         rec.ExplicitEndUT = ut;
@@ -6249,8 +6314,17 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldPatchRecoveryFundsOutsideFlight(GameScenes scene, string vesselName)
         {
+            return ShouldPatchRecoveryFundsOutsideFlight(
+                scene,
+                RecoveredVesselIdentity.FromRawName(vesselName));
+        }
+
+        internal static bool ShouldPatchRecoveryFundsOutsideFlight(
+            GameScenes scene,
+            RecoveredVesselIdentity identity)
+        {
             return scene != GameScenes.FLIGHT &&
-                   !HasPendingLedgerRecordingForVessel(vesselName);
+                   !HasPendingLedgerRecordingForVessel(identity);
         }
 
         /// <summary>
@@ -6259,14 +6333,21 @@ namespace Parsek
         /// </summary>
         internal static bool HasPendingLedgerRecordingForVessel(string vesselName)
         {
-            if (string.IsNullOrEmpty(vesselName) || !RecordingStore.HasPendingTree)
+            return HasPendingLedgerRecordingForVessel(
+                RecoveredVesselIdentity.FromRawName(vesselName));
+        }
+
+        internal static bool HasPendingLedgerRecordingForVessel(
+            RecoveredVesselIdentity identity)
+        {
+            if (!identity.HasName || !RecordingStore.HasPendingTree)
                 return false;
 
             foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
             {
                 if (rec == null || rec.IsGhostOnly)
                     continue;
-                if (MatchesVessel(rec, vesselName))
+                if (MatchesVessel(rec, identity))
                     return true;
             }
 
@@ -6297,8 +6378,15 @@ namespace Parsek
         /// </summary>
         private static bool MatchesVessel(Recording rec, string vesselName)
         {
-            return !string.IsNullOrEmpty(rec.VesselName)
-                && string.Equals(rec.VesselName, vesselName, StringComparison.Ordinal);
+            return MatchesVessel(rec, RecoveredVesselIdentity.FromRawName(vesselName));
+        }
+
+        private static bool MatchesVessel(Recording rec, RecoveredVesselIdentity identity)
+        {
+            return rec != null &&
+                   identity.HasName &&
+                   !string.IsNullOrEmpty(rec.VesselName) &&
+                   identity.MatchesName(rec.VesselName);
         }
 
         #endregion
@@ -6352,6 +6440,7 @@ namespace Parsek
             // LedgerOrchestrator can observe.
             LedgerOrchestrator.FlushStalePendingRecoveryFunds(
                 $"scene switch to {newScene}");
+            RecoveryPayoutContextStore.Clear($"scene switch to {newScene}");
         }
 
         private void OnVesselSwitching(Vessel from, Vessel to)
@@ -6372,6 +6461,7 @@ namespace Parsek
         public void OnDestroy()
         {
             stateRecorder?.Unsubscribe();
+            GameEvents.onVesselRecoveryProcessing.Remove(OnVesselRecoveryProcessing);
             GameEvents.onVesselRecovered.Remove(OnVesselRecovered);
             GameEvents.onVesselTerminated.Remove(OnVesselTerminated);
             GameEvents.onVesselSwitching.Remove(OnVesselSwitching);

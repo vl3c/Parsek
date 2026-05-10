@@ -183,6 +183,7 @@ namespace Parsek
             HasLiveRecorderProviderForTesting = null;
             HasActiveUncommittedTreeProviderForTesting = null;
             ClearPendingMilestoneEvents("ResetForTesting");
+            RecoveryPayoutContextStore.ResetForTesting();
             PendingScienceSubjects.Clear();
             SuppressCrewEvents = false;
             SuppressResourceEvents = false;
@@ -278,7 +279,7 @@ namespace Parsek
         private double lastScience = double.NaN;
         private float lastReputation = float.NaN;
 
-        private const double FundsThreshold = 100.0;
+        internal const double FundsThreshold = 100.0;
         private const double ScienceThreshold = 0.001;
         private const double ScienceCaptureMatchWindowSeconds = 5.0;
         private const float ScienceCaptureMatchDeltaTolerance = 0.05f;
@@ -1002,11 +1003,16 @@ namespace Parsek
             }
 
             double ut = Planetarium.GetUniversalTime();
+            string detail = null;
+            if (reason == TransactionReasons.VesselRecovery)
+                detail = BuildVesselRecoveryFundsDetail(ut, delta);
+
             var fundsEvt = new GameStateEvent
             {
                 ut = ut,
                 eventType = GameStateEventType.FundsChanged,
                 key = reason.ToString(),
+                detail = detail,
                 valueBefore = oldFunds,
                 valueAfter = newFunds
             };
@@ -1039,6 +1045,18 @@ namespace Parsek
 
             if (reason == TransactionReasons.VesselRecovery && !IsReplayingActions)
                 LedgerOrchestrator.OnRecoveryFundsEventRecorded(fundsEvt);
+        }
+
+        internal static string BuildVesselRecoveryFundsDetail(double ut)
+        {
+            return BuildVesselRecoveryFundsDetail(ut, double.NaN);
+        }
+
+        internal static string BuildVesselRecoveryFundsDetail(double ut, double fundsDelta)
+        {
+            return RecoveryPayoutContextStore.TryBuildFundsEventDetail(ut, fundsDelta, out string detail)
+                ? detail
+                : null;
         }
 
         private void OnScienceChanged(float newScience, TransactionReasons reason)

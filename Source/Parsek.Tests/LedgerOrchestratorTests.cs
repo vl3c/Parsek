@@ -49,6 +49,23 @@ namespace Parsek.Tests
             return count;
         }
 
+        private static string BuildRecoveryDetail(string vesselName, double fundsEarned)
+        {
+            var context = new RecoveryPayoutContext
+            {
+                PersistentId = 12345,
+                Identity = RecoveredVesselIdentity.FromRawName(vesselName),
+                VesselType = VesselType.Ship,
+                Ut = 300.0,
+                RecoveryFactor = 1.0f,
+                HasFundsEarned = true,
+                FundsEarned = fundsEarned,
+                BeforeMissionFunds = 47000.0,
+                TotalFunds = 47000.0 + fundsEarned
+            };
+            return RecoveryPayoutContextStore.BuildFundsEventDetail(context);
+        }
+
         // ================================================================
         // Initialize
         // ================================================================
@@ -532,6 +549,57 @@ namespace Parsek.Tests
             Assert.Equal(
                 LedgerOrchestrator.BuildRecoveryEventDedupKey(recoveryEvent),
                 recoveryAction.DedupKey);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateVesselCostActions_StampedPairedRecoveryEventMustMatchRecordingIdentity()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-alpha-recovery",
+                VesselName = "Alpha Probe",
+                PreLaunchFunds = 47000.0,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, funds = 47000.0 });
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            var alphaEvent = new GameStateEvent
+            {
+                ut = 300.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                detail = BuildRecoveryDetail("Alpha Probe", 1250.0),
+                valueBefore = 47000.0,
+                valueAfter = 48250.0
+            };
+            var betaEvent = new GameStateEvent
+            {
+                ut = 300.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                detail = BuildRecoveryDetail("Beta Probe", 500.0),
+                valueBefore = 48250.0,
+                valueAfter = 48750.0
+            };
+            GameStateStore.AddEvent(ref alphaEvent);
+            GameStateStore.AddEvent(ref betaEvent);
+
+            var actions = LedgerOrchestrator.CreateVesselCostActions("rec-alpha-recovery", 100.0, 300.0);
+
+            Assert.Single(actions);
+            Assert.Equal(GameActionType.FundsEarning, actions[0].Type);
+            Assert.Equal(FundsEarningSource.Recovery, actions[0].FundsSource);
+            Assert.Equal(1250.0, (double)actions[0].FundsAwarded, 1);
+            Assert.Equal(
+                LedgerOrchestrator.BuildRecoveryEventDedupKey(alphaEvent),
+                actions[0].DedupKey);
+            Assert.NotEqual(
+                LedgerOrchestrator.BuildRecoveryEventDedupKey(betaEvent),
+                actions[0].DedupKey);
 
             RecordingStore.ResetForTesting();
         }
