@@ -252,78 +252,95 @@ finalizer.
 
 ## Tests
 
-### Unit tests (xUnit)
+The original plan listed 12 xUnit cases; some of those (success-path
+integration through `TryBuildRecordedTerminalOrbitForSpawn` + `Evaluate`,
+optimizer-split-clone integration, success-path `source=trajectory-tail`
+log assertion) require `body.GetWorldSurfacePosition` and
+`Orbit.UpdateFromStateVectors`, both of which need Unity transforms that
+the test stubs (`TestBodyRegistry.CreateBody` via
+`FormatterServices.GetUninitializedObject`) do not provide. The success
+path is therefore covered by the in-game test, while xUnit covers the
+data-walking and decision branches that don't need Unity. This section
+describes what actually shipped, organized by helper.
 
-1. **`TailDerivedOrbit_OverridesStaleSegment`** — Recording with one on-rails
-   `OrbitSegment` ending at UT 477 (sub-orbital sma/ecc) plus an `ExoBallistic`
-   Absolute TrackSection containing a frame at UT 977 with circular-velocity
-   state. Helper returns true; `Orbit.eccentricity ≈ 0.005`, periapsis above
-   atmosphere.
+### `TryFindLatestCoastTrajectoryFrame` (xUnit, 11 cases)
 
-2. **`TailDerivedOrbit_DefersToFresherSegment`** — Recording where last
-   `OrbitSegment` ends at UT 1000 and last Absolute ExoBallistic frame is at
-   UT 950. Helper returns false with reason `segment-newer-than-tail`.
+Pure data-walking; no orbit math, fully testable without Unity transforms.
 
-3. **`TailDerivedOrbit_NoSections_ReturnsFalse`** — Recording with empty
-   TrackSections list. Helper returns false.
+1. `_NoSections_ReturnsFalse` — empty `TrackSections` ⇒ false.
+2. `_PicksLastExoBallisticAbsoluteFrame` — straightforward latest-frame pick.
+3. `_SkipsExoPropulsiveTail_WalksBackToCoast` — mid-burn section walked past.
+4. `_SkipsSurfaceSection` — `SurfaceMobile` walked past.
+5. `_SkipsAtmosphericAndApproach` — both env classes walked past.
+6. `_AllSurfaceSections_ReturnsFalse` — no coast at all ⇒ false.
+7. `_RelativeSectionWithoutShadow_WalksBack` — Relative `frames` skipped (would alias).
+8. `_RelativeSectionWithShadow_UsesShadow` — v7+ `absoluteFrames` shadow used.
+9. `_BodyMismatch_ReturnsFalse` — frame body ≠ spawn body.
+10. `_NonFiniteOnlyFrame_FallsThroughToPriorSection` — section's only frame is corrupt; walks to previous section.
+11. `_NonFiniteTailFrame_WalksBackInSection` — section has earlier-valid + corrupt-trailing frames; in-section walk-back picks the prior valid one.
 
-4. **`TailDerivedOrbit_RelativeSectionWithoutShadow_WalksBack`** — Last
-   section is `Relative` with no `absoluteFrames`; previous section is
-   `ExoBallistic Absolute` with a single frame. Helper walks back and uses
-   the previous section's frame.
+### `ResolveLatestStoredOrbitSegmentEndUT` (xUnit, 4 cases)
 
-5. **`TailDerivedOrbit_RelativeSectionWithShadow_UsesShadow`** — Last
-   section is `Relative` with `absoluteFrames` populated. Helper uses
-   `absoluteFrames[Last]`, not `frames[Last]`.
+12. `_NoSegments_ReturnsNaN` — empty list ⇒ NaN.
+13. `_PicksMaxEndUTAcrossSegments` — basic max-end pick.
+14. `_FiltersByBody` — Mun segment ignored when resolving for Kerbin.
+15. `_SkipsDegenerateSegments` — `sma <= 0` and non-finite `sma` excluded; mirrors `RecordingEndpointResolver.TryGetLastMatchingSegment`'s predicate so a degenerate stored segment cannot shadow a valid coast tail.
 
-6. **`TailDerivedOrbit_ExoPropulsiveTailWalksBackToCoast`** — Last section
-   is `ExoPropulsive` (mid-burn frames). Previous section is `ExoBallistic`
-   with a frame. Helper skips the propulsive section, uses the coast frame.
+### `TryDeriveTerminalOrbitSeedFromTrajectoryTail` (xUnit, 7 cases — negative branches only)
 
-7. **`TailDerivedOrbit_AllSurfaceSections_ReturnsFalse`** — All sections
-   are `SurfaceMobile`/`SurfaceStationary`. Helper returns false (defers
-   to the existing path, which itself will fall through because terminal
-   would not be `Orbiting` for surface recordings).
+The success path needs `body.GetWorldSurfacePosition`, so xUnit only
+exercises the short-circuit branches (which all run before any Unity call).
+Each case asserts the structured `declineReason` out-param.
 
-8. **`TailDerivedOrbit_BodyMismatch_ReturnsFalse`** — Last frame's body
-   differs from spawn `body.name`. Helper returns false.
+16. `_NullRecording_ReturnsFalse`.
+17. `_NullBody_ReturnsFalse`.
+18. `_NoCoastFrame_LogsAndReturnsFalse` — `declineReason="no-absolute-coast-tail"`, log line emitted.
+19. `_StoredSegmentNewer_LogsAndReturnsFalse` — `declineReason="segment-newer-than-tail"`.
+20. `_FreshnessEpsilon_BoundaryTailEqualsSegmentEndRejects` — `tailUT == segmentEndUT` exactly; `<=` check defers.
+21. `_DegenerateStoredSegment_DoesNotBlockTail` — degenerate segment doesn't shadow tail; helper progresses to next guard (rotation drift in this test).
+22. `_RotationDriftBeyondLimit_LogsAndReturnsFalse` — `|spawnUT − tailUT| > 30 s` ⇒ defer; `declineReason="rotation-drift-out-of-bounds"`.
 
-9. **`TailDerivedOrbit_NonFiniteVelocity_ReturnsFalse`** — Last frame has
-   `velX = NaN`. Helper returns false; logs nothing (clean skip, since
-   the next iteration of the loop would also yield no candidate).
+All tests use `[Collection("Sequential")]` because they touch `ParsekLog.TestSinkForTesting`.
 
-10. **`TerminalOrbitSpawnSafety_AcceptsTailDerivedCircularOrbit`** —
-    Integration through `TryBuildRecordedTerminalOrbitForSpawn` + `Evaluate`.
-    Synthetic recording mirroring the Kerbal X bug. Asserts
-    `decision=SpawnNow`, no `periapsis-below-safe-altitude` rejection.
+### Not covered by xUnit (and why)
 
-11. **`TailDerivedOrbit_OptimizerSplitClone_GetsFreshOrbit`** — Recording
-    that simulates the post-split second-half clone (stale `TerminalOrbit*`
-    + stale OrbitSegment + fresher Absolute tail). Helper returns true with
-    fresh elements; integration with `TryBuildRecordedTerminalOrbitForSpawn`
-    propagates them through.
-
-12. **`TailDerivedOrbit_LogsSourceTag`** — `ParsekLog.TestSinkForTesting`
-    captures `[Spawner] Tail-derived terminal orbit:` line on success;
-    `Spawn #N (...) using recorded terminal orbit propagated to current UT
-    (... source=trajectory-tail ...)` on the parent log; defer-skip emits
-    `reason=segment-newer-than-tail`.
-
-All tests use `[Collection("Sequential")]` if they touch `ParsekLog`.
+- **`TryBuildRecordedTerminalOrbitForSpawn` end-to-end with `source=trajectory-tail`** — the helper needs `body.GetWorldSurfacePosition` to produce a real `Orbit`, so the success branch that flips `seedSource` to `"trajectory-tail"` and emits the parent log line cannot run in xUnit. The in-game test below covers this path.
+- **`TerminalOrbitSpawnSafety.Evaluate` returning `SpawnNow` for the tail-derived elements** — same reason: needs a real Orbit. In-game test below.
+- **Vessel actually materialising as a live `Vessel`** — would need `RespawnValidatedRecording`, vessel collision validation, scene-loaded `FlightGlobals.Vessels`. Out of scope for the test layer; covered only by manual playtest (re-fly the Kerbal X recording from `logs/2026-05-10_1713`).
 
 ### In-game test
 
-`InGameTests/RuntimeTests.cs` —
+`InGameTests/RuntimeTests.cs:705-825` —
 `[InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT)]`
-synthesizing a recording with one stale sub-orbital segment + one fresh
-circular ExoBallistic Absolute tail frame on Kerbin. Assertion:
+`TerminalOrbitFromTail_DerivesPostBurnCircularOrbit`. Builds a synthetic
+recording mirroring the Kerbal X bug (one stale on-rails sub-orbital
+`OrbitSegment` ending at UT 958.87, plus an `ExoBallistic` Absolute
+TrackSection with a single post-burn frame at UT 977.93 carrying the
+circular-velocity state vector). Assertions:
 
-- The spawned vessel materialises (`ProtoVessel` → live `Vessel`).
-- `vessel.orbit.PeA > body.atmosphereDepth` — strictly above atmosphere,
-  not just above Kerbin radius. (Reviewer suggestion.)
+- `TryDeriveTerminalOrbitSeedFromTrajectoryTail` succeeds with non-null
+  body name and finite-elliptic elements (`sma > 0`, `0 ≤ ecc < 1`).
+- `TryBuildRecordedTerminalOrbitForSpawn` produces a non-null `Orbit` —
+  this is the path that xUnit cannot reach because of Unity transforms.
+- `TerminalOrbitSpawnSafety.Evaluate(currentAlt, atmosphereDepth,
+  safetyMargin, periAlt, apoAlt).Action == SpawnNow` — codifies the
+  whole point of the fix. Stronger than `peri > atmosphereDepth` because
+  the spawn-time gate uses `safeAltitude = atmosphereDepth + 5 km`.
+- `periAlt > safeAlt` (an additional float-level assertion that pins the
+  same property).
 
-This exercises the KSP `Orbit.UpdateFromStateVectors` integration that
-xUnit cannot reach with stubs.
+The test does **not** drive `RespawnValidatedRecording` to actually
+materialise a `Vessel` — that requires the full spawn pipeline including
+collision detection and `FlightGlobals.Vessels` registration, and the
+synthetic Recording does not have a vessel snapshot. The acceptance
+assertion (`Action == SpawnNow`) is the same gate the production spawn
+path consults; passing it means the bug is fixed at the orbit-resolution
+layer that the original log evidence pinpointed.
+
+Verifying the actual Kerbal X recording spawns end-to-end remains a
+manual playtest step (re-fly the recording from `logs/2026-05-10_1713`
+and confirm the upper stage materialises with `[Spawner] ... source=trajectory-tail`
+in KSP.log).
 
 ## Logging contract
 
@@ -348,12 +365,14 @@ cases; Warn only for non-finite (data corruption signal).
 |---|---|
 | Tail-derived orbit's LAN/argPe off by body-rotation delta | Safety check uses apo/peri only (which differ from true values by <1 km, well under safety margin). Existing finalizer reseed has the same approximation. Spawn position fidelity unchanged for Re-Fly spawns where `currentUT ≈ tailUT`. |
 | Relative-frame frames misinterpreted as lat/lon/alt | Helper hard-skips `Relative` `frames` and only consults `absoluteFrames` shadow when present. CLAUDE.md gotcha §"Rotation / world frame" explicitly handled. |
-| Mid-burn `ExoPropulsive` tail used as terminal orbit | Helper hard-skips `ExoPropulsive` sections; walks back to the last `ExoBallistic` Absolute coast. Test #6. |
-| Tail frame from `Surface*` / `Atmospheric` / `Approach` produces sub-surface orbit | Helper hard-skips those environments; falls through to existing path which already handles them. Test #7. |
+| Mid-burn `ExoPropulsive` tail used as terminal orbit | Helper hard-skips `ExoPropulsive` sections; walks back to the last `ExoBallistic` Absolute coast. Pinned by `_SkipsExoPropulsiveTail_WalksBackToCoast`. |
+| Tail frame from `Surface*` / `Atmospheric` / `Approach` produces sub-surface orbit | Helper hard-skips those environments; falls through to existing path which already handles them. Pinned by `_SkipsSurfaceSection`, `_SkipsAtmosphericAndApproach`, `_AllSurfaceSections_ReturnsFalse`. |
 | Tail frame's velocity in unexpected reference frame | Recorder writes Krakensbane-corrected inertial velocity (per CLAUDE.md). Same contract used by existing reseed code in `IncompleteBallisticSceneExitFinalizer`. |
 | Recording is `sectionAuthoritative=true` so frames live only in TrackSections | Helper walks `rec.TrackSections` directly (where the data canonically lives) instead of `rec.Points`. Bug-resistant by construction. |
-| Existing recordings with proper post-coast `OrbitSegment` regress | Algorithm step "defer to existing path when stored segment ≥ tail UT": only override when `tailUT > lastSegmentEndUT + EPSILON`. Test #2. |
-| Spawn safety check now passes a previously-rejected periapsis | The previous rejection was wrong — the periapsis came from a stale segment. Acceptance based on the actual final orbit is the intended behavior. Test #10 codifies this. |
+| Existing recordings with proper post-coast `OrbitSegment` regress | Algorithm step "defer to existing path when stored segment ≥ tail UT": only override when `tailUT > lastSegmentEndUT + EPSILON`. Pinned by `_StoredSegmentNewer_LogsAndReturnsFalse` and the boundary case `_FreshnessEpsilon_BoundaryTailEqualsSegmentEndRejects`. |
+| Spawn safety check now passes a previously-rejected periapsis | The previous rejection was wrong — the periapsis came from a stale segment. Acceptance based on the actual final orbit is the intended behavior. Codified by the in-game test `TerminalOrbitFromTail_DerivesPostBurnCircularOrbit` which asserts `TerminalOrbitSpawnSafety.Evaluate(...).Action == SpawnNow` for the synthetic Kerbal X shape. |
+| Stored segment is degenerate (`sma <= 0`) and could shadow a valid coast tail | `ResolveLatestStoredOrbitSegmentEndUT` mirrors `RecordingEndpointResolver.TryGetLastMatchingSegment`'s `sma > 0 && finite` predicate, so a degenerate segment cannot defer the helper to a "newer" segment that the existing seed picker would itself reject. Pinned by `_SkipsDegenerateSegments` and `_DegenerateStoredSegment_DoesNotBlockTail`. |
+| Body-rotation drift between `body.GetWorldSurfacePosition` (current rotation) and `candidate.ut` | `TailDerivedOrbitMaxRotationDriftSeconds = 30 s` clamp: defer to existing path when `\|spawnUT − tailUT\| > 30 s`. Re-Fly spawns at `currentUT ≈ tailUT` keep drift at zero. Pinned by `_RotationDriftBeyondLimit_LogsAndReturnsFalse`. |
 | Ghost orbit line / map marker still pulled from stale segment | Pre-existing display gap, not introduced here; documented as an open todo entry. The fix strictly improves spawn behavior. |
 
 ## Out of scope
@@ -362,18 +381,28 @@ cases; Warn only for non-finite (data corruption signal).
   closure, scene-exit live-vessel reseed). This fix removes the urgency.
 - Optimizer / split-time inheritance of `TerminalOrbit*` fields. The
   split-time copy at `RecordingOptimizer.cs:937` is unchanged; the new
-  logic supersedes it at spawn time when applicable. Coverage in test #11.
+  logic supersedes it at spawn time when applicable. The Kerbal X repro
+  itself was a post-split clone (`d73240bd…` is the second half of an
+  optimizer split), so the in-game test's synthetic shape exercises this
+  scenario class even though there is no dedicated split-clone xUnit case.
 - Ghost map presence / orbit-line rendering. Tracked as a new open todo
   entry; not gated on safety, so the cosmetic stale-line is tolerable
   while the spawn path is fixed.
 
 ## Acceptance
 
-- Synthetic recording mirroring the Kerbal X bug spawns successfully under
-  Re-Fly without periapsis-below-safe-altitude rejection.
-- All existing xUnit tests still pass.
-- New unit tests pass (12 cases above).
-- New in-game test passes when run with `Ctrl+Shift+T` in flight.
-- KSP.log shows `[Spawner] Tail-derived terminal orbit:` line followed by
-  `Spawn #N (...) using recorded terminal orbit propagated to current UT
-  (... source=trajectory-tail ...)`.
+- All 11 320 existing xUnit tests still pass.
+- New unit tests pass: 22 cases in `SpawnTerminalOrbitFromTailTests`
+  (11 on `TryFindLatestCoastTrajectoryFrame`, 4 on
+  `ResolveLatestStoredOrbitSegmentEndUT`, 7 on
+  `TryDeriveTerminalOrbitSeedFromTrajectoryTail` short-circuit branches).
+- New in-game test `TerminalOrbitFromTail_DerivesPostBurnCircularOrbit`
+  passes when run with Ctrl+Shift+T in flight, asserting
+  `TerminalOrbitSpawnSafety.Evaluate(...).Action == SpawnNow` for a
+  synthetic Kerbal X shape.
+- Manual playtest: re-fly the Kerbal X recording from
+  `logs/2026-05-10_1713`. KSP.log shows
+  `[Spawner] Tail-derived terminal orbit:` followed by
+  `TryBuildRecordedTerminalOrbitForSpawn: ... source=trajectory-tail`,
+  and the upper stage actually materialises (no
+  `periapsis-below-safe-altitude` Warn).
