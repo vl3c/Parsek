@@ -4916,47 +4916,69 @@ namespace Parsek
                 liveById,
                 scenario.RecordingSupersedes);
             int dropped = rollback.DroppedRelationCount;
-            int retired = EnsureRewindRetirementsForRollback(
+            RewindRetirementCounts retirementCounts = EnsureRewindRetirementsForRollback(
                 scenario,
                 rollback,
                 rewindAdjustedUT,
-                liveById);
+                liveById,
+                owner.RecordingId);
+            int retired = retirementCounts.ForksAdded;
+            int retiredOldSides = retirementCounts.OldSidesAdded;
+            int restoredCount = rollback.RestoredRecordingIds.Count;
 
             // Invalidate the EffectiveState ERS cache. EffectiveState.ComputeERS
             // keys its cache on ParsekScenario.SupersedeStateVersion — without the
             // bump, any cached effective view stays stale until a later load or
             // unrelated mutation. Every other production supersede mutation
             // (SupersedeCommit) bumps this counter; the rewind drop must too.
-            if (dropped > 0 || retired > 0)
+            if (dropped > 0 || retired > 0 || retiredOldSides > 0)
             {
                 scenario.BumpSupersedeStateVersion();
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
                         $"Rewind supersede rollback: dropped={dropped.ToString(CultureInfo.InvariantCulture)} " +
                         $"retiredForks={retired.ToString(CultureInfo.InvariantCulture)} " +
-                        $"restored={rollback.RestoredRecordingIds.Count.ToString(CultureInfo.InvariantCulture)} " +
+                        $"retiredOldSides={retiredOldSides.ToString(CultureInfo.InvariantCulture)} " +
+                        $"restored={restoredCount.ToString(CultureInfo.InvariantCulture)} " +
                         $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"owner='{owner.VesselName}'");
             }
             return dropped;
         }
 
-        private static int EnsureRewindRetirementsForRollback(
+        internal struct RewindRetirementCounts
+        {
+            public int ForksAdded;
+            public int OldSidesAdded;
+        }
+
+        private static RewindRetirementCounts EnsureRewindRetirementsForRollback(
             ParsekScenario scenario,
             RewindSupersedeRollbackResult rollback,
             double rewindAdjustedUT,
-            IReadOnlyDictionary<string, Recording> liveRecordingsById)
+            IReadOnlyDictionary<string, Recording> liveRecordingsById,
+            string ownerRecordingId)
         {
-            if (object.ReferenceEquals(null, scenario)
-                || rollback == null
-                || rollback.RetiredForkRecordingIds.Count == 0)
-                return 0;
+            var counts = default(RewindRetirementCounts);
+            if (object.ReferenceEquals(null, scenario) || rollback == null)
+                return counts;
+
+            bool hasForks = rollback.RetiredForkRecordingIds.Count > 0;
+            bool hasOldSides = rollback.RestoredRecordingIds.Count > 0;
+            if (!hasForks && !hasOldSides)
+                return counts;
 
             if (scenario.RecordingRewindRetirements == null)
                 scenario.RecordingRewindRetirements = new List<RecordingRewindRetirement>();
 
             var existing = EffectiveState.ComputeRewindRetiredRecordingIds(scenario.RecordingRewindRetirements);
-            int added = 0;
+
+            // Pass 1 — fork side (NewRecordingId of every dropped supersede).
+            // These are the Re-Fly result recordings that need to disappear after
+            // the rewind. Retire when the fork's StartUT >= rewindAdjustedUT (so a
+            // fork that started exactly at the rewind boundary still retires; the
+            // owner case is handled by the OldRecordingId never matching the
+            // owner here).
             foreach (string retiredId in rollback.RetiredForkRecordingIds)
             {
                 if (string.IsNullOrEmpty(retiredId) || existing.Contains(retiredId))
@@ -4995,7 +5017,7 @@ namespace Parsek
                 };
                 scenario.RecordingRewindRetirements.Add(retirement);
                 existing.Add(retiredId);
-                added++;
+                counts.ForksAdded++;
 
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
@@ -5005,7 +5027,74 @@ namespace Parsek
                         $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)}");
             }
 
-            return added;
+            // Pass 2 — old side (OldRecordingId of every dropped supersede that
+            // was not also a fork). When the rewind lands BEFORE every recording
+            // in the rewound subtree, the originals that were superseded by the
+            // (now-retired) fork are themselves "rewound out of existence": they
+            // happened in the future the rewind erased. Without this pass they
+            // re-appear in the recordings table — including a `terminalState=
+            // Destroyed` outcome the user successfully Re-Flew past (see
+            // logs/2026-05-10_1713). Use STRICT `>` against rewindAdjustedUT so
+            // recordings whose StartUT equals the rewind boundary stay visible
+            // (the "rewind to launch" pattern modeled by
+            // DetailedRollback_MultiGenerationalChain_RetiresForksAndRestoresOnlyOrigin).
+            // Skip the owner explicitly: the owner's StartUT can exceed
+            // rewindAdjustedUT due to RewindToLaunchLeadTimeSeconds, but the
+            // owner is the recording the rewind lands AT, not future content to
+            // hide.
+            foreach (string oldSideId in rollback.RestoredRecordingIds)
+            {
+                if (string.IsNullOrEmpty(oldSideId) || existing.Contains(oldSideId))
+                    continue;
+
+                if (!string.IsNullOrEmpty(ownerRecordingId)
+                    && string.Equals(oldSideId, ownerRecordingId, StringComparison.Ordinal))
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            $"Old-side retirement skipped for owner rec={oldSideId} " +
+                            $"(rewind target — owner stays visible)");
+                    continue;
+                }
+
+                Recording oldSideRec = null;
+                if (liveRecordingsById == null
+                    || !liveRecordingsById.TryGetValue(oldSideId, out oldSideRec)
+                    || oldSideRec == null
+                    || oldSideRec.StartUT <= rewindAdjustedUT)
+                {
+                    continue;
+                }
+
+                var retirement = new RecordingRewindRetirement
+                {
+                    RetirementId = "rrt_" + Guid.NewGuid().ToString("N"),
+                    RecordingId = oldSideId,
+                    // Old-side rows have no "thing they were superseded by" to
+                    // restore — they ARE the original. LoadTimeSweep +
+                    // TreeDiscardPurge gate on null RestoredRecordingId.
+                    RestoredRecordingId = null,
+                    // An old-side row can be the OldRecordingId of multiple
+                    // dropped relations (fan-in into a single fork); picking one
+                    // is misleading. Null says "no single source rel".
+                    SourceSupersedeRelationId = null,
+                    RewindUT = rewindAdjustedUT,
+                    CreatedUT = CurrentUniversalTimeForRewindRetirement(),
+                    CreatedRealTime = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+                    Reason = RecordingRewindRetirement.RewoundOutOldSideReason,
+                };
+                scenario.RecordingRewindRetirements.Add(retirement);
+                existing.Add(oldSideId);
+                counts.OldSidesAdded++;
+
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Retired rewound-out old-side rec={oldSideId} " +
+                        $"startUT={oldSideRec.StartUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)}");
+            }
+
+            return counts;
         }
 
         private static double CurrentUniversalTimeForRewindRetirement()

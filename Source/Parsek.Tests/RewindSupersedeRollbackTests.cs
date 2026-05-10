@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 using Parsek;
 
@@ -252,6 +253,11 @@ namespace Parsek.Tests
         [Fact]
         public void LiveRollback_DeduplicatesRetirement_WhenMultipleOldRowsPointToSameNew()
         {
+            // Two supersedes (A→C and B→C) collapse to one fork retirement for
+            // C (RetiredForkRecordingIds dedupes by hash). Owner A stays
+            // restored (StartUT == rewindAdjustedUT). B is an old-side with
+            // StartUT > rewindAdjustedUT, so it gains its own retirement under
+            // the old-side pass.
             var a = MakeRec("A", startUT: 6.5);
             var b = MakeRec("B", startUT: 31.5);
             var c = MakeRec("C", startUT: 50.0);
@@ -271,9 +277,201 @@ namespace Parsek.Tests
 
             Assert.Equal(2, dropped);
             Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+
+            RecordingRewindRetirement forkRetirement = scenario.RecordingRewindRetirements
+                .Single(r => r.Reason == RecordingRewindRetirement.DefaultReason);
+            Assert.Equal("C", forkRetirement.RecordingId);
+            Assert.Equal("A", forkRetirement.RestoredRecordingId);
+
+            RecordingRewindRetirement oldSideRetirement = scenario.RecordingRewindRetirements
+                .Single(r => r.Reason == RecordingRewindRetirement.RewoundOutOldSideReason);
+            Assert.Equal("B", oldSideRetirement.RecordingId);
+            Assert.Null(oldSideRetirement.RestoredRecordingId);
+            Assert.Null(oldSideRetirement.SourceSupersedeRelationId);
+
+            // Owner A stays visible (rewind target; not in retirement set).
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "A");
+        }
+
+        [Fact]
+        public void LiveRollback_RetiresOldSides_WhenAllStartAfterRewindUT()
+        {
+            // Mirrors logs/2026-05-10_1713 — owner is the Kerbal X main rocket
+            // recording (StartUT=302) at the launch pad; rewindAdjustedUT=287
+            // accounts for RewindToLaunchLeadTimeSeconds. The Re-Fly fork (F)
+            // and the three originals it superseded (P_atmo, P_destroyed,
+            // P_continuation) all start AFTER the rewind boundary, so they all
+            // need to be hidden after rollback. Without the old-side retirement
+            // pass, P_destroyed re-appears in the recordings table when the
+            // supersede relation is dropped.
+            var owner = MakeRec("rocket", startUT: 302.0);
+            var probeAtmo = MakeRec("P_atmo", startUT: 456.0);
+            var probeDestroyed = MakeRec("P_destroyed", startUT: 466.0);
+            var probeContinuation = MakeRec("P_continuation", startUT: 960.0);
+            var fork = MakeRec("F", startUT: 457.0);
+            InstallCommittedTreeForTesting("tree-playtest",
+                owner, probeAtmo, probeDestroyed, probeContinuation, fork);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("P_atmo", "F"),
+                    MakeRel("P_destroyed", "F"),
+                    MakeRel("P_continuation", "F")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(owner, 287.0);
+
+            Assert.Equal(3, dropped);
+            Assert.Empty(scenario.RecordingSupersedes);
+            // 1 fork retirement + 3 old-side retirements.
+            Assert.Equal(4, scenario.RecordingRewindRetirements.Count);
+
+            RecordingRewindRetirement forkRetirement = scenario.RecordingRewindRetirements
+                .Single(r => r.Reason == RecordingRewindRetirement.DefaultReason);
+            Assert.Equal("F", forkRetirement.RecordingId);
+
+            var oldSideRetirements = scenario.RecordingRewindRetirements
+                .Where(r => r.Reason == RecordingRewindRetirement.RewoundOutOldSideReason)
+                .ToList();
+            Assert.Equal(3, oldSideRetirements.Count);
+            Assert.Contains(oldSideRetirements, r => r.RecordingId == "P_atmo");
+            Assert.Contains(oldSideRetirements, r => r.RecordingId == "P_destroyed");
+            Assert.Contains(oldSideRetirements, r => r.RecordingId == "P_continuation");
+            Assert.All(oldSideRetirements, r =>
+            {
+                Assert.Null(r.RestoredRecordingId);
+                Assert.Null(r.SourceSupersedeRelationId);
+                Assert.Equal(287.0, r.RewindUT);
+            });
+
+            // P_destroyed is the playtest's smoking-gun "Destroyed" outcome —
+            // EffectiveState.IsRewindRetired must hide it after rollback.
+            Assert.True(EffectiveState.IsRewindRetired(
+                probeDestroyed, scenario.RecordingRewindRetirements));
+
+            // Owner stays visible.
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "rocket");
+            Assert.False(EffectiveState.IsRewindRetired(
+                owner, scenario.RecordingRewindRetirements));
+
+            // Summary log captures the new field; per-row log captures each old side.
+            Assert.Contains(logLines, line =>
+                line.Contains("[Rewind]")
+                && line.Contains("Rewind supersede rollback")
+                && line.Contains("retiredOldSides=3"));
+            Assert.Equal(3, logLines.Count(line =>
+                line.Contains("[Rewind]")
+                && line.Contains("Retired rewound-out old-side rec=")));
+        }
+
+        [Fact]
+        public void LiveRollback_KeepsOwnerVisible_WhenOwnerWasOldSide()
+        {
+            // Stacked re-fly: owner is itself the OldRecordingId of a dropped
+            // supersede (rewindAdjustedUT < owner.StartUT due to launch lead).
+            // The owner-skip in the old-side pass keeps owner out of the
+            // retirement list even though it lives in RestoredRecordingIds.
+            var owner = MakeRec("owner", startUT: 302.0);
+            var fork = MakeRec("F", startUT: 320.0);
+            InstallCommittedTreeForTesting("tree-owner-oldside", owner, fork);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("owner", "F")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(owner, 287.0);
+
+            Assert.Equal(1, dropped);
+            // Only the fork is retired; owner stays restored despite owner.StartUT > rewindUT.
             RecordingRewindRetirement retirement = Assert.Single(scenario.RecordingRewindRetirements);
-            Assert.Equal("C", retirement.RecordingId);
-            Assert.Equal("A", retirement.RestoredRecordingId);
+            Assert.Equal("F", retirement.RecordingId);
+            Assert.Equal(RecordingRewindRetirement.DefaultReason, retirement.Reason);
+
+            Assert.False(EffectiveState.IsRewindRetired(owner, scenario.RecordingRewindRetirements));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Rewind]")
+                && line.Contains("Old-side retirement skipped for owner rec=owner"));
+        }
+
+        [Fact]
+        public void LiveRollback_KeepsOriginAtBoundary_WhenStartUTEqualsRewindUT()
+        {
+            // Canonical "rewind to launch": owner.StartUT == rewindAdjustedUT.
+            // The strict `>` filter in the old-side pass keeps the owner
+            // visible even before the explicit owner-skip fires.
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRec("B", startUT: 31.5);
+            var c = MakeRec("C", startUT: 50.0);
+            InstallCommittedTreeForTesting("tree-boundary", a, b, c);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B"),
+                    MakeRel("B", "C")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 6.5);
+
+            Assert.Equal(2, dropped);
+            // Two fork retirements (B and C), zero old-side retirements (A is
+            // owner; B.StartUT > 6.5 but B is also a fork so it ends up in the
+            // forks pass via RetiredForkRecordingIds and is skipped from the
+            // old-side pass through the existing-set guard).
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            Assert.All(scenario.RecordingRewindRetirements, r =>
+                Assert.Equal(RecordingRewindRetirement.DefaultReason, r.Reason));
+            Assert.False(EffectiveState.IsRewindRetired(a, scenario.RecordingRewindRetirements));
+        }
+
+        [Fact]
+        public void ReapplyRewindSupersedeDropAfterLoad_Idempotent_DoesNotDuplicateOldSideRetirements()
+        {
+            // Cross-LoadScene re-apply is the second call site of the same
+            // rollback. After the first call retires the old side, the second
+            // call must early-out via the existing-id guard (the first run
+            // already dropped the supersedes; the second sees an empty list).
+            var owner = MakeRec("rocket", startUT: 302.0);
+            var oldSide = MakeRec("old", startUT: 456.0);
+            var fork = MakeRec("F", startUT: 457.0);
+            InstallCommittedTreeForTesting("tree-reapply-old", owner, oldSide, fork);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("old", "F")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(owner.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(287.0);
+            RecordingStore.SetRewindReplayTargetScope(owner);
+
+            int firstDropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+            Assert.Equal(1, firstDropped);
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+
+            int secondDropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
+            // Second pass drops nothing (supersede list is empty) but more
+            // importantly does not duplicate the existing retirements.
+            Assert.Equal(0, secondDropped);
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
         }
 
         [Fact]
