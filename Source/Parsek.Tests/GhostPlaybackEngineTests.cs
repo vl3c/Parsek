@@ -1107,6 +1107,38 @@ namespace Parsek.Tests
         // ===================================================================
 
         [Fact]
+        public void IsInterpolationResultValid_BodyNameNull_TreatsAsFailure()
+        {
+            // Regression guard for the fail-closed contract on the shadow
+            // route. Reviewer P2: TryPositionFromRelativeAbsoluteShadow used
+            // to return true after InterpolateAndPosition even when the
+            // helper had hit body-lookup-miss / empty-points failure paths,
+            // which write InterpolationResult.Zero (bodyName=null) and call
+            // ghost.SetActive(false). The engine then treated the route as
+            // ShadowPositioned and the post-position pipeline could
+            // re-activate the ghost at a stale transform. The new helper
+            // detects this; the positioner falls back to Hidden when it
+            // returns false.
+            Assert.False(GhostPlaybackEngine.IsInterpolationResultValid(InterpolationResult.Zero));
+
+            var nullName = new InterpolationResult { velocity = Vector3.zero, bodyName = null, altitude = 0 };
+            Assert.False(GhostPlaybackEngine.IsInterpolationResultValid(nullName));
+
+            var emptyName = new InterpolationResult { velocity = Vector3.zero, bodyName = "", altitude = 0 };
+            Assert.False(GhostPlaybackEngine.IsInterpolationResultValid(emptyName));
+        }
+
+        [Fact]
+        public void IsInterpolationResultValid_BodyNamePopulated_TreatsAsSuccess()
+        {
+            var success = new InterpolationResult(Vector3.zero, "Kerbin", 100.0);
+            Assert.True(GhostPlaybackEngine.IsInterpolationResultValid(success));
+
+            var minimal = new InterpolationResult { velocity = Vector3.zero, bodyName = "Mun", altitude = 0 };
+            Assert.True(GhostPlaybackEngine.IsInterpolationResultValid(minimal));
+        }
+
+        [Fact]
         public void AdjustFxFlagsForShadowRoute_NotShadowRouted_PassesBaseFlagsThrough()
         {
             // (baseSkip, baseSuppress, shadowRouted=false) -> (baseSkip, baseSuppress)

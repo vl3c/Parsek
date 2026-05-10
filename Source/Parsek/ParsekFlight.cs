@@ -16726,6 +16726,11 @@ namespace Parsek
 
             int playbackIdx = state.playbackIndex;
             int absolutePlaybackIdx = playbackIdx;
+            // Snapshot the ghost's pre-call active state so we can detect
+            // InterpolateAndPosition's body-lookup-miss / empty-points
+            // failure paths, which call ghost.SetActive(false) and write
+            // InterpolationResult.Zero. See ParsekFlight.cs:17226-17256.
+            bool ghostWasActive = state.ghost.activeSelf;
             InterpolateAndPosition(
                 state.ghost,
                 target.Section.absoluteFrames,
@@ -16738,12 +16743,32 @@ namespace Parsek
                 skipOrbitSegments: true,
                 recordingId: target.RecordingId,
                 sectionIndex: target.SectionIndex);
+            state.playbackIndex = absolutePlaybackIdx;
+            // Fail closed when InterpolateAndPosition could not produce a
+            // valid pose. See GhostPlaybackEngine.IsInterpolationResultValid
+            // for the bodyName-null sentinel rationale. Without this guard
+            // the engine would treat the route as ShadowPositioned and the
+            // post-position pipeline's ActivateGhostVisualsIfNeeded would
+            // re-show the ghost at its stale transform, defeating the
+            // body-miss SetActive(false). The router falls back to Hidden
+            // when this returns false.
+            if (!GhostPlaybackEngine.IsInterpolationResultValid(interpResult))
+            {
+                // Restore the pre-call active state so the legacy hide path
+                // (which sets the mesh inactive itself) starts from a known
+                // baseline, and so a future SetActive(false) on the same
+                // GameObject from the legacy path is observable in tests.
+                if (state.ghost != null && state.ghost.activeSelf != ghostWasActive)
+                    state.ghost.SetActive(ghostWasActive);
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
+            }
             // Match the canonical positioner contract at :16653-16657:
             // positioner-with-state owns the SetInterpolated call so watch-mode
             // camera and FX paths read fresh lastInterpolatedBodyName / Altitude
             // / Velocity. Callers do NOT need to invoke SetInterpolated separately.
             state.SetInterpolated(interpResult);
-            state.playbackIndex = absolutePlaybackIdx;
             return true;
         }
 

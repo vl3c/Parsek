@@ -2918,6 +2918,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Sentinel check for InterpolateAndPosition's complete-failure
+        /// paths (empty points list, body-lookup miss). Both write
+        /// <see cref="InterpolationResult.Zero"/> which has bodyName=null;
+        /// success paths always copy bodyName from a recorded TrajectoryPoint
+        /// (which the recorder always populates). Used by the
+        /// shadow-route positioner to fail closed to
+        /// <see cref="AnchorRotationUnreliableRoute.Hidden"/> instead of
+        /// silently rendering at a stale transform.
+        /// </summary>
+        internal static bool IsInterpolationResultValid(InterpolationResult result)
+        {
+            return !string.IsNullOrEmpty(result.bodyName);
+        }
+
+        /// <summary>
         /// Combines the post-position FX-suppression flags with the
         /// shadow-route flag. When the tumbling-parent gate routes a ghost
         /// through the shadow path the rotation interp through the parent
