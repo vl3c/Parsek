@@ -5698,13 +5698,14 @@ namespace Parsek
                 OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                     rec, markDirty);
 
-            if (stats.Added > 0 && !SuppressLogging)
+            if (stats.Changed && !SuppressLogging)
             {
                 ParsekLog.Verbose("RecordingStore",
                     $"EnsureCheckpointSectionsForTopLevelOrbitSegments: recording={rec?.RecordingId} " +
                     $"context={context} added={stats.Added} skippedExisting={stats.SkippedExisting} " +
                     $"skippedInvalid={stats.SkippedInvalid} skippedPredicted={stats.SkippedPredicted} " +
-                    $"skippedAfterPredicted={stats.SkippedAfterPredicted}");
+                    $"skippedAfterPredicted={stats.SkippedAfterPredicted} " +
+                    $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped}");
             }
 
             return stats;

@@ -1216,6 +1216,87 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeTree_PreservesPredictedTailAfterClippedCheckpointPrefix()
+        {
+            const double checkpointStartUT = 200.0;
+            const double checkpointEndUT = 320.0;
+            const double physicalStartUT = 300.0;
+            const double physicalEndUT = 350.0;
+            const double terminalUT = 900.0;
+
+            var atmospheric = MakeSection(
+                100.0,
+                checkpointStartUT,
+                TrackSectionSource.Active,
+                lat: -0.02,
+                lon: -74.5,
+                alt: 65000.0,
+                endLat: -0.01,
+                endLon: -74.2,
+                endAlt: 72000.0);
+            var checkpointSegment = MakeOrbitSegment(
+                checkpointStartUT, checkpointEndUT, isPredicted: false);
+            var checkpoint = MakeSectionNoFrames(
+                checkpointStartUT, checkpointEndUT, TrackSectionSource.Checkpoint);
+            checkpoint.checkpoints.Add(checkpointSegment);
+            var resumedPhysical = MakeSection(
+                physicalStartUT,
+                physicalEndUT,
+                TrackSectionSource.Background,
+                lat: 0.5,
+                lon: 1.0,
+                alt: 90000.0,
+                endLat: 0.6,
+                endLon: 1.1,
+                endAlt: 95000.0);
+
+            var rec = MakeRecording(
+                "rec-clipped-checkpoint-tail",
+                "Kerbal X",
+                new List<TrackSection> { atmospheric, checkpoint, resumedPhysical });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 999.0,
+                    latitude = 9.0,
+                    longitude = 9.0,
+                    altitude = 9.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero
+                }
+            };
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                checkpointSegment,
+                MakeOrbitSegment(360.0, terminalUT, isPredicted: true)
+            };
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = terminalUT;
+
+            var tree = MakeTree("Clipped Checkpoint Orbit Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-clipped-checkpoint-tail"];
+
+            Assert.Equal(3, merged.TrackSections.Count);
+            Assert.Equal(2, merged.OrbitSegments.Count);
+            Assert.False(merged.OrbitSegments[0].isPredicted);
+            Assert.Equal(checkpointStartUT, merged.OrbitSegments[0].startUT);
+            Assert.Equal(physicalStartUT, merged.OrbitSegments[0].endUT);
+            Assert.True(merged.OrbitSegments[1].isPredicted);
+            Assert.Equal(360.0, merged.OrbitSegments[1].startUT);
+            Assert.Equal(terminalUT, merged.OrbitSegments[1].endUT);
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-clipped-checkpoint-tail'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:1"));
+        }
+
+        [Fact]
         public void MergeTree_LegacyBackgroundOnRailsOrbitSegments_NormalizesCheckpointBridge()
         {
             var firstLoaded = MakeSection(

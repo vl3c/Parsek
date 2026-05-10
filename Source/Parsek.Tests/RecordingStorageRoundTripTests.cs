@@ -703,7 +703,7 @@ namespace Parsek.Tests
             original.OrbitSegments.Add(new OrbitSegment
             {
                 startUT = 110.0,
-                endUT = 500.0,
+                endUT = 505.0,
                 inclination = 28.5,
                 eccentricity = 0.01,
                 semiMajorAxis = 700000.0,
@@ -742,7 +742,9 @@ namespace Parsek.Tests
             Assert.Contains(original.TrackSections, s =>
                 s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
                 s.checkpoints != null &&
-                s.checkpoints.Count == 1);
+                s.checkpoints.Count == 1 &&
+                s.endUT == 500.0 &&
+                s.checkpoints[0].endUT == 500.0);
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
             var restored = new Recording { RecordingId = original.RecordingId };
@@ -754,6 +756,10 @@ namespace Parsek.Tests
             Assert.Single(restored.OrbitSegments);
             Assert.Equal(110.0, restored.OrbitSegments[0].startUT);
             Assert.Equal(500.0, restored.OrbitSegments[0].endUT);
+            Assert.DoesNotContain(restored.TrackSections, s =>
+                s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
+                s.startUT < 500.0 &&
+                s.endUT > 500.0);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("using section-authoritative path") &&
