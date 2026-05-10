@@ -85,7 +85,7 @@ section.referenceFrame == Relative
 the persisted Relative section end must be covered by an authored rendering surface:
 
 ```text
-section.frames covers section.endUT using PR #811 Relative coverage; or
+section.frames covers section.endUT using recorder-persistence coverage; or
 section.absoluteFrames covers section.endUT using shadow-renderer coverage.
 ```
 
@@ -96,7 +96,9 @@ If neither covers the requested section end:
 
 Do not duplicate the last local offset at a later UT just to satisfy the invariant. That recreates the stale-tail visual bug with cleaner-looking metadata.
 
-Single-frame rule: preserve the PR #811 contract for a single Relative frame. `SingleFrameCoversUT` treats one Relative frame as covering the section span, so the normalizer must not collapse a deliberate single-frame Relative section unless a later design changes that playback contract. A single absolute shadow point is not section-wide coverage because `TryPositionFromRelativeAbsoluteShadow` interpolates between two samples.
+Single-frame rule: keep PR #811's playback compatibility contract separate from the recorder persistence contract. Playback can still treat one Relative frame as covering a section for old data, but the recorder must not use one seed-only Relative frame to persist a long fresh debris section unless it also records an explicit static-hold contract and tests that shape. In the initial implementation, a single Relative frame without shadow should cover only its own UT for persistence. A single absolute shadow point is not section-wide coverage because `TryPositionFromRelativeAbsoluteShadow` interpolates between two samples.
+
+Flat-point rule: flat `Recording.Points` are not a renderable terminal surface for v12 parent-anchored debris after a Relative section runs out of Relative/shadow coverage. A flat boundary point appended after section flush must either be represented as a real terminal Relative+shadow sample, or live inside a deliberate non-relative section that playback can render without the parent-relative contract. Otherwise it must not extend `TrackSection.endUT`, `ExplicitEndUT`, or endpoint decisions.
 
 Fail-closed empty case: a v12 parent-anchored debris Relative section with no Relative frames and no absolute shadow frames has no renderable payload. Drop it during normalization, or clamp it to a zero-length section only if an existing downstream contract requires the section marker. Prefer dropping and logging unless a test proves zero-length retention is required.
 
@@ -149,14 +151,15 @@ Implementation details:
 
 - Gate on `IsDebris && DebrisParentRecordingId != null`; legacy v11 debris (`null`) and non-debris stay untouched.
 - Skip live-loop debris (`LoopAnchorVesselId != 0u`) if that field is reachable on `Recording`.
-- For multi-frame Relative `section.frames`, renderable coverage ends at the last relative frame UT.
-- For single-frame Relative `section.frames`, preserve section-wide coverage per PR #811.
+- Expose separate modes for playback-compatible coverage and recorder-persistable coverage if sharing code with PR #811. Playback mode may preserve `SingleFrameCoversUT`; recorder mode must require a real endpoint sample unless an explicit static-hold shape is introduced.
+- For multi-frame Relative `section.frames`, recorder-persistable coverage ends at the last relative frame UT.
+- For single-frame Relative `section.frames`, recorder-persistable coverage ends at the frame UT unless the implementation introduces an explicit static-hold marker/contract and tests it.
 - For `section.absoluteFrames`, renderable coverage ends at the last shadow frame UT only when `Count >= 2`.
 - Do not use `TrackSection.endUT` as evidence that a surface exists.
-- For the recorder-side normalizer, prefer `section.frames` and `section.absoluteFrames`. Flat `Recording.Points` projection can remain a playback compatibility fallback, but the current writer should not need flat projection to justify a section it is about to persist.
+- For the recorder-side normalizer, prefer `section.frames` and `section.absoluteFrames`. Flat `Recording.Points` projection can remain a playback compatibility fallback, but the current writer must not use flat projection to justify a parent-anchored debris Relative section it is about to persist.
 - Recalculate `sampleRateHz` after clamping using the existing convention.
 - Because `TrackSection` is a struct, write any mutated section back into the list by index.
-- Mark files dirty and refresh cached stats only when a mutation occurs.
+- Mark files dirty, refresh cached stats, and rerun `RecordingEndpointResolver.RefreshEndpointDecision(...)` only when a mutation occurs.
 - Emit one aggregate `ParsekLog.Warn("BgRecorder", ...)` per recording/context when normalization mutates anything. Include `recordingId`, `context`, `clampedSections`, `droppedSections`, old/new section end, relative range, shadow range, and `DebrisParentRecordingId`.
 
 If PR #811 has already landed, consider moving its private frame coverage functions into this shared helper and making `DebrisRelativePlaybackPolicy` delegate to it. Avoid letting playback and recorder use slightly different definitions of "authored coverage."
@@ -168,13 +171,15 @@ Normalize as close as possible to the place where sections leave mutable backgro
 1. In `FlushTrackSectionsToRecording`, normalize `state.trackSections` before appending them to `treeRec.TrackSections`. This catches most loaded-background close sites without changing every caller.
 2. After the append, normalize `treeRec.TrackSections` defensively before `RecordingStore.AppendPointsFromTrackSections`. This catches any already-queued stale sections and keeps saved metadata consistent.
 3. In `EndDebrisRecording`, stop setting `rec.ExplicitEndUT = endUT` as a final truth before the flush. Set it only after normalization, using the last renderable UT when this is a parent-anchored debris recording with no later valid non-relative payload.
-4. In `FlushLoadedStateForOnRailsTransition`, do not let `flushRec.ExplicitEndUT = ut` extend a parent-anchored debris Relative section past its authored coverage unless a boundary sample was actually appended at `ut`.
+4. In `FlushLoadedStateForOnRailsTransition`, do not let `flushRec.ExplicitEndUT = ut` extend a parent-anchored debris Relative section past its authored coverage unless a real renderable boundary sample was appended at `ut`. A flat-only boundary point is not enough; it must be a Relative+shadow terminal sample or a deliberate non-relative section that playback can render.
 5. In `FinalizeAllForCommit`, after all loaded states are flushed and before the "Update ExplicitEndUT on all background recordings" loop finishes, clamp parent-anchored debris explicit ends to the latest renderable payload if no later valid orbit/checkpoint/absolute payload exists.
 6. In `PersistFinalizedRecording`, optionally run an assertion-style validation before writing. If a stale v12 Relative tail is still found here, log a WARN with `reason=parent-anchored-debris-stale-relative-tail-at-persist` and normalize before save.
+7. If persist-time validation mutates the recording after a finalizer cache or endpoint resolver already ran, immediately rerun `RecordingEndpointResolver.RefreshEndpointDecision(...)` so persisted endpoint metadata matches the normalized trajectory.
 
 Explicit end rule:
 
 - Clamp `Recording.ExplicitEndUT` only when the stale Relative section is the latest renderable payload and there is no later valid non-relative section, checkpoint, or accepted orbit tail.
+- Do not treat flat-only `Recording.Points` as later valid payload for v12 parent-anchored debris once the active Relative/shadow coverage has ended. If such a point is intended to keep the debris visible, first convert it into an explicit renderable surface.
 - Preserve `TerminalStateValue` and terminal metadata as outcome metadata. The ghost should disappear at the last trustworthy pose if there is no terminal pose sample.
 - If a terminal event must visually occur at a later UT, the recorder must append a real terminal pose instead of stretching metadata.
 
@@ -205,10 +210,10 @@ Add focused xUnit tests first. Suggested files:
 Coverage checklist:
 
 1. v12 parent-anchored debris Relative section `[333.0519, 376.2919]` with Relative/shadow frames ending `344.8919` clamps to `344.8919`.
-2. Same fixture updates `sampleRateHz`, marks the recording dirty, invalidates cached stats, and logs one aggregate warning.
+2. Same fixture updates `sampleRateHz`, marks the recording dirty, invalidates cached stats, refreshes endpoint decisions, and logs one aggregate warning.
 3. Shadow extends later than Relative frames: clamp to shadow tail when `absoluteFrames.Count >= 2`.
 4. Relative frames extend later than shadow: clamp to relative tail.
-5. Single Relative frame covering the section span is preserved.
+5. Single Relative frame without shadow does not preserve a long freshly recorded section by default; it clamps to the frame UT unless an explicit static-hold contract is added.
 6. Single absolute shadow frame alone does not justify a long section.
 7. Empty Relative section with no shadow is dropped or zero-length according to the final implementation choice, with a WARN.
 8. Legacy debris (`DebrisParentRecordingId == null`) is untouched.
@@ -216,11 +221,12 @@ Coverage checklist:
 10. Live-loop debris is untouched if `LoopAnchorVesselId != 0u` applies.
 11. `FlushTrackSectionsToRecording` normalizes stale queued sections before they reach `treeRec.TrackSections`.
 12. `EndDebrisRecording` no longer leaves `ExplicitEndUT` later than the last renderable payload when no terminal pose exists.
-13. `FlushLoadedStateForOnRailsTransition` only extends `ExplicitEndUT` when the boundary point is actually appended.
+13. `FlushLoadedStateForOnRailsTransition` does not extend `ExplicitEndUT` for a flat-only boundary point after parent-anchored Relative/shadow coverage ended.
 14. `FinalizeAllForCommit` does not overwrite a clamped parent-anchored debris end with raw `commitUT`.
 15. `RecordingFinalizationCacheApplier.TryGetLastAuthoredUT` ignores stale v12 Relative `section.endUT`.
 16. A synthetic sidecar round-trip preserves the normalized section end and does not regenerate the stale tail.
 17. A log-capture test asserts the new WARN reason and one-line aggregate format.
+18. Persist-time fallback normalization after finalizer cache application reruns `RecordingEndpointResolver.RefreshEndpointDecision(...)`.
 
 Do not add the full retained `.prec.txt` files as giant fixtures unless reviewers explicitly want them. A compact synthetic fixture that matches the four-row evidence table is enough for CI.
 
