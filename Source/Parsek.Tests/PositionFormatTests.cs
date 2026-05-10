@@ -263,6 +263,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void End_NoTerminalState_WithRelativeShadowTrackSection_DoesNotDoubleCountBodyPath()
+        {
+            var rec = new Recording
+            {
+                SegmentPhase = "exo",
+                SegmentBodyName = "Kerbin"
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100,
+                endUT = 300,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Mun" }
+                },
+                absoluteFrames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200, bodyName = "Mun" }
+                }
+            });
+
+            Assert.Equal("Kerbin -> Mun exo", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
         public void End_NoTerminalState_MixedEvaAtmoSurface_ShowsBodyOnly()
         {
             var rec = new Recording

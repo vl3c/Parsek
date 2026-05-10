@@ -2570,14 +2570,18 @@ namespace Parsek
         internal static string GetSegmentPhaseLabel(Recording rec)
         {
             if (rec == null) return "";
+            return GetSegmentPhaseLabel(rec, GetSegmentBodyDisplayLabel(rec));
+        }
+
+        internal static string GetSegmentPhaseLabel(Recording rec, string displayBody)
+        {
+            if (rec == null) return "";
             if (ShouldSuppressEvaBoundaryPhaseLabel(rec))
             {
-                string body = GetSegmentBodyDisplayLabel(rec);
-                return body ?? "";
+                return displayBody ?? "";
             }
 
             if (string.IsNullOrEmpty(rec.SegmentPhase)) return "";
-            string displayBody = GetSegmentBodyDisplayLabel(rec);
             if (!string.IsNullOrEmpty(displayBody))
                 return displayBody + " " + rec.SegmentPhase;
             return rec.SegmentPhase;
@@ -2586,18 +2590,48 @@ namespace Parsek
         internal static string GetSegmentBodyDisplayLabel(Recording rec)
         {
             if (rec == null) return "";
-            string bodyPath;
-            if (TryBuildBodyPathLabel(rec.Points, out bodyPath))
-                return bodyPath;
-            if (TryBuildBodyPathLabel(rec.TrackSections, out bodyPath))
-                return bodyPath;
 
-            string body = rec.SegmentBodyName;
-            if (string.IsNullOrEmpty(body) && rec.Points != null && rec.Points.Count > 0)
-                body = rec.Points[rec.Points.Count - 1].bodyName;
-            if (string.IsNullOrEmpty(body))
-                body = rec.StartBodyName;
-            return body ?? "";
+            int pointCount = rec.Points != null ? rec.Points.Count : 0;
+            int trackSectionCount = rec.TrackSections != null ? rec.TrackSections.Count : 0;
+            string lastPointBodyName = pointCount > 0 ? rec.Points[pointCount - 1].bodyName : null;
+            if (rec.SegmentBodyDisplayLabelCacheValid
+                && rec.SegmentBodyDisplayLabelCachePointCount == pointCount
+                && rec.SegmentBodyDisplayLabelCacheTrackSectionCount == trackSectionCount
+                && rec.SegmentBodyDisplayLabelCacheSegmentBodyName == rec.SegmentBodyName
+                && rec.SegmentBodyDisplayLabelCacheStartBodyName == rec.StartBodyName
+                && rec.SegmentBodyDisplayLabelCacheLastPointBodyName == lastPointBodyName)
+            {
+                return rec.SegmentBodyDisplayLabelCache ?? "";
+            }
+
+            string bodyPath;
+            string result;
+            if (TryBuildBodyPathLabel(rec.Points, out bodyPath))
+            {
+                result = bodyPath;
+            }
+            else if (TryBuildBodyPathLabel(rec.TrackSections, out bodyPath))
+            {
+                result = bodyPath;
+            }
+            else
+            {
+                string body = rec.SegmentBodyName;
+                if (string.IsNullOrEmpty(body))
+                    body = lastPointBodyName;
+                if (string.IsNullOrEmpty(body))
+                    body = rec.StartBodyName;
+                result = body ?? "";
+            }
+
+            rec.SegmentBodyDisplayLabelCacheValid = true;
+            rec.SegmentBodyDisplayLabelCache = result;
+            rec.SegmentBodyDisplayLabelCachePointCount = pointCount;
+            rec.SegmentBodyDisplayLabelCacheTrackSectionCount = trackSectionCount;
+            rec.SegmentBodyDisplayLabelCacheSegmentBodyName = rec.SegmentBodyName;
+            rec.SegmentBodyDisplayLabelCacheStartBodyName = rec.StartBodyName;
+            rec.SegmentBodyDisplayLabelCacheLastPointBodyName = lastPointBodyName;
+            return result;
         }
 
         private static bool TryBuildBodyPathLabel(List<TrajectoryPoint> points, out string label)
@@ -2623,9 +2657,15 @@ namespace Parsek
             for (int i = 0; i < sections.Count; i++)
             {
                 TrackSection section = sections[i];
-                AppendBodyTransitions(bodies, section.frames);
-                AppendBodyTransitions(bodies, section.absoluteFrames);
-                if (section.checkpoints != null)
+                if (section.frames != null && section.frames.Count > 0)
+                {
+                    AppendBodyTransitions(bodies, section.frames);
+                }
+                else if (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                {
+                    AppendBodyTransitions(bodies, section.absoluteFrames);
+                }
+                else if (section.checkpoints != null)
                 {
                     for (int j = 0; j < section.checkpoints.Count; j++)
                         AppendBodyTransition(bodies, section.checkpoints[j].bodyName);

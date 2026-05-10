@@ -67,7 +67,7 @@ namespace Parsek
                 // Fallback: display body path -> SegmentBodyName -> last trajectory point body -> StartBodyName.
                 string segBody = RecordingStore.GetSegmentBodyDisplayLabel(rec);
 
-                string segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec);
+                string segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec, segBody);
                 if (!string.IsNullOrEmpty(segmentLabel))
                     return segmentLabel;
                 if (!string.IsNullOrEmpty(segBody))
