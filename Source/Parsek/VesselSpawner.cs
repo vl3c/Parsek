@@ -5119,11 +5119,17 @@ namespace Parsek
                 return false;
             }
 
-            Vector3d worldPos = body.GetWorldSurfacePosition(
-                candidate.latitude, candidate.longitude, candidate.altitude);
+            // candidate.velocity comes from FlightRecorder.SampleCurrentVelocity
+            // (Y-up Unity world axes, body-relative inertial). The position must
+            // be body-relative + Zup; the velocity must be Zup. OrbitReseed
+            // applies (pos − body.position).xzy and vel.xzy — the contract
+            // Orbit.UpdateFromStateVectors documents but the API does not
+            // enforce. Without these transforms the reseed silently produces
+            // structurally-valid but physically-wrong orbital elements (sma
+            // drifts by the body.position offset, LAN/argPe by the YZ flip).
             Vector3d worldVel = new Vector3d(
                 candidate.velocity.x, candidate.velocity.y, candidate.velocity.z);
-            if (!IsFinite(worldPos) || !IsFinite(worldVel))
+            if (!IsFinite(worldVel))
             {
                 declineReason = "non-finite-state-vector";
                 return false;
@@ -5132,7 +5138,14 @@ namespace Parsek
             try
             {
                 Orbit reseeded = new Orbit();
-                reseeded.UpdateFromStateVectors(worldPos, worldVel, body, candidate.ut);
+                OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                    reseeded,
+                    body,
+                    candidate.latitude,
+                    candidate.longitude,
+                    candidate.altitude,
+                    worldVel,
+                    candidate.ut);
                 if (!IsFiniteOrbitSeedElements(reseeded))
                 {
                     declineReason = "non-finite-elements";

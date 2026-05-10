@@ -813,11 +813,144 @@ namespace Parsek.InGameTests
                 decision.Action,
                 $"Safety decision for tail-derived orbit should be SpawnNow, got {decision.Action} reason={decision.ReasonCode}");
 
+            // Pin the orbit shape itself, not just the safety verdict. The `SpawnNow`
+            // outcome is forgiving — a near-circular ~200 km orbit clears safety even
+            // when `body.position` and `.xzy` are wrong, because the magnitude error is
+            // small for a Kerbin-orbit-Kerbin-active-vessel scene. The shape check
+            // below catches the frame-mismatch class of bug: any state vector that
+            // skips `(pos - body.position).xzy` corrupts sma; any that skips `vel.xzy`
+            // leaves sma alone but rotates LAN/argPe/inclination off their expected
+            // values. Tight bounds chosen from the analytic state-vector solution for
+            // (lat=0.79°, lon=8.56°, alt=203 587 m, |v|≈2 098 m/s) — circular at 203 587 m
+            // gives sma = 803 587 m and inc ≈ atan2(vY, |vXZ|) on Kerbin's equator.
+            InGameAssert.IsTrue(System.Math.Abs(semiMajorAxis - 803_587.0) < 5_000.0,
+                $"sma={semiMajorAxis:F1} should be near 803 587 m (analytic circular at 203.587 km); " +
+                "if this fails, suspect missing `(pos - body.position)` in the reseed call");
+            InGameAssert.IsTrue(eccentricity < 0.005,
+                $"ecc={eccentricity:F4} should be near zero for a circular orbit; " +
+                "if this fails, suspect missing `.xzy` on either pos or vel");
+            // Inclination from the analytic state vector: vY = -1.73, |vXZ| ≈ 2 098, so
+            // inc ≈ atan(vY/|vXZ|) × 180/π ≈ 0.047°. Allow 0.5° because the synthetic
+            // test rotates the body around its axis between frames.
+            InGameAssert.IsTrue(inclination >= 0.0 && inclination < 0.5,
+                $"inclination={inclination:F4}° should be near zero for an equatorial state vector; " +
+                "if this fails, suspect missing `.xzy` (axis swap rotates the orbital plane)");
+
             ParsekLog.Info("TestRunner",
                 $"TerminalOrbitFromTail_DerivesPostBurnCircularOrbit: " +
                 $"sma={semiMajorAxis:F1} ecc={eccentricity:F4} " +
                 $"periAlt={periAlt:F0} apoAlt={apoAlt:F0} safeAlt={safeAlt:F0} " +
                 $"inc={inclination:F4} decision={decision.Action}");
+        }
+
+        [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
+            Description = "Probe-shape tail (highly eccentric ellipse) reseeds correctly — sma must match the analytic 4.5 Mm orbit, not the buggy ~500 k garbage that the bare UpdateFromStateVectors produces")]
+        public void TerminalOrbitFromTail_DerivesPostBurnEccentricOrbit()
+        {
+            // Mirrors `logs/2026-05-10_2123` recording rec_f1363fc127ab47a28812ce4be6515453
+            // (Kerbal X Probe Re-Fly fork) — terminal=Orbiting, tOrbSma=4 547 677,
+            // tOrbEcc=0.822, periAlt ≈ 208 km. Without the (pos - body.position).xzy +
+            // vel.xzy frame correction, `Orbit.UpdateFromStateVectors` produced
+            // sma=567 357, periAlt=-438 km (subsurface) and the spawn was permanently
+            // rejected. With the correction in OrbitReseed, sma must come out within
+            // tight tolerance of the recording's stored tOrbSma.
+            //
+            // This is the regression test that pins the actual probe-spawn bug — the
+            // prior near-circular test happened to clear the safety gate even under
+            // the buggy frame, which is why the bug shipped. This high-eccentricity
+            // case fails fast under the bug (periAlt sub-surface → CannotSpawnSafely)
+            // and passes under the fix.
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            const double tailUT = 453.66214255408767;
+            const double tailAlt = 208_283.22164018429;
+            // Verbatim from the captured recording's last absolute coast frame.
+            UnityEngine.Vector3 tailVel = new UnityEngine.Vector3(296.024567f, 3.8434844f, -2806.1167f);
+
+            var rec = new Recording { RecordingId = "ingame-probe-tail-shape" };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 142.16,
+                endUT = 415.02,
+                inclination = 0.0977,
+                eccentricity = 0.5746,
+                semiMajorAxis = 512_941.0,    // pre-burn stale segment — not what we want spawn to use
+                longitudeOfAscendingNode = 75.6,
+                argumentOfPeriapsis = 342.3,
+                meanAnomalyAtEpoch = 1.6818,
+                epoch = 142.16
+            });
+            var coastSection = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 444.60214255409591,
+                endUT = tailUT,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = tailUT,
+                        latitude = -0.020555305204629719,
+                        longitude = -36.664361532582674,
+                        altitude = tailAlt,
+                        rotation = UnityEngine.Quaternion.identity,
+                        velocity = tailVel,
+                        bodyName = "Kerbin"
+                    }
+                }
+            };
+            rec.TrackSections.Add(coastSection);
+
+            // spawnUT == tailUT keeps the rotation-drift clamp at zero.
+            bool helperOk = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+                rec, kerbin, tailUT,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out double lan,
+                out double argPe,
+                out _, out _,
+                out string bodyName,
+                out string declineReason);
+
+            InGameAssert.IsTrue(helperOk,
+                $"TryDeriveTerminalOrbitSeedFromTrajectoryTail should succeed (declineReason={declineReason ?? "(null)"})");
+            InGameAssert.AreEqual("Kerbin", bodyName);
+
+            // Analytic check on the state vector:
+            //   r = R + alt = 808 283 m
+            //   v² = 296.02² + 3.84² + 2806.12² ≈ 7 961 267 m²/s²
+            //   ε  = v²/2 − μ/r = 3.981×10⁶ − 4.370×10⁶ = −3.89×10⁵ m²/s²
+            //   sma = −μ/(2ε) ≈ 4.54 × 10⁶ m
+            // 50 km absolute tolerance leaves headroom for body-rotation drift between
+            // the synthetic state vector and KSP's body.position evaluation, but is
+            // tight enough to catch the bug's sma=567 357 (off by 4 Mm).
+            InGameAssert.IsTrue(System.Math.Abs(semiMajorAxis - 4_540_000.0) < 50_000.0,
+                $"sma={semiMajorAxis:F1} m should be near analytic 4.54 Mm; " +
+                "if this fails near 567 k, the (pos - body.position).xzy + vel.xzy frame correction is missing");
+            InGameAssert.IsTrue(eccentricity > 0.80 && eccentricity < 0.84,
+                $"ecc={eccentricity:F4} should be near 0.822 (recording's tOrbEcc); got value indicates a wrong-magnitude reseed");
+
+            // Periapsis altitude must clear safe altitude. Under the bug this came out
+            // at -438 km (subsurface) and the safety gate rejected.
+            double periAlt = semiMajorAxis * (1.0 - eccentricity) - kerbin.Radius;
+            double safeAlt = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
+                kerbin.atmosphereDepth, TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters);
+            InGameAssert.IsTrue(periAlt > safeAlt,
+                $"Derived periapsis ({periAlt:F0} m) must clear safe altitude ({safeAlt:F0} m); " +
+                "this is the user-visible spawn-safety bug repro");
+
+            ParsekLog.Info("TestRunner",
+                $"TerminalOrbitFromTail_DerivesPostBurnEccentricOrbit: " +
+                $"sma={semiMajorAxis:F1} ecc={eccentricity:F4} inc={inclination:F4} " +
+                $"lan={lan:F2} argPe={argPe:F2} periAlt={periAlt:F0} safeAlt={safeAlt:F0}");
         }
 
         #endregion
