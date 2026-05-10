@@ -578,6 +578,280 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnVesselRecoveryFunds_SubThresholdPayoutContext_DoesNotEnqueueOrWarn()
+        {
+            var identity = RecoveredVesselIdentity.FromNames("#autoLOC_501224", "Jumping Flea");
+            var payoutContext = MakeRecoveryPayoutContext(
+                288.7,
+                identity,
+                VesselType.Ship,
+                fundsEarned: GameStateRecorder.FundsThreshold - 1.0);
+
+            int before = Ledger.Actions.Count;
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                288.7,
+                identity,
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship,
+                payoutContext: payoutContext);
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
+
+            Assert.Equal(before, Ledger.Actions.Count);
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Jumping Flea") &&
+                l.Contains("below recorder threshold"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("FlushStalePendingRecoveryFunds"));
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_SubThresholdContext_DoesNotConsumeNeighborStampedEvent()
+        {
+            var goodIdentity = RecoveredVesselIdentity.FromRawName("Good Recovery");
+            var goodContext = MakeRecoveryPayoutContext(288.7, goodIdentity, VesselType.Ship, 500.0);
+            var evt = new GameStateEvent
+            {
+                ut = 288.7,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                detail = RecoveryPayoutContextStore.BuildFundsEventDetail(goodContext),
+                valueBefore = 1000.0,
+                valueAfter = 1500.0
+            };
+            GameStateStore.AddEvent(ref evt);
+
+            var tinyIdentity = RecoveredVesselIdentity.FromRawName("Tiny Recovery");
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                288.7,
+                tinyIdentity,
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship,
+                payoutContext: MakeRecoveryPayoutContext(
+                    288.7,
+                    tinyIdentity,
+                    VesselType.Ship,
+                    GameStateRecorder.FundsThreshold - 1.0));
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                288.7,
+                goodIdentity,
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship,
+                payoutContext: goodContext);
+
+            var recovery = Ledger.Actions.SingleOrDefault(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery);
+            Assert.NotNull(recovery);
+            Assert.Equal(500f, recovery.FundsAwarded);
+            Assert.Contains(logLines, l =>
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("Good Recovery"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("Tiny Recovery"));
+        }
+
+
+        [Fact]
+        public void OnVesselRecoveryFunds_ZeroPayoutContext_DoesNotEnqueue()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Gerdorf Kerman");
+            var payoutContext = MakeRecoveryPayoutContext(
+                286.3,
+                identity,
+                VesselType.EVA,
+                fundsEarned: 0.0);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                286.3,
+                identity,
+                fromTrackingStation: false,
+                vesselType: VesselType.EVA,
+                payoutContext: payoutContext);
+
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Empty(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.FundsEarning &&
+                a.FundsSource == FundsEarningSource.Recovery));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Gerdorf Kerman") &&
+                l.Contains("stock expected zero recovery funds"));
+        }
+
+        [Fact]
+        public void OnVesselRecoveryFunds_PositivePayoutContextWithoutEvent_DefersAndFlushWarns()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("MissingFundsProbe");
+            var payoutContext = MakeRecoveryPayoutContext(
+                6110.0,
+                identity,
+                VesselType.Ship,
+                fundsEarned: GameStateRecorder.FundsThreshold + 50.0);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                6110.0,
+                identity,
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship,
+                payoutContext: payoutContext);
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
+
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("FlushStalePendingRecoveryFunds") &&
+                l.Contains("MissingFundsProbe") &&
+                l.Contains("vesselType=Ship") &&
+                l.Contains("expectedFunds=150.0"));
+        }
+
+        [Fact]
+        public void BuildVesselRecoveryFundsDetail_StampsProcessingContextIdentity()
+        {
+            var identity = RecoveredVesselIdentity.FromNames("#autoLOC_501224", "Jumping Flea");
+            var context = MakeRecoveryPayoutContext(288.7, identity, VesselType.Ship, 250.0);
+
+            string detail = RecoveryPayoutContextStore.BuildFundsEventDetail(context);
+            RecoveredVesselIdentity parsed =
+                RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(detail);
+
+            Assert.NotNull(detail);
+            Assert.Contains("vessel=", detail);
+            Assert.Contains("rawVessel=", detail);
+            Assert.True(parsed.Matches(identity));
+            Assert.True(parsed.MatchesName("#autoLOC_501224"));
+            Assert.True(parsed.MatchesName("Jumping Flea"));
+
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 501225,
+                rawVesselName: "Stamped Probe",
+                vesselType: VesselType.Ship,
+                ut: 500.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 250.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1250.0);
+            Assert.Contains("Stamped%20Probe", GameStateRecorder.BuildVesselRecoveryFundsDetail(500.0));
+        }
+
+        [Fact]
+        public void RecoveryPayoutContext_TryFind_KeepsContextForDelayedFundsDetail()
+        {
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 501226,
+                rawVesselName: "Delayed Funds Probe",
+                vesselType: VesselType.Ship,
+                ut: 600.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 250.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1250.0);
+
+            Assert.True(RecoveryPayoutContextStore.TryFind(
+                persistentId: 501226,
+                identity: RecoveredVesselIdentity.FromRawName("Delayed Funds Probe"),
+                ut: 600.0,
+                out RecoveryPayoutContext context));
+            Assert.NotNull(context);
+
+            string detail = GameStateRecorder.BuildVesselRecoveryFundsDetail(600.0);
+            Assert.Contains("Delayed%20Funds%20Probe", detail);
+        }
+
+        [Fact]
+        public void BuildVesselRecoveryFundsDetail_SameUtContexts_PrefersMatchingFundsEarned()
+        {
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 501227,
+                rawVesselName: "Small Recovery",
+                vesselType: VesselType.Ship,
+                ut: 700.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 150.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1150.0);
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 501228,
+                rawVesselName: "Large Recovery",
+                vesselType: VesselType.Ship,
+                ut: 700.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 500.0,
+                beforeMissionFunds: 1150.0,
+                totalFunds: 1650.0);
+
+            string detail = GameStateRecorder.BuildVesselRecoveryFundsDetail(700.0, 150.0);
+
+            Assert.Contains("Small%20Recovery", detail);
+            Assert.DoesNotContain("Large%20Recovery", detail);
+        }
+
+        [Fact]
+        public void BuildVesselRecoveryFundsDetail_UsedContext_DoesNotStampLaterEvent()
+        {
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 501229,
+                rawVesselName: "Single Recovery",
+                vesselType: VesselType.Ship,
+                ut: 800.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 200.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1200.0);
+
+            string first = GameStateRecorder.BuildVesselRecoveryFundsDetail(800.0, 200.0);
+            string second = GameStateRecorder.BuildVesselRecoveryFundsDetail(800.0, 999.0);
+
+            Assert.Contains("Single%20Recovery", first);
+            Assert.Null(second);
+        }
+
+        [Fact]
+        public void RecoveryPayoutContext_TryFind_PrefersPersistentIdOverSameNameCloserUt()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Same Name");
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 101,
+                rawVesselName: "Same Name",
+                vesselType: VesselType.Ship,
+                ut: 900.00,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1000.0);
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 202,
+                rawVesselName: "Same Name",
+                vesselType: VesselType.Ship,
+                ut: 900.05,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 500.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1500.0);
+
+            Assert.True(RecoveryPayoutContextStore.TryFind(
+                persistentId: 202,
+                identity: identity,
+                ut: 900.00,
+                out RecoveryPayoutContext context));
+
+            Assert.Equal((uint)202, context.PersistentId);
+            Assert.Equal(500.0, context.FundsEarned);
+        }
+
+        [Fact]
         public void OnVesselRecoveryFunds_CallbackBeforeFundsEvent_PairsWhenEventIsRecorded()
         {
             LedgerOrchestrator.OnVesselRecoveryFunds(149.53, "r0", fromTrackingStation: false);
@@ -1182,6 +1456,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnRecoveryFundsEventRecorded_StructuredRawNormalizedNameMatch_Preferred()
+        {
+            var identity = RecoveredVesselIdentity.FromNames("#autoLOC_501224", "Jumping Flea");
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                3100.0,
+                identity,
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship,
+                payoutContext: MakeRecoveryPayoutContext(3100.0, identity, VesselType.Ship, 500.0));
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                3100.0,
+                RecoveredVesselIdentity.FromRawName("Other Probe"),
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship,
+                payoutContext: MakeRecoveryPayoutContext(
+                    3100.0,
+                    RecoveredVesselIdentity.FromRawName("Other Probe"),
+                    VesselType.Ship,
+                    500.0));
+            Assert.Equal(2, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            var evt = new GameStateEvent
+            {
+                ut = 3100.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                detail = RecoveryPayoutContextStore.BuildFundsEventDetail(
+                    MakeRecoveryPayoutContext(3100.0, identity, VesselType.Ship, 500.0)),
+                valueBefore = 1000.0,
+                valueAfter = 1500.0
+            };
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("vessel='Jumping Flea'"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("VesselRecovery funds patched") &&
+                l.Contains("Other Probe"));
+        }
+
+        [Fact]
         public void OnRecoveryFundsEventRecorded_VesselNameMatchTie_LogsWarn()
         {
             // Two same-named same-UT pending requests: after name-match filtering they
@@ -1213,9 +1532,8 @@ namespace Parsek.Tests
         [Fact]
         public void OnRecoveryFundsEventRecorded_NoNameMatchFallsBackToNearestUT()
         {
-            // Event tagged with a name that doesn't match any pending request: the
-            // legacy nearest-UT fallback still pairs the closest one, preserving the
-            // #444 contract for events without a usable name hint.
+            // Event with no usable name hint: the legacy nearest-UT fallback still
+            // pairs the closest one, preserving the #444 contract for older events.
             LedgerOrchestrator.OnVesselRecoveryFunds(5000.0, "Alpha", fromTrackingStation: false);
             LedgerOrchestrator.OnVesselRecoveryFunds(5000.1, "Beta", fromTrackingStation: false);
 
@@ -1224,7 +1542,6 @@ namespace Parsek.Tests
                 ut = 5000.0,
                 eventType = GameStateEventType.FundsChanged,
                 key = LedgerOrchestrator.VesselRecoveryReasonKey,
-                detail = "Gamma", // unmatched
                 valueBefore = 500.0,
                 valueAfter = 1500.0
             };
@@ -1237,6 +1554,50 @@ namespace Parsek.Tests
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("VesselRecovery funds patched") &&
                 l.Contains("vessel='Alpha'"));
+        }
+
+        [Fact]
+        public void OnRecoveryFundsEventRecorded_MismatchedIdentity_DoesNotFallbackToNearestUT()
+        {
+            LedgerOrchestrator.OnVesselRecoveryFunds(5100.0, "Alpha", fromTrackingStation: false);
+            LedgerOrchestrator.OnVesselRecoveryFunds(5100.0, "Beta", fromTrackingStation: false);
+
+            var evt = new GameStateEvent
+            {
+                ut = 5100.0,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                detail = "Gamma",
+                valueBefore = 500.0,
+                valueAfter = 1500.0
+            };
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            Assert.Equal(2, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("VesselRecovery funds patched") &&
+                (l.Contains("Alpha") || l.Contains("Beta")));
+        }
+
+        private static RecoveryPayoutContext MakeRecoveryPayoutContext(
+            double ut,
+            RecoveredVesselIdentity identity,
+            VesselType vesselType,
+            double fundsEarned)
+        {
+            return new RecoveryPayoutContext
+            {
+                PersistentId = 12345,
+                Identity = identity,
+                VesselType = vesselType,
+                Ut = ut,
+                RecoveryFactor = 1.0f,
+                HasFundsEarned = true,
+                FundsEarned = fundsEarned,
+                BeforeMissionFunds = 1000.0,
+                TotalFunds = 1000.0 + fundsEarned
+            };
         }
     }
 }

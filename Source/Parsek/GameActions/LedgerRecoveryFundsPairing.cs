@@ -16,8 +16,12 @@ namespace Parsek
         private struct PendingRecoveryFundsRequest
         {
             public double Ut;
-            public string VesselName;
+            public RecoveredVesselIdentity Identity;
             public bool FromTrackingStation;
+            public VesselType VesselType;
+            public RecoveryPayoutContext PayoutContext;
+
+            public string VesselName => Identity.DisplayName;
         }
 
         private static readonly HashSet<string> consumedRecoveryEventKeys = new HashSet<string>();
@@ -57,10 +61,81 @@ namespace Parsek
             out GameStateEvent matched,
             out string dedupKey)
         {
+            return TryFindRecoveryFundsEvent(
+                events,
+                ut,
+                skipConsumed,
+                default(RecoveredVesselIdentity),
+                out matched,
+                out dedupKey);
+        }
+
+        internal static bool TryFindRecoveryFundsEvent(
+            IReadOnlyList<GameStateEvent> events,
+            double ut,
+            bool skipConsumed,
+            RecoveredVesselIdentity preferredIdentity,
+            out GameStateEvent matched,
+            out string dedupKey)
+        {
             matched = default;
             dedupKey = null;
             if (events == null)
                 return false;
+
+            if (preferredIdentity.HasName &&
+                TryFindRecoveryFundsEventCore(
+                    events,
+                    ut,
+                    skipConsumed,
+                    preferredIdentity,
+                    matchMode: RecoveryEventIdentityMatchMode.RequireMatchingIdentity,
+                    out matched,
+                    out dedupKey))
+            {
+                return true;
+            }
+
+            if (preferredIdentity.HasName)
+            {
+                return TryFindRecoveryFundsEventCore(
+                    events,
+                    ut,
+                    skipConsumed,
+                    preferredIdentity,
+                    matchMode: RecoveryEventIdentityMatchMode.RequireNoIdentity,
+                    out matched,
+                    out dedupKey);
+            }
+
+            return TryFindRecoveryFundsEventCore(
+                events,
+                ut,
+                skipConsumed,
+                preferredIdentity,
+                matchMode: RecoveryEventIdentityMatchMode.Any,
+                out matched,
+                out dedupKey);
+        }
+
+        private enum RecoveryEventIdentityMatchMode
+        {
+            Any,
+            RequireMatchingIdentity,
+            RequireNoIdentity
+        }
+
+        private static bool TryFindRecoveryFundsEventCore(
+            IReadOnlyList<GameStateEvent> events,
+            double ut,
+            bool skipConsumed,
+            RecoveredVesselIdentity preferredIdentity,
+            RecoveryEventIdentityMatchMode matchMode,
+            out GameStateEvent matched,
+            out string dedupKey)
+        {
+            matched = default;
+            dedupKey = null;
 
             for (int i = events.Count - 1; i >= 0; i--)
             {
@@ -71,6 +146,7 @@ namespace Parsek
 
                 string candidateKey = BuildRecoveryEventDedupKey(e);
                 if (skipConsumed && consumedRecoveryEventKeys.Contains(candidateKey)) continue;
+                if (!RecoveryEventSatisfiesIdentityMode(e, preferredIdentity, matchMode)) continue;
 
                 matched = e;
                 dedupKey = candidateKey;
@@ -82,21 +158,22 @@ namespace Parsek
 
         internal static void OnRecoveryFundsEventRecorded(
             GameStateEvent evt,
-            Func<double, string, bool, bool> tryAddRecoveryFundsAction)
+            Func<double, RecoveredVesselIdentity, bool, bool> tryAddRecoveryFundsAction)
         {
             if (pendingRecoveryFunds.Count == 0)
                 return;
 
-            string eventVesselName = evt.detail ?? "";
+            RecoveredVesselIdentity eventIdentity =
+                RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(evt.detail);
 
-            int bestIndex = FindBestPairingIndex(evt.ut, eventVesselName);
+            int bestIndex = FindBestPairingIndex(evt.ut, eventIdentity);
             if (bestIndex < 0)
                 return;
 
             var request = pendingRecoveryFunds[bestIndex];
             if (tryAddRecoveryFundsAction(
                     request.Ut,
-                    request.VesselName,
+                    request.Identity,
                     request.FromTrackingStation))
             {
                 pendingRecoveryFunds.RemoveAt(bestIndex);
@@ -105,10 +182,19 @@ namespace Parsek
 
         internal static int FindBestPairingIndex(double eventUt, string eventVesselName)
         {
+            return FindBestPairingIndex(
+                eventUt,
+                RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(eventVesselName));
+        }
+
+        internal static int FindBestPairingIndex(
+            double eventUt,
+            RecoveredVesselIdentity eventIdentity)
+        {
             if (pendingRecoveryFunds.Count == 0)
                 return -1;
 
-            bool haveName = !string.IsNullOrEmpty(eventVesselName);
+            bool haveName = eventIdentity.HasName;
 
             int nameMatchBestIndex = -1;
             double nameMatchBestDistance = double.MaxValue;
@@ -117,8 +203,7 @@ namespace Parsek
             {
                 for (int i = 0; i < pendingRecoveryFunds.Count; i++)
                 {
-                    if (!string.Equals(pendingRecoveryFunds[i].VesselName,
-                            eventVesselName, StringComparison.Ordinal))
+                    if (!pendingRecoveryFunds[i].Identity.Matches(eventIdentity))
                         continue;
 
                     double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
@@ -141,11 +226,14 @@ namespace Parsek
             {
                 if (nameMatchTies > 1)
                 {
-                    WarnPairingCandidateTie(eventUt, eventVesselName, byNameMatch: true,
+                    WarnPairingCandidateTie(eventUt, eventIdentity, byNameMatch: true,
                         bestDistance: nameMatchBestDistance);
                 }
                 return nameMatchBestIndex;
             }
+
+            if (haveName)
+                return -1;
 
             int fallbackBestIndex = -1;
             double fallbackBestDistance = double.MaxValue;
@@ -169,7 +257,7 @@ namespace Parsek
 
             if (fallbackBestIndex >= 0 && fallbackTies > 1)
             {
-                WarnPairingCandidateTie(eventUt, eventVesselName, byNameMatch: false,
+                WarnPairingCandidateTie(eventUt, eventIdentity, byNameMatch: false,
                     bestDistance: fallbackBestDistance);
             }
 
@@ -177,22 +265,19 @@ namespace Parsek
         }
 
         private static void WarnPairingCandidateTie(
-            double eventUt, string eventVesselName, bool byNameMatch, double bestDistance)
+            double eventUt, RecoveredVesselIdentity eventIdentity, bool byNameMatch, double bestDistance)
         {
             var sb = new System.Text.StringBuilder();
             for (int i = 0; i < pendingRecoveryFunds.Count; i++)
             {
                 double distance = Math.Abs(pendingRecoveryFunds[i].Ut - eventUt);
                 if (distance > LedgerOrchestrator.VesselRecoveryEventEpsilonSeconds) continue;
-                if (byNameMatch &&
-                    !string.Equals(pendingRecoveryFunds[i].VesselName,
-                        eventVesselName, StringComparison.Ordinal))
+                if (byNameMatch && !pendingRecoveryFunds[i].Identity.Matches(eventIdentity))
                     continue;
                 if (distance != bestDistance) continue;
 
                 if (sb.Length > 0) sb.Append(", ");
-                sb.Append("vessel='").Append(pendingRecoveryFunds[i].VesselName ?? "")
-                  .Append("' ut=").Append(pendingRecoveryFunds[i].Ut.ToString("F1", CultureInfo.InvariantCulture));
+                AppendPendingRequestSummary(sb, pendingRecoveryFunds[i]);
             }
 
             string tier = byNameMatch ? "name-match" : "nearest-UT";
@@ -200,7 +285,7 @@ namespace Parsek
                 $"OnRecoveryFundsEventRecorded: multiple pending requests tied at " +
                 $"{tier} distance={bestDistance.ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"for event ut={eventUt.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"vesselName='{eventVesselName ?? ""}'. Candidates: [{sb}]. " +
+                $"vesselName='{eventIdentity.DisplayName}'. Candidates: [{sb}]. " +
                 $"Picking first match in list order.");
         }
 
@@ -213,8 +298,7 @@ namespace Parsek
             for (int i = 0; i < pendingRecoveryFunds.Count; i++)
             {
                 if (sb.Length > 0) sb.Append(", ");
-                sb.Append("vessel='").Append(pendingRecoveryFunds[i].VesselName ?? "")
-                  .Append("' ut=").Append(pendingRecoveryFunds[i].Ut.ToString("F1", CultureInfo.InvariantCulture));
+                AppendPendingRequestSummary(sb, pendingRecoveryFunds[i]);
             }
 
             ParsekLog.Warn(Tag,
@@ -224,6 +308,106 @@ namespace Parsek
                 $"Entries: [{sb}]");
 
             pendingRecoveryFunds.Clear();
+        }
+
+        private static bool RecoveryEventMatchesIdentity(
+            GameStateEvent e,
+            RecoveredVesselIdentity identity)
+        {
+            if (!identity.HasName)
+                return false;
+
+            RecoveredVesselIdentity eventIdentity =
+                RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(e.detail);
+            return eventIdentity.HasName && identity.Matches(eventIdentity);
+        }
+
+        private static bool RecoveryEventSatisfiesIdentityMode(
+            GameStateEvent e,
+            RecoveredVesselIdentity preferredIdentity,
+            RecoveryEventIdentityMatchMode matchMode)
+        {
+            if (matchMode == RecoveryEventIdentityMatchMode.Any)
+                return true;
+
+            RecoveredVesselIdentity eventIdentity =
+                RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(e.detail);
+            if (matchMode == RecoveryEventIdentityMatchMode.RequireNoIdentity)
+                return !eventIdentity.HasName;
+
+            return preferredIdentity.HasName &&
+                   eventIdentity.HasName &&
+                   preferredIdentity.Matches(eventIdentity);
+        }
+
+        private static void AppendPendingRequestSummary(
+            System.Text.StringBuilder sb,
+            PendingRecoveryFundsRequest request)
+        {
+            sb.Append(request.Identity.FormatForLog())
+              .Append(" ut=").Append(request.Ut.ToString("F1", CultureInfo.InvariantCulture))
+              .Append(" vesselType=").Append(request.VesselType)
+              .Append(" ")
+              .Append(RecoveryPayoutContextStore.DescribeExpectedFunds(request.PayoutContext));
+        }
+
+        private static bool ShouldSkipRecoveryFundsBeforePairing(
+            RecoveredVesselIdentity identity,
+            VesselType vesselType,
+            RecoveryPayoutContext payoutContext,
+            out string reason)
+        {
+            if (GameStateRecorder.SuppressResourceEvents)
+            {
+                reason = "resource events suppressed";
+                return true;
+            }
+
+            if (GameStateRecorder.IsReplayingActions)
+            {
+                reason = "ledger replay in progress";
+                return true;
+            }
+
+            if (payoutContext != null && payoutContext.HasFundsEarned)
+            {
+                if (payoutContext.FundsEarned <= 0.0)
+                {
+                    reason = "stock expected zero recovery funds";
+                    return true;
+                }
+
+                if (payoutContext.FundsEarned < GameStateRecorder.FundsThreshold)
+                {
+                    reason = "stock expected recovery funds " +
+                             payoutContext.FundsEarned.ToString("F1", CultureInfo.InvariantCulture) +
+                             " below recorder threshold " +
+                             GameStateRecorder.FundsThreshold.ToString("F1", CultureInfo.InvariantCulture);
+                    return true;
+                }
+
+                reason = null;
+                return false;
+            }
+
+            reason = null;
+            return false;
+        }
+
+        private static bool ShouldSkipDeferredRecoveryFunds(
+            RecoveredVesselIdentity identity,
+            VesselType vesselType,
+            RecoveryPayoutContext payoutContext,
+            out string reason)
+        {
+            if (vesselType == VesselType.Debris)
+            {
+                reason = "debris recovery without ledger-worthy payout context";
+                return true;
+            }
+
+            reason = null;
+            return false;
         }
 
         internal static void RepairMissingRecoveryDedupKeys(
@@ -314,42 +498,64 @@ namespace Parsek
 
         internal static void OnVesselRecoveryFunds(
             double ut,
-            string vesselName,
+            RecoveredVesselIdentity identity,
             bool fromTrackingStation,
             VesselType vesselType,
-            Func<double, string, bool, bool> tryAddRecoveryFundsAction)
+            RecoveryPayoutContext payoutContext,
+            Func<double, RecoveredVesselIdentity, bool, bool> tryAddRecoveryFundsAction)
         {
-            if (string.IsNullOrEmpty(vesselName))
+            if (!identity.HasName)
             {
                 ParsekLog.Verbose(Tag,
                     $"OnVesselRecoveryFunds: empty vesselName at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
                 return;
             }
 
-            if (tryAddRecoveryFundsAction(ut, vesselName, fromTrackingStation))
-                return;
-
-            if (vesselType == VesselType.Debris)
+            if (ShouldSkipRecoveryFundsBeforePairing(identity, vesselType, payoutContext, out string skipReason))
             {
                 ParsekLog.Verbose(Tag,
-                    $"OnVesselRecoveryFunds: vessel '{vesselName}' (VesselType.Debris) at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping deferred recovery-funds pairing");
+                    $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
+                    $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — " +
+                    $"skipping deferred recovery-funds pairing ({skipReason})");
                 return;
             }
 
-            AddPendingRecoveryFundsRequest(ut, vesselName, fromTrackingStation);
+            if (tryAddRecoveryFundsAction(ut, identity, fromTrackingStation))
+                return;
+
+            if (ShouldSkipDeferredRecoveryFunds(identity, vesselType, payoutContext, out skipReason))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
+                    $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — " +
+                    $"skipping deferred recovery-funds pairing ({skipReason})");
+                return;
+            }
+
+            AddPendingRecoveryFundsRequest(ut, identity, fromTrackingStation, vesselType, payoutContext);
             ParsekLog.Verbose(Tag,
-                $"OnVesselRecoveryFunds: deferred pairing for vessel '{vesselName}' " +
-                $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} until FundsChanged(VesselRecovery) is recorded");
+                $"OnVesselRecoveryFunds: deferred pairing for {identity.FormatForLog()} " +
+                $"at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"{RecoveryPayoutContextStore.DescribeExpectedFunds(payoutContext)} " +
+                $"suppressResourceEvents={GameStateRecorder.SuppressResourceEvents} " +
+                $"isReplayingActions={GameStateRecorder.IsReplayingActions} " +
+                $"until FundsChanged(VesselRecovery) is recorded");
         }
 
         private static void AddPendingRecoveryFundsRequest(
-            double ut, string vesselName, bool fromTrackingStation)
+            double ut,
+            RecoveredVesselIdentity identity,
+            bool fromTrackingStation,
+            VesselType vesselType,
+            RecoveryPayoutContext payoutContext)
         {
             pendingRecoveryFunds.Add(new PendingRecoveryFundsRequest
             {
                 Ut = ut,
-                VesselName = vesselName,
-                FromTrackingStation = fromTrackingStation
+                Identity = identity,
+                FromTrackingStation = fromTrackingStation,
+                VesselType = vesselType,
+                PayoutContext = payoutContext
             });
 
             if (pendingRecoveryFunds.Count > LedgerOrchestrator.PendingRecoveryFundsStaleThreshold)
@@ -358,15 +564,17 @@ namespace Parsek
                     $"OnVesselRecoveryFunds: pending queue exceeded threshold " +
                     $"(count={pendingRecoveryFunds.Count} > {LedgerOrchestrator.PendingRecoveryFundsStaleThreshold}) " +
                     $"— paired FundsChanged(VesselRecovery) events may be missing. " +
-                    $"Latest deferred request vessel='{vesselName}' ut={ut.ToString("F1", CultureInfo.InvariantCulture)}");
+                    $"Latest deferred request {identity.FormatForLog()} " +
+                    $"ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"vesselType={vesselType} {RecoveryPayoutContextStore.DescribeExpectedFunds(payoutContext)}");
             }
         }
 
         internal static bool TryAddVesselRecoveryFundsAction(
             double ut,
-            string vesselName,
+            RecoveredVesselIdentity identity,
             bool fromTrackingStation,
-            Func<string, double, string> pickRecoveryRecordingId,
+            Func<RecoveredVesselIdentity, double, string> pickRecoveryRecordingId,
             Func<int> allocateKscSequence,
             IReadOnlyList<GameAction> actions,
             Action recalculateAndPatch)
@@ -375,6 +583,7 @@ namespace Parsek
                     GameStateStore.Events,
                     ut,
                     skipConsumed: true,
+                    preferredIdentity: identity,
                     out GameStateEvent matched,
                     out string dedupKey))
             {
@@ -385,7 +594,7 @@ namespace Parsek
             if (delta <= 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"OnVesselRecoveryFunds: paired event for '{identity.DisplayName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"has delta={delta.ToString("F1", CultureInfo.InvariantCulture)} — skipping (zero or negative recovery value)");
                 consumedRecoveryEventKeys.Add(dedupKey);
                 return true;
@@ -395,12 +604,12 @@ namespace Parsek
             {
                 consumedRecoveryEventKeys.Add(dedupKey);
                 ParsekLog.Verbose(Tag,
-                    $"OnVesselRecoveryFunds: paired event for '{vesselName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"OnVesselRecoveryFunds: paired event for '{identity.DisplayName}' at ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"already exists in ledger (dedupKey='{dedupKey}') — skipping duplicate add");
                 return true;
             }
 
-            string recordingId = pickRecoveryRecordingId(vesselName, matched.ut);
+            string recordingId = pickRecoveryRecordingId(identity, matched.ut);
 
             consumedRecoveryEventKeys.Add(dedupKey);
 
@@ -420,7 +629,7 @@ namespace Parsek
             Ledger.AddAction(action);
 
             ParsekLog.Info(Tag,
-                $"VesselRecovery funds patched: vessel='{vesselName}' " +
+                $"VesselRecovery funds patched: vessel='{identity.DisplayName}' " +
                 $"amount={delta.ToString("F0", CultureInfo.InvariantCulture)} " +
                 $"ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"recordingId={recordingId ?? "(none)"} fromTrackingStation={fromTrackingStation}");

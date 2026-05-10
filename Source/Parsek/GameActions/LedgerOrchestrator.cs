@@ -2089,6 +2089,7 @@ namespace Parsek
             // ledger file) must NOT falsely register as "MigrateOldSaveEvents output".
             ResetMigrateOldSaveEventsForLoad();
             LedgerRecoveryFundsPairing.ClearConsumedRecoveryEventKeys();
+            RecoveryPayoutContextStore.Clear("KSP load");
             // Log-before-clear so any stale entries from the previous session show up
             // in KSP.log before we drop them. Matches the FlushStalePendingRecoveryFunds
             // contract used at scene-switch / rewind-end boundaries.
@@ -2976,21 +2977,40 @@ namespace Parsek
             bool fromTrackingStation,
             VesselType vesselType = VesselType.Unknown)
         {
+            OnVesselRecoveryFunds(
+                ut,
+                RecoveredVesselIdentity.FromRawName(vesselName),
+                fromTrackingStation,
+                vesselType,
+                payoutContext: null);
+        }
+
+        internal static void OnVesselRecoveryFunds(
+            double ut,
+            RecoveredVesselIdentity identity,
+            bool fromTrackingStation,
+            VesselType vesselType = VesselType.Unknown,
+            RecoveryPayoutContext payoutContext = null)
+        {
             Initialize();
 
             LedgerRecoveryFundsPairing.OnVesselRecoveryFunds(
                 ut,
-                vesselName,
+                identity,
                 fromTrackingStation,
                 vesselType,
+                payoutContext,
                 TryAddVesselRecoveryFundsAction);
         }
 
-        private static bool TryAddVesselRecoveryFundsAction(double ut, string vesselName, bool fromTrackingStation)
+        private static bool TryAddVesselRecoveryFundsAction(
+            double ut,
+            RecoveredVesselIdentity identity,
+            bool fromTrackingStation)
         {
             return LedgerRecoveryFundsPairing.TryAddVesselRecoveryFundsAction(
                 ut,
-                vesselName,
+                identity,
                 fromTrackingStation,
                 PickRecoveryRecordingId,
                 AllocateKscSequence,
@@ -3068,6 +3088,11 @@ namespace Parsek
         /// </summary>
         internal static string PickRecoveryRecordingId(string vesselName, double ut)
         {
+            return PickRecoveryRecordingId(RecoveredVesselIdentity.FromRawName(vesselName), ut);
+        }
+
+        internal static string PickRecoveryRecordingId(RecoveredVesselIdentity identity, double ut)
+        {
             var recordings = RecordingStore.CommittedRecordings;
             if (recordings == null) return null;
 
@@ -3081,7 +3106,7 @@ namespace Parsek
                 var rec = recordings[i];
                 if (rec == null) continue;
                 if (rec.IsGhostOnly) continue;
-                if (rec.VesselName != vesselName) continue;
+                if (!identity.MatchesName(rec.VesselName)) continue;
                 candidateCount++;
 
                 double startUT = rec.StartUT;
@@ -3113,7 +3138,7 @@ namespace Parsek
                         : mostRecentEnded != null ? "most-recent-ended"
                         : "global-latest";
             ParsekLog.Verbose(Tag,
-                $"PickRecoveryRecordingId: vessel='{vesselName}' ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"PickRecoveryRecordingId: {identity.FormatForLog()} ut={ut.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"candidates={candidateCount} tier={tier} pick={pick.RecordingId}");
 
             return pick.RecordingId;

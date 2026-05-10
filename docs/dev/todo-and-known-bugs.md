@@ -11,6 +11,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 recovery-funds stale warnings for zero/sub-threshold stock recoveries
+
+- ~~`logs/2026-05-10_1713/KSP.log` emitted `FlushStalePendingRecoveryFunds (rewind end)` for `Gerdorf Kerman` at UT 286.3 and `#autoLOC_501224` at UT 288.7. Neither had a paired `FundsChanged(VesselRecovery)` event before the rewind boundary.~~ `Gerdorf Kerman` was the stand-in side of the Jebediah -> Gerdorf reservation issue, but the missing pair was not caused by the stand-in name: recovery-funds pairing keys on the stock recovery callback's vessel identity plus a tight UT/funds-event window. `#autoLOC_501224` is the raw localized vessel name for Jumping Flea; the raw key could break name attribution, but it did not explain the missing funds event by itself.
+
+**Fix:** `ParsekScenario` now captures `GameEvents.onVesselRecoveryProcessing` context (`MissionRecoveryDialog.fundsEarned`, vessel type, raw name, normalized name, persistent id) before `onVesselRecovered`. `LedgerOrchestrator.OnVesselRecoveryFunds` still uses a real `FundsChanged(VesselRecovery)` delta for ledger credit, but it no longer enqueues callbacks when stock reports zero recovery funds or a positive payout below `GameStateRecorder.FundsThreshold` (the recorder intentionally suppresses those events). Positive expected payouts still defer and still flush-WARN if the stock funds event never arrives. `GameStateRecorder` stamps recovery funds events with raw/normalized vessel identity, and terminal/pending-owner matching accepts either form, so `#autoLOC_501224` and `Jumping Flea` route to the same recording without bypassing pending-tree ownership.
+
+**Coverage:** `GameStateRecorderLedgerTests` covers zero-payout, sub-threshold localized payout, positive expected-payout stale flush, structured raw/normalized detail matching, and existing delayed positive payout/dedup behavior. `ParsekScenarioRecoveryRoutingTests` covers raw/normalized pending-owner matching for immediate-patch gating and terminal-state updates.
+
+**Status:** CLOSED 2026-05-10. Fixed for v0.9.2.
+
+---
+
 ## Done - v0.9.2 Re-Fly spawn refused circularized upper stage with stale on-rails OrbitSegment
 
 - ~~A `terminal=Orbiting` recording whose only stored OrbitSegment was captured during the pre-burn on-rails coast (apoapsis 200 km, periapsis −69 km — sub-orbital ellipse) was rejected at Re-Fly spawn time even though the recording's last absolute frame held a valid post-circ-burn ~205 km circular orbit state vector.~~ Reproduced by `logs/2026-05-10_1713`, recording `d73240bdca8f4f74a19fca3ea4165a16` (Kerbal X upper stage). Trace: scene-exit finalizer captured `terminal=Orbiting` from `vessel.situation`, but the periodic finalization refresh that would have re-stamped the post-burn elements fired mid-burn at UT 976.37 (rejected; orbit unstable) and the next refresh did not run vessel-loaded. The spawn-time orbit picker (`RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed`) walked `OrbitSegments` last-to-first, returned the only entry — the stale sub-orbital one — and `TerminalOrbitSpawnSafety.Evaluate` rejected with `periapsis-below-safe-altitude`. The capsule never spawned, even though the post-burn frame at UT 977.93 (alt 203 587 m, |v| 2 098.6 m/s ≈ circular at that altitude) reseeds cleanly via `Orbit.UpdateFromStateVectors`.
