@@ -499,12 +499,13 @@ namespace Parsek
         /// persistence predicate). Used by the optimizer split pass.
         /// </summary>
         /// <remarks>
-        /// Splits are driven by `rec.TrackSections` only — `rec.OrbitSegments` is never
-        /// inspected here and carries no `environment` field. On-rails BG vessels emit
-        /// OrbitSegments but never env-classified TrackSections (see
-        /// `BackgroundRecorder.BackgroundOnRailsState`), so an eccentric grazing-Pe orbit
-        /// coasted for thousands of orbits produces zero split candidates regardless of
-        /// orbit count. The invariant is guarded by `EccentricOrbitOptimizerInvariantTests`.
+        /// Splits are driven by `rec.TrackSections`. Legacy top-level non-predicted
+        /// `rec.OrbitSegments` are first normalized into OrbitalCheckpoint sections so
+        /// split/save paths cannot drop packed coasts. On-rails BG vessels still never emit
+        /// env-classified per-frame TrackSections (see `BackgroundRecorder.BackgroundOnRailsState`),
+        /// so an eccentric grazing-Pe orbit coasted for thousands of orbits cannot produce
+        /// Atmospheric<->ExoBallistic toggle candidates. The invariant is guarded by
+        /// `EccentricOrbitOptimizerInvariantTests`.
         /// Producer-C boundary seams (`TrackSection.isBoundarySeam == true`) are skipped at
         /// step 1 of the predicate — see `BackgroundRecorder.FlushLoadedStateForOnRailsTransition`.
         /// </remarks>
@@ -516,6 +517,10 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
+                RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                    rec,
+                    markDirty: false,
+                    context: "RecordingOptimizer.FindSplitCandidatesForOptimizer");
                 if (rec.TrackSections == null || rec.TrackSections.Count < 2) continue;
 
                 // Per-recording aggregate counters (CLAUDE.md "Batch counting convention" —
@@ -750,6 +755,10 @@ namespace Parsek
         /// </summary>
         internal static Recording SplitAtSection(Recording original, int sectionIndex)
         {
+            RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                original,
+                markDirty: false,
+                context: "RecordingOptimizer.SplitAtSection");
             double splitUT = original.TrackSections[sectionIndex].startUT;
             List<PartEvent> transientStateSeeds = BuildTransientStateSeeds(original.PartEvents, splitUT);
 
@@ -846,6 +855,7 @@ namespace Parsek
             second.TrackSections = new List<TrackSection>(
                 original.TrackSections.GetRange(sectionIndex, original.TrackSections.Count - sectionIndex));
             original.TrackSections.RemoveRange(sectionIndex, original.TrackSections.Count - sectionIndex);
+            TrimFirstHalfTrackSectionsAtSplit(original.TrackSections, splitUT);
 
             // 7. Partition OrbitSegments by UT
             if (original.HasOrbitSegments)
@@ -859,6 +869,7 @@ namespace Parsek
                         original.OrbitSegments.RemoveAt(i);
                     }
                 }
+                TrimFirstHalfOrbitSegmentsAtSplit(original.OrbitSegments, splitUT);
             }
 
             // 8. Clone GhostVisualSnapshot (safe: CanAutoSplit ensures no ghosting triggers).
@@ -1036,6 +1047,59 @@ namespace Parsek
                 $"flatSync={originalFlatSyncMode}/{secondFlatSyncMode})");
 
             return second;
+        }
+
+        private static void TrimFirstHalfTrackSectionsAtSplit(
+            List<TrackSection> trackSections,
+            double splitUT)
+        {
+            if (trackSections == null || trackSections.Count == 0)
+                return;
+
+            for (int i = trackSections.Count - 1; i >= 0; i--)
+            {
+                TrackSection section = trackSections[i];
+                if (section.startUT >= splitUT)
+                {
+                    trackSections.RemoveAt(i);
+                    continue;
+                }
+
+                if (section.endUT > splitUT)
+                {
+                    if (TryTrimTrackSectionPayload(ref section, splitUT))
+                        trackSections[i] = section;
+                    else
+                        trackSections.RemoveAt(i);
+                }
+            }
+        }
+
+        private static void TrimFirstHalfOrbitSegmentsAtSplit(
+            List<OrbitSegment> orbitSegments,
+            double splitUT)
+        {
+            if (orbitSegments == null || orbitSegments.Count == 0)
+                return;
+
+            for (int i = orbitSegments.Count - 1; i >= 0; i--)
+            {
+                OrbitSegment segment = orbitSegments[i];
+                if (segment.startUT >= splitUT)
+                {
+                    orbitSegments.RemoveAt(i);
+                    continue;
+                }
+
+                if (segment.endUT > splitUT)
+                {
+                    segment.endUT = splitUT;
+                    if (segment.endUT > segment.startUT)
+                        orbitSegments[i] = segment;
+                    else
+                        orbitSegments.RemoveAt(i);
+                }
+            }
         }
 
         /// <summary>

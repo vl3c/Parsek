@@ -90,6 +90,10 @@ namespace Parsek
                 string recId = kvp.Key;
                 Recording srcRec = kvp.Value;
 
+                RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                    srcRec,
+                    markDirty: true,
+                    context: "SessionMerger.MergeTree");
                 int inputSectionCount = srcRec.TrackSections != null ? srcRec.TrackSections.Count : 0;
 
                 // Resolve overlapping TrackSections
@@ -345,13 +349,44 @@ namespace Parsek
             int start;
             if (rebuiltOrbitSegments.Count > 0)
             {
+                int sourceIndex = 0;
+                int lastMatchedSourceIndex = -1;
                 for (int i = 0; i < rebuiltOrbitSegments.Count; i++)
                 {
-                    if (!OrbitSegmentNearlyEquals(sourceOrbitSegments[i], rebuiltOrbitSegments[i]))
+                    OrbitSegment rebuilt = rebuiltOrbitSegments[i];
+                    bool matched = false;
+                    while (sourceIndex < sourceOrbitSegments.Count)
+                    {
+                        OrbitSegment source = sourceOrbitSegments[sourceIndex];
+                        if (OrbitSegmentCoversEquivalentResolvedSegment(source, rebuilt))
+                        {
+                            matched = true;
+                            lastMatchedSourceIndex = sourceIndex;
+                            if (source.endUT <= rebuilt.endUT + OrbitUtTolerance)
+                                sourceIndex++;
+                            break;
+                        }
+
+                        if (source.endUT <= rebuilt.startUT + OrbitUtTolerance)
+                        {
+                            sourceIndex++;
+                            continue;
+                        }
+
+                        return -1;
+                    }
+
+                    if (!matched)
                         return -1;
                 }
 
-                start = rebuiltOrbitSegments.Count;
+                start = lastMatchedSourceIndex + 1;
+                while (start < sourceOrbitSegments.Count
+                    && !sourceOrbitSegments[start].isPredicted
+                    && sourceOrbitSegments[start].endUT <= minStartUT + OrbitUtTolerance)
+                {
+                    start++;
+                }
             }
             else
             {
@@ -385,6 +420,30 @@ namespace Parsek
             }
 
             return start;
+        }
+
+        private static bool OrbitSegmentCoversEquivalentResolvedSegment(
+            OrbitSegment source,
+            OrbitSegment rebuilt)
+        {
+            return source.startUT <= rebuilt.startUT + OrbitUtTolerance
+                && source.endUT + OrbitUtTolerance >= rebuilt.endUT
+                && NearlyEqual(source.inclination, rebuilt.inclination, OrbitScalarTolerance)
+                && NearlyEqual(source.eccentricity, rebuilt.eccentricity, OrbitScalarTolerance)
+                && NearlyEqual(source.semiMajorAxis, rebuilt.semiMajorAxis, OrbitDistanceTolerance)
+                && NearlyEqual(source.longitudeOfAscendingNode, rebuilt.longitudeOfAscendingNode, OrbitScalarTolerance)
+                && NearlyEqual(source.argumentOfPeriapsis, rebuilt.argumentOfPeriapsis, OrbitScalarTolerance)
+                && NearlyEqual(source.meanAnomalyAtEpoch, rebuilt.meanAnomalyAtEpoch, OrbitScalarTolerance)
+                && NearlyEqual(source.epoch, rebuilt.epoch, OrbitUtTolerance)
+                && source.bodyName == rebuilt.bodyName
+                && source.isPredicted == rebuilt.isPredicted
+                && NearlyEqual(source.orbitalFrameRotation.x, rebuilt.orbitalFrameRotation.x, OrbitVectorTolerance)
+                && NearlyEqual(source.orbitalFrameRotation.y, rebuilt.orbitalFrameRotation.y, OrbitVectorTolerance)
+                && NearlyEqual(source.orbitalFrameRotation.z, rebuilt.orbitalFrameRotation.z, OrbitVectorTolerance)
+                && NearlyEqual(source.orbitalFrameRotation.w, rebuilt.orbitalFrameRotation.w, OrbitVectorTolerance)
+                && NearlyEqual(source.angularVelocity.x, rebuilt.angularVelocity.x, OrbitVectorTolerance)
+                && NearlyEqual(source.angularVelocity.y, rebuilt.angularVelocity.y, OrbitVectorTolerance)
+                && NearlyEqual(source.angularVelocity.z, rebuilt.angularVelocity.z, OrbitVectorTolerance);
         }
 
         private static bool StartsAtOrAfter(double candidateStartUT, double minStartUT)
@@ -1685,9 +1744,12 @@ namespace Parsek
             var trimmed = new List<OrbitSegment>();
             for (int i = 0; i < checkpoints.Count; i++)
             {
-                // Include checkpoint if its time range overlaps with [startUT, endUT]
-                if (checkpoints[i].endUT >= startUT && checkpoints[i].startUT <= endUT)
-                    trimmed.Add(checkpoints[i]);
+                OrbitSegment clipped;
+                if (OrbitSegmentCheckpointBridge.TryTrimOrbitSegmentToRange(
+                        checkpoints[i], startUT, endUT, out clipped))
+                {
+                    trimmed.Add(clipped);
+                }
             }
 
             return trimmed.Count > 0 ? trimmed : null;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using Xunit;
@@ -1212,6 +1213,182 @@ namespace Parsek.Tests
                 l.Contains("[Merger]") &&
                 l.Contains("recording='rec-checkpoint-tail'") &&
                 l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:2"));
+        }
+
+        [Fact]
+        public void MergeTree_PreservesPredictedTailAfterClippedCheckpointPrefix()
+        {
+            const double checkpointStartUT = 200.0;
+            const double checkpointEndUT = 320.0;
+            const double physicalStartUT = 300.0;
+            const double physicalEndUT = 350.0;
+            const double terminalUT = 900.0;
+
+            var atmospheric = MakeSection(
+                100.0,
+                checkpointStartUT,
+                TrackSectionSource.Active,
+                lat: -0.02,
+                lon: -74.5,
+                alt: 65000.0,
+                endLat: -0.01,
+                endLon: -74.2,
+                endAlt: 72000.0);
+            var checkpointSegment = MakeOrbitSegment(
+                checkpointStartUT, checkpointEndUT, isPredicted: false);
+            var checkpoint = MakeSectionNoFrames(
+                checkpointStartUT, checkpointEndUT, TrackSectionSource.Checkpoint);
+            checkpoint.checkpoints.Add(checkpointSegment);
+            var resumedPhysical = MakeSection(
+                physicalStartUT,
+                physicalEndUT,
+                TrackSectionSource.Background,
+                lat: 0.5,
+                lon: 1.0,
+                alt: 90000.0,
+                endLat: 0.6,
+                endLon: 1.1,
+                endAlt: 95000.0);
+
+            var rec = MakeRecording(
+                "rec-clipped-checkpoint-tail",
+                "Kerbal X",
+                new List<TrackSection> { atmospheric, checkpoint, resumedPhysical });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 999.0,
+                    latitude = 9.0,
+                    longitude = 9.0,
+                    altitude = 9.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero
+                }
+            };
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                checkpointSegment,
+                MakeOrbitSegment(360.0, terminalUT, isPredicted: true)
+            };
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = terminalUT;
+
+            var tree = MakeTree("Clipped Checkpoint Orbit Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-clipped-checkpoint-tail"];
+
+            Assert.Equal(3, merged.TrackSections.Count);
+            Assert.Equal(2, merged.OrbitSegments.Count);
+            Assert.False(merged.OrbitSegments[0].isPredicted);
+            Assert.Equal(checkpointStartUT, merged.OrbitSegments[0].startUT);
+            Assert.Equal(physicalStartUT, merged.OrbitSegments[0].endUT);
+            Assert.True(merged.OrbitSegments[1].isPredicted);
+            Assert.Equal(360.0, merged.OrbitSegments[1].startUT);
+            Assert.Equal(terminalUT, merged.OrbitSegments[1].endUT);
+            Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(merged));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-clipped-checkpoint-tail'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:1"));
+        }
+
+        [Fact]
+        public void MergeTree_LegacyBackgroundOnRailsOrbitSegments_NormalizesCheckpointBridge()
+        {
+            var firstLoaded = MakeSection(
+                466.23452445989165,
+                477.33452445988155,
+                TrackSectionSource.Background,
+                lat: 0.0,
+                lon: 0.0,
+                alt: 85000.0,
+                endLat: 0.01,
+                endLon: 0.01,
+                endAlt: 90000.0);
+            var resumedLoaded = MakeSection(
+                958.87146746423491,
+                979.7714674642159,
+                TrackSectionSource.Background,
+                lat: 5.0,
+                lon: 5.0,
+                alt: 203251.0,
+                endLat: 5.01,
+                endLon: 5.01,
+                endAlt: 204000.0);
+
+            var rec = MakeRecording(
+                "rec-legacy-bg-gap",
+                "Kerbal X Probe",
+                new List<TrackSection> { firstLoaded, resumedLoaded });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(479.25749137883366, 578.22850700383356, isPredicted: false),
+                MakeOrbitSegment(578.22850700383356, 909.023508884545, isPredicted: false),
+                MakeOrbitSegment(909.023508884545, 960.51459653102938, isPredicted: false)
+            };
+
+            var tree = MakeTree("Legacy BG packed coast", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-legacy-bg-gap"];
+
+            Assert.Equal(5, merged.TrackSections.Count);
+            Assert.Equal(ReferenceFrame.Absolute, merged.TrackSections[0].referenceFrame);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, merged.TrackSections[1].referenceFrame);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, merged.TrackSections[2].referenceFrame);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, merged.TrackSections[3].referenceFrame);
+            Assert.Equal(ReferenceFrame.Absolute, merged.TrackSections[4].referenceFrame);
+            Assert.Equal(TrackSectionSource.Checkpoint, merged.TrackSections[1].source);
+            Assert.Equal(TrackSectionSource.Checkpoint, merged.TrackSections[2].source);
+            Assert.Equal(TrackSectionSource.Checkpoint, merged.TrackSections[3].source);
+            Assert.Equal(3, merged.OrbitSegments.Count);
+            Assert.Equal(479.25749137883366, merged.OrbitSegments[0].startUT);
+            Assert.Equal(resumedLoaded.startUT, merged.OrbitSegments[2].endUT);
+            Assert.Equal(resumedLoaded.startUT, merged.TrackSections[3].endUT);
+            Assert.DoesNotContain(merged.TrackSections, s =>
+                s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
+                s.startUT < resumedLoaded.startUT &&
+                s.endUT > resumedLoaded.startUT);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("MergeTree: boundary discontinuity") &&
+                l.Contains("prevSrc=Background nextSrc=Background"));
+            Assert.Contains(logLines, l =>
+                l.Contains("EnsureCheckpointSectionsForTopLevelOrbitSegments") &&
+                l.Contains("recording=rec-legacy-bg-gap") &&
+                l.Contains("added=3"));
+
+            string path = Path.Combine(
+                Path.GetTempPath(),
+                "parsek-legacy-bg-gap-" + Guid.NewGuid().ToString("N") + ".prec");
+            try
+            {
+                RecordingStore.WriteTrajectorySidecar(path, merged, sidecarEpoch: 11);
+                TrajectorySidecarProbe probe;
+                Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+
+                var restored = new Recording { RecordingId = merged.RecordingId };
+                RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+                Assert.Equal(5, restored.TrackSections.Count);
+                Assert.Equal(3, restored.TrackSections.Count(s =>
+                    s.referenceFrame == ReferenceFrame.OrbitalCheckpoint));
+                Assert.Equal(3, restored.OrbitSegments.Count);
+                Assert.Equal(resumedLoaded.startUT, restored.OrbitSegments[2].endUT);
+                Assert.DoesNotContain(restored.TrackSections, s =>
+                    s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
+                    s.startUT < resumedLoaded.startUT &&
+                    s.endUT > resumedLoaded.startUT);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
         }
 
         [Theory]

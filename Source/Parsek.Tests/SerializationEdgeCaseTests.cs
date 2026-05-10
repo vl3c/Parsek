@@ -326,7 +326,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitSegment_RoundTrip_SubThresholdAngularVelocity_NotSerialized()
         {
-            var rec = new Recording();
+            var rec = new Recording { RecordingFormatVersion = 0 };
             // angularVelocity with magnitude below SpinThreshold (0.05 rad/s)
             rec.OrbitSegments.Add(new OrbitSegment
             {

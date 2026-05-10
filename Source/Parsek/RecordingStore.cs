@@ -6007,6 +6007,48 @@ namespace Parsek
                 tracks, orbitSegments);
         }
 
+        internal static TrackSection BuildOpenOnRailsCheckpointSection(double startUT)
+        {
+            return OrbitSegmentCheckpointBridge.BuildOpenCheckpointSection(startUT);
+        }
+
+        internal static TrackSection BuildClosedOnRailsCheckpointSection(OrbitSegment segment)
+        {
+            return OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(segment);
+        }
+
+        internal static bool TryAppendClosedOnRailsCheckpointSection(
+            Recording rec,
+            OrbitSegment segment,
+            bool markDirty,
+            out string skipReason)
+        {
+            return OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
+                rec, segment, markDirty, out skipReason);
+        }
+
+        internal static OrbitSegmentCheckpointBridgeStats EnsureCheckpointSectionsForTopLevelOrbitSegments(
+            Recording rec,
+            bool markDirty,
+            string context)
+        {
+            OrbitSegmentCheckpointBridgeStats stats =
+                OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                    rec, markDirty);
+
+            if (stats.Changed && !SuppressLogging)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"EnsureCheckpointSectionsForTopLevelOrbitSegments: recording={rec?.RecordingId} " +
+                    $"context={context} added={stats.Added} skippedExisting={stats.SkippedExisting} " +
+                    $"skippedInvalid={stats.SkippedInvalid} skippedPredicted={stats.SkippedPredicted} " +
+                    $"skippedAfterPredicted={stats.SkippedAfterPredicted} " +
+                    $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped}");
+            }
+
+            return stats;
+        }
+
         internal static void SerializeTrajectoryInto(ConfigNode targetNode, Recording rec)
         {
             TrajectoryTextSidecarCodec.SerializeTrajectoryInto(targetNode, rec);
@@ -6173,6 +6215,13 @@ namespace Parsek
 
         internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
         {
+            if (rec != null && rec.RecordingFormatVersion >= 1)
+            {
+                EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                    rec,
+                    markDirty: false,
+                    context: "WriteTrajectorySidecar");
+            }
             NormalizeRecordingFormatVersionForPredictedSegments(rec);
 
             if (rec != null && rec.RecordingFormatVersion >= 2)

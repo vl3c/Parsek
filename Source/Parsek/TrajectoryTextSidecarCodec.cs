@@ -805,18 +805,40 @@ namespace Parsek
             if (rebuiltOrbitSegments.Count == 0 || rec.OrbitSegments.Count < rebuiltOrbitSegments.Count)
                 return false;
 
+            int flatIndex = 0;
             for (int i = 0; i < rebuiltOrbitSegments.Count; i++)
             {
-                if (!OrbitSegmentEquals(rebuiltOrbitSegments[i], rec.OrbitSegments[i]))
+                int matchIndex = -1;
+                while (flatIndex < rec.OrbitSegments.Count)
+                {
+                    OrbitSegment flat = rec.OrbitSegments[flatIndex];
+                    OrbitSegment rebuilt = rebuiltOrbitSegments[i];
+                    if (OrbitSegmentEquals(flat, rebuilt))
+                    {
+                        matchIndex = flatIndex;
+                        break;
+                    }
+
+                    if (flat.startUT <= rebuilt.startUT)
+                    {
+                        flatIndex++;
+                        continue;
+                    }
+
                     return false;
+                }
+
+                if (matchIndex < 0)
+                    return false;
+
+                flatIndex = matchIndex + 1;
             }
 
-            int suffixStart = FindSafeOrbitSegmentSuffixStart(rec.OrbitSegments, rebuiltOrbitSegments);
-            if (suffixStart < 0)
+            if (!OrbitSegmentSuffixIsMonotonicNonDecreasing(rec.OrbitSegments, flatIndex))
                 return false;
 
             var healedOrbitSegments = new List<OrbitSegment>(rebuiltOrbitSegments);
-            AppendOrbitSegmentSuffix(healedOrbitSegments, rec.OrbitSegments, suffixStart);
+            AppendOrbitSegmentSuffix(healedOrbitSegments, rec.OrbitSegments, flatIndex);
             if (!OrbitSegmentListIsMonotonicNonDecreasing(healedOrbitSegments)
                 || OrbitSegmentListsEqual(healedOrbitSegments, rec.OrbitSegments))
             {
@@ -1190,6 +1212,13 @@ namespace Parsek
         {
             var ic = CultureInfo.InvariantCulture;
             EnsureTrajectoryHeader(targetNode, rec);
+            if (rec != null && rec.RecordingFormatVersion >= 1)
+            {
+                RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                    rec,
+                    markDirty: false,
+                    context: "TrajectoryTextSidecarCodec.SerializeTrajectoryInto");
+            }
             bool useSectionAuthoritative = ShouldWriteSectionAuthoritativeTrajectory(rec);
             if (rec != null && rec.RecordingFormatVersion >= 1)
                 SetSectionAuthoritativeHeader(targetNode, useSectionAuthoritative);
@@ -1300,6 +1329,13 @@ namespace Parsek
                 DeserializePoints(sourceNode, rec);
                 DeserializeOrbitSegments(sourceNode, rec);
                 DeserializeTrackSections(sourceNode, rec.TrackSections);
+                if (formatVersion >= 1 && rec.TrackSections.Count > 0)
+                {
+                    RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                        rec,
+                        markDirty: true,
+                        context: "TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom");
+                }
 
                 bool healedMalformedFlatFallback = false;
                 if (formatVersion >= 1 && rec.TrackSections.Count > 0)

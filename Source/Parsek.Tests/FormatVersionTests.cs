@@ -370,7 +370,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SerializeTrajectoryInto_V1WithoutTrackSections_FallsBackToFlatTrajectory()
+        public void SerializeTrajectoryInto_V1FlatOrbitFallback_AddsCheckpointBridge()
         {
             var rec = new Recording
             {
@@ -393,7 +393,8 @@ namespace Parsek.Tests
 
             Assert.Equal(2, node.GetNodes("POINT").Length);
             Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
-            Assert.Empty(node.GetNodes("TRACK_SECTION"));
+            Assert.Single(node.GetNodes("TRACK_SECTION"));
+            Assert.Equal("False", node.GetValue("sectionAuthoritative"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("SerializeTrajectoryInto") &&
@@ -446,14 +447,14 @@ namespace Parsek.Tests
             var node = new ConfigNode("PARSEK_RECORDING");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            Assert.Equal(2, node.GetNodes("POINT").Length);
-            Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Empty(node.GetNodes("POINT"));
+            Assert.Empty(node.GetNodes("ORBIT_SEGMENT"));
             Assert.Equal(2, node.GetNodes("TRACK_SECTION").Length);
-            Assert.Equal("False", node.GetValue("sectionAuthoritative"));
+            Assert.Equal("True", node.GetValue("sectionAuthoritative"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("SerializeTrajectoryInto") &&
-                l.Contains("used flat fallback path"));
+                l.Contains("section-authoritative path"));
         }
 
         [Fact]
@@ -466,7 +467,7 @@ namespace Parsek.Tests
 
             Assert.Equal(3, node.GetNodes("POINT").Length);
             Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
-            Assert.Single(node.GetNodes("TRACK_SECTION"));
+            Assert.Equal(2, node.GetNodes("TRACK_SECTION").Length);
             Assert.Equal("False", node.GetValue("sectionAuthoritative"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -743,7 +744,7 @@ namespace Parsek.Tests
             RecordingStore.DeserializeTrajectoryFrom(node, restored);
 
             Assert.Equal(new[] { 100.0, 200.0 }, restored.OrbitSegments.Select(s => s.startUT).ToArray());
-            Assert.Single(restored.TrackSections);
+            Assert.Equal(2, restored.TrackSections.Count);
             Assert.True(restored.FilesDirty);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&

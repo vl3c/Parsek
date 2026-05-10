@@ -178,16 +178,17 @@ namespace Parsek
 
         #region Inner Classes
 
-        // INVARIANT: on-rails BG vessels never produce env-classified TrackSections.
+        // INVARIANT: on-rails BG vessels never produce env-classified per-frame TrackSections.
         // This class deliberately omits the `currentTrackSection` / `trackSections` /
         // `environmentHysteresis` fields that BackgroundVesselState (loaded mode) carries.
         // An on-rails BG vessel grazing atmosphere across N orbits therefore cannot generate
-        // optimizer-splittable Atmospheric<->ExoBallistic toggles — there is no place to
-        // store such a section, and no per-frame path runs while the vessel is packed.
+        // optimizer-splittable Atmospheric<->ExoBallistic toggles. The packed path may emit
+        // OrbitalCheckpoint sections when closed orbit segments are committed, but those
+        // sections are orbit-only bridge payloads, not per-frame environment classifications.
         // See `OnBackgroundPhysicsFrame`'s early-return on `bgVessel.packed`. Adding a
-        // TrackSection field here would resurrect the eccentric-orbit chain-explosion
-        // failure mode flagged in `docs/dev/research/extending-rewind-to-stable-leaves.md`
-        // §S16; do not.
+        // TrackSection field or EnvironmentHysteresis here would resurrect the eccentric-orbit
+        // chain-explosion failure mode flagged in
+        // `docs/dev/research/extending-rewind-to-stable-leaves.md` §S16; do not.
         private class BackgroundOnRailsState
         {
             public uint vesselPid;
@@ -3869,17 +3870,23 @@ namespace Parsek
             state.currentOrbitSegment.endUT = ut;
 
             Recording treeRec;
+            bool appendedCheckpoint = false;
+            string checkpointSkipReason = null;
             if (tree.Recordings.TryGetValue(state.recordingId, out treeRec))
             {
-                treeRec.OrbitSegments.Add(state.currentOrbitSegment);
-                treeRec.MarkFilesDirty();
+                appendedCheckpoint = RecordingStore.TryAppendClosedOnRailsCheckpointSection(
+                    treeRec,
+                    state.currentOrbitSegment,
+                    markDirty: true,
+                    out checkpointSkipReason);
                 treeRec.ExplicitEndUT = ut;
             }
 
             state.hasOpenOrbitSegment = false;
 
             ParsekLog.Verbose("BgRecorder", $"Orbit segment closed: pid={state.vesselPid} " +
-                $"UT={state.currentOrbitSegment.startUT:F1}-{ut:F1} body={state.currentOrbitSegment.bodyName}");
+                $"UT={state.currentOrbitSegment.startUT:F1}-{ut:F1} body={state.currentOrbitSegment.bodyName} " +
+                $"checkpointSection={(appendedCheckpoint ? "added" : "skipped:" + (checkpointSkipReason ?? "unknown"))}");
         }
 
         private static bool TryResolveRootPartSurfacePose(
@@ -5807,17 +5814,7 @@ namespace Parsek
         /// </summary>
         private void StartCheckpointTrackSection(BackgroundVesselState state, double ut)
         {
-            state.currentTrackSection = new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
-                startUT = ut,
-                source = TrackSectionSource.Checkpoint,
-                frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>(),
-                minAltitude = float.NaN,
-                maxAltitude = float.NaN
-            };
+            state.currentTrackSection = RecordingStore.BuildOpenOnRailsCheckpointSection(ut);
             state.trackSectionActive = true;
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env=ExoBallistic ref=OrbitalCheckpoint source=Checkpoint " +

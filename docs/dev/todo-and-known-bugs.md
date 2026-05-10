@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 background packed-coast checkpoint bridge
+
+- ~~Background packed/on-rails coasts could survive only as top-level `Recording.OrbitSegments`, leaving the section model with two adjacent Absolute Background sections after a section-authoritative split/re-save.~~ Fresh evidence: `logs/2026-05-10_1713/KSP.log` lines 17718 and 32885 warned `MergeTree: boundary discontinuity=845085.30m ... prevSrc=Background nextSrc=Background ... cause=unrecorded-gap` for `Kerbal X Probe` at `ut=958.87`. The first recording still had top-level orbit segments bridging the packed coast; the later re-merge had only two Absolute Background sections and retained the same gap.
+
+**Fix:** closed background on-rails orbit segments now append orbit-only `OrbitalCheckpoint` / `Checkpoint` `TrackSection`s and keep flat `OrbitSegments` as a rebuilt runtime cache. Legacy non-predicted top-level orbit segments are normalized into checkpoint sections before merge, optimizer split, and sidecar write/read paths can make section-authoritative decisions. Overlap resolution and optimizer splitting clip checkpoint payload intervals at higher-priority physical section boundaries so stale packed orbits do not cover loaded samples. Predicted terminal tails stay flat-tail data and are not promoted to real checkpoint sections.
+
+**Coverage:** `BackgroundRecorderTests.CheckpointAllVessels_WithOpenSegment_ClosesSegmentAndSkipsReopenWhenVesselNotFound`, `BackgroundRecorderTests.CheckpointAllVessels_MixedStates_OnlyClosesOpenSegments`, `SessionMergerTests.MergeTree_LegacyBackgroundOnRailsOrbitSegments_NormalizesCheckpointBridge`, `RecordingStorageRoundTripTests.CurrentFormatTrajectorySidecar_LegacyTopLevelOrbitBridge_NormalizesToSectionAuthoritativeCheckpoint`, and `EccentricOrbitOptimizerInvariantTests.N_OnRails_Closes_Same_Body_Same_Env_Produce_Zero_Split_Candidates` / `OnRails_Checkpoint_Body_Change_StaysCohesive` / `SplitAtSection_ClipsOverlappingCheckpointBridgeAtSplitBoundary` / `SplitAtSection_ClipsEarlierCheckpointBridgeThatWrapsSplitBoundary`.
+
+---
+
 ## Done - v0.9.2 recovery-funds stale warnings for zero/sub-threshold stock recoveries
 
 - ~~`logs/2026-05-10_1713/KSP.log` emitted `FlushStalePendingRecoveryFunds (rewind end)` for `Gerdorf Kerman` at UT 286.3 and `#autoLOC_501224` at UT 288.7. Neither had a paired `FundsChanged(VesselRecovery)` event before the rewind boundary.~~ `Gerdorf Kerman` was the stand-in side of the Jebediah -> Gerdorf reservation issue, but the missing pair was not caused by the stand-in name: recovery-funds pairing keys on the stock recovery callback's vessel identity plus a tight UT/funds-event window. `#autoLOC_501224` is the raw localized vessel name for Jumping Flea; the raw key could break name attribution, but it did not explain the missing funds event by itself.

@@ -122,7 +122,7 @@ Same structural-joint guard (`IsStructuralJointBreak`, `FlightRecorder.cs:1109`)
 
 Every vessel in the tree's `BackgroundMap` gets per-frame sampling via `BackgroundRecorder`. Two states:
 
-- **On-rails** (`BackgroundOnRailsState`, `BackgroundRecorder.cs:149`): packed/timewarped vessels; **only `OrbitSegment`s, no `TrackSection`s, no boundary classification.** Early-return on `bgVessel.packed` in `OnBackgroundPhysicsFrame`. Invariant called out in CLAUDE.md.
+- **On-rails** (`BackgroundOnRailsState`, `BackgroundRecorder.cs:149`): packed/timewarped vessels; closed orbit segments are wrapped by `OrbitalCheckpoint`/`Checkpoint` sections for section-authoritative persistence, but the path still emits **no env-classified per-frame TrackSections** and runs no boundary classification. Early-return on `bgVessel.packed` in `OnBackgroundPhysicsFrame`. Invariant called out in CLAUDE.md.
 - **Loaded** (`BackgroundVesselState`, the loaded counterpart): full per-physics-frame trajectory sampling. Same hysteresis as focused recorder.
 
 **Anchor selection for background vessels:** distinct code path from focused — `BuildBackgroundRecordingAnchorCandidates` (around `BackgroundRecorder.cs:3534`) calls `TryGetBackgroundEligibleAnchorRecording` (around `BackgroundRecorder.cs:3675`).
@@ -204,7 +204,7 @@ Same dispatch. Sections are either Absolute or Relative cross-anchored to anothe
 
 **Cleanly separated:**
 - Two recording entry points (focused → `FlightRecorder`, all others → `BackgroundRecorder`) are mutually exclusive by `BackgroundMap` membership, with explicit early-outs. Joint-break handling correctly bifurcates.
-- On-rails vs loaded distinction inside `BackgroundRecorder` is enforced by separate state classes (`BackgroundOnRailsState` vs `BackgroundVesselState`) with a deliberate invariant (no env-classified TrackSections on rails).
+- On-rails vs loaded distinction inside `BackgroundRecorder` is enforced by separate state classes (`BackgroundOnRailsState` vs `BackgroundVesselState`) with a deliberate invariant: on rails may emit orbit-only checkpoint sections, but not env-classified per-frame sections.
 
 **Tangled and risky:**
 - **Playback world-position math is dispersed** across `IGhostPositioner` methods on `ParsekFlight` plus per-section `referenceFrame` checks across multiple files. Touching `RelativeAnchorResolver` is global-blast-radius — the resolver feeds every scenario. (Earlier wording called it a "single dispatch"; that was wrong. The contract is unified, the implementation is scattered.)
@@ -242,7 +242,7 @@ FlightRecorder    Focused vessel, alone         Absolute      n/a
 FlightRecorder    Focused, peer < 2300 m        Relative      Nearest live eligible vessel
 BackgroundRec.    Loaded, alone                 Absolute      n/a
 BackgroundRec.    Loaded, peer < 2300 m         Relative      Nearest eligible recording
-BackgroundRec.    On-rails (packed)             —             ONLY OrbitSegments, no TrackSections
+BackgroundRec.    On-rails (packed)             OrbitalCP     Orbit-only checkpoint sections
 BackgroundRec.    Debris just split             Absolute      First sample is absolute
 BackgroundRec.    Debris, parent < 2300 m       Relative      USUALLY parent (because nearest)
 BackgroundRec.    Debris, parent ≥ 2500 m       Absolute      Per nearest-anchor rule

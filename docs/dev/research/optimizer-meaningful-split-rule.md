@@ -65,7 +65,7 @@ Two recorder pathways write env-tagged TrackSections:
 
 Two pathways do **not** open env-tagged TrackSections:
 
-**D. Background on-rails (`BackgroundOnRailsState`)** — for packed/unloaded background vessels, the recorder accumulates `OrbitSegment` entries on the recording's flat `OrbitSegments` list. No `TrackSection`s are opened by this path. `UpdateOnRails` ([BackgroundRecorder.cs:1348](../../../Source/Parsek/BackgroundRecorder.cs)) only refreshes `ExplicitEndUT`. So a probe that is *purely* on-rails for hundreds of orbits produces zero env-tagged sections, regardless of how many times its trajectory crosses the atmosphere line.
+**D. Background on-rails (`BackgroundOnRailsState`)** — for packed/unloaded background vessels, closed `OrbitSegment` entries are represented as `OrbitalCheckpoint` / `Checkpoint` sections and mirrored into the flat `OrbitSegments` cache. This path still does not open env-classified per-frame sections: `BackgroundOnRailsState` has no `currentTrackSection`, `trackSections`, or `environmentHysteresis`, and packed vessels early-return before environment classification. So a probe that is *purely* on-rails for hundreds of orbits can produce many same-body checkpoint sections, but zero Atmospheric↔ExoBallistic env-tagged toggles regardless of how many times its trajectory crosses the atmosphere line.
 
 **E. Active-vessel pack transition** — when a focused vessel goes on rails, `FlightRecorder` opens a single `OrbitalCheckpoint` TrackSection ([FlightRecorder.cs:6268-6269](../../../Source/Parsek/FlightRecorder.cs)) and stamps it with the env classified at the moment of packing. While packed, no further env transitions are written. The whole on-rails coast is one section.
 
@@ -269,7 +269,7 @@ The scenarios below extend the existing `MakeRecordingWithSections` helper to al
 - **Vacuum landing burn** — ExoBallistic → ExoPropulsive → SurfaceStationary. Expect **exactly one** split, at the exo→surface boundary (class 1 → class 2). The internal ExoBallistic → ExoPropulsive boundary is intra-class (both class 1) and is *not* a split candidate under any version of the rule, current or proposed; this is unchanged from current behavior. Re-splitting engine on/off transitions would be a separate feature, intentionally out of scope.
 - **RCS-only deorbit** — ExoBallistic → Atmospheric, with `RCSActivated` and `RCSThrottle (value > 0)` near the boundary, no engine events. Expect a split. Confirms RCS coverage in `MeaningfulSet`.
 - **Surface take-off** — SurfaceStationary → Atmospheric (Kerbin) and SurfaceStationary → Approach (Mun) variants. Expect splits in both.
-- **SOI traversal mid-coast** — Kerbin ExoBallistic → Mun ExoBallistic, no env-class change but body change. Expect split (#251).
+- **SOI traversal mid-coast** — Kerbin ExoBallistic → Mun ExoBallistic, no env-class change but body change. Expect chain length 1 under the later #547 transfer-coast rule.
 - **Focused atmo-graze without intervention** — two TrackSections (Atmospheric / ExoBallistic) and no PartEvents in the boundary window. Expect chain length 1.
 - **Loaded → on-rails no-payload boundary seam (Producer C)** — two adjacent `Background`/`Absolute` sections with differing env class, second section single-frame, no PartEvents at the seam. Expect chain length 1: the seam is a recorder bookkeeping artifact (vessel went on-rails at a moment that happened to coincide with an env-class boundary), not a gameplay phase change. Test fixture mirrors `BackgroundRecorder.FlushLoadedStateForOnRailsTransition`.
 

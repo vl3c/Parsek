@@ -604,7 +604,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("WriteBinaryTrajectoryFile") &&
-                l.Contains("sectionAuthoritative=False"));
+                l.Contains("sectionAuthoritative=True"));
 
             var restored = new Recording { RecordingId = original.RecordingId };
             logLines.Clear();
@@ -613,7 +613,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("ReadBinaryTrajectoryFile") &&
-                l.Contains("used flat fallback path"));
+                l.Contains("using section-authoritative path"));
             AssertSemanticTrajectoryEqual(original, restored);
         }
 
@@ -644,6 +644,197 @@ namespace Parsek.Tests
                 l.Contains("ReadBinaryTrajectoryFile") &&
                 l.Contains("used flat fallback path"));
             AssertSemanticTrajectoryEqual(original, restored);
+        }
+
+        [Fact]
+        public void CurrentFormatTrajectorySidecar_LegacyTopLevelOrbitBridge_NormalizesToSectionAuthoritativeCheckpoint()
+        {
+            var first = new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 0,
+                longitude = 0,
+                altitude = 80000,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0, 1000, 0),
+                bodyName = "Kerbin"
+            };
+            var second = new TrajectoryPoint
+            {
+                ut = 110.0,
+                latitude = 0.01,
+                longitude = 0.01,
+                altitude = 82000,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0, 1000, 0),
+                bodyName = "Kerbin"
+            };
+            var third = new TrajectoryPoint
+            {
+                ut = 500.0,
+                latitude = 1.0,
+                longitude = 1.0,
+                altitude = 120000,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0, 1000, 0),
+                bodyName = "Kerbin"
+            };
+            var fourth = new TrajectoryPoint
+            {
+                ut = 510.0,
+                latitude = 1.01,
+                longitude = 1.01,
+                altitude = 121000,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0, 1000, 0),
+                bodyName = "Kerbin"
+            };
+
+            var original = new Recording
+            {
+                RecordingId = "legacy-bg-orbit-bridge",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Kerbal X Probe"
+            };
+            original.Points.Add(first);
+            original.Points.Add(second);
+            original.Points.Add(third);
+            original.Points.Add(fourth);
+            original.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 110.0,
+                endUT = 505.0,
+                inclination = 28.5,
+                eccentricity = 0.01,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = 110.0,
+                bodyName = "Kerbin"
+            });
+            original.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint> { first, second },
+                checkpoints = new List<OrbitSegment>()
+            });
+            original.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = 500.0,
+                endUT = 510.0,
+                frames = new List<TrajectoryPoint> { third, fourth },
+                checkpoints = new List<OrbitSegment>()
+            });
+
+            string path = Path.Combine(tempDir, "legacy-bg-orbit-bridge.prec");
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 7);
+
+            Assert.Contains(original.TrackSections, s =>
+                s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
+                s.checkpoints != null &&
+                s.checkpoints.Count == 1 &&
+                s.endUT == 500.0 &&
+                s.checkpoints[0].endUT == 500.0);
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            var restored = new Recording { RecordingId = original.RecordingId };
+            logLines.Clear();
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Equal(3, restored.TrackSections.Count);
+            Assert.Single(restored.TrackSections.Where(s => s.referenceFrame == ReferenceFrame.OrbitalCheckpoint));
+            Assert.Single(restored.OrbitSegments);
+            Assert.Equal(110.0, restored.OrbitSegments[0].startUT);
+            Assert.Equal(500.0, restored.OrbitSegments[0].endUT);
+            Assert.DoesNotContain(restored.TrackSections, s =>
+                s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
+                s.startUT < 500.0 &&
+                s.endUT > 500.0);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]") &&
+                l.Contains("using section-authoritative path") &&
+                l.Contains("rebuiltOrbitSegments=1"));
+        }
+
+        [Fact]
+        public void CurrentFormatTrajectorySidecar_FullyCoveredLegacyTopLevelOrbit_DropsFlatOrbitCache()
+        {
+            var first = new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 0,
+                longitude = 0,
+                altitude = 80000,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0, 1000, 0),
+                bodyName = "Kerbin"
+            };
+            var second = new TrajectoryPoint
+            {
+                ut = 200.0,
+                latitude = 0.1,
+                longitude = 0.1,
+                altitude = 90000,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0, 1000, 0),
+                bodyName = "Kerbin"
+            };
+            var original = new Recording
+            {
+                RecordingId = "covered-bg-orbit-bridge",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Kerbal X Probe"
+            };
+            original.Points.Add(first);
+            original.Points.Add(second);
+            original.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = first.ut,
+                endUT = second.ut,
+                frames = new List<TrajectoryPoint> { first, second },
+                checkpoints = new List<OrbitSegment>()
+            });
+            original.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 120.0,
+                endUT = 180.0,
+                inclination = 28.5,
+                eccentricity = 0.01,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = 120.0,
+                bodyName = "Kerbin"
+            });
+
+            string path = Path.Combine(tempDir, "covered-bg-orbit-bridge.prec");
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 8);
+
+            Assert.Empty(original.OrbitSegments);
+            Assert.DoesNotContain(original.TrackSections, s =>
+                s.referenceFrame == ReferenceFrame.OrbitalCheckpoint);
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Single(restored.TrackSections);
+            Assert.Empty(restored.OrbitSegments);
+            Assert.Equal(2, restored.Points.Count);
         }
 
         [Fact]
@@ -2350,13 +2541,12 @@ namespace Parsek.Tests
                     break;
 
                 case "v1FlatSectionsDuplicated":
-                    // Flat OrbitSegments do not match sections (Absolute-only sections rebuild
-                    // to empty), so ShouldWriteSectionAuthoritativeTrajectory returns false and
-                    // the writer serializes POINT + ORBIT_SEGMENT + TRACK_SECTION nodes.
+                    // Legacy flat OrbitSegments are normalized into OrbitalCheckpoint sections
+                    // before write, so the writer can take the section-authoritative path.
                     writeRec = fixture;
                     writeRec.RecordingFormatVersion = 1;
                     expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
-                    expectSectionAuthoritative = false;
+                    expectSectionAuthoritative = true;
                     break;
 
                 case "v1SectionAuthoritative":
@@ -2373,14 +2563,14 @@ namespace Parsek.Tests
                     writeRec = fixture;
                     writeRec.RecordingFormatVersion = 2;
                     expectedEncoding = TrajectorySidecarEncoding.BinaryV2;
-                    expectSectionAuthoritative = false;
+                    expectSectionAuthoritative = true;
                     break;
 
                 case "v3Sparse":
                     writeRec = fixture;
                     writeRec.RecordingFormatVersion = 3;
                     expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
-                    expectSectionAuthoritative = false;
+                    expectSectionAuthoritative = true;
                     break;
 
                 case "aliasSnapshot":
@@ -2391,15 +2581,19 @@ namespace Parsek.Tests
                     writeRec.GhostVisualSnapshot = writeRec.VesselSnapshot;
                     writeRec.GhostSnapshotMode = GhostSnapshotMode.AliasVessel;
                     expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
-                    expectSectionAuthoritative = false;
+                    expectSectionAuthoritative = true;
                     break;
 
                 default:
                     throw new InvalidOperationException($"Unknown case: {caseName}");
             }
 
-            // Pin the actual write-path choice so a future fixture change cannot silently
-            // collapse v1FlatSectionsDuplicated and v1SectionAuthoritative into the same branch.
+            RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                writeRec,
+                markDirty: false,
+                context: "CodecRoundTripMatrix");
+
+            // Pin the actual write-path choice after the write-path legacy bridge normalization.
             Assert.Equal(expectSectionAuthoritative,
                 RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(writeRec));
 

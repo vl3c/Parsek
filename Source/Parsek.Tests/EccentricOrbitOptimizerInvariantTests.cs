@@ -17,15 +17,17 @@ namespace Parsek.Tests
     /// optimizer's `FindSplitCandidatesForOptimizer` would split the recording into a
     /// chain of 2N segments after N orbits — unbounded for any long-coasting BG vessel.
     ///
-    /// Three structural facts together prevent this:
+    /// Four structural facts together prevent this:
     ///   1. `BackgroundOnRailsState` carries no TrackSection / EnvironmentHysteresis
     ///      fields (only `BackgroundVesselState` for loaded mode does).
     ///   2. `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`, so the
     ///      env-classification path never runs while on rails.
-    ///   3. `FindSplitCandidatesForOptimizer` iterates `rec.TrackSections` only and
-    ///      ignores `rec.OrbitSegments` (which carry orbital elements, not env tags).
+    ///   3. Packed/on-rails closes may emit only OrbitalCheckpoint/ExoBallistic
+    ///      TrackSections, never per-orbit Atmospheric/ExoBallistic toggles.
+    ///   4. Same-class adjacent checkpoint sections are not splittable boundaries,
+    ///      including ExoBallistic SOI transitions that #547 keeps cohesive.
     ///
-    /// These tests exercise (1) and (3) directly. Together they trip if any future
+    /// These tests exercise (1), (3), and (4) directly. Together they trip if any future
     /// refactor moves TrackSection state onto the on-rails struct or inverts the
     /// optimizer's splitting predicate.
     ///
@@ -42,6 +44,21 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+        }
+
+        private static TrackSection MakeCheckpointSection(double startUT, double endUT, string bodyName)
+        {
+            var segment = new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = bodyName,
+                semiMajorAxis = 800000.0,
+                eccentricity = 0.18,
+                epoch = startUT
+            };
+
+            return RecordingStore.BuildClosedOnRailsCheckpointSection(segment);
         }
 
         /// <summary>
@@ -137,6 +154,163 @@ namespace Parsek.Tests
                 new List<Recording> { rec });
 
             Assert.Empty(candidates);
+        }
+
+        [Fact]
+        public void N_OnRails_Closes_Same_Body_Same_Env_Produce_Zero_Split_Candidates()
+        {
+            const int checkpointCount = 200;
+            const double segmentDuration = 3600.0;
+            var rec = new Recording
+            {
+                RecordingId = "rec_many_checkpoint_closes",
+                VesselName = "BG Grazing Probe",
+                ChainId = "chain_many",
+                ChainIndex = 0,
+                ChainBranch = 0
+            };
+
+            for (int i = 0; i < checkpointCount; i++)
+            {
+                double startUT = 100.0 + i * segmentDuration;
+                TrackSection section = MakeCheckpointSection(startUT, startUT + segmentDuration, "Kerbin");
+                rec.TrackSections.Add(section);
+                rec.OrbitSegments.Add(section.checkpoints[0]);
+            }
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { rec });
+
+            Assert.Empty(candidates);
+        }
+
+        [Fact]
+        public void OnRails_Checkpoint_Body_Change_StaysCohesive()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_checkpoint_soi",
+                VesselName = "BG SOI Probe",
+                ChainId = "chain_soi",
+                ChainIndex = 0,
+                ChainBranch = 0
+            };
+
+            TrackSection kerbin = MakeCheckpointSection(100.0, 300.0, "Kerbin");
+            TrackSection mun = MakeCheckpointSection(300.0, 500.0, "Mun");
+            rec.TrackSections.Add(kerbin);
+            rec.TrackSections.Add(mun);
+            rec.OrbitSegments.Add(kerbin.checkpoints[0]);
+            rec.OrbitSegments.Add(mun.checkpoints[0]);
+
+            var logLines = new List<string>();
+            List<(int, int)> candidates;
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                    new List<Recording> { rec });
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+
+            Assert.Empty(candidates);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]") &&
+                l.Contains("Split summary") &&
+                l.Contains("exoCoastBodyChangeKept=1"));
+        }
+
+        [Fact]
+        public void SplitAtSection_ClipsOverlappingCheckpointBridgeAtSplitBoundary()
+        {
+            const double checkpointStartUT = 909.023508884545;
+            const double splitUT = 958.87146746423491;
+            const double checkpointEndUT = 960.51459653102938;
+            TrackSection checkpoint = MakeCheckpointSection(
+                checkpointStartUT, checkpointEndUT, "Kerbin");
+            var physical = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = splitUT,
+                endUT = 979.7714674642159,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = splitUT, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 979.7714674642159, bodyName = "Kerbin" }
+                },
+                checkpoints = new List<OrbitSegment>()
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec_split_checkpoint_overlap",
+                VesselName = "Kerbal X Probe",
+                ChainId = "chain_split",
+                ChainIndex = 0,
+                ChainBranch = 0,
+                TrackSections = new List<TrackSection> { checkpoint, physical },
+                OrbitSegments = new List<OrbitSegment> { checkpoint.checkpoints[0] }
+            };
+
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Single(rec.TrackSections);
+            Assert.Equal(splitUT, rec.TrackSections[0].endUT);
+            Assert.Single(rec.TrackSections[0].checkpoints);
+            Assert.Equal(splitUT, rec.TrackSections[0].checkpoints[0].endUT);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(splitUT, rec.OrbitSegments[0].endUT);
+            Assert.Single(second.TrackSections);
+            Assert.Equal(splitUT, second.TrackSections[0].startUT);
+            Assert.Empty(second.OrbitSegments);
+        }
+
+        [Fact]
+        public void SplitAtSection_ClipsEarlierCheckpointBridgeThatWrapsSplitBoundary()
+        {
+            const double splitUT = 200.0;
+            TrackSection wrappingCheckpoint = MakeCheckpointSection(100.0, 300.0, "Kerbin");
+            TrackSection containedCheckpoint = MakeCheckpointSection(150.0, 160.0, "Kerbin");
+            TrackSection splitCheckpoint = MakeCheckpointSection(splitUT, 240.0, "Kerbin");
+            var rec = new Recording
+            {
+                RecordingId = "rec_split_earlier_checkpoint_overlap",
+                VesselName = "Kerbal X Probe",
+                ChainId = "chain_split_earlier",
+                ChainIndex = 0,
+                ChainBranch = 0,
+                TrackSections = new List<TrackSection>
+                {
+                    wrappingCheckpoint,
+                    containedCheckpoint,
+                    splitCheckpoint
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    wrappingCheckpoint.checkpoints[0],
+                    containedCheckpoint.checkpoints[0],
+                    splitCheckpoint.checkpoints[0]
+                }
+            };
+
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 2);
+
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.Equal(splitUT, rec.TrackSections[0].endUT);
+            Assert.Single(rec.TrackSections[0].checkpoints);
+            Assert.Equal(splitUT, rec.TrackSections[0].checkpoints[0].endUT);
+            Assert.Equal(2, rec.OrbitSegments.Count);
+            Assert.Equal(splitUT, rec.OrbitSegments[0].endUT);
+            Assert.Single(second.TrackSections);
+            Assert.Equal(splitUT, second.TrackSections[0].startUT);
+            Assert.Single(second.OrbitSegments);
+            Assert.Equal(splitUT, second.OrbitSegments[0].startUT);
         }
 
         /// <summary>
