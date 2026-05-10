@@ -767,6 +767,77 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CurrentFormatTrajectorySidecar_FullyCoveredLegacyTopLevelOrbit_DropsFlatOrbitCache()
+        {
+            var first = new TrajectoryPoint
+            {
+                ut = 100.0,
+                latitude = 0,
+                longitude = 0,
+                altitude = 80000,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0, 1000, 0),
+                bodyName = "Kerbin"
+            };
+            var second = new TrajectoryPoint
+            {
+                ut = 200.0,
+                latitude = 0.1,
+                longitude = 0.1,
+                altitude = 90000,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(0, 1000, 0),
+                bodyName = "Kerbin"
+            };
+            var original = new Recording
+            {
+                RecordingId = "covered-bg-orbit-bridge",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "Kerbal X Probe"
+            };
+            original.Points.Add(first);
+            original.Points.Add(second);
+            original.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = first.ut,
+                endUT = second.ut,
+                frames = new List<TrajectoryPoint> { first, second },
+                checkpoints = new List<OrbitSegment>()
+            });
+            original.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 120.0,
+                endUT = 180.0,
+                inclination = 28.5,
+                eccentricity = 0.01,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = 120.0,
+                bodyName = "Kerbin"
+            });
+
+            string path = Path.Combine(tempDir, "covered-bg-orbit-bridge.prec");
+            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 8);
+
+            Assert.Empty(original.OrbitSegments);
+            Assert.DoesNotContain(original.TrackSections, s =>
+                s.referenceFrame == ReferenceFrame.OrbitalCheckpoint);
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+            var restored = new Recording { RecordingId = original.RecordingId };
+            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+            Assert.Single(restored.TrackSections);
+            Assert.Empty(restored.OrbitSegments);
+            Assert.Equal(2, restored.Points.Count);
+        }
+
+        [Fact]
         public void MixedFormatTrajectorySidecars_LoadInSameProcess()
         {
             var legacy = RecordingStorageFixtures.MaterializeTrajectory(

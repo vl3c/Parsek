@@ -13,7 +13,7 @@ namespace Parsek
         public int SkippedCovered;
         public int Clipped;
 
-        public bool Changed => Added > 0 || Clipped > 0;
+        public bool Changed => Added > 0 || Clipped > 0 || SkippedCovered > 0;
     }
 
     /// <summary>
