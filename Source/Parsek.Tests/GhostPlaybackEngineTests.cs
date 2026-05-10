@@ -29,6 +29,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = null;
+            GhostPlaybackEngine.CoBubbleBlendStartUTResolverForTesting = null;
         }
 
         private static EngineGhostInfo BuildEngineGhostInfo(int particleSystemCount)
@@ -5142,6 +5143,171 @@ namespace Parsek.Tests
                 traj, state, 100.20));
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHiddenThisFrame(
                 traj, state, 100.21));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialCoBubbleBlendActivationHidden_BlendCoversUTWithinHoldWindow_ReturnsTrue()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "peer-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+            GhostPlaybackEngine.CoBubbleBlendStartUTResolverForTesting =
+                (recordingId, ut) => recordingId == "peer-rec" && ut >= 100.0 && ut <= 110.0
+                    ? 100.0
+                    : double.NaN;
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialCoBubbleBlendActivationHidden(
+                traj, state, 100.30));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialCoBubbleBlendActivationHidden_PastHoldWindow_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "peer-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+            GhostPlaybackEngine.CoBubbleBlendStartUTResolverForTesting =
+                (recordingId, ut) => 100.0;
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialCoBubbleBlendActivationHidden(
+                traj, state, 100.55));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialCoBubbleBlendActivationHidden_NoActiveBlend_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "peer-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+            GhostPlaybackEngine.CoBubbleBlendStartUTResolverForTesting =
+                (recordingId, ut) => double.NaN;
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialCoBubbleBlendActivationHidden(
+                traj, state, 100.10));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialCoBubbleBlendActivationHidden_ResumedGhost_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "peer-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var resumedState = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 1
+            };
+            GhostPlaybackEngine.CoBubbleBlendStartUTResolverForTesting =
+                (recordingId, ut) => 100.0;
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialCoBubbleBlendActivationHidden(
+                traj, resumedState, 100.10));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_CoBubbleBlendStartup_ReportsCobubbleReason()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "peer-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 102.0, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+            GhostPlaybackEngine.CoBubbleBlendStartUTResolverForTesting =
+                (recordingId, ut) => 100.0;
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.30, out string firstReason));
+            Assert.Equal("cobubble-blend-settle", firstReason);
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.55, out string secondReason));
+            Assert.Equal("minimum-frames", secondReason);
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.60, out string finalReason));
+            Assert.Null(finalReason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_RelativeWindowWinsOverCobubble()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "peer-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+            GhostPlaybackEngine.CoBubbleBlendStartUTResolverForTesting =
+                (recordingId, ut) => 100.0;
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.05, out string reason));
+            Assert.Equal("relative-start", reason);
         }
 
         [Fact]

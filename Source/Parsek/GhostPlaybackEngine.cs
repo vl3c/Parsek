@@ -219,6 +219,17 @@ namespace Parsek
 
         internal static Func<string, double?> PendingOrbitBodyRadiusResolverForTesting;
 
+        /// <summary>
+        /// Test seam for the active co-bubble blend window resolver consumed
+        /// by <see cref="ShouldHoldInitialCoBubbleBlendActivationHidden"/>.
+        /// Production walks <see cref="Parsek.Rendering.SectionAnnotationStore.TryGetCoBubbleTraces"/>;
+        /// xUnit cannot stand up the full annotation pipeline, so the seam
+        /// returns the active window's <c>StartUT</c> directly. Returning
+        /// <see cref="double.NaN"/> means "no active blend window for this
+        /// peer at this UT" and the predicate falls through.
+        /// </summary>
+        internal static Func<string, double, double> CoBubbleBlendStartUTResolverForTesting;
+
         internal static bool HasRenderableGhostData(IPlaybackTrajectory traj)
         {
             return traj != null
@@ -1300,6 +1311,8 @@ namespace Parsek
                         + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s debrisSeedBridgeMax="
                         + GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                        + "s coBubbleBlend="
+                        + GhostPlayback.InitialCoBubbleBlendActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
                         + "s minFrames="
                         + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
                         5.0);
@@ -5658,6 +5671,76 @@ namespace Parsek
                 && playbackUT < bridgeEndUT - 1e-6;
         }
 
+        /// <summary>
+        /// Holds the activation hide for fresh peer ghosts whose section is
+        /// covered by an active co-bubble blend window. The blend swaps the
+        /// peer's rendering pipeline from standalone <c>P_render(t)</c> to
+        /// <c>primaryWorld(t) + recordedOffset(t)</c>; right after a re-fly
+        /// load the primary's standalone result drifts as physics settles
+        /// and Krakensbane re-centres the world frame, so the peer's first
+        /// visible frame can land on a stale-then-fresh transform pair —
+        /// the originally-reported "Kerbal X Probe ghost slid into position"
+        /// symptom that PR #812's tracer captured as a 489 m
+        /// <c>hiddenPoseDelta</c> coincident with a Krakensbane shift.
+        /// Hold ends after
+        /// <see cref="GhostPlayback.InitialCoBubbleBlendActivationHiddenSeconds"/>
+        /// has elapsed past the activation start, by which point the early
+        /// FloatingOrigin shifts have settled and the cobubble pipeline is
+        /// producing stable per-frame output.
+        /// </summary>
+        internal static bool ShouldHoldInitialCoBubbleBlendActivationHidden(
+            IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+        {
+            if (!CanEvaluateInitialActivationHidden(traj, state))
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            double activationLead = playbackUT - activationStartUT;
+            if (activationLead < -1e-6
+                || activationLead > GhostPlayback.InitialCoBubbleBlendActivationHiddenSeconds)
+            {
+                return false;
+            }
+
+            return TryResolveActiveCoBubbleBlendStartUT(
+                traj.RecordingId, playbackUT, out double _);
+        }
+
+        private static bool TryResolveActiveCoBubbleBlendStartUT(
+            string recordingId, double playbackUT, out double blendStartUT)
+        {
+            blendStartUT = double.NaN;
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+
+            var seam = CoBubbleBlendStartUTResolverForTesting;
+            if (seam != null)
+            {
+                double seamUT = seam(recordingId, playbackUT);
+                if (double.IsNaN(seamUT))
+                    return false;
+                blendStartUT = seamUT;
+                return true;
+            }
+
+            if (!Parsek.Rendering.SectionAnnotationStore.TryGetCoBubbleTraces(
+                    recordingId, out var traces) || traces == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < traces.Count; i++)
+            {
+                var trace = traces[i];
+                if (trace == null) continue;
+                if (playbackUT < trace.StartUT - 1e-6) continue;
+                if (playbackUT > trace.EndUT + 1e-6) continue;
+                blendStartUT = trace.StartUT;
+                return true;
+            }
+            return false;
+        }
+
         private static bool IsInitialDebrisSeedBridgeEndFrame(
             IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
@@ -5798,10 +5881,17 @@ namespace Parsek
                 && !withinAbsoluteBridge
                 && ShouldHoldInitialAbsoluteToRelativePrimerActivationHidden(
                     traj, state, playbackUT);
+            bool withinCoBubbleBlend = !withinDebrisSeedBridge
+                && !withinRelativeWindow
+                && !withinAbsoluteBridge
+                && !withinAbsoluteToRelativePrimer
+                && ShouldHoldInitialCoBubbleBlendActivationHidden(
+                    traj, state, playbackUT);
             bool withinUtWindow = withinDebrisSeedBridge
                 || withinRelativeWindow
                 || withinAbsoluteBridge
-                || withinAbsoluteToRelativePrimer;
+                || withinAbsoluteToRelativePrimer
+                || withinCoBubbleBlend;
             bool withinActivationSettle = !withinUtWindow
                 && CanEvaluateInitialActivationHidden(traj, state)
                 && !IsInitialDebrisSeedBridgeEndFrame(traj, state, playbackUT)
@@ -5826,7 +5916,9 @@ namespace Parsek
                             ? "absolute-seed-bridge"
                             : (withinAbsoluteToRelativePrimer
                                 ? "absolute-primer-to-relative"
-                                : "activation-settle")));
+                                : (withinCoBubbleBlend
+                                    ? "cobubble-blend-settle"
+                                    : "activation-settle"))));
                 ConsumeInitialRelativeHiddenFrame(state);
                 return true;
             }

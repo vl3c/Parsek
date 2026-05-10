@@ -217,6 +217,20 @@ namespace Parsek
         /// time warp, where the UT window can elapse inside one render tick.
         /// </summary>
         internal const int InitialActivationHiddenMinimumFrames = 2;
+
+        /// <summary>
+        /// Initial activation hide window for ghosts that activate while a
+        /// co-bubble blend is already in effect. The blend swaps the peer's
+        /// rendering pipeline from standalone <c>P_render(t)</c> to
+        /// <c>primaryWorld(t) + recordedOffset(t)</c>; right after a
+        /// re-fly load the primary's standalone result drifts as physics
+        /// settles and Krakensbane re-centres the world frame, so the
+        /// peer's first visible frame can land on a stale-then-fresh
+        /// transform pair. Holding for ~half a second past activation
+        /// covers the early FloatingOrigin shifts without changing the
+        /// recorded path. The two-frame minimum still applies on top.
+        /// </summary>
+        internal const double InitialCoBubbleBlendActivationHiddenSeconds = 0.5;
     }
 
     /// <summary>
