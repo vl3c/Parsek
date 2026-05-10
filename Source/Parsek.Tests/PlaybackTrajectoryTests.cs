@@ -470,6 +470,7 @@ namespace Parsek.Tests
             Assert.Null(flags.segmentLabel);
             Assert.Null(flags.recordingId);
             Assert.Equal(0u, flags.vesselPersistentId);
+            Assert.False(flags.anchorReFlyUnstable);
         }
 
         [Fact]
@@ -485,7 +486,8 @@ namespace Parsek.Tests
                 isChainLooping = true,
                 segmentLabel = "Ascent [Kerbin]",
                 recordingId = "abc123",
-                vesselPersistentId = 42
+                vesselPersistentId = 42,
+                anchorReFlyUnstable = true
             };
             Assert.True(flags.skipGhost);
             Assert.True(flags.isMidChain);
@@ -496,6 +498,7 @@ namespace Parsek.Tests
             Assert.Equal("Ascent [Kerbin]", flags.segmentLabel);
             Assert.Equal("abc123", flags.recordingId);
             Assert.Equal(42u, flags.vesselPersistentId);
+            Assert.True(flags.anchorReFlyUnstable);
         }
 
         #endregion

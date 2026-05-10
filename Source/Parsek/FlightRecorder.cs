@@ -53,7 +53,11 @@ namespace Parsek
         // 0.1s covers scene-load physics tick variability across local framerates.
         internal const int ReFlyPostLoadSettleRequiredUnpackedFrames = 2;
         internal const float ReFlyPostLoadSettleMinLevelSeconds = 0.1f;
+        internal const int StabilityExtensionFramesAfterShift = 2;
+        // TODO: retune from Re-Fly settle/FloatingOrigin evidence after playtest.
+        internal const int StabilitySettleClearHoldFrames = 60;
         private const double SectionBoundaryUtEpsilon = 1e-6;
+        internal static Func<int> FrameCountProviderForTesting;
         internal static Func<float> TimeSinceLevelLoadProviderForTesting;
         private bool reFlyPostLoadSettleActive;
         private int reFlyPostLoadSettleUnpackedFrames;
@@ -468,6 +472,18 @@ namespace Parsek
             return TimeSinceLevelLoadProviderForTesting != null
                 ? TimeSinceLevelLoadProviderForTesting()
                 : Time.timeSinceLevelLoad;
+        }
+
+        internal static int GetFrameCount()
+        {
+            return FrameCountProviderForTesting != null
+                ? FrameCountProviderForTesting()
+                : GetUnityFrameCount();
+        }
+
+        private static int GetUnityFrameCount()
+        {
+            return Time.frameCount;
         }
 
         internal static ReFlyPostLoadSettleDecision EvaluateReFlyPostLoadSettle(
@@ -5894,6 +5910,19 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(string recordingId)
+        {
+            return IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(recordingId, GetFrameCount());
+        }
+
+        internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(
+            string recordingId,
+            int frame)
+        {
+            return IsReFlyPostLoadSettleActiveForRecording(recordingId)
+                || ReFlySettleStabilityTracker.IsHoldActiveForRecording(recordingId, frame);
+        }
+
         internal TrackSection CurrentTrackSectionForTesting => currentTrackSection;
 
         private void ArmReFlyPostLoadSettleIfNeeded(Vessel v, bool isPromotion)
@@ -5951,18 +5980,23 @@ namespace Parsek
 
             if (decision.Clear)
             {
+                string clearRecordingId = reFlyPostLoadSettleRecordingId;
                 ParsekLog.Info("Recorder",
                     $"Re-Fly post-load settle complete: session={ShortId(reFlyPostLoadSettleSessionId)} " +
-                    $"recording={ShortId(reFlyPostLoadSettleRecordingId)} " +
+                    $"recording={ShortId(clearRecordingId)} " +
                     $"ut={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                     $"unpackedFrames={reFlyPostLoadSettleUnpackedFrames} " +
                     $"elapsedLevelSeconds={elapsed.ToString("F3", CultureInfo.InvariantCulture)}");
+                ReFlySettleStabilityTracker.RecordSettleCleared(clearRecordingId, GetFrameCount());
                 ResetReFlyPostLoadSettle();
                 return false;
             }
 
             if (decision.Hold)
             {
+                ReFlySettleStabilityTracker.RecordSettleActive(
+                    reFlyPostLoadSettleRecordingId,
+                    GetFrameCount());
                 ParsekLog.VerboseRateLimited("Recorder",
                     "refly-post-load-settle|" + (reFlyPostLoadSettleSessionId ?? "<no-session>"),
                     $"Re-Fly post-load settle holding trajectory sample: " +
