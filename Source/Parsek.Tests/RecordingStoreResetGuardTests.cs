@@ -218,6 +218,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BatchFlightBaselineRestore_FailedQuickload_SnapshotRollbackRecoversLiveData()
+        {
+            // P1 review regression: the runner's RestoreBatchFlightBaselineCore
+            // wraps the bypass wipe + TriggerQuickload + WaitForFlightReady
+            // sequence in try/finally with a pre-wipe RecordingStoreTestSnapshot
+            // that gets restored when restoreCommitted=false. This test models
+            // that recovery path end-to-end without needing a Unity scene:
+            //   1. Inject the player's "live" recording.
+            //   2. Capture a snapshot (what the runner does first).
+            //   3. Run the bypass wipe (simulates the runner's prep step).
+            //   4. Quickload "fails" (simulated by NOT touching disk).
+            //   5. snapshot.Restore() in the finally (the runner's rollback).
+            // After step 5 the player's live recording must be back exactly
+            // as it was, even though play mode was active and the bypass
+            // wipe ran. Without the fail-closed pattern in PR #805, step 4's
+            // failure would leave the player with an empty RecordingStore.
+            var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "PreCrashLive");
+            Assert.NotNull(live);
+            RecordingStore.AddRecordingWithTreeForTesting(live);
+            int liveTreeCount = RecordingStore.CommittedTrees.Count;
+            Assert.Single(RecordingStore.CommittedRecordings);
+
+            RecordingStore.ApplicationIsPlayingForTesting = () => true;
+
+            // Step 2: pre-wipe snapshot (what the runner captures).
+            var preWipeSnapshot = RecordingStoreTestSnapshot.Capture();
+            bool restoreCommitted = false;
+            try
+            {
+                // Step 3: bypass wipe (the runner's
+                // PrepareForIsolatedBatchFlightBaselineRestore).
+                RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
+                Assert.Empty(RecordingStore.CommittedRecordings);
+
+                // Step 4: simulate a TriggerQuickload throw / WaitForFlightReady
+                // timeout. We never set restoreCommitted=true.
+                throw new InvalidOperationException("simulated TriggerQuickload skip");
+            }
+            catch (InvalidOperationException)
+            {
+                // Caught for the test (the runner's RunCoroutineSafely catches
+                // for the same reason in production).
+            }
+            finally
+            {
+                if (!restoreCommitted)
+                {
+                    preWipeSnapshot.Restore();
+                }
+            }
+
+            // Player's live recording back, in the exact same shape.
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal("PreCrashLive", RecordingStore.CommittedRecordings[0].VesselName);
+            Assert.Equal(liveTreeCount, RecordingStore.CommittedTrees.Count);
+        }
+
+        [Fact]
         public void ResetForBatchFlightBaselineRestoreBypassingGuard_DoesNotWeakenRegularResetGuard()
         {
             // Regression guard: the public ResetForTesting() must still

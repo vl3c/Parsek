@@ -1006,24 +1006,73 @@ namespace Parsek.InGameTests
         private IEnumerator RestoreBatchFlightBaselineCore(
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
-            using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
+            // Fail-closed live-data recovery for the batch FLIGHT baseline
+            // restore flow. ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore
+            // (called below inside ActivateStagedBatchFlightBaselineRestore)
+            // wipes RecordingStore IN MEMORY through
+            // RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard --
+            // intentionally bypassing the live-save guard because the very
+            // next operation is a quickload that re-populates RecordingStore
+            // from disk via OnLoad. But if any step between the wipe and
+            // OnLoad firing throws -- TriggerQuickload (missing/empty
+            // baseline slot, null Game / null flightState / null protoVessels,
+            // invalid activeVesselIdx) or WaitForFlightReady (timeout) --
+            // the player's live in-memory recordings have been wiped with
+            // no recovery path, reopening the exact data-loss class the
+            // ResetForTesting guard exists to prevent.
+            //
+            // Capture a snapshot of the live RecordingStore state BEFORE the
+            // bypass wipe runs. On any failure path -- exception out of
+            // ActivateStagedBatchFlightBaselineRestore, TriggerQuickload, or
+            // WaitForFlightReady -- the finally block restores the snapshot
+            // so the player's in-memory state matches the .sfs they had
+            // before the failed test. After WaitForFlightReady completes
+            // OnLoad has fired and replaced RecordingStore with the baseline
+            // save's contents; we still leave restoreCommitted=false until
+            // the full restore chain succeeds, so subsequent failures still
+            // roll back. The post-OnLoad rollback is functionally redundant
+            // (the snapshot is the player's pre-test state which equals the
+            // baseline save), but it is harmlessly idempotent and the
+            // simpler invariant ("any failure restores live state") is
+            // worth more than the saved cycles.
+            var preWipeSnapshot = RecordingStoreTestSnapshot.Capture();
+            bool restoreCommitted = false;
+            try
             {
-                var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
-                    as ParsekScenario;
-                ActivateStagedBatchFlightBaselineRestore(
-                    stagedSnapshot.Activate,
-                    () => ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
-                        currentScenario != null
-                            ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
-                            : null));
+                using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
+                {
+                    var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
+                        as ParsekScenario;
+                    ActivateStagedBatchFlightBaselineRestore(
+                        stagedSnapshot.Activate,
+                        () => ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
+                            currentScenario != null
+                                ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
+                                : null));
+                }
+                Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                    previousFlightInstanceId, timeoutSeconds: 15f);
+                yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
+                PerformBetweenRunCleanup(cleanupReason);
+                if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
+                    yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+                restoreCommitted = true;
             }
-            Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                previousFlightInstanceId, timeoutSeconds: 15f);
-            yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
-            PerformBetweenRunCleanup(cleanupReason);
-            if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
-                yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+            finally
+            {
+                if (!restoreCommitted)
+                {
+                    preWipeSnapshot.Restore();
+                    ParsekLog.Warn(Tag,
+                        "Batch FLIGHT baseline restore did not complete; rolled RecordingStore "
+                        + "back to pre-wipe snapshot to recover live data "
+                        + "(committedRecordings=" + preWipeSnapshot.CommittedRecordingCount
+                        + ", committedTrees=" + preWipeSnapshot.CommittedTreeCount
+                        + ", hasPendingTree=" + preWipeSnapshot.HasPendingTree
+                        + "). slot='" + (baseline?.SlotName ?? "(null)") + "'");
+                }
+            }
         }
 
         internal static void ActivateStagedBatchFlightBaselineRestore(
