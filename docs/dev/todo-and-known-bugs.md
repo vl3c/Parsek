@@ -302,6 +302,16 @@ The existing `MakeRec` helper in `RewindSupersedeRollbackTests` was retrofitted 
 
 ---
 
+## Done - v12 parent-anchored debris section metadata outlived authored frames
+
+- ~~The retained `logs/2026-05-10_1713` bundle showed four v12 debris recordings (`a14b621b...`, `e2b6aa4d...`, `e71f0322...`, `9e7b0faf...`) repeatedly emitting `[Parsek][WARN][RelativeAnchorResolver] relative-anchor-unresolved: reason=anchor-out-of-recorded-range` against parent recording `1354326d...` even though the parent track covered the playback UTs. The child debris Relative section metadata still spanned those UTs, but both the child `section.frames` and `section.absoluteFrames` payloads had already ended, so playback could clamp to the stale last child offset and ask the resolver for an out-of-range child pose every frame.~~
+
+**Fix:** parent-anchored debris coverage now checks authored rendering surfaces, not only `TrackSection.startUT/endUT`. v12 debris with a recorded parent retires when neither its Relative frames nor its absolute shadow frames cover the mapped playback UT; live-anchor loop debris and legacy v11 debris keep their existing contracts. The engine skips the resolver-based anchor-rotation gate across stale child-frame tails, the flight standalone/co-bubble and relative reconstruction paths fail closed instead of clamping, shadow-covered authored gaps beat orbit-tail playback in render/watch/prewarm/pending-spawn/standalone paths, and the retirement WARN keeps the existing `reason=parent-anchored-debris-outside-relative-coverage` with a new `coverageReason=relative-and-shadow-frames-out-of-range` detail.
+
+**Status:** CLOSED 2026-05-10. Separate from the closed boundary-epsilon resolver seam and from the still-open sparse in-range debris divergence work above.
+
+---
+
 ## Done - v12 debris stayed visible through absolute-shadow fallback after parent-anchor miss
 
 - ~~Fresh follow-up logs from `logs/2026-05-08_2208_ghost-rendering-recording-followups` showed parent-anchored debris continuing through `RELATIVE recorded-anchor fallback to absolute shadow` after the parent recording stopped resolving. The stale shadow kept debris visible for a few frames with wrong motion instead of disappearing when it left the parent's recorded-relative coverage.~~

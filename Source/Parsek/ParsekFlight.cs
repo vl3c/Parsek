@@ -17902,6 +17902,13 @@ namespace Parsek
             Recording rec = ResolveRecordingById(recordingId);
             if (rec == null) return false;
             if (rec.Points == null || rec.Points.Count == 0) return false;
+            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                    rec,
+                    ut,
+                    out _))
+            {
+                return false;
+            }
 
             // P1-D: resolve the section's referenceFrame BEFORE reading
             // before.latitude / longitude / altitude. v6+ RELATIVE-frame
@@ -18066,6 +18073,25 @@ namespace Parsek
                 if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
                     return true;
                 return false;
+            }
+
+            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                    rec,
+                    ut,
+                    out _))
+            {
+                return false;
+            }
+
+            bool skipRecordedRelativeResolver =
+                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    rec,
+                    ut,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
+            if (skipRecordedRelativeResolver)
+            {
+                return diagnostic.AbsoluteFramesCoverUT
+                    && TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos);
             }
 
             RelativeAnchorResolveFailure failure = default;
@@ -20100,7 +20126,25 @@ namespace Parsek
                 return false;
 
             int cachedIndex = state != null ? state.playbackIndex : 0;
-            if (TryResolveOrbitTailWorldPosition(
+            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                    traj,
+                    playbackUT,
+                    out _))
+            {
+                return false;
+            }
+
+            bool skipRecordedRelativeResolverForAuthoredFrameGap =
+                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
+            bool authoredGapHasShadow =
+                skipRecordedRelativeResolverForAuthoredFrameGap
+                && diagnostic.AbsoluteFramesCoverUT;
+
+            if (!authoredGapHasShadow
+                && TryResolveOrbitTailWorldPosition(
                     traj, playbackUT, index * 10000, out worldPos))
             {
                 return true;
@@ -20118,7 +20162,8 @@ namespace Parsek
                             traj.RecordingId,
                             sectionIdx,
                             section);
-                        if (TryResolveRelativeWorldPosition(
+                        if (!skipRecordedRelativeResolverForAuthoredFrameGap
+                            && TryResolveRelativeWorldPosition(
                                 section.frames ?? traj.Points,
                                 playbackUT,
                                 target,
@@ -20128,7 +20173,9 @@ namespace Parsek
                             return true;
                         }
                         if (section.absoluteFrames != null
-                            && section.absoluteFrames.Count > 0)
+                            && section.absoluteFrames.Count > 0
+                            && (!skipRecordedRelativeResolverForAuthoredFrameGap
+                                || diagnostic.AbsoluteFramesCoverUT))
                         {
                             int absoluteCachedIndex = 0;
                             return TryResolvePointWorldPosition(
@@ -22035,6 +22082,25 @@ namespace Parsek
             bool allowActivation,
             out InterpolationResult interpResult)
         {
+            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                    traj,
+                    targetUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
+            {
+                RetireUnresolvedRecordedRelative(
+                    ghost,
+                    recordingIndex,
+                    recordingVesselName,
+                    target,
+                    retireSignalState,
+                    "InterpolateAndPositionRecordedRelative",
+                    resolverReason:
+                        "parent-anchored-debris-outside-relative-coverage coverageReason="
+                        + (diagnostic.Reason ?? "relative-and-shadow-frames-out-of-range"));
+                interpResult = InterpolationResult.Zero;
+                return;
+            }
+
             if (frames == null || frames.Count == 0)
             {
                 interpResult = InterpolationResult.Zero;
