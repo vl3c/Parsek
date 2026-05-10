@@ -3966,7 +3966,7 @@ namespace Parsek
         /// Formats the recording end position for the expanded stats column.
         /// Matches timeline style: "Orbiting {body}", "{biome}, {body}", "Boarded {vessel}".
         /// Body fallback priority for terminal recordings: TerminalOrbitBody → StartBodyName.
-        /// Body fallback priority for mid-segments: SegmentBodyName → last point body → StartBodyName.
+        /// Body fallback priority for mid-segments: display body path → SegmentBodyName → last point body → StartBodyName.
         /// </summary>
         internal static string FormatEndPosition(Recording rec, string parentVesselName = null)
             => RecordingsTableFormatters.FormatEndPosition(rec, parentVesselName);

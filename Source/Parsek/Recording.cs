@@ -88,6 +88,14 @@ namespace Parsek
         [NonSerialized] internal bool SidecarLoadFailed;
         [NonSerialized] internal string SidecarLoadFailureReason;
 
+        [NonSerialized] internal bool SegmentBodyDisplayLabelCacheValid;
+        [NonSerialized] internal string SegmentBodyDisplayLabelCache;
+        [NonSerialized] internal int SegmentBodyDisplayLabelCachePointCount;
+        [NonSerialized] internal int SegmentBodyDisplayLabelCacheTrackSectionCount;
+        [NonSerialized] internal string SegmentBodyDisplayLabelCacheSegmentBodyName;
+        [NonSerialized] internal string SegmentBodyDisplayLabelCacheStartBodyName;
+        [NonSerialized] internal string SegmentBodyDisplayLabelCacheLastPointBodyName;
+
         // Bug #572 follow-up (PR after #572). Transient marker set by
         // ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording when
         // an active-tree record is repaired from the matching committed tree
@@ -117,6 +125,18 @@ namespace Parsek
         internal void MarkFilesDirty()
         {
             FilesDirty = true;
+            InvalidateSegmentBodyDisplayLabelCache();
+        }
+
+        internal void InvalidateSegmentBodyDisplayLabelCache()
+        {
+            SegmentBodyDisplayLabelCacheValid = false;
+            SegmentBodyDisplayLabelCache = null;
+            SegmentBodyDisplayLabelCachePointCount = 0;
+            SegmentBodyDisplayLabelCacheTrackSectionCount = 0;
+            SegmentBodyDisplayLabelCacheSegmentBodyName = null;
+            SegmentBodyDisplayLabelCacheStartBodyName = null;
+            SegmentBodyDisplayLabelCacheLastPointBodyName = null;
         }
 
         // Continuation rollback (bug #95): transient boundary for rolling back continuation
