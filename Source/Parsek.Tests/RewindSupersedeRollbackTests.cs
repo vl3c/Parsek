@@ -54,11 +54,22 @@ namespace Parsek.Tests
         {
             // Recording.StartUT is computed from ExplicitStartUT (when set) or first
             // trajectory point. ExplicitStartUT pins StartUT deterministically.
+            //
+            // MergeState explicitly NotCommitted: Recording's field-default is
+            // Immutable (Recording.cs:254 — "the pre-feature invariant: every
+            // recording reachable from a committed tree was already immutable"),
+            // but tests in this file that exercise the rollback drop+retire
+            // path are testing non-canon forks. fix-rewind-canon-forks
+            // preserves Immutable forks across parent rewind, so any test
+            // wanting drop behaviour must opt out of the default. Tests that
+            // specifically exercise canon preservation use MakeRecWithMergeState
+            // with MergeState.Immutable.
             return new Recording
             {
                 RecordingId = id,
                 ExplicitStartUT = startUT,
-                VesselName = $"vessel-{id}"
+                VesselName = $"vessel-{id}",
+                MergeState = MergeState.NotCommitted
             };
         }
 
@@ -544,6 +555,278 @@ namespace Parsek.Tests
             }
 
             RecordingStore.AddCommittedTreeForTesting(tree);
+        }
+
+        // ----------------------------------------------------------------
+        // Canon (Immutable) fork preservation tests — fix-rewind-canon-forks.
+        //
+        // After a Re-Fly merge with a stable terminal (Orbiting/Landed/Splashed),
+        // SupersedeCommit flips the fork's MergeState to Immutable. The contract
+        // on Immutable is "sealed forever". Parent-tree Rewind must NOT drop
+        // such a fork's supersede relation; otherwise the canon recording is
+        // silently retired and its spawn-at-recording-end re-materialization
+        // never fires.
+        //
+        // Mixed/multi-generation chains use a Pass 2 demotion rule: if a canon
+        // fork's priorTip is itself being retired by a Pass 1 drop, the canon
+        // collapses too (it has no live source to be canon over).
+        // ----------------------------------------------------------------
+
+        private static Recording MakeRecWithMergeState(string id, double startUT, MergeState state)
+        {
+            var rec = MakeRec(id, startUT);
+            rec.MergeState = state;
+            return rec;
+        }
+
+        [Fact]
+        public void Rollback_PreservesRelation_WhenForkIsImmutable()
+        {
+            var owner = MakeRec("orig-priorTip", startUT: 6.5);
+            var canonFork = MakeRecWithMergeState("canon-fork", startUT: 31.5, MergeState.Immutable);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "orig-priorTip", owner },
+                { "canon-fork", canonFork }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("orig-priorTip", "canon-fork")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                owner, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { owner, canonFork },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(0, result.DroppedRelationCount);
+            Assert.Single(supersedes);
+            Assert.Empty(result.RetiredForkRecordingIds);
+            Assert.Empty(result.RestoredRecordingIds);
+            Assert.Equal(1, result.SkippedImmutableForkCount);
+            Assert.Contains("canon-fork", result.SkippedImmutableForkRecordingIds);
+            Assert.Equal(0, result.DemotedImmutablePreservationCount);
+        }
+
+        [Fact]
+        public void Rollback_DropsRelation_WhenForkIsCommittedProvisional()
+        {
+            var owner = MakeRec("orig", startUT: 6.5);
+            var fork = MakeRecWithMergeState("fork-cp", startUT: 31.5, MergeState.CommittedProvisional);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "orig", owner }, { "fork-cp", fork }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("orig", "fork-cp")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                owner, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { owner, fork },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(1, result.DroppedRelationCount);
+            Assert.Empty(supersedes);
+            Assert.Contains("fork-cp", result.RetiredForkRecordingIds);
+            Assert.Equal(0, result.SkippedImmutableForkCount);
+        }
+
+        [Fact]
+        public void Rollback_DropsRelation_WhenForkIsNotCommitted()
+        {
+            var owner = MakeRec("orig", startUT: 6.5);
+            var fork = MakeRecWithMergeState("fork-nc", startUT: 31.5, MergeState.NotCommitted);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "orig", owner }, { "fork-nc", fork }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("orig", "fork-nc")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                owner, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { owner, fork },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(1, result.DroppedRelationCount);
+            Assert.Contains("fork-nc", result.RetiredForkRecordingIds);
+            Assert.Equal(0, result.SkippedImmutableForkCount);
+        }
+
+        [Fact]
+        public void Rollback_MixedChain_DemotesImmutablePreservation_WhenPriorTipIsRetired()
+        {
+            // A → B(Provisional) → C(Immutable). Rewind past A's start.
+            // Pass 1: A→B drops (B not Immutable), B→C tentatively preserved.
+            // Pass 2: B→C's Old is B; B is in pendingRetiredNewIds → demote to drop.
+            // Result: A restored, B retired, C retired.
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.CommittedProvisional);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "A", a }, { "B", b }, { "C", c }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("A", "B"),
+                MakeRel("B", "C")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                a, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { a, b, c },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(2, result.DroppedRelationCount);
+            Assert.Empty(supersedes);
+            Assert.Contains("B", result.RetiredForkRecordingIds);
+            Assert.Contains("C", result.RetiredForkRecordingIds);
+            // Restored set excludes anything also in retired (the restore-then-prune step).
+            Assert.Contains("A", result.RestoredRecordingIds);
+            Assert.DoesNotContain("B", result.RestoredRecordingIds);
+            Assert.Equal(0, result.SkippedImmutableForkCount);
+            Assert.Equal(1, result.DemotedImmutablePreservationCount);
+            Assert.Contains("C", result.DemotedImmutablePreservationIds);
+        }
+
+        [Fact]
+        public void Rollback_TwoGenerationCanon_ChainPreservedIntact()
+        {
+            // A → B(Immutable) → C(Immutable). Rewind past A's start.
+            // Pass 1: both classify as Immutable preservations.
+            // Pass 2: pendingRetiredNewIds is empty → neither demoted.
+            // Result: zero drops, zero retirements; chain stays canon.
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "A", a }, { "B", b }, { "C", c }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("A", "B"),
+                MakeRel("B", "C")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                a, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { a, b, c },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(0, result.DroppedRelationCount);
+            Assert.Equal(2, supersedes.Count);
+            Assert.Empty(result.RetiredForkRecordingIds);
+            Assert.Empty(result.RestoredRecordingIds);
+            Assert.Equal(2, result.SkippedImmutableForkCount);
+            Assert.Contains("B", result.SkippedImmutableForkRecordingIds);
+            Assert.Contains("C", result.SkippedImmutableForkRecordingIds);
+            Assert.Equal(0, result.DemotedImmutablePreservationCount);
+        }
+
+        [Fact]
+        public void Rollback_LogsSkippedImmutableSummary()
+        {
+            // Live entry point exercises the summary log line — pure helper
+            // doesn't log on its own.
+            var owner = MakeRecWithMergeState("orig", startUT: 6.5, MergeState.Immutable);
+            var canonFork = MakeRecWithMergeState("canon-fork", startUT: 31.5, MergeState.Immutable);
+            InstallCommittedTreeForTesting("tree-1", owner, canonFork);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("orig", "canon-fork")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(owner.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(6.5);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(owner, 6.5);
+
+            Assert.Equal(0, dropped);
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("skippedImmutable=1") &&
+                l.Contains("dropped=0") && l.Contains("retiredForks=0"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("Preserved canon fork across parent rewind") &&
+                l.Contains("rec=canon-fork") &&
+                l.Contains("mergeState=Immutable"));
+        }
+
+        [Fact]
+        public void Rollback_DropsImmutable_WhenLiveLookupMissing()
+        {
+            // Orphan fallback: relation OldRecordingId is in rewoundOutOldIds but
+            // newRec is missing from liveRecordingsById. We can't read MergeState,
+            // so the relation drops as a dangling row (pre-fix behaviour).
+            var owner = MakeRec("orig", startUT: 6.5);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "orig", owner }
+                // "fork-orphan" intentionally NOT in liveById
+            };
+            var rel = MakeRel("orig", "fork-orphan");
+            rel.UT = 31.5; // forces effectiveForkUT = 31.5 ≥ rewindUT
+            var supersedes = new List<RecordingSupersedeRelation> { rel };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                owner, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { owner },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(1, result.DroppedRelationCount);
+            Assert.Empty(supersedes);
+            Assert.Contains("fork-orphan", result.RetiredForkRecordingIds);
+            Assert.Equal(0, result.SkippedImmutableForkCount);
+        }
+
+        [Fact]
+        public void Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops()
+        {
+            // Edge case: the owner of the rewind is itself an Immutable canon
+            // fork. Self-rewind. Relations where owner is the Old should still
+            // drop — the user is asking to undo this canon recording. The
+            // Immutable guard protects forks from being retired by a different
+            // recording's rewind, not from self-rewind.
+            var canonOwner = MakeRecWithMergeState("canon-owner", startUT: 31.5, MergeState.Immutable);
+            var downstream = MakeRecWithMergeState("downstream", startUT: 50.0, MergeState.NotCommitted);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "canon-owner", canonOwner }, { "downstream", downstream }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("canon-owner", "downstream")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                canonOwner, rewindAdjustedUT: 31.5,
+                ownerTreeRecordings: new List<Recording> { canonOwner, downstream },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            // canon-owner.RecordingId is in rewoundOutOldIds (owner self-add).
+            // Relation canon-owner → downstream classifies as drop (downstream NotCommitted).
+            Assert.Equal(1, result.DroppedRelationCount);
+            Assert.Empty(supersedes);
+            Assert.Contains("downstream", result.RetiredForkRecordingIds);
+            Assert.Equal(0, result.SkippedImmutableForkCount);
         }
     }
 }

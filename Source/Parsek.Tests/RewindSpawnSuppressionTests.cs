@@ -466,5 +466,62 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Landed,
             };
         }
+
+        // ----------------------------------------------------------------
+        // Canon (Immutable) Re-Fly fork preservation: end-to-end spawn-gate
+        // assertion for fix-rewind-canon-forks. The predicate-classifier
+        // upstream keeps the supersede relation across parent rewind; this
+        // test confirms ShouldSpawnAtRecordingEnd reports needsSpawn=true
+        // for the preserved canon fork, so its terminal-orbit
+        // re-materialization actually fires when ghost playback completes.
+        // ----------------------------------------------------------------
+
+        [Fact]
+        public void ShouldSpawnAtRecordingEnd_ReturnsTrue_ForPreservedCanonForkAfterParentRewind()
+        {
+            // Tree-less recording: ShouldSpawnAtRecordingEnd's
+            // IsEffectiveLeafForVessel / IsNonLeafInTree helpers early-exit on
+            // a null/empty TreeId before walking any tree. This is the
+            // simplest valid fixture for this assertion; the full
+            // tree-fixture path is exercised by other tests in this file
+            // (e.g. ResetAllPlaybackState_LogsSuppressionClearLifecycle uses
+            // AddRecordingWithTreeForTesting). Both shapes converge on the
+            // same gate here because the tree helpers cannot reduce a leaf-
+            // shaped recording's spawn eligibility.
+            var canonFork = new Recording
+            {
+                RecordingId = "canon-orbital-probe",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = 2823934496u,
+                ExplicitStartUT = 456.79,
+                ExplicitEndUT = 992.23,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Orbiting,
+                MergeState = MergeState.Immutable,
+                // Post-rewind state: VesselSpawned was reset by the rewind's
+                // ResetAllPlaybackState (the live Re-Fly vessel was stripped),
+                // so the spawn-at-recording-end path can fire fresh.
+                VesselSpawned = false,
+                SpawnedVesselPersistentId = 0,
+                // Predicate-classifier preserved the supersede relation, so
+                // SpawnSuppressedByRewind was never set on the canon fork.
+                // (It only ever flagged the active/source recording per #589.)
+                SpawnSuppressedByRewind = false,
+                // Canon fork has no terminal-spawn supersession from a
+                // downstream recording that's still live.
+                TerminalSpawnSupersededByRecordingId = null,
+            };
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                canonFork,
+                isActiveChainMember: false,
+                isChainLooping: false);
+
+            Assert.True(result.needsSpawn,
+                $"Canon Immutable orbital fork must be spawn-eligible after " +
+                $"parent rewind so the persistent vessel re-materializes when " +
+                $"ghost playback reaches EndUT. Got reason='{result.reason}'.");
+            Assert.Equal(string.Empty, result.reason);
+        }
     }
 }

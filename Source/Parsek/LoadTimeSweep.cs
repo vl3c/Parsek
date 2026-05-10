@@ -579,7 +579,27 @@ namespace Parsek
                 return 0;
 
             var knownRecordingIds = RecordingStore.BuildKnownRecordingIdsForCleanup();
+
+            // Build an Immutable-id lookup so we can detect retirements pointing
+            // at canon recordings. Pre-fix saves can carry these from the buggy
+            // code path that retired Immutable forks; the Pass 1/Pass 2
+            // predicate-classifier added in this PR keeps new saves clean, but
+            // we still need to scrub legacy state on load.
+            var committed = RecordingStore.CommittedRecordings;
+            var immutableRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                    if (rec.MergeState == MergeState.Immutable)
+                        immutableRecordingIds.Add(rec.RecordingId);
+                }
+            }
+
             int removed = 0;
+            int removedImmutableRetirements = 0;
             int retainedWithMissingRestored = 0;
             for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
             {
@@ -602,6 +622,24 @@ namespace Parsek
                     continue;
                 }
 
+                // Defensive Immutable cleanup: a retirement should never point
+                // at a canon Immutable recording. The current Pass 1/Pass 2
+                // predicate prevents new ones from being created, but legacy
+                // saves written by the old code path can still carry them.
+                // Remove + warn so the player's canon orbital vessel becomes
+                // visible again on next replay.
+                if (immutableRecordingIds.Contains(retirement.RecordingId))
+                {
+                    ParsekLog.Warn(SupersedeTag,
+                        $"Removing rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
+                        $"pointing at Immutable canon recording={retirement.RecordingId} " +
+                        "(legacy pre-fix save state). The canon recording will be visible after sweep.");
+                    scenario.RecordingRewindRetirements.RemoveAt(i);
+                    removed++;
+                    removedImmutableRetirements++;
+                    continue;
+                }
+
                 bool restoredMissing = !string.IsNullOrEmpty(retirement.RestoredRecordingId)
                     && !RecordingExists(retirement.RestoredRecordingId, knownRecordingIds);
                 if (restoredMissing)
@@ -613,6 +651,12 @@ namespace Parsek
                 ParsekLog.Info(SweepTag,
                     $"[LoadSweep] Cleaned {removed.ToString(CultureInfo.InvariantCulture)} " +
                     "orphan rewind-retirement row(s); persists on next OnSave");
+            }
+            if (removedImmutableRetirements > 0)
+            {
+                ParsekLog.Info(SweepTag,
+                    $"[LoadSweep] Removed {removedImmutableRetirements.ToString(CultureInfo.InvariantCulture)} " +
+                    "rewind-retirement row(s) pointing at Immutable canon recordings (legacy state cleanup)");
             }
             if (retainedWithMissingRestored > 0)
             {

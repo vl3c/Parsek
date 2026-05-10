@@ -923,6 +923,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RetirementPointingAtImmutable_RemovedAtLoadTime()
+        {
+            // Defensive cleanup for legacy pre-fix saves: the buggy rewind
+            // path could write a RecordingRewindRetirement against an
+            // Immutable canon recording. fix-rewind-canon-forks prevents new
+            // writes via the Pass 1/Pass 2 predicate; this sweep scrubs any
+            // such row already on disk so the canon recording becomes visible
+            // again on next replay.
+            InstallTree("tree_canon",
+                new List<Recording>
+                {
+                    Rec("rec_priorTip", MergeState.Immutable),
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var legacyRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_legacy_canon",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { legacyRetirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_legacy_canon")
+                && l.Contains("Immutable canon recording=rec_canon"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Immutable canon recordings (legacy state cleanup)"));
+        }
+
+        [Fact]
         public void SupersedeEndpointsInPendingTree_NotRemovedAsFullyOrphaned()
         {
             var tree = new RecordingTree
