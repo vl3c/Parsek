@@ -760,6 +760,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputeERS_IncludesPreservedCanonFork_AfterParentRewind()
+        {
+            // After parent-tree Rewind, a canon (Immutable) Re-Fly fork must
+            // remain in ERS — the predicate-classifier preserves its supersede
+            // relation so the priorTip stays superseded and no retirement is
+            // written. Visibility outcome: priorTip out, canon fork in.
+            //
+            // Regression guard for fix-rewind-canon-forks: without the fix,
+            // the rewind retired the canon fork (`rewind-retired` in ERS) and
+            // un-superseded the priorTip (visible alongside, double-render).
+            var priorTip = Rec("rec_priorTip", MergeState.Immutable);
+            var canonFork = Rec("rec_canon", MergeState.Immutable);
+            RecordingStore.AddRecordingWithTreeForTesting(priorTip);
+            RecordingStore.AddRecordingWithTreeForTesting(canonFork);
+            // Supersede relation preserved (Pass 1 classified canon as
+            // Immutable preservation; no Pass 2 demotion because no priorTip
+            // was retired in the same batch).
+            MakeScenario(
+                supersedes: new List<RecordingSupersedeRelation> { Rel("rec_priorTip", "rec_canon") },
+                retirements: new List<RecordingRewindRetirement>());
+
+            var ers = EffectiveState.ComputeERS();
+            var ids = ers.Select(r => r.RecordingId).ToList();
+
+            Assert.Contains("rec_canon", ids);
+            Assert.DoesNotContain("rec_priorTip", ids);
+            // Canon fork must NOT be classified as RewindRetired or
+            // SupersededByRelation. ComputeRewindRetiredRecordingIds returns
+            // only ids in the retirements list — empty here — so the canon
+            // recording is genuinely visible.
+            var retiredIds = EffectiveState.ComputeRewindRetiredRecordingIds(
+                ParsekScenario.Instance.RecordingRewindRetirements);
+            Assert.DoesNotContain("rec_canon", retiredIds);
+        }
+
+        [Fact]
         public void IsCurrentTimelineRecordingId_UsesERSVisibility()
         {
             var a = Rec("rec_A", MergeState.Immutable);

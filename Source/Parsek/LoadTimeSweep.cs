@@ -579,7 +579,27 @@ namespace Parsek
                 return 0;
 
             var knownRecordingIds = RecordingStore.BuildKnownRecordingIdsForCleanup();
+
+            // Build an Immutable-id lookup so we can detect retirements pointing
+            // at canon recordings. Pre-fix saves can carry these from the buggy
+            // code path that retired Immutable forks; the Pass 1/Pass 2
+            // predicate-classifier added in this PR keeps new saves clean, but
+            // we still need to scrub legacy state on load.
+            var committed = RecordingStore.CommittedRecordings;
+            var immutableRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                    if (rec.MergeState == MergeState.Immutable)
+                        immutableRecordingIds.Add(rec.RecordingId);
+                }
+            }
+
             int removed = 0;
+            int removedImmutableRetirements = 0;
             int retainedWithMissingRestored = 0;
             for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
             {
@@ -602,17 +622,109 @@ namespace Parsek
                     continue;
                 }
 
+                // Defensive Immutable cleanup: a retirement pointing at a
+                // canon Immutable recording is either:
+                //   (a) Pre-fix legacy bad state. The old buggy code path
+                //       retired Immutable forks unconditionally; that broke
+                //       the canon contract. Cleanup: remove the retirement
+                //       and reconstruct the dropped priorTip → canon
+                //       supersede relation so the priorTip stays superseded.
+                //   (b) Intentional Pass-2 demotion from this PR. The canon
+                //       fork's priorTip was itself retired in the same
+                //       rewind batch, so the canon collapses. The retirement
+                //       carries Reason=DemotedCanonReason as a tag so this
+                //       sweep can tell intent (b) apart from legacy (a).
+                //
+                // Without the reason tag a sweep would fail to disambiguate:
+                // both `A → B(Imm) → C(Imm)` (legacy) and `A → B(Prov) →
+                // C(Imm) → D(Imm)` (post-fix) produce retirements pointing
+                // at Immutable forks whose RestoredRecordingId is also a
+                // retired fork in the same batch.
+                bool isImmutableTarget =
+                    immutableRecordingIds.Contains(retirement.RecordingId);
+                bool isIntentionalDemotedCanon = isImmutableTarget
+                    && string.Equals(retirement.Reason,
+                        RecordingRewindRetirement.DemotedCanonReason,
+                        StringComparison.Ordinal);
+                // Self-rewound canon retirements (this PR): user explicitly
+                // clicked Rewind on the canon fork. The classifier forced
+                // the drop and tagged the retirement with
+                // SelfRewoundCanonReason. If the legacy-Immutable sweep
+                // reconstructed the priorTip → canon relation here, the
+                // user's self-rewind would be silently undone on every
+                // load — the canon would become visible again and the
+                // priorTip would re-hide. Skip these retirements.
+                bool isIntentionalSelfRewoundCanon = isImmutableTarget
+                    && string.Equals(retirement.Reason,
+                        RecordingRewindRetirement.SelfRewoundCanonReason,
+                        StringComparison.Ordinal);
+                // Old-side retirements (PR #807) target priorTips of dropped
+                // supersedes that were rewound out of existence. They are
+                // intentional and authored with RestoredRecordingId=null, so
+                // TryRestoreLegacyImmutableSupersede couldn't reconstruct
+                // anything anyway. But guard explicitly so a future Immutable
+                // priorTip (e.g. a canon Re-Fly stacked on top of another
+                // canon) doesn't get its old-side retirement swept.
+                bool isIntentionalOldSide = isImmutableTarget
+                    && string.Equals(retirement.Reason,
+                        RecordingRewindRetirement.RewoundOutOldSideReason,
+                        StringComparison.Ordinal);
+                if (isImmutableTarget
+                    && !isIntentionalDemotedCanon
+                    && !isIntentionalSelfRewoundCanon
+                    && !isIntentionalOldSide)
+                {
+                    LegacyImmutableSupersedeRestoreResult restoreResult =
+                        TryRestoreLegacyImmutableSupersede(
+                            scenario, retirement, knownRecordingIds);
+                    string restoreNote;
+                    switch (restoreResult)
+                    {
+                        case LegacyImmutableSupersedeRestoreResult.Restored:
+                            restoreNote = "and restored supersede relation priorTip→canon ";
+                            break;
+                        case LegacyImmutableSupersedeRestoreResult.AlreadyPresent:
+                            restoreNote = "(supersede relation already present — left intact) ";
+                            break;
+                        case LegacyImmutableSupersedeRestoreResult.MissingMetadata:
+                            restoreNote = "(no RestoredRecordingId in retirement metadata — supersede relation cannot be reconstructed; priorTip may render alongside canon, investigate) ";
+                            break;
+                        case LegacyImmutableSupersedeRestoreResult.RestoredRecordingMissing:
+                            restoreNote = "(RestoredRecordingId no longer exists in committed store — supersede relation not reconstructed to avoid creating a one-sided orphan; priorTip may render alongside canon, investigate) ";
+                            break;
+                        default:
+                            restoreNote = "(restore outcome=" + restoreResult.ToString() + ") ";
+                            break;
+                    }
+                    ParsekLog.Warn(SupersedeTag,
+                        $"Removing rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
+                        $"pointing at Immutable canon recording={retirement.RecordingId} " +
+                        restoreNote +
+                        "(legacy pre-fix save state). The canon recording will be visible after sweep.");
+                    scenario.RecordingRewindRetirements.RemoveAt(i);
+                    removed++;
+                    removedImmutableRetirements++;
+                    continue;
+                }
+
                 bool restoredMissing = !string.IsNullOrEmpty(retirement.RestoredRecordingId)
                     && !RecordingExists(retirement.RestoredRecordingId, knownRecordingIds);
                 if (restoredMissing)
                     retainedWithMissingRestored++;
             }
 
-            if (removed > 0)
+            int orphanOnly = removed - removedImmutableRetirements;
+            if (orphanOnly > 0)
             {
                 ParsekLog.Info(SweepTag,
-                    $"[LoadSweep] Cleaned {removed.ToString(CultureInfo.InvariantCulture)} " +
+                    $"[LoadSweep] Cleaned {orphanOnly.ToString(CultureInfo.InvariantCulture)} " +
                     "orphan rewind-retirement row(s); persists on next OnSave");
+            }
+            if (removedImmutableRetirements > 0)
+            {
+                ParsekLog.Info(SweepTag,
+                    $"[LoadSweep] Removed {removedImmutableRetirements.ToString(CultureInfo.InvariantCulture)} " +
+                    "rewind-retirement row(s) pointing at Immutable canon recordings (legacy state cleanup)");
             }
             if (retainedWithMissingRestored > 0)
             {
@@ -621,6 +733,82 @@ namespace Parsek
                     "rewind-retirement row(s) whose restored recording no longer exists");
             }
             return removed;
+        }
+
+        private enum LegacyImmutableSupersedeRestoreResult
+        {
+            /// <summary>Relation reconstructed from retirement metadata.</summary>
+            Restored,
+            /// <summary>Equivalent priorTip → canon relation already in scenario; left intact.</summary>
+            AlreadyPresent,
+            /// <summary>Retirement is orphan or carries no RestoredRecordingId; cannot reconstruct.</summary>
+            MissingMetadata,
+            /// <summary>RestoredRecordingId names a recording that no longer exists in the live store.</summary>
+            RestoredRecordingMissing,
+        }
+
+        /// <summary>
+        /// Reconstruct the priorTip → canon supersede relation that the
+        /// pre-fix buggy rewind code dropped alongside writing this
+        /// retirement. Returns an outcome enum so callers can produce
+        /// distinguishable log lines for each skip cause.
+        /// </summary>
+        private static LegacyImmutableSupersedeRestoreResult TryRestoreLegacyImmutableSupersede(
+            ParsekScenario scenario,
+            RecordingRewindRetirement retirement,
+            HashSet<string> knownRecordingIds)
+        {
+            if (object.ReferenceEquals(null, scenario)
+                || retirement == null
+                || string.IsNullOrEmpty(retirement.RecordingId)
+                || string.IsNullOrEmpty(retirement.RestoredRecordingId))
+                return LegacyImmutableSupersedeRestoreResult.MissingMetadata;
+
+            // Verify the priorTip recording still exists in the live store.
+            // Without this check, a save where the priorTip was purged
+            // out-of-band (e.g. by an earlier discard sweep, by manual user
+            // delete, by a tree-discard purge) would have us synthesize a
+            // one-sided orphan relation that survives until the next load —
+            // SweepOrphanSupersedes ran earlier in this same sweep, so the
+            // newly-injected orphan won't be cleaned this cycle.
+            if (knownRecordingIds == null
+                || !knownRecordingIds.Contains(retirement.RestoredRecordingId))
+                return LegacyImmutableSupersedeRestoreResult.RestoredRecordingMissing;
+
+            if (scenario.RecordingSupersedes == null)
+                scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+
+            // Idempotency: if any supersede already names the same priorTip →
+            // canon pair, skip. The exact RelationId or UT does not matter
+            // for visibility computation (EffectiveState reads only Old/New).
+            for (int i = 0; i < scenario.RecordingSupersedes.Count; i++)
+            {
+                var existing = scenario.RecordingSupersedes[i];
+                if (existing == null) continue;
+                if (string.Equals(existing.OldRecordingId, retirement.RestoredRecordingId, StringComparison.Ordinal)
+                    && string.Equals(existing.NewRecordingId, retirement.RecordingId, StringComparison.Ordinal))
+                {
+                    return LegacyImmutableSupersedeRestoreResult.AlreadyPresent;
+                }
+            }
+
+            // Synthesize a fresh relation. Use the retirement's preserved
+            // SourceSupersedeRelationId when available so audit trails
+            // referencing the original RelationId still resolve. Fall back to
+            // a "rsr_legacyrestore_<guid>" id otherwise. UT defaults to
+            // retirement.CreatedUT (the moment the buggy retirement was
+            // written) — the original merge UT is not recoverable.
+            var restored = new RecordingSupersedeRelation
+            {
+                RelationId = !string.IsNullOrEmpty(retirement.SourceSupersedeRelationId)
+                    ? retirement.SourceSupersedeRelationId
+                    : "rsr_legacyrestore_" + Guid.NewGuid().ToString("N"),
+                OldRecordingId = retirement.RestoredRecordingId,
+                NewRecordingId = retirement.RecordingId,
+                UT = retirement.CreatedUT,
+            };
+            scenario.RecordingSupersedes.Add(restored);
+            return LegacyImmutableSupersedeRestoreResult.Restored;
         }
 
         // ------------------------------------------------------------------
