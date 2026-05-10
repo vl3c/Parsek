@@ -694,6 +694,7 @@ namespace Parsek
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
 
             SaveActiveTreeIfAny(node);
+            SavePendingTreeIfAny(node);
 
             // Stranded-sidecar diagnostic: if SaveActiveTreeIfAny did not add an in-flight
             // RECORDING_TREE either, we are about to write an .sfs with zero RECORDING_TREE
@@ -714,6 +715,111 @@ namespace Parsek
                         $"safety guard on next load. Restore from quicksave.sfs or backup if recordings are missing.");
                 }
             }
+        }
+
+        private static void SavePendingTreeIfAny(ConfigNode node)
+        {
+            if (RecordingStore.HasPendingTree)
+            {
+                var pendingTree = RecordingStore.PendingTree;
+                var pendingState = RecordingStore.PendingTreeStateValue;
+                if (pendingTree != null)
+                {
+                    if (pendingState == PendingTreeState.Finalized)
+                    {
+                        SavePendingTreeNode(
+                            node,
+                            pendingTree,
+                            preservedDuringActiveRestore: false);
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("Scenario",
+                            $"SavePendingTreeIfAny: skipped pending tree '{pendingTree.TreeName}' " +
+                            $"state={pendingState} (only Finalized pending trees are serialized)");
+                    }
+                }
+            }
+
+            var savedPending = RecordingStore.SavedPendingTreeDuringActiveRestore;
+            if (savedPending != null
+                && !ReferenceEquals(savedPending, RecordingStore.PendingTree))
+            {
+                SavePendingTreeNode(
+                    node,
+                    savedPending,
+                    preservedDuringActiveRestore: true);
+            }
+        }
+
+        private static void SavePendingTreeNode(
+            ConfigNode node,
+            RecordingTree pendingTree,
+            bool preservedDuringActiveRestore)
+        {
+            if (pendingTree == null)
+                return;
+
+            int pendingRecCount = 0;
+            int pendingDirtyCount = 0;
+            int pendingSavedCount = 0;
+            int pendingSaveFailedCount = 0;
+            int pendingCommittedOverlapCount = 0;
+            int pendingSkippedCommittedDirtyCount = 0;
+            foreach (var rec in pendingTree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+
+                bool committedOverlap = RecordingStore.IsCommittedRecordingId(rec.RecordingId);
+                if (committedOverlap)
+                    pendingCommittedOverlapCount++;
+
+                bool wasDirty = rec.FilesDirty;
+                // Non-dirty overlaps are still listed in the pending tree node: they
+                // reference already-durable committed sidecars. Only dirty overlap
+                // writes are blocked because they would mutate committed history
+                // before the player consents to Merge.
+                if (wasDirty)
+                {
+                    pendingDirtyCount++;
+                    if (committedOverlap)
+                    {
+                        pendingSkippedCommittedDirtyCount++;
+                        ParsekLog.Warn("Scenario",
+                            $"SavePendingTreeIfAny: skipped dirty sidecar save for committed-overlap " +
+                            $"recording '{rec.RecordingId ?? "<no-id>"}' in pending tree '{pendingTree.TreeName}' " +
+                            "to avoid mutating committed history before merge consent");
+                        pendingRecCount++;
+                        continue;
+                    }
+                    if (RecordingStore.SaveRecordingFiles(rec))
+                    {
+                        pendingSavedCount++;
+                    }
+                    else
+                    {
+                        pendingSaveFailedCount++;
+                        ScenarioLog($"[Parsek Scenario] WARNING: File write failed for pending tree recording '{rec.VesselName}'");
+                    }
+                }
+                pendingRecCount++;
+            }
+
+            ConfigNode treeNode = node.AddNode("RECORDING_TREE");
+            pendingTree.Save(treeNode);
+            treeNode.AddValue("isPending", "True");
+            if (preservedDuringActiveRestore)
+                RecordingStore.MarkSavedPendingTreeDuringActiveRestoreSerializedForSave("SavePendingTreeIfAny");
+            else
+                RecordingStore.MarkPendingTreeSerializedForSave("SavePendingTreeIfAny");
+
+            ParsekLog.Info("Scenario",
+                $"OnSave: wrote PENDING tree '{pendingTree.TreeName}' " +
+                (preservedDuringActiveRestore ? "preserved during active-tree restore " : "") +
+                $"({pendingRecCount} recording(s), dirty={pendingDirtyCount}, saved={pendingSavedCount}, " +
+                $"failed={pendingSaveFailedCount}, committedOverlap={pendingCommittedOverlapCount}, " +
+                $"skippedCommittedDirty={pendingSkippedCommittedDirtyCount})");
         }
 
         /// <summary>
@@ -1164,6 +1270,11 @@ namespace Parsek
                 RecordingStore.ReconcileReadableSidecarMirrorsForKnownRecordings();
         }
 
+        internal static HashSet<string> BuildValidRecordingIdsForKspLoad()
+        {
+            return RecordingStore.BuildKnownRecordingIds();
+        }
+
         public override void OnLoad(ConfigNode node)
         {
             DiagnosticsState.ResetSessionCounters();
@@ -1254,6 +1365,8 @@ namespace Parsek
                     // pending slot is populated when it runs.
                     loadPhase = "active-tree-restore";
                     bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(node);
+                    bool pendingTreeRestoredFromSave = TryRestorePendingTreeNode(
+                        node, activeTreeRestoredFromSave);
                     ParsekLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
 
                     loadPhase = "revert-classification";
@@ -1271,6 +1384,7 @@ namespace Parsek
                     for (int t = 0; t < savedTreeNodesForRevert.Length; t++)
                     {
                         if (IsActiveTreeNode(savedTreeNodesForRevert[t])) continue;
+                        if (IsPendingTreeNode(savedTreeNodesForRevert[t])) continue;
                         savedTreeRecCount += savedTreeNodesForRevert[t].GetNodes("RECORDING").Length;
                     }
                     int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
@@ -1369,7 +1483,9 @@ namespace Parsek
                         $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
                         $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
                         $"pendingTreeState={RecordingStore.PendingTreeStateValue}, " +
-                        $"activeTreeRestoredFromSave={activeTreeRestoredFromSave}, hasOrphanedLimboTree={hasOrphanedLimboTree}");
+                        $"activeTreeRestoredFromSave={activeTreeRestoredFromSave}, " +
+                        $"pendingTreeRestoredFromSave={pendingTreeRestoredFromSave}, " +
+                        $"hasOrphanedLimboTree={hasOrphanedLimboTree}");
                     // Discard stashed-this-transition recordings on quickload (Bug A).
                     // Must run BEFORE the isRevert branch at line ~580, because the
                     // revert branch consumes PendingStashedThisTransition for its own
@@ -1540,6 +1656,7 @@ namespace Parsek
                         foreach (var savedTreeNode in savedTreeNodes)
                         {
                             if (IsActiveTreeNode(savedTreeNode)) continue;
+                            if (IsPendingTreeNode(savedTreeNode)) continue;
 
                             ConfigNode[] savedTreeRecNodes = savedTreeNode.GetNodes("RECORDING");
                             foreach (var savedTreeRecNode in savedTreeRecNodes)
@@ -1906,6 +2023,20 @@ namespace Parsek
                         $"OnLoad: cold-start active tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
                         $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
                 }
+                bool coldActiveTreeRestoredFromSave =
+                    RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
+                    || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
+                bool coldPendingTreeRestoredFromSave = TryRestorePendingTreeNode(
+                    node, coldActiveTreeRestoredFromSave);
+                if (coldPendingTreeRestoredFromSave)
+                {
+                    string pendingRestoreDisposition = RecordingStore.HasSavedPendingTreeDuringActiveRestore
+                        ? "preserved alongside active-tree restore"
+                        : "restored as finalized pending";
+                    ParsekLog.Info("Scenario",
+                        $"OnLoad: cold-start pending tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
+                        pendingRestoreDisposition);
+                }
 
                 // Clean orphaned sidecar files (recordings deleted in previous sessions)
                 loadPhase = "orphan-sidecar-cleanup";
@@ -1917,12 +2048,7 @@ namespace Parsek
 
                 // Reconcile ledger against loaded recordings (prunes orphaned actions, recalculates)
                 loadPhase = "ledger-load";
-                var validIds = new System.Collections.Generic.HashSet<string>();
-                for (int v = 0; v < recordings.Count; v++)
-                {
-                    if (!string.IsNullOrEmpty(recordings[v].RecordingId))
-                        validIds.Add(recordings[v].RecordingId);
-                }
+                var validIds = BuildValidRecordingIdsForKspLoad();
                 double reconcileUT = Planetarium.GetUniversalTime();
                 LedgerOrchestrator.OnKspLoad(validIds, reconcileUT);
 
@@ -2792,7 +2918,7 @@ namespace Parsek
         /// trees, loads each tree and its bulk data, and adds tree recordings to the
         /// committed recordings list for ghost playback.
         /// </summary>
-        private static void LoadRecordingTrees(ConfigNode node, IReadOnlyList<Recording> recordings)
+        internal static void LoadRecordingTrees(ConfigNode node, IReadOnlyList<Recording> recordings)
         {
             // Always clear CommittedTrees — if the new save has no trees, stale trees
             // from the previous save would otherwise persist and contaminate this save.
@@ -2811,6 +2937,7 @@ namespace Parsek
                 int treeWithTrackSections = 0;
                 int treeWithSnapshots = 0;
                 int activeTreeCount = 0;
+                int pendingTreeCount = 0;
                 for (int t = 0; t < treeNodes.Length; t++)
                 {
                     var treeNode = treeNodes[t];
@@ -2821,6 +2948,11 @@ namespace Parsek
                     if (IsActiveTreeNode(treeNode))
                     {
                         activeTreeCount++;
+                        continue;
+                    }
+                    if (IsPendingTreeNode(treeNode))
+                    {
+                        pendingTreeCount++;
                         continue;
                     }
 
@@ -2924,7 +3056,8 @@ namespace Parsek
 
                 ParsekLog.Verbose("Scenario",
                     $"Loaded {treeNodes.Length} tree nodes ({treeRecCount} committed recordings + " +
-                    $"{activeTreeCount} active-tree marker(s)): {treeTotalPoints} points, " +
+                    $"{activeTreeCount} active-tree marker(s) + {pendingTreeCount} pending-tree marker(s)): " +
+                    $"{treeTotalPoints} points, " +
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
             }
@@ -2954,14 +3087,17 @@ namespace Parsek
         /// can exercise both branches without building a full RecordingTree fixture.
         /// </summary>
         internal static void EmitSidecarHydrationRollup(
-            string treeName, int totalFailures, int syntheticFixtureFailures)
+            string treeName,
+            int totalFailures,
+            int syntheticFixtureFailures,
+            string treeKind = "committed tree")
         {
             if (totalFailures <= 0) return;
 
             if (syntheticFixtureFailures >= totalFailures)
             {
                 ParsekLog.Info("Scenario",
-                    $"OnLoad: committed tree '{treeName}' had {totalFailures} " +
+                    $"OnLoad: {treeKind} '{treeName}' had {totalFailures} " +
                     $"synthetic-fixture recording(s) with missing .prec sidecar " +
                     $"(no genuine degradations; per-recording INFO lines above describe each)");
                 return;
@@ -2969,7 +3105,7 @@ namespace Parsek
 
             int genuineFailures = totalFailures - syntheticFixtureFailures;
             ParsekLog.Warn("Scenario",
-                $"OnLoad: committed tree '{treeName}' had {totalFailures} " +
+                $"OnLoad: {treeKind} '{treeName}' had {totalFailures} " +
                 $"recording(s) with sidecar hydration failures " +
                 $"({genuineFailures} genuine, {syntheticFixtureFailures} synthetic-fixture)");
         }
@@ -2985,6 +3121,103 @@ namespace Parsek
             string val = treeNode.GetValue("isActive");
             return !string.IsNullOrEmpty(val)
                 && bool.TryParse(val, out bool isActive) && isActive;
+        }
+
+        /// <summary>
+        /// Returns true if a RECORDING_TREE ConfigNode represents a finalized pending
+        /// tree written by <c>SavePendingTreeIfAny</c>, distinguished by
+        /// <c>isPending=True</c>.
+        /// </summary>
+        internal static bool IsPendingTreeNode(ConfigNode treeNode)
+        {
+            if (treeNode == null) return false;
+            string val = treeNode.GetValue("isPending");
+            return !string.IsNullOrEmpty(val)
+                && bool.TryParse(val, out bool isPending) && isPending;
+        }
+
+        internal static bool TryRestorePendingTreeNode(
+            ConfigNode node,
+            bool activeTreeRestoredFromSave = false)
+        {
+            if (node == null) return false;
+            if (RewindContext.IsRewinding)
+            {
+                ParsekLog.Verbose("Scenario",
+                    "TryRestorePendingTreeNode: skipped (rewind in progress)");
+                return false;
+            }
+
+            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            int pendingMarkerCount = 0;
+            int activeMarkerCount = 0;
+            ConfigNode pendingNode = null;
+            for (int t = 0; t < treeNodes.Length; t++)
+            {
+                if (IsActiveTreeNode(treeNodes[t]))
+                    activeMarkerCount++;
+                if (IsPendingTreeNode(treeNodes[t]))
+                {
+                    pendingMarkerCount++;
+                    if (pendingNode == null)
+                        pendingNode = treeNodes[t];
+                }
+            }
+
+            if (pendingMarkerCount == 0)
+                return false;
+
+            bool preserveDuringActiveRestore = false;
+            if (activeMarkerCount > 0)
+            {
+                preserveDuringActiveRestore = activeTreeRestoredFromSave;
+                ParsekLog.Warn("Scenario",
+                    $"TryRestorePendingTreeNode: found {pendingMarkerCount} pending marker(s) " +
+                    $"alongside {activeMarkerCount} active marker(s); " +
+                    (preserveDuringActiveRestore
+                        ? "preserving saved pending tree separately while active tree restore keeps priority"
+                        : "active restore did not run, restoring pending tree normally") +
+                    $" (activeRestored={activeTreeRestoredFromSave})");
+            }
+
+            if (pendingMarkerCount > 1)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"TryRestorePendingTreeNode: found {pendingMarkerCount} pending marker(s); " +
+                    "restoring the first and ignoring the rest");
+            }
+
+            var tree = RecordingTree.Load(pendingNode);
+            int sidecarHydrationFailures = 0;
+            int syntheticFixtureFailures = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (!RecordingStore.LoadRecordingFiles(rec, tree.Recordings))
+                {
+                    sidecarHydrationFailures++;
+                    if (IsSyntheticFixtureSidecarMarker(rec))
+                        syntheticFixtureFailures++;
+                }
+            }
+
+            if (RepairMissingContiguousChainPredecessors(tree, "TryRestorePendingTreeNode") > 0)
+                tree.RebuildBackgroundMap();
+
+            if (preserveDuringActiveRestore)
+                RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(tree);
+            else
+                RecordingStore.RestorePendingTreeFromSave(tree);
+            EmitSidecarHydrationRollup(
+                tree.TreeName, sidecarHydrationFailures, syntheticFixtureFailures, "pending tree");
+
+            ParsekLog.Info("Scenario",
+                $"TryRestorePendingTreeNode: " +
+                (preserveDuringActiveRestore ? "preserved" : "restored") +
+                $" pending tree '{tree.TreeName}' " +
+                $"({tree.Recordings.Count} recording(s), sidecarFailures={sidecarHydrationFailures}, " +
+                $"stashedThisTransition={RecordingStore.PendingStashedThisTransition})");
+            ParsekLog.RecState("TryRestorePendingTreeNode:restored", CaptureScenarioRecorderState());
+            return true;
         }
 
         /// <summary>
