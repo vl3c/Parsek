@@ -6059,6 +6059,7 @@ namespace Parsek
                     "DeferredDestructionCheck",
                     allowStale: true,
                     requireDestroyedTerminal: true,
+                    confirmedDestroyed: true,
                     out cacheResult);
             }
 

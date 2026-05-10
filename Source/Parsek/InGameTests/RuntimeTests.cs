@@ -8699,6 +8699,7 @@ namespace Parsek.InGameTests
                     consumerPath: "runtime-background-destroyed",
                     allowStale: true,
                     requireDestroyedTerminal: false,
+                    confirmedDestroyed: true,
                     out RecordingFinalizationCacheApplyResult result);
 
                 InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
@@ -8746,6 +8747,7 @@ namespace Parsek.InGameTests
                     consumerPath: "runtime-background-orbiting",
                     allowStale: true,
                     requireDestroyedTerminal: false,
+                    confirmedDestroyed: true,
                     out RecordingFinalizationCacheApplyResult result);
 
                 InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");

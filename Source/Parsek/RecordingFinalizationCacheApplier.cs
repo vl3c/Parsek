@@ -48,7 +48,7 @@ namespace Parsek
     internal static class RecordingFinalizationCacheApplier
     {
         private const string LogTag = "FinalizerCache";
-        private const double UtEpsilon = 1e-6;
+        internal const double UtEpsilon = 1e-6;
 
         internal static bool TryApply(
             Recording recording,
