@@ -246,12 +246,23 @@ namespace Parsek.Tests
             const string recId = "rec-window";
             var traj = new MockTrajectory { RecordingId = recId };
 
+            // Pre-prime the per-state firstSeenUT well in the past via a
+            // primer EmitPostUpdate at currentUT=100. After this, the
+            // per-state state.firstSeenUT == 100 and state.initialized=true,
+            // so the initial-window gate (currentUT - firstSeenUT <= 4)
+            // CLOSES at currentUT > 104. This isolates the activation-
+            // transition window's effect at later UTs without coupling to
+            // first-seen / initial-window gating.
+            GhostRenderTrace.EmitPostUpdate(
+                trajectory: traj, ghostIndex: 0,
+                currentUT: 100.0, playbackUT: 100.0,
+                playbackState: null,
+                path: "non-loop", retired: false,
+                surface: GhostRenderTrace.RenderSurface.Legacy);
             // Window must be closed before the activation transition fires.
             Assert.False(GhostRenderTrace.IsDetailedWindowOpenForTesting(recId, 200.0));
 
-            // First a hidden ActivationDecision, then a visible one. The
-            // visible one should detect transition=first-visible and open
-            // the activation-transition detailed window.
+            // Hidden ActivationDecision: NOT the trigger for the window.
             GhostRenderTrace.EmitActivationDecision(
                 trajectory: traj, ghostIndex: 0,
                 currentUT: 200.0, rawPlaybackUT: 200.0, visiblePlaybackUT: 200.0,
@@ -262,6 +273,7 @@ namespace Parsek.Tests
             // Still no window — only first-visible opens it.
             Assert.False(GhostRenderTrace.IsDetailedWindowOpenForTesting(recId, 200.0));
 
+            // First-visible transition opens the activation-transition window.
             GhostRenderTrace.EmitActivationDecision(
                 trajectory: traj, ghostIndex: 0,
                 currentUT: 200.05, rawPlaybackUT: 200.05, visiblePlaybackUT: 200.05,
@@ -277,20 +289,36 @@ namespace Parsek.Tests
             Assert.True(GhostRenderTrace.IsDetailedWindowOpenForTesting(recId, 201.05));
             Assert.False(GhostRenderTrace.IsDetailedWindowOpenForTesting(recId, 201.06));
 
-            // Also assert the END-TO-END contract that motivates the window:
-            // an AfterUpdate emit at a UT the FirstSeen window can no longer
-            // reach (more than InitialWindowSeconds=4 past the transition's
-            // currentUT — out of every gating reason except an open detailed
-            // window) still emits because the activation-transition window
-            // (1.0 s) caught it. Pick a UT inside that 1.0 s but outside
-            // first-seen's 4 s — that requires the transition to have been
-            // logged at a recent currentUT relative to the test's UT clock.
-            // Here we simply verify the window predicate covers exactly the
-            // right span; a ShouldEmitPhase round-trip using that predicate
-            // is enough to pin the contract without coupling to gate-decision
-            // first-seen / initial-window timing.
-            Assert.True(GhostRenderTrace.ShouldEmitPhase(recId, 200.5));
-            Assert.False(GhostRenderTrace.ShouldEmitPhase(recId, 201.06));
+            // End-to-end contract: at a UT firmly past initial-window's 4 s
+            // span (currentUT=201.0; firstSeenUT=100.0; lead=101 >> 4) but
+            // INSIDE the activation-transition window (200.05 + 1.0 = 201.05),
+            // EmitPostUpdate must emit because ONLY the activation-transition
+            // window keeps the gate open. This is the load-bearing assertion
+            // the prior re-review's redundant ShouldEmitPhase round-trip did
+            // not pin: it proves the new emit phase actually ungates the
+            // surrounding render trace, not just that the predicate flips.
+            int linesBeforeInWindow = FindLines("phase=AfterUpdate").Count;
+            GhostRenderTrace.EmitPostUpdate(
+                trajectory: traj, ghostIndex: 0,
+                currentUT: 201.0, playbackUT: 201.0,
+                playbackState: null,
+                path: "non-loop", retired: false,
+                surface: GhostRenderTrace.RenderSurface.Legacy);
+            int linesAfterInWindow = FindLines("phase=AfterUpdate").Count;
+            Assert.True(linesAfterInWindow > linesBeforeInWindow,
+                "AfterUpdate at UT inside activation-transition window (and past initial-window) must emit");
+
+            // At a UT past BOTH initial-window and activation-transition, the
+            // gate closes and no AfterUpdate emit lands.
+            int linesBeforeOutOfWindow = FindLines("phase=AfterUpdate").Count;
+            GhostRenderTrace.EmitPostUpdate(
+                trajectory: traj, ghostIndex: 0,
+                currentUT: 500.0, playbackUT: 500.0,
+                playbackState: null,
+                path: "non-loop", retired: false,
+                surface: GhostRenderTrace.RenderSurface.Legacy);
+            int linesAfterOutOfWindow = FindLines("phase=AfterUpdate").Count;
+            Assert.Equal(linesBeforeOutOfWindow, linesAfterOutOfWindow);
         }
 
         // Plan §1a's retired-carve-out (`EmitActivationDecision` does NOT
