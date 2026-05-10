@@ -322,19 +322,27 @@ test framework. xUnit covers:
   the live tagger and asserts that the fork's `SegmentPhase` remains null
   (no phantom tag).
 
-The behaviour-level "fork that reaches orbit ends up with `SegmentPhase=exo`"
-is exercised by an in-game test in `RuntimeTests.cs`. The test:
+The behaviour-level "fork's phase is classified from the live vessel rather
+than copied from the parent" is exercised by an in-game test in
+`InGameTests/ReFlyForkSegmentPhaseTest.cs` (`Category = "Rewind"`,
+`Scene = GameScenes.FLIGHT`). The shipped test:
 
-1. Creates a `Recording` with `SegmentPhase = "atmo"` (parent).
-2. Sets up a fake `stripResult.SelectedVessel` whose situation is `ORBITING`
-   (or simulates the equivalent state).
-3. Calls the fork-creation flow.
-4. Asserts the fork's `SegmentPhase == "exo"` and `SegmentBodyName == "Kerbin"`.
+1. Creates a fresh `Recording` with null phase fields.
+2. Calls `RewindInvoker.TagForkInitialSegmentPhase(rec, FlightGlobals.ActiveVessel, sessionId)`
+   with the live in-flight active vessel.
+3. Asserts the produced `SegmentBodyName` matches `ActiveVessel.mainBody.name`.
+4. Asserts the produced `SegmentPhase` is one of the lowercase vocabulary
+   strings `{atmo, exo, approach, surface}`.
 
-If a full in-game harness for `AtomicMarkerWrite` is too heavy, the in-game
-test can call `ParsekFlight.TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel)`
-directly with the active vessel in flight scene and assert the result, which
-proves the helper does the right thing for the live-vessel tag step.
+Earlier drafts of this plan proposed a stronger assertion (e.g. fork that
+reaches orbit ends up with `SegmentPhase == "exo"` and `SegmentBodyName == "Kerbin"`).
+That was dropped during PR review because the helper delegates directly to
+`ParsekFlight.TagSegmentPhaseIfMissing`, so any inline classifier
+reimplementation in the test would just assert `f(x) == f(x)` against the
+same logic. Vocabulary membership + non-null body is the load-bearing
+contract; a future regression where the helper produces an off-vocabulary
+string (e.g. `"Atmospheric"`) or null while the body is non-null fails the
+membership check, which is what's actually worth catching.
 
 ### 5. Logging
 
@@ -367,9 +375,15 @@ field, so dropping two of them does not change the line.
 
 ## Risks and Trade-Offs
 
-- **Fork's `SegmentPhase` differs from parent's** — by design. If a user is
-  confused that "Re-Flying an atmo segment shows phase=exo", the explanation
-  is that the fork actually flew to orbit; the column is correct.
+- **Fork's `SegmentPhase` differs from parent's** — by design. The fork is
+  a new flight; its phase comes from its own starting state, not the
+  parent's terminating segment. Stage 1 saves the fork's start state — for
+  the canonical "atmo-start launch that flies on to orbit" repro the saved
+  phase is `atmo` (live-classified from the post-Strip vessel), which
+  happens to coincide with the pre-fix inherited string in that exact
+  scenario, but the value now derives from real fork state. Stage 2 will
+  propagate the recorder's stop-time phase so the saved value also
+  reflects the fork's end state for linear flights that change environment.
 - **`stripResult.SelectedVessel` not yet settled** — at the moment
   `CopyInheritedIdentityForFork` runs, the post-Strip vessel has been
   selected but FlightGlobals.ActiveVessel may still be the pre-strip ghost.
@@ -420,7 +434,12 @@ field, so dropping two of them does not change the line.
    change (e.g. the new log line text).
 4. In-game smoke test: load the user's `s14` save, perform the same Re-Fly
    on Kerbal X Probe slot, fly to orbit, scene-exit, and confirm the
-   recordings table shows "Kerbin exo" (not "Kerbin atmo") for the fork.
+   fork's phase is now derived from real fork state at fork-creation time
+   (verifiable via the new Verbose log line) rather than copied from the
+   parent. Stage 1 alone does not change the user-visible string for the
+   atmo-start → orbit-stop repro (still `Kerbin atmo`, just live-classified
+   from the start state instead of inherited); Stage 2 is what flips the
+   saved value to `Kerbin exo` for that exact scenario.
 
 ## Acceptance Criteria
 
@@ -431,8 +450,9 @@ field, so dropping two of them does not change the line.
 - The existing `DebrisParentAnchorContractTests` test is updated to match the
   new contract, and a new test asserts that the helper leaves both fields
   null.
-- An in-game test verifies the fork's phase tag is correct for an
-  atmo→orbit Re-Fly.
+- An in-game test verifies the fork's phase tag is in the lowercase
+  vocabulary and the body name matches the live active vessel's
+  `mainBody.name`.
 - All existing tests still pass.
 - `CHANGELOG.md` has a one-line entry under the next release section.
 - `docs/dev/todo-and-known-bugs.md` records the fix.
@@ -441,9 +461,12 @@ field, so dropping two of them does not change the line.
 
 - `Source/Parsek/RewindInvoker.cs` — drop two inheritance lines, add tag call.
 - `Source/Parsek.Tests/DebrisParentAnchorContractTests.cs` — flip assertions.
-- `Source/Parsek.Tests/RewindForkSnapshotRefreshTests.cs` (or new
-  `RewindForkSegmentPhaseTests.cs`) — new tests.
-- `Source/Parsek/InGameTests/RuntimeTests.cs` — in-game test.
+- `Source/Parsek.Tests/RewindForkSegmentPhaseTests.cs` — new xUnit tests
+  (drop-on-inherit, null-vessel Verbose-and-no-tag, regression canary).
+- `Source/Parsek.Tests/AtomicMarkerWriteTests.cs` — chain-tip test
+  updated: SegmentPhase / SegmentBodyName flipped to `Assert.Null`.
+- `Source/Parsek/InGameTests/ReFlyForkSegmentPhaseTest.cs` — new in-game
+  test (`Category = "Rewind"`).
 - `CHANGELOG.md` — entry.
 - `docs/dev/todo-and-known-bugs.md` — entry.
 - `docs/dev/plans/fix-refly-fork-segment-phase-inheritance.md` — this file.
