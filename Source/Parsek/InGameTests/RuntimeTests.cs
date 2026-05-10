@@ -3604,6 +3604,49 @@ namespace Parsek.InGameTests
         private readonly InGameTestRunner runner;
         public GhostPlaybackTests(InGameTestRunner runner) { this.runner = runner; }
 
+        private sealed class ReFlySettleHoldPositioner : IGhostPositioner
+        {
+            internal int AbsoluteCalls;
+
+            public void InterpolateAndPosition(
+                int index, IPlaybackTrajectory traj, GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                AbsoluteCalls++;
+            }
+
+            public void InterpolateAndPositionRelative(
+                int index, IPlaybackTrajectory traj, GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
+            {
+                InterpolateAndPosition(index, traj, state, ut, suppressFx);
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point) { }
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state) { }
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) { }
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx) { }
+
+            public bool TryResolveExplosionAnchorPosition(
+                int index, IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = Vector3.zero;
+                return false;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(
+                int index, GhostPlaybackState state, IPlaybackTrajectory traj,
+                double distance, double playbackUT, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache() { }
+        }
+
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "Ghost sphere can be created and destroyed")]
         public void GhostSphereLifecycle()
@@ -3732,6 +3775,148 @@ namespace Parsek.InGameTests
             finally
             {
                 IncompleteBallisticSceneExitFinalizer.ResetForTesting();
+            }
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Re-Fly settle anchor hold hides primary and overlap ghost meshes without destroying their playback state")]
+        public void ReFlyPostLoadSettle_GhostMeshHiddenDuringWindow()
+        {
+            ReFlySettleStabilityTracker.Reset();
+            var positioner = new ReFlySettleHoldPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var primaryGhost = new GameObject("ParsekTestGhost_ReFlySettlePrimary");
+            var overlapGhost = new GameObject("ParsekTestGhost_ReFlySettleOverlap");
+            runner.TrackForCleanup(primaryGhost);
+            runner.TrackForCleanup(overlapGhost);
+            primaryGhost.SetActive(true);
+            overlapGhost.SetActive(true);
+
+            var primaryState = new GhostPlaybackState
+            {
+                vesselName = "ReFlySettlePrimary",
+                ghost = primaryGhost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            var overlapState = new GhostPlaybackState
+            {
+                vesselName = "ReFlySettleOverlap",
+                ghost = overlapGhost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            engine.ghostStates[0] = primaryState;
+            engine.overlapGhosts[0] = new List<GhostPlaybackState> { overlapState };
+
+            var rec = new Recording
+            {
+                RecordingId = "ingame-refly-settle-anchor",
+                VesselName = "Re-Fly Settle Anchor",
+                PlaybackEnabled = true,
+                LoopPlayback = true,
+                LoopIntervalSeconds = 50.0,
+                LoopTimeUnit = LoopTimeUnit.Sec,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" }
+                }
+            };
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = 200.0,
+                    recordingId = rec.RecordingId,
+                }
+            };
+            var ctx = new FrameContext
+            {
+                currentUT = 125.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 120.0,
+            };
+
+            try
+            {
+                int clearFrame = FlightRecorder.GetFrameCount();
+                ReFlySettleStabilityTracker.RecordSettleCleared(rec.RecordingId, clearFrame);
+                flags[0].anchorReFlyUnstable = ParsekFlight.ResolveReFlySettleStabilityForTesting(
+                    rec, clearFrame, out string anchorRecordingId, out string reason);
+                InGameAssert.IsTrue(flags[0].anchorReFlyUnstable,
+                    "clear-hold should set the anchor instability flag");
+                InGameAssert.AreEqual(rec.RecordingId, anchorRecordingId,
+                    "clear-hold should resolve against the recording id");
+                InGameAssert.AreEqual("clear-hold", reason,
+                    "clear-hold should report the tracker reason");
+
+                engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+                GhostPlaybackState retainedPrimary;
+                InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedPrimary),
+                    "anchor hold should preserve primary state");
+                InGameAssert.AreEqual(1, engine.overlapGhosts[0].Count,
+                    "anchor hold should not destroy or remove overlap state");
+                InGameAssert.IsFalse(primaryGhost.activeSelf,
+                    "anchor hold should hide the primary ghost mesh");
+                InGameAssert.IsFalse(overlapGhost.activeSelf,
+                    "anchor hold should hide overlap ghost meshes");
+                InGameAssert.AreEqual(0, positioner.AbsoluteCalls,
+                    "anchor hold should skip non-loop positioning while the anchor is unstable");
+
+                int shiftFrame = clearFrame + FlightRecorder.StabilitySettleClearHoldFrames;
+                ReFlySettleStabilityTracker.RecordFloatingOriginShift(
+                    new Vector3d(10.0, 0.0, 0.0),
+                    new Vector3d(0.0, 20.0, 0.0),
+                    shiftFrame,
+                    Time.realtimeSinceStartup);
+                flags[0].anchorReFlyUnstable = ParsekFlight.ResolveReFlySettleStabilityForTesting(
+                    rec,
+                    shiftFrame + FlightRecorder.StabilityExtensionFramesAfterShift,
+                    out anchorRecordingId,
+                    out reason);
+                InGameAssert.IsTrue(flags[0].anchorReFlyUnstable,
+                    "FloatingOrigin shift inside the clear-hold window should extend the hold");
+                InGameAssert.AreEqual("extension-window", reason,
+                    "shift extension should report the tracker reason");
+
+                engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+                InGameAssert.IsFalse(primaryGhost.activeSelf,
+                    "extension hold should keep the primary ghost hidden");
+                InGameAssert.IsFalse(overlapGhost.activeSelf,
+                    "extension hold should keep the overlap ghost hidden");
+
+                flags[0].anchorReFlyUnstable = ParsekFlight.ResolveReFlySettleStabilityForTesting(
+                    rec,
+                    shiftFrame + FlightRecorder.StabilityExtensionFramesAfterShift + 1,
+                    out _,
+                    out _);
+                InGameAssert.IsFalse(flags[0].anchorReFlyUnstable,
+                    "anchor instability should clear after the extension window expires");
+
+                engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+                InGameAssert.IsTrue(primaryGhost.activeSelf,
+                    "normal loop rendering should reactivate the primary ghost after the hold clears");
+                InGameAssert.IsTrue(overlapGhost.activeSelf,
+                    "normal loop-overlap rendering should reactivate overlap ghosts after the hold clears");
+            }
+            finally
+            {
+                ReFlySettleStabilityTracker.Reset();
             }
         }
 

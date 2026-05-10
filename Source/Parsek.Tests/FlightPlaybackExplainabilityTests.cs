@@ -18,10 +18,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            FlightRecorder.FrameCountProviderForTesting = () => 123;
+            ReFlySettleStabilityTracker.Reset();
         }
 
         public void Dispose()
         {
+            ReFlySettleStabilityTracker.Reset();
+            FlightRecorder.FrameCountProviderForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -61,6 +65,7 @@ namespace Parsek.Tests
             Assert.Equal("superseded-by-relation", GhostPlaybackSkipReason.SupersededByRelation.ToLogToken());
             Assert.Equal("rewind-retired", GhostPlaybackSkipReason.RewindRetired.ToLogToken());
             Assert.Equal("anchor-rotation-unreliable", GhostPlaybackSkipReason.AnchorRotationUnreliable.ToLogToken());
+            Assert.Equal("anchor-refly-unstable", GhostPlaybackSkipReason.AnchorReFlyUnstable.ToLogToken());
         }
 
         [Fact]
@@ -176,6 +181,8 @@ namespace Parsek.Tests
                 Assert.Equal(GhostPlaybackSkipReason.SupersededByRelation, flags[0].skipReason);
                 Assert.False(flags[0].needsSpawn);
                 Assert.False(flags[1].skipGhost);
+                Assert.False(flags[0].anchorReFlyUnstable);
+                Assert.False(flags[1].anchorReFlyUnstable);
                 Assert.Contains(logLines, line =>
                     line.Contains("id=rec-old")
                     && line.Contains("reason=superseded-by-relation")
@@ -246,6 +253,7 @@ namespace Parsek.Tests
                 Assert.Single(flags);
                 Assert.True(flags[0].skipGhost);
                 Assert.Equal(GhostPlaybackSkipReason.NoRenderableData, flags[0].skipReason);
+                Assert.False(flags[0].anchorReFlyUnstable);
                 Assert.Equal(1, logLines.Count(line =>
                     line.Contains("[Parsek][VERBOSE][Flight]")
                     && line.Contains("Ghost playback skip state")
@@ -255,6 +263,7 @@ namespace Parsek.Tests
                 flags = ComputePlaybackFlagsForTesting(host, committed, 100.0);
 
                 Assert.Equal(GhostPlaybackSkipReason.NoRenderableData, flags[0].skipReason);
+                Assert.False(flags[0].anchorReFlyUnstable);
                 Assert.Equal(1, logLines.Count(line =>
                     line.Contains("Ghost playback skip state")
                     && line.Contains("id=rec-flags")));
@@ -269,6 +278,7 @@ namespace Parsek.Tests
 
                 Assert.True(flags[0].skipGhost);
                 Assert.Equal(GhostPlaybackSkipReason.PlaybackDisabled, flags[0].skipReason);
+                Assert.False(flags[0].anchorReFlyUnstable);
                 Assert.Contains(logLines, line =>
                     line.Contains("[Parsek][VERBOSE][Flight]")
                     && line.Contains("Ghost playback skip state")
@@ -316,6 +326,8 @@ namespace Parsek.Tests
                 Assert.Equal(GhostPlaybackSkipReason.RewindRetired, flags[0].skipReason);
                 Assert.False(flags[0].needsSpawn);
                 Assert.False(flags[1].skipGhost);
+                Assert.False(flags[0].anchorReFlyUnstable);
+                Assert.False(flags[1].anchorReFlyUnstable);
                 Assert.Contains(logLines, line =>
                     line.Contains("id=rec-retired")
                     && line.Contains("reason=rewind-retired")
@@ -389,6 +401,9 @@ namespace Parsek.Tests
                 Assert.Equal(GhostPlaybackSkipReason.RewindRetired, flags[1].skipReason);
                 Assert.False(flags[1].needsSpawn);
                 Assert.False(flags[2].skipGhost);
+                Assert.False(flags[0].anchorReFlyUnstable);
+                Assert.False(flags[1].anchorReFlyUnstable);
+                Assert.False(flags[2].anchorReFlyUnstable);
                 Assert.Contains(logLines, line =>
                     line.Contains("id=rec-retired-anchor")
                     && line.Contains("reason=rewind-retired"));
@@ -399,6 +414,44 @@ namespace Parsek.Tests
             finally
             {
                 ParsekScenario.SetInstanceForTesting(null);
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_ReFlySettleClearHold_SetsAnchorUnstableAndLogsTransitions()
+        {
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                var rec = MakeRecording("rec-refly-hold", "Held Probe");
+                var committed = new List<Recording> { rec };
+                ReFlySettleStabilityTracker.RecordSettleCleared("rec-refly-hold", frame: 123);
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 100.0);
+
+                Assert.Single(flags);
+                Assert.True(flags[0].anchorReFlyUnstable);
+                Assert.Contains(logLines, line =>
+                    line.Contains("[Parsek][INFO][ReFlySettle]")
+                    && line.Contains("Anchor ghost visibility hold engaged")
+                    && line.Contains("anchorRec=rec-refl")
+                    && line.Contains("ghosts=1")
+                    && line.Contains("reason=clear-hold"));
+
+                ReFlySettleStabilityTracker.Reset();
+                flags = ComputePlaybackFlagsForTesting(host, committed, 100.0);
+
+                Assert.False(flags[0].anchorReFlyUnstable);
+                Assert.Contains(logLines, line =>
+                    line.Contains("[Parsek][INFO][ReFlySettle]")
+                    && line.Contains("Anchor ghost visibility hold released")
+                    && line.Contains("anchorRec=rec-refl"));
+            }
+            finally
+            {
+                ReFlySettleStabilityTracker.Reset();
                 RecordingStore.ResetForTesting();
             }
         }
@@ -425,7 +478,8 @@ namespace Parsek.Tests
                 rewindRetired = 15,
                 spawnSuppressedDeadOnArrival = 16,
                 anchorRotationUnreliable = 17,
-                active = 18
+                anchorReFlyUnstable = 18,
+                active = 19
             };
 
             string message = GhostPlaybackEngine.BuildFrameSummaryMessage(counters);
@@ -448,7 +502,8 @@ namespace Parsek.Tests
             Assert.Contains("rewindRetired=15", message);
             Assert.Contains("spawnSuppressedDeadOnArrival=16", message);
             Assert.Contains("anchorRotationUnreliable=17", message);
-            Assert.Contains("active=18", message);
+            Assert.Contains("anchorReFlyUnstable=18", message);
+            Assert.Contains("active=19", message);
         }
 
         [Fact]
@@ -463,6 +518,13 @@ namespace Parsek.Tests
         public void FrameSummary_EmitsWhenSpawnSuppressedDeadOnArrivalNonZero()
         {
             var counters = new GhostPlaybackFrameCounters { spawnSuppressedDeadOnArrival = 1 };
+            Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
+        }
+
+        [Fact]
+        public void FrameSummary_EmitsWhenAnchorReFlyUnstableNonZero()
+        {
+            var counters = new GhostPlaybackFrameCounters { anchorReFlyUnstable = 1 };
             Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
         }
 
@@ -549,6 +611,10 @@ namespace Parsek.Tests
             SetPrivateField(host, "chainManager", new ChainSegmentManager());
             SetPrivateField(host, "activeGhostChains", new Dictionary<uint, GhostChain>());
             SetPrivateField(host, "activeGhostSkipReasonLogIdentities", new HashSet<string>());
+            SetPrivateField(host, "reFlyAnchorHoldStartFrameByAnchor", new Dictionary<string, int>(StringComparer.Ordinal));
+            SetPrivateField(host, "reFlyAnchorHoldCountsThisFrame", new Dictionary<string, int>(StringComparer.Ordinal));
+            SetPrivateField(host, "reFlyAnchorHoldReasonsThisFrame", new Dictionary<string, string>(StringComparer.Ordinal));
+            SetPrivateField(host, "reFlyAnchorHoldReleaseScratch", new List<string>());
             return host;
         }
 

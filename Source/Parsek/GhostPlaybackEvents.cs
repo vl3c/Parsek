@@ -27,6 +27,7 @@ namespace Parsek
         // that expect it.
         SpawnSuppressedDeadOnArrival = 13,
         AnchorRotationUnreliable = 14,
+        AnchorReFlyUnstable = 15,
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -65,6 +66,8 @@ namespace Parsek
                     return "spawn-suppressed-dead-on-arrival";
                 case GhostPlaybackSkipReason.AnchorRotationUnreliable:
                     return "anchor-rotation-unreliable";
+                case GhostPlaybackSkipReason.AnchorReFlyUnstable:
+                    return "anchor-refly-unstable";
                 default:
                     return "unknown";
             }
@@ -97,6 +100,7 @@ namespace Parsek
         public int rewindRetired;
         public int spawnSuppressedDeadOnArrival;
         public int anchorRotationUnreliable;
+        public int anchorReFlyUnstable;
         public int active;
     }
 
@@ -142,6 +146,9 @@ namespace Parsek
 
         /// <summary>Optional host predicate for transient tumbling-parent interpolation hides.</summary>
         public TryEvaluateAnchorRotationReliability tryEvaluateAnchorRotationReliability;
+
+        /// <summary>Transient Re-Fly settle/FloatingOrigin stability hold; hide-only gate.</summary>
+        public bool anchorReFlyUnstable;
     }
 
     /// <summary>

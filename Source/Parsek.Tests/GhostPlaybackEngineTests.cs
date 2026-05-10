@@ -4292,8 +4292,9 @@ namespace Parsek.Tests
 
         #region UpdatePlaybackGuards
 
-        // Guard logic tests removed — they tested tautologies about test setup,
-        // not production code. Guard behavior verified via in-game testing.
+        // Guard behavior that requires UpdatePlayback is covered by the in-game
+        // ReFlyPostLoadSettle_GhostMeshHiddenDuringWindow test. Headless xUnit
+        // cannot call UpdatePlayback because GhostRenderTrace reads Unity Time.
 
         #endregion
 

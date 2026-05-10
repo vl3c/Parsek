@@ -97,6 +97,7 @@ namespace Parsek
         private int frameSkipRewindRetired;
         private int frameSkipSpawnSuppressedDeadOnArrival;
         private int frameSkipAnchorRotationUnreliable;
+        private int frameSkipAnchorReFlyUnstable;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -308,6 +309,9 @@ namespace Parsek
                 case GhostPlaybackSkipReason.AnchorRotationUnreliable:
                     frameSkipAnchorRotationUnreliable++;
                     break;
+                case GhostPlaybackSkipReason.AnchorReFlyUnstable:
+                    frameSkipAnchorReFlyUnstable++;
+                    break;
             }
         }
 
@@ -329,7 +333,8 @@ namespace Parsek
                 || counters.supersededByRelation > 0
                 || counters.rewindRetired > 0
                 || counters.spawnSuppressedDeadOnArrival > 0
-                || counters.anchorRotationUnreliable > 0;
+                || counters.anchorRotationUnreliable > 0
+                || counters.anchorReFlyUnstable > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -340,7 +345,8 @@ namespace Parsek
                 "parentLoopPaused={6} warpHidden={7} visualLoadFailed={8} " +
                 "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
                 "sessionSuppressed={12} supersededByRelation={13} rewindRetired={14} " +
-                "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16}] active={17}",
+                "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16} " +
+                "anchorReFlyUnstable={17}] active={18}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -358,6 +364,7 @@ namespace Parsek
                 counters.rewindRetired,
                 counters.spawnSuppressedDeadOnArrival,
                 counters.anchorRotationUnreliable,
+                counters.anchorReFlyUnstable,
                 counters.active);
         }
 
@@ -382,6 +389,7 @@ namespace Parsek
                 rewindRetired = frameSkipRewindRetired,
                 spawnSuppressedDeadOnArrival = frameSkipSpawnSuppressedDeadOnArrival,
                 anchorRotationUnreliable = frameSkipAnchorRotationUnreliable,
+                anchorReFlyUnstable = frameSkipAnchorReFlyUnstable,
                 active = ghostStates.Count
             };
         }
@@ -597,6 +605,20 @@ namespace Parsek
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = HasLoadedGhostVisuals(state);
                 if (ghostActive) ghostsProcessed++;
+
+                if (f.anchorReFlyUnstable)
+                {
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, GhostPlaybackSkipReason.AnchorReFlyUnstable.ToLogToken());
+                    if (ghostActive && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                    }
+                    SetOverlapGhostsActive(i, false);
+                    CountFrameSkip(GhostPlaybackSkipReason.AnchorReFlyUnstable);
+                    continue;
+                }
 
                 double activationStartUT = ResolveGhostActivationStartUT(traj);
 
@@ -902,6 +924,7 @@ namespace Parsek
             frameSkipRewindRetired = 0;
             frameSkipSpawnSuppressedDeadOnArrival = 0;
             frameSkipAnchorRotationUnreliable = 0;
+            frameSkipAnchorReFlyUnstable = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -4345,6 +4368,7 @@ namespace Parsek
             frameSkipRewindRetired = 0;
             frameSkipSpawnSuppressedDeadOnArrival = 0;
             frameSkipAnchorRotationUnreliable = 0;
+            frameSkipAnchorReFlyUnstable = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
@@ -6113,6 +6137,23 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("Engine", "destroy-overlap",
                 $"Destroying overlap ghost cycle={state.loopCycleIndex}", 2.0);
             DestroyGhostResourcesWithMetrics(state);
+        }
+
+        internal void SetOverlapGhostsActive(int recIdx, bool active)
+        {
+            List<GhostPlaybackState> list;
+            if (!overlapGhosts.TryGetValue(recIdx, out list)) return;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                GhostPlaybackState state = list[i];
+                if (state == null || state.ghost == null) continue;
+                if (state.ghost.activeSelf == active) continue;
+
+                state.ghost.SetActive(active);
+                if (!active)
+                    ResetGhostAppearanceTracking(state);
+            }
         }
 
         /// <summary>
