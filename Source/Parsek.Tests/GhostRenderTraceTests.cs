@@ -293,30 +293,18 @@ namespace Parsek.Tests
             Assert.False(GhostRenderTrace.ShouldEmitPhase(recId, 201.06));
         }
 
-        [Fact]
-        public void EmitActivationDecision_RetiredFrame_DoesNotFire()
-        {
-            // Pins plan §1a's "does NOT fire on retired frames" carve-out at
-            // the API level. The carve-out is structurally enforced by
-            // RenderInRangeGhost wrapping the EmitActivationDecision call
-            // inside the !retired else branch ([:1233-1276]); from the trace
-            // API's perspective, simply NOT calling EmitActivationDecision is
-            // the right behaviour. This test pins the engine contract: when
-            // the engine path skips the call (which it must on retired
-            // frames), no ActivationDecision row appears.
-            GhostRenderTrace.ForceEnabledForTesting = true;
-            var traj = new MockTrajectory { RecordingId = "rec-retired" };
-
-            // Simulate a retired frame: the engine would skip
-            // EmitActivationDecision entirely. We assert nothing was emitted
-            // for this recording at this UT by checking no ActivationDecision
-            // line exists in the captured log.
-            int beforeCount = FindLines("phase=ActivationDecision").Count;
-            // (no EmitActivationDecision call here — that's the contract)
-            int afterCount = FindLines("phase=ActivationDecision").Count;
-            Assert.Equal(beforeCount, afterCount);
-            Assert.Empty(FindLines("rec-retired"));
-        }
+        // Plan §1a's retired-carve-out (`EmitActivationDecision` does NOT
+        // fire on retired frames) is structurally enforced by the engine
+        // wrapping the call inside the `!retired` else branch at
+        // `GhostPlaybackEngine.cs:1233-1276`. An xUnit test for that
+        // carve-out would need to drive `RenderInRangeGhost` directly with
+        // a state where `state.ghost` is a real Unity `GameObject` — which
+        // xUnit cannot construct (no Unity runtime). Coverage falls to the
+        // in-game test runner, same pattern as the watch-sync engine
+        // coverage gap documented in the PR description. A tautology test
+        // (asserting that a method we didn't call didn't emit) was tried
+        // and removed after a review pass flagged it as proving nothing
+        // about the engine contract.
 
         [Fact]
         public void EmitPostUpdate_AppendsRawPlaybackUTAndLeadAndClamped()
