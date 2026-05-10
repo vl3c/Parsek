@@ -1152,6 +1152,11 @@ namespace Parsek
                 return false;
             }
 
+            // The 1e-9 section-boundary lookup can return a terminal section
+            // even when frame coverage later rejects it because
+            // endUT > lastFrame.ut + UtEpsilon. This clamp is the separate
+            // endpoint-playback path: one physics tick plus slop, and only
+            // when the final playable sample is itself within that window.
             if (!TryFindFinalPlayableSection(
                     recording,
                     out sectionIndex,

@@ -597,6 +597,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_RelativeTerminalClamp_ReentersRelativeAnchorUnderVisitedGuard()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording root = MakeTerminalEdgeAbsoluteRecording(
+                "root-terminal",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            Recording mid = MakeTerminalEdgeRelativeRecording(
+                "mid-terminal",
+                tree.Id,
+                localOffset: new Vector3d(2, 0, 0),
+                anchorRecordingId: root.RecordingId,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98);
+            Recording outer = MakeTerminalEdgeRelativeRecording(
+                "outer-terminal",
+                tree.Id,
+                localOffset: new Vector3d(3, 0, 0),
+                anchorRecordingId: mid.RecordingId,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98);
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(4, 0, 0),
+                anchorRecordingId: outer.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(mid);
+            tree.AddOrReplaceRecording(outer);
+            tree.AddOrReplaceRecording(child);
+
+            double requestedUT = 10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds;
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                requestedUT,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(118.98, pose.WorldPos.x, 6);
+            Assert.Equal(0.0, pose.WorldPos.y, 6);
+            Assert.Equal(0.0, pose.WorldPos.z, 6);
+            Assert.Single(logLines.FindAll(l => l.Contains("relative-anchor-terminal-clamp")));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=outer-terminal") &&
+                l.Contains("anchorRecordingId=mid-terminal") &&
+                l.Contains("clampedUT=9.98"));
+            Assert.DoesNotContain(logLines, l => l.Contains("anchor-cycle-detected"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_TerminalClampThresholdBoundary_PassesThenFailsClosed()
         {
             var tree = new RecordingTree { Id = "tree" };
@@ -1962,6 +2022,32 @@ namespace Parsek.Tests
             {
                 MakePoint(0.0, new Vector3d(100, 0, 0), Quaternion.identity),
                 MakePoint(terminalPlayableUT, terminalWorld, Quaternion.identity),
+            };
+            rec.TrackSections[0] = section;
+            return rec;
+        }
+
+        private static Recording MakeTerminalEdgeRelativeRecording(
+            string recordingId,
+            string treeId,
+            Vector3d localOffset,
+            string anchorRecordingId,
+            double sectionEndUT,
+            double terminalPlayableUT)
+        {
+            Recording rec = MakeRelativeRecording(
+                recordingId,
+                treeId,
+                localOffset,
+                anchorRecordingId: anchorRecordingId,
+                startUT: 0.0,
+                endUT: sectionEndUT);
+            TrackSection section = rec.TrackSections[0];
+            section.sampleRateHz = 50f;
+            section.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(0.0, localOffset, Quaternion.identity),
+                MakePoint(terminalPlayableUT, localOffset, Quaternion.identity),
             };
             rec.TrackSections[0] = section;
             return rec;
