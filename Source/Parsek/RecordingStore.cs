@@ -353,6 +353,9 @@ namespace Parsek
         // Active-tree quickload resume temporarily uses pendingTree as a Limbo
         // handoff slot. If the same save also carries a finalized isPending=True
         // tree, keep it here until the active tree is popped back into flight.
+        // Invariant: this side slot only holds a saved Finalized pending tree
+        // awaiting OnLoad -> PromoteSavedPendingTreeAfterActiveRestore; normal
+        // stash/commit/pop/unstash lifecycle methods intentionally leave it alone.
         private static RecordingTree savedPendingTreeDuringActiveRestore;
         private static bool savedPendingTreeDuringActiveRestoreSerializedForSave;
         internal static string CleanOrphanFilesDirectoryOverrideForTesting;

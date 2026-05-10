@@ -194,6 +194,7 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.HasSavedPendingTreeDuringActiveRestore);
             Assert.Equal("tree_pending_conflict",
                 RecordingStore.SavedPendingTreeDuringActiveRestore.Id);
+            Assert.True(RecordingStore.IsPendingRecordingId("rec_pending_conflict"));
 
             HashSet<string> validIds = ParsekScenario.BuildValidRecordingIdsForKspLoad();
             Assert.Contains("rec_active_conflict", validIds);
@@ -226,6 +227,31 @@ namespace Parsek.Tests
                 l.Contains("[Scenario]")
                 && l.Contains("wrote PENDING tree")
                 && l.Contains("preserved during active-tree restore"));
+        }
+
+        [Fact]
+        public void TryRestorePendingTreeNode_ActiveMarkerWithoutActiveRestore_RestoresPendingMainSlot()
+        {
+            var pending = MakeTree("tree_pending_fallback", "Pending Fallback", "rec_pending_fallback");
+            var active = MakeTree("tree_active_fallback", "Active Fallback", "rec_active_fallback");
+            var node = new ConfigNode("PARSEK_SCENARIO");
+            AddTreeNode(node, pending, isPending: true, isActive: false);
+            AddTreeNode(node, active, isPending: false, isActive: true);
+
+            bool restored = ParsekScenario.TryRestorePendingTreeNode(
+                node, activeTreeRestoredFromSave: false);
+
+            Assert.True(restored);
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.False(RecordingStore.HasSavedPendingTreeDuringActiveRestore);
+            Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            Assert.Equal("tree_pending_fallback", RecordingStore.PendingTree.Id);
+            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.True(RecordingStore.IsPendingRecordingId("rec_pending_fallback"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][Scenario]")
+                && l.Contains("alongside 1 active marker")
+                && l.Contains("active restore did not run, restoring pending tree normally"));
         }
 
         [Fact]
