@@ -4493,169 +4493,219 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-
-            var rover = new Recording
+            try
             {
-                RecordingId = "root_rover",
-                TreeId = "tree_multistage",
-                VesselName = "Rover",
-                VesselPersistentId = 1001,
-                ChildBranchPointId = "bp_launch"
-            };
-            rover.Points.Add(new TrajectoryPoint { ut = 0, altitude = 0, bodyName = "Kerbin" });
-            rover.Points.Add(new TrajectoryPoint { ut = 10, altitude = 0, bodyName = "Kerbin" });
-            rover.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.SurfaceMobile,
-                startUT = 0,
-                endUT = 10,
-                frames = new List<TrajectoryPoint>()
-            });
-
-            var roverContinuation = new Recording
-            {
-                RecordingId = "rover_cont",
-                TreeId = "tree_multistage",
-                VesselName = "Rover",
-                VesselPersistentId = 1001,
-                ParentBranchPointId = "bp_launch"
-            };
-            roverContinuation.Points.Add(new TrajectoryPoint { ut = 10, altitude = 0, bodyName = "Kerbin" });
-            roverContinuation.Points.Add(new TrajectoryPoint { ut = 20, altitude = 0, bodyName = "Kerbin" });
-            roverContinuation.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.SurfaceStationary,
-                startUT = 10,
-                endUT = 20,
-                frames = new List<TrajectoryPoint>()
-            });
-
-            var rocket = MakeRecordingWithSections(100, 300, 600,
-                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
-            rocket.RecordingId = "rocket";
-            rocket.TreeId = "tree_multistage";
-            rocket.VesselName = "Rocket";
-            rocket.VesselPersistentId = 2002;
-            rocket.ParentBranchPointId = "bp_launch";
-            rocket.ChildBranchPointId = "bp_sep";
-
-            var transferStage = new Recording
-            {
-                RecordingId = "transfer_stage",
-                TreeId = "tree_multistage",
-                VesselName = "Transfer Stage",
-                VesselPersistentId = 3003,
-                ParentBranchPointId = "bp_sep",
-                TerminalStateValue = TerminalState.Destroyed
-            };
-            transferStage.Points.Add(new TrajectoryPoint { ut = 600, altitude = 90000, bodyName = "Kerbin" });
-            transferStage.Points.Add(new TrajectoryPoint { ut = 700, altitude = 80000, bodyName = "Kerbin" });
-            transferStage.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                startUT = 600,
-                endUT = 700,
-                frames = new List<TrajectoryPoint>()
-            });
-
-            var capsule = MakeRecordingWith3Sections(
-                600, 860, 1040, 1200,
-                SegmentEnvironment.ExoBallistic,
-                SegmentEnvironment.Atmospheric,
-                SegmentEnvironment.SurfaceStationary,
-                body1: "Kerbin",
-                body2: "Kerbin",
-                body3: "Kerbin");
-            capsule.RecordingId = "capsule";
-            capsule.TreeId = "tree_multistage";
-            capsule.VesselName = "Capsule";
-            capsule.VesselPersistentId = 4004;
-            capsule.ParentBranchPointId = "bp_sep";
-
-            var launchBp = new BranchPoint
-            {
-                Id = "bp_launch",
-                UT = 10,
-                Type = BranchPointType.Launch,
-                ParentRecordingIds = new List<string> { "root_rover" },
-                ChildRecordingIds = new List<string> { "rover_cont", "rocket" }
-            };
-            var sepBp = new BranchPoint
-            {
-                Id = "bp_sep",
-                UT = 600,
-                Type = BranchPointType.JointBreak,
-                ParentRecordingIds = new List<string> { "rocket" },
-                ChildRecordingIds = new List<string> { "transfer_stage", "capsule" }
-            };
-            var tree = new RecordingTree
-            {
-                Id = "tree_multistage",
-                TreeName = "Multistage Optimizer Tree",
-                RootRecordingId = "root_rover",
-                BranchPoints = new List<BranchPoint> { launchBp, sepBp },
-                Recordings = new System.Collections.Generic.Dictionary<string, Recording>
+                var rover = new Recording
                 {
-                    { "root_rover", rover },
-                    { "rover_cont", roverContinuation },
-                    { "rocket", rocket },
-                    { "transfer_stage", transferStage },
-                    { "capsule", capsule }
-                }
-            };
-            RecordingStore.CommittedTrees.Add(tree);
+                    RecordingId = "root_rover",
+                    TreeId = "tree_multistage",
+                    VesselName = "Rover",
+                    VesselPersistentId = 1001,
+                    ChildBranchPointId = "bp_launch"
+                };
+                rover.Points.Add(new TrajectoryPoint { ut = 0, altitude = 0, bodyName = "Kerbin" });
+                rover.Points.Add(new TrajectoryPoint { ut = 10, altitude = 0, bodyName = "Kerbin" });
+                rover.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.SurfaceMobile,
+                    startUT = 0,
+                    endUT = 10,
+                    frames = new List<TrajectoryPoint>()
+                });
 
-            var recordings = RecordingStore.CommittedRecordings;
-            RecordingStore.AddRecordingWithTreeForTesting(rover);
-            RecordingStore.AddRecordingWithTreeForTesting(roverContinuation);
-            RecordingStore.AddRecordingWithTreeForTesting(rocket);
-            RecordingStore.AddRecordingWithTreeForTesting(transferStage);
-            RecordingStore.AddRecordingWithTreeForTesting(capsule);
+                var roverContinuation = new Recording
+                {
+                    RecordingId = "rover_cont",
+                    TreeId = "tree_multistage",
+                    VesselName = "Rover",
+                    VesselPersistentId = 1001,
+                    ParentBranchPointId = "bp_launch"
+                };
+                roverContinuation.Points.Add(new TrajectoryPoint { ut = 10, altitude = 0, bodyName = "Kerbin" });
+                roverContinuation.Points.Add(new TrajectoryPoint { ut = 20, altitude = 0, bodyName = "Kerbin" });
+                roverContinuation.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.SurfaceStationary,
+                    startUT = 10,
+                    endUT = 20,
+                    frames = new List<TrajectoryPoint>()
+                });
 
-            RecordingStore.RunOptimizationPass();
+                var rocket = MakeRecordingWithSections(100, 300, 600,
+                    SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+                rocket.RecordingId = "rocket";
+                rocket.TreeId = "tree_multistage";
+                rocket.VesselName = "Rocket";
+                rocket.VesselPersistentId = 2002;
+                rocket.ParentBranchPointId = "bp_launch";
+                rocket.ChildBranchPointId = "bp_sep";
 
-            Assert.Equal(8, recordings.Count);
-            Assert.Equal(8, tree.Recordings.Count);
+                var transferStage = new Recording
+                {
+                    RecordingId = "transfer_stage",
+                    TreeId = "tree_multistage",
+                    VesselName = "Transfer Stage",
+                    VesselPersistentId = 3003,
+                    ParentBranchPointId = "bp_sep",
+                    TerminalStateValue = TerminalState.Destroyed
+                };
+                transferStage.Points.Add(new TrajectoryPoint { ut = 600, altitude = 90000, bodyName = "Kerbin" });
+                transferStage.Points.Add(new TrajectoryPoint { ut = 700, altitude = 80000, bodyName = "Kerbin" });
+                transferStage.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    startUT = 600,
+                    endUT = 700,
+                    frames = new List<TrajectoryPoint>()
+                });
 
-            var rocketHead = recordings.Single(r => r.RecordingId == "rocket");
-            Assert.False(string.IsNullOrEmpty(rocketHead.ChainId));
-            var rocketSegments = recordings
-                .Where(r => !string.IsNullOrEmpty(r.ChainId) && r.ChainId == rocketHead.ChainId)
-                .OrderBy(r => r.StartUT)
-                .ToList();
-            Assert.Equal(2, rocketSegments.Count);
-            Assert.Equal("bp_launch", rocketSegments[0].ParentBranchPointId);
-            Assert.Null(rocketSegments[0].ChildBranchPointId);
-            Assert.Equal("bp_sep", rocketSegments[1].ChildBranchPointId);
-            for (int i = 0; i < rocketSegments.Count; i++)
-                Assert.Equal(i, rocketSegments[i].ChainIndex);
+                var capsule = MakeRecordingWith3Sections(
+                    600, 860, 1040, 1200,
+                    SegmentEnvironment.ExoBallistic,
+                    SegmentEnvironment.Atmospheric,
+                    SegmentEnvironment.SurfaceStationary,
+                    body1: "Kerbin",
+                    body2: "Kerbin",
+                    body3: "Kerbin");
+                capsule.RecordingId = "capsule";
+                capsule.TreeId = "tree_multistage";
+                capsule.VesselName = "Capsule";
+                capsule.VesselPersistentId = 4004;
+                capsule.ParentBranchPointId = "bp_sep";
+                capsule.ChildBranchPointId = "bp_dock";
 
-            var capsuleHead = recordings.Single(r => r.RecordingId == "capsule");
-            Assert.False(string.IsNullOrEmpty(capsuleHead.ChainId));
-            var capsuleSegments = recordings
-                .Where(r => !string.IsNullOrEmpty(r.ChainId) && r.ChainId == capsuleHead.ChainId)
-                .OrderBy(r => r.StartUT)
-                .ToList();
-            Assert.Equal(3, capsuleSegments.Count);
-            Assert.NotEqual(rocketHead.ChainId, capsuleHead.ChainId);
-            Assert.Equal("bp_sep", capsuleSegments[0].ParentBranchPointId);
-            for (int i = 0; i < capsuleSegments.Count; i++)
-                Assert.Equal(i, capsuleSegments[i].ChainIndex);
+                var stationMerged = new Recording
+                {
+                    RecordingId = "station_merged",
+                    TreeId = "tree_multistage",
+                    VesselName = "Station",
+                    VesselPersistentId = 5005,
+                    ParentBranchPointId = "bp_dock"
+                };
+                stationMerged.Points.Add(new TrajectoryPoint { ut = 1200, altitude = 0, bodyName = "Kerbin" });
+                stationMerged.Points.Add(new TrajectoryPoint { ut = 1260, altitude = 0, bodyName = "Kerbin" });
+                stationMerged.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.SurfaceStationary,
+                    startUT = 1200,
+                    endUT = 1260,
+                    frames = new List<TrajectoryPoint>()
+                });
 
-            Assert.Equal(new[] { rocketSegments[1].RecordingId }, sepBp.ParentRecordingIds);
-            Assert.Equal(new[] { "rover_cont", "rocket" }, launchBp.ChildRecordingIds);
-            Assert.Equal(new[] { "transfer_stage", "capsule" }, sepBp.ChildRecordingIds);
+                var launchBp = new BranchPoint
+                {
+                    Id = "bp_launch",
+                    UT = 10,
+                    Type = BranchPointType.Launch,
+                    ParentRecordingIds = new List<string> { "root_rover" },
+                    ChildRecordingIds = new List<string> { "rover_cont", "rocket" }
+                };
+                var sepBp = new BranchPoint
+                {
+                    Id = "bp_sep",
+                    UT = 600,
+                    Type = BranchPointType.JointBreak,
+                    ParentRecordingIds = new List<string> { "rocket" },
+                    ChildRecordingIds = new List<string> { "transfer_stage", "capsule" }
+                };
+                var dockBp = new BranchPoint
+                {
+                    Id = "bp_dock",
+                    UT = 1200,
+                    Type = BranchPointType.Dock,
+                    ParentRecordingIds = new List<string> { "capsule" },
+                    ChildRecordingIds = new List<string> { "station_merged" },
+                    TargetVesselPersistentId = 5005
+                };
+                var tree = new RecordingTree
+                {
+                    Id = "tree_multistage",
+                    TreeName = "Multistage Optimizer Tree",
+                    RootRecordingId = "root_rover",
+                    BranchPoints = new List<BranchPoint> { launchBp, sepBp, dockBp },
+                    Recordings = new System.Collections.Generic.Dictionary<string, Recording>
+                    {
+                        { "root_rover", rover },
+                        { "rover_cont", roverContinuation },
+                        { "rocket", rocket },
+                        { "transfer_stage", transferStage },
+                        { "capsule", capsule },
+                        { "station_merged", stationMerged }
+                    }
+                };
+                RecordingStore.CommittedTrees.Add(tree);
 
-            foreach (var segment in rocketSegments.Concat(capsuleSegments))
-                Assert.True(tree.Recordings.ContainsKey(segment.RecordingId), segment.RecordingId);
+                var recordings = RecordingStore.CommittedRecordings;
+                RecordingStore.AddRecordingWithTreeForTesting(rover);
+                RecordingStore.AddRecordingWithTreeForTesting(roverContinuation);
+                RecordingStore.AddRecordingWithTreeForTesting(rocket);
+                RecordingStore.AddRecordingWithTreeForTesting(transferStage);
+                RecordingStore.AddRecordingWithTreeForTesting(capsule);
+                RecordingStore.AddRecordingWithTreeForTesting(stationMerged);
 
-            var lineagePids = GhostChainWalker.GetRootLineageVesselPids(tree);
-            Assert.Contains((uint)1001, lineagePids);
-            Assert.Contains((uint)2002, lineagePids);
-            Assert.Contains((uint)3003, lineagePids);
-            Assert.Contains((uint)4004, lineagePids);
+                RecordingStore.RunOptimizationPass();
 
-            RecordingStore.ResetForTesting();
+                Assert.Equal(9, recordings.Count);
+                Assert.Equal(9, tree.Recordings.Count);
+
+                var rocketHead = recordings.Single(r => r.RecordingId == "rocket");
+                Assert.False(string.IsNullOrEmpty(rocketHead.ChainId));
+                var rocketSegments = recordings
+                    .Where(r => !string.IsNullOrEmpty(r.ChainId) && r.ChainId == rocketHead.ChainId)
+                    .OrderBy(r => r.StartUT)
+                    .ToList();
+                Assert.Equal(2, rocketSegments.Count);
+                Assert.Equal("bp_launch", rocketSegments[0].ParentBranchPointId);
+                Assert.Null(rocketSegments[0].ChildBranchPointId);
+                Assert.Equal("bp_sep", rocketSegments[1].ChildBranchPointId);
+                for (int i = 0; i < rocketSegments.Count; i++)
+                    Assert.Equal(i, rocketSegments[i].ChainIndex);
+
+                var capsuleHead = recordings.Single(r => r.RecordingId == "capsule");
+                Assert.False(string.IsNullOrEmpty(capsuleHead.ChainId));
+                var capsuleSegments = recordings
+                    .Where(r => !string.IsNullOrEmpty(r.ChainId) && r.ChainId == capsuleHead.ChainId)
+                    .OrderBy(r => r.StartUT)
+                    .ToList();
+                Assert.Equal(3, capsuleSegments.Count);
+                Assert.NotEqual(rocketHead.ChainId, capsuleHead.ChainId);
+                Assert.Equal("bp_sep", capsuleSegments[0].ParentBranchPointId);
+                Assert.Null(capsuleSegments[0].ChildBranchPointId);
+                Assert.Null(capsuleSegments[1].ChildBranchPointId);
+                Assert.Equal("bp_dock", capsuleSegments[2].ChildBranchPointId);
+                for (int i = 0; i < capsuleSegments.Count; i++)
+                    Assert.Equal(i, capsuleSegments[i].ChainIndex);
+
+                Assert.Equal(new[] { rocketSegments[1].RecordingId }, sepBp.ParentRecordingIds);
+                Assert.Equal(new[] { capsuleSegments[2].RecordingId }, dockBp.ParentRecordingIds);
+                Assert.Equal(new[] { "rover_cont", "rocket" }, launchBp.ChildRecordingIds);
+                Assert.Equal(new[] { "transfer_stage", "capsule" }, sepBp.ChildRecordingIds);
+                Assert.Equal(new[] { "station_merged" }, dockBp.ChildRecordingIds);
+
+                foreach (var segment in rocketSegments.Concat(capsuleSegments))
+                    Assert.True(tree.Recordings.ContainsKey(segment.RecordingId), segment.RecordingId);
+
+                var lineagePids = GhostChainWalker.GetRootLineageVesselPids(tree);
+                Assert.Contains((uint)1001, lineagePids);
+                Assert.Contains((uint)2002, lineagePids);
+                Assert.Contains((uint)3003, lineagePids);
+                Assert.Contains((uint)4004, lineagePids);
+                Assert.Contains((uint)5005, lineagePids);
+
+                var chains = GhostChainWalker.ComputeAllGhostChains(
+                    new List<RecordingTree> { tree }, rewindUT: 0);
+                var dockChain = GhostChainWalker.FindChainForVessel(chains, 5005);
+                Assert.NotNull(dockChain);
+                Assert.Equal((uint)5005, dockChain.OriginalVesselPid);
+                Assert.Single(dockChain.Links);
+                Assert.Equal(capsuleSegments[2].RecordingId, dockChain.Links[0].recordingId);
+                Assert.Equal("bp_dock", dockChain.Links[0].branchPointId);
+                Assert.Equal("station_merged", dockChain.TipRecordingId);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
         }
 
         /// <summary>

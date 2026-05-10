@@ -6248,7 +6248,7 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Files:** `Source/Parsek.Tests/RecordingOptimizer*`, `Source/Parsek.Tests/RecordingStore*`, any integration-style optimizer/tree fixture that exercises `RunOptimizationPass` on a multi-stage tree with branch points.
 
-**Coverage:** `RecordingOptimizerTests.RunOptimizationPass_MultiStageTree_SplitsChildBranchesAndPreservesBranchTopology` covers a non-Re-Fly multi-stage tree where an optimized recording is both the child of an upstream branch point and the parent of a downstream branch point. It pins downstream `ChildBranchPointId` placement, exact `BranchPoint.ParentRecordingIds` relinking, the intentional upstream `ChildRecordingIds` invariant, chain indexing, committed-tree dictionary membership, and `GhostChainWalker` chain navigation through the optimized tree.
+**Coverage:** `RecordingOptimizerTests.RunOptimizationPass_MultiStageTree_SplitsChildBranchesAndPreservesBranchTopology` covers a non-Re-Fly multi-stage tree where optimized recordings are both children of upstream branch points and parents of downstream branch points. It pins downstream `ChildBranchPointId` placement, exact `BranchPoint.ParentRecordingIds` relinking, the intentional upstream `ChildRecordingIds` invariant, chain indexing, committed-tree dictionary membership, root-lineage traversal, and `GhostChainWalker.ComputeAllGhostChains` claim/tip resolution from an optimizer-rewritten chain tail.
 
 **Status:** CLOSED 2026-05-10. Test-only coverage fix.
 
