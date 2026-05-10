@@ -519,6 +519,258 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_EndPlusTinyEpsilon_UsesResolverSectionSeamTolerance()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 10.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.0 + 1e-12,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(111.0, pose.WorldPos.x, 6);
+            Assert.DoesNotContain(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AnchorOnePhysicsTickPastTerminalSection_ClampsToFinalPlayableFrameAndLogs()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
+                "terminal-anchor",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            double requestedUT = 10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds;
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                requestedUT,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(110.98, pose.WorldPos.x, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=terminal-anchor") &&
+                l.Contains("sectionIndex=0") &&
+                l.Contains("clampedUT=9.98") &&
+                l.Contains("sectionEndUT=10") &&
+                l.Contains("terminalPlayableUT=9.98") &&
+                l.Contains("thresholdSeconds="));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_TerminalClampThresholdBoundary_PassesThenFailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
+                "terminal-anchor",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 10.0,
+                terminalWorld: new Vector3d(110, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            double threshold = RelativeAnchorResolver.TerminalClampThresholdSeconds;
+            double smallDelta = 1e-7;
+            bool resolvedInside = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.0 + threshold - smallDelta,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolvedInside);
+            Assert.Equal(111.0, pose.WorldPos.x, 6);
+            Assert.Contains(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
+
+            logLines.Clear();
+            ParsekLog.ResetRateLimitsForTesting();
+
+            bool resolvedOutside = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.0 + threshold + smallDelta,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolvedOutside);
+            Assert.Equal(RelativeAnchorResolveOutcome.NoSectionAtUT, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.DoesNotContain(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AnchorPastTerminalClampWindow_FailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
+                "terminal-anchor",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 10.0,
+                terminalWorld: new Vector3d(110, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.2,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.NoSectionAtUT, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.DoesNotContain(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_SameChainSuccessorAtTerminalEdge_WinsBeforePredecessorClamp()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording firstHalf = MakeTerminalEdgeAbsoluteRecording(
+                "first-half",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            firstHalf.ChainId = "chain-parent";
+            firstHalf.ChainIndex = 0;
+
+            Recording secondHalf = MakeAbsoluteRecording(
+                "second-half",
+                tree.Id,
+                new Vector3d(200, 0, 0),
+                new Vector3d(210, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            secondHalf.ChainId = firstHalf.ChainId;
+            secondHalf.ChainIndex = 1;
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: firstHalf.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(firstHalf);
+            tree.AddOrReplaceRecording(secondHalf);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(201.02, pose.WorldPos.x, 5);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("Anchor recording continued through same-chain successor") &&
+                l.Contains("recordingId=first-half") &&
+                l.Contains("successorRecordingId=second-half"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=first-half"));
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_AnchorTerminalClamp_UsesReliabilityPathAndLogs()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
+                "terminal-anchor",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(10, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.False(decision.Unreliable);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=terminal-anchor"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_TwoLinkRelativeChain_ComposesThroughRecordedAnchors()
         {
             var tree = new RecordingTree { Id = "tree" };
@@ -1630,6 +1882,31 @@ namespace Parsek.Tests
                 checkpoints = new List<OrbitSegment>(),
                 source = TrackSectionSource.Active,
             });
+            return rec;
+        }
+
+        private static Recording MakeTerminalEdgeAbsoluteRecording(
+            string recordingId,
+            string treeId,
+            double sectionEndUT,
+            double terminalPlayableUT,
+            Vector3d terminalWorld)
+        {
+            Recording rec = MakeAbsoluteRecording(
+                recordingId,
+                treeId,
+                new Vector3d(100, 0, 0),
+                terminalWorld,
+                startUT: 0.0,
+                endUT: sectionEndUT);
+            TrackSection section = rec.TrackSections[0];
+            section.sampleRateHz = 50f;
+            section.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(0.0, new Vector3d(100, 0, 0), Quaternion.identity),
+                MakePoint(terminalPlayableUT, terminalWorld, Quaternion.identity),
+            };
+            rec.TrackSections[0] = section;
             return rec;
         }
 
