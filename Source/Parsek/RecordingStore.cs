@@ -1919,14 +1919,6 @@ namespace Parsek
                 return;
             }
 
-            // Phase 11 of Rewind-to-Staging (design §3.5 invariant 7 / §6.10):
-            // tree discard is the ONLY purge path for RewindPoints, supersede
-            // relations, and ledger tombstones whose endpoints tie back to
-            // the discarded tree. Runs BEFORE the recording list mutations
-            // below so the purge can still resolve ids -> Recording /
-            // GameAction for in-tree classification.
-            TreeDiscardPurge.PurgeTree(pendingTree.Id);
-
             // #431: purge tagged events for pending-only recording IDs first. A pending
             // tree can intentionally reference a committed recording ID; those events,
             // milestone entries, contract snapshots, and sidecars belong to committed
@@ -1947,6 +1939,14 @@ namespace Parsek
 
                 idsToPurge.Add(recordingId);
             }
+
+            // Phase 11 of Rewind-to-Staging (design §3.5 invariant 7 / §6.10):
+            // tree discard is the ONLY purge path for RewindPoints, supersede
+            // relations, and ledger tombstones whose endpoints tie back to
+            // the discarded tree. Use the actual pending tree instance and the
+            // pending-only recording id set so same-id committed trees and
+            // committed-overlap recordings are preserved.
+            TreeDiscardPurge.PurgeTree(pendingTree, idsToPurge);
             if (idsToPurge.Count > 0)
                 GameStateStore.PurgeEventsForRecordings(idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
             if (skippedCommittedEventPurges > 0)

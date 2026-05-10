@@ -102,10 +102,53 @@ namespace Parsek
                 return;
             }
 
+            PurgeTreeCore(scenario, tree, treeId, null);
+        }
+
+        /// <summary>
+        /// Purges tree-scoped state for a caller-owned tree instance. Pending-tree
+        /// discard uses this overload so same-id committed trees cannot be resolved
+        /// by <see cref="FindTree"/>, and so recording-id keyed purges can be
+        /// restricted to pending-only ids.
+        /// </summary>
+        internal static void PurgeTree(RecordingTree tree, HashSet<string> recordingIdsToPurge)
+        {
+            PurgeTreeCountForTesting++;
+
+            if (tree == null)
+            {
+                ParsekLog.Verbose(RewindTag, "PurgeTree: null tree instance — nothing to purge");
+                return;
+            }
+
+            string treeId = tree.Id;
+            if (string.IsNullOrEmpty(treeId))
+            {
+                ParsekLog.Verbose(RewindTag, "PurgeTree: tree instance has empty id — nothing to purge");
+                return;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (ReferenceEquals(null, scenario))
+            {
+                ParsekLog.Verbose(RewindTag,
+                    $"PurgeTree: no ParsekScenario instance — skipping purge for tree={treeId}");
+                return;
+            }
+
+            PurgeTreeCore(scenario, tree, treeId, recordingIdsToPurge);
+        }
+
+        private static void PurgeTreeCore(
+            ParsekScenario scenario,
+            RecordingTree tree,
+            string treeId,
+            HashSet<string> recordingIdsToPurge)
+        {
             // Collect the tree's membership sets once up-front so the
             // individual purge passes can answer "is X in the tree?" in O(1).
             var branchPointIds = CollectBranchPointIds(tree);
-            var recordingIds = CollectRecordingIds(tree);
+            var recordingIds = recordingIdsToPurge ?? CollectRecordingIds(tree);
 
             int rpsPurged = PurgeRewindPoints(scenario, branchPointIds, treeId);
             int supersedesPurged = PurgeSupersedeRelations(scenario, recordingIds, treeId);
