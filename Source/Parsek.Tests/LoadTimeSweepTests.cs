@@ -1004,6 +1004,59 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RetirementPointingAtImmutable_RestoredRecordingMissing_DoesNotInjectOrphanRelation()
+        {
+            // Edge case: legacy retirement carries a non-empty
+            // RestoredRecordingId, but the priorTip recording itself was
+            // purged out-of-band (manual delete, tree discard, earlier
+            // load-time sweep) between the buggy save and the current load.
+            // Without verifying the priorTip exists, the legacy cleanup
+            // would synthesize a one-sided orphan supersede pointing at a
+            // missing OldRecordingId. SweepOrphanSupersedes already ran
+            // earlier in the same sweep, so the new orphan would survive
+            // until next load — a spurious entry that would silently
+            // suppress... nothing (no recording with that id exists), but
+            // would still pollute the supersede list and confuse audit
+            // tools.
+            //
+            // Fix: TryRestoreLegacyImmutableSupersede now checks the live
+            // recording set and returns RestoredRecordingMissing when the
+            // priorTip is gone. The retirement is still removed (the
+            // canon recording becomes visible) but no relation is
+            // injected. Audit log makes the missing-priorTip case
+            // distinguishable from the orphan-no-id case.
+            InstallTree("tree_canon_only",
+                new List<Recording>
+                {
+                    Rec("rec_canon", MergeState.Immutable)
+                    // rec_priorTip intentionally NOT installed
+                },
+                new List<BranchPoint>());
+            var orphanedPriorTipRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_priortip_gone",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip", // recording no longer exists
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { orphanedPriorTipRetirement });
+
+            LoadTimeSweep.Run();
+
+            // Retirement removed (canon becomes visible).
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            // CRITICAL: no synthesized orphan relation pointing at a missing priorTip.
+            Assert.Empty(scenario.RecordingSupersedes);
+            // Distinct log line for this outcome — distinguishable from the
+            // orphan-no-RestoredRecordingId case and the standard restore.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_priortip_gone")
+                && l.Contains("RestoredRecordingId no longer exists in committed store"));
+        }
+
+        [Fact]
         public void RetirementPointingAtImmutable_DemotedCanonReason_NotSwept()
         {
             // The post-fix Pass-2 demotion intentionally retires Immutable

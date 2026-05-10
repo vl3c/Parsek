@@ -1331,6 +1331,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Rollback_SelfRewindOnImmutableFork_DropsIncomingSupersede()
+        {
+            // The user clicks Rewind on canon B itself (self-rewind on the
+            // canon fork). Topology: A → B(Immutable). Owner=B. A.StartUT is
+            // BEFORE rewindUT (A is the priorTip — it predates B's start);
+            // B.StartUT >= rewindUT (B is the rewind target).
+            //
+            // Pre-fix bug: rewoundOutOldIds = {B} (only owner; A's StartUT <
+            // rewindUT so A is not added). Predicate iterated supersedes and
+            // skipped A→B because A NOT in rewoundOutOldIds. Result: A→B
+            // survived, A stayed hidden by the relation, B was rewound away
+            // — A invisibly orphaned, no canon visible.
+            //
+            // Fix: case (b) "incoming, self-rewind on canon" detects rel.New
+            // == owner.RecordingId and forces drop regardless of MergeState
+            // (the user is explicitly undoing this canon).
+            //
+            // After fix: A→B drops, A becomes RestoredRecordingIds, B becomes
+            // RetiredForkRecordingIds. Live entry's Pass 1 retires B. Pass 2
+            // (old-side) iterates {A}: A.StartUT < rewindUT → strict check
+            // skips A. Final: A visible, B retired, A→B gone.
+            var a = MakeRec("A", startUT: 0.0);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "A", a }, { "B", b }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("A", "B")
+            };
+
+            // Owner is B itself. ownerTreeRecordings includes both A and B
+            // (the rewind target's tree); the predicate's tree-walk only
+            // adds tree recordings whose StartUT >= rewindUT, so B is added
+            // and A is filtered out.
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                b, rewindAdjustedUT: 25.0,  // before B's start (31.5), after A's start (0.0)
+                ownerTreeRecordings: new List<Recording> { a, b },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(1, result.DroppedRelationCount);
+            Assert.Empty(supersedes);
+            Assert.Contains("B", result.RetiredForkRecordingIds);
+            Assert.Contains("A", result.RestoredRecordingIds);
+            Assert.Empty(result.SkippedImmutableForkRecordingIds);
+            Assert.Empty(result.DemotedImmutablePreservationIds);
+        }
+
+        [Fact]
         public void Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops()
         {
             // Edge case: the owner of the rewind is itself an Immutable canon

@@ -5123,12 +5123,51 @@ namespace Parsek
                 var rel = supersedes[i];
                 if (rel == null || string.IsNullOrEmpty(rel.OldRecordingId)) continue;
                 if (string.IsNullOrEmpty(rel.NewRecordingId)) continue;
-                if (!rewoundOutOldIds.Contains(rel.OldRecordingId)) continue;
+
+                // Two distinct in-scope cases:
+                //
+                //   (a) "Outgoing": rel.OldRecordingId is in the rewound subtree
+                //       (parent rewind on A drops every A→fork relation). The
+                //       canonical case: parent A is rewound, all A's forks must
+                //       go (or preserve, if Immutable).
+                //
+                //   (b) "Incoming, self-rewind on canon": rel.NewRecordingId IS
+                //       the rewind owner. The user clicked Rewind on the canon
+                //       fork itself — they want to undo this canon recording.
+                //       The incoming relation (priorTip → canon) must drop so
+                //       priorTip becomes visible again. Without this, A→B(Imm)
+                //       with self-rewind on B leaves A→B intact, B's recording
+                //       is rewound away but A stays hidden by the orphaned
+                //       relation.
+                //
+                // Cases (a) and (b) overlap in the parent-rewind subtree case
+                // (both Old and New are in rewoundOutOldIds). We distinguish
+                // case (b) explicitly here so it bypasses the Immutable
+                // preservation branch — self-rewind on a canon fork must drop
+                // the relation regardless of MergeState, because the user is
+                // explicitly undoing this canon. Outgoing relations from the
+                // canon-fork-as-owner already drop via case (a) — see
+                // Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops.
+                bool oldInScope = rewoundOutOldIds.Contains(rel.OldRecordingId);
+                bool newIsSelfRewind = !string.IsNullOrEmpty(owner.RecordingId)
+                    && string.Equals(rel.NewRecordingId, owner.RecordingId, StringComparison.Ordinal);
+                if (!oldInScope && !newIsSelfRewind) continue;
+
                 Recording newRec = null;
                 if (liveRecordingsById != null)
                     liveRecordingsById.TryGetValue(rel.NewRecordingId, out newRec);
                 double effectiveForkUT = newRec != null ? newRec.StartUT : rel.UT;
                 if (effectiveForkUT < rewindAdjustedUT) continue;
+
+                // Self-rewind on the canon (case b): force drop. The Immutable
+                // preservation contract applies only to parent rewind — when
+                // the user explicitly rewinds the canon fork itself, the
+                // canon is being undone, not preserved.
+                if (newIsSelfRewind)
+                {
+                    pendingDrops.Add(rel);
+                    continue;
+                }
 
                 // Orphan-fallback (newRec == null) cannot read MergeState — drop
                 // as today; the fork is gone anyway and the relation would

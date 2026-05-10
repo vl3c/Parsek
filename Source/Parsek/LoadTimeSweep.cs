@@ -662,7 +662,8 @@ namespace Parsek
                     && !isIntentionalOldSide)
                 {
                     LegacyImmutableSupersedeRestoreResult restoreResult =
-                        TryRestoreLegacyImmutableSupersede(scenario, retirement);
+                        TryRestoreLegacyImmutableSupersede(
+                            scenario, retirement, knownRecordingIds);
                     string restoreNote;
                     switch (restoreResult)
                     {
@@ -674,6 +675,9 @@ namespace Parsek
                             break;
                         case LegacyImmutableSupersedeRestoreResult.MissingMetadata:
                             restoreNote = "(no RestoredRecordingId in retirement metadata — supersede relation cannot be reconstructed; priorTip may render alongside canon, investigate) ";
+                            break;
+                        case LegacyImmutableSupersedeRestoreResult.RestoredRecordingMissing:
+                            restoreNote = "(RestoredRecordingId no longer exists in committed store — supersede relation not reconstructed to avoid creating a one-sided orphan; priorTip may render alongside canon, investigate) ";
                             break;
                         default:
                             restoreNote = "(restore outcome=" + restoreResult.ToString() + ") ";
@@ -726,6 +730,8 @@ namespace Parsek
             AlreadyPresent,
             /// <summary>Retirement is orphan or carries no RestoredRecordingId; cannot reconstruct.</summary>
             MissingMetadata,
+            /// <summary>RestoredRecordingId names a recording that no longer exists in the live store.</summary>
+            RestoredRecordingMissing,
         }
 
         /// <summary>
@@ -735,13 +741,26 @@ namespace Parsek
         /// distinguishable log lines for each skip cause.
         /// </summary>
         private static LegacyImmutableSupersedeRestoreResult TryRestoreLegacyImmutableSupersede(
-            ParsekScenario scenario, RecordingRewindRetirement retirement)
+            ParsekScenario scenario,
+            RecordingRewindRetirement retirement,
+            HashSet<string> knownRecordingIds)
         {
             if (object.ReferenceEquals(null, scenario)
                 || retirement == null
                 || string.IsNullOrEmpty(retirement.RecordingId)
                 || string.IsNullOrEmpty(retirement.RestoredRecordingId))
                 return LegacyImmutableSupersedeRestoreResult.MissingMetadata;
+
+            // Verify the priorTip recording still exists in the live store.
+            // Without this check, a save where the priorTip was purged
+            // out-of-band (e.g. by an earlier discard sweep, by manual user
+            // delete, by a tree-discard purge) would have us synthesize a
+            // one-sided orphan relation that survives until the next load —
+            // SweepOrphanSupersedes ran earlier in this same sweep, so the
+            // newly-injected orphan won't be cleaned this cycle.
+            if (knownRecordingIds == null
+                || !knownRecordingIds.Contains(retirement.RestoredRecordingId))
+                return LegacyImmutableSupersedeRestoreResult.RestoredRecordingMissing;
 
             if (scenario.RecordingSupersedes == null)
                 scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
