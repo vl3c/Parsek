@@ -114,6 +114,33 @@ namespace Parsek.Tests
             bool suppressFx,
             string callsite)
         {
+            InvokePositionLoopAtPlaybackUT(
+                engine,
+                index,
+                traj,
+                state,
+                loopUT,
+                suppressFx,
+                callsite,
+                default(TrajectoryPlaybackFlags),
+                loopUT,
+                1f,
+                emitExitWatch: false);
+        }
+
+        private static void InvokePositionLoopAtPlaybackUT(
+            GhostPlaybackEngine engine,
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double loopUT,
+            bool suppressFx,
+            string callsite,
+            TrajectoryPlaybackFlags flags,
+            double frameUT,
+            float warpRate,
+            bool emitExitWatch)
+        {
             MethodInfo method = typeof(GhostPlaybackEngine).GetMethod(
                 "PositionLoopAtPlaybackUT",
                 BindingFlags.Instance | BindingFlags.NonPublic);
@@ -121,7 +148,19 @@ namespace Parsek.Tests
 
             method.Invoke(
                 engine,
-                new object[] { index, traj, state, loopUT, suppressFx, callsite });
+                new object[]
+                {
+                    index,
+                    traj,
+                    flags,
+                    state,
+                    loopUT,
+                    frameUT,
+                    warpRate,
+                    suppressFx,
+                    emitExitWatch,
+                    callsite
+                });
         }
 
         private sealed class SpawnPrimingPositioner : IGhostPositioner
@@ -973,6 +1012,65 @@ namespace Parsek.Tests
             Assert.False(state.anchorRetiredThisFrame);
             Assert.Equal(1, positioner.PositionLoopCalls);
             Assert.Equal(105.0, positioner.LastLoopUT);
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_AnchorRotationUnreliable_HidesBeforeLoopPositioner()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            GhostPlaybackState state = null;
+            var cameraEvents = new List<CameraActionEvent>();
+            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
+            double observedPlaybackUT = double.NaN;
+            string observedScope = null;
+            var flags = new TrajectoryPlaybackFlags
+            {
+                tryEvaluateAnchorRotationReliability =
+                    (int idx, IPlaybackTrajectory observedTraj, double playbackUT,
+                        string playbackScope,
+                        out AnchorRotationReliabilityDecision decision) =>
+                    {
+                        Assert.Equal(4, idx);
+                        Assert.Same(traj, observedTraj);
+                        observedPlaybackUT = playbackUT;
+                        observedScope = playbackScope;
+                        decision = new AnchorRotationReliabilityDecision(
+                            unreliable: true,
+                            anchorRecordingId: "parent-rec",
+                            bracketDegrees: 24.0,
+                            rateDegreesPerSecond: 240.0,
+                            offsetMeters: 1500.0);
+                        return true;
+                    }
+            };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 4,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop",
+                flags: flags,
+                frameUT: 222.0,
+                warpRate: 2f,
+                emitExitWatch: true);
+
+            Assert.Equal(0, positioner.PositionLoopCalls);
+            Assert.Equal(105.0, observedPlaybackUT);
+            Assert.Equal("test-loop", observedScope);
+
+            var evt = Assert.Single(cameraEvents);
+            Assert.Equal(CameraActionType.ExitWatch, evt.Action);
+            Assert.Equal(4, evt.Index);
+            Assert.Same(traj, evt.Trajectory);
+            Assert.NotNull(evt.Flags.tryEvaluateAnchorRotationReliability);
+            Assert.Contains(logLines, l =>
+                l.Contains("anchor-rotation-unreliable")
+                && l.Contains("playbackUT=105"));
         }
 
         [Fact]

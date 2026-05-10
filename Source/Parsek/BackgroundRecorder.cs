@@ -132,6 +132,7 @@ namespace Parsek
         private const double roboticSampleIntervalSeconds = 0.25;
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
+        private const float backgroundAttitudeSampleThresholdDegrees = 1.0f;
 
         // Injectable vessel finder for CheckpointAllVessels (null = use FlightRecorder.FindVesselByPid)
         private System.Func<uint, Vessel> vesselFinderOverride;
@@ -194,6 +195,8 @@ namespace Parsek
             // Adaptive sampling state
             public double lastRecordedUT = -1;
             public Vector3 lastRecordedVelocity;
+            public Quaternion lastWorldRotation;
+            public bool hasLastWorldRotation;
 
             // Proximity-based sample interval tracking
             public double currentSampleInterval = ProximityRateSelector.OutOfRangeInterval;
@@ -1918,6 +1921,7 @@ namespace Parsek
             // configured foreground minimum so close split ghosts follow the same density
             // policy as the active recorder instead of a hard-coded physics-frame rate.
             Vector3 currentVelocity = (Vector3)(bgVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
+            Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(bgVessel.transform.rotation);
 
             float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
             float minSampleInterval = ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
@@ -1934,10 +1938,24 @@ namespace Parsek
                 effectiveMaxSampleInterval,
                 treeRec);
 
-            if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
+            bool motionTriggered = TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
                 ut, state.lastRecordedUT,
                 effectiveMinSampleInterval, effectiveMaxSampleInterval,
-                velocityDirThreshold, speedChangeThreshold))
+                velocityDirThreshold, speedChangeThreshold);
+            float attitudeMinSampleInterval = ResolveBackgroundAttitudeMinSampleInterval(
+                highFidelityActive,
+                effectiveMinSampleInterval,
+                minSampleInterval);
+            bool attitudeTriggered = FlightRecorder.ShouldRecordAttitudePoint(
+                currentWorldRotation,
+                state.lastWorldRotation,
+                ut,
+                state.lastRecordedUT,
+                state.hasLastWorldRotation,
+                attitudeMinSampleInterval,
+                backgroundAttitudeSampleThresholdDegrees);
+
+            if (!motionTriggered && !attitudeTriggered)
             {
                 return;
             }
@@ -1979,6 +1997,8 @@ namespace Parsek
             treeRec.MarkFilesDirty();
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
+            state.lastWorldRotation = currentWorldRotation;
+            state.hasLastWorldRotation = true;
 
             // Dual-write: also add to current TrackSection's frames list
             AddFrameToActiveTrackSection(
@@ -3067,6 +3087,11 @@ namespace Parsek
                 vesselPid = vesselPid,
                 recordingId = recordingId
             };
+            if (v != null && v.transform != null)
+            {
+                state.lastWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
+                state.hasLastWorldRotation = true;
+            }
 
             // Cache engine/RCS/robotic modules
             state.cachedEngines = FlightRecorder.CacheEngineModules(v);
@@ -3904,6 +3929,24 @@ namespace Parsek
             // Keep periodic background samples on the same pose contract so the ghost root
             // does not jump from a root-part seed to a vessel-origin ordinary sample.
             return treeRec != null && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId);
+        }
+
+        internal static float ResolveBackgroundAttitudeMinSampleInterval(
+            bool highFidelityActive,
+            float effectiveMotionMinSampleInterval,
+            float foregroundMinSampleInterval)
+        {
+            // highFidelityActive is already folded into
+            // effectiveMotionMinSampleInterval by the caller; attitude uses the
+            // more aggressive of motion cadence and foreground attitude floor.
+            _ = highFidelityActive;
+            // The two-arg helper currently returns the configured foreground
+            // minimum unchanged; keep the call here so this background path stays
+            // aligned if foreground cadence policy grows another override.
+            float foregroundAttitudeMin = FlightRecorder.ResolveEffectiveMinSampleInterval(
+                true,
+                foregroundMinSampleInterval);
+            return Math.Min(effectiveMotionMinSampleInterval, foregroundAttitudeMin);
         }
 
         internal static TrajectoryPoint CreateAbsoluteTrajectoryPointFromVessel(
@@ -6699,6 +6742,11 @@ namespace Parsek
                     relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
                 state.lastRecordedUT = point.ut;
                 state.lastRecordedVelocity = point.velocity;
+                if (v.transform != null)
+                {
+                    state.lastWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
+                    state.hasLastWorldRotation = true;
+                }
                 ActivateBackgroundHighFidelitySampling(
                     state,
                     eventUT,
