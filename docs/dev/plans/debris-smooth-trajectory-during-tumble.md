@@ -111,27 +111,58 @@ Cons:
 
 The original PR #793 already added a recorder-side attitude trigger so future BG-loaded tumbling parents emit denser samples. Old recordings (the user's playtest data) cannot benefit. Option A is needed for back-compat regardless.
 
-## Recommendation
+## External-review corrections (applied below)
 
-Implement Option A:
+The earlier draft is corrected by an external code-inspection review on three points that change implementation shape, plus two methodology fixes:
 
-1. Generalise the existing `TryUseRelativeAbsoluteShadowFallback` (used by `LegacyDebrisShadowGate`) to also fire for v12 parent-anchored debris during the unreliable-anchor-rotation window. The v11 gate continues to fire for v11 debris; the v12 gate fires only when the tumbling-parent gate would have hidden. Two distinct triggers, one shared positioning helper.
-2. Replace the engine's `HideAnchorRotationUnreliableState` action with a "route to shadow-lerp" action when the recording's section has `absoluteFrames`. Fall back to the existing hide-on-unreliable when no shadow data is available (older recordings that did not write a shadow, or future recordings that opt out).
-3. Keep the gate's hysteresis and FX-teardown semantics. The visible mesh stays on; FX still suppress because the rotation interp is still untrustworthy.
-4. Optional rotation handling: at parent sample boundaries the chain and shadow agree exactly, so lerp the rotation between the cached parent-anchored rotations at the bracket-boundary UTs. Avoids visible spinning chaos.
-5. Update CHANGELOG, todo, and the in-repo CLAUDE.md to record the new v12 absolute-shadow carve-out and where it sits relative to Phase D.
+1. **`absoluteFrames` are full `TrajectoryPoint`s, not position-only.** Confirmed at `FlightRecorder.cs:7146` (`TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity, currentUT)`, then `TrajectoryPoint absolutePoint = point` before the relative-conversion call). `BuildTrajectoryPoint` (`FlightRecorder.cs:8436`) writes `rotation = v.srfRelRotation` alongside lat/lon/alt. The same pre-relative capture happens on the BG side at `BackgroundRecorder.cs` around the OnBackgroundPhysicsFrame sample commit. So the shadow includes body-relative rotation per sample.
 
-Open questions:
+2. **Existing absolute-shadow playback already slerps shadow rotation.** `ParsekFlight.cs:17158`: `Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t)`, then composed with `bodyTransform.rotation` for world rotation. So the rotation question collapses: route to the same code path that already runs for v11 debris and the rotation handling is free.
 
-- **Rotation policy during the smooth window**: freeze, slerp at sample boundaries only, or accept current slerp? Plan to start with "slerp at sample boundaries only" (cheapest correct option), revisit if the visual still reads weird.
-- **Transition jitter**: confirm via instrumentation that gate engage/release happens at parent sample boundaries; if it happens mid-bracket, add a small fade-in across 2-3 frames at the release transition.
-- **Recordings without `absoluteFrames`**: keep the hide path as the fallback when shadow data is absent. Log the route taken so playtest distinguishes the two paths.
+3. **`TryUseRelativeAbsoluteShadowFallback` cannot be reused as-is.** `ParsekFlight.cs:22691`: the wrapper deliberately calls `TryRetireParentAnchoredDebrisOnRecordedAnchorMiss` BEFORE checking shadow data, so v12 parent-anchored debris is retired on a recorded-anchor miss and never reaches the shadow lerp inside this wrapper. The position-from-shadow helper (the lerp at `:17151-17158`) needs to be extracted into its own internal method, then called from three policy wrappers: legacy (LegacyDebrisShadowGate), resolver-failure (existing v12 retire-first), and the new tumbling-quality route. Each wrapper stays in charge of its own retire / log / event policy.
 
-## Test plan
+4. **Chord-error reframe.** The earlier `r * (1 - cos(omega * dt / 2))` worst-case used parent angular velocity * lever arm. That formula applies if the child's true world path is a circular sweep around the parent. For separated debris, the shadow IS the child's own world trajectory, and parent angular velocity is exactly the artifact source we are bypassing. The relevant curvature is sample-to-sample direction change in the absoluteFrames themselves, not parent omega. Run-3 trace data shows expected per-frame motion ~1.7 m at 0.02 s, so the child world path is much gentler than the parent-lever-arm model implied.
 
-- New unit test in `RelativeAnchorResolverTests` (or a new `DebrisAbsoluteShadowSmoothTests`): given a recording with `absoluteFrames` and the tumbling-parent gate engaged, the resolved position equals lerped shadow at the playback UT, not the unreliable parent-chain world position.
-- New unit test: given a recording WITHOUT `absoluteFrames` (e.g. legacy v6 only), the engine still falls back to the existing hide path (regression guard so we do not lose the hide safety net).
-- Integration test in `RuntimeTests.cs` (in-game): synthesize a tumbling-parent + 1500 m-offset debris pair, verify the visible ghost remains active=true through the chaos window, and the per-frame delta stays within a small multiple of expected (say 5x) instead of the current 30-300x.
+5. **Transition risk does NOT collapse to "gate edges land at parent sample boundaries."** Hysteresis explicitly preserves hold on unevaluated sample-boundary frames after Fix 1, so release fires on the first evaluated frame after a boundary, not necessarily at the boundary itself. Offset (the lever arm) can also vary within a bracket. Plan-time instrumentation should compare `shadowPos` vs `chainPos` at the route-transition frame; if delta exceeds a small threshold, blend position with smoothstep over 3-6 physics frames. Visibility never fades unless the shadow route is unavailable.
+
+## Recommendation (revised)
+
+Implement Option A, structured as a "quality fallback" route distinct from the existing resolver-failure fallback:
+
+1. **Extract a shadow-position helper** from `ParsekFlight.cs:17151-17158`: `internal static InterpolationResult InterpolateRelativeAbsoluteShadowAt(TrackSection section, double targetUT, ...)`. Pure, takes a `TrackSection` with `absoluteFrames`, returns world position + slerped surface-relative rotation + the bracket UTs used. No retire/policy logic. Exists alongside `TryUseRelativeAbsoluteShadowFallback`, which keeps its v12-retire-first guard intact for the resolver-failure path.
+
+2. **Add a new `IGhostPositioner` method**: `void PositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT, out InterpolationResult result)`. Implementation in `ParsekFlight` calls the extracted helper on the active Relative section. Applies world rotation = `bodyRotation * srfRelRot`, writes ghost transform, returns the bracket info for caller logging.
+
+3. **Convert `TryHideForAnchorRotationUnreliable` into a router** returning a small enum:
+   - `AnchorRotationUnreliableRoute.None` -- gate did not fire, normal positioning runs.
+   - `AnchorRotationUnreliableRoute.ShadowPositioned` -- gate fired AND the active Relative section has covering `absoluteFrames` -- engine calls the new positioner method, keeps mesh active, suppresses FX/events, does NOT mark the ghost retired, emits `[Anchor] anchor-rotation-shadow-route` log.
+   - `AnchorRotationUnreliableRoute.Hidden` -- gate fired but no shadow data available -- existing hide path runs, log emits `[Anchor] anchor-rotation-unreliable-hidden` (renamed from the current single line so playtests distinguish the two routes).
+
+4. **Transition handling**: at the route-edge frame (first frame the route flips to ShadowPositioned, and first frame back to None), the engine compares the just-resolved position against the previous-frame's rendered position. If `delta > threshold` (start with 5 m -- well above sample-boundary precision noise but well below visible teleport size), blend between previous and target positions with a smoothstep curve over the next N physics frames (start with N=4). Implementation lives in the engine's per-state struct as a `transitionBlend` short-lived field; resets to inactive when blend completes. No visibility fade; only position blend.
+
+5. **Hysteresis and FX teardown stay unchanged.** The gate predicate, `Evaluated` flag, hysteresis state, and `ApplyFrameVisuals` suppression flags carry over. The only behavioral change is in the "what to do when the gate fires" branch.
+
+6. **Phase D boundary stays crisp.** The shadow is read only after the gate has positively classified the parent chain as visually unreliable, AND only as recorded data, AND never as a substitute for live anchors. The plan doc and a comment at the new positioner method record this contract explicitly.
+
+7. **Doc updates**: CHANGELOG entry, `docs/dev/todo-and-known-bugs.md` follow-up paragraph, and a one-line extension to `.claude/CLAUDE.md`'s Format-v7 paragraph noting the additional v12-tumbling-quality consumer of `absoluteFrames`. Same commit as the code.
+
+## Open questions (revised)
+
+- **Transition delta threshold and blend frame count**: defaults of 5 m / 4 frames are guesses. Plan to instrument the route-edge frames with `delta=` log lines on the first playtest after implementation, then tune. If 95th-percentile delta is well below 5 m, drop the blend entirely.
+- **Recordings without `absoluteFrames`**: route to existing Hidden path. (Decided.)
+- **Loop-relative debris**: out of scope; gate stays non-loop-only. (Decided.)
+
+## Test plan (revised)
+
+Unit:
+- `DebrisShadowSmoothRouteTests.PositionFromShadow_LerpsBetweenAbsoluteFrames`: synthesize a recording with two `absoluteFrames` 0.20 s apart, request playback at midway UT, assert position is the linear lerp and rotation is the slerp.
+- `DebrisShadowSmoothRouteTests.RouteIsShadowPositioned_WhenGateFiresAndShadowAvailable`: use the existing tumbling-parent test fixture, assert the new router returns `ShadowPositioned` instead of `Hidden`.
+- `DebrisShadowSmoothRouteTests.RouteIsHidden_WhenGateFiresAndShadowMissing`: same gate, but section has empty `absoluteFrames`. Asserts `Hidden` (regression guard for the no-shadow case).
+- `DebrisShadowSmoothRouteTests.TransitionBlend_AppliesWhenDeltaExceedsThreshold`: synthesize a route flip where shadowPos and chainPos differ by 50 m. Assert the engine emits 4 transition-blend frames, each pos within `[prev, target]` and monotonically advancing along smoothstep.
+- `DebrisShadowSmoothRouteTests.RoutingDoesNotMarkRetired`: confirms `state.anchorRetiredThisFrame` stays false after the shadow route runs (so the existing `if (retired)` branch in `RenderInRangeGhost` does not skip ActivateGhostVisualsIfNeeded / TrackGhostAppearance for the shadow case).
+
+In-game (`RuntimeTests.cs`):
+- `TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable`: synthesize a tumbling-parent + 1500 m-offset debris pair (or use the existing fixture if present), verify visible ghost remains `active=true` through the chaos window, log `dM` per frame, assert max `dM` stays within 5x of `expectedDM`. Compare against the same fixture's pre-fix log (currently 30-300x).
 
 ## Out of scope for this investigation
 
