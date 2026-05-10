@@ -116,26 +116,28 @@ The original PR #793 already added a recorder-side attitude trigger so future BG
 
 Implement Option A, structured as a "quality fallback" route distinct from the existing resolver-failure fallback. The corrections from external code review (around `absoluteFrames` carrying rotation, the existing slerp at `ParsekFlight.cs:17158`, and the v12-retire-first guard inside `TryUseRelativeAbsoluteShadowFallback` at `:22691`) are folded into the steps below.
 
-1. **Extract a shadow-pose helper** from `ParsekFlight.cs:17151-17158`. Note: the existing `InterpolationResult` struct carries velocity/body/altitude only -- it cannot hold the new fields. Either define a new internal struct `RelativeAbsoluteShadowPose { Vector3d WorldPos; Quaternion SurfaceRelRotation; double BracketBeforeUT; double BracketAfterUT; bool Resolved; }`, or use explicit out params. Out params are simpler for an internal helper; signature:
+1. **Reuse the existing `InterpolateAndPosition` path -- do NOT extract a parallel helper.** The earlier draft proposed extracting just `ParsekFlight.cs:17151-17158` (raw lerp + slerped rotation). That scope is too narrow: the surrounding `InterpolateAndPosition` flow ALSO
 
-    ```
-    internal static bool TryInterpolateRelativeAbsoluteShadowAt(
-        TrackSection section,
-        double targetUT,
-        out Vector3d worldPos,
-        out Quaternion surfaceRelRotation,
-        out double bracketBeforeUT,
-        out double bracketAfterUT)
-    ```
+    - resolves body / effective altitude (tail-lift, terrain clearance) per side of the bracket (`ParsekFlight.cs:17142-17154`),
+    - populates an `InterpolationResult` (velocity, body, altitude) that callers feed into `state.SetInterpolated(interpResult)` -- watch mode camera and FX paths read `lastInterpolatedBodyName / Altitude / Velocity` from there (see the canonical positioner pattern at `ParsekFlight.cs:16653-16658`),
+    - registers a `GhostPosEntry` (`ParsekFlight.cs:17343-17413`) for LateUpdate re-positioning after `FloatingOrigin.setOffset` shifts. Without this registration the ghost snaps one frame on every origin shift.
 
-    Pure function, takes a `TrackSection` with `absoluteFrames`, returns false if the section has no shadow / target UT outside coverage / NaN sample. No retire / log / event policy. Exists alongside `TryUseRelativeAbsoluteShadowFallback`, which keeps its v12-retire-first guard intact for the resolver-failure path.
+    A new shadow-only helper that omits any of these would visibly regress watch-mode camera, FX, and origin-shift handling. So the new tumbling-quality wrapper calls `InterpolateAndPosition(state.ghost, target.Section.absoluteFrames, ref playbackIdx, ut, ..., out interpResult)` directly with the section's absoluteFrames -- exactly the shape `TryUseRelativeAbsoluteShadowFallback` already uses at `ParsekFlight.cs:22711-22722`. The reuse gets body/altitude/InterpolationResult/GhostPosEntry handling for free, and the section's `[BracketBeforeUT, BracketAfterUT]` are recoverable from the same frames list for the caller's log line.
 
-2. **Add a new `IGhostPositioner` method**: `bool PositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT, out double bracketBeforeUT, out double bracketAfterUT)`. Implementation in `ParsekFlight` calls the extracted helper on the active Relative section, composes world rotation = `bodyRotation * surfaceRelRotation`, writes the ghost transform, and exposes bracket UTs for the caller's log line. Returns false when no shadow data covers the UT (caller falls back to Hidden).
+2. **Add a new `IGhostPositioner` method** with the standard positioner contract: `bool PositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT, out InterpolationResult result, out double bracketBeforeUT, out double bracketAfterUT)`. Implementation in `ParsekFlight` runs `InterpolateAndPosition` against the active Relative section's `absoluteFrames` exactly as the legacy shadow path does, returns false when no shadow covers the UT (caller falls back to `Hidden`), and otherwise:
+
+    - returns the populated `InterpolationResult` for the engine to feed into `state.SetInterpolated(...)` (matching the existing PositionAtPoint pattern at `:16657`),
+    - returns the section's bracket UTs around the playback UT for the caller's `[Anchor] anchor-rotation-shadow-route` log,
+    - relies on `InterpolateAndPosition`'s own GhostPosEntry registration so LateUpdate handles FloatingOrigin shifts the same way it does for legacy v11 shadow playback.
 
 3. **Convert `TryHideForAnchorRotationUnreliable` into a router** returning a small enum:
    - `AnchorRotationUnreliableRoute.None` -- gate did not fire, normal positioning runs.
-   - `AnchorRotationUnreliableRoute.ShadowPositioned` -- gate fired AND the positioner reported success -- engine keeps the mesh active, suppresses FX/events for the frame, does NOT mark `state.anchorRetiredThisFrame = true`, emits a `[Anchor] anchor-rotation-shadow-route` log line that includes `bracketBeforeUT` / `bracketAfterUT` and the playback UT.
-   - `AnchorRotationUnreliableRoute.Hidden` -- gate fired but no shadow data covered the UT -- existing hide path runs, log emits `[Anchor] anchor-rotation-unreliable-hidden` (renamed from the current single line so playtests distinguish the two routes).
+   - `AnchorRotationUnreliableRoute.ShadowPositioned` -- gate fired AND the positioner returned true. Engine calls `state.SetInterpolated(interpResult)` with the InterpolationResult the positioner produced, keeps the mesh active, suppresses FX/events for the frame, does NOT mark `state.anchorRetiredThisFrame = true`, emits a `[Anchor] anchor-rotation-shadow-route` log line that includes `bracketBeforeUT` / `bracketAfterUT` and the playback UT.
+   - `AnchorRotationUnreliableRoute.Hidden` -- gate fired but the positioner returned false (no shadow covered the UT). Existing hide path runs, log emits `[Anchor] anchor-rotation-unreliable-hidden` (renamed from the current single line so playtests distinguish the two routes).
+
+   Sequencing inside the router: when the gate fires, the router calls the new positioner FIRST. Only if it returns false does the router fall through to the hide path. This call ordering is what lets the engine pick `ShadowPositioned` vs `Hidden` without the gate's `AnchorRotationReliabilityDecision` needing a new "shadow available" field.
+
+   Local variable rename in `RenderInRangeGhost`: today the engine reads `bool anchorRotationHidden` from the gate and short-circuits the post-position pipeline with `bool retired = anchorRotationHidden || ...` at `GhostPlaybackEngine.cs:1217-1219`. The router's `ShadowPositioned` outcome must NOT short-circuit -- so `anchorRotationHidden` becomes only-true when the route is `Hidden`, and the `ShadowPositioned` outcome falls through to the normal Activate / TrackGhostAppearance branch (modified to skip FX events). Without this rename / branch split, the mesh stays at the new shadow position but FX teardown and appearance tracking get skipped, which would silently regress watch mode and FX state.
 
 4. **Transition handling**: at the route-edge frame (first frame the route flips to / from `ShadowPositioned`), the engine compares the just-resolved position against the previous-frame's rendered position. If `delta > threshold` (start at 5 m -- well above sample-boundary precision noise but well below visible teleport size), blend between previous and target positions with a smoothstep curve over the next N physics frames (start at N=4). Implementation lives in the engine's per-state struct as a short-lived `transitionBlend` field; resets to inactive when blend completes. No visibility fade; only position blend. Defaults are guesses, instrumented and tuned after first playtest.
 
