@@ -4971,7 +4971,12 @@ namespace Parsek
             if (scenario.RecordingRewindRetirements == null)
                 scenario.RecordingRewindRetirements = new List<RecordingRewindRetirement>();
 
-            var existing = EffectiveState.ComputeRewindRetiredRecordingIds(scenario.RecordingRewindRetirements);
+            // Local scratch — we mutate this set in both passes so a fork retired
+            // in pass 1 is not re-retired as an old side in pass 2 (and a previous
+            // crash-recovery / re-apply iteration that already wrote a row for the
+            // same id is a no-op). ComputeRewindRetiredRecordingIds returns a
+            // fresh HashSet, so mutating it doesn't leak back into the scenario.
+            var seenRetiredIds = EffectiveState.ComputeRewindRetiredRecordingIds(scenario.RecordingRewindRetirements);
 
             // Pass 1 — fork side (NewRecordingId of every dropped supersede).
             // These are the Re-Fly result recordings that need to disappear after
@@ -4981,7 +4986,7 @@ namespace Parsek
             // owner here).
             foreach (string retiredId in rollback.RetiredForkRecordingIds)
             {
-                if (string.IsNullOrEmpty(retiredId) || existing.Contains(retiredId))
+                if (string.IsNullOrEmpty(retiredId) || seenRetiredIds.Contains(retiredId))
                     continue;
 
                 Recording retiredRec = null;
@@ -5016,7 +5021,7 @@ namespace Parsek
                     Reason = RecordingRewindRetirement.DefaultReason,
                 };
                 scenario.RecordingRewindRetirements.Add(retirement);
-                existing.Add(retiredId);
+                seenRetiredIds.Add(retiredId);
                 counts.ForksAdded++;
 
                 if (!SuppressLogging)
@@ -5044,7 +5049,7 @@ namespace Parsek
             // hide.
             foreach (string oldSideId in rollback.RestoredRecordingIds)
             {
-                if (string.IsNullOrEmpty(oldSideId) || existing.Contains(oldSideId))
+                if (string.IsNullOrEmpty(oldSideId) || seenRetiredIds.Contains(oldSideId))
                     continue;
 
                 if (!string.IsNullOrEmpty(ownerRecordingId)
@@ -5084,7 +5089,7 @@ namespace Parsek
                     Reason = RecordingRewindRetirement.RewoundOutOldSideReason,
                 };
                 scenario.RecordingRewindRetirements.Add(retirement);
-                existing.Add(oldSideId);
+                seenRetiredIds.Add(oldSideId);
                 counts.OldSidesAdded++;
 
                 if (!SuppressLogging)

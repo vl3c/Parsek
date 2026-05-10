@@ -429,10 +429,17 @@ namespace Parsek.Tests
             int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 6.5);
 
             Assert.Equal(2, dropped);
-            // Two fork retirements (B and C), zero old-side retirements (A is
-            // owner; B.StartUT > 6.5 but B is also a fork so it ends up in the
-            // forks pass via RetiredForkRecordingIds and is skipped from the
-            // old-side pass through the existing-set guard).
+            // Two fork retirements (B and C), zero old-side retirements:
+            //   - A is the owner — explicit owner-skip in the old-side pass.
+            //   - B has StartUT=31.5 > rewindUT=6.5 AND is the OldRecordingId of
+            //     the dropped B->C relation (so B lands in RestoredRecordingIds),
+            //     but B is ALSO the NewRecordingId of the dropped A->B relation
+            //     (so B is in RetiredForkRecordingIds first). Pass 1 retires B
+            //     as a fork; pass 2's seenRetiredIds.Contains check then skips B.
+            //   - C has StartUT=50 > rewindUT=6.5 and is in RetiredForkRecordingIds
+            //     only, so it retires as a fork.
+            // Both retirements therefore carry DefaultReason, none carry
+            // RewoundOutOldSideReason.
             Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
             Assert.All(scenario.RecordingRewindRetirements, r =>
                 Assert.Equal(RecordingRewindRetirement.DefaultReason, r.Reason));

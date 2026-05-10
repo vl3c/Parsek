@@ -52,13 +52,13 @@ The current code splits between `DropSupersedesRewoundOutOfExistenceDetailedPure
 
 ### `restoredCount` line in the rollback summary log
 
-Today the summary log reports `dropped=3 retiredForks=1 restored=3`. After the fix, the third value drifts: of the 3 "restored" entries, 3 actually convert to additional retirements. Update the log to also report `retiredOldSides=N` so the playtest log lines stay legible:
+Today the summary log reports `dropped=3 retiredForks=1 restored=3`. After the fix, the meaning of the third value is unchanged but a new `retiredOldSides=N` field is inserted between `retiredForks` and `restored` so the playtest log stays legible:
 
 ```
-Rewind supersede rollback: dropped=3 retiredForks=1 retiredOldSides=3 restored=0 rewindUT=286.9 owner='Kerbal X'
+Rewind supersede rollback: dropped=3 retiredForks=1 retiredOldSides=3 restored=3 rewindUT=286.9 owner='Kerbal X'
 ```
 
-`restored` should reflect the post-fix count (originals that legitimately stayed visible — owner.StartUT == rewindAdjustedUT cases). Keep the field name to avoid breaking grep heuristics in old logs.
+`restored` keeps reflecting `RestoredRecordingIds.Count` (originals whose supersede was dropped) so historical greps for that field stay valid; the new `retiredOldSides` field is the post-fix counter for "of those, how many were also retired by pass 2."
 
 ## Test plan
 
