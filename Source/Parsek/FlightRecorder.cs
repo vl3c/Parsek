@@ -5474,6 +5474,45 @@ namespace Parsek
                 situation: situation);
         }
 
+        internal static string FormatRelativeExitDistanceForLog(
+            bool anchorFound,
+            double distanceMeters)
+        {
+            if (!anchorFound
+                || double.IsNaN(distanceMeters)
+                || double.IsInfinity(distanceMeters)
+                || distanceMeters < 0.0
+                || distanceMeters == double.MaxValue)
+            {
+                return "unresolved";
+            }
+
+            return distanceMeters.ToString("F1", CultureInfo.InvariantCulture) + "m";
+        }
+
+        internal static string FormatRelativeExitDistanceFieldForLog(
+            bool anchorFound,
+            double distanceMeters)
+        {
+            string distance = FormatRelativeExitDistanceForLog(anchorFound, distanceMeters);
+            return distance == "unresolved"
+                ? "dist=unresolved"
+                : "dist=" + distance;
+        }
+
+        internal static string BuildRelativeModeExitedLogMessage(
+            string previousAnchorRecordingId,
+            uint diagnosticPid,
+            bool anchorFound,
+            double distanceMeters,
+            uint vesselPid)
+        {
+            return $"RELATIVE mode exited: previousAnchorRecordingId={previousAnchorRecordingId ?? "(none)"} " +
+                   $"diagnosticPid={diagnosticPid} " +
+                   $"{FormatRelativeExitDistanceFieldForLog(anchorFound, distanceMeters)} " +
+                   $"vesselPid={vesselPid}";
+        }
+
         private void UpdateAnchorDetection(Vessel v)
         {
             // Skip anchor detection while on the surface — RELATIVE mode is for orbital
@@ -5490,7 +5529,6 @@ namespace Parsek
                 // skipped frames, so last recorded point could be far from here.
                 double boundaryUT = Planetarium.GetUniversalTime();
                 SamplePositionAtUT(v, boundaryUT);
-                var ic = CultureInfo.InvariantCulture;
                 string oldAnchorRecordingId = currentAnchorRecordingId;
                 uint oldAnchorPid = currentAnchorPid;
                 isRelativeMode = false;
@@ -5590,7 +5628,6 @@ namespace Parsek
                     // skipped frames, so last recorded point could be far from here.
                     double boundaryUT = Planetarium.GetUniversalTime();
                     SamplePositionAtUT(v, boundaryUT);
-                    var ic = CultureInfo.InvariantCulture;
                     string oldAnchorRecordingId = currentAnchorRecordingId;
                     uint oldAnchorPid = currentAnchorPid;
                     if (!result.found)
@@ -5609,10 +5646,12 @@ namespace Parsek
                     ActivateHighFidelitySampling(boundaryUT, "relative-exit");
                     AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-distance");
                     ParsekLog.Info("Anchor",
-                        $"RELATIVE mode exited: previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
-                        $"diagnosticPid={oldAnchorPid} " +
-                        $"dist={(result.found ? result.distance : double.MaxValue).ToString("F1", ic)}m " +
-                        $"vesselPid={RecordingVesselId}");
+                        BuildRelativeModeExitedLogMessage(
+                            oldAnchorRecordingId,
+                            oldAnchorPid,
+                            result.found,
+                            result.distance,
+                            RecordingVesselId));
                 }
             }
         }
