@@ -782,10 +782,144 @@ namespace Parsek.Tests
                 consumerPath: "unit-confirmed-destroy",
                 allowStale: true,
                 requireDestroyedTerminal: true,
+                confirmedDestroyed: true,
                 out RecordingFinalizationCacheApplyResult result);
 
             Assert.False(applied);
             Assert.Null(rec.TerminalStateValue);
+            Assert.Equal(200.0, rec.ExplicitEndUT);
+        }
+
+        [Fact]
+        public void TryApplyFinalizationCacheForBackgroundEnd_ConfirmedDestroyed_ClampsRetrogradeDestroyedTerminal()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 348.57190452577487,
+                bodyName = "Kerbin",
+                altitude = 240.0
+            });
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1",
+                100u,
+                TerminalState.Destroyed,
+                terminalUT: 348.53190452577485);
+            cache.Status = FinalizationCacheStatus.Stale;
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                cache,
+                100u,
+                endUT: 348.57190452577487,
+                consumerPath: "DeferredDestructionCheck",
+                allowStale: true,
+                requireDestroyedTerminal: true,
+                confirmedDestroyed: true,
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied, result.Status.ToString());
+            Assert.Equal(RecordingFinalizationCacheApplyStatus.Applied, result.Status);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(348.57190452577487, rec.ExplicitEndUT);
+            Assert.Equal(348.57190452577487, result.TerminalUT);
+            Assert.DoesNotContain(logLines, line => line.Contains("RejectedTerminalBeforeLastSample"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][INFO][FinalizerCache]")
+                && line.Contains("Background terminal clamped")
+                && line.Contains("consumer=DeferredDestructionCheck")
+                && line.Contains("oldTerminalUT=348.532")
+                && line.Contains("newTerminalUT=348.572"));
+        }
+
+        [Fact]
+        public void TryApplyFinalizationCacheForBackgroundEnd_UnconfirmedDestroy_DoesNotClampRetrogradeDestroyedTerminal()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 348.57190452577487,
+                bodyName = "Kerbin",
+                altitude = 240.0
+            });
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1",
+                100u,
+                TerminalState.Destroyed,
+                terminalUT: 348.53190452577485);
+            cache.Status = FinalizationCacheStatus.Stale;
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                cache,
+                100u,
+                endUT: 348.57190452577487,
+                consumerPath: "EndDebrisRecording",
+                allowStale: true,
+                requireDestroyedTerminal: false,
+                confirmedDestroyed: false,
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.False(applied);
+            Assert.Equal(
+                RecordingFinalizationCacheApplyStatus.RejectedTerminalBeforeLastSample,
+                result.Status);
+            Assert.False(rec.TerminalStateValue.HasValue);
+            Assert.Equal(200.0, rec.ExplicitEndUT);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][FinalizerCache]")
+                && line.Contains("Background terminal clamp skipped")
+                && line.Contains("reason=not-confirmed-destroyed")
+                && line.Contains("consumer=EndDebrisRecording"));
+        }
+
+        [Fact]
+        public void TryApplyFinalizationCacheForBackgroundEnd_ConfirmedDestroyed_DoesNotClampPastEndUT()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 110.0,
+                bodyName = "Kerbin",
+                altitude = 240.0
+            });
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1",
+                100u,
+                TerminalState.Destroyed,
+                terminalUT: 100.0);
+            cache.Status = FinalizationCacheStatus.Stale;
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                cache,
+                100u,
+                endUT: 105.0,
+                consumerPath: "DeferredDestructionCheck",
+                allowStale: true,
+                requireDestroyedTerminal: true,
+                confirmedDestroyed: true,
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.False(applied);
+            Assert.Equal(
+                RecordingFinalizationCacheApplyStatus.RejectedTerminalBeforeLastSample,
+                result.Status);
+            Assert.False(rec.TerminalStateValue.HasValue);
             Assert.Equal(200.0, rec.ExplicitEndUT);
         }
 
@@ -823,6 +957,61 @@ namespace Parsek.Tests
             Assert.True(rec.OrbitSegments[0].isPredicted);
             Assert.Equal(100.0, rec.OrbitSegments[0].startUT);
             Assert.Equal(130.0, rec.OrbitSegments[0].endUT);
+        }
+
+        [Fact]
+        public void CheckDebrisTTL_MissingVessel_ClampsDestroyedCacheAfterTrackSectionFlush()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                100u,
+                "rec_bg1",
+                SegmentEnvironment.Atmospheric,
+                317.45190452575895);
+            bgRecorder.InjectCurrentTrackSectionFrameForTesting(
+                100u,
+                new TrajectoryPoint
+                {
+                    ut = 348.57190452577487,
+                    bodyName = "Kerbin",
+                    altitude = 240.59315490722656
+                });
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1",
+                100u,
+                TerminalState.Destroyed,
+                terminalUT: 348.53190452577485);
+            cache.Status = FinalizationCacheStatus.Stale;
+            bgRecorder.AdoptFinalizationCacheForTesting(100u, "rec_bg1", cache);
+            bgRecorder.InjectDebrisTTLForTesting(100u, 500.0);
+
+            bgRecorder.CheckDebrisTTL(348.57190452577487);
+
+            Assert.False(tree.BackgroundMap.ContainsKey(100u));
+            Assert.False(bgRecorder.HasFinalizationCache(100u));
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(348.57190452577487, rec.ExplicitEndUT);
+            Assert.Single(rec.TrackSections);
+            Assert.Equal(348.57190452577487, rec.TrackSections[0].endUT);
+            Assert.Contains(rec.Points, point => point.ut == 348.57190452577487);
+            Assert.DoesNotContain(logLines, line => line.Contains("Apply rejected"));
+            Assert.DoesNotContain(logLines, line => line.Contains("RejectedTerminalBeforeLastSample"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][INFO][FinalizerCache]")
+                && line.Contains("Background terminal clamped")
+                && line.Contains("consumer=EndDebrisRecording")
+                && line.Contains("oldTerminalUT=348.532")
+                && line.Contains("newTerminalUT=348.572"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][INFO][BgRecorder]")
+                && line.Contains("Finalization source=cache")
+                && line.Contains("consumer=EndDebrisRecording"));
         }
 
         [Fact]

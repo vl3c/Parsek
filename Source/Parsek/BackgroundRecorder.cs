@@ -54,6 +54,17 @@ namespace Parsek
     /// </summary>
     internal class BackgroundRecorder
     {
+        private enum BackgroundRecordingEndReason
+        {
+            Unknown = 0,
+            VesselDestroyedOrDespawned = 1,
+            TtlExpired = 2,
+            LeftPhysicsBubble = 3,
+            ParentRecordingMissing = 4,
+            ParentRecordingClosedOrSuperseded = 5,
+            ParentOnRailsOrDestroyed = 6
+        }
+
         private RecordingTree tree;
 
         // Per-vessel tracking state for loaded/physics mode
@@ -1267,7 +1278,7 @@ namespace Parsek
             if (debrisTTLExpiry.Count == 0) return;
 
             // Collect expired entries (can't modify dict during iteration)
-            List<uint> expired = null;
+            List<(uint vesselPid, BackgroundRecordingEndReason reason)> expired = null;
 
             foreach (var kvp in debrisTTLExpiry)
             {
@@ -1281,8 +1292,9 @@ namespace Parsek
                 if (v == null)
                 {
                     // Vessel gone (destroyed or despawned)
-                    if (expired == null) expired = new List<uint>();
-                    expired.Add(vesselPid);
+                    if (expired == null)
+                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
+                    expired.Add((vesselPid, BackgroundRecordingEndReason.VesselDestroyedOrDespawned));
 
                     ParsekLog.Info("BgRecorder",
                         $"Debris TTL: vessel destroyed/despawned, ending recording: " +
@@ -1293,8 +1305,9 @@ namespace Parsek
                 // Check if TTL expired
                 if (currentUT >= expiry)
                 {
-                    if (expired == null) expired = new List<uint>();
-                    expired.Add(vesselPid);
+                    if (expired == null)
+                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
+                    expired.Add((vesselPid, BackgroundRecordingEndReason.TtlExpired));
 
                     ParsekLog.Info("BgRecorder",
                         $"Debris TTL expired, ending recording: " +
@@ -1305,8 +1318,9 @@ namespace Parsek
                 // Check if vessel went out of physics bubble (packed + on rails)
                 if (!v.loaded)
                 {
-                    if (expired == null) expired = new List<uint>();
-                    expired.Add(vesselPid);
+                    if (expired == null)
+                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
+                    expired.Add((vesselPid, BackgroundRecordingEndReason.LeftPhysicsBubble));
 
                     ParsekLog.Info("BgRecorder",
                         $"Debris TTL: vessel left physics bubble, ending recording: " +
@@ -1337,8 +1351,9 @@ namespace Parsek
                 Recording parentRec;
                 if (!tree.Recordings.TryGetValue(childRec.DebrisParentRecordingId, out parentRec))
                 {
-                    if (expired == null) expired = new List<uint>();
-                    expired.Add(vesselPid);
+                    if (expired == null)
+                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
+                    expired.Add((vesselPid, BackgroundRecordingEndReason.ParentRecordingMissing));
                     ParsekLog.Info("BgRecorder",
                         $"Debris TTL: parent recording missing from tree, ending: " +
                         $"parentRecId={childRec.DebrisParentRecordingId} childPid={vesselPid}");
@@ -1359,8 +1374,9 @@ namespace Parsek
                 // the next TTL tick.
                 if (DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree))
                 {
-                    if (expired == null) expired = new List<uint>();
-                    expired.Add(vesselPid);
+                    if (expired == null)
+                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
+                    expired.Add((vesselPid, BackgroundRecordingEndReason.ParentRecordingClosedOrSuperseded));
                     bool parentClosedAtSplit = !string.IsNullOrEmpty(parentRec.ChildBranchPointId);
                     ParsekLog.Info("BgRecorder",
                         $"Debris TTL: parent recording closed/superseded, ending recording: " +
@@ -1374,8 +1390,9 @@ namespace Parsek
                 Vessel parentVessel = FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId);
                 if (parentVessel == null || parentVessel.packed || !parentVessel.loaded)
                 {
-                    if (expired == null) expired = new List<uint>();
-                    expired.Add(vesselPid);
+                    if (expired == null)
+                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
+                    expired.Add((vesselPid, BackgroundRecordingEndReason.ParentOnRailsOrDestroyed));
                     ParsekLog.Info("BgRecorder",
                         $"Debris TTL: parent on-rails or destroyed, ending recording: " +
                         $"parentRecId={childRec.DebrisParentRecordingId} " +
@@ -1391,7 +1408,7 @@ namespace Parsek
 
             for (int i = 0; i < expired.Count; i++)
             {
-                EndDebrisRecording(expired[i], currentUT);
+                EndDebrisRecording(expired[i].vesselPid, currentUT, expired[i].reason);
             }
         }
 
@@ -1412,7 +1429,10 @@ namespace Parsek
         /// Ends a debris recording: finalizes the recording with a terminal state,
         /// cleans up tracking state, removes from BackgroundMap.
         /// </summary>
-        private void EndDebrisRecording(uint vesselPid, double endUT)
+        private void EndDebrisRecording(
+            uint vesselPid,
+            double endUT,
+            BackgroundRecordingEndReason endReason)
         {
             debrisTTLExpiry.Remove(vesselPid);
 
@@ -1460,7 +1480,7 @@ namespace Parsek
 
             // Clean up tracking state — also flushes any accumulated TrackSections
             // to rec via OnVesselRemovedFromBackground → FlushTrackSectionsToRecording.
-            OnVesselRemovedFromBackground(vesselPid);
+            OnVesselRemovedFromBackground(vesselPid, endUT);
 
             RecordingFinalizationCacheApplyResult cacheResult;
             bool cacheApplied = rec != null
@@ -1472,6 +1492,7 @@ namespace Parsek
                     "EndDebrisRecording",
                     allowStale: true,
                     requireDestroyedTerminal: false,
+                    confirmedDestroyed: IsConfirmedDestroyedBackgroundEnd(endReason),
                     out cacheResult);
 
             if (rec != null && !cacheApplied && !rec.TerminalStateValue.HasValue)
@@ -2126,7 +2147,16 @@ namespace Parsek
         /// </summary>
         public void OnVesselRemovedFromBackground(uint vesselPid)
         {
+            OnVesselRemovedFromBackground(vesselPid, null);
+        }
+
+        private void OnVesselRemovedFromBackground(uint vesselPid, double? closeUT)
+        {
+            // When supplied for a live vessel, closeUT must be from the same frame
+            // as the pose sampled below so the boundary point stays coherent.
             double? ut = null;
+            if (closeUT.HasValue && IsFiniteUT(closeUT.Value))
+                ut = closeUT.Value;
 
             // Close any open orbit segment
             BackgroundOnRailsState railsState;
@@ -2595,6 +2625,11 @@ namespace Parsek
             return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
+        private static bool IsConfirmedDestroyedBackgroundEnd(BackgroundRecordingEndReason reason)
+        {
+            return reason == BackgroundRecordingEndReason.VesselDestroyedOrDespawned;
+        }
+
         internal bool TryApplyFinalizationCacheForBackgroundEnd(
             Recording recording,
             uint vesselPid,
@@ -2602,6 +2637,7 @@ namespace Parsek
             string consumerPath,
             bool allowStale,
             bool requireDestroyedTerminal,
+            bool confirmedDestroyed,
             out RecordingFinalizationCacheApplyResult result)
         {
             result = default(RecordingFinalizationCacheApplyResult);
@@ -2623,6 +2659,7 @@ namespace Parsek
                 consumerPath,
                 allowStale,
                 requireDestroyedTerminal,
+                confirmedDestroyed,
                 out result);
         }
 
@@ -2634,6 +2671,7 @@ namespace Parsek
             string consumerPath,
             bool allowStale,
             bool requireDestroyedTerminal,
+            bool confirmedDestroyed,
             out RecordingFinalizationCacheApplyResult result)
         {
             result = default(RecordingFinalizationCacheApplyResult);
@@ -2661,6 +2699,14 @@ namespace Parsek
                     "using live destruction fallback");
                 return false;
             }
+
+            TryClampDestroyedBackgroundTerminalAfterAuthoredData(
+                recording,
+                scopedCache,
+                vesselPid,
+                endUT,
+                consumerPath,
+                confirmedDestroyed);
 
             var options = new RecordingFinalizationCacheApplyOptions
             {
@@ -2690,6 +2736,133 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        private static bool TryClampDestroyedBackgroundTerminalAfterAuthoredData(
+            Recording recording,
+            RecordingFinalizationCache scopedCache,
+            uint vesselPid,
+            double endUT,
+            string consumerPath,
+            bool confirmedDestroyed)
+        {
+            double lastAuthoredUT = double.NaN;
+            if (!confirmedDestroyed)
+            {
+                LogBackgroundTerminalClampSkipped(recording, scopedCache, vesselPid, endUT, consumerPath,
+                    confirmedDestroyed, "not-confirmed-destroyed", lastAuthoredUT);
+                return false;
+            }
+
+            if (recording == null || scopedCache == null)
+            {
+                return false;
+            }
+
+            if (scopedCache.TerminalState != TerminalState.Destroyed)
+            {
+                LogBackgroundTerminalClampSkipped(recording, scopedCache, vesselPid, endUT, consumerPath,
+                    confirmedDestroyed, "non-destroyed-terminal", lastAuthoredUT);
+                return false;
+            }
+
+            if (!IsFiniteUT(scopedCache.TerminalUT))
+            {
+                LogBackgroundTerminalClampSkipped(recording, scopedCache, vesselPid, endUT, consumerPath,
+                    confirmedDestroyed, "invalid-terminal-ut", lastAuthoredUT);
+                return false;
+            }
+
+            if (!RecordingFinalizationCacheApplier.TryGetLastAuthoredUT(recording, out lastAuthoredUT))
+            {
+                LogBackgroundTerminalClampSkipped(recording, scopedCache, vesselPid, endUT, consumerPath,
+                    confirmedDestroyed, "no-authored-data", lastAuthoredUT);
+                return false;
+            }
+
+            if (scopedCache.TerminalUT + RecordingFinalizationCacheApplier.UtEpsilon >= lastAuthoredUT)
+            {
+                LogBackgroundTerminalClampSkipped(recording, scopedCache, vesselPid, endUT, consumerPath,
+                    confirmedDestroyed, "terminal-not-before-last-authored", lastAuthoredUT);
+                return false;
+            }
+
+            if (IsFiniteUT(endUT) && lastAuthoredUT > endUT + RecordingFinalizationCacheApplier.UtEpsilon)
+            {
+                ParsekLog.Warn("FinalizerCache",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Background terminal clamp skipped: consumer={0} rec={1} pid={2} " +
+                        "reason=LastAuthoredAfterEndUT oldTerminalUT={3:F3} lastAuthoredUT={4:F3} endUT={5:F3} " +
+                        "cacheStatus={6} owner={7} confirmedDestroyed={8}",
+                        consumerPath ?? "(null)",
+                        recording.DebugName,
+                        vesselPid,
+                        scopedCache.TerminalUT,
+                        lastAuthoredUT,
+                        endUT,
+                        scopedCache.Status,
+                        scopedCache.Owner,
+                        confirmedDestroyed));
+                return false;
+            }
+
+            double oldTerminalUT = scopedCache.TerminalUT;
+            scopedCache.TerminalUT = lastAuthoredUT;
+            if (IsFiniteUT(scopedCache.TailStartsAtUT)
+                && scopedCache.TailStartsAtUT > scopedCache.TerminalUT)
+            {
+                scopedCache.TailStartsAtUT = scopedCache.TerminalUT;
+            }
+
+            ParsekLog.Info("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Background terminal clamped: consumer={0} rec={1} pid={2} " +
+                    "oldTerminalUT={3:F3} newTerminalUT={4:F3} lastAuthoredUT={5:F3} endUT={6:F3} " +
+                    "cacheStatus={7} owner={8} confirmedDestroyed={9}",
+                    consumerPath ?? "(null)",
+                    recording.DebugName,
+                    vesselPid,
+                    oldTerminalUT,
+                    scopedCache.TerminalUT,
+                    lastAuthoredUT,
+                    endUT,
+                    scopedCache.Status,
+                    scopedCache.Owner,
+                    confirmedDestroyed));
+            return true;
+        }
+
+        private static void LogBackgroundTerminalClampSkipped(
+            Recording recording,
+            RecordingFinalizationCache scopedCache,
+            uint vesselPid,
+            double endUT,
+            string consumerPath,
+            bool confirmedDestroyed,
+            string reason,
+            double lastAuthoredUT)
+        {
+            ParsekLog.Verbose("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Background terminal clamp skipped: consumer={0} rec={1} pid={2} " +
+                    "reason={3} terminal={4} terminalUT={5:F3} lastAuthoredUT={6:F3} endUT={7:F3} " +
+                    "cacheStatus={8} owner={9} confirmedDestroyed={10}",
+                    consumerPath ?? "(null)",
+                    recording != null ? recording.DebugName : "(null)",
+                    vesselPid,
+                    reason,
+                    scopedCache != null && scopedCache.TerminalState.HasValue
+                        ? scopedCache.TerminalState.Value.ToString()
+                        : "(null)",
+                    scopedCache != null ? scopedCache.TerminalUT : double.NaN,
+                    lastAuthoredUT,
+                    endUT,
+                    scopedCache != null ? scopedCache.Status.ToString() : "(null)",
+                    scopedCache != null ? scopedCache.Owner.ToString() : "(null)",
+                    confirmedDestroyed));
         }
 
         private static void ApplyFinalizationCacheIdentity(

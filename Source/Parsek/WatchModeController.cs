@@ -1738,9 +1738,10 @@ namespace Parsek
             // If the ghost is currently beyond visual range and the recording loops,
             // reset the loop phase so the ghost starts from the beginning of the recording
             // (at the pad) instead of wherever it is mid-flight (e.g. near the Mun).
-            double watchLoadUT = Planetarium.fetch != null
+            double currentUT = Planetarium.fetch != null
                 ? Planetarium.GetUniversalTime()
                 : rec.EndUT;
+            double watchLoadUT = currentUT;
             bool shouldLoopPlayback = host.ShouldLoopPlaybackForWatch(rec);
             double loopIntervalSeconds = shouldLoopPlayback
                 ? host.GetLoopIntervalSecondsForWatch(rec, index)
@@ -1764,6 +1765,7 @@ namespace Parsek
             }
 
             if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, rec, watchLoadUT,
+                currentUT: currentUT,
                 forceRebuildLoadedVisuals: resetLoopPhaseForWatch))
                 return false;
 
@@ -3418,10 +3420,11 @@ namespace Parsek
             if (traj == null)
                 return false;
 
-            double playbackUT = ResolveWatchPlaybackUT(committed[index], currentState,
-                Planetarium.GetUniversalTime());
+            double currentUT = Planetarium.GetUniversalTime();
+            double playbackUT = ResolveWatchPlaybackUT(committed[index], currentState, currentUT);
 
-            if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, traj, playbackUT))
+            if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, traj, playbackUT,
+                    currentUT: currentUT))
                 return false;
 
             return host.Engine.TryGetGhostState(index, out state)

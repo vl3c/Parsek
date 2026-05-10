@@ -1172,7 +1172,10 @@ namespace Parsek
                 && !TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     i, traj, state, visiblePlaybackUT, "GhostPlaybackEngine.RenderInRangeGhost"))
             {
-                bool orbitTailPlayback = ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
+                bool authoredGapHasShadow =
+                    AuthoredFrameGapHasShadowCoverage(traj, visiblePlaybackUT);
+                bool orbitTailPlayback =
+                    !authoredGapHasShadow && ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
 
                 if (hasInterpolatedPoints)
                 {
@@ -1225,7 +1228,9 @@ namespace Parsek
                 state.anchorRetiredThisFrame);
             GhostRenderTrace.EmitPostUpdate(
                 traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired,
-                ResolveRenderSurface(anchorRotationRoute, retired));
+                ResolveRenderSurface(anchorRotationRoute, retired),
+                rawPlaybackUT: ctx.currentUT,
+                activationStartUT: ResolveGhostActivationStartUT(traj));
             if (!retired)
                 MarkPrimaryGhostPositionedThisFrame(state);
             if (retired)
@@ -1252,6 +1257,25 @@ namespace Parsek
                 string initialActivationHiddenReason;
                 bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
                     traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
+                bool hasGhostTransform = state?.ghost != null;
+                Vector3 ghostPosition = hasGhostTransform
+                    ? state.ghost.transform.position
+                    : Vector3.zero;
+                GhostRenderTrace.EmitActivationDecision(
+                    trajectory: traj,
+                    ghostIndex: i,
+                    currentUT: ctx.currentUT,
+                    rawPlaybackUT: ctx.currentUT,
+                    visiblePlaybackUT: visiblePlaybackUT,
+                    activationStartUT: ResolveGhostActivationStartUT(traj),
+                    framesRemaining: state?.initialRelativeActivationHiddenFramesRemaining ?? 0,
+                    hidden: initialActivationHidden,
+                    hideReason: initialActivationHidden
+                        ? (initialActivationHiddenReason ?? "unknown")
+                        : null,
+                    callSite: "RenderInRangeGhost",
+                    currentPosition: ghostPosition,
+                    hasCurrentPosition: hasGhostTransform);
                 if (initialActivationHidden)
                 {
                     if (state.ghost != null && state.ghost.activeSelf)
@@ -1837,7 +1861,9 @@ namespace Parsek
             bool loopShadowRouted = state.anchorRotationShadowRoutedThisFrame;
             GhostRenderTrace.EmitPostUpdate(
                 traj, index, ctx.currentUT, loopUT, state, "loop-primary", loopRetired,
-                ResolveRenderSurface(primaryLoopRoute, loopRetired));
+                ResolveRenderSurface(primaryLoopRoute, loopRetired),
+                rawPlaybackUT: loopUT,
+                activationStartUT: ResolveGhostActivationStartUT(traj));
             if (loopRetired)
             {
                 // Retired loop ghost: stop FX cleanly, do NOT re-activate, do
@@ -2108,7 +2134,9 @@ namespace Parsek
                         bool primaryShadowRouted = primaryState.anchorRotationShadowRoutedThisFrame;
                         GhostRenderTrace.EmitPostUpdate(
                             traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired,
-                            ResolveRenderSurface(overlapPrimaryRoute, primaryRetired));
+                            ResolveRenderSurface(overlapPrimaryRoute, primaryRetired),
+                            rawPlaybackUT: primaryLoopUT,
+                            activationStartUT: ResolveGhostActivationStartUT(traj));
                         if (primaryRetired)
                         {
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
@@ -2305,7 +2333,9 @@ namespace Parsek
                     traj, index, ctx.currentUT, loopUT, ovState,
                     "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture),
                     overlapRetired,
-                    ResolveRenderSurface(overlapLoopRoute, overlapRetired));
+                    ResolveRenderSurface(overlapLoopRoute, overlapRetired),
+                    rawPlaybackUT: loopUT,
+                    activationStartUT: ResolveGhostActivationStartUT(traj));
                 if (overlapRetired)
                 {
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
@@ -2675,17 +2705,17 @@ namespace Parsek
             IPlaybackTrajectory traj,
             double playbackUT)
         {
-            if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj))
-                return false;
+            return ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj, playbackUT, out _);
+        }
 
-            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
-                return true;
-
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
-            if (sectionIdx < 0)
-                return true;
-
-            return traj.TrackSections[sectionIdx].referenceFrame != ReferenceFrame.Relative;
+        internal static bool ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            return DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                traj, playbackUT, out diagnostic);
         }
 
         private bool TryPositionRelativeSectionAtPlaybackUT(
@@ -2695,14 +2725,56 @@ namespace Parsek
             double playbackUT,
             bool suppressFx)
         {
-            if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
-                return TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     index, traj, state, playbackUT,
-                    "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT");
+                    "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT"))
+            {
+                return true;
+            }
+
+            if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
+                return false;
+
+            if (TryRouteAuthoredFrameGapToShadow(
+                    index,
+                    traj,
+                    state,
+                    playbackUT,
+                    "relative-section-direct"))
+            {
+                return true;
+            }
 
             positioner.InterpolateAndPositionRelative(
                 index, traj, state, playbackUT, suppressFx, target);
             return true;
+        }
+
+        private bool TryRouteAuthoredFrameGapToShadow(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            string phase)
+        {
+            if (!DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+                || !diagnostic.AbsoluteFramesCoverUT)
+            {
+                return false;
+            }
+
+            return TryRouteAnchorRotationToShadow(
+                index,
+                traj,
+                state,
+                playbackUT,
+                default(AnchorRotationReliabilityDecision),
+                fxSuppress: false,
+                phase: phase,
+                playbackScope: "authored-frame-gap-shadow");
         }
 
         /// <summary>
@@ -2737,16 +2809,24 @@ namespace Parsek
                 return AnchorRotationUnreliableRoute.None;
 
             string playbackScope = BuildAnchorRotationHysteresisScope(state, phase);
-            // Always evaluate the gate. Its result drives FX suppression even
-            // when we render via shadow, and is the sole reason to fall back to
-            // Hide when shadow coverage is unavailable.
+            // Evaluate the gate unless the child Relative frames are already
+            // outside authored coverage. The gate resolves the recorded child
+            // pose for diagnostics; probing it past the child frame tail only
+            // recreates resolver spam. Shadow routing below remains available
+            // when absoluteFrames cover this UT.
             AnchorRotationReliabilityDecision decision = default;
-            bool gateEvaluated = flags.tryEvaluateAnchorRotationReliability(
-                index,
-                traj,
-                playbackUT,
-                playbackScope,
-                out decision);
+            bool skipGateForAuthoredFrameGap =
+                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    playbackUT,
+                    out _);
+            bool gateEvaluated = !skipGateForAuthoredFrameGap
+                && flags.tryEvaluateAnchorRotationReliability(
+                    index,
+                    traj,
+                    playbackUT,
+                    playbackScope,
+                    out decision);
             bool fxSuppress = gateEvaluated && decision.Unreliable;
 
             // Tier 1: shadow render. Independent of the gate ENTIRELY -- the
@@ -3047,14 +3127,18 @@ namespace Parsek
             double playbackUT,
             string callsite)
         {
-            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(traj, playbackUT))
+            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
             {
                 if (state != null)
                     state.parentAnchoredDebrisCoverageRetired = false;
                 return false;
             }
 
-            MarkParentAnchoredDebrisCoverageRetired(index, traj, state, playbackUT, callsite);
+            MarkParentAnchoredDebrisCoverageRetired(
+                index, traj, state, playbackUT, callsite, diagnostic);
             return true;
         }
 
@@ -3070,14 +3154,18 @@ namespace Parsek
             out bool ghostActive)
         {
             ghostActive = HasLoadedGhostVisuals(state);
-            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(traj, playbackUT))
+            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
             {
                 if (state != null)
                     state.parentAnchoredDebrisCoverageRetired = false;
                 return false;
             }
 
-            MarkParentAnchoredDebrisCoverageRetired(index, traj, state, playbackUT, callsite);
+            MarkParentAnchoredDebrisCoverageRetired(
+                index, traj, state, playbackUT, callsite, diagnostic);
             if (state != null)
             {
                 if (HasLoadedGhostVisuals(state))
@@ -3093,6 +3181,7 @@ namespace Parsek
                 traj, index, currentUT,
                 "parent-anchored-debris-outside-relative-coverage playbackUT="
                 + playbackUT.ToString("R", CultureInfo.InvariantCulture)
+                + " coverageReason=" + (diagnostic.Reason ?? "(unknown)")
                 + " callsite=" + (callsite ?? "(unknown)"));
 
             if (emitExitWatch)
@@ -3122,7 +3211,8 @@ namespace Parsek
             IPlaybackTrajectory traj,
             GhostPlaybackState state,
             double playbackUT,
-            string callsite)
+            string callsite,
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
         {
             GameObject ghost = state != null ? state.ghost : null;
             if (!ReferenceEquals(ghost, null))
@@ -3135,19 +3225,38 @@ namespace Parsek
 
             string recordingId = traj?.RecordingId ?? "(none)";
             string key = BuildParentAnchoredDebrisCoverageRetiredKey(index, recordingId);
-            // Warn (not Verbose): no covering Relative section is a recording
-            // coverage gap, not the transient anchor-miss handled in ParsekFlight.
+            // Warn (not Verbose): missing authored debris coverage is a
+            // recording coverage gap, not the transient anchor-miss handled in
+            // ParsekFlight.
             ParsekLog.WarnRateLimited(
                 "Anchor",
                 key,
                 "recorded-relative-retired: " +
                 "reason=parent-anchored-debris-outside-relative-coverage " +
+                $"coverageReason={diagnostic.Reason ?? "(unknown)"} " +
                 $"recording=#{index.ToString(CultureInfo.InvariantCulture)} " +
                 $"vessel=\"{traj?.VesselName ?? state?.vesselName ?? "(unknown)"}\" " +
                 $"recordingId={recordingId} " +
                 $"playbackUT={playbackUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"sectionIndex={diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture)} " +
+                $"sectionUT={FormatCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT)} " +
+                $"relativeFrames={FormatCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT)} " +
+                $"absoluteFrames={FormatCoverageRange(diagnostic.FirstAbsoluteFrameUT, diagnostic.LastAbsoluteFrameUT)} " +
+                $"anchorRec={diagnostic.AnchorRecordingId ?? "(none)"} " +
                 $"callsite={callsite ?? "(unknown)"}",
                 5.0);
+        }
+
+        private static string FormatCoverageRange(double startUT, double endUT)
+        {
+            if (double.IsNaN(startUT) || double.IsNaN(endUT))
+                return "(none)";
+
+            return "["
+                + startUT.ToString("R", CultureInfo.InvariantCulture)
+                + ","
+                + endUT.ToString("R", CultureInfo.InvariantCulture)
+                + "]";
         }
 
         private static string BuildParentAnchoredDebrisCoverageRetiredKey(
@@ -4089,12 +4198,13 @@ namespace Parsek
 
         internal bool EnsureGhostVisualsLoadedForWatch(
             int index, IPlaybackTrajectory traj, double playbackUT,
+            double currentUT,
             bool forceRebuildLoadedVisuals = false)
         {
             if (!ghostStates.TryGetValue(index, out var state) || state == null)
                 return false;
             if (TryHandleParentAnchoredDebrisCoverageRetired(
-                    index, traj, state, playbackUT, playbackUT, TimeWarp.CurrentRate,
+                    index, traj, state, playbackUT, currentUT, TimeWarp.CurrentRate,
                     "GhostPlaybackEngine.EnsureGhostVisualsLoadedForWatch",
                     emitExitWatch: false,
                     out _))
@@ -4111,7 +4221,7 @@ namespace Parsek
                 && loadStatus != GhostVisualLoadStatus.Ready)
                 return false;
 
-            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT);
+            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT, currentUT);
             return true;
         }
 
@@ -5116,7 +5226,8 @@ namespace Parsek
         }
 
         private void SynchronizeLoadedGhostForWatch(
-            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT,
+            double currentUT)
         {
             if (!HasLoadedGhostVisuals(state))
                 return;
@@ -5139,8 +5250,43 @@ namespace Parsek
             }
             else
             {
-                if (ShouldHoldInitialActivationHiddenThisFrame(
-                        traj, state, playbackUT, out string _))
+                bool watchSyncHidden = ShouldHoldInitialActivationHiddenThisFrame(
+                    traj, state, playbackUT, out string watchSyncHideReason);
+                bool hasGhostTransform = state?.ghost != null;
+                Vector3 ghostPosition = hasGhostTransform
+                    ? state.ghost.transform.position
+                    : Vector3.zero;
+                // Watch-sync does not call ResolveVisiblePlaybackUT, so raw ==
+                // visible == playbackUT and clampFired is invariant false. The
+                // explicit pass-through here makes that guarantee visible to
+                // post-hoc trace readers and lets investigators compare watch-
+                // sync activation flow with the RenderInRangeGhost path on the
+                // same fields. Watch-sync rows are activation-only (no
+                // surrounding FrameStart / AfterUpdate context) — accepted as
+                // v1 asymmetry, see plan §1a.
+                //
+                // currentUT (Planetarium UT) is threaded separately from
+                // playbackUT because looped watch targets pass loop-mapped
+                // recording time as playbackUT — using it as currentUT would
+                // open the activation-transition detailed window in the wrong
+                // time coordinate and miss subsequent AfterUpdate / LateUpdate
+                // emits that key off real Planetarium UT.
+                GhostRenderTrace.EmitActivationDecision(
+                    trajectory: traj,
+                    ghostIndex: index,
+                    currentUT: currentUT,
+                    rawPlaybackUT: playbackUT,
+                    visiblePlaybackUT: playbackUT,
+                    activationStartUT: ResolveGhostActivationStartUT(traj),
+                    framesRemaining: state?.initialRelativeActivationHiddenFramesRemaining ?? 0,
+                    hidden: watchSyncHidden,
+                    hideReason: watchSyncHidden
+                        ? (watchSyncHideReason ?? "unknown")
+                        : null,
+                    callSite: "SynchronizeLoadedGhostForWatch",
+                    currentPosition: ghostPosition,
+                    hasCurrentPosition: hasGhostTransform);
+                if (watchSyncHidden)
                 {
                     if (state.ghost != null && state.ghost.activeSelf)
                         state.ghost.SetActive(false);
@@ -5162,6 +5308,20 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Test seam exposing the otherwise-private
+        /// <see cref="SynchronizeLoadedGhostForWatch"/> for Phase 1 unit tests
+        /// that need to drive the watch-resume activation flow directly.
+        /// Caller is responsible for pre-populating the playback state and
+        /// the trajectory just as the production path would.
+        /// </summary>
+        internal void SynchronizeLoadedGhostForWatchForTesting(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT,
+            double currentUT)
+        {
+            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT, currentUT);
+        }
+
         private void PositionLoadedGhostAtPlaybackUT(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
         {
@@ -5173,7 +5333,20 @@ namespace Parsek
                     "GhostPlaybackEngine.PositionLoadedGhostAtPlaybackUT"))
                 return;
 
-            if (ShouldUseOrbitTailPlayback(traj, playbackUT))
+            bool authoredGapHasShadow =
+                AuthoredFrameGapHasShadowCoverage(traj, playbackUT);
+            if (authoredGapHasShadow
+                && TryRouteAuthoredFrameGapToShadow(
+                    index,
+                    traj,
+                    state,
+                    playbackUT,
+                    "loaded-direct-authored-frame-gap-shadow"))
+            {
+                return;
+            }
+
+            if (!authoredGapHasShadow && ShouldUseOrbitTailPlayback(traj, playbackUT))
             {
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
                 return;
@@ -5223,6 +5396,16 @@ namespace Parsek
             IPlaybackTrajectory traj, double playbackUT)
         {
             return TryFindOrbitTailPlaybackSegment(traj, playbackUT, out _, out _);
+        }
+
+        internal static bool AuthoredFrameGapHasShadowCoverage(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            return DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+                && diagnostic.AbsoluteFramesCoverUT;
         }
 
         internal const double PredictedOrbitTailBridgeMaxGapSeconds = 0.5;
@@ -5685,6 +5868,8 @@ namespace Parsek
             if (traj.Points != null && traj.Points.Count >= 2)
             {
                 bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
+                bool authoredGapHasShadow =
+                    AuthoredFrameGapHasShadowCoverage(traj, playbackUT);
                 bool canUseOrbitPrecedence = TryResolvePendingOrbitSegmentInterpolation(
                     traj, playbackUT, applySubSurfaceGuard: true, out InterpolationResult orbitSegmentResult);
                 if (surfaceSkip && canUseOrbitPrecedence)
@@ -5694,7 +5879,14 @@ namespace Parsek
                         $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} surface track section active, skipping orbit precedence"));
                 }
 
-                if (!surfaceSkip && canUseOrbitPrecedence)
+                if (!surfaceSkip && authoredGapHasShadow && canUseOrbitPrecedence)
+                {
+                    string vesselName = traj.VesselName ?? "Unknown";
+                    ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} skipping orbit precedence: authored-frame gap shadow available"));
+                }
+
+                if (!surfaceSkip && !authoredGapHasShadow && canUseOrbitPrecedence)
                 {
                     result = orbitSegmentResult;
                     return LogPendingPlaybackInterpolationResolved(

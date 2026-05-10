@@ -159,6 +159,63 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void StandaloneWorldPosition_ParentAnchoredDebrisAfterAuthoredFrames_ReturnsFalseWithoutResolverWarn()
+        {
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100.0, latitude = 12.5, longitude = 7.0, altitude = 3.0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 110.0, latitude = 13.0, longitude = 7.5, altitude = 3.2,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                },
+            };
+            var rec = new Recording
+            {
+                RecordingId = "parent-anchored-debris-stale",
+                VesselName = "Parent Anchored Debris",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec",
+                Points = relativeFrames,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 140.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        source = TrackSectionSource.Active,
+                        anchorRecordingId = "parent-rec",
+                        sampleRateHz = 4.0f,
+                        frames = relativeFrames,
+                        absoluteFrames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                            new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                        },
+                    }
+                }
+            };
+            RecordingStore.AddCommittedInternal(rec);
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                rec.RecordingId, 120.0, fallbackBody: null, out Vector3d worldPos);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, worldPos.x);
+            Assert.Equal(0.0, worldPos.y);
+            Assert.Equal(0.0, worldPos.z);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]")
+                || l.Contains("chain resolver failed"));
+        }
+
+        [Fact]
         public void StandaloneWorldPosition_RecordingMissing_ReturnsFalse()
         {
             // No-op guard: an unknown recording id returns false silently

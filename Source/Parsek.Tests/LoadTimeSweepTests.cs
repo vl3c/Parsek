@@ -923,6 +923,317 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RetirementPointingAtImmutable_RemovedAndSupersedeRestoredAtLoadTime()
+        {
+            // Defensive cleanup for legacy pre-fix saves: the buggy rewind
+            // path dropped the supersede relation AND wrote a retirement.
+            // Just removing the retirement here would leave the canon
+            // visible AND the priorTip un-superseded → double-materialization.
+            // The sweep must reconstruct the priorTip → canon relation from
+            // the retirement metadata so the priorTip stays superseded.
+            InstallTree("tree_canon",
+                new List<Recording>
+                {
+                    Rec("rec_priorTip", MergeState.Immutable),
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var legacyRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_legacy_canon",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip",
+                SourceSupersedeRelationId = "rsr_legacy_known",
+                CreatedUT = 286.9,
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            // No supersede relation in the scenario (the buggy code dropped
+            // it). LoadTimeSweep must reconstruct it.
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { legacyRetirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            // Supersede relation was reconstructed.
+            var restored = Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("rec_priorTip", restored.OldRecordingId);
+            Assert.Equal("rec_canon", restored.NewRecordingId);
+            // RelationId carried over from retirement metadata when set.
+            Assert.Equal("rsr_legacy_known", restored.RelationId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_legacy_canon")
+                && l.Contains("Immutable canon recording=rec_canon")
+                && l.Contains("restored supersede relation"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_OrphanWithoutRestoredId_RemovedButNoRelationCreated()
+        {
+            // Edge case: legacy retirement carries no RestoredRecordingId
+            // (orphan write or partial pre-fix data). We can't reconstruct
+            // the supersede relation. Remove the retirement and warn so the
+            // user can investigate; the canon will render alongside the
+            // priorTip until the user reseals manually.
+            InstallTree("tree_canon",
+                new List<Recording>
+                {
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var orphanRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_orphan_imm",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = null, // missing metadata
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { orphanRetirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            // No supersede relation reconstructed (no metadata to do so).
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_orphan_imm")
+                && l.Contains("supersede relation cannot be reconstructed"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_RestoredRecordingMissing_DoesNotInjectOrphanRelation()
+        {
+            // Edge case: legacy retirement carries a non-empty
+            // RestoredRecordingId, but the priorTip recording itself was
+            // purged out-of-band (manual delete, tree discard, earlier
+            // load-time sweep) between the buggy save and the current load.
+            // Without verifying the priorTip exists, the legacy cleanup
+            // would synthesize a one-sided orphan supersede pointing at a
+            // missing OldRecordingId. SweepOrphanSupersedes already ran
+            // earlier in the same sweep, so the new orphan would survive
+            // until next load — a spurious entry that would silently
+            // suppress... nothing (no recording with that id exists), but
+            // would still pollute the supersede list and confuse audit
+            // tools.
+            //
+            // Fix: TryRestoreLegacyImmutableSupersede now checks the live
+            // recording set and returns RestoredRecordingMissing when the
+            // priorTip is gone. The retirement is still removed (the
+            // canon recording becomes visible) but no relation is
+            // injected. Audit log makes the missing-priorTip case
+            // distinguishable from the orphan-no-id case.
+            InstallTree("tree_canon_only",
+                new List<Recording>
+                {
+                    Rec("rec_canon", MergeState.Immutable)
+                    // rec_priorTip intentionally NOT installed
+                },
+                new List<BranchPoint>());
+            var orphanedPriorTipRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_priortip_gone",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip", // recording no longer exists
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { orphanedPriorTipRetirement });
+
+            LoadTimeSweep.Run();
+
+            // Retirement removed (canon becomes visible).
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            // CRITICAL: no synthesized orphan relation pointing at a missing priorTip.
+            Assert.Empty(scenario.RecordingSupersedes);
+            // Distinct log line for this outcome — distinguishable from the
+            // orphan-no-RestoredRecordingId case and the standard restore.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_priortip_gone")
+                && l.Contains("RestoredRecordingId no longer exists in committed store"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_DemotedCanonReason_NotSwept()
+        {
+            // The post-fix Pass-2 demotion intentionally retires Immutable
+            // forks whose priorTip is itself being retired in the same
+            // rewind batch (the canon collapses to preserve the
+            // no-double-materialization invariant). The retirement is tagged
+            // with RecordingRewindRetirement.DemotedCanonReason. LoadTimeSweep
+            // must NOT treat such a retirement as legacy bad state — doing
+            // so would remove the retirement and reconstruct the priorTip →
+            // canon supersede, making the demoted canon visible again and
+            // silently undoing the Pass-2 fix on every save/load cycle.
+            //
+            // Repro shape: A → B(Provisional) → C(Immutable). After the
+            // user's parent Rewind, in-memory state is A→B and B→C dropped,
+            // B retired (DefaultReason), C retired (DemotedCanonReason).
+            // Save → load → sweep: B's retirement stays (B is Provisional,
+            // not Immutable, untouched). C's retirement is Immutable but
+            // carries DemotedCanonReason — must also stay.
+            InstallTree("tree_mixed",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    Rec("rec_b", MergeState.CommittedProvisional),
+                    Rec("rec_c", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var bRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_b",
+                RecordingId = "rec_b",
+                RestoredRecordingId = "rec_a",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var cDemotedRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_c_demoted",
+                RecordingId = "rec_c",
+                RestoredRecordingId = "rec_b",
+                Reason = RecordingRewindRetirement.DemotedCanonReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement>
+                {
+                    bRetirement, cDemotedRetirement
+                });
+
+            LoadTimeSweep.Run();
+
+            // Both retirements survive: B stays retired (its Provisional
+            // recording is not subject to the Immutable cleanup), C stays
+            // retired because its DemotedCanonReason tag flags it as
+            // intentional.
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "rec_b");
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "rec_c");
+            // No supersede was reconstructed — neither cleanup path fired.
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_c_demoted"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_SelfRewoundCanonReason_NotSwept()
+        {
+            // Counterpart to the demoted-canon case: a retirement pointing
+            // at an Immutable recording with SelfRewoundCanonReason is the
+            // result of the user explicitly self-rewinding the canon. The
+            // sweep must NOT remove this retirement or reconstruct the
+            // priorTip → canon relation — doing so would silently undo the
+            // user's self-rewind on every load.
+            InstallTree("tree_self_rewound",
+                new List<Recording>
+                {
+                    Rec("rec_priorTip", MergeState.Immutable),
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var selfRewoundRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_self_rewound",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip",
+                Reason = RecordingRewindRetirement.SelfRewoundCanonReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { selfRewoundRetirement });
+
+            LoadTimeSweep.Run();
+
+            // Retirement survives unchanged — canon stays retired.
+            Assert.Single(scenario.RecordingRewindRetirements);
+            // No supersede relation reconstructed (would un-do the
+            // user's self-rewind).
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_self_rewound"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_DefaultReason_SweptAsLegacy()
+        {
+            // Counterpart to the test above: a retirement pointing at an
+            // Immutable recording WITHOUT the DemotedCanonReason tag is
+            // pre-fix legacy bad state. The sweep removes it and reconstructs
+            // the dropped supersede relation.
+            InstallTree("tree_legacy",
+                new List<Recording>
+                {
+                    Rec("rec_priorTip", MergeState.Immutable),
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var legacyRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_legacy",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { legacyRetirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_legacy")
+                && l.Contains("restored supersede relation"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_SupersedeAlreadyPresent_RelationNotDuplicated()
+        {
+            // Idempotency: if a supersede relation matching the retirement's
+            // priorTip → canon pair is already in the scenario (e.g. user
+            // re-flew between rewinds), the legacy cleanup must not add a
+            // duplicate.
+            InstallTree("tree_canon",
+                new List<Recording>
+                {
+                    Rec("rec_priorTip", MergeState.Immutable),
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var existingRel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_already_there",
+                OldRecordingId = "rec_priorTip",
+                NewRecordingId = "rec_canon",
+                UT = 100.0
+            };
+            var legacyRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_legacy_canon",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { existingRel },
+                retirements: new List<RecordingRewindRetirement> { legacyRetirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            // Supersede list still has exactly one entry — the original.
+            var only = Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("rsr_already_there", only.RelationId);
+        }
+
+        [Fact]
         public void SupersedeEndpointsInPendingTree_NotRemovedAsFullyOrphaned()
         {
             var tree = new RecordingTree

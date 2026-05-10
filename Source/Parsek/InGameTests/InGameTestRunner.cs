@@ -87,6 +87,20 @@ namespace Parsek.InGameTests
             public Guid ActiveVesselId;
             public string ActiveVesselName;
             public Vessel.Situations ActiveVesselSituation;
+            // P2 review fix: snapshot the live RecordingStore state at batch
+            // capture time, BEFORE any test runs. This is the rollback
+            // target for RestoreBatchFlightBaselineCore's fail-closed path.
+            // Per-attempt snapshots from inside the restore call were
+            // correct for the pre-prime path (RecordingStore is still in
+            // the player's pre-batch state) but WRONG for the post-test
+            // path (the just-executed test may have layered synthetic
+            // mutations on top of the player's data; rolling back would
+            // preserve those mutations rather than the batch baseline).
+            // One snapshot at batch capture time, used for every rollback
+            // during the batch, gives consistent recovery to the player's
+            // pre-batch state regardless of which test triggered the
+            // restore.
+            public RecordingStoreTestSnapshot RecordingStoreSnapshot;
         }
 
         internal sealed class StagedBatchFlightParsekSaveSnapshot : IDisposable
@@ -579,6 +593,28 @@ namespace Parsek.InGameTests
                 .ToList();
         }
 
+        /// <summary>
+        /// Decides whether to fire the post-test batch FLIGHT baseline
+        /// restore after a restore-backed test has executed.
+        ///
+        /// Round-7 contract: restore runs unconditionally after any test
+        /// that declared <see cref="InGameTestInfo.RestoreBatchFlightBaselineAfterExecution"/>=true
+        /// and reached <c>RunOneTest</c>, regardless of the test's terminal
+        /// <see cref="TestStatus"/>. Self-skips (<c>InGameAssert.Skip</c>
+        /// thrown from inside the test body after the body has already
+        /// started recording, staged the vessel, or otherwise mutated the
+        /// flight scene) are NOT exempted -- the body may have left the
+        /// session in any state before deciding to skip, so the next
+        /// test must start from the captured baseline. Scene-eligibility
+        /// skips are filtered out by <c>RunBatch</c>'s <c>continue;</c>
+        /// branch BEFORE the test runs, so they never reach this
+        /// predicate (and therefore never trigger an unnecessary restore).
+        /// </summary>
+        internal static bool ShouldRestoreBatchFlightBaselineAfterTest(InGameTestInfo test)
+        {
+            return test != null && test.RestoreBatchFlightBaselineAfterExecution;
+        }
+
         internal static List<InGameTestInfo> PrepareBatchExecution(IEnumerable<InGameTestInfo> tests)
         {
             var ordered = OrderForBatchExecution(tests);
@@ -729,7 +765,14 @@ namespace Parsek.InGameTests
                         : 0,
                     ActiveVesselId = vessel.id,
                     ActiveVesselName = vessel.vesselName,
-                    ActiveVesselSituation = vessel.situation
+                    ActiveVesselSituation = vessel.situation,
+                    // P2 review fix: capture the live RecordingStore state
+                    // at batch start, before any test mutates it. This is
+                    // the rollback target for RestoreBatchFlightBaselineCore's
+                    // fail-closed path. Cheap: shallow copies of the four
+                    // list/slot references plus the auto-assigned-groups
+                    // dict.
+                    RecordingStoreSnapshot = RecordingStoreTestSnapshot.Capture()
                 };
             }
             catch
@@ -848,8 +891,7 @@ namespace Parsek.InGameTests
                 activeTestCoroutine = coroutineHost.StartCoroutine(RunOneTest(test));
                 yield return activeTestCoroutine;
                 activeTestCoroutine = null;
-                if (test.RestoreBatchFlightBaselineAfterExecution
-                    && test.Status != TestStatus.Skipped)
+                if (ShouldRestoreBatchFlightBaselineAfterTest(test))
                 {
                     yield return coroutineHost.StartCoroutine(
                         RestoreBatchFlightBaselineAfterExecution(test));
@@ -1006,24 +1048,242 @@ namespace Parsek.InGameTests
         private IEnumerator RestoreBatchFlightBaselineCore(
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
-            using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
+            // Fail-closed live-data recovery for the batch FLIGHT baseline
+            // restore flow. The sequence below splits validation into a
+            // truly-non-destructive XML structural pre-check and a
+            // potentially-destructive Game-object load, and puts the
+            // wipe between them so that the most common failure modes
+            // leave the player's combined disk + in-memory state
+            // internally consistent.
+            //
+            // Sequence:
+            //   1a. Structural pre-validation via
+            //       ValidateQuicksaveStructure. Calls ConfigNode.Load
+            //       (XML parse only) and verifies file existence,
+            //       FLIGHTSTATE node, VESSEL children, and
+            //       activeVesselIdx range. Does NOT call
+            //       GamePersistence.LoadGame, so no FlightGlobals
+            //       persistent-id dictionaries are mutated. Truly
+            //       non-destructive.
+            //   2.  Stage the Parsek/ snapshot dir on-disk (file copy +
+            //       atomic Directory.Move swap, with attempted rollback
+            //       inside Activate's catch). Now the on-disk Parsek/
+            //       reflects BATCH-START sidecars; live in-memory state
+            //       is still pre-call. FlightGlobals untouched.
+            //   1b. Realise the validated .sfs into a Game object via
+            //       LoadAndValidateGameForQuickload. This DOES mutate
+            //       FlightGlobals (LoadGame clears its persistent-id
+            //       dictionaries before returning, per stock KSP
+            //       decompilation 2026-05-10). The dictionaries are
+            //       rebuilt by OnLoad at step 4. If LoadGame fails
+            //       despite step 1a passing -- very rare, requires the
+            //       .sfs to be structurally well-formed but Game-object
+            //       realisation to still fail -- FlightGlobals stays
+            //       cleared until manual user reload. Documented
+            //       residual.
+            //   3.  Run the prep wipe (PrepareForIsolatedBatchFlightBaselineRestore).
+            //       Wipes RecordingStore + 6 other Parsek save-scoped
+            //       stores. After this, in-memory is "empty" and on-disk
+            //       Parsek/ is BATCH-START -- the imminent OnLoad will
+            //       reconcile the two.
+            //   4.  Commit the scene change via CommitValidatedGameLoad.
+            //   5.  Wait for FLIGHT-ready / batch vessel / stock stage
+            //       manager. OnLoad fires during the scene change and
+            //       rebuilds every wiped store from the loaded game.
+            //
+            // Failure-mode coverage:
+            //   - Step 1a throws (structural validation fails): no
+            //     destructive work done. All seven save-scoped stores
+            //     intact. Disk untouched. FlightGlobals untouched.
+            //     Snapshot rollback NOT armed (wipePerformed=false), so
+            //     the finally is a no-op -- in-memory state stays at the
+            //     test's current post-test mutation, which is what we
+            //     want when no wipe ran.
+            //   - Step 2 throws (Activate's own try/catch attempts disk
+            //     rollback): in-memory still untouched. Disk in best-
+            //     effort baseline-or-rolled-back state. FlightGlobals
+            //     untouched. Snapshot rollback NOT armed; finally is a
+            //     no-op. Note: a successful Activate followed by step 1b
+            //     failure leaves on-disk Parsek/ at BATCH-START while
+            //     in-memory stays at TEST-CURRENT -- a known disk/memory
+            //     desync, but rolling RecordingStore back here would only
+            //     partially fix it (other 6 stores still desync) and
+            //     would corrupt the test's forward progress in the more
+            //     common "validation never destructively touched memory"
+            //     case. We accept disk/memory desync as a residual; manual
+            //     F9 recovers.
+            //   - Step 1b throws (LoadGame fails despite step 1a
+            //     passing): on-disk Parsek/ swapped to BATCH-START,
+            //     FlightGlobals cleared. Snapshot rollback NOT armed;
+            //     in-memory RecordingStore + other 6 stores stay at
+            //     TEST-CURRENT. User has on-disk baseline + cleared
+            //     FlightGlobals + memory at TEST-CURRENT. Documented
+            //     residual; manual F9 recovers.
+            //   - Step 3 throws (one of the eight Reset functions
+            //     misbehaves): partial wipe in memory, on-disk Parsek/
+            //     at BATCH-START. wipePerformed is set by the helper's
+            //     onWipeStart callback IMMEDIATELY before the first
+            //     RecordingStore reset, so any throw at-or-after that
+            //     boundary -- including a partial failure where
+            //     RecordingStore was wiped but a later reset
+            //     (GroupHierarchyStore, CrewReservationManager, ...)
+            //     threw -- arms the snapshot rollback. The rollback
+            //     restores RecordingStore.committedRecordings/Trees/
+            //     pendingTree/state/AutoAssignedStandaloneGroups to
+            //     BATCH-START -- consistent with on-disk. A throw in the
+            //     helper's flag-flip prelude (before onWipeStart fires)
+            //     leaves wipePerformed=false; in-memory state is intact
+            //     in that case so no rollback is needed.
+            //     RecordingStoreTestSnapshot does NOT capture the
+            //     additional fields that ResetForTestingInternal clears
+            //     (RewindContext state, PendingCleanupPids,
+            //     suppressNextTreeSceneExitCommit, PendingScienceSubjects,
+            //     etc.); those stay at their reset values. Documented
+            //     residual; manual reload recovers.
+            //   - Step 4 throws (StartAndFocusVessel rare synchronous
+            //     throw): full wipe done (wipePerformed=true), no scene
+            //     change queued. Snapshot rollback restores its 5
+            //     captured fields. Other 6 Parsek stores wiped + extra
+            //     RecordingStore fields beyond the snapshot scope stay
+            //     reset. Documented residual.
+            //   - Step 5 wait timeouts: scene change was queued, full
+            //     wipe ran (wipePerformed=true). OnLoad either fired
+            //     (every store rebuilt from disk -- best case) or
+            //     LoadScene itself failed (extremely rare; the partial
+            //     RecordingStore snapshot rollback fires).
+            //
+            // The RecordingStore-specific snapshot rollback covers the
+            // post-wipe residual edge cases above; the explicit residuals
+            // (pre-wipe disk/memory desync on steps 2/1b, snapshot-
+            // incomplete fields on steps 3-5) are documented but not
+            // snapshotted -- a manual F9 quickload after a failed
+            // restore recovers every category. Pair with the
+            // iterator-disposal fix in RunCoroutineSafely -- without
+            // that, this finally never runs when a nested wait throws,
+            // because RunCoroutineSafely abandons the parent routine
+            // without disposing it.
+            //
+            // wipePerformed gates the rollback so a "no destructive
+            // work" failure does NOT rewrite in-memory recordings to
+            // batch-start: before the wipe, RecordingStore still holds
+            // whatever the test left it in (post-test mutations); after
+            // the wipe, RecordingStore is empty and rolling back to
+            // BATCH-START is the right move. The flag is set by
+            // PrepareForIsolatedBatchFlightBaselineRestore's onWipeStart
+            // callback at the actual destructive boundary, so a partial
+            // helper failure (RecordingStore wiped, later reset throws)
+            // still arms the rollback correctly.
+            RecordingStoreTestSnapshot preWipeSnapshot = baseline?.RecordingStoreSnapshot;
+            bool restoreCommitted = false;
+            bool wipePerformed = false;
+            try
             {
-                var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
-                    as ParsekScenario;
-                ActivateStagedBatchFlightBaselineRestore(
-                    stagedSnapshot.Activate,
-                    () => ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
+                // Step 1a: structural pre-validation via ConfigNode.Load.
+                // Truly non-destructive -- parses the .sfs as XML, does
+                // NOT call GamePersistence.LoadGame (which would clear
+                // FlightGlobals.PersistentLoaded dictionaries as a side
+                // effect). Catches the bulk of failure modes (file
+                // missing/empty, malformed XML, no FLIGHTSTATE node,
+                // no VESSEL nodes, invalid activeVessel index) without
+                // mutating any KSP or Parsek state.
+                Helpers.QuickloadResumeHelpers.ValidateQuicksaveStructure(baseline.SlotName);
+
+                using (var stagedSnapshot = CreateBatchFlightParsekSaveSnapshotStaging(baseline))
+                {
+                    // Step 2: stage the Parsek/ snapshot dir on disk.
+                    // ActivateStagedBatchFlightBaselineRestore's helper
+                    // does a current→backup move, then staging→current
+                    // move, with attempted rollback inside Activate's
+                    // catch on partial failure. Dispose only deletes
+                    // residual temp dirs; it cannot roll back a
+                    // committed swap, which is fine because step 1a
+                    // already passed and step 3's wipe will follow.
+                    ActivateStagedBatchFlightBaselineRestore(
+                        stagedSnapshot.Activate,
+                        prepareForRestore: null);
+                }
+
+                // Step 1b: realise the validated slot into a Game object
+                // via GamePersistence.LoadGame. This call DOES mutate
+                // FlightGlobals (clears persistent-id dicts) as a side
+                // effect of stock KSP's LoadGame internals -- the
+                // dictionaries are rebuilt by OnLoad on the imminent
+                // scene change. If LoadGame fails despite step 1a's
+                // structural pre-check passing (very rare -- requires
+                // FLIGHTSTATE structurally well-formed but Game-object
+                // realisation still failing), FlightGlobals stays
+                // cleared until the user manually reloads. Documented
+                // residual.
+                Helpers.QuickloadResumeHelpers.ValidatedGameLoad validatedLoad =
+                    Helpers.QuickloadResumeHelpers.LoadAndValidateGameForQuickload(baseline.SlotName);
+
+                // Step 3: prep wipe runs only after validation succeeded
+                // AND the on-disk Parsek/ has been swapped to BATCH-START.
+                // PrepareForIsolatedBatchFlightBaselineRestore invokes the
+                // onWipeStart callback IMMEDIATELY before its first
+                // destructive store reset (RecordingStore.
+                // ResetForBatchFlightBaselineRestoreBypassingGuard). Setting
+                // wipePerformed=true inside that callback arms the snapshot
+                // rollback in the finally below at the actual destructive
+                // boundary -- not after the helper returns. The eight
+                // Reset calls inside the helper are not atomic, so if a
+                // later reset (GroupHierarchyStore, CrewReservationManager,
+                // ...) throws after RecordingStore has been wiped, the
+                // finally must still fire the rollback to recover live
+                // RecordingStore data.
+                {
+                    var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
+                        as ParsekScenario;
+                    ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
                         currentScenario != null
                             ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
-                            : null));
+                            : null,
+                        onWipeStart: () => wipePerformed = true);
+                }
+
+                // Step 4: commit the scene change.
+                Helpers.QuickloadResumeHelpers.CommitValidatedGameLoad(validatedLoad);
+
+                // Step 5: wait for FLIGHT-ready and the active vessel to
+                // become live. OnLoad fires during this scene change.
+                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
+                    previousFlightInstanceId, timeoutSeconds: 15f);
+                yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
+                PerformBetweenRunCleanup(cleanupReason);
+                if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
+                    yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+                restoreCommitted = true;
             }
-            Helpers.QuickloadResumeHelpers.TriggerQuickload(baseline.SlotName);
-            yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
-                previousFlightInstanceId, timeoutSeconds: 15f);
-            yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
-            PerformBetweenRunCleanup(cleanupReason);
-            if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
-                yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);
+            finally
+            {
+                if (!restoreCommitted && wipePerformed && preWipeSnapshot != null)
+                {
+                    preWipeSnapshot.Restore();
+                    ParsekLog.Warn(Tag,
+                        "Batch FLIGHT baseline restore did not complete after the prep wipe; "
+                        + "rolled RecordingStore back to batch-start snapshot to recover live data "
+                        + "(committedRecordings=" + preWipeSnapshot.CommittedRecordingCount
+                        + ", committedTrees=" + preWipeSnapshot.CommittedTreeCount
+                        + ", hasPendingTree=" + preWipeSnapshot.HasPendingTree
+                        + "). slot='" + (baseline?.SlotName ?? "(null)") + "'");
+                }
+                else if (!restoreCommitted && !wipePerformed)
+                {
+                    // Failure occurred before the prep wipe (validation,
+                    // disk swap, or LoadGame). RecordingStore in memory
+                    // still holds whatever the test left it in -- rolling
+                    // back to BATCH-START would corrupt forward progress.
+                    // Disk and other Parsek stores may be partially
+                    // touched (Activate's disk swap, LoadGame clearing
+                    // FlightGlobals dicts) but the in-memory RecordingStore
+                    // is intact. See failure-mode comment block above.
+                    ParsekLog.Warn(Tag,
+                        "Batch FLIGHT baseline restore did not complete and never crossed the prep-wipe "
+                        + "destructive boundary; leaving RecordingStore at its current in-memory state "
+                        + "(snapshot rollback NOT armed). slot='"
+                        + (baseline?.SlotName ?? "(null)") + "'");
+                }
+            }
         }
 
         internal static void ActivateStagedBatchFlightBaselineRestore(
@@ -1307,36 +1567,58 @@ namespace Parsek.InGameTests
             if (routine == null)
                 yield break;
 
-            while (true)
+            // P1 review fix: every yield-break path below abandons `routine`.
+            // C# iterator state machines do not run try/finally blocks just
+            // because the consumer stops iterating -- only an explicit
+            // Dispose() unwinds the suspended state. RestoreBatchFlightBaselineCore
+            // relies on its outer try/finally to roll RecordingStore back when
+            // a nested wait throws (TriggerQuickload skip, WaitForFlightReady
+            // timeout); without disposing the parent iterator here, that
+            // finally never runs and the player's live in-memory data stays
+            // wiped. Wrap the body so EVERY exit path disposes `routine`.
+            try
             {
-                bool hasNext;
-                try
+                while (true)
                 {
-                    hasNext = routine.MoveNext();
-                }
-                catch (Exception ex)
-                {
-                    onFailure?.Invoke(ex);
-                    yield break;
-                }
-
-                if (!hasNext)
-                    yield break;
-
-                if (routine.Current is IEnumerator nestedRoutine)
-                {
-                    Exception nestedFailure = null;
-                    yield return RunCoroutineSafely(nestedRoutine, ex => nestedFailure = ex);
-                    if (nestedFailure != null)
+                    bool hasNext;
+                    try
                     {
-                        onFailure?.Invoke(nestedFailure);
+                        hasNext = routine.MoveNext();
+                    }
+                    catch (Exception ex)
+                    {
+                        onFailure?.Invoke(ex);
                         yield break;
                     }
 
-                    continue;
-                }
+                    if (!hasNext)
+                        yield break;
 
-                yield return routine.Current;
+                    if (routine.Current is IEnumerator nestedRoutine)
+                    {
+                        Exception nestedFailure = null;
+                        yield return RunCoroutineSafely(nestedRoutine, ex => nestedFailure = ex);
+                        if (nestedFailure != null)
+                        {
+                            onFailure?.Invoke(nestedFailure);
+                            yield break;
+                        }
+
+                        continue;
+                    }
+
+                    yield return routine.Current;
+                }
+            }
+            finally
+            {
+                // Dispose is idempotent on compiler-generated iterator state
+                // machines; safe to call after natural completion (`!hasNext`),
+                // after the synchronous-throw path, and after the
+                // nested-failure path. The cast handles non-generic
+                // IEnumerator that may or may not implement IDisposable
+                // (compiler-generated iterators always do).
+                (routine as IDisposable)?.Dispose();
             }
         }
 

@@ -63,7 +63,43 @@ namespace Parsek
             public readonly HashSet<string> RetiredForkRecordingIds =
                 new HashSet<string>(StringComparer.Ordinal);
 
+            /// <summary>
+            /// Forks whose <see cref="Recording.MergeState"/> is
+            /// <see cref="MergeState.Immutable"/> (canon) and whose supersede
+            /// relation was therefore preserved across this parent rewind. The
+            /// canon fork stays in the timeline; its priorTip stays superseded.
+            /// </summary>
+            public readonly HashSet<string> SkippedImmutableForkRecordingIds =
+                new HashSet<string>(StringComparer.Ordinal);
+
+            /// <summary>
+            /// Immutable preservation candidates (Pass 1) that were demoted to
+            /// drops in Pass 2 because their <c>OldRecordingId</c> was itself
+            /// being retired in this same batch. The canon fork has nothing to
+            /// be canon over (its priorTip is gone), so the chain must collapse
+            /// to preserve the no-double-materialization invariant.
+            /// </summary>
+            public readonly HashSet<string> DemotedImmutablePreservationIds =
+                new HashSet<string>(StringComparer.Ordinal);
+
+            /// <summary>
+            /// Forks (typically Immutable) whose incoming supersede relation was
+            /// dropped because the user explicitly self-rewound them — i.e.
+            /// <c>rel.NewRecordingId == owner.RecordingId</c>. The classifier
+            /// forces the drop regardless of MergeState (the user is
+            /// undoing this canon, not preserving it). Carried through the
+            /// rollback result so <c>EnsureRewindRetirementsForRollback</c>'s
+            /// defensive Immutable guard recognizes the intent and lets the
+            /// retirement proceed (with reason
+            /// <c>RecordingRewindRetirement.SelfRewoundCanonReason</c>).
+            /// </summary>
+            public readonly HashSet<string> ForcedSelfRewindDropIds =
+                new HashSet<string>(StringComparer.Ordinal);
+
             public int DroppedRelationCount => DroppedRelations.Count;
+            public int SkippedImmutableForkCount => SkippedImmutableForkRecordingIds.Count;
+            public int DemotedImmutablePreservationCount => DemotedImmutablePreservationIds.Count;
+            public int ForcedSelfRewindDropCount => ForcedSelfRewindDropIds.Count;
         }
 
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
@@ -3702,40 +3738,63 @@ namespace Parsek
         /// </para>
         /// </summary>
         internal static void ResetForTesting()
+            => ResetForTestingInternal(allowWipingLiveSaveData: false);
+
+        /// <summary>
+        /// Wipe-and-reset variant for the in-game test runner's batch FLIGHT
+        /// baseline restore flow. The next operation after this call is a
+        /// <c>QuickloadResumeHelpers.TriggerQuickload</c> from the baseline
+        /// save slot, which restores the player's clean pre-batch state from
+        /// disk via <c>OnLoad</c>. The in-memory wipe is therefore a
+        /// transient about-to-be-overwritten step, not a destructive
+        /// player-save mutation; the live-save guard exists to prevent the
+        /// PersistenceSplitOptimizerTest 2026-05-01 class of bug where a
+        /// test wiped state without restoring it. Documented at
+        /// <see cref="ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore"/>
+        /// — that's the only caller. Bypassing the guard from anywhere else
+        /// re-opens the production bug.
+        /// </summary>
+        internal static void ResetForBatchFlightBaselineRestoreBypassingGuard()
+            => ResetForTestingInternal(allowWipingLiveSaveData: true);
+
+        private static void ResetForTestingInternal(bool allowWipingLiveSaveData)
         {
-            bool isPlaying;
-            if (ApplicationIsPlayingForTesting != null)
+            if (!allowWipingLiveSaveData)
             {
-                isPlaying = ApplicationIsPlayingForTesting();
-            }
-            else
-            {
-                isPlaying = TryReadUnityApplicationIsPlaying();
-            }
-            if (isPlaying)
-            {
-                int recCount = committedRecordings.Count;
-                int treeCount = committedTrees.Count;
-                bool hasPending = pendingTree != null;
-                bool hasSavedPendingDuringActiveRestore =
-                    savedPendingTreeDuringActiveRestore != null;
-                if (recCount > 0
-                    || treeCount > 0
-                    || hasPending
-                    || hasSavedPendingDuringActiveRestore)
+                bool isPlaying;
+                if (ApplicationIsPlayingForTesting != null)
                 {
-                    string msg =
-                        $"ResetForTesting blocked: refusing to wipe live save data " +
-                        $"(committedRecordings={recCount}, committedTrees={treeCount}, " +
-                        $"hasPendingTree={hasPending}, " +
-                        $"hasSavedPendingDuringActiveRestore={hasSavedPendingDuringActiveRestore}). " +
-                        $"The in-game test runner shares " +
-                        $"static state with the player's save — call " +
-                        $"RecordingStoreTestSnapshot.Capture()/Restore() around the " +
-                        $"test body instead of ResetForTesting(). Production bug source: " +
-                        $"PersistenceSplitOptimizerTest 2026-05-01.";
-                    ParsekLog.Error("RecordingStore", msg);
-                    throw new InvalidOperationException(msg);
+                    isPlaying = ApplicationIsPlayingForTesting();
+                }
+                else
+                {
+                    isPlaying = TryReadUnityApplicationIsPlaying();
+                }
+                if (isPlaying)
+                {
+                    int recCount = committedRecordings.Count;
+                    int treeCount = committedTrees.Count;
+                    bool hasPending = pendingTree != null;
+                    bool hasSavedPendingDuringActiveRestore =
+                        savedPendingTreeDuringActiveRestore != null;
+                    if (recCount > 0
+                        || treeCount > 0
+                        || hasPending
+                        || hasSavedPendingDuringActiveRestore)
+                    {
+                        string msg =
+                            $"ResetForTesting blocked: refusing to wipe live save data " +
+                            $"(committedRecordings={recCount}, committedTrees={treeCount}, " +
+                            $"hasPendingTree={hasPending}, " +
+                            $"hasSavedPendingDuringActiveRestore={hasSavedPendingDuringActiveRestore}). " +
+                            $"The in-game test runner shares " +
+                            $"static state with the player's save — call " +
+                            $"RecordingStoreTestSnapshot.Capture()/Restore() around the " +
+                            $"test body instead of ResetForTesting(). Production bug source: " +
+                            $"PersistenceSplitOptimizerTest 2026-05-01.";
+                        ParsekLog.Error("RecordingStore", msg);
+                        throw new InvalidOperationException(msg);
+                    }
                 }
             }
 
@@ -5069,26 +5128,164 @@ namespace Parsek
                 }
             }
 
-            // Drop relations whose OldRecordingId belongs to the rewound subtree AND
-            // whose fork is "rewound out" — preferred signal is the fork's
-            // Recording.StartUT, but if the fork is missing from liveRecordingsById
-            // (orphaned/deleted out of band) we fall back to rel.UT (the merge time
-            // recorded on the relation itself, see RecordingSupersedeRelation.UT).
-            // Without the fallback, one-sided orphan rows would still suppress
-            // OldRecordingId through EffectiveState.IsVisible after rewind.
+            // Two-pass classification of in-scope supersede relations:
+            //
+            //   Pass 1 — for every relation whose OldRecordingId belongs to the
+            //     rewound subtree AND whose fork is "rewound out" (preferred
+            //     signal: Recording.StartUT; orphan fallback: rel.UT — the merge
+            //     time recorded on the relation itself, so one-sided orphan rows
+            //     don't silently keep suppressing OldRecordingId after rewind):
+            //       - if the fork's MergeState is Immutable → tentatively
+            //         preserve (canon fork survives parent rewind);
+            //       - otherwise → drop + retire (existing behaviour).
+            //
+            //   Pass 2 — demote any tentative preservation whose OldRecordingId
+            //     is itself being retired in this same batch. The canon fork's
+            //     priorTip is gone, so the canon has no live source to be canon
+            //     over; preserving it would leave A and C both visible alongside
+            //     the restored A — the same double-materialization regression
+            //     that PR #776/#777 fixed (see
+            //     docs/dev/plans/fix-watch-double-probe-ghost-after-rewind.md).
+            //
+            // Coupling hazard: ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly
+            // currently scopes SpawnSuppressedByRewind to the active/source
+            // recording only (per #589). If that scope ever expands to cover
+            // same-tree future recordings, the preserved canon fork would be
+            // silently re-suppressed at spawn time even though this predicate
+            // kept its supersede relation. Watch that helper during review of
+            // any future Rewind-scope changes.
             var pendingDrops = new List<RecordingSupersedeRelation>();
+            var pendingImmutablePreservations = new List<RecordingSupersedeRelation>();
             for (int i = 0; i < supersedes.Count; i++)
             {
                 var rel = supersedes[i];
                 if (rel == null || string.IsNullOrEmpty(rel.OldRecordingId)) continue;
                 if (string.IsNullOrEmpty(rel.NewRecordingId)) continue;
-                if (!rewoundOutOldIds.Contains(rel.OldRecordingId)) continue;
+
+                // Two distinct in-scope cases:
+                //
+                //   (a) "Outgoing": rel.OldRecordingId is in the rewound subtree
+                //       (parent rewind on A drops every A→fork relation). The
+                //       canonical case: parent A is rewound, all A's forks must
+                //       go (or preserve, if Immutable).
+                //
+                //   (b) "Incoming, self-rewind on canon": rel.NewRecordingId IS
+                //       the rewind owner. The user clicked Rewind on the canon
+                //       fork itself — they want to undo this canon recording.
+                //       The incoming relation (priorTip → canon) must drop so
+                //       priorTip becomes visible again. Without this, A→B(Imm)
+                //       with self-rewind on B leaves A→B intact, B's recording
+                //       is rewound away but A stays hidden by the orphaned
+                //       relation.
+                //
+                // Cases (a) and (b) overlap in the parent-rewind subtree case
+                // (both Old and New are in rewoundOutOldIds). We distinguish
+                // case (b) explicitly here so it bypasses the Immutable
+                // preservation branch — self-rewind on a canon fork must drop
+                // the relation regardless of MergeState, because the user is
+                // explicitly undoing this canon. Outgoing relations from the
+                // canon-fork-as-owner already drop via case (a) — see
+                // Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops.
+                bool oldInScope = rewoundOutOldIds.Contains(rel.OldRecordingId);
+                bool newIsSelfRewind = !string.IsNullOrEmpty(owner.RecordingId)
+                    && string.Equals(rel.NewRecordingId, owner.RecordingId, StringComparison.Ordinal);
+                if (!oldInScope && !newIsSelfRewind) continue;
+
                 Recording newRec = null;
                 if (liveRecordingsById != null)
                     liveRecordingsById.TryGetValue(rel.NewRecordingId, out newRec);
                 double effectiveForkUT = newRec != null ? newRec.StartUT : rel.UT;
                 if (effectiveForkUT < rewindAdjustedUT) continue;
-                pendingDrops.Add(rel);
+
+                // Self-rewind on the canon (case b): force drop. The Immutable
+                // preservation contract applies only to parent rewind — when
+                // the user explicitly rewinds the canon fork itself, the
+                // canon is being undone, not preserved.
+                //
+                // Track the forced-drop new-id so EnsureRewindRetirementsForRollback's
+                // defensive Immutable guard can let this retirement proceed
+                // (instead of re-inserting the relation we just chose to drop).
+                if (newIsSelfRewind)
+                {
+                    pendingDrops.Add(rel);
+                    if (!string.IsNullOrEmpty(rel.NewRecordingId))
+                        result.ForcedSelfRewindDropIds.Add(rel.NewRecordingId);
+                    continue;
+                }
+
+                // Orphan-fallback (newRec == null) cannot read MergeState — drop
+                // as today; the fork is gone anyway and the relation would
+                // otherwise dangle and silently suppress OldRecordingId.
+                if (newRec != null && newRec.MergeState == MergeState.Immutable)
+                    pendingImmutablePreservations.Add(rel);
+                else
+                    pendingDrops.Add(rel);
+            }
+
+            // Pass 2 — demote preservations whose priorTip is itself retired,
+            // iterating to a fixpoint so cascades propagate.
+            //
+            // pendingRetiredNewIds = { rel.NewRecordingId | rel ∈ pendingDrops }
+            // (the New of each drop is the fork that gets retired; the Old gets
+            // restored, so checking against Olds would be the wrong direction).
+            //
+            // Cascade example: A → B(Provisional) → C(Immutable) → D(Immutable),
+            // rewind past A's start.
+            //   Initial: pendingDrops=[A→B], pendingImmutablePreservations=[B→C, C→D].
+            //   Pass 2 iter 1: B in pendingRetiredNewIds={B} → B→C demotes;
+            //     pendingRetiredNewIds becomes {B,C}.
+            //   Pass 2 iter 2: C now in pendingRetiredNewIds → C→D demotes too;
+            //     pendingRetiredNewIds becomes {B,C,D}.
+            //   Pass 2 iter 3: no more preservations → terminate.
+            // Without the fixpoint loop, C→D would survive the demotion pass
+            // and D would render as canon alongside the restored A — the
+            // double-materialization regression PR #776/#777 fixes.
+            if (pendingImmutablePreservations.Count > 0)
+            {
+                var pendingRetiredNewIds = new HashSet<string>(
+                    StringComparer.Ordinal);
+                for (int i = 0; i < pendingDrops.Count; i++)
+                {
+                    string newId = pendingDrops[i].NewRecordingId;
+                    if (!string.IsNullOrEmpty(newId))
+                        pendingRetiredNewIds.Add(newId);
+                }
+
+                bool changedThisIteration = true;
+                while (changedThisIteration)
+                {
+                    changedThisIteration = false;
+                    for (int i = pendingImmutablePreservations.Count - 1; i >= 0; i--)
+                    {
+                        var rel = pendingImmutablePreservations[i];
+                        if (!string.IsNullOrEmpty(rel.OldRecordingId)
+                            && pendingRetiredNewIds.Contains(rel.OldRecordingId))
+                        {
+                            pendingImmutablePreservations.RemoveAt(i);
+                            pendingDrops.Add(rel);
+                            if (!string.IsNullOrEmpty(rel.NewRecordingId))
+                            {
+                                result.DemotedImmutablePreservationIds.Add(rel.NewRecordingId);
+                                // Adding the demoted New to the retired set
+                                // makes the cascade transitive: a later
+                                // preservation candidate whose Old is this
+                                // demoted New will also demote on the next
+                                // iteration.
+                                pendingRetiredNewIds.Add(rel.NewRecordingId);
+                            }
+                            changedThisIteration = true;
+                        }
+                    }
+                }
+
+                // Anything still in pendingImmutablePreservations is a
+                // confirmed canon preservation.
+                for (int i = 0; i < pendingImmutablePreservations.Count; i++)
+                {
+                    string newId = pendingImmutablePreservations[i].NewRecordingId;
+                    if (!string.IsNullOrEmpty(newId))
+                        result.SkippedImmutableForkRecordingIds.Add(newId);
+                }
             }
 
             if (pendingDrops.Count == 0)
@@ -5107,6 +5304,22 @@ namespace Parsek
 
             foreach (string retiredId in result.RetiredForkRecordingIds)
                 result.RestoredRecordingIds.Remove(retiredId);
+
+            // Also prune any preserved canon ids — a recording can be both
+            // the Old of a dropped relation (added to RestoredRecordingIds
+            // by the apply loop above) AND the New of a preserved Immutable
+            // relation (in SkippedImmutableForkRecordingIds, hence the canon
+            // head). Example: A → B(Imm) → C(Prov) → D(Imm) rewind past A.
+            // B preserves as canon (A→B kept) but is also the priorTip of
+            // the dropped B→C, so it lands in RestoredRecordingIds. The
+            // live caller's Pass 2 (PR #807 old-side retirement) iterates
+            // RestoredRecordingIds and would retire B — leaving NO canon
+            // head visible (A hidden by surviving A→B, B retired by old-side
+            // pass). Canon preservation must win: anything in
+            // SkippedImmutableForkRecordingIds is the canon and stays
+            // visible, never a candidate for old-side retirement.
+            foreach (string preservedId in result.SkippedImmutableForkRecordingIds)
+                result.RestoredRecordingIds.Remove(preservedId);
 
             return result;
         }
@@ -5201,17 +5414,60 @@ namespace Parsek
             // bump, any cached effective view stays stale until a later load or
             // unrelated mutation. Every other production supersede mutation
             // (SupersedeCommit) bumps this counter; the rewind drop must too.
+            //
+            // SkippedImmutableForkCount alone (no drops, no retirements) does NOT
+            // require a cache bump: RecordingSupersedes and
+            // RecordingRewindRetirements are both unchanged, so cached ERS stays
+            // correct. The summary log still fires so the audit trail records
+            // what the predicate decided.
+            //
+            // Invariant: the Pass-1 defense path in EnsureRewindRetirementsForRollback
+            // (Immutable id in RetiredForkRecordingIds without explicit demotion)
+            // performs a remove-then-restore round-trip on RecordingSupersedes —
+            // the apply-drops loop above already removed the relation, and the
+            // defense re-adds the same instance. The supersede list ends up
+            // byte-identical to its pre-call state for that relation, so no
+            // cache bump is strictly required for the defense alone. If a
+            // future change relaxes the apply-drops loop's removal so the
+            // defense becomes a net-add, this guard needs to grow a defense-
+            // path counter (or track scenario.RecordingSupersedes.Count
+            // changes explicitly) to keep ERS coherent.
+            int skippedImmutable = rollback.SkippedImmutableForkCount;
+            int demotedImmutable = rollback.DemotedImmutablePreservationCount;
             if (dropped > 0 || retired > 0 || retiredOldSides > 0)
-            {
                 scenario.BumpSupersedeStateVersion();
-                if (!SuppressLogging)
+
+            if ((dropped > 0 || retired > 0 || retiredOldSides > 0
+                    || skippedImmutable > 0 || demotedImmutable > 0)
+                && !SuppressLogging)
+            {
+                ParsekLog.Info("Rewind",
+                    $"Rewind supersede rollback: dropped={dropped.ToString(CultureInfo.InvariantCulture)} " +
+                    $"retiredForks={retired.ToString(CultureInfo.InvariantCulture)} " +
+                    $"retiredOldSides={retiredOldSides.ToString(CultureInfo.InvariantCulture)} " +
+                    $"restored={restoredCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"skippedImmutable={skippedImmutable.ToString(CultureInfo.InvariantCulture)} " +
+                    $"demotedImmutable={demotedImmutable.ToString(CultureInfo.InvariantCulture)} " +
+                    $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"owner='{owner.VesselName}'");
+
+                // Per-canon-fork preserve / demote audit lines. Bounded by the
+                // number of preserved/demoted forks in this batch (rare event,
+                // typically 0–2 entries) so no rate-limit needed.
+                foreach (string preservedId in rollback.SkippedImmutableForkRecordingIds)
+                {
                     ParsekLog.Info("Rewind",
-                        $"Rewind supersede rollback: dropped={dropped.ToString(CultureInfo.InvariantCulture)} " +
-                        $"retiredForks={retired.ToString(CultureInfo.InvariantCulture)} " +
-                        $"retiredOldSides={retiredOldSides.ToString(CultureInfo.InvariantCulture)} " +
-                        $"restored={restoredCount.ToString(CultureInfo.InvariantCulture)} " +
+                        $"Preserved canon fork across parent rewind: rec={preservedId} " +
+                        $"mergeState=Immutable rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"owner='{owner.VesselName}'");
+                }
+                foreach (string demotedId in rollback.DemotedImmutablePreservationIds)
+                {
+                    ParsekLog.Info("Rewind",
+                        $"Demoted Immutable preservation to drop (priorTip retired): rec={demotedId} " +
                         $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"owner='{owner.VesselName}'");
+                }
             }
             return dropped;
         }
@@ -5268,6 +5524,16 @@ namespace Parsek
                     continue;
                 }
 
+                // Look up the source relation up front so the Immutable defense
+                // path (next) can re-insert it into RecordingSupersedes.
+                // Without that re-insert, a maintainer-error path that fed an
+                // Immutable id into RetiredForkRecordingIds would leave the
+                // relation already removed from supersedes (the upstream apply
+                // loop mutates the live list), the canon fork un-retired by
+                // this defense, and the priorTip un-superseded — i.e. exactly
+                // the double-materialization regression that PR #776/#777
+                // existed to prevent. Restoring the relation here re-supersedes
+                // the priorTip so only the canon fork is visible.
                 RecordingSupersedeRelation sourceRel = null;
                 for (int i = 0; i < rollback.DroppedRelations.Count; i++)
                 {
@@ -5279,6 +5545,78 @@ namespace Parsek
                     }
                 }
 
+                // Defence-in-depth: the predicate-classifier upstream already
+                // routes Immutable forks into preservations (or, when their
+                // priorTip is itself retired in the same batch, demotes them
+                // explicitly; or, when the user self-rewinds the canon fork,
+                // forces the drop explicitly). Refuse to write a retirement
+                // for an Immutable recording when the upstream classifier
+                // did NOT explicitly mark this id with one of those intents
+                // — that path indicates a maintainer-error code path
+                // populated RetiredForkRecordingIds with a canon id.
+                // Intentionally-retired Immutable ids must retire normally:
+                //   - Demoted (priorTip retired in same batch): the canon
+                //     has nothing to be canon over.
+                //   - Self-rewound (user rewinds canon itself): the user is
+                //     explicitly undoing this canon recording.
+                // Either case, preserving the relation would re-introduce
+                // the double-materialization regression OR silently undo the
+                // user's intent.
+                bool wasExplicitlyDemoted =
+                    rollback.DemotedImmutablePreservationIds.Contains(retiredId);
+                bool wasForcedSelfRewindDrop =
+                    rollback.ForcedSelfRewindDropIds.Contains(retiredId);
+                bool wasIntentionallyDropped =
+                    wasExplicitlyDemoted || wasForcedSelfRewindDrop;
+                if (retiredRec.MergeState == MergeState.Immutable
+                    && !wasIntentionallyDropped)
+                {
+                    bool restoredSupersedeLink = false;
+                    if (sourceRel != null
+                        && scenario.RecordingSupersedes != null
+                        && !scenario.RecordingSupersedes.Contains(sourceRel))
+                    {
+                        scenario.RecordingSupersedes.Add(sourceRel);
+                        restoredSupersedeLink = true;
+
+                        // Pass 2 (old-side, below) iterates RestoredRecordingIds
+                        // and would otherwise write a RewoundOutOldSideReason
+                        // retirement for sourceRel.OldRecordingId. With the
+                        // relation re-inserted here, the priorTip is logically
+                        // superseded again — retiring it would be a redundant
+                        // row that adds noise to the audit log and bumps the
+                        // cache version for nothing. Remove it from the set so
+                        // the old-side pass sees the correct semantic state.
+                        if (!string.IsNullOrEmpty(sourceRel.OldRecordingId))
+                            rollback.RestoredRecordingIds.Remove(sourceRel.OldRecordingId);
+                    }
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("Rewind",
+                            $"Skipping retirement for Immutable canon recording rec={retiredId} " +
+                            (restoredSupersedeLink
+                                ? $"and re-inserting supersede relation {sourceRel.RelationId ?? "<no-id>"} (priorTip stays superseded) "
+                                : "(no source relation to restore — priorTip may render alongside canon, investigate) ") +
+                            $"— predicate-classifier should have preserved or explicitly demoted this. " +
+                            $"Investigate the upstream Pass 1/Pass 2 logic.");
+                    continue;
+                }
+
+                // Intentionally-retired Immutable forks carry a distinct
+                // Reason so LoadTimeSweep's legacy-Immutable sweep can tell
+                // intentional retirements apart from pre-fix bad state.
+                // Without these tags, a legitimate Pass-2 demotion or
+                // self-rewind retirement saved to disk would be undone on
+                // next load (sweep would remove the retirement and
+                // reconstruct the priorTip → canon supersede relation,
+                // making the canon visible again — silently undoing the
+                // user's rewind action on every load).
+                string retirementReason;
+                if (wasForcedSelfRewindDrop)
+                    retirementReason = RecordingRewindRetirement.SelfRewoundCanonReason;
+                else if (wasExplicitlyDemoted)
+                    retirementReason = RecordingRewindRetirement.DemotedCanonReason;
+                else
+                    retirementReason = RecordingRewindRetirement.DefaultReason;
                 var retirement = new RecordingRewindRetirement
                 {
                     RetirementId = "rrt_" + Guid.NewGuid().ToString("N"),
@@ -5288,7 +5626,7 @@ namespace Parsek
                     RewindUT = rewindAdjustedUT,
                     CreatedUT = CurrentUniversalTimeForRewindRetirement(),
                     CreatedRealTime = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-                    Reason = RecordingRewindRetirement.DefaultReason,
+                    Reason = retirementReason,
                 };
                 scenario.RecordingRewindRetirements.Add(retirement);
                 seenRetiredIds.Add(retiredId);

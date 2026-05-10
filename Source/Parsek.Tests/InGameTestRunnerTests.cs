@@ -576,5 +576,101 @@ namespace Parsek.Tests
                     ExhaustCoroutine(nested);
             }
         }
+
+        // Round-7 review regression: tests that self-skip via
+        // InGameAssert.Skip from inside the test body (after starting a
+        // recording, staging the vessel, or otherwise mutating the live
+        // FLIGHT session) used to bypass the post-test batch FLIGHT
+        // baseline restore because the runner's predicate gated on
+        // `Status != Skipped`. Real example: ControlledChildBreakupSeed_LogsLiveResidualDecision
+        // calls flight.StartRecording() and StageManager.ActivateNextStage()
+        // before deciding via InGameAssert.Skip if no controlled-child
+        // decision log appeared. With the gate, Run All + Isolated would
+        // carry the staged vessel + active recording into the next test.
+        //
+        // Round-7 fix: post-test restore predicate ignores test status.
+        // Restore runs after any restore-backed test that reached
+        // RunOneTest (passed, failed, or self-skipped). Scene-eligibility
+        // skips are filtered by RunBatch's `continue;` before RunOneTest
+        // runs, so they never reach this predicate.
+
+        [Fact]
+        public void ShouldRestoreBatchFlightBaselineAfterTest_RestoreBackedPassedTest_ReturnsTrue()
+        {
+            var test = new InGameTestInfo
+            {
+                Name = "PassedTest",
+                RestoreBatchFlightBaselineAfterExecution = true,
+                Status = TestStatus.Passed,
+            };
+
+            Assert.True(InGameTestRunner.ShouldRestoreBatchFlightBaselineAfterTest(test));
+        }
+
+        [Fact]
+        public void ShouldRestoreBatchFlightBaselineAfterTest_RestoreBackedFailedTest_ReturnsTrue()
+        {
+            var test = new InGameTestInfo
+            {
+                Name = "FailedTest",
+                RestoreBatchFlightBaselineAfterExecution = true,
+                Status = TestStatus.Failed,
+            };
+
+            Assert.True(InGameTestRunner.ShouldRestoreBatchFlightBaselineAfterTest(test));
+        }
+
+        [Fact]
+        public void ShouldRestoreBatchFlightBaselineAfterTest_RestoreBackedSelfSkippedTest_ReturnsTrue()
+        {
+            // The contract pin: a restore-backed test that called
+            // InGameAssert.Skip from inside its body (e.g.
+            // ControlledChildBreakupSeed_LogsLiveResidualDecision after
+            // StartRecording + ActivateNextStage) MUST trigger the post-test
+            // restore. Pre-fix the runner gated on `Status != Skipped`
+            // and skipped the restore here, leaving the staged vessel
+            // and active recording for the next test.
+            var test = new InGameTestInfo
+            {
+                Name = "SelfSkippedAfterStaging",
+                RestoreBatchFlightBaselineAfterExecution = true,
+                Status = TestStatus.Skipped,
+            };
+
+            Assert.True(InGameTestRunner.ShouldRestoreBatchFlightBaselineAfterTest(test));
+        }
+
+        [Fact]
+        public void ShouldRestoreBatchFlightBaselineAfterTest_NotRestoreBacked_AnyStatus_ReturnsFalse()
+        {
+            // Non-restore-backed tests never trigger the restore path,
+            // regardless of status. (The runner only calls this predicate
+            // after a real test execution; non-batch / single-run-only
+            // tests are excluded earlier by PrepareBatchExecution.)
+            foreach (var status in new[]
+            {
+                TestStatus.Passed,
+                TestStatus.Failed,
+                TestStatus.Skipped,
+                TestStatus.Running,
+                TestStatus.NotRun,
+            })
+            {
+                var test = new InGameTestInfo
+                {
+                    Name = "NonBatchTest",
+                    RestoreBatchFlightBaselineAfterExecution = false,
+                    Status = status,
+                };
+                Assert.False(InGameTestRunner.ShouldRestoreBatchFlightBaselineAfterTest(test),
+                    $"non-restore-backed test should never trigger restore (status={status})");
+            }
+        }
+
+        [Fact]
+        public void ShouldRestoreBatchFlightBaselineAfterTest_NullTest_ReturnsFalse()
+        {
+            Assert.False(InGameTestRunner.ShouldRestoreBatchFlightBaselineAfterTest(null));
+        }
     }
 }
