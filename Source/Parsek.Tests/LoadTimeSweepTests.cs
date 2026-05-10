@@ -1122,6 +1122,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RetirementPointingAtImmutable_SelfRewoundCanonReason_NotSwept()
+        {
+            // Counterpart to the demoted-canon case: a retirement pointing
+            // at an Immutable recording with SelfRewoundCanonReason is the
+            // result of the user explicitly self-rewinding the canon. The
+            // sweep must NOT remove this retirement or reconstruct the
+            // priorTip → canon relation — doing so would silently undo the
+            // user's self-rewind on every load.
+            InstallTree("tree_self_rewound",
+                new List<Recording>
+                {
+                    Rec("rec_priorTip", MergeState.Immutable),
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var selfRewoundRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_self_rewound",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip",
+                Reason = RecordingRewindRetirement.SelfRewoundCanonReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { selfRewoundRetirement });
+
+            LoadTimeSweep.Run();
+
+            // Retirement survives unchanged — canon stays retired.
+            Assert.Single(scenario.RecordingRewindRetirements);
+            // No supersede relation reconstructed (would un-do the
+            // user's self-rewind).
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_self_rewound"));
+        }
+
+        [Fact]
         public void RetirementPointingAtImmutable_DefaultReason_SweptAsLegacy()
         {
             // Counterpart to the test above: a retirement pointing at an

@@ -30,6 +30,29 @@ namespace Parsek
         public const string DemotedCanonReason = "rewound-out-supersede-fork-demoted-canon";
 
         /// <summary>
+        /// Reason value applied when the user explicitly rewinds the canon
+        /// fork itself (self-rewind). The classifier in
+        /// <c>DropSupersedesRewoundOutOfExistenceDetailedPure</c> forces the
+        /// incoming priorTip → canon supersede to drop regardless of the
+        /// canon's <see cref="MergeState.Immutable"/> status, and the canon
+        /// gets retired with this reason so:
+        /// <list type="bullet">
+        ///   <item>the defensive Immutable guard in
+        ///     <c>EnsureRewindRetirementsForRollback</c> recognizes the
+        ///     intent and lets the retirement through;</item>
+        ///   <item>the load-time legacy-Immutable sweep does NOT later
+        ///     reconstruct the dropped relation (which would silently undo
+        ///     the user's self-rewind on every load).</item>
+        /// </list>
+        /// Distinct from <see cref="DemotedCanonReason"/> because the
+        /// trigger is different: demotion is a Pass-2 cascade ("canon's
+        /// priorTip is being retired in the same batch"), self-rewind is a
+        /// direct user action ("undo this canon recording"). Both intents
+        /// must be preserved across save/load.
+        /// </summary>
+        public const string SelfRewoundCanonReason = "rewound-out-supersede-fork-self-rewound";
+
+        /// <summary>
         /// Reason for retirements written for the OLD-side recording of a
         /// supersede relation that was rewound out of existence. Distinct from
         /// <see cref="DefaultReason"/> so log scrapers and tests can tell which

@@ -1382,6 +1382,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LiveRollback_SelfRewindOnImmutableFork_WritesRetirementWithSelfRewoundReason()
+        {
+            // End-to-end live-path version of
+            // Rollback_SelfRewindOnImmutableFork_DropsIncomingSupersede:
+            // exercises DropSupersedesRewoundOutOfExistence (live entry,
+            // including EnsureRewindRetirementsForRollback's defensive
+            // Immutable guard) instead of just the pure helper. Without
+            // the ForcedSelfRewindDropIds marker carried through the
+            // result and the DemotedImmutablePreservationIds-OR-self-rewind
+            // bypass, the defense path would see "Immutable B in
+            // RetiredForkRecordingIds, NOT in DemotedImmutablePreservationIds"
+            // and re-insert the A→B relation we just chose to drop —
+            // silently undoing the user's self-rewind.
+            //
+            // Topology: A → B(Immutable). User clicks Rewind on B.
+            // Owner=B; A.StartUT=0.0 < rewindUT=25.0; B.StartUT=31.5 ≥ rewindUT.
+            //
+            // Expected end state:
+            //   - A→B dropped (NOT in scenario.RecordingSupersedes).
+            //   - 1 retirement, RecordingId=B, Reason=SelfRewoundCanonReason.
+            //   - No defensive Warn log fires.
+            //   - On a hypothetical save/load round-trip, LoadTimeSweep
+            //     would see Reason==SelfRewoundCanonReason and skip the
+            //     legacy-Immutable cleanup path → user's self-rewind
+            //     persists across loads.
+            var a = MakeRec("A", startUT: 0.0);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
+            InstallCommittedTreeForTesting("tree-self-rewind", a, b);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(b.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(25.0);
+
+            // Owner is B (the canon fork the user is self-rewinding).
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(b, 25.0);
+
+            Assert.Equal(1, dropped);
+            // A→B was dropped — defense did NOT re-insert it.
+            Assert.Empty(scenario.RecordingSupersedes);
+            // B's retirement was actually written (defense bypassed via
+            // ForcedSelfRewindDropIds), and tagged with SelfRewoundCanonReason
+            // so LoadTimeSweep won't undo it on next load.
+            var retirement = Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("B", retirement.RecordingId);
+            Assert.Equal(RecordingRewindRetirement.SelfRewoundCanonReason, retirement.Reason);
+            // The defensive Immutable Warn log MUST NOT fire — the upstream
+            // classifier explicitly forced the drop, this is intentional.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("Skipping retirement for Immutable canon recording"));
+        }
+
+        [Fact]
         public void Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops()
         {
             // Edge case: the owner of the rewind is itself an Immutable canon

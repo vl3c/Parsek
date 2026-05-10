@@ -646,6 +646,18 @@ namespace Parsek
                     && string.Equals(retirement.Reason,
                         RecordingRewindRetirement.DemotedCanonReason,
                         StringComparison.Ordinal);
+                // Self-rewound canon retirements (this PR): user explicitly
+                // clicked Rewind on the canon fork. The classifier forced
+                // the drop and tagged the retirement with
+                // SelfRewoundCanonReason. If the legacy-Immutable sweep
+                // reconstructed the priorTip → canon relation here, the
+                // user's self-rewind would be silently undone on every
+                // load — the canon would become visible again and the
+                // priorTip would re-hide. Skip these retirements.
+                bool isIntentionalSelfRewoundCanon = isImmutableTarget
+                    && string.Equals(retirement.Reason,
+                        RecordingRewindRetirement.SelfRewoundCanonReason,
+                        StringComparison.Ordinal);
                 // Old-side retirements (PR #807) target priorTips of dropped
                 // supersedes that were rewound out of existence. They are
                 // intentional and authored with RestoredRecordingId=null, so
@@ -659,6 +671,7 @@ namespace Parsek
                         StringComparison.Ordinal);
                 if (isImmutableTarget
                     && !isIntentionalDemotedCanon
+                    && !isIntentionalSelfRewoundCanon
                     && !isIntentionalOldSide)
                 {
                     LegacyImmutableSupersedeRestoreResult restoreResult =

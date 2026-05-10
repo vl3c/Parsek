@@ -82,9 +82,24 @@ namespace Parsek
             public readonly HashSet<string> DemotedImmutablePreservationIds =
                 new HashSet<string>(StringComparer.Ordinal);
 
+            /// <summary>
+            /// Forks (typically Immutable) whose incoming supersede relation was
+            /// dropped because the user explicitly self-rewound them — i.e.
+            /// <c>rel.NewRecordingId == owner.RecordingId</c>. The classifier
+            /// forces the drop regardless of MergeState (the user is
+            /// undoing this canon, not preserving it). Carried through the
+            /// rollback result so <c>EnsureRewindRetirementsForRollback</c>'s
+            /// defensive Immutable guard recognizes the intent and lets the
+            /// retirement proceed (with reason
+            /// <c>RecordingRewindRetirement.SelfRewoundCanonReason</c>).
+            /// </summary>
+            public readonly HashSet<string> ForcedSelfRewindDropIds =
+                new HashSet<string>(StringComparer.Ordinal);
+
             public int DroppedRelationCount => DroppedRelations.Count;
             public int SkippedImmutableForkCount => SkippedImmutableForkRecordingIds.Count;
             public int DemotedImmutablePreservationCount => DemotedImmutablePreservationIds.Count;
+            public int ForcedSelfRewindDropCount => ForcedSelfRewindDropIds.Count;
         }
 
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
@@ -5163,9 +5178,15 @@ namespace Parsek
                 // preservation contract applies only to parent rewind — when
                 // the user explicitly rewinds the canon fork itself, the
                 // canon is being undone, not preserved.
+                //
+                // Track the forced-drop new-id so EnsureRewindRetirementsForRollback's
+                // defensive Immutable guard can let this retirement proceed
+                // (instead of re-inserting the relation we just chose to drop).
                 if (newIsSelfRewind)
                 {
                     pendingDrops.Add(rel);
+                    if (!string.IsNullOrEmpty(rel.NewRecordingId))
+                        result.ForcedSelfRewindDropIds.Add(rel.NewRecordingId);
                     continue;
                 }
 
@@ -5488,17 +5509,28 @@ namespace Parsek
                 // Defence-in-depth: the predicate-classifier upstream already
                 // routes Immutable forks into preservations (or, when their
                 // priorTip is itself retired in the same batch, demotes them
-                // explicitly). Refuse to write a retirement for an Immutable
-                // recording when the upstream classifier did NOT explicitly
-                // demote it — that path indicates a maintainer-error code path
-                // populated RetiredForkRecordingIds with a canon id. Demoted
-                // ids must retire normally (the priorTip is gone and the
-                // canon has nothing to be canon over; preserving the relation
-                // would re-introduce the double-materialization regression).
+                // explicitly; or, when the user self-rewinds the canon fork,
+                // forces the drop explicitly). Refuse to write a retirement
+                // for an Immutable recording when the upstream classifier
+                // did NOT explicitly mark this id with one of those intents
+                // — that path indicates a maintainer-error code path
+                // populated RetiredForkRecordingIds with a canon id.
+                // Intentionally-retired Immutable ids must retire normally:
+                //   - Demoted (priorTip retired in same batch): the canon
+                //     has nothing to be canon over.
+                //   - Self-rewound (user rewinds canon itself): the user is
+                //     explicitly undoing this canon recording.
+                // Either case, preserving the relation would re-introduce
+                // the double-materialization regression OR silently undo the
+                // user's intent.
                 bool wasExplicitlyDemoted =
                     rollback.DemotedImmutablePreservationIds.Contains(retiredId);
+                bool wasForcedSelfRewindDrop =
+                    rollback.ForcedSelfRewindDropIds.Contains(retiredId);
+                bool wasIntentionallyDropped =
+                    wasExplicitlyDemoted || wasForcedSelfRewindDrop;
                 if (retiredRec.MergeState == MergeState.Immutable
-                    && !wasExplicitlyDemoted)
+                    && !wasIntentionallyDropped)
                 {
                     bool restoredSupersedeLink = false;
                     if (sourceRel != null
@@ -5530,17 +5562,22 @@ namespace Parsek
                     continue;
                 }
 
-                // Demoted canon (Pass 2) retirements carry a distinct Reason
-                // so LoadTimeSweep's legacy-Immutable sweep can tell intentional
-                // demotions apart from pre-fix bad state. Without this tag, a
-                // legitimate Pass-2 demotion saved to disk would be undone on
-                // next load (sweep would remove the retirement and reconstruct
-                // the priorTip → canon supersede relation, making the
-                // demoted canon visible again — exactly the regression this
-                // PR is fixing in-memory).
-                string retirementReason = wasExplicitlyDemoted
-                    ? RecordingRewindRetirement.DemotedCanonReason
-                    : RecordingRewindRetirement.DefaultReason;
+                // Intentionally-retired Immutable forks carry a distinct
+                // Reason so LoadTimeSweep's legacy-Immutable sweep can tell
+                // intentional retirements apart from pre-fix bad state.
+                // Without these tags, a legitimate Pass-2 demotion or
+                // self-rewind retirement saved to disk would be undone on
+                // next load (sweep would remove the retirement and
+                // reconstruct the priorTip → canon supersede relation,
+                // making the canon visible again — silently undoing the
+                // user's rewind action on every load).
+                string retirementReason;
+                if (wasForcedSelfRewindDrop)
+                    retirementReason = RecordingRewindRetirement.SelfRewoundCanonReason;
+                else if (wasExplicitlyDemoted)
+                    retirementReason = RecordingRewindRetirement.DemotedCanonReason;
+                else
+                    retirementReason = RecordingRewindRetirement.DefaultReason;
                 var retirement = new RecordingRewindRetirement
                 {
                     RetirementId = "rrt_" + Guid.NewGuid().ToString("N"),
