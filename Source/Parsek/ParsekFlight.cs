@@ -16658,6 +16658,117 @@ namespace Parsek
             state.playbackIndex = playbackIdx;
         }
 
+        /// <summary>
+        /// Position the ghost from the recording's `absoluteFrames` shadow when
+        /// the tumbling-parent gate has classified the parent-relative chain
+        /// rotation as unreliable. Routes through the same `InterpolateAndPosition`
+        /// path the legacy v11 shadow gate uses (`TryUseRelativeAbsoluteShadowFallback`
+        /// at `:22711-22722`), so body / altitude / GhostPosEntry FloatingOrigin
+        /// reapply / InterpolationResult population are reused.
+        /// </summary>
+        /// <remarks>
+        /// Phase D contract: this path is recorded-data-only, never a substitute
+        /// for live anchors, and is reached only after the gate has positively
+        /// classified the parent chain as visually unreliable. The legacy v11
+        /// gate's retire-first guard in `TryUseRelativeAbsoluteShadowFallback`
+        /// is intentionally NOT applied here -- the gate has already decided the
+        /// recorded shadow is the right surface to render against, so we bypass
+        /// the v12 retire-on-anchor-miss path and call the shared interpolation
+        /// helper directly.
+        /// </remarks>
+        bool IGhostPositioner.TryPositionFromRelativeAbsoluteShadow(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            RelativeSectionPlaybackTarget target,
+            out InterpolationResult result,
+            out double bracketBeforeUT,
+            out double bracketAfterUT)
+        {
+            result = InterpolationResult.Zero;
+            bracketBeforeUT = double.NaN;
+            bracketAfterUT = double.NaN;
+
+            if (state?.ghost == null
+                || target.Section.referenceFrame != ReferenceFrame.Relative
+                || target.Section.absoluteFrames == null
+                || target.Section.absoluteFrames.Count == 0)
+            {
+                return false;
+            }
+
+            // Bracket UTs are reported back to the caller for the
+            // [Anchor] anchor-rotation-shadow-route log line. Compute them
+            // here against the same frames list InterpolateAndPosition will
+            // walk; if the playback UT is outside coverage the helper still
+            // runs (clamping at endpoints) but we surface that to the caller
+            // via the bracket UTs being NaN.
+            ResolveAbsoluteShadowBracketUTs(
+                target.Section.absoluteFrames, playbackUT,
+                out bracketBeforeUT, out bracketAfterUT);
+
+            int playbackIdx = state.playbackIndex;
+            int absolutePlaybackIdx = playbackIdx;
+            InterpolateAndPosition(
+                state.ghost,
+                target.Section.absoluteFrames,
+                null,
+                ref absolutePlaybackIdx,
+                playbackUT,
+                index * 10000,
+                out result,
+                allowActivation: ShouldAutoActivateGhost(state),
+                skipOrbitSegments: true,
+                recordingId: target.RecordingId,
+                sectionIndex: target.SectionIndex);
+            state.playbackIndex = absolutePlaybackIdx;
+            return true;
+        }
+
+        /// <summary>
+        /// Find the absoluteFrames bracket [before, after] that brackets the
+        /// playback UT. Endpoints clamp at the first / last sample. NaN is
+        /// returned when the section has zero or one frames (the caller's
+        /// log line will report no usable bracket).
+        /// </summary>
+        private static void ResolveAbsoluteShadowBracketUTs(
+            System.Collections.Generic.List<TrajectoryPoint> absoluteFrames,
+            double playbackUT,
+            out double bracketBeforeUT,
+            out double bracketAfterUT)
+        {
+            bracketBeforeUT = double.NaN;
+            bracketAfterUT = double.NaN;
+            if (absoluteFrames == null || absoluteFrames.Count < 2)
+                return;
+            // Linear scan is fine -- shadow lists are typically <200 frames per
+            // section and this is only called on gate-fired frames.
+            for (int i = 0; i < absoluteFrames.Count - 1; i++)
+            {
+                if (absoluteFrames[i].ut <= playbackUT
+                    && absoluteFrames[i + 1].ut >= playbackUT)
+                {
+                    bracketBeforeUT = absoluteFrames[i].ut;
+                    bracketAfterUT = absoluteFrames[i + 1].ut;
+                    return;
+                }
+            }
+            // Out of coverage: endpoints. Surface the closest pair so the log
+            // still records what coverage we tried against.
+            if (playbackUT < absoluteFrames[0].ut)
+            {
+                bracketBeforeUT = absoluteFrames[0].ut;
+                bracketAfterUT = absoluteFrames[1].ut;
+            }
+            else
+            {
+                int last = absoluteFrames.Count - 1;
+                bracketBeforeUT = absoluteFrames[last - 1].ut;
+                bracketAfterUT = absoluteFrames[last].ut;
+            }
+        }
+
         void IGhostPositioner.PositionAtPoint(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, TrajectoryPoint point)
         {

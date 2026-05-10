@@ -81,6 +81,35 @@ namespace Parsek
         string playbackScope,
         out AnchorRotationReliabilityDecision decision);
 
+    /// <summary>
+    /// What the engine should do when the tumbling-parent gate fires for a
+    /// parent-anchored debris ghost. Returned by the gate's router so the
+    /// caller (RenderInRangeGhost / PositionLoopAtPlaybackUT) can keep the
+    /// mesh active and render via shadow when shadow data is available, or
+    /// fall back to the existing hide path when it is not.
+    /// </summary>
+    internal enum AnchorRotationUnreliableRoute : byte
+    {
+        /// <summary>Gate did not fire; normal positioning runs.</summary>
+        None = 0,
+
+        /// <summary>
+        /// Gate fired and the ghost was positioned via the recording's
+        /// absoluteFrames shadow lerp. Mesh stays active, FX/events still
+        /// suppressed for the frame, state.anchorRetiredThisFrame stays
+        /// false so the engine's post-position pipeline (Activate /
+        /// TrackGhostAppearance) runs.
+        /// </summary>
+        ShadowPositioned = 1,
+
+        /// <summary>
+        /// Gate fired but no usable absoluteFrames covered the playback
+        /// UT. Existing hide path runs (mesh inactive, FX teardown,
+        /// state.anchorRetiredThisFrame=true).
+        /// </summary>
+        Hidden = 2,
+    }
+
     internal struct GhostPlaybackFrameCounters
     {
         public int spawned;

@@ -3621,6 +3621,16 @@ namespace Parsek.InGameTests
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
 
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out InterpolationResult result, out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                result = InterpolationResult.Zero;
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
+            }
+
             public void PositionAtPoint(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, TrajectoryPoint point) { }
             public void PositionAtSurface(int index, IPlaybackTrajectory traj,
@@ -14042,6 +14052,16 @@ namespace Parsek.InGameTests
             {
             }
 
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out InterpolationResult result, out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                result = InterpolationResult.Zero;
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
+            }
+
             public void PositionAtPoint(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, TrajectoryPoint point)
             {
@@ -14577,6 +14597,16 @@ namespace Parsek.InGameTests
                 if (state.ghost != null && state.ghost.activeSelf)
                     state.ghost.SetActive(false);
                 state.anchorRetiredThisFrame = true;
+            }
+
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out InterpolationResult result, out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                result = InterpolationResult.Zero;
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
             }
 
             public void PositionAtPoint(int index, IPlaybackTrajectory traj,
