@@ -761,8 +761,9 @@ namespace Parsek.InGameTests
             };
             rec.TrackSections.Add(coastSection);
 
+            // spawnUT == tailUT keeps the rotation-drift clamp at zero.
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
-                rec, kerbin,
+                rec, kerbin, postBurnFrameUT,
                 out double inclination,
                 out double eccentricity,
                 out double semiMajorAxis,

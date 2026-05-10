@@ -317,7 +317,7 @@ namespace Parsek.Tests
             CelestialBody body = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
-                rec: null, body: body,
+                rec: null, body: body, spawnUT: 0.0,
                 out _, out _, out _, out _, out _, out _, out _, out _);
 
             Assert.False(ok);
@@ -329,7 +329,7 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "r1" };
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
-                rec: rec, body: null,
+                rec: rec, body: null, spawnUT: 0.0,
                 out _, out _, out _, out _, out _, out _, out _, out _);
 
             Assert.False(ok);
@@ -342,7 +342,7 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "rec-empty" };
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
-                rec: rec, body: body,
+                rec: rec, body: body, spawnUT: 0.0,
                 out _, out _, out _, out _, out _, out _, out _, out _);
 
             Assert.False(ok);
@@ -372,7 +372,7 @@ namespace Parsek.Tests
             });
 
             bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
-                rec: rec, body: body,
+                rec: rec, body: body, spawnUT: 0.0,
                 out _, out _, out _, out _, out _, out _, out _, out _);
 
             Assert.False(ok);
@@ -382,6 +382,73 @@ namespace Parsek.Tests
                 && l.Contains("reason=segment-newer-than-tail")
                 && l.Contains("tailUT=105.00")
                 && l.Contains("segmentEndUT=200.00"));
+        }
+
+        [Fact]
+        public void TryDeriveTerminalOrbitSeedFromTrajectoryTail_FreshnessEpsilon_BoundaryTailJustBelowSegmentRejects()
+        {
+            CelestialBody body = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            var rec = new Recording { RecordingId = "rec-eps-just-below" };
+            // Coast-frame UT below segmentEndUT by less than the freshness epsilon (1e-3 s).
+            // tailUT (= 200) <= segmentEndUT (= 200) + epsilon → defer.
+            rec.TrackSections.Add(BuildAbsoluteCoastSection(
+                startUT: 195, endUT: 200,
+                BuildPoint(ut: 200, lat: 0, lon: 0, alt: 200000, vel: new Vector3(1500, 0, 0))));
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin", startUT = 100, endUT = 200,
+                semiMajorAxis = 700000, eccentricity = 0.01
+            });
+
+            bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+                rec: rec, body: body, spawnUT: 200.0,
+                out _, out _, out _, out _, out _, out _, out _, out _);
+
+            Assert.False(ok);
+            Assert.Contains(logLines, l =>
+                l.Contains("reason=segment-newer-than-tail"));
+        }
+
+        [Fact]
+        public void TryDeriveTerminalOrbitSeedFromTrajectoryTail_RotationDriftBeyondLimit_LogsAndReturnsFalse()
+        {
+            CelestialBody body = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            var rec = new Recording { RecordingId = "rec-drift" };
+            rec.TrackSections.Add(BuildAbsoluteCoastSection(
+                startUT: 100, endUT: 110,
+                BuildPoint(ut: 105, lat: 0, lon: 0, alt: 200000, vel: new Vector3(1500, 0, 0))));
+            // No stored segment — the segment-newer guard does not fire, so the rotation
+            // drift clamp is what stops us. spawnUT − tailUT = 1000 s ≫ 30 s limit.
+            bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+                rec: rec, body: body, spawnUT: 1105.0,
+                out _, out _, out _, out _, out _, out _, out _, out _);
+
+            Assert.False(ok);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("Tail-derived terminal orbit skipped")
+                && l.Contains("reason=rotation-drift-out-of-bounds")
+                && l.Contains("drift=1000.00s")
+                && l.Contains("limit=30.00s"));
+        }
+
+        [Fact]
+        public void TryFindLatestCoastTrajectoryFrame_NonFiniteTailFrame_WalksBackInSection()
+        {
+            // Reviewer-flagged regression: previously a single corrupt trailing
+            // sample threw away the whole section. The walk-back loop must reach
+            // the prior valid frame in the same section.
+            var rec = new Recording { RecordingId = "rec-corrupt-tail" };
+            rec.TrackSections.Add(BuildAbsoluteCoastSection(
+                startUT: 100, endUT: 120,
+                BuildPoint(ut: 110, lat: 0, lon: 0, alt: 200000, vel: new Vector3(1500, 0, 0)),
+                BuildPoint(ut: 118, lat: 0, lon: 0, alt: 201000, vel: new Vector3(float.NaN, 0, 0))));
+
+            bool found = VesselSpawner.TryFindLatestCoastTrajectoryFrame(
+                rec, "Kerbin", out TrajectoryPoint frame);
+
+            Assert.True(found);
+            Assert.Equal(110, frame.ut); // Skipped the NaN-velocity tail, used the prior valid frame.
         }
 
         // ---------- helpers ----------
