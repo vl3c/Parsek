@@ -96,6 +96,9 @@ namespace Parsek.Tests
 
             Assert.True(result.Mutated);
             Assert.Equal(1, result.DroppedSections);
+            Assert.True(result.ExplicitEndClamped);
+            Assert.Equal(140.0, result.OldEndUT);
+            Assert.True(double.IsNaN(result.NewEndUT));
             Assert.Empty(rec.TrackSections);
             Assert.Empty(rec.Points);
             Assert.True(double.IsNaN(rec.ExplicitEndUT));

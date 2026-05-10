@@ -118,7 +118,8 @@ namespace Parsek
             recording.ExplicitEndUT = cache.TerminalUT;
             DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
                 recording,
-                "RecordingFinalizationCacheApplier");
+                "RecordingFinalizationCacheApplier",
+                refreshEndpointDecision: false);
 
             RecordingEndpointResolver.RefreshEndpointDecision(
                 recording,

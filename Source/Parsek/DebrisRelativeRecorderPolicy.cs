@@ -31,7 +31,8 @@ namespace Parsek
 
         internal static ParentAnchoredDebrisTailNormalizationResult NormalizeParentAnchoredRelativeRecording(
             Recording rec,
-            string context)
+            string context,
+            bool refreshEndpointDecision = true)
         {
             var result = CreateResult();
             if (!ShouldNormalizeParentAnchoredDebris(rec))
@@ -56,10 +57,14 @@ namespace Parsek
             rec.MarkFilesDirty();
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
-            RecordingEndpointResolver.RefreshEndpointDecision(
-                rec,
-                "ParentAnchoredDebrisTailNormalize:" + (context ?? "unspecified"),
-                logDecision: false);
+            if (refreshEndpointDecision)
+            {
+                RecordingEndpointResolver.RefreshEndpointDecision(
+                    rec,
+                    "ParentAnchoredDebrisTailNormalize:" + (context ?? "unspecified"),
+                    logDecision: false);
+            }
+
             LogNormalization(rec, context, result);
             return result;
         }
@@ -311,7 +316,11 @@ namespace Parsek
         private static void RecomputeSampleRate(ref TrackSection section)
         {
             if (section.frames == null || section.frames.Count <= 1)
+            {
+                // A single-frame section has no measurable cadence; keep existing
+                // rate metadata and let consumers treat the frame list as authoritative.
                 return;
+            }
 
             double duration = section.endUT - section.startUT;
             if (duration > 0.0)
