@@ -86,6 +86,8 @@ The optimizer only splits at environment class changes. It does NOT split at bod
 
 Recommendation: (c) for now, (b) if players report confusion. Splitting at SOI boundaries would over-fragment transfers.
 
+**Resolution 2026-05-10:** Chose (b) for same-class Exo body changes. Kerbin Exo -> Mun Exo transfer coasts stay one loopable recording, while UI labels surface the body path (`Kerbin -> Mun exo`). Environment-class changes and non-Exo body changes still split. Map/orbit rendering remains body-aware through `OrbitSegments` and trajectory point body names rather than `SegmentBodyName`.
+
 ### Issue 4: Optimizer doesn't update BranchPoint.ChildRecordingIds after splits
 
 **Severity:** Very low (no known functional impact)

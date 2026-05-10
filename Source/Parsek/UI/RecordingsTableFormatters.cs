@@ -56,19 +56,16 @@ namespace Parsek
         /// Formats the recording end position for the expanded stats column.
         /// Matches timeline style: "Orbiting {body}", "{biome}, {body}", "Boarded {vessel}".
         /// Body fallback priority for terminal recordings: TerminalOrbitBody -> StartBodyName.
-        /// Body fallback priority for mid-segments: SegmentBodyName -> last point body -> StartBodyName.
+        /// Body fallback priority for mid-segments: display body path -> SegmentBodyName
+        /// -> last point body -> StartBodyName.
         /// </summary>
         internal static string FormatEndPosition(Recording rec, string parentVesselName = null)
         {
             if (!rec.TerminalStateValue.HasValue)
             {
                 // No terminal state (chain mid-segment or interior tree recording).
-                // Fallback: SegmentBodyName -> last trajectory point body -> StartBodyName.
-                string segBody = rec.SegmentBodyName;
-                if (string.IsNullOrEmpty(segBody) && rec.Points != null && rec.Points.Count > 0)
-                    segBody = rec.Points[rec.Points.Count - 1].bodyName;
-                if (string.IsNullOrEmpty(segBody))
-                    segBody = rec.StartBodyName;
+                // Fallback: display body path -> SegmentBodyName -> last trajectory point body -> StartBodyName.
+                string segBody = RecordingStore.GetSegmentBodyDisplayLabel(rec);
 
                 string segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec);
                 if (!string.IsNullOrEmpty(segmentLabel))

@@ -4870,23 +4870,22 @@ namespace Parsek.Tests
             Assert.Equal((0, 1), candidates[0]);
         }
 
-        // Test #10: Body change (#251) — Kerbin ExoBallistic → Mun ExoBallistic. Same env class,
-        // body change short-circuits before the persistence predicate runs. SOI traversal stays
-        // a split.
+        // Test #10: Kerbin ExoBallistic -> Mun ExoBallistic. Same env class body changes
+        // stay cohesive so transfer coasts remain one loopable recording; the UI surfaces
+        // the body path instead.
         [Fact]
-        public void Persistence_BodyChange_SameEnvClass_Splits_RegressionOf251()
+        public void Persistence_BodyChange_SameExoClass_StaysCohesive()
         {
             var rec = MakePersistenceRecording("body-change-same-class", 17000,
                 (SegmentEnvironment.ExoBallistic, 600, "Kerbin", false),
                 (SegmentEnvironment.ExoBallistic, 600, "Mun", false));
 
             var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
-            Assert.Single(candidates);
-            Assert.Equal((0, 1), candidates[0]);
+            Assert.Empty(candidates);
         }
 
-        // Test #11: Body change AND env-class change with no bracket — body change short-circuits
-        // before the persistence predicate runs.
+        // Test #11: Body change AND env-class change with no bracket still splits through
+        // the environment boundary.
         [Fact]
         public void Persistence_BodyChange_AndClassChange_NoBracket_Splits()
         {

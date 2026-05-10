@@ -6216,11 +6216,13 @@ The regression uses the policy spawn override, matching existing headless
 
 **Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), especially the traced Kerbin-launch-to-Mun-landing scenario.
 
-**Concern:** the optimizer only splits on environment-class changes, not body changes, so a long exo segment can legitimately span Kerbin orbit, transfer coast, and Mun orbit while still inheriting `SegmentBodyName` from its first trajectory point. The current result is structurally correct and loopable, but the player-facing label can still read like a lie (`Kerbin` even though the recording includes Mun orbit time). We need a deliberate decision here instead of leaving it as an accidental quirk: either keep the single exo segment and surface a multi-body label (`Kerbin -> Mun`), or introduce an optional body-change split criterion if that proves clearer in practice.
+**Concern:** the optimizer split behavior around same-class Exo body changes needed an explicit decision. A long exo segment can legitimately span Kerbin orbit, transfer coast, and Mun orbit while still inheriting `SegmentBodyName` from its first trajectory point. The current result is structurally correct and loopable, but the player-facing label can still read like a lie (`Kerbin` even though the recording includes Mun orbit time). We need a deliberate decision here instead of leaving it as an accidental quirk: either keep the single exo segment and surface a multi-body label (`Kerbin -> Mun`), or introduce an optional body-change split criterion if that proves clearer in practice.
 
 **Files:** `Source/Parsek/RecordingOptimizer.cs`, `Source/Parsek/RecordingStore.cs`, timeline/recordings UI that renders `SegmentBodyName`, `docs/dev/recording-optimizer-review.md`.
 
-**Status:** TODO. Likely UX/research follow-up, not a v0.8.3 ship blocker.
+**Fix:** Chose the cohesive-recording option for same-class Exo SOI transitions. `RecordingOptimizer` now keeps Kerbin Exo -> Mun Exo boundaries in one recording, while preserving splits for environment-class changes and non-Exo body changes. Recordings table/timeline labels build a display-only body path from trajectory/TrackSection payloads (`Kerbin -> Mun exo`) without mutating `SegmentBodyName`, so map/orbit rendering continues to read body names from `OrbitSegments` and trajectory points at runtime.
+
+**Status:** CLOSED 2026-05-10. Fixed for v0.9.2.
 
 ---
 

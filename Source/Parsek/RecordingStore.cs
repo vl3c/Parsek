@@ -2569,20 +2569,95 @@ namespace Parsek
         /// </summary>
         internal static string GetSegmentPhaseLabel(Recording rec)
         {
+            if (rec == null) return "";
             if (ShouldSuppressEvaBoundaryPhaseLabel(rec))
             {
-                string body = rec.SegmentBodyName;
-                if (string.IsNullOrEmpty(body) && rec.Points != null && rec.Points.Count > 0)
-                    body = rec.Points[rec.Points.Count - 1].bodyName;
-                if (string.IsNullOrEmpty(body))
-                    body = rec.StartBodyName;
+                string body = GetSegmentBodyDisplayLabel(rec);
                 return body ?? "";
             }
 
             if (string.IsNullOrEmpty(rec.SegmentPhase)) return "";
-            if (!string.IsNullOrEmpty(rec.SegmentBodyName))
-                return rec.SegmentBodyName + " " + rec.SegmentPhase;
+            string displayBody = GetSegmentBodyDisplayLabel(rec);
+            if (!string.IsNullOrEmpty(displayBody))
+                return displayBody + " " + rec.SegmentPhase;
             return rec.SegmentPhase;
+        }
+
+        internal static string GetSegmentBodyDisplayLabel(Recording rec)
+        {
+            if (rec == null) return "";
+            string bodyPath;
+            if (TryBuildBodyPathLabel(rec.Points, out bodyPath))
+                return bodyPath;
+            if (TryBuildBodyPathLabel(rec.TrackSections, out bodyPath))
+                return bodyPath;
+
+            string body = rec.SegmentBodyName;
+            if (string.IsNullOrEmpty(body) && rec.Points != null && rec.Points.Count > 0)
+                body = rec.Points[rec.Points.Count - 1].bodyName;
+            if (string.IsNullOrEmpty(body))
+                body = rec.StartBodyName;
+            return body ?? "";
+        }
+
+        private static bool TryBuildBodyPathLabel(List<TrajectoryPoint> points, out string label)
+        {
+            label = null;
+            if (points == null || points.Count == 0)
+                return false;
+
+            var bodies = new List<string>();
+            for (int i = 0; i < points.Count; i++)
+                AppendBodyTransition(bodies, points[i].bodyName);
+
+            return TryFormatBodyPathLabel(bodies, out label);
+        }
+
+        private static bool TryBuildBodyPathLabel(List<TrackSection> sections, out string label)
+        {
+            label = null;
+            if (sections == null || sections.Count == 0)
+                return false;
+
+            var bodies = new List<string>();
+            for (int i = 0; i < sections.Count; i++)
+            {
+                TrackSection section = sections[i];
+                AppendBodyTransitions(bodies, section.frames);
+                AppendBodyTransitions(bodies, section.absoluteFrames);
+                if (section.checkpoints != null)
+                {
+                    for (int j = 0; j < section.checkpoints.Count; j++)
+                        AppendBodyTransition(bodies, section.checkpoints[j].bodyName);
+                }
+            }
+
+            return TryFormatBodyPathLabel(bodies, out label);
+        }
+
+        private static void AppendBodyTransitions(List<string> bodies, List<TrajectoryPoint> points)
+        {
+            if (points == null)
+                return;
+            for (int i = 0; i < points.Count; i++)
+                AppendBodyTransition(bodies, points[i].bodyName);
+        }
+
+        private static void AppendBodyTransition(List<string> bodies, string bodyName)
+        {
+            if (bodies == null || string.IsNullOrEmpty(bodyName))
+                return;
+            if (bodies.Count == 0 || bodies[bodies.Count - 1] != bodyName)
+                bodies.Add(bodyName);
+        }
+
+        private static bool TryFormatBodyPathLabel(List<string> bodies, out string label)
+        {
+            label = null;
+            if (bodies == null || bodies.Count < 2)
+                return false;
+            label = string.Join(" -> ", bodies.ToArray());
+            return true;
         }
 
         internal static bool ShouldSuppressEvaBoundaryPhaseLabel(Recording rec)

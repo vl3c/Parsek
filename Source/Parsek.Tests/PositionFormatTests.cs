@@ -212,6 +212,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void End_NoTerminalState_WithCrossBodySegmentPhase_ShowsBodyPathPhase()
+        {
+            var rec = new Recording
+            {
+                SegmentPhase = "exo",
+                SegmentBodyName = "Kerbin"
+            };
+            rec.Points = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 200, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 300, bodyName = "Mun" },
+                new TrajectoryPoint { ut = 400, bodyName = "Mun" }
+            };
+
+            Assert.Equal("Kerbin -> Mun exo", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
+        public void End_NoTerminalState_WithCrossBodyTrackSections_ShowsBodyPathPhase()
+        {
+            var rec = new Recording
+            {
+                SegmentPhase = "exo",
+                SegmentBodyName = "Kerbin"
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 100,
+                endUT = 200,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" }
+                }
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 200,
+                endUT = 300,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 200, bodyName = "Mun" }
+                }
+            });
+
+            Assert.Equal("Kerbin -> Mun exo", RecordingsTableUI.FormatEndPosition(rec));
+        }
+
+        [Fact]
         public void End_NoTerminalState_MixedEvaAtmoSurface_ShowsBodyOnly()
         {
             var rec = new Recording

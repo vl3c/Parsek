@@ -7,6 +7,8 @@
 > The Producer C no-payload boundary seam (`BackgroundRecorder.FlushLoadedStateForOnRailsTransition`) needs a separate signal at the producer (e.g. an `IsBoundarySeam` flag on the emitted `TrackSection`), not a generic post-hoc gate.
 >
 > Kept as historical record of what was considered and shipped on this attempt. The persistence-based redesign described in `docs/dev/plans/optimizer-persistence-split.md` superseded this note's PartEvent-window approach and shipped (Phase 1: data model + binary v8 bump; Phase 2: predicate; Phase 3: integration tests + closeout). See `docs/dev/todo-and-known-bugs.md` #632 for the closeout summary of what changed and the player-visible effects.
+>
+> **2026-05-10 update:** #547 narrowed the later body-change rule: same-class Exo SOI transitions now stay one cohesive recording and use multi-body display labels; non-Exo body changes and environment-class changes still split.
 
 ---
 
@@ -18,9 +20,9 @@ Companion to `extending-rewind-to-stable-leaves.md` §2.1 / §S16. That note fla
 
 ## 1. TL;DR
 
-`RecordingOptimizer.FindSplitCandidatesForOptimizer` splits a committed recording at every TrackSection boundary where `SplitEnvironmentClass(env)` differs (or where the body changes — #251). The class boundary is purely geometric: it fires whenever a vessel crosses the 70 km atmosphere line, the airless-body approach line, etc. — regardless of whether anything *actually happened* at the crossing.
+`RecordingOptimizer.FindSplitCandidatesForOptimizer` splits a committed recording at every TrackSection boundary where `SplitEnvironmentClass(env)` differs, plus non-Exo body changes (#251). Same-class Exo body changes were later narrowed by #547 so transfer coasts stay cohesive. The class boundary is purely geometric: it fires whenever a vessel crosses the 70 km atmosphere line, the airless-body approach line, etc. — regardless of whether anything *actually happened* at the crossing.
 
-The proposal: keep the body-change rule (#251) untouched, keep splits at boundaries that involve `Surface*` or `Approach`, but require a small **meaningful-action signal** for the otherwise-noisy `Atmospheric ↔ Exo*` pair. The signal is an existing `PartEvent` (thrust, decoupling, parachute, gear, thermal animation, etc.) within a window around the crossing UT. Pure geometric crossings — periapsis grazing on a stable orbit, on-rails passes — produce no nearby PartEvents and therefore no split.
+The original proposal: keep the body-change rule (#251) untouched, keep splits at boundaries that involve `Surface*` or `Approach`, but require a small **meaningful-action signal** for the otherwise-noisy `Atmospheric ↔ Exo*` pair. The signal is an existing `PartEvent` (thrust, decoupling, parachute, gear, thermal animation, etc.) within a window around the crossing UT. Pure geometric crossings — periapsis grazing on a stable orbit, on-rails passes — produce no nearby PartEvents and therefore no split.
 
 Backwards compatibility is essentially free: the merge gate (`CanAutoMerge`) requires equal `SegmentPhase`, and existing already-split chain segments carry distinct phases ("atmo" vs "exo"), so a stricter split rule cannot retroactively re-merge legacy chains. The change applies forward-only to recordings that have not yet been optimizer-split.
 
@@ -96,7 +98,7 @@ These are not common but they are not zero, and the redesign is cheap.
 
 **Aggregating into three buckets:**
 
-1. **Body change (#251)** — orthogonal, always meaningful (real SOI traversal). No change.
+1. **Body change (#251)** — orthogonal, always meaningful in this historical proposal. Later #547 narrowed same-class Exo body changes to stay cohesive.
 2. **Boundary involves Surface (class 2) or Approach (class 3)** — always meaningful. Surface boundaries are gated by `Vessel.Situations` flags + debounce. Approach boundaries get the same default-allow treatment in v1: the airless-flyby noise case (§4 row 9) is rare in practice and a single false-positive split per flyby is mild, while a passive-flyby gate would require yet more signal-engineering. **Decision: Approach↔Exo is *not* gated; treat any class-3 boundary as always meaningful, matching the helper in §5.** §8 open Q3 records this as a v1.1 candidate to revisit if playtests show false positives.
 3. **Pure Atmospheric ↔ Exo pair** — the entire noise cluster sits here. Gate behind a meaningful-action signal.
 
@@ -178,7 +180,7 @@ TrackSection next = rec.TrackSections[s];
 double splitUT    = next.startUT;   // matches RecordingOptimizer.SplitAtSection:367
 
 bool envChanged   = SplitEnvironmentClass(prev) != SplitEnvironmentClass(next);
-bool bodyChanged  = SectionBodyChanged(prev, next);   // #251 — always meaningful
+bool bodyChanged  = SectionBodyChanged(prev, next);   // #251 — historical proposal treated as always meaningful
 
 bool meaningful   = bodyChanged
                  || (envChanged && IsMeaningfulSplitBoundary(rec, prev, next, splitUT));
@@ -244,8 +246,8 @@ Tests to add under `#region FindSplitCandidatesForOptimizer` (the production spl
 8. **ExoBallistic → ExoBallistic (no class change)** → empty (current behavior, regression check).
 9. **Atmo ↔ Surface boundary** → split (Surface bucket bypasses the gate).
 10. **ExoBallistic ↔ Surface boundary** → split.
-11. **Body change with same env class on both sides** → split (#251 untouched).
-12. **Body change AND class change AND no PartEvents** → split (body-change short-circuits the env-meaningful gate).
+11. **Body change with same env class on both sides** → historical proposal split; later #547 keeps same-class Exo body changes cohesive.
+12. **Body change AND class change AND no PartEvents** → split (body-change / class-change short-circuits the env-meaningful gate).
 13. **Multiple atmo↔exo oscillations in one recording, all without PartEvents** → empty. The N×splits-per-orbit eccentric case.
 14. **Multiple atmo↔exo oscillations, with engine event on the *first* crossing only** → split exactly once (at the meaningful crossing). Confirms per-boundary independence.
 15. **Both adjacent sections are `OrbitalCheckpoint` with differing env class** → empty (defensive S4 check).
