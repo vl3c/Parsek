@@ -286,7 +286,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeDiscard_SerializedPendingTree_RefreshesQuicksaveWithoutCommitting()
+        public void MergeDiscard_SerializedPendingTree_RefreshesSaveAndQuicksaveWithoutCommitting()
         {
             var rec = MakeRecording(
                 "rec-serialized-discard", "tree-serialized-discard", 100.0, 200.0);
@@ -299,11 +299,10 @@ namespace Parsek.Tests
             Assert.True(ParsekScenario.IsPendingTreeNode(
                 scenarioNode.GetNodes("RECORDING_TREE")[0]));
 
-            int saveCalls = 0;
+            var saveCalls = new List<string>();
             RecordingStore.SaveGameForTesting = (name, folder, mode) =>
             {
-                saveCalls++;
-                Assert.Equal("quicksave", name);
+                saveCalls.Add(name);
                 Assert.Equal(SaveMode.OVERWRITE, mode);
                 return "ok";
             };
@@ -314,7 +313,11 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Empty(RecordingStore.CommittedTrees);
             Assert.Empty(RecordingStore.CommittedRecordings);
-            Assert.Equal(1, saveCalls);
+            Assert.Equal(new[] { "persistent", "quicksave" }, saveCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Quicksave]")
+                && l.Contains("Refreshed persistent.sfs after merge dialog Tree Discard")
+                && l.Contains("discarded tree had 1 recording IDs"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Quicksave]")
                 && l.Contains("Refreshed quicksave.sfs after merge dialog Tree Discard")

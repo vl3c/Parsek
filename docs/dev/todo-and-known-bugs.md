@@ -785,7 +785,7 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 
 **Root cause:** `ParsekScenario.OnSave` only persists committed recording trees through `SaveTreeRecordings` and the live in-flight tree through `SaveActiveTreeIfAny`. The pending-tree slot (after `StashPendingTree`) is neither active nor committed, so it is never serialized. `SafetyNetAutoCommitPending` would auto-commit it but only fires when `LoadedScene != FLIGHT`, leaving the FLIGHT-scene autosave window unguarded. The post-destruction stash deliberately keeps the tree pending across the flight-results screen, so the autosave timing is reachable in normal play.
 
-**Fix:** Finalized pending trees are saved as `RECORDING_TREE` nodes with `isPending=True`, loaded back into the finalized pending slot without recorder-resume semantics, excluded from committed-tree loops, and Discard refreshes quicksave after serialized pending metadata is removed.
+**Fix:** Finalized pending trees are saved as `RECORDING_TREE` nodes with `isPending=True`, loaded back into the finalized pending slot without recorder-resume semantics, excluded from committed-tree loops, and Discard refreshes both `persistent.sfs` and `quicksave.sfs` after serialized pending metadata is removed.
 
 **Status:** CLOSED 2026-05-10. Discovered during the in-game-test-runner-wipe investigation (PR fixing `PersistenceSplitOptimizerTest`). Out of scope for that PR; tracked here for a follow-up.
 

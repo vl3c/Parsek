@@ -708,13 +708,13 @@ namespace Parsek
             ParsekScenario.DiscardPendingTreeAndRecalculate("merge dialog discard");
             if (refreshSerializedPendingMarker)
             {
-                RecordingStore.RefreshQuicksaveAfterDiscard(
+                RecordingStore.RefreshSaveAndQuicksaveAfterDiscard(
                     "merge dialog Tree Discard", discardedRecordingCount);
             }
             else
             {
                 ParsekLog.Verbose("MergeDialog",
-                    "MergeDiscard: quicksave refresh skipped because pending tree " +
+                    "MergeDiscard: save refresh skipped because pending tree " +
                     "was not marked as serialized");
             }
             ClearPendingFlag("merge dialog discard button");

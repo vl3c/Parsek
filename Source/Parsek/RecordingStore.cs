@@ -3215,11 +3215,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Refreshes quicksave after an explicit pending-tree discard when the discarded
-        /// tree had already been serialized as <c>isPending=True</c>. This removes stale
-        /// pending metadata from quicksave without committing the discarded tree.
+        /// Refreshes persistent.sfs and quicksave.sfs after an explicit pending-tree
+        /// discard when the discarded tree had already been serialized as
+        /// <c>isPending=True</c>. This removes stale pending metadata from save files
+        /// without committing the discarded tree.
         /// </summary>
-        internal static void RefreshQuicksaveAfterDiscard(string reason, int discardedRecordingCount)
+        internal static void RefreshSaveAndQuicksaveAfterDiscard(
+            string reason,
+            int discardedRecordingCount)
         {
             var saveFn = SaveGameForTesting ?? GamePersistence.SaveGame;
 
@@ -3228,34 +3231,46 @@ namespace Parsek
                 if (HighLogic.LoadedScene == GameScenes.LOADING)
                 {
                     ParsekLog.Verbose("Quicksave",
-                        $"Discard refresh skipped (LOADING scene): reason={reason}");
+                        $"Discard save refresh skipped (LOADING scene): reason={reason}");
                     return;
                 }
                 if (HighLogic.CurrentGame == null)
                 {
                     ParsekLog.Verbose("Quicksave",
-                        $"Discard refresh skipped (CurrentGame is null): reason={reason}");
+                        $"Discard save refresh skipped (CurrentGame is null): reason={reason}");
                     return;
                 }
             }
 
+            RefreshSaveAfterDiscard(saveFn, "persistent", "persistent.sfs", reason, discardedRecordingCount);
+            RefreshSaveAfterDiscard(saveFn, "quicksave", "quicksave.sfs", reason, discardedRecordingCount);
+        }
+
+        private static void RefreshSaveAfterDiscard(
+            System.Func<string, string, SaveMode, string> saveFn,
+            string saveName,
+            string displayName,
+            string reason,
+            int discardedRecordingCount)
+        {
             try
             {
-                string result = saveFn("quicksave", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                string result = saveFn(saveName, HighLogic.SaveFolder, SaveMode.OVERWRITE);
                 if (string.IsNullOrEmpty(result))
                 {
                     ParsekLog.Warn("Quicksave",
-                        $"GamePersistence.SaveGame returned null after {reason} — quicksave NOT refreshed");
+                        $"GamePersistence.SaveGame returned null refreshing {displayName} " +
+                        $"after {reason} — {displayName} NOT refreshed");
                     return;
                 }
                 ParsekLog.Info("Quicksave",
-                    $"Refreshed quicksave.sfs after {reason} " +
+                    $"Refreshed {displayName} after {reason} " +
                     $"(discarded tree had {discardedRecordingCount} recording IDs)");
             }
             catch (System.Exception ex)
             {
                 ParsekLog.Warn("Quicksave",
-                    $"Exception refreshing quicksave after {reason}: {ex.GetType().Name}: {ex.Message}");
+                    $"Exception refreshing {displayName} after {reason}: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
