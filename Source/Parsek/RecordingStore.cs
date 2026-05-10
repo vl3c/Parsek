@@ -1904,10 +1904,12 @@ namespace Parsek
 
         /// <summary>
         /// Discards the pending tree and cleans up its recording files.
-        /// #431: also purges every <see cref="GameStateEvent"/> tagged with one of the tree's
-        /// recording ids — both from the live store and from any milestone the flush-on-save
-        /// path may have already moved them into. Contract snapshots orphaned by the purge
-        /// (i.e. whose accept event was among the purged set) are removed too.
+        /// #431: also purges every <see cref="GameStateEvent"/> tagged with one of the
+        /// tree's pending-only recording ids — both from the live store and from any
+        /// milestone the flush-on-save path may have already moved them into. Contract
+        /// snapshots orphaned by the purge (i.e. whose accept event was among the
+        /// purged set) are removed too. Recording ids still present in committed
+        /// history are preserved.
         /// </summary>
         public static void DiscardPendingTree()
         {
@@ -1925,15 +1927,34 @@ namespace Parsek
             // GameAction for in-tree classification.
             TreeDiscardPurge.PurgeTree(pendingTree.Id);
 
-            // #431: collect every recording id in the tree and purge tagged events first.
-            // Runs before file deletion so a later failure in DeleteRecordingFiles still
-            // leaves the event store in the correct post-discard shape.
+            // #431: purge tagged events for pending-only recording IDs first. A pending
+            // tree can intentionally reference a committed recording ID; those events,
+            // milestone entries, contract snapshots, and sidecars belong to committed
+            // history and must survive discard.
             var idsToPurge = new HashSet<string>();
+            int skippedCommittedEventPurges = 0;
             foreach (var rec in pendingTree.Recordings.Values)
-                if (!string.IsNullOrEmpty(rec.RecordingId))
-                    idsToPurge.Add(rec.RecordingId);
+            {
+                string recordingId = rec?.RecordingId;
+                if (string.IsNullOrEmpty(recordingId))
+                    continue;
+
+                if (IsCommittedRecordingId(recordingId))
+                {
+                    skippedCommittedEventPurges++;
+                    continue;
+                }
+
+                idsToPurge.Add(recordingId);
+            }
             if (idsToPurge.Count > 0)
                 GameStateStore.PurgeEventsForRecordings(idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
+            if (skippedCommittedEventPurges > 0)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"DiscardPendingTree: skipped destructive event/milestone purge for " +
+                    $"{skippedCommittedEventPurges} committed-overlap recording ID(s)");
+            }
 
             int skippedCommittedDeletes = 0;
             foreach (var rec in pendingTree.Recordings.Values)
@@ -1974,8 +1995,9 @@ namespace Parsek
         /// active tree. <see cref="CleanOrphanFiles"/> at the next cold-start reclaims
         /// sidecars no quicksave still references.
         ///
-        /// Contrast with <see cref="DiscardPendingTree"/>, which runs the full #431 purge +
-        /// file deletion for the merge-dialog Discard button's explicit "throw it away" choice.
+        /// Contrast with <see cref="DiscardPendingTree"/>, which runs the #431 purge +
+        /// file deletion for pending-only ids on the merge-dialog Discard button's
+        /// explicit "throw it away" choice.
         /// </summary>
         public static void UnstashPendingTreeOnRevert()
         {
