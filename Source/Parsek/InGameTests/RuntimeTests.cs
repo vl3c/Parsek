@@ -3929,6 +3929,214 @@ namespace Parsek.InGameTests
             }
         }
 
+        /// <summary>
+        /// Positioner stub for the tumbling-parent shadow-route in-game test.
+        /// Tracks calls to TryPositionFromRelativeAbsoluteShadow and writes
+        /// a deterministic transform position so the test can verify the
+        /// engine kept the mesh active and routed through the new path.
+        /// </summary>
+        private sealed class TumblingParentShadowPositioner : IGhostPositioner
+        {
+            internal int ShadowCalls;
+            internal int InterpolateCalls;
+            internal int PositionLoopCalls;
+            internal Vector3 PrimedShadowPosition = new Vector3(123f, 234f, 345f);
+
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                InterpolateCalls++;
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
+            {
+                InterpolateCalls++;
+            }
+
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                ShadowCalls++;
+                bracketBeforeUT = target.Section.absoluteFrames != null
+                    && target.Section.absoluteFrames.Count > 0
+                    ? target.Section.absoluteFrames[0].ut
+                    : double.NaN;
+                bracketAfterUT = target.Section.absoluteFrames != null
+                    && target.Section.absoluteFrames.Count > 1
+                    ? target.Section.absoluteFrames[target.Section.absoluteFrames.Count - 1].ut
+                    : double.NaN;
+                if (state?.ghost != null)
+                    state.ghost.transform.position = PrimedShadowPosition;
+                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 100.0));
+                return true;
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point) { }
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state) { }
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) { }
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                PositionLoopCalls++;
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = Vector3.zero;
+                return false;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache() { }
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Tumbling-parent gate routes parent-anchored debris through the absoluteFrames shadow when shadow data is available; mesh stays active, anchor-rotation-shadow-route log fires, and the legacy positioner.PositionLoop is bypassed")]
+        public void TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable()
+        {
+            // End-to-end coverage of the four engine post-position branches'
+            // shadow-route paths: the engine must keep the mesh active, mark
+            // state.anchorRotationShadowRoutedThisFrame=true, leave
+            // state.anchorRetiredThisFrame=false, and bypass
+            // positioner.PositionLoop / InterpolateAndPositionRelative for
+            // the route window. Plan: docs/dev/plans/debris-smooth-trajectory-during-tumble.md.
+
+            var positioner = new TumblingParentShadowPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject("ParsekTestGhost_TumblingShadow");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Tumbling-shadow debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            engine.ghostStates[0] = state;
+
+            // Recording mirrors the run-3 playtest fixture: parent-anchored
+            // (v12+) debris with a Relative section that carries a populated
+            // absoluteFrames shadow track.
+            var rec = new Recording
+            {
+                RecordingId = "ingame-tumbling-shadow-debris",
+                VesselName = "Tumbling Parent Debris",
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = "ingame-tumbling-parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
+                },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 200.0,
+                anchorRecordingId = "ingame-tumbling-parent",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 200.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            // Host predicate forces the gate to fire (Unreliable=true) so the
+            // engine takes the route branch.
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = 200.0,
+                    recordingId = rec.RecordingId,
+                    tryEvaluateAnchorRotationReliability =
+                        (int idx, IPlaybackTrajectory traj, double playbackUT,
+                            string playbackScope,
+                            out AnchorRotationReliabilityDecision decision) =>
+                        {
+                            decision = new AnchorRotationReliabilityDecision(
+                                unreliable: true,
+                                anchorRecordingId: "ingame-tumbling-parent",
+                                bracketDegrees: 24.0,
+                                rateDegreesPerSecond: 240.0,
+                                offsetMeters: 1500.0);
+                            return true;
+                        },
+                },
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 150.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 120.0,
+            };
+
+            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+            GhostPlaybackState retainedState;
+            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
+                "shadow route should preserve ghost state");
+            InGameAssert.IsTrue(ghost.activeSelf,
+                "shadow route must keep the mesh active (the user-visible point of this fix)");
+            InGameAssert.IsTrue(retainedState.anchorRotationShadowRoutedThisFrame,
+                "engine must mark state.anchorRotationShadowRoutedThisFrame=true on the route frame");
+            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
+                "shadow route must NOT mark anchorRetiredThisFrame=true (that would skip Activate / TrackGhostAppearance)");
+            InGameAssert.AreEqual(1, positioner.ShadowCalls,
+                "engine must call positioner.TryPositionFromRelativeAbsoluteShadow exactly once on the gate-fire frame");
+            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
+                "engine must NOT call positioner.PositionLoop when the shadow route succeeds");
+            InGameAssert.AreEqual(0, positioner.InterpolateCalls,
+                "engine must NOT call positioner.InterpolateAndPosition[Relative] when the shadow route succeeds");
+            // The shadow positioner wrote its primed position; verify it is
+            // what the ghost transform now reads.
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
+        }
+
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "Ghost sphere positions correctly at vessel location")]
         public IEnumerator GhostSpherePositioning()

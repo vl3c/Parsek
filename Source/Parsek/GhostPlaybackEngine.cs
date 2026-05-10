@@ -1243,9 +1243,11 @@ namespace Parsek
                 // times and great-circle slerp between -- safe to render but
                 // we still don't want transient events firing during a
                 // route window.
-                bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx
-                    || anchorRotationShadowed;
-                bool effectiveSkipPartEvents = zoneResult.skipPartEvents || anchorRotationShadowed;
+                var (effectiveSkipPartEvents, effectiveSuppressVisualFx) =
+                    AdjustFxFlagsForShadowRoute(
+                        baseSkipPartEvents: zoneResult.skipPartEvents,
+                        baseSuppressVisualFx: suppressVisualFx || zoneResult.suppressVisualFx,
+                        shadowRouted: anchorRotationShadowed);
                 string initialActivationHiddenReason;
                 bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
                     traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
@@ -1845,28 +1847,35 @@ namespace Parsek
             else
             {
                 bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                if (loopShadowRouted)
+                LoopShadowFxBranch loopFxBranch = ResolveLoopShadowFxBranch(
+                    shadowRouted: loopShadowRouted,
+                    skipLoopPartEvents: skipLoopPartEvents);
+                switch (loopFxBranch)
                 {
-                    // Shadow route: keep the mesh active (the positioner
-                    // already wrote the transform via the absoluteFrames
-                    // lerp) but explicitly TEAR DOWN running FX -- plumes,
-                    // RCS, reentry, audio -- because the rotation interp
-                    // through the parent chain was the artifact source and
-                    // we do not want stale transient state continuing
-                    // through the route window. Match the non-loop and
-                    // overlap-loop branches: skipPartEvents=true,
-                    // suppressVisualFx=true, allowTransientEffects=false.
-                    // This is a forced call (not gated on skipLoopPartEvents)
-                    // because skipping the whole call would leave stale FX
-                    // state running.
-                    ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
-                        skipPartEvents: true, suppressVisualFx: true,
-                        allowTransientEffects: false);
-                }
-                else if (!skipLoopPartEvents)
-                {
-                    ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
-                        false, effectiveSuppressVisualFx);
+                    case LoopShadowFxBranch.ForcedShadowTeardown:
+                        // Shadow route: keep the mesh active (the positioner
+                        // already wrote the transform via the absoluteFrames
+                        // lerp) but explicitly TEAR DOWN running FX -- plumes,
+                        // RCS, reentry, audio -- because the rotation interp
+                        // through the parent chain was the artifact source
+                        // and we do not want stale transient state continuing
+                        // through the route window. Forced call regardless
+                        // of the legacy skipLoopPartEvents LOD flag --
+                        // skipping the call entirely would leave stale FX
+                        // state running.
+                        ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
+                            skipPartEvents: true, suppressVisualFx: true,
+                            allowTransientEffects: false);
+                        break;
+                    case LoopShadowFxBranch.Normal:
+                        ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
+                            false, effectiveSuppressVisualFx);
+                        break;
+                    case LoopShadowFxBranch.Skipped:
+                        // Legacy LOD path: caller asked to skip ApplyFrameVisuals
+                        // entirely (long-distance LOD). Honoured only when NOT
+                        // shadow-routed.
+                        break;
                 }
                 if (ShouldRestoreDeferredRuntimeFxState(
                         activatedDeferredState,
@@ -2109,8 +2118,11 @@ namespace Parsek
                             // FX/events for the frame (rotation interp was
                             // the artifact source). Mirrors the non-loop
                             // and overlap-loop branches.
-                            bool primaryEffectiveSuppressVisualFx = effectiveSuppressVisualFx || primaryShadowRouted;
-                            bool primaryEffectiveSkipPartEvents = zoneResult.skipPartEvents || primaryShadowRouted;
+                            var (primaryEffectiveSkipPartEvents, primaryEffectiveSuppressVisualFx) =
+                                AdjustFxFlagsForShadowRoute(
+                                    baseSkipPartEvents: zoneResult.skipPartEvents,
+                                    baseSuppressVisualFx: effectiveSuppressVisualFx,
+                                    shadowRouted: primaryShadowRouted);
                             bool activatedDeferredState = ActivateGhostVisualsIfNeeded(primaryState);
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
                                 primaryEffectiveSkipPartEvents, primaryEffectiveSuppressVisualFx);
@@ -2299,8 +2311,11 @@ namespace Parsek
                 else
                 {
                     // Shadow route: keep the mesh active but suppress FX/events.
-                    bool ovEffectiveSuppressVisualFx = effectiveSuppressVisualFx || overlapShadowRouted;
-                    bool ovEffectiveSkipPartEvents = zoneResult.skipPartEvents || overlapShadowRouted;
+                    var (ovEffectiveSkipPartEvents, ovEffectiveSuppressVisualFx) =
+                        AdjustFxFlagsForShadowRoute(
+                            baseSkipPartEvents: zoneResult.skipPartEvents,
+                            baseSuppressVisualFx: effectiveSuppressVisualFx,
+                            shadowRouted: overlapShadowRouted);
                     bool activatedDeferredState = ActivateGhostVisualsIfNeeded(ovState);
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
                         ovEffectiveSkipPartEvents, ovEffectiveSuppressVisualFx);
@@ -2900,6 +2915,62 @@ namespace Parsek
                     allowTransientEffects: false);
             }
             ResetGhostAppearanceTracking(state);
+        }
+
+        /// <summary>
+        /// Combines the post-position FX-suppression flags with the
+        /// shadow-route flag. When the tumbling-parent gate routes a ghost
+        /// through the shadow path the rotation interp through the parent
+        /// chain (the artifact source) is what was untrustworthy, so part
+        /// events / engine-RCS-reentry-audio FX must be suppressed for the
+        /// frame even though the mesh stays active. Used by the non-loop,
+        /// overlap-primary, and overlap-loop branches; the primary-loop
+        /// branch is structurally different (forced ApplyFrameVisuals call)
+        /// and uses <see cref="ResolveLoopShadowFxBranch"/> instead.
+        /// Pure for testability — deliberate carve-out of the FX-suppression
+        /// OR pattern that prior reviewer feedback caught a bug in (clear
+        /// without read at one branch leaked FX through the route window).
+        /// </summary>
+        internal static (bool skipPartEvents, bool suppressVisualFx) AdjustFxFlagsForShadowRoute(
+            bool baseSkipPartEvents,
+            bool baseSuppressVisualFx,
+            bool shadowRouted)
+        {
+            return (
+                skipPartEvents: baseSkipPartEvents || shadowRouted,
+                suppressVisualFx: baseSuppressVisualFx || shadowRouted);
+        }
+
+        /// <summary>
+        /// Decides what kind of ApplyFrameVisuals call the primary-loop
+        /// post-position branch should issue. The shadow route forces a
+        /// teardown call (skipPartEvents=true, suppressVisualFx=true,
+        /// allowTransientEffects=false) regardless of the legacy
+        /// `skipLoopPartEvents` LOD flag, because skipping the call entirely
+        /// would let stale plumes/RCS/reentry/audio continue running through
+        /// the route window. Pure for testability.
+        /// </summary>
+        internal enum LoopShadowFxBranch : byte
+        {
+            /// <summary>Run a forced FX-teardown ApplyFrameVisuals call for the shadow route.</summary>
+            ForcedShadowTeardown = 0,
+
+            /// <summary>Run the normal pre-route ApplyFrameVisuals call.</summary>
+            Normal = 1,
+
+            /// <summary>Skip the ApplyFrameVisuals call (legacy LOD path).</summary>
+            Skipped = 2,
+        }
+
+        internal static LoopShadowFxBranch ResolveLoopShadowFxBranch(
+            bool shadowRouted,
+            bool skipLoopPartEvents)
+        {
+            if (shadowRouted)
+                return LoopShadowFxBranch.ForcedShadowTeardown;
+            if (skipLoopPartEvents)
+                return LoopShadowFxBranch.Skipped;
+            return LoopShadowFxBranch.Normal;
         }
 
         private bool TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(

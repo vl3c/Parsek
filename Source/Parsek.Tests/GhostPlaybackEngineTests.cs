@@ -1098,6 +1098,105 @@ namespace Parsek.Tests
                 && l.Contains("playbackUT=105"));
         }
 
+        // ===================================================================
+        // Shadow-route FX-flag helpers — pure-static OR pattern + primary-loop
+        // branch decision. The bug class these test pin: clear-without-read
+        // leaks of FX state through the shadow-route window. A reviewer caught
+        // two P1 instances of this in the original engine wiring; the helpers
+        // were extracted afterwards so the OR pattern has one source of truth.
+        // ===================================================================
+
+        [Fact]
+        public void AdjustFxFlagsForShadowRoute_NotShadowRouted_PassesBaseFlagsThrough()
+        {
+            // (baseSkip, baseSuppress, shadowRouted=false) -> (baseSkip, baseSuppress)
+            var (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                baseSkipPartEvents: false,
+                baseSuppressVisualFx: false,
+                shadowRouted: false);
+            Assert.False(skip);
+            Assert.False(suppress);
+
+            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                baseSkipPartEvents: true,
+                baseSuppressVisualFx: false,
+                shadowRouted: false);
+            Assert.True(skip);
+            Assert.False(suppress);
+
+            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                baseSkipPartEvents: false,
+                baseSuppressVisualFx: true,
+                shadowRouted: false);
+            Assert.False(skip);
+            Assert.True(suppress);
+
+            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                baseSkipPartEvents: true,
+                baseSuppressVisualFx: true,
+                shadowRouted: false);
+            Assert.True(skip);
+            Assert.True(suppress);
+        }
+
+        [Fact]
+        public void AdjustFxFlagsForShadowRoute_ShadowRouted_ForcesBothFlagsTrue()
+        {
+            // Regression guard: when shadowRouted=true, BOTH outputs must be
+            // true regardless of the base inputs. This is the OR pattern that
+            // a clear-without-read reviewer finding (P1) had broken at three
+            // sites in the original wiring; centralising it here makes future
+            // bypass attempts visible at code-review time.
+            foreach (bool baseSkip in new[] { false, true })
+            foreach (bool baseSuppress in new[] { false, true })
+            {
+                var (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
+                    baseSkipPartEvents: baseSkip,
+                    baseSuppressVisualFx: baseSuppress,
+                    shadowRouted: true);
+                Assert.True(skip,
+                    $"shadowRouted=true must force skipPartEvents=true (was baseSkip={baseSkip}, baseSuppress={baseSuppress})");
+                Assert.True(suppress,
+                    $"shadowRouted=true must force suppressVisualFx=true (was baseSkip={baseSkip}, baseSuppress={baseSuppress})");
+            }
+        }
+
+        [Fact]
+        public void ResolveLoopShadowFxBranch_ShadowRouted_AlwaysReturnsForcedTeardown()
+        {
+            // Regression guard for primary-loop P1: when the previous logic
+            // OR'd shadowRouted into skipLoopPartEvents and gated the entire
+            // ApplyFrameVisuals call on !skipLoopPartEvents, shadow-routed
+            // frames silently skipped FX teardown -- letting stale plumes /
+            // RCS / reentry / audio continue running through the route.
+            // Forced teardown must fire regardless of the legacy LOD flag.
+            Assert.Equal(
+                GhostPlaybackEngine.LoopShadowFxBranch.ForcedShadowTeardown,
+                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
+                    shadowRouted: true,
+                    skipLoopPartEvents: false));
+            Assert.Equal(
+                GhostPlaybackEngine.LoopShadowFxBranch.ForcedShadowTeardown,
+                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
+                    shadowRouted: true,
+                    skipLoopPartEvents: true));
+        }
+
+        [Fact]
+        public void ResolveLoopShadowFxBranch_NotShadowRouted_RespectsLegacySkipFlag()
+        {
+            Assert.Equal(
+                GhostPlaybackEngine.LoopShadowFxBranch.Normal,
+                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
+                    shadowRouted: false,
+                    skipLoopPartEvents: false));
+            Assert.Equal(
+                GhostPlaybackEngine.LoopShadowFxBranch.Skipped,
+                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
+                    shadowRouted: false,
+                    skipLoopPartEvents: true));
+        }
+
         [Fact]
         public void GhostPlaybackState_ClearLoadedVisualReferences_ClearsShadowRoutedFlag()
         {
