@@ -6187,7 +6187,9 @@ namespace Parsek
                 $"Recovery processing captured: {context.Identity.FormatForLog()} " +
                 $"pid={pv.persistentId} vesselType={pv.vesselType} " +
                 $"ut={now.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"fundsEarned={(hasFundsEarned ? fundsEarned.ToString("F1", CultureInfo.InvariantCulture) : "(unknown)")} " +
+                $"fundsEarned={(context.HasFundsEarned ? fundsEarned.ToString("F1", CultureInfo.InvariantCulture) : "(unknown)")} " +
+                $"before={(hasFundsEarned ? beforeMissionFunds.ToString("F1", CultureInfo.InvariantCulture) : "(unknown)")} " +
+                $"total={(hasFundsEarned ? totalFunds.ToString("F1", CultureInfo.InvariantCulture) : "(unknown)")} " +
                 $"recoveryFactor={recoveryFactor.ToString("R", CultureInfo.InvariantCulture)}");
         }
 

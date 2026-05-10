@@ -104,6 +104,12 @@ namespace Parsek
 
         internal static void Clear(string reason)
         {
+            if (contexts.Count > 0)
+            {
+                ParsekLog.Verbose("RecoveryPayoutContext",
+                    $"Clear ({reason ?? ""}): dropping {contexts.Count} recovery payout context(s)");
+            }
+
             contexts.Clear();
         }
 
@@ -131,7 +137,11 @@ namespace Parsek
                 VesselType = vesselType,
                 Ut = ut,
                 RecoveryFactor = recoveryFactor,
-                HasFundsEarned = hasFundsEarned,
+                HasFundsEarned = hasFundsEarned &&
+                                 FundsSnapshotLooksInitialized(
+                                     beforeMissionFunds,
+                                     fundsEarned,
+                                     totalFunds),
                 FundsEarned = fundsEarned,
                 BeforeMissionFunds = beforeMissionFunds,
                 TotalFunds = totalFunds
@@ -281,6 +291,28 @@ namespace Parsek
             return Math.Abs(expected - fundsDelta) <= tolerance;
         }
 
+        private static bool FundsSnapshotLooksInitialized(
+            double beforeMissionFunds,
+            double fundsEarned,
+            double totalFunds)
+        {
+            if (double.IsNaN(beforeMissionFunds) ||
+                double.IsNaN(fundsEarned) ||
+                double.IsNaN(totalFunds) ||
+                double.IsInfinity(beforeMissionFunds) ||
+                double.IsInfinity(fundsEarned) ||
+                double.IsInfinity(totalFunds))
+                return false;
+
+            // A real zero-payout recovery still carries the player's mission funds.
+            // If KSP ever invokes recovery-processing before populating the dialog,
+            // the default all-zero snapshot is safer to treat as unknown so we keep
+            // the deferred-pairing path instead of silently suppressing a payout.
+            return beforeMissionFunds != 0.0 ||
+                   fundsEarned != 0.0 ||
+                   totalFunds != 0.0;
+        }
+
         private static int FindBestIndex(
             uint persistentId,
             RecoveredVesselIdentity identity,
@@ -331,6 +363,10 @@ namespace Parsek
 
         private static void TrimExpired(double currentUt)
         {
+            // Recovery-processing and funds callbacks are only expected to pair in
+            // monotonic live-time order. Rewind paths clear the store before old UTs
+            // are replayed, so a symmetric window keeps both forward stale contexts
+            // and unexpected future contexts from stamping a new event.
             for (int i = contexts.Count - 1; i >= 0; i--)
             {
                 if (Math.Abs(contexts[i].Ut - currentUt) > ContextMatchWindowSeconds)

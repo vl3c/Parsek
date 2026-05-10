@@ -19,9 +19,7 @@ recoveries that cannot produce a Parsek ledger event. The fix should distinguish
 "stock computed a ledger-worthy payout but Parsek never saw the paired funds
 event".
 
-## Review Corrections
-
-This plan incorporates the GPT-5.5 xhigh review findings:
+## Diagnosis Corrections
 
 - A type-only `Debris`/`EVA` skip is not enough. It would not handle the
   localized `#autoLOC_501224` / `Jumping Flea` stale request if that callback
@@ -556,9 +554,9 @@ behavioral fix is implemented.
   `onVesselRecoveryProcessing` rather than before.
   - Mitigation: runtime validation must log `fundsEarned`, `beforeMissionFunds`,
     and `totalFunds` for zero and positive recoveries. If the value is not ready
-    at processing time, derive expected funds from the subsequent
-    `FundsChanged(VesselRecovery)` only and do not use the context for no-payout
-    skips until verified.
+    at processing time, an all-zero dialog funds snapshot is treated as unknown
+    and keeps the deferred-pairing path instead of suppressing the recovery.
+    The subsequent `FundsChanged(VesselRecovery)` remains the ledger amount.
 
 - Risk: The context cannot be matched reliably to `onVesselRecovered`.
   - Mitigation: key first by `ProtoVessel.persistentId`; fallback to

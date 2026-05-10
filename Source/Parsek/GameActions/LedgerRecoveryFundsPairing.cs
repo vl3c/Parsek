@@ -352,8 +352,6 @@ namespace Parsek
         }
 
         private static bool ShouldSkipRecoveryFundsBeforePairing(
-            RecoveredVesselIdentity identity,
-            VesselType vesselType,
             RecoveryPayoutContext payoutContext,
             out string reason)
         {
@@ -395,14 +393,13 @@ namespace Parsek
         }
 
         private static bool ShouldSkipDeferredRecoveryFunds(
-            RecoveredVesselIdentity identity,
             VesselType vesselType,
             RecoveryPayoutContext payoutContext,
             out string reason)
         {
-            if (vesselType == VesselType.Debris)
+            if (vesselType == VesselType.Debris && payoutContext == null)
             {
-                reason = "debris recovery without ledger-worthy payout context";
+                reason = "debris recovery without recovery-processing payout context";
                 return true;
             }
 
@@ -511,7 +508,7 @@ namespace Parsek
                 return;
             }
 
-            if (ShouldSkipRecoveryFundsBeforePairing(identity, vesselType, payoutContext, out string skipReason))
+            if (ShouldSkipRecoveryFundsBeforePairing(payoutContext, out string skipReason))
             {
                 ParsekLog.Verbose(Tag,
                     $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +
@@ -523,7 +520,7 @@ namespace Parsek
             if (tryAddRecoveryFundsAction(ut, identity, fromTrackingStation))
                 return;
 
-            if (ShouldSkipDeferredRecoveryFunds(identity, vesselType, payoutContext, out skipReason))
+            if (ShouldSkipDeferredRecoveryFunds(vesselType, payoutContext, out skipReason))
             {
                 ParsekLog.Verbose(Tag,
                     $"OnVesselRecoveryFunds: {identity.FormatForLog()} (VesselType.{vesselType}) " +

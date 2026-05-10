@@ -578,6 +578,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnVesselRecoveryFunds_DebrisPositivePayoutContextWithoutEvent_DefersAndFlushWarns()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Funded Debris");
+            var payoutContext = MakeRecoveryPayoutContext(
+                2200.0,
+                identity,
+                VesselType.Debris,
+                fundsEarned: GameStateRecorder.FundsThreshold + 75.0);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                2200.0,
+                identity,
+                fromTrackingStation: true,
+                vesselType: VesselType.Debris,
+                payoutContext: payoutContext);
+
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+
+            LedgerOrchestrator.FlushStalePendingRecoveryFunds("rewind end");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("FlushStalePendingRecoveryFunds") &&
+                l.Contains("Funded Debris") &&
+                l.Contains("vesselType=Debris") &&
+                l.Contains("expectedFunds=175.0"));
+        }
+
+        [Fact]
         public void OnVesselRecoveryFunds_SubThresholdPayoutContext_DoesNotEnqueueOrWarn()
         {
             var identity = RecoveredVesselIdentity.FromNames("#autoLOC_501224", "Jumping Flea");
@@ -763,6 +792,71 @@ namespace Parsek.Tests
 
             string detail = GameStateRecorder.BuildVesselRecoveryFundsDetail(600.0);
             Assert.Contains("Delayed%20Funds%20Probe", detail);
+        }
+
+        [Fact]
+        public void RecoveryPayoutContext_AllZeroFundsSnapshot_TreatedAsUnknown()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Uninitialized Funds Probe");
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 501230,
+                rawVesselName: "Uninitialized Funds Probe",
+                vesselType: VesselType.Ship,
+                ut: 605.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 0.0,
+                beforeMissionFunds: 0.0,
+                totalFunds: 0.0);
+
+            Assert.True(RecoveryPayoutContextStore.TryFind(
+                persistentId: 501230,
+                identity: identity,
+                ut: 605.0,
+                out RecoveryPayoutContext context));
+            Assert.False(context.HasFundsEarned);
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                605.0,
+                identity,
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship,
+                payoutContext: context);
+
+            Assert.Equal(1, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("deferred pairing") &&
+                l.Contains("expectedFunds=(unknown)"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("stock expected zero recovery funds"));
+        }
+
+        [Fact]
+        public void RecoveryPayoutContext_Clear_LogsDroppedContextCount()
+        {
+            var identity = RecoveredVesselIdentity.FromRawName("Clear Probe");
+            RecoveryPayoutContextStore.Remember(
+                persistentId: 501231,
+                rawVesselName: "Clear Probe",
+                vesselType: VesselType.Ship,
+                ut: 610.0,
+                recoveryFactor: 1.0f,
+                hasFundsEarned: true,
+                fundsEarned: 250.0,
+                beforeMissionFunds: 1000.0,
+                totalFunds: 1250.0);
+
+            RecoveryPayoutContextStore.Clear("rewind end");
+
+            Assert.False(RecoveryPayoutContextStore.TryFind(
+                persistentId: 501231,
+                identity: identity,
+                ut: 610.0,
+                out _));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecoveryPayoutContext]") &&
+                l.Contains("Clear (rewind end)") &&
+                l.Contains("dropping 1 recovery payout context"));
         }
 
         [Fact]
