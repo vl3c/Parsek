@@ -1388,6 +1388,7 @@ namespace Parsek
                 // deterministic; that branch completes below after suppressing
                 // stale endpoint side effects.
                 state.anchorRetiredThisFrame = false;
+                state.anchorRotationShadowRoutedThisFrame = false;
 
                 // Position ghost at the true recording endpoint.
                 PositionGhostAtRecordingEndpoint(i, traj, state);
@@ -1630,6 +1631,7 @@ namespace Parsek
                     // stale (0,0,0) transform when the LoopAnchor pid is
                     // unresolvable post-rewind.
                     state.anchorRetiredThisFrame = false;
+                    state.anchorRotationShadowRoutedThisFrame = false;
                     PositionGhostAtLoopEndpoint(
                         index, traj, flags, state, ctx.currentUT, ctx.warpRate);
 
@@ -2067,6 +2069,7 @@ namespace Parsek
                         // positioning; gate visuals/activation/appearance on
                         // it after.
                         primaryState.anchorRetiredThisFrame = false;
+                        primaryState.anchorRotationShadowRoutedThisFrame = false;
                         GhostRenderTrace.BeginFrame(
                             traj, index, ctx.currentUT, primaryLoopUT, "overlap-primary");
                         PositionLoopAtPlaybackUT(
@@ -2152,6 +2155,7 @@ namespace Parsek
                     if (ovState.ghost != null)
                     {
                         ovState.anchorRetiredThisFrame = false;
+                        ovState.anchorRotationShadowRoutedThisFrame = false;
                         PositionGhostAtLoopEndpoint(
                             index, traj, flags, ovState, ctx.currentUT, ctx.warpRate);
                         overlapExpiryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
@@ -2302,6 +2306,7 @@ namespace Parsek
             // traj.LoopAnchorVesselId is unresolvable (same Re-Fly rewind
             // failure mode covered by the per-frame gate above).
             state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
             PositionGhostAtLoopEndpoint(index, traj, flags, state, frameUT, warpRate);
             bool loopPauseRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
@@ -4903,6 +4908,7 @@ namespace Parsek
             state.playbackIndex = 0;
             state.partEventIndex = 0;
             state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
             double primePlaybackUT = ResolveVisiblePlaybackUT(traj, state, playbackUT);
             PositionLoadedGhostAtPlaybackUT(index, traj, state, primePlaybackUT);
             bool primeAnchorRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
@@ -4940,6 +4946,7 @@ namespace Parsek
             // through the same relative-frame positioner as the per-frame
             // path, so it has the same vulnerability to a stale anchor pid.
             state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
             if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                     state.anchorRetiredThisFrame))

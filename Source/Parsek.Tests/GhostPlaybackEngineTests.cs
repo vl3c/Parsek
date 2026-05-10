@@ -1099,6 +1099,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GhostPlaybackState_ClearLoadedVisualReferences_ClearsShadowRoutedFlag()
+        {
+            // Lifecycle clear: the ClearLoadedVisualReferences path (called on
+            // ghost destroy / engine reset / scene cleanup) must reset the new
+            // flag alongside anchorRetiredThisFrame so a future state reuse
+            // does not inherit a stale shadow-route signal. Reviewer P2.
+            var state = new GhostPlaybackState
+            {
+                anchorRetiredThisFrame = true,
+                anchorRotationShadowRoutedThisFrame = true,
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.anchorRotationShadowRoutedThisFrame);
+        }
+
+        [Fact]
         public void CoverageRetiredHelper_StateNull_DoesNotReserveSpawnOrLoadVisuals()
         {
             var positioner = new SpawnPrimingPositioner();

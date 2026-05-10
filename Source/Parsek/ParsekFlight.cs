@@ -16691,16 +16691,35 @@ namespace Parsek
             if (state?.ghost == null
                 || target.Section.referenceFrame != ReferenceFrame.Relative
                 || target.Section.absoluteFrames == null
-                || target.Section.absoluteFrames.Count == 0)
+                || target.Section.absoluteFrames.Count < 2)
+            {
+                // Single-sample shadow is rejected: InterpolateAndPosition
+                // would snap to that one point and we'd render a stale pose
+                // for the rest of the unstable window. Caller falls back to
+                // the Hidden route.
+                return false;
+            }
+
+            // Reject playback UTs outside the shadow's covered range. Without
+            // this guard InterpolateAndPosition / TrajectoryMath.InterpolatePoints
+            // would clamp at the nearest endpoint and the ghost would silently
+            // freeze at a stale shadow sample for the rest of the window. The
+            // router falls back to Hidden when this returns false. Compare
+            // against the actual absoluteFrames endpoint UTs (NOT the section's
+            // startUT/endUT) because the recorder may have written shadow
+            // samples that don't span the full section bounds.
+            int lastAbsoluteIdx = target.Section.absoluteFrames.Count - 1;
+            double firstShadowUT = target.Section.absoluteFrames[0].ut;
+            double lastShadowUT = target.Section.absoluteFrames[lastAbsoluteIdx].ut;
+            const double shadowCoverageEpsilon = 1e-6;
+            if (playbackUT + shadowCoverageEpsilon < firstShadowUT
+                || playbackUT - shadowCoverageEpsilon > lastShadowUT)
             {
                 return false;
             }
 
             // Bracket UTs are reported back to the caller for the
-            // [Anchor] anchor-rotation-shadow-route log line. Compute them
-            // here against the same frames list InterpolateAndPosition will
-            // walk; if the playback UT is outside coverage we still surface
-            // the closest pair so the log records what coverage we had.
+            // [Anchor] anchor-rotation-shadow-route log line.
             ResolveAbsoluteShadowBracketUTs(
                 target.Section.absoluteFrames, playbackUT,
                 out bracketBeforeUT, out bracketAfterUT);
