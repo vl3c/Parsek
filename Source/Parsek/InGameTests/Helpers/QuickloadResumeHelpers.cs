@@ -49,22 +49,40 @@ namespace Parsek.InGameTests.Helpers
         internal static void TriggerQuickload(string slotName = QuicksaveSlotName)
         {
             // Splitting validation from commit lets the batch-baseline-restore
-            // flow run its prep wipe BETWEEN them: validate the .sfs is
-            // loadable first (cheap, non-destructive parse), then wipe
-            // in-memory state knowing the load is committed-or-imminent,
-            // then commit the scene change. Other callers retain the
-            // bundled "validate + commit" semantics through this wrapper.
+            // flow run its prep wipe BETWEEN them: realise the .sfs into a
+            // Game object first, then wipe in-memory state knowing the load
+            // is committed-or-imminent, then commit the scene change.
+            //
+            // CAUTION: LoadAndValidateGameForQuickload is NOT non-destructive
+            // -- GamePersistence.LoadGame clears FlightGlobals.PersistentLoaded
+            // dictionaries as a stock-KSP side effect, even on validation
+            // success. Callers that need a truly non-destructive pre-check
+            // (no FlightGlobals mutation, no in-memory state wiped) before
+            // any destructive batch work must use ValidateQuicksaveStructure
+            // first; this wrapper retains the bundled "load + commit"
+            // semantics for non-batch callers that always immediately
+            // commit the scene change.
             ValidatedGameLoad load = LoadAndValidateGameForQuickload(slotName);
             CommitValidatedGameLoad(load);
         }
 
         /// <summary>
-        /// Result of the non-destructive validation half of a quickload:
-        /// the .sfs has been parsed, the active-vessel index is in range,
-        /// and the scene change is ready to commit via
+        /// Result of the load-and-validate half of a quickload: the .sfs
+        /// has been realised into a <see cref="Game"/> object via
+        /// <see cref="GamePersistence.LoadGame"/>, the active-vessel index
+        /// is in range, and the scene change is ready to commit via
         /// <see cref="CommitValidatedGameLoad"/>. The <see cref="Game"/>
         /// reference is the one that <c>FlightDriver.StartAndFocusVessel</c>
         /// will adopt; do not mutate it between validation and commit.
+        /// <para>
+        /// This is NOT non-destructive: producing a <see cref="Game"/>
+        /// instance requires <see cref="GamePersistence.LoadGame"/>, which
+        /// clears <c>FlightGlobals.PersistentLoaded</c> persistent-id
+        /// dictionaries as a stock-KSP side effect (verified by KSP
+        /// decompilation, 2026-05-10). Callers that need pre-validation
+        /// without any KSP-state mutation must use
+        /// <see cref="ValidateQuicksaveStructure"/> instead.
+        /// </para>
         /// </summary>
         internal struct ValidatedGameLoad
         {

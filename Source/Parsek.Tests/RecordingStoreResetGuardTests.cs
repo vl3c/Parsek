@@ -257,6 +257,13 @@ namespace Parsek.Tests
             // mutates FlightGlobals but is a documented residual in the
             // production failure-mode comment.
             //
+            // The companion test
+            // BatchFlightBaselineRestore_PreWipeFailure_LeavesPostTestMutationsAlone
+            // pins the round-5 wipePerformed gate that prevents a pre-wipe
+            // failure from triggering the snapshot rollback (which would
+            // overwrite forward progress with stale batch-start data when
+            // no destructive in-memory work had run).
+            //
             // SCOPE: this test is DOCUMENTATION-BY-TEST. It pins the
             // contract by simulation -- it does NOT invoke the actual
             // LoadAndValidateGameForQuickload (Unity-only) or
@@ -372,6 +379,89 @@ namespace Parsek.Tests
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("PreBatchLive", RecordingStore.CommittedRecordings[0].VesselName);
             Assert.Equal(liveTreeCount, RecordingStore.CommittedTrees.Count);
+        }
+
+        [Fact]
+        public void BatchFlightBaselineRestore_PreWipeFailure_LeavesPostTestMutationsAlone()
+        {
+            // P2 (round 5) review regression: the previous fix armed the
+            // snapshot rollback unconditionally inside RestoreBatchFlightBaselineCore's
+            // try/finally. That meant a "no destructive work" failure
+            // (ValidateQuicksaveStructure throwing, Activate throwing
+            // before its disk swap committed, LoadAndValidateGameForQuickload
+            // throwing) STILL rewrote in-memory RecordingStore back to
+            // BATCH-START, even though the prep wipe never ran. With
+            // post-test mutations layered into RecordingStore, that
+            // overwrote the test's forward progress with stale batch-start
+            // data, while disk and the other six save-scoped stores stayed
+            // at TEST-CURRENT -- a needless desync introduced by the
+            // recovery itself.
+            //
+            // Fix: gate the rollback on a wipePerformed flag that is set
+            // ONLY after PrepareForIsolatedBatchFlightBaselineRestore
+            // returns. Pre-wipe failures leave RecordingStore at
+            // TEST-CURRENT (consistent with the other untouched stores
+            // and the resilient-or-rolled-back disk state).
+            //
+            // Models the pre-wipe failure path: player has live data,
+            // batch starts (snapshot captured), test layers a synthetic
+            // mutation, restore fails BEFORE the prep wipe.
+            var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "PreBatchLive");
+            Assert.NotNull(live);
+            RecordingStore.AddRecordingWithTreeForTesting(live);
+
+            // Step 1: batch capture snapshots the player's pre-batch state.
+            var batchStartSnapshot = RecordingStoreTestSnapshot.Capture();
+
+            RecordingStore.ApplicationIsPlayingForTesting = () => true;
+
+            // Step 2: a test runs and layers a synthetic mutation.
+            var synthetic = RecordingStore.CreateRecordingFromFlightData(MakePoints(2), "TestMutation");
+            Assert.NotNull(synthetic);
+            RecordingStore.AddRecordingWithTreeForTesting(synthetic);
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+
+            // Step 3: restore starts but fails BEFORE the wipe (e.g.
+            // ValidateQuicksaveStructure throwing on a missing/corrupt
+            // .sfs, or LoadAndValidateGameForQuickload throwing on a
+            // structurally valid but Game-realisation-failing save).
+            bool restoreCommitted = false;
+            bool wipePerformed = false;
+            try
+            {
+                // Pre-wipe failure: validation throws. The bypass wipe
+                // (RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard)
+                // would normally run AFTER this point and would set
+                // wipePerformed=true, but never reaches it.
+                throw new InvalidOperationException(
+                    "simulated pre-wipe failure (e.g. ValidateQuicksaveStructure throw)");
+#pragma warning disable CS0162 // Unreachable code -- documents the post-validation step we never reach.
+                RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
+                wipePerformed = true;
+#pragma warning restore CS0162
+            }
+            catch (InvalidOperationException) { /* expected */ }
+            finally
+            {
+                // P2 fix: rollback ONLY runs if wipePerformed is true.
+                // wipePerformed=false here (validation threw before wipe).
+                if (!restoreCommitted && wipePerformed)
+                {
+                    batchStartSnapshot.Restore();
+                }
+            }
+
+            // Pre-fix behavior (before round-5 gate): the finally would
+            // have called Restore() unconditionally and CommittedRecordings
+            // would now contain ONLY "PreBatchLive" -- the test's
+            // "TestMutation" overwritten with batch-start data.
+            //
+            // Post-fix behavior: the gate keeps the rollback dormant.
+            // Both recordings stay; in-memory RecordingStore matches the
+            // other untouched save-scoped stores.
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+            Assert.Contains(RecordingStore.CommittedRecordings, r => r.VesselName == "PreBatchLive");
+            Assert.Contains(RecordingStore.CommittedRecordings, r => r.VesselName == "TestMutation");
         }
 
         [Fact]

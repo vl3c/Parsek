@@ -1074,23 +1074,41 @@ namespace Parsek.InGameTests
             //   - Step 1a throws (structural validation fails): no
             //     destructive work done. All seven save-scoped stores
             //     intact. Disk untouched. FlightGlobals untouched.
+            //     Snapshot rollback NOT armed (wipePerformed=false), so
+            //     the finally is a no-op -- in-memory state stays at the
+            //     test's current post-test mutation, which is what we
+            //     want when no wipe ran.
             //   - Step 2 throws (Activate's own try/catch attempts disk
             //     rollback): in-memory still untouched. Disk in best-
             //     effort baseline-or-rolled-back state. FlightGlobals
-            //     untouched. Snapshot rollback is a no-op.
+            //     untouched. Snapshot rollback NOT armed; finally is a
+            //     no-op. Note: a successful Activate followed by step 1b
+            //     failure leaves on-disk Parsek/ at BATCH-START while
+            //     in-memory stays at TEST-CURRENT -- a known disk/memory
+            //     desync, but rolling RecordingStore back here would only
+            //     partially fix it (other 6 stores still desync) and
+            //     would corrupt the test's forward progress in the more
+            //     common "validation never destructively touched memory"
+            //     case. We accept disk/memory desync as a residual; manual
+            //     F9 recovers.
             //   - Step 1b throws (LoadGame fails despite step 1a
             //     passing): on-disk Parsek/ swapped to BATCH-START,
-            //     FlightGlobals cleared. RecordingStore not wiped yet
-            //     so snapshot rollback is a no-op. User has on-disk
-            //     baseline + cleared FlightGlobals + 6 Parsek stores
-            //     intact + RecordingStore intact. Documented residual;
-            //     manual F9 recovers FlightGlobals.
+            //     FlightGlobals cleared. Snapshot rollback NOT armed;
+            //     in-memory RecordingStore + other 6 stores stay at
+            //     TEST-CURRENT. User has on-disk baseline + cleared
+            //     FlightGlobals + memory at TEST-CURRENT. Documented
+            //     residual; manual F9 recovers.
             //   - Step 3 throws (one of the eight Reset functions
             //     misbehaves): partial wipe in memory, on-disk Parsek/
-            //     at BATCH-START. RecordingStore snapshot rollback
-            //     restores RecordingStore.committedRecordings/Trees/
-            //     pendingTree/state/AutoAssignedStandaloneGroups to
-            //     BATCH-START -- consistent with on-disk. RecordingStoreTestSnapshot
+            //     at BATCH-START. wipePerformed is set inside the try
+            //     ONLY after PrepareForIsolatedBatchFlightBaselineRestore
+            //     returned, so a throw partway through that call leaves
+            //     wipePerformed=false (no rollback). A throw on a step
+            //     LATER than the prep wipe (rare) sees wipePerformed=true
+            //     and the snapshot rollback restores RecordingStore.
+            //     committedRecordings/Trees/pendingTree/state/
+            //     AutoAssignedStandaloneGroups to BATCH-START --
+            //     consistent with on-disk. RecordingStoreTestSnapshot
             //     does NOT capture the additional fields that
             //     ResetForTestingInternal clears (RewindContext state,
             //     PendingCleanupPids, suppressNextTreeSceneExitCommit,
@@ -1098,27 +1116,37 @@ namespace Parsek.InGameTests
             //     reset values. Documented residual; manual reload
             //     recovers.
             //   - Step 4 throws (StartAndFocusVessel rare synchronous
-            //     throw): full wipe done, no scene change queued.
-            //     RecordingStore snapshot rollback restores its 5
+            //     throw): full wipe done (wipePerformed=true), no scene
+            //     change queued. Snapshot rollback restores its 5
             //     captured fields. Other 6 Parsek stores wiped + extra
             //     RecordingStore fields beyond the snapshot scope stay
             //     reset. Documented residual.
-            //   - Step 5 wait timeouts: scene change was queued. OnLoad
-            //     either fired (every store rebuilt from disk -- best
-            //     case) or LoadScene itself failed (extremely rare; the
-            //     partial RecordingStore snapshot rollback fires).
+            //   - Step 5 wait timeouts: scene change was queued, full
+            //     wipe ran (wipePerformed=true). OnLoad either fired
+            //     (every store rebuilt from disk -- best case) or
+            //     LoadScene itself failed (extremely rare; the partial
+            //     RecordingStore snapshot rollback fires).
             //
             // The RecordingStore-specific snapshot rollback covers the
-            // bulk of the residual edge cases above; the explicit
-            // residuals (FlightGlobals on step 1b, snapshot-incomplete
-            // fields on steps 3-5) are documented but not snapshotted
-            // -- a manual F9 quickload after a failed restore recovers
-            // every category. Pair with the iterator-disposal fix in
-            // RunCoroutineSafely -- without that, this finally never
-            // runs when a nested wait throws, because RunCoroutineSafely
-            // abandons the parent routine without disposing it.
+            // post-wipe residual edge cases above; the explicit residuals
+            // (pre-wipe disk/memory desync on steps 2/1b, snapshot-
+            // incomplete fields on steps 3-5) are documented but not
+            // snapshotted -- a manual F9 quickload after a failed
+            // restore recovers every category. Pair with the
+            // iterator-disposal fix in RunCoroutineSafely -- without
+            // that, this finally never runs when a nested wait throws,
+            // because RunCoroutineSafely abandons the parent routine
+            // without disposing it.
+            //
+            // wipePerformed gates the rollback so a "no destructive
+            // work" failure does NOT rewrite in-memory recordings to
+            // batch-start: before the wipe, RecordingStore still holds
+            // whatever the test left it in (post-test mutations); after
+            // the wipe, RecordingStore is empty and rolling back to
+            // BATCH-START is the right move.
             RecordingStoreTestSnapshot preWipeSnapshot = baseline?.RecordingStoreSnapshot;
             bool restoreCommitted = false;
+            bool wipePerformed = false;
             try
             {
                 // Step 1a: structural pre-validation via ConfigNode.Load.
@@ -1162,6 +1190,10 @@ namespace Parsek.InGameTests
 
                 // Step 3: prep wipe runs only after validation succeeded
                 // AND the on-disk Parsek/ has been swapped to BATCH-START.
+                // Setting wipePerformed=true ARMS the snapshot rollback in
+                // the finally below: from this point on, a failure leaves
+                // RecordingStore (partially or fully) wiped, and rolling
+                // back to BATCH-START is the right recovery target.
                 {
                     var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
                         as ParsekScenario;
@@ -1169,6 +1201,7 @@ namespace Parsek.InGameTests
                         currentScenario != null
                             ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
                             : null);
+                    wipePerformed = true;
                 }
 
                 // Step 4: commit the scene change.
@@ -1186,16 +1219,32 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                if (!restoreCommitted && preWipeSnapshot != null)
+                if (!restoreCommitted && wipePerformed && preWipeSnapshot != null)
                 {
                     preWipeSnapshot.Restore();
                     ParsekLog.Warn(Tag,
-                        "Batch FLIGHT baseline restore did not complete; rolled RecordingStore "
-                        + "back to batch-start snapshot to recover live data "
+                        "Batch FLIGHT baseline restore did not complete after the prep wipe; "
+                        + "rolled RecordingStore back to batch-start snapshot to recover live data "
                         + "(committedRecordings=" + preWipeSnapshot.CommittedRecordingCount
                         + ", committedTrees=" + preWipeSnapshot.CommittedTreeCount
                         + ", hasPendingTree=" + preWipeSnapshot.HasPendingTree
                         + "). slot='" + (baseline?.SlotName ?? "(null)") + "'");
+                }
+                else if (!restoreCommitted && !wipePerformed)
+                {
+                    // Failure occurred before the prep wipe (validation,
+                    // disk swap, or LoadGame). RecordingStore in memory
+                    // still holds whatever the test left it in -- rolling
+                    // back to BATCH-START would corrupt forward progress.
+                    // Disk and other Parsek stores may be partially
+                    // touched (Activate's disk swap, LoadGame clearing
+                    // FlightGlobals dicts) but the in-memory RecordingStore
+                    // is intact. See failure-mode comment block above.
+                    ParsekLog.Warn(Tag,
+                        "Batch FLIGHT baseline restore did not complete and never crossed the prep-wipe "
+                        + "destructive boundary; leaving RecordingStore at its current in-memory state "
+                        + "(snapshot rollback NOT armed). slot='"
+                        + (baseline?.SlotName ?? "(null)") + "'");
                 }
             }
         }
