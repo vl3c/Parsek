@@ -11,6 +11,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 in-place Re-Fly fork inherited stale SegmentPhase/SegmentBodyName
+
+- ~~The in-place Re-Fly fork's `CopyInheritedIdentityForFork` copied the parent recording's `SegmentPhase` and `SegmentBodyName` onto the new provisional. Those fields describe the recording's own most-recent segment classification, not launch identity, so a Re-Fly off a Suborbital atmo segment that flew on to stable orbit saved with `segmentPhase=atmo` and the recordings table showed "Kerbin atmo" even though `terminalState=Orbiting` and `tOrbEcc=0.32`.~~ Reproduced by `logs/2026-05-10_1713/saves/s14/persistent.sfs` (`rec_b1566ae4…` treeOrder=10 inheriting from `32d9674c…` per `KSP.log:19465 inheritedFrom=origin sourceRec=32d9674c…`). Once non-empty, every runtime tagger that derives the phase from live vessel state guarded on `string.IsNullOrEmpty(SegmentPhase)` and became a no-op, so the inherited value rode through to OnSave.
+
+**Fix:** Drop the two inheritance lines from `RewindInvoker.CopyInheritedIdentityForFork` (`Source/Parsek/RewindInvoker.cs:249-250`) and add a new `RewindInvoker.TagForkInitialSegmentPhase(provisional, stripResult.SelectedVessel, sessionId)` call immediately after `CopyInheritedIdentityForFork` in `AtomicMarkerWrite`. The new helper delegates to `ParsekFlight.TagSegmentPhaseIfMissing` so the fork's tag uses the same body/altitude/situation classification (and same lowercase vocabulary `"atmo"`/`"exo"`/`"approach"`/`"surface"`) as every other recording's first segment. Verbose logs the classified result; Warn logs when `SelectedVessel` is null (diagnostic signal for upstream strip-pipeline regressions).
+
+**Coverage:** `RewindForkSegmentPhaseTests` (new xUnit class — drop-on-inherit, null-vessel, sequencing canary), updated `DebrisParentAnchorContractTests.CopyInheritedIdentityForFork_DebrisProvisional_PropagatesParentRecordingId` (assertion flipped to `Assert.Null` on the two fields, with a comment pinning the rationale), updated `AtomicMarkerWriteTests.AtomicMarkerWrite_PriorTipInCommittedList_InheritsFromChainTipAndForks` (chain-tip inheritance still proven by VesselName/PID/Generation; SegmentPhase no longer inherited), and `ReFlyForkSegmentPhaseTest` (new in-game test under `Category="Rewind"` that runs `TagForkInitialSegmentPhase` against `FlightGlobals.ActiveVessel` and cross-checks the classifier's choice against the same body/altitude/situation logic).
+
+**Plan:** [docs/dev/plans/fix-refly-fork-segment-phase-inheritance.md](plans/fix-refly-fork-segment-phase-inheritance.md).
+
+**Stage 2 follow-up (Open):** This PR fixes the stale-inheritance symptom but the saved phase still reflects the fork's START state, not its END state. A Re-Fly that takes off in atmo and stops in orbit will save with `phase=atmo` (the new fork-creation tag) unless the optimizer later splits the recording. See "Open - SegmentPhase saved value reflects start state, not end state" below.
+
+---
+
+## Open - SegmentPhase saved value reflects start state, not end state
+
+- After the in-place Re-Fly fork stale-inheritance fix lands, the fork's saved `SegmentPhase` reflects the live post-Strip vessel's environment at fork creation time. For a Re-Fly that takes off in atmo and stops in orbit, that's `atmo`. Stops happen via `ParsekFlight.StopRecording` (writes to `recorder.CaptureAtStop.SegmentPhase`) and `FlightRecorder.ForceStop` (does not tag `CaptureAtStop`), but `FlushRecorderToTreeRecording` does not propagate `CaptureAtStop.SegmentPhase` into the tree recording — so the saved phase never reflects the recorder's stop-time state for any non-chain, non-branch recording. This is a separate latent bug that the Stage 1 fix makes more visible (once inheritance no longer hides it, every "linear flight that changes phase" recording will show its start phase, not its end phase, in the recordings table).
+- **Fix direction:** propagate `CaptureAtStop.SegmentPhase` / `SegmentBodyName` to the tree recording at flush/finalize time, with a careful precedence decision (don't clobber chain-set phases; do clobber inherited start tags). Audit every `FlushRecorderToTreeRecording` call site. Also consider tagging in `RefreshActiveEffectiveLeafSnapshot` when the active leaf re-snapshots from the live vessel.
+
+**Status:** OPEN 2026-05-10. Separate PR. Out of scope for `fix-refly-fork-segment-phase-inheritance`.
+
+---
+
+## Open - dead-code SegmentPhase tag block in `ParsekFlight.StopRecording`
+
+- `ParsekFlight.StopRecording` (`Source/Parsek/ParsekFlight.cs:9847-9869`) writes the final phase tag to `recorder.CaptureAtStop.SegmentPhase`, not to the tree recording. Since `FlushRecorderToTreeRecording` does not propagate the field, this tag never lands on disk for tree-mode recordings. It survives only because some legacy non-tree code paths read `CaptureAtStop` directly. After the in-place Re-Fly inheritance fix it becomes a more visible trap — it looks like it's tagging the saved phase but it isn't.
+- **Fix direction:** either delete the block (the chain-commit and branch-commit paths cover the live-tree path) or rewire it to also write to the active tree recording. Tracked together with the Stage 2 flush-propagation fix above.
+
+**Status:** OPEN 2026-05-10. Separate PR. Out of scope for `fix-refly-fork-segment-phase-inheritance`.
+
+---
+
+## Open - duplicated SegmentPhase classifier in three sites
+
+- `ParsekFlight.TagSegmentPhaseIfMissing` (line 3773), `ParsekFlight.StopRecording` tag block (line 9847), and `ChainSegmentManager.CommitVesselSwitchTermination` (line 773) all duplicate the same body/altitude/situation classification logic verbatim. The Stage 1 Re-Fly fork fix routes through `TagSegmentPhaseIfMissing` so it inherits any future improvement, but the three copies are a drift hazard.
+- **Fix direction:** extract a single `ClassifySegmentPhase(Vessel v, out string phase, out string body)` static helper. Borderline gold-plating; only worth doing if a fourth caller materializes or one of the three sites needs to diverge.
+
+**Status:** OPEN 2026-05-10. Low priority.
+
+---
+
 ## Done - v0.9.2 multi-debris explosion audio inaudible in watch mode
 
 - ~~In watch mode, when a vessel breakup dropped many debris pieces over a short window only the first debris explosion produced sound — every following ghost terminal explosion silently rendered the visual fireball.~~ Reproduced by `logs/2026-05-10_1134_debris-explosion-audio` (Kerbal X breakup, 8 debris ghosts hitting ground over 11:31:13 → 11:31:27, ~14 s window). Of the 8 terminal explosions, exactly 1 produced audible sound (`vol=0.17 sound_explosion_large`); the other 7 logged `Stock visual-only explosion … (audio gate busy, suppressed SHIP_VOLUME clip to avoid mixer clipping)`. The user also reported ghost explosion sounds being "different" from stock destruction sounds. Root causes:
