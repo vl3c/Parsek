@@ -15239,7 +15239,8 @@ namespace Parsek
                         candidate.RecordingId,
                         ut,
                         new HashSet<string>(StringComparer.Ordinal),
-                        out AnchorPose pose))
+                        out AnchorPose pose,
+                        out _))
                 {
                     unresolved++;
                     continue;
@@ -17694,6 +17695,7 @@ namespace Parsek
                 return false;
             }
 
+            RelativeAnchorResolveFailure failure = default;
             if (TryBuildRelativeAnchorResolverContext(
                     rec.RecordingId,
                     out RelativeAnchorResolverContext context)
@@ -17702,7 +17704,8 @@ namespace Parsek
                     rec,
                     ut,
                     new HashSet<string>(StringComparer.Ordinal),
-                    out AnchorPose pose))
+                    out AnchorPose pose,
+                    out failure))
             {
                 worldPos = pose.WorldPos;
                 return true;
@@ -17711,13 +17714,18 @@ namespace Parsek
             if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
                 return true;
 
+            string failureReason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                failure,
+                "recorded-anchor-unresolved");
             ParsekLog.WarnRateLimited("Pipeline-CoBubble",
                 "standalone-relative-chain-unresolved|" + (rec.RecordingId ?? "(none)") + "|" + section.anchorRecordingId,
                 string.Format(CultureInfo.InvariantCulture,
-                    "TryComputeStandaloneRelativeWorldPosition: chain resolver failed recording={0} anchorRecordingId={1} ut={2}",
+                    "TryComputeStandaloneRelativeWorldPosition: chain resolver failed recording={0} anchorRecordingId={1} ut={2} outcome={3} reason={4}",
                     rec.RecordingId,
                     section.anchorRecordingId,
-                    ut.ToString("R", CultureInfo.InvariantCulture)),
+                    ut.ToString("R", CultureInfo.InvariantCulture),
+                    failure.Outcome,
+                    failureReason),
                 5.0);
             return false;
         }
@@ -20577,15 +20585,22 @@ namespace Parsek
         {
             worldPos = Vector3d.zero;
             RelativeAnchorPose anchorPose;
-            if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out anchorPose))
+            if (!TryResolveRecordedRelativeAnchorPose(
+                    target,
+                    targetUT,
+                    out anchorPose,
+                    out RelativeAnchorResolveFailure failure))
             {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    failure,
+                    "anchor-pose-unresolved");
                 GhostRenderTrace.EmitRelativeResolver(
                     target.RecordingId,
                     -1,
                     Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
                     targetUT,
                     "recorded-relative-offset",
-                    "anchor-pose-unresolved",
+                    reason,
                     0u,
                     target.AnchorRecordingId,
                     success: false,
@@ -21681,7 +21696,8 @@ namespace Parsek
                         target,
                         recordingFormatVersion,
                         allowActivation,
-                        out double firstAltitude))
+                        out double firstAltitude,
+                        out RelativeAnchorResolveFailure firstFailure))
                 {
                     interpResult = new InterpolationResult(
                         frames[0].velocity,
@@ -21697,7 +21713,8 @@ namespace Parsek
                         target,
                         targetUT,
                         ref cachedIndex,
-                        out interpResult))
+                        out interpResult,
+                        resolverFailure: firstFailure))
                     return;
 
                 RetireUnresolvedRecordedRelative(
@@ -21706,7 +21723,9 @@ namespace Parsek
                     recordingVesselName,
                     target,
                     retireSignalState,
-                    "InterpolateAndPositionRecordedRelative");
+                    "InterpolateAndPositionRecordedRelative",
+                    firstFailure.Outcome.ToString(),
+                    RelativeAnchorResolveFailure.ReasonOrFallback(firstFailure, null));
                 interpResult = InterpolationResult.Zero;
                 return;
             }
@@ -21736,7 +21755,8 @@ namespace Parsek
                         target,
                         recordingFormatVersion,
                         allowActivation,
-                        out double pointAltitude))
+                        out double pointAltitude,
+                        out RelativeAnchorResolveFailure pointFailure))
                 {
                     interpResult = new InterpolationResult(
                         before.velocity,
@@ -21752,7 +21772,8 @@ namespace Parsek
                         target,
                         targetUT,
                         ref cachedIndex,
-                        out interpResult))
+                        out interpResult,
+                        resolverFailure: pointFailure))
                     return;
 
                 RetireUnresolvedRecordedRelative(
@@ -21761,7 +21782,9 @@ namespace Parsek
                     recordingVesselName,
                     target,
                     retireSignalState,
-                    "InterpolateAndPositionRecordedRelative");
+                    "InterpolateAndPositionRecordedRelative",
+                    pointFailure.Outcome.ToString(),
+                    RelativeAnchorResolveFailure.ReasonOrFallback(pointFailure, null));
                 interpResult = InterpolationResult.Zero;
                 return;
             }
@@ -21820,7 +21843,11 @@ namespace Parsek
                         out interpResult))
                 return;
 
-            if (!TryResolveRecordedRelativeAnchorPose(target, targetUT, out RelativeAnchorPose anchorPose))
+            if (!TryResolveRecordedRelativeAnchorPose(
+                    target,
+                    targetUT,
+                    out RelativeAnchorPose anchorPose,
+                    out RelativeAnchorResolveFailure anchorFailure))
             {
                 if (TryUseRelativeAbsoluteShadowFallback(
                         recordingIndex,
@@ -21829,7 +21856,8 @@ namespace Parsek
                         target,
                         targetUT,
                         ref cachedIndex,
-                        out interpResult))
+                        out interpResult,
+                        resolverFailure: anchorFailure))
                     return;
 
                 RetireUnresolvedRecordedRelative(
@@ -21838,7 +21866,9 @@ namespace Parsek
                     recordingVesselName,
                     target,
                     retireSignalState,
-                    "InterpolateAndPositionRecordedRelative");
+                    "InterpolateAndPositionRecordedRelative",
+                    anchorFailure.Outcome.ToString(),
+                    RelativeAnchorResolveFailure.ReasonOrFallback(anchorFailure, null));
                 interpResult = InterpolationResult.Zero;
                 return;
             }
@@ -22030,11 +22060,19 @@ namespace Parsek
             RelativeSectionPlaybackTarget target,
             int recordingFormatVersion,
             bool allowActivation,
-            out double altitude)
+            out double altitude,
+            out RelativeAnchorResolveFailure failure)
         {
             altitude = 0.0;
-            if (!TryResolveRecordedRelativeAnchorPose(target, point.ut, out RelativeAnchorPose anchorPose))
+            failure = default;
+            if (!TryResolveRecordedRelativeAnchorPose(
+                    target,
+                    point.ut,
+                    out RelativeAnchorPose anchorPose,
+                    out failure))
+            {
                 return false;
+            }
 
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
@@ -22118,11 +22156,25 @@ namespace Parsek
             out RelativeAnchorPose pose)
         {
             return TryResolveRecordedRelativeAnchorPose(
+                target,
+                targetUT,
+                out pose,
+                out _);
+        }
+
+        private bool TryResolveRecordedRelativeAnchorPose(
+            RelativeSectionPlaybackTarget target,
+            double targetUT,
+            out RelativeAnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
+        {
+            return TryResolveRecordedRelativeAnchorPose(
                 target.RecordingId,
                 target.AnchorRecordingId,
                 target.SectionIndex,
                 targetUT,
-                out pose);
+                out pose,
+                out failure);
         }
 
         private bool TryResolveRecordedRelativeAnchorPose(
@@ -22132,9 +22184,34 @@ namespace Parsek
             double targetUT,
             out RelativeAnchorPose pose)
         {
+            return TryResolveRecordedRelativeAnchorPose(
+                recordingId,
+                anchorRecordingId,
+                sectionIndex,
+                targetUT,
+                out pose,
+                out _);
+        }
+
+        private bool TryResolveRecordedRelativeAnchorPose(
+            string recordingId,
+            string anchorRecordingId,
+            int sectionIndex,
+            double targetUT,
+            out RelativeAnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
+        {
             pose = default(RelativeAnchorPose);
+            failure = default;
             if (string.IsNullOrWhiteSpace(anchorRecordingId))
             {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    recordingId,
+                    anchorRecordingId,
+                    targetUT,
+                    sectionIndex);
                 GhostRenderTrace.EmitRelativeResolver(
                     recordingId,
                     -1,
@@ -22165,6 +22242,13 @@ namespace Parsek
             anchorRecordingId = anchorRecordingId.Trim();
             if (!TryFindRelativeAnchorFocusTree(recordingId, out RecordingTree focusTree))
             {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.Other,
+                    "focus-tree-missing",
+                    recordingId,
+                    anchorRecordingId,
+                    targetUT,
+                    sectionIndex);
                 GhostRenderTrace.EmitRelativeResolver(
                     recordingId,
                     -1,
@@ -22206,7 +22290,8 @@ namespace Parsek
                     anchorRecordingId,
                     targetUT,
                     visited,
-                    out anchorPose);
+                    out anchorPose,
+                    out failure);
             }
             finally
             {
@@ -22215,13 +22300,26 @@ namespace Parsek
 
             if (!resolved)
             {
+                if (!failure.HasFailure)
+                {
+                    failure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.Other,
+                        "resolver-unresolved",
+                        recordingId,
+                        anchorRecordingId,
+                        targetUT,
+                        sectionIndex);
+                }
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    failure,
+                    "resolver-unresolved");
                 GhostRenderTrace.EmitRelativeResolver(
                     recordingId,
                     -1,
                     Planetarium.fetch != null ? Planetarium.GetUniversalTime() : targetUT,
                     targetUT,
                     "recorded-anchor-pose",
-                    "resolver-unresolved",
+                    reason,
                     0u,
                     anchorRecordingId,
                     success: false,
@@ -22374,19 +22472,24 @@ namespace Parsek
             IPlaybackTrajectory trajectory,
             RelativeSectionPlaybackTarget target,
             GhostPlaybackState retireSignalState,
+            RelativeAnchorResolveFailure resolverFailure,
             out InterpolationResult interpResult)
         {
             interpResult = InterpolationResult.Zero;
             if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(trajectory))
                 return false;
 
+            string resolverOutcome = resolverFailure.HasFailure ? resolverFailure.Outcome.ToString() : null;
+            string resolverReason = RelativeAnchorResolveFailure.ReasonOrFallback(resolverFailure, null);
             RetireUnresolvedRecordedRelative(
                 ghost,
                 recordingIndex,
                 recordingVesselName,
                 target,
                 retireSignalState,
-                "InterpolateAndPositionRecordedRelative.parent-anchored-debris");
+                "InterpolateAndPositionRecordedRelative.parent-anchored-debris",
+                resolverOutcome,
+                resolverReason);
             return true;
         }
 
@@ -22398,7 +22501,8 @@ namespace Parsek
             double targetUT,
             ref int playbackIdx,
             out InterpolationResult interpResult,
-            bool suppressFallbackWarn = false)
+            bool suppressFallbackWarn = false,
+            RelativeAnchorResolveFailure resolverFailure = default(RelativeAnchorResolveFailure))
         {
             interpResult = InterpolationResult.Zero;
             // Parent-anchored v12+ debris has a strict recorded-relative
@@ -22413,6 +22517,7 @@ namespace Parsek
                     trajectory,
                     target,
                     state,
+                    resolverFailure,
                     out interpResult))
                 return true;
 
@@ -22475,7 +22580,9 @@ namespace Parsek
             string recordingVesselName,
             RelativeSectionPlaybackTarget target,
             GhostPlaybackState retireSignalState,
-            string callsite)
+            string callsite,
+            string resolverOutcome = null,
+            string resolverReason = null)
         {
             if (!ReferenceEquals(ghost, null))
                 GhostPlaybackLogic.HideGhostForRetire(ghost);
@@ -22491,7 +22598,9 @@ namespace Parsek
                 $"recorded-relative-retired: recording=#{recordingIndex} " +
                 $"vessel=\"{recordingVesselName ?? "(unknown)"}\" " +
                 $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
-                $"sectionIndex={target.SectionIndex} callsite={callsite}",
+                $"sectionIndex={target.SectionIndex} callsite={callsite}" +
+                (!string.IsNullOrEmpty(resolverOutcome) ? $" outcome={resolverOutcome}" : string.Empty) +
+                (!string.IsNullOrEmpty(resolverReason) ? $" reason={resolverReason}" : string.Empty),
                 5.0);
         }
 

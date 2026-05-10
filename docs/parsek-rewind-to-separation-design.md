@@ -1,6 +1,6 @@
 # Parsek — Rewind to Separation
 
-*Post-implementation design specification for the mid-mission rewind system. Covers Rewind Points captured at multi-controllable split events (staging, undocking, EVA), the Unfinished Flights virtual group, the append-only supersede relation, narrow kerbal-death tombstone scope, the journaled staged commit, and the load-time sweep that keeps half-finished state bounded — together with the v0.9.1 stable-leaf extension that broadens the Unfinished Flights membership predicate to include orbiting / sub-orbital non-focus siblings and stranded EVA kerbals, adds per-slot Seal and Stash actions, and tightens Re-Fly merge classification with a focus-override auto-seal contract.*
+*Post-implementation design specification for the mid-mission rewind system. Covers Rewind Points captured at multi-controllable split events (staging, undocking, EVA), the Unfinished Flights virtual group, the append-only supersede relation, broad reviewed-career tombstone scope, the journaled staged commit, and the load-time sweep that keeps half-finished state bounded — together with the v0.9.1 stable-leaf extension that broadens the Unfinished Flights membership predicate to include orbiting / sub-orbital non-focus siblings and stranded EVA kerbals, adds per-slot Seal and Stash actions, and tightens Re-Fly merge classification with a focus-override auto-seal contract.*
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to an immutable timeline, and see previously recorded missions play back as ghost vessels alongside new ones. This document extends the flight recorder, timeline, and ledger systems with Rewind-to-Separation. It assumes familiarity with the recording DAG, BranchPoint model, controller identity, ghost chains, and the additive-only invariant (see `parsek-flight-recorder-design.md`) and with the ledger model, immutable ActionId, reservations, and career-state replay (see `parsek-game-actions-and-resources-recorder-design.md`).*
 
@@ -33,7 +33,7 @@ The shipped feature covers:
 - **Unfinished Flights UI group.** A virtual, read-only group in the Recordings Manager (`Source/Parsek/UI/UnfinishedFlightsGroup.cs`) computed per-frame from ERS filtered by `EffectiveState.IsUnfinishedFlight`. Membership updates automatically as flights are flown, sealed, stashed, and merged.
 - **Invocation.** `RewindInvoker` (`Source/Parsek/RewindInvoker.cs`) runs a five-precondition gate, captures a pre-load reconciliation bundle, copies the RP quicksave to the save-root (KSP's `LoadGame` does not accept subdirectory paths), triggers `GamePersistence.LoadGame` + `HighLogic.LoadScene(FLIGHT)`, then on the reloaded scene atomically runs Restore → Strip → Activate → provisional + `ReFlySessionMarker` write.
 - **Append-only supersede.** On merge, `SupersedeCommit.AppendRelations` (`Source/Parsek/SupersedeCommit.cs:108`) appends one `RecordingSupersedeRelation` per recording in the forward-only merge-guarded subtree closure of the retired sibling. No field on a committed Recording is mutated post-commit.
-- **Narrow tombstone scope.** The only ledger retirement on supersede is `KerbalAssignment`-to-Dead actions and `ReputationPenalty` actions bundled with them (paired by same-recording kerbal-death within a 1-second UT window). Contract completions, milestones, facility upgrades, strategies, tech research, science rewards, funds spending, and vessel-destruction rep penalties all remain in the Effective Ledger Set.
+- **Broad reviewed-career tombstone scope.** Merge tombstones retire reviewed, non-seed, recording-scoped career actions from the superseded subtree, including contracts, milestones, science, funds/reputation, facilities, strategies, and kerbal consequences. Null-scoped KSC/system rows, initial seeds, already-paid rollout costs, and unknown future action types are preserved until reviewed. Tombstone refreshes immediately recalculate and patch KSP state so removed science, contract, facility, and roster consequences are actively reconciled where safe.
 - **Crashed re-fly stays rewindable.** `TerminalKindClassifier.Classify` (`Source/Parsek/TerminalKindClassifier.cs`) maps the provisional's terminal state to `Landed` (commits `Immutable`), `Crashed` (commits `CommittedProvisional` so the slot stays an Unfinished Flight), or `InFlight` (same as Landed). The v0.9.1 Re-Fly auto-seal contract (§4.9) tightens this for player-chosen slots reaching stable terminals.
 - **Journaled staged commit.** `MergeJournalOrchestrator.RunMerge` (`Source/Parsek/MergeJournalOrchestrator.cs:149`) drives the merge through nine phase checkpoints, all reflected in `MergeJournal.Phase` (`Source/Parsek/MergeJournal.cs:53`). A load-time finisher rolls back (pre-Durable-1 phases) or drives to completion (post-Durable-1 phases).
 - **Load-time sweep.** `LoadTimeSweep.Run` (`Source/Parsek/LoadTimeSweep.cs:51`) validates the re-fly marker's six durable fields via `MarkerValidator.Validate` (`Source/Parsek/MarkerValidator.cs:86`), discards zombie NotCommitted provisionals and session-scoped RPs not referenced by a valid marker, warn-logs orphan supersede/tombstone rows, and clears stray `SupersedeTargetId` fields. Normal staging RPs with `CreatingSessionId == null` are retained across merge-dialog scene loads.
@@ -54,7 +54,7 @@ The shipped feature covers:
 
 The shipped feature deliberately does NOT attempt:
 
-- Re-emitting retired contract completions, milestone flags, tech research, facility upgrades, strategies, or the KSP subsystems that own them (`ContractSystem`, `ProgressTracking`, `ScenarioUpgradeableFacilities`, `StrategySystem`, `ResearchAndDevelopment`). These are "sticky" — KSP will not re-emit a contract completion after `ContractSystem` marks it complete, so tombstoning the event and hoping the re-fly emits a fresh one produces zero credit. The feature sidesteps this by leaving all non-kerbal-death ledger actions in the Effective Ledger Set regardless of whether their source recording was superseded. See §2, §3, §8, §10 for the exact framing.
+- Re-emitting retired contract completions, milestone flags, tech research, facility upgrades, strategies, or the KSP subsystems that own them (`ContractSystem`, `ProgressTracking`, `ScenarioUpgradeableFacilities`, `StrategySystem`, `ResearchAndDevelopment`) without a ledger replay. These stock systems are "sticky", so broad tombstones must be followed by a recalculation and KSP patch pass rather than relying on stock events to fire again.
 - Nested re-fly sessions. The precondition gate rejects a rewind invocation while another session is active (`RewindInvoker.cs:108`).
 - Cross-tree supersedes. The feature does not produce them; `EffectiveState.EffectiveRecordingId` does not yet halt at cross-tree boundaries but has a TODO marker for when cross-tree supersedes become producible (see Known Limitations).
 - Auto-purge policies for long-lived reap-eligible RPs. Monitoring via the disk-usage diagnostic (with a v0.9.1 split into live-crashed / stable-open / sealed-pending buckets) is the answer; a TTL-based reaper or "Wipe All Sealed RPs" button is deferred.
@@ -82,7 +82,7 @@ Rewind to Separation is layered on top of, not inside, the existing subsystems:
 - **Flight recorder:** the recording DAG, segment boundary rule, controller identity, ghost chains, background recording, terminal kinds. Rewind to Separation does not change any of these. It adds new persistent state — Rewind Points, supersede relations, tombstones, a session marker, a journal — stored alongside the existing recording tree in `ParsekScenario`.
 - **Recording finalization:** Rewind-to-Separation assumes each sibling recording has a trustworthy terminal state and endpoint. The finalization reliability contract in `parsek-recording-finalization-design.md` is the upstream dependency that prevents Unfinished Flights from depending on stale last-sample inference when KSP unloads, deletes, or destroys a vessel before scene exit.
 - **Timeline / ledger:** the immutable `ActionId`, the recalculation engine, the resource modules. The feature adds `GameAction.ActionId` as a hard precondition (legacy migration generates a deterministic hash on first load) and introduces `LedgerTombstone` as an append-only retirement filter, but the recalculation walk itself is unchanged — `LedgerOrchestrator.Recalculate*` now feeds from `EffectiveState.ComputeELS()` (the tombstone-filtered view) instead of raw `Ledger.Actions`.
-- **Game actions & resources:** contracts, milestones, facilities, strategies, tech, science, funds, kerbals. v1 tombstones only kerbal deaths (plus bundled rep). Everything else sticks. This is the central design decision; see §2 and §10.
+- **Game actions & resources:** contracts, milestones, facilities, strategies, tech, science, funds, kerbals. Merge tombstones now cover reviewed recording-scoped career actions, while seeds, null-scoped KSC/system rows, rollout costs, and unknown future types remain preserved. The post-tombstone recalc/patch path owns live KSP reconciliation for removed consequences; see §2 and §10.
 
 ---
 
@@ -100,9 +100,9 @@ The recording tree never shrinks. Supersede is a relation stored in a separate l
 
 The v0.9.1 `ChildSlot.Sealed` flag is the slot-level close signal — set once on player invocation (or auto-set by the merge-time auto-seal contract, §4.9), never cleared in-game. Sealed is decoupled from `MergeState`: a recording's MergeState reflects the merge journal's outcome; a slot's Sealed reflects the player's choice (or the merge gate's verdict) to close that slot permanently. They serve different purposes — v0.9.0's existing legacy-Immutable-crash UF rows continue to qualify because nobody will have Sealed them. The same decoupling applies to `ChildSlot.Stashed`: Stash is the player's intent signal that a default-excluded stable leaf should appear in Unfinished Flights, and never modifies the recording itself.
 
-### 2.3 Narrow tombstone semantics; Seal as the player override
+### 2.3 Broad tombstone semantics; Seal as the player override
 
-The central design decision. Supersede is a **physical-visibility / claim-tracker mechanism**, not a ledger or career-state eraser. The tombstone-eligible type list is deliberately small: `KerbalAssignment`-to-Dead and the `ReputationPenalty` actions bundled with them. Everything else — contracts, milestones, facilities, strategies, tech, science, funds, vessel-destruction rep — remains in the Effective Ledger Set after supersede. This produces behavior the player can reason about: "my career state from the failed attempt stays; only the kerbals come back." It also produces behavior the mod can reliably deliver, because re-emitting retired KSP events is not generally possible.
+Supersede is both a physical-visibility/claim-tracker mechanism and, for reviewed recording-scoped career actions, an Effective Ledger Set retirement mechanism. The tombstone-eligible type list includes contracts, milestones, facilities, strategies, science, funds/reputation, and kerbal consequences whose source recording lies in the superseded subtree. Initial seeds, null-scoped KSC/system rows, already-paid rollout costs, and unknown future action types stay preserved until explicitly reviewed. Because stock KSP systems do not reliably re-emit retired career events, `CommitTombstones` immediately runs a full post-tombstone recalculation and KSP patch pass to reconcile removed active contracts, tombstoned Parsek-managed terminal contracts, science subjects, facility levels, and safe roster-created kerbals while preserving unrelated finished contract history.
 
 The same narrowness governs the v0.9.1 broadened predicate. The classifier auto-includes obvious-feeling cases (Crashed, Orbiting non-focus, SubOrbital non-focus, EVA-stranded). Over-inclusion is handled by the player Sealing the row. Under-inclusion (rover drove 20m and the player wants it re-flyable) is handled by Stashing the row while its backing Rewind Point still exists. **No heuristic predicates** beyond the simple terminal-state-plus-focus rule. The R1-R3 voluntary-action heuristic exploration was explicitly rejected.
 
@@ -134,9 +134,9 @@ The Unfinished-Flight membership predicate is shared between Site A (original tr
 
 Pre-feature saves with legacy live RPs whose Orbiting siblings are Immutable do NOT retroactively populate UF — the `FocusSlotIndex == -1` short-circuit suppresses Orbiting/SubOrbital qualification on legacy RPs (no focus signal to discriminate routine upper stages from probe deploys). Stranded EVA kerbals from legacy saves DO retroactively appear (the EVA branch returns before the focus short-circuit). Stranded kerbals are unambiguous (the player wants them back); orbital siblings are ambiguous (intent unclear). This asymmetry is the only retroactive-surfacing exception in the v0.9.1 migration story; see §9.6 for the CHANGELOG split.
 
-### 2.11 Career ledger is sticky across Seal and supersede
+### 2.11 Seal is slot-only; supersede can retire reviewed career actions
 
-Unfinished Flights is a recording/slot affordance, not a career-ledger rewrite. Seal closes only the `ChildSlot` (see §4.7); it must not prune ledger actions, stored game-state events, or Effective Ledger Set (`EffectiveState.ComputeELS`) input. Re-fly merge appends supersede relations for ERS/ghost visibility and may append narrow action tombstones only for kerbal death/lost assignment actions plus their paired reputation penalty (`SupersedeCommit.CommitTombstones`). Science, milestones, contract completions, funds/rep rewards (except the rep penalty bundled with a kerbal death), facility upgrades, strategies, tech research, and spendings from superseded recordings remain in ELS. A later re-fly may append new actions, but duplicate or once-ever credit is resolved by the recalculation modules, not by deleting the old action. This avoids paradoxes where KSP will not re-emit sticky career progress after the old recording is superseded.
+Unfinished Flights is a recording/slot affordance. Seal closes only the `ChildSlot` (see §4.7); it must not prune ledger actions, stored game-state events, or Effective Ledger Set (`EffectiveState.ComputeELS`) input. Re-fly merge is different: it appends supersede relations for ERS/ghost visibility and may append broad reviewed-career tombstones via `SupersedeCommit.CommitTombstones`. A post-tombstone recalculation and KSP patch pass then decides effective credit from the surviving ledger and reconciles stock state. A later re-fly may append new actions, but duplicate or once-ever credit is resolved by the recalculation modules over the post-tombstone ELS, not by mutating historical `Ledger.Actions`.
 
 ---
 
@@ -163,7 +163,7 @@ This section fixes the vocabulary. Throughout the doc, "recording" (lowercase) i
 - **Provisional re-fly Recording** — the live Recording created at invocation with `MergeState == NotCommitted`, `CreatingSessionId` set to the session GUID, `SupersedeTargetId` set to the retired sibling's id, `ProvisionalForRpId` set to the invoked RP's id. Becomes `Immutable` or `CommittedProvisional` at merge.
 - **MergeJournal** — the singleton journal that carries the merge through nine phase strings (`Begin`, `Supersede`, `Tombstone`, `Finalize`, `Durable1Done`, `RpReap`, `MarkerCleared`, `Durable2Done`, `Complete`). Its presence on load triggers the finisher. Defined in `Source/Parsek/MergeJournal.cs`.
 - **Effective Recording Set (ERS)** — the derived, read-only view of committed recordings that count right now. Computed by `EffectiveState.ComputeERS` (`Source/Parsek/EffectiveState.cs:236`). Filters out `NotCommitted`, superseded, and (during an active session) session-suppressed recordings.
-- **Effective Ledger Set (ELS)** — the derived, read-only view of ledger actions that count right now. Computed by `EffectiveState.ComputeELS` (`EffectiveState.cs:310`). Filters out actions whose `ActionId` appears in any `LedgerTombstone`. **The ONLY filter on ELS is the tombstone check.** A superseded recording's non-eligible actions (contract completions, milestones, facility upgrades, etc.) remain in ELS.
+- **Effective Ledger Set (ELS)** — the derived, read-only view of ledger actions that count right now. Computed by `EffectiveState.ComputeELS` (`EffectiveState.cs:310`). Filters out actions whose `ActionId` appears in any `LedgerTombstone`. **The ONLY filter on ELS is the tombstone check.** Supersede affects ELS only through explicit tombstones; preserved rows are the ones the reviewed tombstone classifier leaves untouched, such as seeds, null-scoped KSC/system actions, rollout vessel-build costs, and unknown future action types.
 - **UF** — Unfinished Flight. A recording that satisfies `IsUnfinishedFlight(rec)` and is therefore visible in the Unfinished Flights virtual group.
 - **Stable terminal** — a terminal state in `{ Orbiting, SubOrbital, Landed, Splashed, Recovered, Docked, Boarded }`. The opposite is `Destroyed` (Crashed) and the absent terminal (no `TerminalStateValue` set).
 - **Stable leaf** — a recording whose chain TIP has a stable terminal AND whose `ChildBranchPointId` is null OR equals the matched RP's `BranchPointId` (the breakup-survivor case).
@@ -237,7 +237,7 @@ ABC (I)                                     (V)
 **Successful re-fly + merge:** player lands A' on the launch pad. Recording terminates with `TerminalKind = Landed` (via `TerminalKindClassifier`). Merge dialog fires `MergeJournalOrchestrator.RunMerge`. The orchestrator:
 1. Writes the journal at `Phase = Begin`.
 2. `SupersedeCommit.AppendRelations`: subtree closure for A is `{A}`; one `RecordingSupersedeRelation { OldRecordingId = A.Id, NewRecordingId = A'.Id, UT = now }` appended.
-3. `SupersedeCommit.CommitTombstones`: scans ledger actions in-scope; no kerbal deaths in A's scope → zero tombstones.
+3. `SupersedeCommit.CommitTombstones`: scans ledger actions in-scope and tombstones any reviewed recording-scoped career actions owned by A. This example has no such A-scoped career action rows, so it writes zero tombstones.
 4. `SupersedeCommit.FlipMergeStateAndClearTransient`: A' becomes `Immutable` (Landed). `SupersedeTargetId` cleared. Supersede state version bumped. Marker preserved for step 7.
 5. Durable Save #1 (deferred — journal phase string is the durable barrier).
 6. `TagRpsForReap`: RP-1's `SessionProvisional` was already false (from merge-1); its `CreatingSessionId` does not match sess1 (it was `null` when A's tree committed), so nothing is tagged here. `RewindPointReaper.ReapOrphanedRPs`: RP-1's slot-0 effective is AB (`Immutable`), slot-1's effective is A' (`Immutable`). Both slots are `Immutable` → RP-1 is reap-eligible. Quicksave file deleted, scenario entry removed, BranchPoint.RewindPointId cleared.
@@ -296,7 +296,7 @@ Key invariants shown:
 1. The tree never shrinks. Every provisional stays around; only relations accumulate.
 2. Supersede chains can extend arbitrarily through crashed re-flies.
 3. Only `Immutable` closes the rewind opportunity; `CommittedProvisional` keeps the slot rewindable.
-4. Career state reads ELS, which is unchanged by supersede in this scenario (no kerbal deaths).
+4. Career state reads ELS, which is unchanged in this example only because A had no reviewed recording-scoped career actions to tombstone.
 
 ### 4.3 Session-suppressed subtree with mixed-parent halt
 
@@ -412,7 +412,7 @@ The original v0.9.0 design held that a clean stable Re-Fly outcome stayed `Commi
 3. **Retry-blocking recording-linked action** — credited science (`ScienceEarning` from `Crew Report` / `EVA Report` / `Surface Sample` / `Transmit` / `Recover`). This is the only action type that auto-seals via the recording-action gate. Automatic consequences (`MilestoneAchievement`, funds/rep earnings, contract complete/fail, facility destruction, kerbal assignment/rescue/stand-in) do not close a retry slot by themselves. Other player decisions (`ScienceSpending`, `FundsSpending`, `ContractAccept` / `Cancel`, `KerbalHire`, `FacilityUpgrade` / `Repair`, `StrategyActivate` / `Deactivate`) also do not close a retry slot — they emit from KSC scenes with no flight-recording tag and so cannot reach the gate in practice; the one rollout-adoption case (`FundsSpending(VesselBuild)` retroactively tagged via `TryAdoptRolloutAction`) is paid once and survives revert/retag, so sealing on it would punish retries for spending the player already accepted.
 4. **Downstream structural/world interaction** — the chain tip's `ChildBranchPointId` resolves to a deeper RP. (Existing rule, unchanged.)
 
-The slot **stays open** (`CommittedProvisional`, `slot.Sealed=false`) only on terminal-failure outcomes — `Destroyed`, or an EVA kerbal that did not board — so the player can retry the failure. Automatic gameplay/career consequence rows and tombstoneable kerbal-death + bundled reputation penalty still keep the slot open because a successful retry does not need to undo sticky history and can retire death rows.
+The slot **stays open** (`CommittedProvisional`, `slot.Sealed=false`) only on terminal-failure outcomes — `Destroyed`, or an EVA kerbal that did not board — so the player can retry the failure. Automatic gameplay/career consequence rows still keep the slot open because a successful retry can retire reviewed recording-scoped career rows through the broad tombstone path.
 
 **Site A is unaffected.** The original-tree-commit predicate that surfaces stable-leaf siblings into Unfinished Flights does not know about Re-Fly intent; it continues to promote `stableLeafUnconcluded` and `stashedStableLeaf` rows so the player can come back to them. The auto-seal revision lives entirely in the Re-Fly merge call site (Site B-1 / Site B-2). Background vessels the player merely controlled and then switched away from at scene exit still take the Site A path and stay re-flyable.
 
@@ -795,7 +795,7 @@ File: `Source/Parsek/EffectiveState.cs:310`.
 ELS = { a in Ledger.Actions : a.ActionId not in { t.ActionId for t in ParsekScenario.LedgerTombstones } }
 ```
 
-**One filter only: tombstones.** There is no recording-level filter. A superseded recording's non-eligible ledger actions (contracts, milestones, facilities, strategies, tech, science, funds, non-kerbal-death rep) remain in ELS. The only way an action exits ELS is via an explicit `LedgerTombstone` carrying its `ActionId`.
+**One filter only: tombstones.** There is no recording-level filter. A superseded recording's action remains in ELS unless its `ActionId` has an explicit `LedgerTombstone`. The broad merge predicate decides which reviewed recording-scoped career actions receive tombstones; seeds, null-scoped rows, rollout costs, and unknown future action types remain visible until reviewed.
 
 Cached. Rebuild triggered by any change to `Ledger.StateVersion` or `ParsekScenario.TombstoneStateVersion`. Every rebuild emits a single `[ELS]` Verbose line with the count and skipped-tombstoned counter.
 
@@ -824,7 +824,7 @@ Subsystems that read ERS / ELS directly and do NOT apply the session-suppressed 
 - Ledger recalculation (`LedgerOrchestrator`) reads ELS directly via `EffectiveState.ComputeELS()`.
 - Career-state UI (Contracts / Strategies / Facilities / Milestones tabs).
 - Crew reservation manager (`CrewReservationManager`), with a narrow live-re-fly-crew carve-out (see §6.4).
-- Contract / milestone / facility state derivation (KSP-owned; Parsek never touches on supersede).
+- Contract / milestone / facility state derivation (KSP-owned, reconciled only through the post-tombstone recalc/patch path when reviewed recording-scoped ledger rows are retired).
 - Timeline view.
 - Unfinished Flights membership.
 - RewindPoint reap logic.
@@ -897,15 +897,15 @@ File: `Source/Parsek/RewindInvoker.cs`.
 5. No active re-fly session (`ParsekScenario.Instance.ActiveReFlySessionMarker == null`).
 6. Deep-parse precondition passes: the quicksave is loaded as a ConfigNode and every `PART` node's `name` must resolve via `PartLoader.getPartInfoByName`. Cached per RP for 60 seconds via `PreconditionCache`. Missing parts mark the RP `Corrupted`.
 
-**Confirmation dialog** (`ShowDialog`, `RewindInvoker.cs:138`). A `PopupDialog.SpawnPopupDialog` with a MultiOptionDialog. The message names the UT, the selected slot / origin recording, and the narrow supersede semantics:
+**Confirmation dialog** (`ShowDialog`, `RewindInvoker.cs:138`). A `PopupDialog.SpawnPopupDialog` with a MultiOptionDialog. The message names the UT, the selected slot / origin recording, and the supersede semantics:
 
 ```
 Rewind to rewind point <rpId> at UT <utText>?
 Spawning the selected child (slot <N>, origin=<rec>) live; merged siblings will play as ghosts.
 
 Career state during this attempt stays as it is now. Supersede on merge
-retires only kerbal-death events; contract / milestone / facility / strategy
-/ tech / science / funds state is unchanged.
+retires reviewed recording-scoped career actions from the superseded subtree
+and recalculates KSP state from the surviving ledger.
 ```
 
 Buttons: `Rewind` (fires `StartInvoke`), `Cancel` (logs and dismisses).
@@ -980,7 +980,7 @@ Triggered by `MergeDialog.MergeCommit` when `ActiveReFlySessionMarker` is non-nu
 
 1. **Journal write, phase = `Begin`** (`MergeJournalOrchestrator.cs:189`). `scenario.ActiveMergeJournal` assigned. Log `[MergeJournal] Info: sess=<sid> phase=Begin`.
 2. **Supersede relations** (`AdvancePhase → Supersede`). `SupersedeCommit.AppendRelations` computes the forward-only merge-guarded subtree closure via `EffectiveState.ComputeSessionSuppressedSubtree(marker)`, appends one `RecordingSupersedeRelation { old=subtreeId, new=provisional.Id, UT, CreatedRealTime }` per subtree id. Idempotent — a pre-existing relation with the same old/new pair is skipped with a Verbose log. Log `[Supersede] Info: Added <N> supersede relations for subtree rooted at <originId>`.
-3. **Tombstones** (`AdvancePhase → Tombstone`). `SupersedeCommit.CommitTombstones` walks `Ledger.Actions`, groups in-scope actions by RecordingId for bounded rep-pairing, emits `LedgerTombstone`s for every action passing `TombstoneEligibility.IsEligible`. See §6.13. `TombstoneStateVersion` bumped. `CrewReservationManager.RecomputeAfterTombstones` re-derives reservations; death-tombstoned kerbals return to active. Log `[LedgerSwap] Info: Tombstoned <N> actions (KerbalDeath=<d>, repBundled=<r>); <M> actions matched subtree but type-ineligible (breakdown: contract=<c> milestone=<m> facility=<f> strategy=<s> tech=<t> science=<sc> funds=<fn> rep-unbundled=<ru>)` + `[Supersede] Info: Narrow v1: physical playback replaced; career state unchanged except kerbal deaths`.
+3. **Tombstones** (`AdvancePhase → Tombstone`). `SupersedeCommit.CommitTombstones` walks `Ledger.Actions`, groups in-scope actions by RecordingId for bounded rep-pairing, emits `LedgerTombstone`s for every action passing `TombstoneEligibility.IsSupersedeTombstoneEligible`. See §6.13. `TombstoneStateVersion` bumped. `CrewReservationManager.RecomputeAfterTombstones` re-derives reservations; tombstoned crew reservations disappear and roster-created kerbals queue guarded cleanup. Log `[LedgerSwap] Info: Tombstoned <N> career actions (Contract=<c>, Milestone=<m>, Facility=<f>, Strategy=<s>, ScienceSpending=<t>, Science=<sc>, Funds=<fn>, Reputation=<r>, Kerbal=<k>, Other=<o>); <M> excluded (Seed=<s>, Rollout=<r>, Other=<o>)` plus `[Supersede] Info: Supersede tombstone effects: tombstoned <N> recording-scoped career actions; ... from the old subtree are removed from ELS.`
 4. **Finalize** (`AdvancePhase → Finalize`). `SupersedeCommit.FlipMergeStateAndClearTransient` flips `provisional.MergeState` to `Immutable` (Landed / InFlight) or `CommittedProvisional` (Crashed), clears `SupersedeTargetId`, bumps `SupersedeStateVersion`. Marker preserved (`preserveMarker: true`) so it stays live across Durable Save #1.
 5. **Durable Save #1** (`AdvancePhase → Durable1Done`). Deferred to the next natural `ScenarioModule.OnSave` in production; tests inject a synchronous hook. This is the durability barrier — on-disk state is now supersedes + tombstones + MergeState all committed; marker + RPs still live.
 6. **RP reap** (`AdvancePhase → RpReap`). `TagRpsForReap(marker, scenario)` flips `SessionProvisional = false` on every RP with matching `CreatingSessionId`, and defensively promotes the marker's origin RP when it is a normal staging RP with `CreatingSessionId == null`. Then `RewindPointReaper.ReapOrphanedRPs` walks all RPs; for each non-session-provisional RP, it walks every ChildSlot's `EffectiveRecordingId` and marks the RP reap-eligible if every effective recording has `MergeState == Immutable`. Eligible RPs get their quicksave file deleted (`File.Delete` is best-effort), scenario entry removed, BranchPoint back-reference cleared. Log `[Rewind] Info: ReapOrphanedRPs: reaped=<R> remaining=<rem>`.
@@ -997,29 +997,22 @@ Triggered by `MergeDialog.MergeCommit` when `ActiveReFlySessionMarker` is non-nu
 
 The finisher is triggered by journal presence, **not** by marker state. This is the v0.5 pre-impl correction that survived into v1.
 
-### 6.13 v1 tombstone-eligible scope
+### 6.13 Supersede tombstone-eligible scope
 
 File: `Source/Parsek/GameActions/TombstoneEligibility.cs` + `TombstoneAttributionHelper.cs`.
 
 An action `a` is in supersede scope when:
-- `a.RecordingId` is non-null AND `a.RecordingId` is in the forward-only merge-guarded subtree closure; OR
-- (design-spec allowance for null-scoped attribution; v1 does NOT tombstone null-scoped actions per §7.41).
+- `a.RecordingId` is non-null AND `a.RecordingId` is in the forward-only merge-guarded subtree closure.
 
-For actions in scope, eligibility is narrow:
+For actions in scope, broad reviewed-career eligibility retires recording-owned consequences from the superseded subtree:
 
 | `GameAction.Type` | Eligible? | Condition |
 |---|---|---|
-| `KerbalAssignment` (with `Dead = true`) | yes | Direct eligibility. |
-| `ReputationPenalty` | yes | Paired with a same-recording kerbal-death action within a 1s UT window. |
-| `ContractAccept` / `Complete` / `Fail` / `Cancel` | **no** | Sticky (KSP-owned). |
-| `Milestone` | **no** | Sticky (KSP-owned first-time flag). |
-| `FacilityUpgrade` / `Destruction` / `Repair` | **no** | Sticky. |
-| `StrategyActivate` / `Deactivate` | **no** | Sticky. |
-| `TechResearch` / `PartPurchase` | **no** | Sticky. |
-| `FundsSpending` / `ScienceSpending` | **no** | Already-spent. |
-| `ReputationEarning`, other rep | **no** | Not bundled with a death. |
+| Initial seed rows (`FundsInitial`, `ScienceInitial`, `ReputationInitial`) | **no** | Baseline save state, not a mission consequence. |
+| `FundsSpending` with `SpendingKind == VesselBuild` | **no** | Rollout/build cost stays outside the re-fly consequence set. |
+| Other recording-owned actions in the supersede subtree | yes | Retired so replay uses the new branch's career/science/facility/contract consequences. |
 
-Null-scoped actions (action's `RecordingId == null`) are NEVER tombstoned, regardless of type (§7.41).
+Null-scoped actions (action's `RecordingId == null`) are not tombstoned because they are not owned by the supersede subtree (§7.41).
 
 Eligibility is checked with an idempotence guard: an action that already carries a tombstone (any existing `LedgerTombstone.ActionId == a.ActionId`) is skipped. This makes the whole merge re-runnable if the finisher drives through the Tombstone phase on load.
 
@@ -1487,14 +1480,14 @@ Nested RP's `CreatingSessionId` matches the discarded session; load-sweep spare-
 ### 7.12 F5 mid-re-fly + quit + load
 Marker validates; all session-tagged recordings AND RPs spared; re-fly resumes. Atomic §6.10 write means no save can capture an intermediate state. **Shipped (integration)**: in-game `F5MidReFlyResumeTest`.
 
-### 7.13 Contract supersede is a no-op on career state
-BG-crash completed contract X. Player re-flies, merges. ContractComplete action is NOT tombstoned (not v1-eligible). Contract remains complete in `ContractSystem`. Rep bonus stays. **Shipped (integration)**: `TombstoneEligibilityTests` + in-game `ContractStickyAcrossSupersedeTest`.
+### 7.13 Contract supersede retires old-branch contract rows
+BG-crash completed contract X. Player re-flies, merges. The old `ContractComplete` action is tombstoned, disappears from ELS, and the post-tombstone patch removes unsupported active stock contract state plus terminal stock state only for the explicit tombstoned Parsek contract id. Terminal preservation is outcome-aware, so a surviving retry failure/cancel for the same contract id does not preserve the old completed stock row. A retry completion can then be credited from the surviving branch subject to normal once-ever and deadline rules. **Shipped (integration)**: `TombstoneEligibilityTests`, `PatchContractsPreservationTests`, and in-game `ContractTombstonesAcrossSupersedeTest`.
 
 ### 7.14 Contract failed by BG-crash; re-fly succeeds
-BG-crash failed contract X. v1 does NOT un-fail. Contract stays failed. **Deferred (v1 limitation)**: re-fly is a visual replay, not a contract rescue.
+BG-crash failed contract X. The old `ContractFail` action is tombstoned with the old subtree. The contract patcher removes unsupported terminal stock state only for that explicit tombstoned Parsek contract id when the surviving ledger no longer carries a compatible fail/deadline-expired outcome, so a retry can supply the canonical result without erasing unrelated stock finished history.
 
 ### 7.15 Milestone earned by superseded recording
-First-time flag is KSP-owned and sticky. v1 never un-sets. **Deferred (v1 limitation)**.
+The old milestone action is tombstoned with the old subtree. The milestone/repeatable-record patch path rebuilds authored progress from the surviving ledger state.
 
 ### 7.16 Kerbal death + recovery
 `KerbalAssignment`-to-Dead + bundled `ReputationPenalty` tombstoned at merge. `CrewReservationManager.RecomputeAfterTombstones` re-derives; kerbal returns to active. **Shipped (integration)**: `CrewReservationRecomputeTests` + in-game `KerbalRecoveryOnSupersedeTest`.
@@ -1579,7 +1572,7 @@ Step 4 left-alone path. Log `[Rewind] Verbose: Strip leaveAlone: unrelated v=<pi
 Closure halts at the mixed-parent node. Descendant stays in ERS. **Shipped (test)**: `EffectiveStateTests` (mixed-parent halt case).
 
 ### 7.41 Null-scoped action in supersede scope
-v1 tombstones only when the action's `RecordingId` is in the supersede subtree. Null-scoped actions (deadline `ContractFail`, stand-in generation, etc.) are NEVER tombstoned. They stay in ELS. **Shipped (test)**: `TombstoneEligibilityTests`.
+Supersede tombstones only attach to actions whose `RecordingId` is in the supersede subtree. Null-scoped actions (deadline `ContractFail`, stand-in generation, etc.) are not subtree-owned and stay in ELS. **Shipped (test)**: `TombstoneEligibilityTests`.
 
 ### 7.42 KSC action during active re-fly
 Player doesn't typically leave flight during re-fly. If a KSC action fires (mod or edge case), it's added to the ledger with null `RecordingId`; not in supersede scope; stays ELS. **Shipped (integration)**.
@@ -1588,7 +1581,7 @@ Player doesn't typically leave flight during re-fly. If a KSC action fires (mod 
 Each `CommittedProvisional Crashed` merge extends the supersede chain. `EffectiveRecordingId` walks forward through all relations. Unfinished Flights moves along with the chain's tip. **Shipped (test)**: `ChildSlotEffectiveRecordingIdTests` exercises the forward walk through 0/1/2/3-length chains; the chain-extension flow over multiple merges is covered by the in-game `MergeCrashedReFlyCreatesCPSupersedeTest` matrix.
 
 ### 7.44 Vessel-destruction rep penalty
-Original BG-crash had a vessel-destruction rep penalty (not kerbal-death; just "vessel blew up"). v1 does NOT tombstone general `ReputationPenalty` actions — only the kerbal-death-bundled rep retires. Vessel-destruction rep stays. **Deferred (v1 limitation)**.
+Original BG-crash had a vessel-destruction rep penalty (not kerbal-death; just "vessel blew up"). Broad reviewed-career tombstones now retire recording-owned `ReputationPenalty` actions in the superseded subtree, including vessel-destruction penalties. Null-scoped reputation penalties are still not subtree-owned and stay in ELS. **Shipped (test)**: `TombstoneEligibilityTests`.
 
 ### 7.45 Merge interruption recovery
 Journaled commit + finisher triggered by journal presence on load, regardless of marker state. Five distinct crash windows covered. **Shipped (test)**: `MergeCrashRecoveryMatrixTests` + `MergeJournalOrchestratorTests` + in-game `MergeInterruptionRecoveryTest` / `JournalFinisherMarkerPresentVariantTest`.
@@ -1703,9 +1696,9 @@ Marker validates against on-disk session-provisional + RP. Session resumes. **No
 - **Loop / overlap / chain.** Read ERS through the same filter; no per-feature code change.
 - **Recording sidecar format.** No changes.
 - **Reservation manager internals.** Re-derivation from ERS is existing; the carve-out in `IsLiveReFlyCrew` is a single-method filter.
-- **Career state (KSP-sticky subsystems).** The feature never touches `ContractSystem`, `ProgressTracking`, `ScenarioUpgradeableFacilities`, `StrategySystem`, `ResearchAndDevelopment`, or the vessel-destruction rep code paths on supersede. Contracts completed by the superseded recording stay complete. Milestones earned stay earned. Facility upgrades stay upgraded. Tech researched stays researched.
-- **Vessel-destruction reputation.** Not a tombstone-eligible type. The `ReputationPenalty` action from a vessel destruction in a superseded subtree stays in ELS; career rep is unchanged by supersede unless a kerbal also died.
-- **Science rewards.** `ScienceSpending` and `ScienceEarning` stay in ELS.
+- **Career state (KSP-sticky subsystems).** Supersede does not rely on stock systems re-emitting events. It retires reviewed recording-scoped ledger rows, then runs a recalc/patch pass over the surviving ELS to reconcile `ContractSystem`, progress tracking, facilities, strategies, tech, science, funds, reputation, and safe roster cleanup.
+- **Vessel-destruction reputation.** Recording-scoped reputation penalties in the superseded subtree are tombstone-eligible after review, while null-scoped/system rows remain pass-through.
+- **Science rewards.** Recording-scoped `ScienceEarning` rows in the superseded subtree are tombstone-eligible; the committed-science cache rebuilds from the full surviving ledger so removed subjects clear without losing recovery metadata for surviving future subjects.
 - **v0.9.0 Crashed UF behavior (preserved by v0.9.1 extension).** Every recording that was UF under v0.9.0 is still UF under v0.9.1 (preserved by §7.55 + §7.67). Site A's broader predicate subsumes the v0.9.0 Crashed-only check; the Crashed branch returns true regardless of focus / kerbal status / `FocusSlotIndex` short-circuit.
 - **Reaper "every slot closed → reap" rule.** Same shape as v0.9.0; the close definition extends by one term (`slot.Sealed == true`) and tightens by one (NotCommitted unconditional no-reap).
 - **`marker.OriginChildRecordingId` contract.** Still the slot's immutable origin, even after the v0.9.1 invocation linearization. Existing consumers (`RevertInterceptor.FindSlotForMarker`, in-place continuation, ghost suppression) continue to read it unchanged.
@@ -1713,7 +1706,7 @@ Marker validates against on-disk session-provisional + RP. Session resumes. **No
 - **Discard Re-fly + Retry from RP semantics.** Both run before the merge classifier; the v0.9.1 Site B-1 / Site B-2 changes don't affect them.
 - **TreeDiscardPurge.** New v0.9.1 fields are removed alongside their parent objects; no purge-side changes.
 - **ERS / ELS routing rules.** No new raw-read sites; the v0.9.1 classifier reads through `EffectiveState.ComputeERS()` like every other consumer.
-- **EVA kerbal-death tombstone scope.** v0.9.0 §6.13 narrow scope is unchanged. The v0.9.1 EVA carve-out affects only the predicate (which rows show), not the tombstone-eligibility classifier.
+- **EVA kerbal-death retry behavior.** v0.9.0 EVA crash/stranded rows still qualify for the broadened Unfinished Flight predicate. Tombstone eligibility itself is now the broad reviewed-career classifier, so EVA kerbal-death rows are handled alongside the other reviewed recording-scoped career consequences.
 - **Legacy saves.** `GameAction.ActionId` is auto-generated via deterministic hash on first post-upgrade load; `MergeState` migrated from the binary legacy flag; new ConfigNode sections (`REWIND_POINTS`, `RECORDING_SUPERSEDES`, `LEDGER_TOMBSTONES`, `REFLY_SESSION_MARKER`, `MERGE_JOURNAL`) are optional and absent on pre-v0.9.0 saves. v0.9.1 fields (`ChildSlot.Sealed` / `Stashed`, `RewindPoint.FocusSlotIndex`, `ReFlySessionMarker.SupersedeTargetId` / `PreSessionBranchPointIds`) are absent on pre-v0.9.1 saves; defaults match v0.9.0 behaviour.
 - **Standalone ghost playback mod (Gloops).** The feature touches only Parsek-internal code; nothing the engine depends on moves.
 - **Existing chain semantics outside a re-fly session.** BranchPoints, chain tips, ghost extension, trajectory walkback, etc. are read-only consumers of the new ERS view; the session-suppressed subtree only takes effect while a marker is live.
@@ -1802,16 +1795,13 @@ The follow-up work is a recording-id-keyed refactor so the remaining grep-audit 
 
 For BG-recorded splits that originate outside the focus vessel, the RP author consumes a cached PID payload produced by `BackgroundRecorder`. A joint-break during high warp on a truly unloaded vessel may not emit the event, in which case no RP is captured and the BG-crashed sibling cannot be rewound. Covered by `BackgroundSplitRpTests` for the supported paths; edge cases with on-rails breakups remain deferred work.
 
-### 10.3 Wider tombstone scope (v2)
+### 10.3 Broad tombstone runtime smoke coverage
 
-Candidate types beyond `KerbalAssignment`+Dead and bundled rep:
-
-- Vessel-destruction `ReputationPenalty` (unbundled from kerbal deaths). Needs confirmation that KSP-side rep can be safely refunded without re-emitting a destruction event.
-- Science-loss on destruction. Parsek-owned, should be tombstone-safe.
-- Contract completion / failure for cases where the KSP-side `ContractSystem` can be scripted to re-emit on re-fly. Probably not possible without invasive Harmony work.
-- Milestone flags for `ProgressTracking` categories where the binary flag can be safely cleared and re-emitted.
-
-Each candidate needs per-type confirmation that KSP-side state can either be re-emitted or is purely Parsek-owned.
+The broad reviewed-career tombstone scope has shipped for contracts, milestones,
+facilities, strategies, science, funds/reputation, and kerbal consequences.
+Remaining follow-up is runtime smoke coverage inside KSP for the stock systems
+that xUnit can only exercise through wrappers: Mission Control contract buckets,
+Astronaut Complex roster cleanup, R&D tech availability, and KSC facility levels.
 
 ### 10.4 Cross-tree supersedes
 
@@ -1951,7 +1941,7 @@ Supersede relation writes + ERS-effective observations. Used by `SupersedeCommit
 - Relation append: `Info: rel=<relId> old=<oid> new=<nid>`.
 - Subtree count summary: `Info: Added <N> supersede relations for subtree rooted at <originId> (subtreeCount=<sc> skippedExisting=<se>)`.
 - Flip MergeState: `Info: provisional=<rid> mergeState=<state> terminalKind=<kind> priorTarget=<oid>`.
-- Advisory: `Info: Narrow v1: physical playback replaced; career state unchanged except kerbal deaths`.
+- Advisory: `Info: Supersede tombstone effects: tombstoned <N> recording-scoped career actions; contracts/milestones/facilities/strategies/science-spending/science/funds/reputation/kerbals from the old subtree are removed from ELS.`
 - Cycle detection: `Warn: EffectiveRecordingId: cycle detected in supersede chain starting from <id> ...`.
 - Orphan relation on load: `Warn: Orphan supersede relation=<relId> oldResolved=<b> newResolved=<b>`.
 - Fully orphaned relation on load: `Info: Fully orphaned relation=<relId> old=<oid> new=<nid>; removing`.
@@ -2148,7 +2138,7 @@ The v0.9.1 stable-leaf extension adds:
 - `InvokeRPStripAndActivate` — strip counts + active-vessel PID unchanged.
 - `MergeLandedReFlyCreatesImmutableSupersedeTest` — relation in list, provisional Immutable, RP reaps.
 - `MergeCrashedReFlyCreatesCPSupersedeTest` — provisional `CommittedProvisional`, is Unfinished Flight, RP does not reap; re-invoke path exercises chain extension on next merge.
-- `ContractStickyAcrossSupersedeTest` — contract completed by BG-crash stays complete after re-fly merge.
+- `ContractTombstonesAcrossSupersedeTest` — old-branch contract actions are tombstoned and absent from ELS after re-fly merge.
 - `GhostSuppressionDuringReFlyTest` — no ghost rendering for supersede-target subtree.
 - `KerbalRecoveryOnSupersedeTest` — kerbal returns active; reservation re-derived.
 - `KerbalDualResidenceCarveOutTest` — live re-fly crew exempt from reservation lock.
@@ -2207,10 +2197,10 @@ The pre-impl spec's v0.5 sign-off condition was "crash recovery matrix covers ev
 2. Staging: the decoupler fires. A and B split. Both controllable → RP-1 is captured (one-frame-deferred quicksave under `Parsek/RewindPoints/`). PidSlotMap records B and A by Vessel.persistentId; RootPartPidMap records their root-part PIDs.
 3. Player flies B to orbit. A is BG-recorded; the player gets no chance to deploy the chute in time and A crashes into the ocean.
 4. Player returns to Space Center. Merge dialog → Merge to Timeline. Tree commits: ABC Immutable, B Immutable (Orbited), A CommittedProvisional (Crashed, terminal kind classifies as Crashed). RP-1 survives the scene load as a normal staging RP (`SessionProvisional=true`, `CreatingSessionId=null`) and is promoted to persistent when the tree commits. Recordings Manager shows a new "Unfinished Flights" virtual group containing A with a Rewind button.
-5. Player opens Recordings Manager, finds A under Unfinished Flights, clicks **Rewind**. Dialog names the split UT and advisory about career state / kerbal deaths. Player clicks **Rewind**.
+5. Player opens Recordings Manager, finds A under Unfinished Flights, clicks **Rewind**. Dialog names the split UT and the supersede/recalculation advisory. Player clicks **Rewind**.
 6. Scene reloads into FLIGHT at the staging moment. A is the active vessel (live physics); B has been stripped and now plays back as a ghost from its committed recording. ABC plays back as a ghost up to the split moment, then terminates. Player's career state matches what it was immediately before Rewind (B's orbit entry + all milestones / contracts are intact).
 7. Player deploys A's parachute and lands it safely on the launch pad. Recorder finalizes A' with TerminalKind=Landed.
-8. Merge dialog → Merge to Timeline. `MergeJournalOrchestrator.RunMerge` drives through the nine phases. A → hidden (superseded); A' → Immutable + effective slot-1 representative. No tombstones (no kerbal died). RP-1 reap-eligible (both slots Immutable) → quicksave deleted, scenario entry removed, BranchPoint back-reference cleared.
+8. Merge dialog → Merge to Timeline. `MergeJournalOrchestrator.RunMerge` drives through the nine phases. A → hidden (superseded); A' → Immutable + effective slot-1 representative. This example writes no tombstones because A has no reviewed recording-scoped career action rows to retire. RP-1 reap-eligible (both slots Immutable) → quicksave deleted, scenario entry removed, BranchPoint back-reference cleared.
 9. Unfinished Flights is now empty. The timeline shows B's orbit entry AND A's safe landing (the sealed slot points at `A'` via the supersede relation); both play back on any subsequent rewind-to-launch.
 
 ### A.2 EVA re-fly

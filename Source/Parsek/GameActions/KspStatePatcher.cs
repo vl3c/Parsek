@@ -134,6 +134,27 @@ namespace Parsek
             IReadOnlyList<GameAction> actions,
             double? utCutoff)
         {
+            return BuildTargetTechIdsForPatch(
+                baselines,
+                actions,
+                utCutoff,
+                baselineTechExclusions: null);
+        }
+
+        /// <summary>
+        /// Builds the authoritative researched-tech set for a recalculation patch,
+        /// optionally excluding tech ids from the selected baseline before replaying
+        /// surviving ledger-backed unlocks. The exclusion hook is used after merge
+        /// tombstones: a commit-time baseline may already include a now-retired old
+        /// branch unlock, but a surviving ScienceSpending row for the same node must
+        /// still be able to add it back.
+        /// </summary>
+        internal static HashSet<string> BuildTargetTechIdsForPatch(
+            IReadOnlyList<GameStateBaseline> baselines,
+            IReadOnlyList<GameAction> actions,
+            double? utCutoff,
+            IReadOnlyCollection<string> baselineTechExclusions)
+        {
             var selectedBaseline = SelectTechBaselineForPatch(baselines, utCutoff);
             if (selectedBaseline == null ||
                 selectedBaseline.researchedTechIds == null ||
@@ -143,11 +164,18 @@ namespace Parsek
             }
 
             var target = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> excludedBaselineTech = null;
+            if (baselineTechExclusions != null && baselineTechExclusions.Count > 0)
+                excludedBaselineTech = new HashSet<string>(baselineTechExclusions, StringComparer.Ordinal);
+
             for (int i = 0; i < selectedBaseline.researchedTechIds.Count; i++)
             {
                 string techId = selectedBaseline.researchedTechIds[i];
-                if (!string.IsNullOrEmpty(techId))
+                if (!string.IsNullOrEmpty(techId) &&
+                    (excludedBaselineTech == null || !excludedBaselineTech.Contains(techId)))
+                {
                     target.Add(techId);
+                }
             }
 
             if (actions == null)
@@ -669,20 +697,26 @@ namespace Parsek
             }
 
             var subjects = science.GetAllSubjects();
+            var subjectIds = BuildSubjectIdsForPatch(
+                subjects,
+                GameStateStore.GetCommittedScienceSubjectIds());
             int patchedSubjects = 0;
             int skippedSubjects = 0;
             int notFoundSubjects = 0;
+            int clearedSubjects = 0;
 
-            foreach (var kvp in subjects)
+            foreach (var subjectId in subjectIds)
             {
-                var kspSubject = ResearchAndDevelopment.GetSubjectByID(kvp.Key);
+                var kspSubject = ResearchAndDevelopment.GetSubjectByID(subjectId);
                 if (kspSubject == null)
                 {
                     notFoundSubjects++;
                     continue;
                 }
 
-                float targetScience = (float)kvp.Value.CreditedTotal;
+                ScienceModule.SubjectState state;
+                bool hasCurrentState = subjects.TryGetValue(subjectId, out state);
+                float targetScience = hasCurrentState ? (float)state.CreditedTotal : 0f;
                 if (Math.Abs(kspSubject.science - targetScience) > 0.001f)
                 {
                     kspSubject.science = targetScience;
@@ -692,6 +726,8 @@ namespace Parsek
                         kspSubject.scientificValue = 0f;
                     if (kspSubject.scientificValue < 0f) kspSubject.scientificValue = 0f;
                     patchedSubjects++;
+                    if (!hasCurrentState)
+                        clearedSubjects++;
                 }
                 else
                 {
@@ -701,9 +737,34 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"PatchPerSubjectScience: patched={patchedSubjects.ToString(IC)}, " +
+                $"cleared={clearedSubjects.ToString(IC)}, " +
                 $"skipped={skippedSubjects.ToString(IC)}, " +
                 $"notFound={notFoundSubjects.ToString(IC)}, " +
-                $"totalSubjects={subjects.Count}");
+                $"totalSubjects={subjectIds.Count}");
+        }
+
+        internal static HashSet<string> BuildSubjectIdsForPatch(
+            IReadOnlyDictionary<string, ScienceModule.SubjectState> currentSubjects,
+            IEnumerable<string> previouslyCommittedSubjectIds)
+        {
+            var subjectIds = new HashSet<string>(StringComparer.Ordinal);
+            if (currentSubjects != null)
+            {
+                foreach (var kvp in currentSubjects)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Key))
+                        subjectIds.Add(kvp.Key);
+                }
+            }
+            if (previouslyCommittedSubjectIds != null)
+            {
+                foreach (var subjectId in previouslyCommittedSubjectIds)
+                {
+                    if (!string.IsNullOrEmpty(subjectId))
+                        subjectIds.Add(subjectId);
+                }
+            }
+            return subjectIds;
         }
 
         /// <summary>
@@ -1364,70 +1425,79 @@ namespace Parsek
                 if (Guid.TryParse(idStr, out var gid))
                     activeIdSet.Add(gid);
             }
+            var terminalIds = contracts.GetTerminalContractIds();
+            var terminalIdSet = new HashSet<Guid>();
+            foreach (var idStr in terminalIds)
+            {
+                if (Guid.TryParse(idStr, out var gid))
+                    terminalIdSet.Add(gid);
+            }
+            var terminalOutcomeById = BuildTerminalContractOutcomeMap(contracts);
 
             // If no active contracts in ledger, just log the current KSP state
             int currentCount = ContractSystem.Instance.Contracts != null
                 ? ContractSystem.Instance.Contracts.Count
                 : 0;
+            int finishedCount = ContractSystem.Instance.ContractsFinished != null
+                ? ContractSystem.Instance.ContractsFinished.Count
+                : 0;
 
             ParsekLog.Verbose(Tag,
                 $"PatchContracts: ledger has {activeIds.Count.ToString(IC)} active contracts, " +
-                $"KSP has {currentCount.ToString(IC)} current contracts");
+                $"{terminalIds.Count.ToString(IC)} terminal contracts, " +
+                $"KSP has {currentCount.ToString(IC)} current contracts, " +
+                $"{finishedCount.ToString(IC)} finished contracts");
 
-            // #404: Filtered remove — only touch Active contracts whose id is NOT in the
-            // ledger's active set. Offered/Declined/Cancelled/Failed/Completed entries MUST
-            // stay untouched; the old code unconditionally cleared currentContracts and
-            // ContractsFinished, which wiped the Mission Control Offered bucket and any
-            // game history. ContractsFinished is append-only game state — Parsek must NOT
-            // mutate it. Filtering is delegated to PartitionContractsForPatch for testability.
+            // #404/#756: Filtered remove. Active current contracts whose id is NOT
+            // in the ledger's active set are stale and can be removed. Offered and
+            // Declined entries still stay untouched. Terminal stock rows in either
+            // current contracts or ContractsFinished are removable only for explicit
+            // tombstoned Parsek contract action ids when their terminal ELS row no
+            // longer survives.
+            // Filtering is delegated to PartitionContractsForPatch for testability.
             var currentContracts = ContractSystem.Instance.Contracts;
-            var entries = new List<ContractFilterEntry>();
-            if (currentContracts != null)
-            {
-                for (int i = 0; i < currentContracts.Count; i++)
-                {
-                    var c = currentContracts[i];
-                    if (c == null) continue;
-                    entries.Add(new ContractFilterEntry
-                    {
-                        Id = c.ContractGuid,
-                        IsActive = c.ContractState == Contract.State.Active
-                    });
-                }
-            }
+            var finishedContracts = ContractSystem.Instance.ContractsFinished;
+            var currentEntries = BuildContractFilterEntries(currentContracts);
+            var finishedEntries = BuildContractFilterEntries(finishedContracts);
+            var tombstonedContractGuids =
+                LedgerOrchestrator.BuildTombstonedContractGuidsForPatch();
 
-            PartitionContractsForPatch(entries, activeIdSet,
-                out var toRemove, out var survivingActiveIds);
-            var toRemoveSet = new HashSet<Guid>(toRemove);
+            PartitionContractsForPatch(currentEntries, finishedEntries,
+                activeIdSet, terminalIdSet, terminalOutcomeById, tombstonedContractGuids,
+                out var toRemoveCurrent, out var toRemoveFinished,
+                out var survivingActiveIds,
+                out var survivingTerminalIds);
+            var toRemoveCurrentKeys = BuildCurrentContractRemovalKeys(
+                currentEntries,
+                activeIdSet,
+                terminalIdSet,
+                terminalOutcomeById,
+                tombstonedContractGuids);
+            var toRemoveFinishedKeys = BuildFinishedContractRemovalKeys(
+                finishedEntries,
+                terminalIdSet,
+                terminalOutcomeById,
+                tombstonedContractGuids);
 
             int removedStale = 0;
+            int removedFinishedTombstoned = 0;
             int unregisterFailures = 0;
-            if (currentContracts != null)
-            {
-                for (int i = currentContracts.Count - 1; i >= 0; i--)
-                {
-                    var c = currentContracts[i];
-                    if (c == null) continue;
-                    if (!toRemoveSet.Contains(c.ContractGuid)) continue;
-
-                    try
-                    {
-                        c.Unregister();
-                    }
-                    catch (Exception ex)
-                    {
-                        unregisterFailures++;
-                        ParsekLog.Warn(Tag,
-                            $"PatchContracts: failed to unregister stale contract '{c.ContractGuid}': {ex.Message}");
-                    }
-                    currentContracts.RemoveAt(i);
-                    removedStale++;
-                }
-            }
+            removedStale = RemoveContractsByKey(
+                currentContracts,
+                toRemoveCurrentKeys,
+                unregisterBeforeRemove: true,
+                ref unregisterFailures);
+            removedFinishedTombstoned = RemoveContractsByKey(
+                finishedContracts,
+                toRemoveFinishedKeys,
+                unregisterBeforeRemove: false,
+                ref unregisterFailures);
 
             ParsekLog.Verbose(Tag,
-                $"PatchContracts: removed {removedStale.ToString(IC)} stale Active contract(s), " +
-                $"{survivingActiveIds.Count.ToString(IC)} Active contract(s) preserved in place " +
+                $"PatchContracts: removed {removedStale.ToString(IC)} stale Active/terminal contract(s), " +
+                $"{removedFinishedTombstoned.ToString(IC)} tombstoned finished terminal contract(s), " +
+                $"{survivingActiveIds.Count.ToString(IC)} Active contract(s) preserved in place, " +
+                $"{survivingTerminalIds.Count.ToString(IC)} terminal contract(s) preserved in place " +
                 $"(unregisterFailures={unregisterFailures.ToString(IC)})");
 
             // 2. Rebuild ONLY contracts that are in the ledger but not already present.
@@ -1551,8 +1621,10 @@ namespace Parsek
             }
 
             int kspTotalAfter = currentContracts != null ? currentContracts.Count : 0;
+            int kspFinishedAfter = finishedContracts != null ? finishedContracts.Count : 0;
             ParsekLog.Info(Tag,
                 $"PatchContracts: removedStale={removedStale.ToString(IC)}, " +
+                $"removedFinishedTombstoned={removedFinishedTombstoned.ToString(IC)}, " +
                 $"restored={restored.ToString(IC)}, " +
                 $"registered={registered.ToString(IC)}, " +
                 $"skippedExisting={skippedExisting.ToString(IC)}, " +
@@ -1561,8 +1633,10 @@ namespace Parsek
                 $"typeNotFound={typeNotFound.ToString(IC)}, " +
                 $"loadFailed={loadFailed.ToString(IC)}, " +
                 $"ledgerActive={activeIds.Count.ToString(IC)}, " +
-                $"kspTotal={kspTotalAfter.ToString(IC)} " +
-                $"(Offered/Finished preserved)");
+                $"ledgerTerminal={terminalIds.Count.ToString(IC)}, " +
+                $"kspTotal={kspTotalAfter.ToString(IC)}, " +
+                $"kspFinished={kspFinishedAfter.ToString(IC)} " +
+                $"(Offered and unrelated finished history preserved; tombstoned terminal filtered)");
         }
 
         // ================================================================
@@ -1571,28 +1645,39 @@ namespace Parsek
 
         /// <summary>
         /// Represents the current-state classification of a KSP contract for PatchContracts
-        /// filtering. Active contracts are the only ones Parsek considers mutating; every
-        /// other state (Offered, Declined, Cancelled, Failed, Completed, DeadlineExpired)
-        /// is preserved untouched.
+        /// filtering. Active contracts are matched against ledger Active ids; terminal
+        /// contracts are matched against ledger terminal ids; offered/declined/unknown
+        /// non-terminal state is preserved untouched.
         /// </summary>
         internal struct ContractFilterEntry
         {
             public Guid Id;
             public bool IsActive;
+            public bool IsTerminal;
+            public Contract.State State;
+        }
+
+        internal struct ContractRemovalKey
+        {
+            public Guid Id;
+            public Contract.State State;
         }
 
         /// <summary>
-        /// Pure helper: partitions the current KSP contract list into {stale Actives to
-        /// remove} and {surviving Actives to keep in place}. Non-Active entries are
-        /// implicitly preserved by being absent from the remove list. Extracted from
-        /// <see cref="PatchContracts"/> so the filtering logic can be unit-tested without
-        /// real KSP Contract instances.
+        /// Pure helper: partitions the current KSP contract list into {stale Active
+        /// contracts plus explicitly tombstoned terminal contracts to remove} and
+        /// {surviving ledger-backed contracts to keep in place}.
+        /// Non-terminal non-Active entries are implicitly preserved by being absent from the
+        /// remove list. Extracted from <see cref="PatchContracts"/> so the filtering logic can
+        /// be unit-tested without real KSP Contract instances.
         ///
         /// The rules:
         /// <list type="number">
         ///   <item>An Active contract whose ID is NOT in the ledger's active set is "stale" and goes to <paramref name="toRemove"/>.</item>
         ///   <item>An Active contract whose ID IS in the ledger's active set is "surviving" and goes to <paramref name="surviving"/>.</item>
-        ///   <item>A non-Active contract is left out of both lists — callers MUST NOT touch it.</item>
+        ///   <item>A terminal contract whose ID IS in the ledger's terminal set is "surviving".</item>
+        ///   <item>A terminal contract whose ID is NOT in the ledger's terminal set is removed only when the caller supplies it in the removable tombstoned set.</item>
+        ///   <item>A non-terminal non-Active contract is left out of both lists — callers MUST NOT touch it.</item>
         /// </list>
         /// </summary>
         internal static void PartitionContractsForPatch(
@@ -1601,18 +1686,363 @@ namespace Parsek
             out List<Guid> toRemove,
             out HashSet<Guid> surviving)
         {
+            PartitionContractsForPatch(
+                currentEntries,
+                activeIdSet,
+                new HashSet<Guid>(),
+                null,
+                null,
+                out toRemove,
+                out surviving,
+                out _);
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            out List<Guid> toRemove,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
+            PartitionContractsForPatch(currentEntries, activeIdSet, terminalIdSet,
+                null, null,
+                out toRemove, out survivingActive, out survivingTerminal);
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            HashSet<Guid> removableTerminalIdSet,
+            out List<Guid> toRemove,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
+            PartitionContractsForPatch(currentEntries, activeIdSet, terminalIdSet,
+                null, removableTerminalIdSet,
+                out toRemove, out survivingActive, out survivingTerminal);
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableTerminalIdSet,
+            out List<Guid> toRemove,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
             toRemove = new List<Guid>();
-            surviving = new HashSet<Guid>();
+            survivingActive = new HashSet<Guid>();
+            survivingTerminal = new HashSet<Guid>();
             if (currentEntries == null) return;
 
             for (int i = 0; i < currentEntries.Count; i++)
             {
                 var entry = currentEntries[i];
-                if (!entry.IsActive) continue;        // preserve non-Active
-                if (activeIdSet != null && activeIdSet.Contains(entry.Id))
-                    surviving.Add(entry.Id);
-                else
-                    toRemove.Add(entry.Id);
+                if (entry.IsActive)
+                {
+                    if (activeIdSet != null && activeIdSet.Contains(entry.Id))
+                        survivingActive.Add(entry.Id);
+                    else
+                        toRemove.Add(entry.Id);
+                    continue;
+                }
+
+                if (entry.IsTerminal)
+                {
+                    if (IsSurvivingTerminalEntry(
+                            entry, terminalIdSet, terminalOutcomeById))
+                    {
+                        survivingTerminal.Add(entry.Id);
+                    }
+                    else if (removableTerminalIdSet != null &&
+                             removableTerminalIdSet.Contains(entry.Id))
+                    {
+                        toRemove.Add(entry.Id);
+                    }
+                    continue;
+                }
+
+                // Offered/declined/unknown non-terminal stock state is preserved.
+            }
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            HashSet<Guid> removableFinishedTerminalIdSet,
+            out List<Guid> toRemoveCurrent,
+            out List<Guid> toRemoveFinished,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
+            PartitionContractsForPatch(currentEntries, finishedEntries,
+                activeIdSet, terminalIdSet, null, removableFinishedTerminalIdSet,
+                out toRemoveCurrent, out toRemoveFinished,
+                out survivingActive, out survivingTerminal);
+        }
+
+        internal static void PartitionContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableFinishedTerminalIdSet,
+            out List<Guid> toRemoveCurrent,
+            out List<Guid> toRemoveFinished,
+            out HashSet<Guid> survivingActive,
+            out HashSet<Guid> survivingTerminal)
+        {
+            PartitionContractsForPatch(currentEntries, activeIdSet, terminalIdSet,
+                terminalOutcomeById, removableFinishedTerminalIdSet,
+                out toRemoveCurrent, out survivingActive, out survivingTerminal);
+
+            PartitionFinishedContractsForPatch(finishedEntries, terminalIdSet,
+                terminalOutcomeById, removableFinishedTerminalIdSet,
+                out toRemoveFinished, out var survivingFinishedTerminal);
+
+            foreach (var id in survivingFinishedTerminal)
+                survivingTerminal.Add(id);
+        }
+
+        internal static void PartitionFinishedContractsForPatch(
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableFinishedTerminalIdSet,
+            out List<Guid> toRemoveFinished,
+            out HashSet<Guid> survivingTerminal)
+        {
+            toRemoveFinished = new List<Guid>();
+            survivingTerminal = new HashSet<Guid>();
+            if (finishedEntries == null) return;
+
+            for (int i = 0; i < finishedEntries.Count; i++)
+            {
+                var entry = finishedEntries[i];
+                if (!entry.IsTerminal)
+                    continue;
+
+                if (IsSurvivingTerminalEntry(
+                        entry, terminalIdSet, terminalOutcomeById))
+                {
+                    survivingTerminal.Add(entry.Id);
+                    continue;
+                }
+
+                if (removableFinishedTerminalIdSet != null &&
+                    removableFinishedTerminalIdSet.Contains(entry.Id))
+                {
+                    toRemoveFinished.Add(entry.Id);
+                }
+            }
+        }
+
+        internal static HashSet<ContractRemovalKey> BuildCurrentContractRemovalKeys(
+            IReadOnlyList<ContractFilterEntry> currentEntries,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableTerminalIdSet)
+        {
+            var keys = new HashSet<ContractRemovalKey>();
+            if (currentEntries == null)
+                return keys;
+
+            for (int i = 0; i < currentEntries.Count; i++)
+            {
+                var entry = currentEntries[i];
+                if (entry.IsActive)
+                {
+                    if (activeIdSet == null || !activeIdSet.Contains(entry.Id))
+                        keys.Add(ToRemovalKey(entry));
+                    continue;
+                }
+
+                if (entry.IsTerminal &&
+                    !IsSurvivingTerminalEntry(entry, terminalIdSet, terminalOutcomeById) &&
+                    removableTerminalIdSet != null &&
+                    removableTerminalIdSet.Contains(entry.Id))
+                {
+                    keys.Add(ToRemovalKey(entry));
+                }
+            }
+
+            return keys;
+        }
+
+        internal static HashSet<ContractRemovalKey> BuildFinishedContractRemovalKeys(
+            IReadOnlyList<ContractFilterEntry> finishedEntries,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById,
+            HashSet<Guid> removableFinishedTerminalIdSet)
+        {
+            var keys = new HashSet<ContractRemovalKey>();
+            if (finishedEntries == null)
+                return keys;
+
+            for (int i = 0; i < finishedEntries.Count; i++)
+            {
+                var entry = finishedEntries[i];
+                if (entry.IsTerminal &&
+                    !IsSurvivingTerminalEntry(entry, terminalIdSet, terminalOutcomeById) &&
+                    removableFinishedTerminalIdSet != null &&
+                    removableFinishedTerminalIdSet.Contains(entry.Id))
+                {
+                    keys.Add(ToRemovalKey(entry));
+                }
+            }
+
+            return keys;
+        }
+
+        private static ContractRemovalKey ToRemovalKey(ContractFilterEntry entry)
+        {
+            return new ContractRemovalKey
+            {
+                Id = entry.Id,
+                State = entry.State
+            };
+        }
+
+        private static bool IsSurvivingTerminalEntry(
+            ContractFilterEntry entry,
+            HashSet<Guid> terminalIdSet,
+            IReadOnlyDictionary<Guid, ContractTerminalOutcome> terminalOutcomeById)
+        {
+            if (terminalIdSet == null || !terminalIdSet.Contains(entry.Id))
+                return false;
+
+            if (terminalOutcomeById == null)
+                return true;
+
+            ContractTerminalOutcome terminalOutcome;
+            return terminalOutcomeById.TryGetValue(entry.Id, out terminalOutcome)
+                && IsTerminalContractStateCompatible(entry.State, terminalOutcome);
+        }
+
+        private static bool IsTerminalContractStateCompatible(
+            Contract.State state,
+            ContractTerminalOutcome terminalOutcome)
+        {
+            switch (terminalOutcome)
+            {
+                case ContractTerminalOutcome.Completed:
+                    return state == Contract.State.Completed;
+                case ContractTerminalOutcome.Failed:
+                    return state == Contract.State.Failed;
+                case ContractTerminalOutcome.DeadlineExpired:
+                    return state == Contract.State.DeadlineExpired;
+                case ContractTerminalOutcome.Cancelled:
+                    return state == Contract.State.Cancelled;
+                default:
+                    return false;
+            }
+        }
+
+        private static List<ContractFilterEntry> BuildContractFilterEntries(
+            IReadOnlyList<Contract> contracts)
+        {
+            var entries = new List<ContractFilterEntry>();
+            if (contracts == null)
+                return entries;
+
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                var c = contracts[i];
+                if (c == null) continue;
+                entries.Add(new ContractFilterEntry
+                {
+                    Id = c.ContractGuid,
+                    IsActive = c.ContractState == Contract.State.Active,
+                    IsTerminal = IsTerminalContractState(c.ContractState),
+                    State = c.ContractState
+                });
+            }
+
+            return entries;
+        }
+
+        private static Dictionary<Guid, ContractTerminalOutcome> BuildTerminalContractOutcomeMap(
+            ContractsModule contracts)
+        {
+            var result = new Dictionary<Guid, ContractTerminalOutcome>();
+            if (contracts == null)
+                return result;
+
+            var source = contracts.GetTerminalContractOutcomes();
+            if (source == null)
+                return result;
+
+            foreach (var kvp in source)
+            {
+                Guid contractGuid;
+                if (Guid.TryParse(kvp.Key, out contractGuid))
+                    result[contractGuid] = kvp.Value;
+            }
+
+            return result;
+        }
+
+        private static int RemoveContractsByKey(
+            List<Contract> contracts,
+            HashSet<ContractRemovalKey> toRemove,
+            bool unregisterBeforeRemove,
+            ref int unregisterFailures)
+        {
+            if (contracts == null || toRemove == null || toRemove.Count == 0)
+                return 0;
+
+            int removed = 0;
+            for (int i = contracts.Count - 1; i >= 0; i--)
+            {
+                var c = contracts[i];
+                if (c == null) continue;
+                var key = new ContractRemovalKey
+                {
+                    Id = c.ContractGuid,
+                    State = c.ContractState
+                };
+                if (!toRemove.Contains(key)) continue;
+
+                if (unregisterBeforeRemove)
+                {
+                    try
+                    {
+                        c.Unregister();
+                    }
+                    catch (Exception ex)
+                    {
+                        unregisterFailures++;
+                        ParsekLog.Warn(Tag,
+                            $"PatchContracts: failed to unregister stale contract '{c.ContractGuid}': {ex.Message}");
+                    }
+                }
+
+                contracts.RemoveAt(i);
+                removed++;
+            }
+
+            return removed;
+        }
+
+        private static bool IsTerminalContractState(Contract.State state)
+        {
+            switch (state)
+            {
+                case Contract.State.Completed:
+                case Contract.State.Failed:
+                case Contract.State.Cancelled:
+                case Contract.State.DeadlineExpired:
+                    return true;
+                default:
+                    return false;
             }
         }
 
@@ -1633,6 +2063,7 @@ namespace Parsek
         {
             SuppressUnityCallsForTesting = false;
             protoTechNodesReflectionWarnEmitted = false;
+            FacilityStatePatcher.ResetForTesting();
         }
     }
 }

@@ -6,9 +6,11 @@ namespace Parsek
     /// <summary>
     /// Append-only ledger tombstone retiring a <see cref="GameAction"/> from
     /// Effective Ledger Set (ELS) computations (design doc section 5.6 + 6.6).
-    /// In v1 the tombstone-eligible type list is narrow (kerbal deaths +
-    /// death-scoped reputation bundles); all other action types remain in ELS
-    /// even when their owning recording is superseded.
+    /// The supersede tombstone-eligible type list is reviewed and explicit:
+    /// recording-scoped career actions such as contracts, milestones, facilities,
+    /// strategies, science, funds/reputation, and kerbal consequences can be
+    /// retired, while seeds, null-scoped KSC/system rows, already-paid rollout
+    /// costs, and unknown future action types stay preserved until reviewed.
     ///
     /// Multiple tombstones for the same <see cref="ActionId"/> are tolerated —
     /// the ELS filter is "at least one tombstone exists".

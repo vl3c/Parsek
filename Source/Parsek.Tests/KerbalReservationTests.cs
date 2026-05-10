@@ -1307,6 +1307,65 @@ namespace Parsek.Tests
             Assert.False(kerbals.Reservations.ContainsKey("Bill"));
         }
 
+        // ── Tombstoned roster cleanup ──
+
+        [Fact]
+        public void ApplyToRoster_TombstonedAvailableRosterKerbal_Removed()
+        {
+            var module = new KerbalsModule();
+            var roster = new TombstoneCleanupFakeRoster();
+            roster.Add("Rescuee Kerman", ProtoCrewMember.RosterStatus.Available);
+
+            module.QueueTombstonedRosterKerbal("Rescuee Kerman");
+            module.ApplyToRoster(roster);
+
+            Assert.False(roster.Contains("Rescuee Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Tombstoned roster cleanup:")
+                && l.Contains("removed=1"));
+        }
+
+        [Fact]
+        public void ApplyToRoster_TombstonedRosterKerbalStillCreatedByELS_Preserved()
+        {
+            var module = new KerbalsModule();
+            var roster = new TombstoneCleanupFakeRoster();
+            roster.Add("Rescuee Kerman", ProtoCrewMember.RosterStatus.Available);
+
+            module.QueueTombstonedRosterKerbal("Rescuee Kerman");
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.KerbalRescue,
+                KerbalName = "Rescuee Kerman",
+                RecordingId = "rec_surviving",
+            });
+            module.ApplyToRoster(roster);
+
+            Assert.True(roster.Contains("Rescuee Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Tombstoned roster cleanup:")
+                && l.Contains("preserved=1"));
+        }
+
+        [Fact]
+        public void ApplyToRoster_TombstonedNonAvailableRosterKerbal_Skipped()
+        {
+            var module = new KerbalsModule();
+            var roster = new TombstoneCleanupFakeRoster();
+            roster.Add("Rescuee Kerman", ProtoCrewMember.RosterStatus.Assigned);
+
+            module.QueueTombstonedRosterKerbal("Rescuee Kerman");
+            module.ApplyToRoster(roster);
+
+            Assert.True(roster.Contains("Rescuee Kerman"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KerbalsModule]")
+                && l.Contains("Tombstoned roster cleanup:")
+                && l.Contains("skippedStatus=1"));
+        }
+
         // ── Reset ──
 
         [Fact]
@@ -1328,5 +1387,51 @@ namespace Parsek.Tests
             Assert.Empty(kerbals.RetiredKerbals);
         }
 
+        private sealed class TombstoneCleanupFakeRoster : KerbalsModule.IKerbalRosterFacade
+        {
+            private readonly Dictionary<string, ProtoCrewMember.RosterStatus> statuses =
+                new Dictionary<string, ProtoCrewMember.RosterStatus>();
+
+            public void Add(string name, ProtoCrewMember.RosterStatus status)
+            {
+                statuses[name] = status;
+            }
+
+            public bool Contains(string name)
+            {
+                return statuses.ContainsKey(name);
+            }
+
+            public bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status)
+            {
+                return statuses.TryGetValue(name, out status);
+            }
+
+            public bool TryCreateGeneratedStandIn(string trait, out string generatedName)
+            {
+                generatedName = null;
+                return false;
+            }
+
+            public bool TryRecreateStandIn(string desiredName, string trait)
+            {
+                return false;
+            }
+
+            public bool TryRemove(string name)
+            {
+                return statuses.Remove(name);
+            }
+
+            public bool IsKerbalOnLiveVessel(string kerbalName)
+            {
+                return false;
+            }
+
+            public bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId)
+            {
+                return false;
+            }
+        }
     }
 }

@@ -71,7 +71,8 @@ namespace Parsek.Tests.Harness
                     target,
                     ut,
                     new HashSet<string>(StringComparer.Ordinal),
-                    out AnchorPose pose);
+                    out AnchorPose pose,
+                    out _);
 
                 if (i > 0)
                     sb.Append('\n');
@@ -135,7 +136,8 @@ namespace Parsek.Tests.Harness
                     target,
                     ut,
                     new HashSet<string>(StringComparer.Ordinal),
-                    out AnchorPose pose);
+                    out AnchorPose pose,
+                    out _);
 
                 sb.Append(i.ToString(ic)).Append(' ');
                 sb.Append("ut=").Append(ut.ToString("R", ic)).Append(' ');

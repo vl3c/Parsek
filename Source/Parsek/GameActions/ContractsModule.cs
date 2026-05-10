@@ -3,6 +3,14 @@ using System.Globalization;
 
 namespace Parsek
 {
+    internal enum ContractTerminalOutcome
+    {
+        Completed = 0,
+        Failed = 1,
+        DeadlineExpired = 2,
+        Cancelled = 3
+    }
+
     /// <summary>
     /// First-tier resource module: tracks contract state machine transitions,
     /// slot reservation (all accepted contracts reserved from UT=0), and
@@ -30,6 +38,25 @@ namespace Parsek
         /// A second completion of the same contract sets Effective=false on the action.
         /// </summary>
         private readonly HashSet<string> creditedContracts = new HashSet<string>();
+
+        /// <summary>
+        /// Contract IDs that resolved to a terminal state during this walk.
+        /// Used by the KSP patcher to distinguish terminal contracts that should
+        /// remain in stock history from terminal contracts whose ledger row was
+        /// removed by a tombstone.
+        /// </summary>
+        private readonly HashSet<string> terminalContracts = new HashSet<string>();
+
+        /// <summary>
+        /// Terminal action type for each contract id that resolved during this walk.
+        /// This lets KSP patching distinguish a surviving retry failure from a
+        /// tombstoned old-branch completion with the same stock contract guid.
+        /// </summary>
+        private readonly Dictionary<string, GameActionType> terminalContractActions
+            = new Dictionary<string, GameActionType>();
+
+        private readonly Dictionary<string, ContractTerminalOutcome> terminalContractOutcomes
+            = new Dictionary<string, ContractTerminalOutcome>();
 
         /// <summary>
         /// Contract IDs whose accepted deadline expired during the current walk.
@@ -86,18 +113,26 @@ namespace Parsek
         {
             int prevActive = activeContracts.Count;
             int prevCredited = creditedContracts.Count;
+            int prevTerminal = terminalContracts.Count;
+            int prevTerminalActions = terminalContractActions.Count;
+            int prevTerminalOutcomes = terminalContractOutcomes.Count;
             int prevExpired = deadlineExpiredContracts.Count;
             int prevResolved = explicitlyResolvedContracts.Count;
             int prevPrepassResolved = prepassExplicitResolutionUT.Count;
 
             activeContracts.Clear();
             creditedContracts.Clear();
+            terminalContracts.Clear();
+            terminalContractActions.Clear();
+            terminalContractOutcomes.Clear();
             deadlineExpiredContracts.Clear();
             explicitlyResolvedContracts.Clear();
             prepassExplicitResolutionUT.Clear();
 
             ParsekLog.Verbose(Tag,
                 $"Reset: cleared {prevActive} active contracts, {prevCredited} credited contracts, " +
+                $"{prevTerminal} terminal contracts, {prevTerminalActions} terminal actions, " +
+                $"{prevTerminalOutcomes} terminal outcomes, " +
                 $"{prevExpired} deadline-expired contracts, {prevResolved} explicitly resolved contracts, " +
                 $"{prevPrepassResolved} prepass explicit resolutions");
         }
@@ -266,6 +301,9 @@ namespace Parsek
             }
 
             activeContracts[id] = action;
+            terminalContracts.Remove(id);
+            terminalContractActions.Remove(id);
+            terminalContractOutcomes.Remove(id);
             deadlineExpiredContracts.Remove(id);
             explicitlyResolvedContracts.Remove(id);
 
@@ -325,6 +363,9 @@ namespace Parsek
                 // First completion — credit awarded
                 action.Effective = true;
                 creditedContracts.Add(id);
+                terminalContracts.Add(id);
+                terminalContractActions[id] = GameActionType.ContractComplete;
+                terminalContractOutcomes[id] = ContractTerminalOutcome.Completed;
 
                 ParsekLog.Info(Tag,
                     $"Complete: contractId='{id}' effective=true, " +
@@ -367,7 +408,10 @@ namespace Parsek
                 {
                     string id = expired[i];
                     activeContracts.Remove(id);
+                    terminalContracts.Add(id);
+                    terminalContractActions[id] = GameActionType.ContractFail;
                     deadlineExpiredContracts.Add(id);
+                    terminalContractOutcomes[id] = ContractTerminalOutcome.DeadlineExpired;
 
                     ParsekLog.Info(Tag,
                         $"DeadlineExpired: contractId='{id}' deadline passed at currentUT={currentUT}, " +
@@ -384,6 +428,11 @@ namespace Parsek
 
             // Penalties apply unconditionally
             bool wasActive = activeContracts.Remove(id);
+            terminalContracts.Add(id);
+            terminalContractActions[id] = GameActionType.ContractFail;
+            terminalContractOutcomes[id] = deadlineExpiredContracts.Contains(id)
+                ? ContractTerminalOutcome.DeadlineExpired
+                : ContractTerminalOutcome.Failed;
             explicitlyResolvedContracts.Add(id);
 
             ParsekLog.Info(Tag,
@@ -409,6 +458,9 @@ namespace Parsek
 
             // Penalties apply unconditionally
             bool wasActive = activeContracts.Remove(id);
+            terminalContracts.Add(id);
+            terminalContractActions[id] = GameActionType.ContractCancel;
+            terminalContractOutcomes[id] = ContractTerminalOutcome.Cancelled;
             explicitlyResolvedContracts.Add(id);
 
             ParsekLog.Info(Tag,
@@ -456,6 +508,39 @@ namespace Parsek
         internal IReadOnlyCollection<string> GetActiveContractIds()
         {
             return activeContracts.Keys;
+        }
+
+        /// <summary>
+        /// Returns the set of contract IDs that resolved to terminal state during
+        /// the current walk. Used by KSP state patching to remove only terminal
+        /// stock contracts that no longer have terminal ledger support.
+        /// </summary>
+        internal IReadOnlyCollection<string> GetTerminalContractIds()
+        {
+            return terminalContracts;
+        }
+
+        /// <summary>
+        /// Returns terminal action types keyed by contract id for contracts resolved
+        /// during the current walk. Used by the KSP patcher to avoid preserving a
+        /// tombstoned terminal row just because a retry produced a different
+        /// surviving terminal outcome for the same contract id.
+        /// </summary>
+        internal IReadOnlyDictionary<string, GameActionType> GetTerminalContractActionTypes()
+        {
+            return terminalContractActions;
+        }
+
+        /// <summary>
+        /// Returns terminal outcomes keyed by contract id for contracts resolved
+        /// during the current walk. Unlike the action type map, this distinguishes
+        /// explicit failures from deadline-expired failures, including preserving
+        /// a prior deadline-expired classification when a later fail action for
+        /// the same contract is processed in the same walk.
+        /// </summary>
+        internal IReadOnlyDictionary<string, ContractTerminalOutcome> GetTerminalContractOutcomes()
+        {
+            return terminalContractOutcomes;
         }
 
         /// <summary>
