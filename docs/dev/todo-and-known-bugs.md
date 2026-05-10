@@ -11,6 +11,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 phantom engine audio after decouple
+
+- ~~In watch mode, after a stage decoupled mid-recording the parent ghost kept emitting the upper-stage engine sound — even after the (now-debris) subtree carrying that engine had hit the ground / water and exploded.~~ Reproduced by `logs/2026-05-10_1014_watch-engine-sound-after-explosion`. User watched Kerbal X #0 (parent capsule, no engines visible). Engine `pid=2032658568` (`liquidEngine2-2.v2`, upper stage) ignited at 10:10:22.104, decoupled into debris ghost #9 at 10:10:24.807, which fell and exploded at 10:10:42.324 muting only its own audio. The parent's matching audio source kept playing for ~10s longer, until the chain transition at 10:10:52.053 finally tore it down (`Cleanup: stopped 1 audio source(s) for 'Kerbal X'`). Root cause in `GhostPlaybackLogic.ApplyDecoupledPartEvent`: `HidePartSubtree` walks the entire subtree below the decoupler and `SetActive(false)`s every descendant, but `StopEngineFxForPart` / `StopRcsFxForPart` / `StopAudioForPart` were called only on the decoupler's own pid. Audio sources had been reanchored to the ghost's `cameraPivot` at spawn (`AttachGhostAudioToWatchPivot`), so hiding the part visual no longer took the audio with it — the parent's `state.audioInfos[engineKey]` survived with `currentPower > 0` and kept emitting through `cameraPivot`.
+
+**Fix:** Added `StopFxAndAudioForSubtree` in `GhostPlaybackLogic.cs` that walks the same subtree as `HidePartSubtree` (stack-based, uses `state.partTree`) and calls the per-pid `StopEngineFxForPart` / `StopRcsFxForPart` / `StopAudioForPart` for every pid in the subtree. `ApplyDecoupledPartEvent` replaces its three single-pid stop calls with one call to the new helper. The null-tree fallback walks only the root pid, matching `HidePartSubtree`'s null-tree branch. A `[GhostAudio] Stopped FX/audio for decoupled subtree rooted at pid=...` summary log fires when the walk visits more than one pid.
+
+**Coverage:** `DecoupledSubtreeAudioStopTests` covers the engine + RCS child case, deep grandchild walks, the null-tree fallback, the null-state guard, the single-pid no-summary case, and a regression-shape test that pins the pre-fix single-pid stop did not clear engine power.
+
+---
+
 ## Done - v0.9.2 Re-Fly settle anchor jump
 
 - ~~After Re-Fly load, anchor-dependent ghosts could jump by hundreds of metres for one frame while KSP's floating origin and Krakensbane frames settled.~~ The recorder already held new trajectory samples during the post-load settle window, but playback continued to render old ghosts through the same origin shift.

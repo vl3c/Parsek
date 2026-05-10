@@ -9888,6 +9888,62 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
+            Description = "Phantom-engine-after-decouple regression: StopFxAndAudioForSubtree must stop a child engine's looping AudioSource on the parent ghost when the decoupler fires, not just the decoupler's own pid.")]
+        public IEnumerator StopFxAndAudioForSubtree_DecoupledChildEngineAudioStops()
+        {
+            const uint decouplerPid = 100;
+            const uint enginePid = 200;
+            ulong engineKey = FlightRecorder.EncodeEngineKey(enginePid, 0);
+
+            var engineGo = new GameObject("ParsekTest_DecoupledEngineAudio");
+            runner.TrackForCleanup(engineGo);
+            var engineSource = engineGo.AddComponent<AudioSource>();
+            engineSource.clip = AudioClip.Create("test_decoupled_engine", 44100, 1, 44100, false);
+            engineSource.loop = true;
+            engineSource.volume = 0f;
+            engineSource.Play();
+
+            yield return null;
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Engine AudioSource should be playing before the decouple");
+
+            var state = new GhostPlaybackState
+            {
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    {
+                        engineKey,
+                        new AudioGhostInfo
+                        {
+                            partPersistentId = enginePid,
+                            moduleIndex = 0,
+                            audioSource = engineSource,
+                            currentPower = 1f
+                        }
+                    }
+                },
+                partTree = new Dictionary<uint, List<uint>>
+                {
+                    { decouplerPid, new List<uint> { enginePid } }
+                }
+            };
+
+            GhostPlaybackLogic.StopFxAndAudioForSubtree(state, decouplerPid, state.partTree);
+            yield return null;
+
+            // Pre-fix: only decouplerPid's audio info would be processed, so the
+            // engine child's AudioSource would keep playing. Post-fix: subtree
+            // walk reaches the engine and StopAudioForPart stops it.
+            InGameAssert.IsFalse(engineSource.isPlaying,
+                "Engine AudioSource on a child of the decoupled subtree must be stopped, not just the decoupler's own pid");
+            InGameAssert.ApproxEqual(0f, state.audioInfos[engineKey].currentPower, 0.001f,
+                "Engine currentPower must be cleared by the subtree walk");
+
+            ParsekLog.Verbose("TestRunner",
+                "Phantom-engine-after-decouple regression: subtree walk stopped the child engine's AudioSource on decouple");
+        }
+
+        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
             Description = "#265: OneShotAudio pause/unpause path works")]
         public IEnumerator PauseUnpauseAudio_OneShotPath()
         {
