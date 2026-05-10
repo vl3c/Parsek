@@ -1329,16 +1329,15 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned, true)]
-        [InlineData(true, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned, false)]
-        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockQueued, false)]
-        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockVisualOnlyDuringAudioBusy, false)]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxResult.StockFailedCustomVisualSpawned, true)]
+        [InlineData(true, (int)GhostPlaybackLogic.StockExplosionFxResult.StockFailedCustomVisualSpawned, false)]
+        [InlineData(false, (int)GhostPlaybackLogic.StockExplosionFxResult.StockQueued, false)]
         public void ShouldQueueKscExplicitExplosionAudio_OnlyWhenUnpausedAndStockFailed(
             bool pauseMenuOpen,
             int stockResultValue,
             bool expected)
         {
-            var stockResult = (GhostPlaybackLogic.StockExplosionFxWithAudioGateResult)stockResultValue;
+            var stockResult = (GhostPlaybackLogic.StockExplosionFxResult)stockResultValue;
             Assert.Equal(expected,
                 ParsekKSC.ShouldQueueKscExplicitExplosionAudio(pauseMenuOpen, stockResult));
         }

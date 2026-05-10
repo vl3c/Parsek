@@ -1145,8 +1145,9 @@ namespace Parsek
             // relative positioner sets it back to true if the recorded anchor
             // is unresolvable.
             state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
 
-            bool anchorRotationHidden = TryHideForAnchorRotationUnreliable(
+            AnchorRotationUnreliableRoute anchorRotationRoute = TryRouteAnchorRotationUnreliable(
                 i,
                 traj,
                 f,
@@ -1157,12 +1158,17 @@ namespace Parsek
                 "non-loop",
                 ShouldExitWatchForCoverageRetiredState(i, state, ctx),
                 emitOnLoopCameraChannel: true);
+            bool anchorRotationHidden = anchorRotationRoute == AnchorRotationUnreliableRoute.Hidden;
+            bool anchorRotationShadowed = anchorRotationRoute == AnchorRotationUnreliableRoute.ShadowPositioned;
 
             // Position the ghost. Parent-anchored v12+ debris is only valid
             // while a recorded Relative section covers the playback UT; outside
             // that coverage, hide instead of falling through to flat points,
-            // surface, or orbit-tail playback.
+            // surface, or orbit-tail playback. The ShadowPositioned route has
+            // already positioned the ghost via the absoluteFrames lerp, so the
+            // normal positioning chain is also skipped for that frame.
             if (!anchorRotationHidden
+                && !anchorRotationShadowed
                 && !TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     i, traj, state, visiblePlaybackUT, "GhostPlaybackEngine.RenderInRangeGhost"))
             {
@@ -1218,7 +1224,8 @@ namespace Parsek
                 || RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
             GhostRenderTrace.EmitPostUpdate(
-                traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired);
+                traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired,
+                ResolveRenderSurface(anchorRotationRoute, retired));
             if (!retired)
                 MarkPrimaryGhostPositionedThisFrame(state);
             if (retired)
@@ -1229,7 +1236,19 @@ namespace Parsek
             }
             else
             {
-                bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+                // FX-suppression decision is independent of which rendering
+                // surface (shadow vs legacy) is active. The shadow render is
+                // always-on for v12+ parent-anchored debris when shadow data
+                // covers the playback UT — we ONLY suppress FX when the
+                // tumbling-parent gate is also firing this frame, which is
+                // captured in state.anchorRotationShadowRoutedThisFrame
+                // by the router. Steady-state always-shadow (no tumble) leaves
+                // the flag false so plumes / RCS / audio continue normally.
+                var (effectiveSkipPartEvents, effectiveSuppressVisualFx) =
+                    AdjustFxFlagsForShadowRoute(
+                        baseSkipPartEvents: zoneResult.skipPartEvents,
+                        baseSuppressVisualFx: suppressVisualFx || zoneResult.suppressVisualFx,
+                        shadowRouted: state.anchorRotationShadowRoutedThisFrame);
                 string initialActivationHiddenReason;
                 bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
                     traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
@@ -1239,7 +1258,7 @@ namespace Parsek
                         state.ghost.SetActive(false);
                     ghostActive = false;
                     ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                        zoneResult.skipPartEvents, suppressVisualFx: true,
+                        effectiveSkipPartEvents, suppressVisualFx: true,
                         allowTransientEffects: false);
                     ResetGhostAppearanceTracking(state);
                     ParsekLog.VerboseRateLimited(
@@ -1265,7 +1284,7 @@ namespace Parsek
                 {
                     bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
                     ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                        zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                        effectiveSkipPartEvents, effectiveSuppressVisualFx);
                     if (ShouldRestoreDeferredRuntimeFxState(
                             activatedDeferredState,
                             effectiveSuppressVisualFx))
@@ -1372,6 +1391,7 @@ namespace Parsek
                 // deterministic; that branch completes below after suppressing
                 // stale endpoint side effects.
                 state.anchorRetiredThisFrame = false;
+                state.anchorRotationShadowRoutedThisFrame = false;
 
                 // Position ghost at the true recording endpoint.
                 PositionGhostAtRecordingEndpoint(i, traj, state);
@@ -1614,6 +1634,7 @@ namespace Parsek
                     // stale (0,0,0) transform when the LoopAnchor pid is
                     // unresolvable post-rewind.
                     state.anchorRetiredThisFrame = false;
+                    state.anchorRotationShadowRoutedThisFrame = false;
                     PositionGhostAtLoopEndpoint(
                         index, traj, flags, state, ctx.currentUT, ctx.warpRate);
 
@@ -1799,11 +1820,12 @@ namespace Parsek
             // positioning. The relative loop positioner sets it back to true
             // if the recorded anchor is unresolvable.
             state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
             GhostRenderTrace.BeginFrame(
                 traj, index, ctx.currentUT, loopUT, "loop-primary");
 
             // Position the loop ghost
-            PositionLoopAtPlaybackUT(
+            AnchorRotationUnreliableRoute primaryLoopRoute = PositionLoopAtPlaybackUT(
                 index, traj, flags, state, loopUT, ctx.currentUT, ctx.warpRate,
                 effectiveSuppressVisualFx,
                 ShouldExitWatchForCoverageRetiredState(index, state, ctx),
@@ -1812,8 +1834,10 @@ namespace Parsek
             // Apply visual events
             bool loopRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
+            bool loopShadowRouted = state.anchorRotationShadowRoutedThisFrame;
             GhostRenderTrace.EmitPostUpdate(
-                traj, index, ctx.currentUT, loopUT, state, "loop-primary", loopRetired);
+                traj, index, ctx.currentUT, loopUT, state, "loop-primary", loopRetired,
+                ResolveRenderSurface(primaryLoopRoute, loopRetired));
             if (loopRetired)
             {
                 // Retired loop ghost: stop FX cleanly, do NOT re-activate, do
@@ -1825,11 +1849,39 @@ namespace Parsek
             else
             {
                 bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                if (!skipLoopPartEvents)
-                    ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate, false, effectiveSuppressVisualFx);
+                LoopShadowFxBranch loopFxBranch = ResolveLoopShadowFxBranch(
+                    shadowRouted: loopShadowRouted,
+                    skipLoopPartEvents: skipLoopPartEvents);
+                switch (loopFxBranch)
+                {
+                    case LoopShadowFxBranch.ForcedShadowTeardown:
+                        // Shadow route: keep the mesh active (the positioner
+                        // already wrote the transform via the absoluteFrames
+                        // lerp) but explicitly TEAR DOWN running FX -- plumes,
+                        // RCS, reentry, audio -- because the rotation interp
+                        // through the parent chain was the artifact source
+                        // and we do not want stale transient state continuing
+                        // through the route window. Forced call regardless
+                        // of the legacy skipLoopPartEvents LOD flag --
+                        // skipping the call entirely would leave stale FX
+                        // state running.
+                        ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
+                            skipPartEvents: true, suppressVisualFx: true,
+                            allowTransientEffects: false);
+                        break;
+                    case LoopShadowFxBranch.Normal:
+                        ApplyFrameVisuals(index, traj, state, loopUT, ctx.warpRate,
+                            false, effectiveSuppressVisualFx);
+                        break;
+                    case LoopShadowFxBranch.Skipped:
+                        // Legacy LOD path: caller asked to skip ApplyFrameVisuals
+                        // entirely (long-distance LOD). Honoured only when NOT
+                        // shadow-routed.
+                        break;
+                }
                 if (ShouldRestoreDeferredRuntimeFxState(
                         activatedDeferredState,
-                        effectiveSuppressVisualFx))
+                        effectiveSuppressVisualFx || loopShadowRouted))
                     GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
             }
         }
@@ -2043,17 +2095,20 @@ namespace Parsek
                         // positioning; gate visuals/activation/appearance on
                         // it after.
                         primaryState.anchorRetiredThisFrame = false;
+                        primaryState.anchorRotationShadowRoutedThisFrame = false;
                         GhostRenderTrace.BeginFrame(
                             traj, index, ctx.currentUT, primaryLoopUT, "overlap-primary");
-                        PositionLoopAtPlaybackUT(
+                        AnchorRotationUnreliableRoute overlapPrimaryRoute = PositionLoopAtPlaybackUT(
                             index, traj, flags, primaryState, primaryLoopUT, ctx.currentUT,
                             ctx.warpRate, effectiveSuppressVisualFx,
                             ShouldExitWatchForCoverageRetiredState(index, primaryState, ctx),
                             "GhostPlaybackEngine.UpdateOverlapPlayback.primary");
                         bool primaryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                             primaryState.anchorRetiredThisFrame);
+                        bool primaryShadowRouted = primaryState.anchorRotationShadowRoutedThisFrame;
                         GhostRenderTrace.EmitPostUpdate(
-                            traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired);
+                            traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired,
+                            ResolveRenderSurface(overlapPrimaryRoute, primaryRetired));
                         if (primaryRetired)
                         {
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
@@ -2062,12 +2117,21 @@ namespace Parsek
                         }
                         else
                         {
+                            // Shadow route: keep mesh active but suppress
+                            // FX/events for the frame (rotation interp was
+                            // the artifact source). Mirrors the non-loop
+                            // and overlap-loop branches.
+                            var (primaryEffectiveSkipPartEvents, primaryEffectiveSuppressVisualFx) =
+                                AdjustFxFlagsForShadowRoute(
+                                    baseSkipPartEvents: zoneResult.skipPartEvents,
+                                    baseSuppressVisualFx: effectiveSuppressVisualFx,
+                                    shadowRouted: primaryShadowRouted);
                             bool activatedDeferredState = ActivateGhostVisualsIfNeeded(primaryState);
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
-                                zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                                primaryEffectiveSkipPartEvents, primaryEffectiveSuppressVisualFx);
                             if (ShouldRestoreDeferredRuntimeFxState(
                                     activatedDeferredState,
-                                    effectiveSuppressVisualFx))
+                                    primaryEffectiveSuppressVisualFx))
                                 GhostPlaybackLogic.RestoreDeferredRuntimeFxState(primaryState);
                             TrackGhostAppearance(index, traj, primaryState, primaryLoopUT, "loop-primary");
                         }
@@ -2128,6 +2192,7 @@ namespace Parsek
                     if (ovState.ghost != null)
                     {
                         ovState.anchorRetiredThisFrame = false;
+                        ovState.anchorRotationShadowRoutedThisFrame = false;
                         PositionGhostAtLoopEndpoint(
                             index, traj, flags, ovState, ctx.currentUT, ctx.warpRate);
                         overlapExpiryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
@@ -2224,20 +2289,23 @@ namespace Parsek
                 // Bug #613 (PR #594 P1): clear retire signal before
                 // positioning; gate visuals/activation/appearance on it after.
                 ovState.anchorRetiredThisFrame = false;
+                ovState.anchorRotationShadowRoutedThisFrame = false;
                 GhostRenderTrace.BeginFrame(
                     traj, index, ctx.currentUT, loopUT,
                     "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture));
-                PositionLoopAtPlaybackUT(
+                AnchorRotationUnreliableRoute overlapLoopRoute = PositionLoopAtPlaybackUT(
                     index, traj, flags, ovState, loopUT, ctx.currentUT, ctx.warpRate,
                     effectiveSuppressVisualFx,
                     ShouldExitWatchForCoverageRetiredState(index, ovState, ctx),
                     "GhostPlaybackEngine.UpdateExpireAndPositionOverlaps");
                 bool overlapRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                     ovState.anchorRetiredThisFrame);
+                bool overlapShadowRouted = ovState.anchorRotationShadowRoutedThisFrame;
                 GhostRenderTrace.EmitPostUpdate(
                     traj, index, ctx.currentUT, loopUT, ovState,
                     "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture),
-                    overlapRetired);
+                    overlapRetired,
+                    ResolveRenderSurface(overlapLoopRoute, overlapRetired));
                 if (overlapRetired)
                 {
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
@@ -2246,12 +2314,18 @@ namespace Parsek
                 }
                 else
                 {
+                    // Shadow route: keep the mesh active but suppress FX/events.
+                    var (ovEffectiveSkipPartEvents, ovEffectiveSuppressVisualFx) =
+                        AdjustFxFlagsForShadowRoute(
+                            baseSkipPartEvents: zoneResult.skipPartEvents,
+                            baseSuppressVisualFx: effectiveSuppressVisualFx,
+                            shadowRouted: overlapShadowRouted);
                     bool activatedDeferredState = ActivateGhostVisualsIfNeeded(ovState);
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
-                        zoneResult.skipPartEvents, effectiveSuppressVisualFx);
+                        ovEffectiveSkipPartEvents, ovEffectiveSuppressVisualFx);
                     if (ShouldRestoreDeferredRuntimeFxState(
                             activatedDeferredState,
-                            effectiveSuppressVisualFx))
+                            ovEffectiveSuppressVisualFx))
                         GhostPlaybackLogic.RestoreDeferredRuntimeFxState(ovState);
                     TrackGhostAppearance(index, traj, ovState, loopUT, "loop-overlap");
                 }
@@ -2273,6 +2347,7 @@ namespace Parsek
             // traj.LoopAnchorVesselId is unresolvable (same Re-Fly rewind
             // failure mode covered by the per-frame gate above).
             state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
             PositionGhostAtLoopEndpoint(index, traj, flags, state, frameUT, warpRate);
             bool loopPauseRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                 state.anchorRetiredThisFrame);
@@ -2630,7 +2705,23 @@ namespace Parsek
             return true;
         }
 
-        private bool TryHideForAnchorRotationUnreliable(
+        /// <summary>
+        /// Routes a parent-anchored debris (v12+) ghost. The router prefers the
+        /// recording's <c>absoluteFrames</c> shadow lerp UNCONDITIONALLY when
+        /// shadow data covers the playback UT — the legacy
+        /// <c>parent.rotation × debris.localOffset</c> reconstruction is
+        /// vulnerable to thin-tail debris brackets at section ends and to
+        /// slerp/lerp asymmetry under any non-trivial parent rotation, both of
+        /// which the shadow track sidesteps. The tumbling-parent gate
+        /// (<see cref="TumblingParentInterpolationGate"/>) still evaluates per
+        /// frame so its decision can drive FX suppression
+        /// (<c>state.anchorRotationShadowRoutedThisFrame</c>) during real
+        /// tumble windows, but it no longer gates whether the shadow path is
+        /// used. Hide remains the third-tier fallback for older recordings
+        /// without shadow data when the gate is firing. See plan
+        /// <c>docs/dev/plans/debris-always-shadow.md</c>.
+        /// </summary>
+        private AnchorRotationUnreliableRoute TryRouteAnchorRotationUnreliable(
             int index,
             IPlaybackTrajectory traj,
             TrajectoryPlaybackFlags flags,
@@ -2643,20 +2734,54 @@ namespace Parsek
             bool emitOnLoopCameraChannel)
         {
             if (flags.tryEvaluateAnchorRotationReliability == null)
-                return false;
+                return AnchorRotationUnreliableRoute.None;
 
             string playbackScope = BuildAnchorRotationHysteresisScope(state, phase);
-            if (!flags.tryEvaluateAnchorRotationReliability(
-                    index,
-                    traj,
-                    playbackUT,
-                    playbackScope,
-                    out AnchorRotationReliabilityDecision decision)
-                || !decision.Unreliable)
+            // Always evaluate the gate. Its result drives FX suppression even
+            // when we render via shadow, and is the sole reason to fall back to
+            // Hide when shadow coverage is unavailable.
+            AnchorRotationReliabilityDecision decision = default;
+            bool gateEvaluated = flags.tryEvaluateAnchorRotationReliability(
+                index,
+                traj,
+                playbackUT,
+                playbackScope,
+                out decision);
+            bool fxSuppress = gateEvaluated && decision.Unreliable;
+
+            // Tier 1: shadow render. Independent of the gate ENTIRELY -- the
+            // shadow track is recorder-truth at sample times and a
+            // great-circle slerp / straight-line chord between, which is
+            // correct for the entire section. The PR #803 contract is that
+            // shadow renders for every covered frame regardless of whether
+            // the gate evaluator succeeded. When the evaluator returned false
+            // (transient focus-tree miss, resolver-side issue), the decision
+            // struct is defaulted (zero bracket / rate / offset, null
+            // AnchorRecordingId) and the shadow-route log line carries
+            // mode=always with those default fields -- the host predicate
+            // (ShouldEvaluateAnchorRotationReliability) has already filtered
+            // the recording in scope for the always-shadow path, so an
+            // evaluator runtime miss is purely a diagnostic-data gap, not a
+            // signal to skip rendering. The positioner returns false when the
+            // active Relative section has no `absoluteFrames` or the playback
+            // UT is outside coverage; in that case fall through to tier 2 /
+            // tier 3.
+            if (state != null
+                && TryRouteAnchorRotationToShadow(
+                    index, traj, state, playbackUT, decision, fxSuppress, phase, playbackScope))
             {
-                return false;
+                return AnchorRotationUnreliableRoute.ShadowPositioned;
             }
 
+            // Tier 2: shadow not covering AND gate did not fire. Legacy
+            // relative-offset reconstruction runs in the caller -- mesh stays
+            // visible with no FX suppression.
+            if (!fxSuppress)
+                return AnchorRotationUnreliableRoute.None;
+
+            // Tier 3: shadow not covering AND gate fired. Hide the mesh and
+            // tear down running FX -- the legacy reconstruction would be
+            // visibly chaotic for the current frame.
             if (state != null)
                 HideAnchorRotationUnreliableState(index, traj, state, playbackUT, warpRate);
 
@@ -2693,13 +2818,110 @@ namespace Parsek
                 traj,
                 index,
                 frameUT,
-                "anchor-rotation-unreliable phase=" + (phase ?? "(unknown)")
+                "anchor-rotation-unreliable-hidden phase=" + (phase ?? "(unknown)")
                 + " scope=" + playbackScope
                 + " anchorRecordingId=" + (decision.AnchorRecordingId ?? "(none)")
                 + " playbackUT=" + playbackUT.ToString("R", CultureInfo.InvariantCulture)
                 + " bracketDeg=" + decision.BracketDegrees.ToString("F2", CultureInfo.InvariantCulture)
                 + " rateDegPerSec=" + decision.RateDegreesPerSecond.ToString("F1", CultureInfo.InvariantCulture)
                 + " offsetMeters=" + decision.OffsetMeters.ToString("F1", CultureInfo.InvariantCulture));
+            return AnchorRotationUnreliableRoute.Hidden;
+        }
+
+        /// <summary>
+        /// Resolve the active Relative TrackSection at the playback UT and try
+        /// to render via the recorded absoluteFrames shadow lerp. Returns true
+        /// only when the positioner reports success; otherwise the caller
+        /// falls back to legacy positioning (gate not firing) or
+        /// <see cref="HideAnchorRotationUnreliableState"/> (gate firing).
+        /// <para>
+        /// <paramref name="fxSuppress"/> reflects the tumbling-parent gate's
+        /// per-frame fire decision. The shadow render itself runs whether the
+        /// gate fired or not (recorded data is correct outside tumble windows
+        /// too); <c>fxSuppress</c> is written to
+        /// <c>state.anchorRotationShadowRoutedThisFrame</c> so downstream FX
+        /// gating only suppresses plumes / RCS / audio when the gate is also
+        /// firing this frame. The log line carries
+        /// <c>mode=gated|always</c> to distinguish these cases.
+        /// </para>
+        /// </summary>
+        private bool TryRouteAnchorRotationToShadow(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            AnchorRotationReliabilityDecision decision,
+            bool fxSuppress,
+            string phase,
+            string playbackScope)
+        {
+            if (positioner == null || traj == null || state?.ghost == null)
+                return false;
+
+            // The active Relative section determines which absoluteFrames list
+            // we lerp through. Other reference frames have no shadow contract
+            // (Absolute sections already render world positions; Orbital
+            // checkpoints are computed from orbit state).
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
+            if (sectionIndex < 0)
+                return false;
+            TrackSection section = traj.TrackSections[sectionIndex];
+            if (section.referenceFrame != ReferenceFrame.Relative
+                || section.absoluteFrames == null
+                || section.absoluteFrames.Count == 0)
+            {
+                return false;
+            }
+
+            var target = new RelativeSectionPlaybackTarget(
+                traj.RecordingId,
+                sectionIndex,
+                section);
+            // Note: positioner.TryPositionFromRelativeAbsoluteShadow calls
+            // state.SetInterpolated(...) internally on success (matching the
+            // existing positioner-with-state contract); engine does not need
+            // to invoke it separately. anchorRetiredThisFrame is intentionally
+            // NOT set so the post-position pipeline runs Activate /
+            // TrackGhostAppearance for this frame -- the mesh stays visible.
+            if (!positioner.TryPositionFromRelativeAbsoluteShadow(
+                    index, traj, state, playbackUT, target,
+                    out double bracketBeforeUT,
+                    out double bracketAfterUT))
+            {
+                return false;
+            }
+
+            // Reset the coverage-retired latch -- the shadow render is
+            // recorded-data-driven and independent of the parent's
+            // recorded-relative coverage state.
+            state.parentAnchoredDebrisCoverageRetired = false;
+            state.anchorRetiredThisFrame = false;
+            // FX suppression: only when gate is also firing this frame. Steady
+            // state always-shadow leaves this false so plumes / RCS / audio
+            // play normally during the rest of the recording (the rotation
+            // chain artifact is gone — there is nothing to suppress).
+            state.anchorRotationShadowRoutedThisFrame = fxSuppress;
+
+            ParsekLog.VerboseRateLimited(
+                "Anchor",
+                "anchor-rotation-shadow-route-" + index.ToString(CultureInfo.InvariantCulture),
+                "anchor-rotation-shadow-route: ghost #"
+                + index.ToString(CultureInfo.InvariantCulture)
+                + " \"" + (traj?.VesselName ?? state?.vesselName ?? "(unknown)") + "\" "
+                + "mode=" + (fxSuppress ? "gated" : "always")
+                + " phase=" + (phase ?? "(unknown)")
+                + " scope=" + (playbackScope ?? "(unknown)")
+                + " anchorRecordingId=" + (decision.AnchorRecordingId ?? "(none)")
+                + " playbackUT=" + playbackUT.ToString("R", CultureInfo.InvariantCulture)
+                + " bracketBeforeUT=" + bracketBeforeUT.ToString("R", CultureInfo.InvariantCulture)
+                + " bracketAfterUT=" + bracketAfterUT.ToString("R", CultureInfo.InvariantCulture)
+                + " bracketDeg=" + decision.BracketDegrees.ToString("F2", CultureInfo.InvariantCulture)
+                + " rateDegPerSec=" + decision.RateDegreesPerSecond.ToString("F1", CultureInfo.InvariantCulture)
+                + " offsetMeters=" + decision.OffsetMeters.ToString("F1", CultureInfo.InvariantCulture)
+                + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
+                + " absFrames=" + section.absoluteFrames.Count.ToString(CultureInfo.InvariantCulture),
+                1.0);
+
             return true;
         }
 
@@ -2745,6 +2967,77 @@ namespace Parsek
                     allowTransientEffects: false);
             }
             ResetGhostAppearanceTracking(state);
+        }
+
+        /// <summary>
+        /// Sentinel check for InterpolateAndPosition's complete-failure
+        /// paths (empty points list, body-lookup miss). Both write
+        /// <see cref="InterpolationResult.Zero"/> which has bodyName=null;
+        /// success paths always copy bodyName from a recorded TrajectoryPoint
+        /// (which the recorder always populates). Used by the
+        /// shadow-route positioner to fail closed to
+        /// <see cref="AnchorRotationUnreliableRoute.Hidden"/> instead of
+        /// silently rendering at a stale transform.
+        /// </summary>
+        internal static bool IsInterpolationResultValid(InterpolationResult result)
+        {
+            return !string.IsNullOrEmpty(result.bodyName);
+        }
+
+        /// <summary>
+        /// Combines the post-position FX-suppression flags with the
+        /// shadow-route flag. When the tumbling-parent gate routes a ghost
+        /// through the shadow path the rotation interp through the parent
+        /// chain (the artifact source) is what was untrustworthy, so part
+        /// events / engine-RCS-reentry-audio FX must be suppressed for the
+        /// frame even though the mesh stays active. Used by the non-loop,
+        /// overlap-primary, and overlap-loop branches; the primary-loop
+        /// branch is structurally different (forced ApplyFrameVisuals call)
+        /// and uses <see cref="ResolveLoopShadowFxBranch"/> instead.
+        /// Pure for testability — deliberate carve-out of the FX-suppression
+        /// OR pattern that prior reviewer feedback caught a bug in (clear
+        /// without read at one branch leaked FX through the route window).
+        /// </summary>
+        internal static (bool skipPartEvents, bool suppressVisualFx) AdjustFxFlagsForShadowRoute(
+            bool baseSkipPartEvents,
+            bool baseSuppressVisualFx,
+            bool shadowRouted)
+        {
+            return (
+                skipPartEvents: baseSkipPartEvents || shadowRouted,
+                suppressVisualFx: baseSuppressVisualFx || shadowRouted);
+        }
+
+        /// <summary>
+        /// Decides what kind of ApplyFrameVisuals call the primary-loop
+        /// post-position branch should issue. The shadow route forces a
+        /// teardown call (skipPartEvents=true, suppressVisualFx=true,
+        /// allowTransientEffects=false) regardless of the legacy
+        /// `skipLoopPartEvents` LOD flag, because skipping the call entirely
+        /// would let stale plumes/RCS/reentry/audio continue running through
+        /// the route window. Pure for testability.
+        /// </summary>
+        internal enum LoopShadowFxBranch : byte
+        {
+            /// <summary>Run a forced FX-teardown ApplyFrameVisuals call for the shadow route.</summary>
+            ForcedShadowTeardown = 0,
+
+            /// <summary>Run the normal pre-route ApplyFrameVisuals call.</summary>
+            Normal = 1,
+
+            /// <summary>Skip the ApplyFrameVisuals call (legacy LOD path).</summary>
+            Skipped = 2,
+        }
+
+        internal static LoopShadowFxBranch ResolveLoopShadowFxBranch(
+            bool shadowRouted,
+            bool skipLoopPartEvents)
+        {
+            if (shadowRouted)
+                return LoopShadowFxBranch.ForcedShadowTeardown;
+            if (skipLoopPartEvents)
+                return LoopShadowFxBranch.Skipped;
+            return LoopShadowFxBranch.Normal;
         }
 
         private bool TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
@@ -2892,7 +3185,7 @@ namespace Parsek
                 || loopCycleIndex == ctx.protectedLoopCycleIndex;
         }
 
-        private void PositionLoopAtPlaybackUT(
+        private AnchorRotationUnreliableRoute PositionLoopAtPlaybackUT(
             int index,
             IPlaybackTrajectory traj,
             TrajectoryPlaybackFlags flags,
@@ -2904,26 +3197,54 @@ namespace Parsek
             bool emitExitWatch,
             string callsite)
         {
-            if (TryHideForAnchorRotationUnreliable(
-                    index,
-                    traj,
-                    flags,
-                    state,
-                    loopUT,
-                    frameUT,
-                    warpRate,
-                    callsite,
-                    emitExitWatch,
-                    emitOnLoopCameraChannel: true))
+            AnchorRotationUnreliableRoute route = TryRouteAnchorRotationUnreliable(
+                index,
+                traj,
+                flags,
+                state,
+                loopUT,
+                frameUT,
+                warpRate,
+                callsite,
+                emitExitWatch,
+                emitOnLoopCameraChannel: true);
+            // Hidden route: hide already done inside the router; nothing more
+            // to do here. ShadowPositioned route: positioner already wrote
+            // ghost transform AND state.SetInterpolated; skip PositionLoop
+            // for this frame (the loop pipeline checks
+            // state.anchorRotationShadowRoutedThisFrame and runs the
+            // FX-suppressed branch of the post-position code). None: continue
+            // to the normal PositionLoop call.
+            if (route == AnchorRotationUnreliableRoute.Hidden
+                || route == AnchorRotationUnreliableRoute.ShadowPositioned)
             {
-                return;
+                return route;
             }
 
             if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     index, traj, state, loopUT, callsite))
-                return;
+                return AnchorRotationUnreliableRoute.Hidden;
 
             positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
+            return route;
+        }
+
+        /// <summary>
+        /// Derive the trace surface token from the router's route decision and
+        /// the post-position retired flag. Centralised so all four engine call
+        /// sites map the same way; the legacy positioner takes the
+        /// <see cref="AnchorRotationUnreliableRoute.None"/> branch and is
+        /// reported as Legacy unless retired (Hidden) by another mechanism.
+        /// </summary>
+        private static GhostRenderTrace.RenderSurface ResolveRenderSurface(
+            AnchorRotationUnreliableRoute route,
+            bool retired)
+        {
+            if (route == AnchorRotationUnreliableRoute.ShadowPositioned)
+                return GhostRenderTrace.RenderSurface.Shadow;
+            if (route == AnchorRotationUnreliableRoute.Hidden || retired)
+                return GhostRenderTrace.RenderSurface.Hidden;
+            return GhostRenderTrace.RenderSurface.Legacy;
         }
 
         #endregion
@@ -4426,6 +4747,9 @@ namespace Parsek
         internal static bool ShouldExitWatchForCoverageRetiredCycleForTesting(
             int index, long loopCycleIndex, FrameContext ctx)
             => ShouldExitWatchForCoverageRetiredCycle(index, loopCycleIndex, ctx);
+        internal static GhostRenderTrace.RenderSurface ResolveRenderSurfaceForTesting(
+            AnchorRotationUnreliableRoute route, bool retired)
+            => ResolveRenderSurface(route, retired);
 
         // Bug #450 B2 test seams. These drive the exact loop/overlap lifecycle branches
         // for pending split-build states using MockTrajectory in xUnit, without requiring
@@ -4766,6 +5090,7 @@ namespace Parsek
             state.playbackIndex = 0;
             state.partEventIndex = 0;
             state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
             double primePlaybackUT = ResolveVisiblePlaybackUT(traj, state, playbackUT);
             PositionLoadedGhostAtPlaybackUT(index, traj, state, primePlaybackUT);
             bool primeAnchorRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
@@ -4803,6 +5128,7 @@ namespace Parsek
             // through the same relative-frame positioner as the per-frame
             // path, so it has the same vulnerability to a stale anchor pid.
             state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
             if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                     state.anchorRetiredThisFrame))
@@ -6037,11 +6363,6 @@ namespace Parsek
                     }
                 }
             }
-            if (state.oneShotAudio?.audioSource != null && state.oneShotAudio.audioSource.isPlaying)
-            {
-                state.oneShotAudio.audioSource.Stop();
-                audioStopped++;
-            }
             if (audioStopped > 0)
                 ParsekLog.Verbose("GhostAudio", $"Cleanup: stopped {audioStopped} audio source(s) for '{state.vesselName}'");
 
@@ -6274,7 +6595,7 @@ namespace Parsek
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
-            double power = Mathf.Clamp01(vesselLength / 20f);
+            double power = Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
 
             if (state.audioPaused)
             {
@@ -6291,12 +6612,11 @@ namespace Parsek
                     $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
                     $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
                     10.0);
-                GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(
                     worldPos,
                     power,
                     vesselLength,
-                    $"ghost #{recIdx} \"{traj.VesselName}\"",
-                    $"stock-explosion-visual-only-busy-{recIdx}");
+                    $"ghost #{recIdx} \"{traj.VesselName}\"");
             }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
