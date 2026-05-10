@@ -4886,16 +4886,51 @@ namespace Parsek
             if (body == null)
                 return false;
 
-            if (!TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+            double inclination;
+            double eccentricity;
+            double semiMajorAxis;
+            double lan;
+            double argumentOfPeriapsis;
+            double meanAnomalyAtEpoch;
+            double epoch;
+            string orbitBodyName;
+            string seedSource;
+
+            // Trajectory tail takes precedence when its UT is later than every stored
+            // OrbitSegment for the same body — the stored segment's elements have been
+            // superseded by physics frames (typically a circ burn followed by a coast)
+            // that the recorder did not promote to a fresh OrbitSegment.
+            bool tailWon = TryDeriveTerminalOrbitSeedFromTrajectoryTail(
                 rec,
-                out double inclination,
-                out double eccentricity,
-                out double semiMajorAxis,
-                out double lan,
-                out double argumentOfPeriapsis,
-                out double meanAnomalyAtEpoch,
-                out double epoch,
-                out string orbitBodyName))
+                body,
+                ut,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out orbitBodyName,
+                out string tailDeclineReason);
+            if (tailWon)
+            {
+                seedSource = "trajectory-tail";
+            }
+            else if (TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out inclination,
+                out eccentricity,
+                out semiMajorAxis,
+                out lan,
+                out argumentOfPeriapsis,
+                out meanAnomalyAtEpoch,
+                out epoch,
+                out orbitBodyName))
+            {
+                seedSource = "stored-segment";
+            }
+            else
             {
                 string resolvedEndpointBody;
                 string endpointBody = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out resolvedEndpointBody)
@@ -4904,7 +4939,8 @@ namespace Parsek
                 ParsekLog.Warn("Spawner",
                     $"TryBuildRecordedTerminalOrbitForSpawn: no endpoint-aligned orbit seed " +
                     $"(endpointBody={endpointBody}, terminalBody={rec?.TerminalOrbitBody ?? "(null)"}, " +
-                    $"orbitSegments={rec?.OrbitSegments?.Count ?? 0})");
+                    $"orbitSegments={rec?.OrbitSegments?.Count ?? 0}, " +
+                    $"tailDeclineReason={tailDeclineReason ?? "(unknown)"})");
                 return false;
             }
 
@@ -4912,7 +4948,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Spawner",
                     $"TryBuildRecordedTerminalOrbitForSpawn: body mismatch " +
-                    $"(body={body.name}, terminalBody={orbitBodyName})");
+                    $"(body={body.name}, terminalBody={orbitBodyName}, source={seedSource})");
                 return false;
             }
 
@@ -4946,6 +4982,15 @@ namespace Parsek
                     meanAnomalyAtSpawnUT,
                     ut,
                     body);
+                ParsekLog.Verbose("Spawner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryBuildRecordedTerminalOrbitForSpawn: rec={0} source={1} body={2} epoch={3:F2} sma={4:F1} ecc={5:F4}",
+                        rec?.RecordingId ?? "(null)",
+                        seedSource,
+                        orbitBodyName,
+                        epoch,
+                        semiMajorAxis,
+                        eccentricity));
                 return true;
             }
             catch (Exception ex)
@@ -4954,6 +4999,311 @@ namespace Parsek
                     $"TryBuildRecordedTerminalOrbitForSpawn failed: {ex.Message}");
                 return false;
             }
+        }
+
+        // Tail UT must exceed the latest stored OrbitSegment endUT by at least this
+        // many seconds for the tail-derived seed to win. Guards against trivial
+        // boundary noise where a frame and a segment end at the same UT.
+        internal const double TailDerivedOrbitFreshnessEpsilon = 1e-3;
+
+        // Max permitted (spawnUT − tailUT) before the rotation drift between body's
+        // current rotation and its rotation at candidate.ut grows large enough to
+        // shift the orbit's LAN/argPe by more than the spawn safety margin. 30 s on
+        // Kerbin (period 21 600 s) is ~0.5° of LAN drift; on slower bodies (Mun
+        // tidally-locked, Minmus 5.5 h period) the drift is much smaller. Re-Fly
+        // spawns at currentUT ≈ tailUT comfortably satisfy this.
+        internal const double TailDerivedOrbitMaxRotationDriftSeconds = 30.0;
+
+        /// <summary>
+        /// Derive osculating orbital elements from the recording's most recent valid
+        /// trajectory frame when that frame post-dates every stored
+        /// <see cref="OrbitSegment"/>. Used to recover from recordings whose only
+        /// stored segment is a pre-burn on-rails coast — physics frames captured
+        /// after the segment (post-circ-burn coast) carry the correct final state
+        /// in (lat, lon, alt, velocity), and the recorder never had a chance to
+        /// promote them to a fresh segment before scene exit.
+        ///
+        /// Walks <see cref="Recording.TrackSections"/> in reverse, picking the
+        /// latest <see cref="ReferenceFrame.Absolute"/> /
+        /// <see cref="SegmentEnvironment.ExoBallistic"/> frame on the spawn body.
+        /// Honors v7+ <see cref="TrackSection.absoluteFrames"/> shadow on Relative
+        /// sections. Skips Surface / Atmospheric / ExoPropulsive / Approach
+        /// environments — those produce sub-orbital or transitional osculating
+        /// orbits that are not meaningful as the recording's "terminal" orbit.
+        /// Also rejects when |spawnUT − tailUT| exceeds
+        /// <see cref="TailDerivedOrbitMaxRotationDriftSeconds"/> because
+        /// <c>body.GetWorldSurfacePosition</c> uses the body's current rotation,
+        /// not the rotation at the recorded UT — large deltas would shift LAN/argPe
+        /// by the body-rotation accumulated between candidate.ut and now.
+        /// </summary>
+        internal static bool TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+            Recording rec,
+            CelestialBody body,
+            double spawnUT,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName,
+            out string declineReason)
+        {
+            inclination = 0.0;
+            eccentricity = 0.0;
+            semiMajorAxis = 0.0;
+            lan = 0.0;
+            argumentOfPeriapsis = 0.0;
+            meanAnomalyAtEpoch = 0.0;
+            epoch = 0.0;
+            bodyName = null;
+            declineReason = null;
+
+            // ResolveBodyName already handles a null body by ReferenceEquals; relying on
+            // its empty-string return covers both "null" and "destroyed Unity Object"
+            // cases without falling into Unity's overloaded == null trap (which treats
+            // uninitialized test bodies as null even when the C# reference is valid).
+            string spawnBodyName = ResolveBodyName(body);
+            if (rec == null || string.IsNullOrEmpty(spawnBodyName))
+            {
+                declineReason = "null-input";
+                return false;
+            }
+
+            string recId = rec.RecordingId ?? "(null)";
+
+            if (!TryFindLatestCoastTrajectoryFrame(rec, spawnBodyName, out TrajectoryPoint candidate))
+            {
+                declineReason = "no-absolute-coast-tail";
+                ParsekLog.Verbose("Spawner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Tail-derived terminal orbit skipped: rec={0} reason=no-absolute-coast-tail body={1}",
+                        recId,
+                        spawnBodyName));
+                return false;
+            }
+
+            double latestStoredSegmentEndUT = ResolveLatestStoredOrbitSegmentEndUT(rec, spawnBodyName);
+            if (IsFinite(latestStoredSegmentEndUT)
+                && candidate.ut <= latestStoredSegmentEndUT + TailDerivedOrbitFreshnessEpsilon)
+            {
+                declineReason = "segment-newer-than-tail";
+                ParsekLog.Verbose("Spawner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Tail-derived terminal orbit skipped: rec={0} reason=segment-newer-than-tail tailUT={1:F2} segmentEndUT={2:F2}",
+                        recId,
+                        candidate.ut,
+                        latestStoredSegmentEndUT));
+                return false;
+            }
+
+            // Rotation-drift clamp: body.GetWorldSurfacePosition uses the body's
+            // CURRENT rotation, not the rotation at candidate.ut. The resulting LAN/
+            // argPe error is proportional to (spawnUT − candidate.ut) × body's
+            // rotation rate. Keep it bounded — Re-Fly spawns fire at currentUT ≈
+            // tailUT (drift = 0), KSC-resume spawns where the player loaded a save
+            // long after the recording ended fall back to the existing path.
+            if (IsFinite(spawnUT)
+                && Math.Abs(spawnUT - candidate.ut) > TailDerivedOrbitMaxRotationDriftSeconds)
+            {
+                declineReason = "rotation-drift-out-of-bounds";
+                ParsekLog.Verbose("Spawner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Tail-derived terminal orbit skipped: rec={0} reason=rotation-drift-out-of-bounds tailUT={1:F2} spawnUT={2:F2} drift={3:F2}s limit={4:F2}s",
+                        recId,
+                        candidate.ut,
+                        spawnUT,
+                        spawnUT - candidate.ut,
+                        TailDerivedOrbitMaxRotationDriftSeconds));
+                return false;
+            }
+
+            Vector3d worldPos = body.GetWorldSurfacePosition(
+                candidate.latitude, candidate.longitude, candidate.altitude);
+            Vector3d worldVel = new Vector3d(
+                candidate.velocity.x, candidate.velocity.y, candidate.velocity.z);
+            if (!IsFinite(worldPos) || !IsFinite(worldVel))
+            {
+                declineReason = "non-finite-state-vector";
+                return false;
+            }
+
+            try
+            {
+                Orbit reseeded = new Orbit();
+                reseeded.UpdateFromStateVectors(worldPos, worldVel, body, candidate.ut);
+                if (!IsFiniteOrbitSeedElements(reseeded))
+                {
+                    declineReason = "non-finite-elements";
+                    ParsekLog.Warn("Spawner",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Tail-derived terminal orbit rejected: rec={0} reason=non-finite-elements sma={1} ecc={2}",
+                            recId,
+                            reseeded.semiMajorAxis,
+                            reseeded.eccentricity));
+                    return false;
+                }
+
+                inclination = reseeded.inclination;
+                eccentricity = reseeded.eccentricity;
+                semiMajorAxis = reseeded.semiMajorAxis;
+                lan = reseeded.LAN;
+                argumentOfPeriapsis = reseeded.argumentOfPeriapsis;
+                meanAnomalyAtEpoch = reseeded.meanAnomalyAtEpoch;
+                epoch = reseeded.epoch;
+                bodyName = spawnBodyName;
+
+                double periAlt = semiMajorAxis * (1.0 - eccentricity) - body.Radius;
+                double apoAlt = semiMajorAxis * (1.0 + eccentricity) - body.Radius;
+                ParsekLog.Verbose("Spawner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Tail-derived terminal orbit: rec={0} body={1} tailUT={2:F2} sma={3:F1} ecc={4:F4} periAlt={5:F1} apoAlt={6:F1}",
+                        recId,
+                        spawnBodyName,
+                        candidate.ut,
+                        semiMajorAxis,
+                        eccentricity,
+                        periAlt,
+                        apoAlt));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                declineReason = "exception";
+                ParsekLog.Warn("Spawner",
+                    $"TryDeriveTerminalOrbitSeedFromTrajectoryTail failed: rec={recId} {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static bool TryFindLatestCoastTrajectoryFrame(
+            Recording rec, string bodyName, out TrajectoryPoint frame)
+        {
+            frame = default(TrajectoryPoint);
+            if (rec?.TrackSections == null || string.IsNullOrEmpty(bodyName))
+                return false;
+
+            for (int s = rec.TrackSections.Count - 1; s >= 0; s--)
+            {
+                TrackSection section = rec.TrackSections[s];
+                if (section.environment != SegmentEnvironment.ExoBallistic)
+                    continue;
+
+                List<TrajectoryPoint> framesList = SelectAbsoluteFramesList(section);
+                if (framesList == null || framesList.Count == 0)
+                    continue;
+
+                // Walk the section's frames back-to-front so a single corrupt
+                // trailing sample does not throw away the whole section's tail.
+                for (int i = framesList.Count - 1; i >= 0; i--)
+                {
+                    TrajectoryPoint candidate = framesList[i];
+                    if (string.IsNullOrEmpty(candidate.bodyName)
+                        || !string.Equals(candidate.bodyName, bodyName, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    if (!IsFinite(candidate.ut)
+                        || !IsFinite(candidate.latitude)
+                        || !IsFinite(candidate.longitude)
+                        || !IsFinite(candidate.altitude)
+                        || !IsFinite(new Vector3d(
+                            candidate.velocity.x, candidate.velocity.y, candidate.velocity.z)))
+                    {
+                        continue;
+                    }
+
+                    frame = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static List<TrajectoryPoint> SelectAbsoluteFramesList(TrackSection section)
+        {
+            // Absolute sections store body-fixed (lat, lon, alt) directly in `frames`.
+            if (section.referenceFrame == ReferenceFrame.Absolute)
+                return section.frames;
+
+            // v7+ Relative sections carry an `absoluteFrames` shadow that is itself a
+            // full TrajectoryPoint list with planet-relative position + velocity
+            // (see CLAUDE.md "Rotation / world frame" §v7). Use it when present;
+            // otherwise the Relative `frames` are anchor-local Cartesian metres in
+            // the lat/lon/alt fields and CANNOT be reseeded as orbits.
+            if (section.referenceFrame == ReferenceFrame.Relative
+                && section.absoluteFrames != null
+                && section.absoluteFrames.Count > 0)
+            {
+                return section.absoluteFrames;
+            }
+
+            // OrbitalCheckpoint sections have no per-tick frames — their data is in
+            // the OrbitSegments stored path which the existing seed resolver handles.
+            return null;
+        }
+
+        internal static double ResolveLatestStoredOrbitSegmentEndUT(Recording rec, string bodyName)
+        {
+            if (rec?.OrbitSegments == null || string.IsNullOrEmpty(bodyName))
+                return double.NaN;
+
+            double latest = double.NaN;
+            for (int i = 0; i < rec.OrbitSegments.Count; i++)
+            {
+                OrbitSegment seg = rec.OrbitSegments[i];
+                if (!string.Equals(seg.bodyName, bodyName, StringComparison.Ordinal))
+                    continue;
+                // Mirror the predicate used by RecordingEndpointResolver.TryGetLastMatchingSegment
+                // (RecordingEndpointResolver.cs:321-322): degenerate segments (sma <= 0) are
+                // not picked up by the existing seed path, so they must not block tail-derive
+                // either — otherwise we would defer to a "newer" segment the resolver immediately
+                // rejects, leaving the spawn with no seed at all.
+                if (!IsFinite(seg.semiMajorAxis) || seg.semiMajorAxis <= 0.0)
+                    continue;
+                if (!IsFinite(seg.endUT))
+                    continue;
+                if (double.IsNaN(latest) || seg.endUT > latest)
+                    latest = seg.endUT;
+            }
+
+            return latest;
+        }
+
+        private static string ResolveBodyName(CelestialBody body)
+        {
+            if (object.ReferenceEquals(body, null))
+                return null;
+            if (!string.IsNullOrEmpty(body.bodyName))
+                return body.bodyName;
+            if (!string.IsNullOrEmpty(body.name))
+                return body.name;
+            return null;
+        }
+
+        private static bool IsFiniteOrbitSeedElements(Orbit orbit)
+        {
+            if (orbit == null)
+                return false;
+            // Accept hyperbolic seeds (sma < 0 with ecc > 1) by only requiring sma
+            // to be finite and nonzero — TerminalOrbitSpawnSafety computes periapsis
+            // altitude from sma * (1 − ecc), which is meaningful for hyperbolic
+            // orbits too (sma negative × (1 − ecc) negative gives the correct
+            // positive periapsis distance), so the safety check can decide whether
+            // to spawn an escape trajectory rather than us silently rejecting it
+            // and falling back to a possibly-stale stored ellipse. Parabolic
+            // (sma = ±∞) is excluded by IsFinite — pathological for spawn anyway.
+            return IsFinite(orbit.inclination)
+                && IsFinite(orbit.eccentricity)
+                && orbit.eccentricity >= 0.0
+                && IsFinite(orbit.semiMajorAxis)
+                && Math.Abs(orbit.semiMajorAxis) > 0.0
+                && IsFinite(orbit.LAN)
+                && IsFinite(orbit.argumentOfPeriapsis)
+                && IsFinite(orbit.meanAnomalyAtEpoch)
+                && IsFinite(orbit.epoch);
         }
 
         internal static bool TryResolveRecordedTerminalOrbitSpawnState(

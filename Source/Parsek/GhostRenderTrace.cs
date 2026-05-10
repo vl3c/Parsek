@@ -38,6 +38,53 @@ namespace Parsek
             public string Reason;
         }
 
+        /// <summary>
+        /// The actual rendering surface used to position the ghost on a
+        /// frame. Surfaces every frame's path in the same log line so a
+        /// post-hoc grep can attribute behaviour to one surface without
+        /// stitching together state flags. Used in the <c>AfterUpdate</c>
+        /// trace line emitted by <see cref="EmitPostUpdate"/>.
+        /// </summary>
+        internal enum RenderSurface : byte
+        {
+            /// <summary>
+            /// Default — caller did not specify; surface is unknown to the
+            /// trace. Logged as "unknown".
+            /// </summary>
+            Unknown = 0,
+
+            /// <summary>
+            /// Standard positioner chain (relative-offset reconstruction,
+            /// flat-points, surface, or orbit-tail). Default for most
+            /// recordings outside the parent-anchored debris path.
+            /// </summary>
+            Legacy = 1,
+
+            /// <summary>
+            /// Recording's <c>absoluteFrames</c> shadow lerp. Used for
+            /// parent-anchored debris (v12+) whenever shadow data covers
+            /// the playback UT, regardless of the tumbling-parent gate.
+            /// </summary>
+            Shadow = 2,
+
+            /// <summary>
+            /// Mesh inactive — ghost retired or hidden by the parent-anchored
+            /// coverage / tumbling-parent fallback paths.
+            /// </summary>
+            Hidden = 3,
+        }
+
+        private static string RenderSurfaceToken(RenderSurface surface)
+        {
+            switch (surface)
+            {
+                case RenderSurface.Legacy: return "legacy";
+                case RenderSurface.Shadow: return "shadow";
+                case RenderSurface.Hidden: return "hidden";
+                default: return "unknown";
+            }
+        }
+
         private struct SectionContext
         {
             public int Index;
@@ -52,6 +99,16 @@ namespace Parsek
             public string AnchorRecordingId;
             public float BoundaryDiscontinuityMeters;
             public bool HasSection;
+            // Debris-frame bracket span at the current playback UT: the time
+            // gap between the two recorded `frames` entries that contain
+            // playbackUT. NaN when not Relative or fewer than two frames are
+            // available. Surfaces the wide-bracket pattern (thin-tail
+            // optimiser cuts that produce 2 s+ gaps) which the legacy
+            // relative-offset reconstruction lerps through linearly while
+            // the parent rotates underneath. The dominant pre-shadow-route
+            // failure mode that PR #803 / docs/dev/plans/debris-always-shadow.md
+            // resolves; logged so post-hoc analysis can attribute frames to it.
+            public double DebrisBracketSeconds;
         }
 
         private static readonly Dictionary<string, TraceState> states =
@@ -158,7 +215,8 @@ namespace Parsek
             double playbackUT,
             GhostPlaybackState playbackState,
             string path,
-            bool retired)
+            bool retired,
+            RenderSurface surface = RenderSurface.Unknown)
         {
             if (!IsEnabled)
                 return;
@@ -213,6 +271,7 @@ namespace Parsek
                     + " reason=" + Token(gate.Reason)
                     + " retired=" + Bool(retired)
                     + " active=" + Bool(hasGhost && playbackState.ghost.activeSelf)
+                    + " surface=" + RenderSurfaceToken(surface)
                     + " pos=" + FormatVector3(position)
                     + " rot=" + FormatQuaternion(rotation)
                     + " dM=" + FormatDouble(deltaMeters, "F2")
@@ -573,7 +632,8 @@ namespace Parsek
                 Environment = SegmentEnvironment.ExoBallistic,
                 Source = TrackSectionSource.Active,
                 StartUT = double.NaN,
-                EndUT = double.NaN
+                EndUT = double.NaN,
+                DebrisBracketSeconds = double.NaN
             };
 
             var sections = trajectory?.TrackSections;
@@ -597,7 +657,33 @@ namespace Parsek
             context.CheckpointCount = section.checkpoints?.Count ?? 0;
             context.AnchorRecordingId = section.anchorRecordingId;
             context.BoundaryDiscontinuityMeters = section.boundaryDiscontinuityMeters;
+            context.DebrisBracketSeconds = section.referenceFrame == ReferenceFrame.Relative
+                ? ResolveDebrisBracketSeconds(section.frames, playbackUT)
+                : double.NaN;
             return context;
+        }
+
+        /// <summary>
+        /// Computes the time gap between the two recorded `frames` entries
+        /// that bracket the playback UT in a Relative section. Linear scan;
+        /// per-frame work is bounded by the section's debris frame count,
+        /// which is typically tens to low hundreds. Returns NaN when no
+        /// usable bracket is available (fewer than two frames, or playbackUT
+        /// is outside the recorded range).
+        /// </summary>
+        private static double ResolveDebrisBracketSeconds(
+            List<TrajectoryPoint> frames, double playbackUT)
+        {
+            if (frames == null || frames.Count < 2)
+                return double.NaN;
+            for (int i = 0; i < frames.Count - 1; i++)
+            {
+                double a = frames[i].ut;
+                double b = frames[i + 1].ut;
+                if (playbackUT >= a && playbackUT <= b)
+                    return Math.Abs(b - a);
+            }
+            return double.NaN;
         }
 
         private static string FormatSection(SectionContext section)
@@ -612,7 +698,8 @@ namespace Parsek
                 + " absFrames=" + section.AbsoluteFrameCount.ToString(CultureInfo.InvariantCulture)
                 + " checkpoints=" + section.CheckpointCount.ToString(CultureInfo.InvariantCulture)
                 + " anchorRec=" + ShortId(section.AnchorRecordingId)
-                + " boundaryDM=" + section.BoundaryDiscontinuityMeters.ToString("F2", CultureInfo.InvariantCulture);
+                + " boundaryDM=" + section.BoundaryDiscontinuityMeters.ToString("F2", CultureInfo.InvariantCulture)
+                + " debrisBracketSec=" + FormatDouble(section.DebrisBracketSeconds, "F3");
         }
 
         private static string BuildStateKey(string recordingId, int ghostIndex)

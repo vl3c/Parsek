@@ -171,14 +171,12 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Source-text regression pin for the EndDebrisRecording wire-up. The
-        /// runtime test path that proves this call is reached cannot run in unit
-        /// tests because <c>EndDebrisRecording → OnVesselRemovedFromBackground →
-        /// Planetarium.GetUniversalTime()</c> throws under Unity-static-free
-        /// conditions. So we pin the call site by source text instead. If anyone
-        /// removes the <c>PersistFinalizedRecording(rec, $"EndDebrisRecording
-        /// pid={vesselPid}")</c> line from <c>BackgroundRecorder.cs</c>, this test
-        /// fails and the refactor author re-evaluates whether the #280 wiring gap
-        /// for the TTL/out-of-bubble paths is still acceptable.
+        /// xUnit tests exercise representative cleanup, but this keeps the
+        /// persistence call pinned inside the private method. If anyone removes
+        /// the <c>PersistFinalizedRecording(rec, $"EndDebrisRecording pid={vesselPid}")</c>
+        /// line from <c>BackgroundRecorder.cs</c>, this test fails and the
+        /// refactor author re-evaluates whether the #280 wiring gap for the
+        /// TTL/out-of-bubble paths is still acceptable.
         /// </summary>
         [Fact]
         public void EndDebrisRecording_HasPersistFinalizedRecordingCall_PinnedBySourceInspection()
@@ -201,11 +199,11 @@ namespace Parsek.Tests
             // PersistFinalizedRecording call appears after the
             // OnVesselRemovedFromBackground flush so the persisted data
             // includes the TrackSection flush.
-            int methodStart = bgRecSrc.IndexOf("private void EndDebrisRecording(uint vesselPid");
+            int methodStart = bgRecSrc.IndexOf("private void EndDebrisRecording(");
             Assert.True(methodStart > 0,
                 "EndDebrisRecording method signature not found in BackgroundRecorder.cs");
 
-            int flushIdx = bgRecSrc.IndexOf("OnVesselRemovedFromBackground(vesselPid)", methodStart);
+            int flushIdx = bgRecSrc.IndexOf("OnVesselRemovedFromBackground(vesselPid", methodStart);
             int persistIdx = bgRecSrc.IndexOf(
                 "PersistFinalizedRecording(rec, $\"EndDebrisRecording", methodStart);
             Assert.True(flushIdx > 0,
