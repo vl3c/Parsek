@@ -5321,6 +5321,18 @@ namespace Parsek
             // RecordingRewindRetirements are both unchanged, so cached ERS stays
             // correct. The summary log still fires so the audit trail records
             // what the predicate decided.
+            //
+            // Invariant: the Pass-1 defense path in EnsureRewindRetirementsForRollback
+            // (Immutable id in RetiredForkRecordingIds without explicit demotion)
+            // performs a remove-then-restore round-trip on RecordingSupersedes —
+            // the apply-drops loop above already removed the relation, and the
+            // defense re-adds the same instance. The supersede list ends up
+            // byte-identical to its pre-call state for that relation, so no
+            // cache bump is strictly required for the defense alone. If a
+            // future change relaxes the apply-drops loop's removal so the
+            // defense becomes a net-add, this guard needs to grow a defense-
+            // path counter (or track scenario.RecordingSupersedes.Count
+            // changes explicitly) to keep ERS coherent.
             int skippedImmutable = rollback.SkippedImmutableForkCount;
             int demotedImmutable = rollback.DemotedImmutablePreservationCount;
             if (dropped > 0 || retired > 0 || retiredOldSides > 0)
@@ -5456,6 +5468,17 @@ namespace Parsek
                     {
                         scenario.RecordingSupersedes.Add(sourceRel);
                         restoredSupersedeLink = true;
+
+                        // Pass 2 (old-side, below) iterates RestoredRecordingIds
+                        // and would otherwise write a RewoundOutOldSideReason
+                        // retirement for sourceRel.OldRecordingId. With the
+                        // relation re-inserted here, the priorTip is logically
+                        // superseded again — retiring it would be a redundant
+                        // row that adds noise to the audit log and bumps the
+                        // cache version for nothing. Remove it from the set so
+                        // the old-side pass sees the correct semantic state.
+                        if (!string.IsNullOrEmpty(sourceRel.OldRecordingId))
+                            rollback.RestoredRecordingIds.Remove(sourceRel.OldRecordingId);
                     }
                     if (!SuppressLogging)
                         ParsekLog.Warn("Rewind",

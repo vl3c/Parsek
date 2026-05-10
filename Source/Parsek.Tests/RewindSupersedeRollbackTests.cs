@@ -1198,6 +1198,94 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LiveRollback_HybridChain_CanonPreserved_SiblingOldSideRetired()
+        {
+            // Composition test: this PR's canon-preservation passes co-exist
+            // with PR #807's old-side retirement pass in the same rollback.
+            //
+            // To get BOTH a canon preservation and an old-side retirement in
+            // the same rollback, the canon's priorTip must NOT itself be a
+            // retired fork (otherwise Pass 2's fixpoint demotes the canon).
+            // Topology with two disjoint sibling sub-branches in the rewound
+            // tree:
+            //
+            //   Owner is the rewind owner (StartUT == rewindUT, stays visible).
+            //   Sibling X is in the rewound subtree; X→Y(Provisional) is a
+            //     supersede relation (so Y retires as a fork, X retires as
+            //     old-side).
+            //   Sibling A is in the rewound subtree; A→C(Immutable) is a
+            //     supersede relation (so C preserves as canon, A is hidden by
+            //     the surviving relation — NOT old-side retired because A is
+            //     not in RestoredRecordingIds).
+            //
+            // Pass 1: X→Y drops (Y Prov), A→C tentatively preserves (C Imm).
+            // Pass 2 fixpoint: pendingRetiredNewIds={Y}; A→C's Old=A ∉ {Y} →
+            //   preserve. Terminate.
+            //
+            // Apply drops: only X→Y removed. RetiredForkRecordingIds={Y}.
+            //   RestoredRecordingIds={X}.
+            //
+            // EnsureRewindRetirementsForRollback:
+            //   Pass 1 (forks={Y}): Y retires (DefaultReason).
+            //   Pass 2 (old-side={X}): X != Owner, X.StartUT > rewindUT →
+            //     retires (RewoundOutOldSideReason).
+            //
+            // Outcome: 1 drop, 2 retirements (1 fork + 1 old-side), 1 canon
+            // preservation. A→C survives in supersedes.
+            var owner = MakeRec("Owner", startUT: 0.0);
+            var x = MakeRec("X", startUT: 10.0);
+            var y = MakeRecWithMergeState("Y", startUT: 31.5, MergeState.CommittedProvisional);
+            var a = MakeRec("A", startUT: 15.0);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
+            InstallCommittedTreeForTesting("tree-hybrid", owner, x, y, a, c);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("X", "Y"),
+                    MakeRel("A", "C")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(owner.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(0.0);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(owner, 0.0);
+
+            // Only X→Y dropped (A→C preserved as canon).
+            Assert.Equal(1, dropped);
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("A", scenario.RecordingSupersedes[0].OldRecordingId);
+            Assert.Equal("C", scenario.RecordingSupersedes[0].NewRecordingId);
+            // Retirements: Y as fork (default), X as old-side. C preserved.
+            // A NOT retired — its supersede A→C survives, so A is hidden by
+            // the relation rather than by retirement.
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            var yRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "Y");
+            var xRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "X");
+            var aRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "A");
+            var cRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "C");
+            Assert.NotNull(yRetirement);
+            Assert.NotNull(xRetirement);
+            Assert.Null(aRetirement);
+            Assert.Null(cRetirement);
+            Assert.Equal(RecordingRewindRetirement.DefaultReason, yRetirement.Reason);
+            Assert.Equal(RecordingRewindRetirement.RewoundOutOldSideReason, xRetirement.Reason);
+            // Summary log captures all relevant counters.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("dropped=1") &&
+                l.Contains("retiredForks=1") &&
+                l.Contains("retiredOldSides=1") &&
+                l.Contains("skippedImmutable=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("Preserved canon fork across parent rewind") &&
+                l.Contains("rec=C"));
+        }
+
+        [Fact]
         public void LiveRollback_DemotedImmutableFork_RetirementCarriesDemotedCanonReason()
         {
             // Pass-2 demoted Immutable retirements MUST carry

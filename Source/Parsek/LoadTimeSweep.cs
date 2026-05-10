@@ -646,7 +646,20 @@ namespace Parsek
                     && string.Equals(retirement.Reason,
                         RecordingRewindRetirement.DemotedCanonReason,
                         StringComparison.Ordinal);
-                if (isImmutableTarget && !isIntentionalDemotedCanon)
+                // Old-side retirements (PR #807) target priorTips of dropped
+                // supersedes that were rewound out of existence. They are
+                // intentional and authored with RestoredRecordingId=null, so
+                // TryRestoreLegacyImmutableSupersede couldn't reconstruct
+                // anything anyway. But guard explicitly so a future Immutable
+                // priorTip (e.g. a canon Re-Fly stacked on top of another
+                // canon) doesn't get its old-side retirement swept.
+                bool isIntentionalOldSide = isImmutableTarget
+                    && string.Equals(retirement.Reason,
+                        RecordingRewindRetirement.RewoundOutOldSideReason,
+                        StringComparison.Ordinal);
+                if (isImmutableTarget
+                    && !isIntentionalDemotedCanon
+                    && !isIntentionalOldSide)
                 {
                     LegacyImmutableSupersedeRestoreResult restoreResult =
                         TryRestoreLegacyImmutableSupersede(scenario, retirement);
