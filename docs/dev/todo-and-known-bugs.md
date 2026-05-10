@@ -51,31 +51,27 @@ Phase 2 is the investigation step: capture a fresh log bundle replaying the `s14
 
 ---
 
-## Open - SegmentPhase saved value reflects start state, not end state
+## Done - SegmentPhase saved value reflects start state, not end state
 
-- After the in-place Re-Fly fork stale-inheritance fix lands, the fork's saved `SegmentPhase` reflects the live post-Strip vessel's environment at fork creation time. For a Re-Fly that takes off in atmo and stops in orbit, that's `atmo`. Stops happen via `ParsekFlight.StopRecording` (writes to `recorder.CaptureAtStop.SegmentPhase`) and `FlightRecorder.ForceStop` (does not tag `CaptureAtStop` per the explicit comment at `Source/Parsek/FlightRecorder.cs:9327` — "Intentionally does not set CaptureAtStop. Forced stops happen during scene transitions where vessel state may already be changing/unreliable"), but `FlushRecorderToTreeRecording` does not propagate `CaptureAtStop.SegmentPhase` into the tree recording — so the saved phase never reflects the recorder's stop-time state for any non-chain, non-branch recording. This is a separate latent bug that the Stage 1 fix makes more visible (once inheritance no longer hides it, every "linear flight that changes phase" recording will show its start phase, not its end phase, in the recordings table).
-- **Fix direction:** propagate `CaptureAtStop.SegmentPhase` / `SegmentBodyName` to the tree recording at flush/finalize time. Audit every `FlushRecorderToTreeRecording` call site. Also consider tagging in `RefreshActiveEffectiveLeafSnapshot` when the active leaf re-snapshots from the live vessel.
-- **Precedence constraint for Stage 2 — IMPORTANT:** the Stage 1 fork-creation tag (set in `RewindInvoker.TagForkInitialSegmentPhase`) is itself a "start tag" that Stage 2 needs to clobber when an end-state tag is available. Stage 2 must NOT just guard on `IsNullOrEmpty` (that's exactly the no-op trap that produced this whole class of bugs). The correct precedence order is roughly: chain-commit phase (unconditional) > optimizer split phase (unconditional) > end-state tag from `CaptureAtStop` at flush (unconditional, overrides start tag) > Stage 1 fork-creation start tag > inherited (REMOVED in Stage 1). Stage 2 also needs to be careful not to overwrite a chain-set phase mid-flight when the recorder's `CaptureAtStop` is from a later linear continuation.
+- Active unsplit tree leaves now persist a final endpoint `SegmentPhase`/`SegmentBodyName` instead of keeping the fork-start tag. Normal stop propagates the tagged `CaptureAtStop` phase into the active tree row using `tree.ActiveRecordingId` as the row proof (not `CaptureAtStop.RecordingId`, which is a fresh GUID). ForceStop/scene-exit finalization applies the endpoint phase after terminal orbit refresh and endpoint decision refresh, including records that already had `TerminalStateValue`. Committed chain segments and optimizer-owned non-active rows are preserved. RELATIVE sections are handled conservatively: section environment only applies when paired with terminal metadata or absolute-shadow endpoint evidence, and fallback never treats raw RELATIVE point latitude/longitude/altitude or stale start/body tags as real endpoint proof.
 
-**Status:** OPEN 2026-05-10. Separate PR. Out of scope for `fix-refly-fork-segment-phase-inheritance`.
+**Status:** DONE 2026-05-11 in `fix-segmentphase-persistence`.
 
 ---
 
-## Open - dead-code SegmentPhase tag block in `ParsekFlight.StopRecording`
+## Done - dead-code SegmentPhase tag block in `ParsekFlight.StopRecording`
 
-- `ParsekFlight.StopRecording` (`Source/Parsek/ParsekFlight.cs:9847-9869`) writes the final phase tag to `recorder.CaptureAtStop.SegmentPhase`, not to the tree recording. Since `FlushRecorderToTreeRecording` does not propagate the field, this tag never lands on disk for tree-mode recordings. It survives only because some legacy non-tree code paths read `CaptureAtStop` directly. After the in-place Re-Fly inheritance fix it becomes a more visible trap — it looks like it's tagging the saved phase but it isn't.
-- **Fix direction:** either delete the block (the chain-commit and branch-commit paths cover the live-tree path) or rewire it to also write to the active tree recording. Tracked together with the Stage 2 flush-propagation fix above.
+- The stop block now uses the shared classifier and its `CaptureAtStop` tag is consumed by `FlushRecorderToTreeRecording` for the active tree row. Scene-exit paths still do not create `CaptureAtStop`; those are covered by finalization endpoint tagging.
 
-**Status:** OPEN 2026-05-10. Separate PR. Out of scope for `fix-refly-fork-segment-phase-inheritance`.
+**Status:** DONE 2026-05-11 in `fix-segmentphase-persistence`.
 
 ---
 
-## Open - duplicated SegmentPhase classifier in three sites
+## Done - duplicated SegmentPhase classifier in three sites
 
-- `ParsekFlight.TagSegmentPhaseIfMissing` (line 3773), `ParsekFlight.StopRecording` tag block (line 9847), and `ChainSegmentManager.CommitVesselSwitchTermination` (line 773) all duplicate the same body/altitude/situation classification logic verbatim. The Stage 1 Re-Fly fork fix routes through `TagSegmentPhaseIfMissing` so it inherits any future improvement, but the three copies are a drift hazard.
-- **Fix direction:** extract a single `ClassifySegmentPhase(Vessel v, out string phase, out string body)` static helper. Borderline gold-plating; only worth doing if a fourth caller materializes or one of the three sites needs to diverge.
+- `SegmentPhaseClassifier` now centralizes live-vessel classification and environment-to-phase mapping. `ParsekFlight.TagSegmentPhaseIfMissing`, the `StopRecording` final tag block, `ChainSegmentManager.CommitVesselSwitchTermination`, and optimizer section splits share that helper.
 
-**Status:** OPEN 2026-05-10. Low priority.
+**Status:** DONE 2026-05-11 in `fix-segmentphase-persistence`.
 
 ---
 
