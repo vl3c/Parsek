@@ -799,21 +799,93 @@ namespace Parsek.Tests
         [Fact]
         public void Rollback_ThreeGenChain_TransitiveDemotion_AllNonCanonRetire()
         {
-            // A → B(Immutable) → C(Provisional) → D(Immutable). Rewind past A.
-            // Pass 1: A→B preservation, B→C drop, C→D preservation.
-            // Pass 2 iter 1: pendingRetiredNewIds={C}; A→B's Old=A (not in
-            //   set) — confirm preservation. C→D's Old=C (in set) — demote;
-            //   pendingRetiredNewIds becomes {C,D}.
-            // Pass 2 iter 2: A→B still confirmed (Old=A not in set).
-            //   Terminate.
-            // Result: A→B preserved (B stays canon). B→C dropped (C retired).
-            // C→D demoted (D retired). The transitive cascade prevents D from
-            // rendering as a second canon timeline alongside B.
+            // A → B(Provisional) → C(Immutable) → D(Immutable). Rewind past A.
             //
-            // Without the fixpoint loop, C→D would survive Pass 2 because the
-            // initial pendingRetiredNewIds was {C}-only and never updated as
-            // demotions added new retired ids.
+            // This chain is the genuine multi-iteration fixpoint case (Pass 1
+            // drop is at the START of the chain, so demotions must cascade
+            // through C and D in two iterations):
+            //   Pass 1: A→B drop (B Prov), B→C preserve (C Imm), C→D preserve (D Imm).
+            //   Pass 2 init: pendingRetiredNewIds = {B}.
+            //   Iter 1 (reverse walk):
+            //     C→D Old=C ∉ {B} — keep.
+            //     B→C Old=B ∈ {B} — demote, pendingRetiredNewIds = {B,C}.
+            //   Iter 2 (preservations now = [C→D]):
+            //     C→D Old=C ∈ {B,C} — demote, pendingRetiredNewIds = {B,C,D}.
+            //   Iter 3: empty preservations — terminate.
+            //
+            // Single-pass logic (initial pendingRetiredNewIds={B}, no update
+            // during iteration) would only demote B→C in iter 1 because the
+            // set never grows. C→D would survive as a preservation, so D
+            // would render as canon alongside the restored A — exactly the
+            // double-materialization regression PR #776/#777 fixes. The
+            // fixpoint loop is the only thing closing this gap.
+            //
+            // Critical to the chain shape: B is Provisional (the Pass-1 drop
+            // anchor), not Immutable. Putting an Immutable B + Provisional C
+            // would make C the Pass-1 drop and trivially seed
+            // pendingRetiredNewIds={C}, which collapses the cascade to a
+            // single iteration and the test no longer distinguishes
+            // single-pass from fixpoint.
             var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.CommittedProvisional);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
+            var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "A", a }, { "B", b }, { "C", c }, { "D", d }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("A", "B"),
+                MakeRel("B", "C"),
+                MakeRel("C", "D")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                a, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { a, b, c, d },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            // All three relations dropped (A→B Pass 1; B→C and C→D Pass 2
+            // demotions across two fixpoint iterations).
+            Assert.Equal(3, result.DroppedRelationCount);
+            Assert.Empty(supersedes);
+            // B Pass-1 drop. C and D both transitively demoted.
+            Assert.Contains("B", result.RetiredForkRecordingIds);
+            Assert.Contains("C", result.RetiredForkRecordingIds);
+            Assert.Contains("D", result.RetiredForkRecordingIds);
+            // No canon survives — the chain's first canon link (C) lost its
+            // priorTip (B) to a Pass-1 drop, so the entire downstream Imm
+            // tail collapses transitively.
+            Assert.Empty(result.SkippedImmutableForkRecordingIds);
+            Assert.Equal(0, result.SkippedImmutableForkCount);
+            // 2 demotions: B→C in iter 1, C→D in iter 2.
+            Assert.Equal(2, result.DemotedImmutablePreservationCount);
+            Assert.Contains("C", result.DemotedImmutablePreservationIds);
+            Assert.Contains("D", result.DemotedImmutablePreservationIds);
+            // A is the priorTip of A→B (the Pass-1 drop). After dropping +
+            // pruning retired ids, RestoredRecordingIds = {A}.
+            Assert.Contains("A", result.RestoredRecordingIds);
+        }
+
+        [Fact]
+        public void Rollback_FourGenWithCanonHead_TransitiveDemotionStopsAtCanonBoundary()
+        {
+            // A(Imm) → B(Imm) → C(Provisional) → D(Imm). Rewind past A.
+            //
+            //   Pass 1: A→B preserve, B→C drop, C→D preserve.
+            //   Pass 2 init: pendingRetiredNewIds = {C}.
+            //   Iter 1: A→B Old=A ∉ {C} — keep. C→D Old=C ∈ {C} — demote,
+            //     pendingRetiredNewIds = {C,D}.
+            //   Iter 2: A→B Old=A ∉ {C,D} — still keep. terminate.
+            //
+            // The cascade does NOT propagate through A→B because A (the
+            // owner being rewound) is not itself in the retired set — the
+            // canon head B survives. This is the correct semantic: B was
+            // sealed at a stable terminal before the user re-flew C and D;
+            // the user wants to keep B and re-do everything after.
+            var a = MakeRecWithMergeState("A", startUT: 6.5, MergeState.Immutable);
             var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
             var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.CommittedProvisional);
             var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
@@ -834,17 +906,14 @@ namespace Parsek.Tests
                 liveRecordingsById: liveById,
                 supersedes: supersedes);
 
-            // A→B preserved. B→C and C→D dropped.
+            // A→B preserved (B stays canon). B→C and C→D dropped (C Pass-1, D Pass-2).
             Assert.Equal(2, result.DroppedRelationCount);
-            Assert.Single(supersedes); // only A→B remains
+            Assert.Single(supersedes);
             Assert.Equal("A", supersedes[0].OldRecordingId);
             Assert.Equal("B", supersedes[0].NewRecordingId);
-            // B canon, C retired (Pass 1 drop), D retired (Pass 2 demoted via
-            // transitive cascade).
             Assert.Contains("B", result.SkippedImmutableForkRecordingIds);
             Assert.Contains("C", result.RetiredForkRecordingIds);
             Assert.Contains("D", result.RetiredForkRecordingIds);
-            // D was demoted from preservation; C was a Pass 1 drop.
             Assert.Equal(1, result.DemotedImmutablePreservationCount);
             Assert.Contains("D", result.DemotedImmutablePreservationIds);
             Assert.Equal(1, result.SkippedImmutableForkCount);

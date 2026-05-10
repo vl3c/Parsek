@@ -637,13 +637,24 @@ namespace Parsek
                 // the priorTip, RecordingId is the canon fork).
                 if (immutableRecordingIds.Contains(retirement.RecordingId))
                 {
-                    bool relationRestored = TryRestoreLegacyImmutableSupersede(
-                        scenario, retirement);
-                    string restoreNote = relationRestored
-                        ? "and restored supersede relation priorTip→canon "
-                        : (string.IsNullOrEmpty(retirement.RestoredRecordingId)
-                            ? "(no RestoredRecordingId in retirement metadata — supersede relation cannot be reconstructed; priorTip may render alongside canon, investigate) "
-                            : "(supersede relation already present or skipped) ");
+                    LegacyImmutableSupersedeRestoreResult restoreResult =
+                        TryRestoreLegacyImmutableSupersede(scenario, retirement);
+                    string restoreNote;
+                    switch (restoreResult)
+                    {
+                        case LegacyImmutableSupersedeRestoreResult.Restored:
+                            restoreNote = "and restored supersede relation priorTip→canon ";
+                            break;
+                        case LegacyImmutableSupersedeRestoreResult.AlreadyPresent:
+                            restoreNote = "(supersede relation already present — left intact) ";
+                            break;
+                        case LegacyImmutableSupersedeRestoreResult.MissingMetadata:
+                            restoreNote = "(no RestoredRecordingId in retirement metadata — supersede relation cannot be reconstructed; priorTip may render alongside canon, investigate) ";
+                            break;
+                        default:
+                            restoreNote = "(restore outcome=" + restoreResult.ToString() + ") ";
+                            break;
+                    }
                     ParsekLog.Warn(SupersedeTag,
                         $"Removing rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
                         $"pointing at Immutable canon recording={retirement.RecordingId} " +
@@ -683,22 +694,30 @@ namespace Parsek
             return removed;
         }
 
+        private enum LegacyImmutableSupersedeRestoreResult
+        {
+            /// <summary>Relation reconstructed from retirement metadata.</summary>
+            Restored,
+            /// <summary>Equivalent priorTip → canon relation already in scenario; left intact.</summary>
+            AlreadyPresent,
+            /// <summary>Retirement is orphan or carries no RestoredRecordingId; cannot reconstruct.</summary>
+            MissingMetadata,
+        }
+
         /// <summary>
         /// Reconstruct the priorTip → canon supersede relation that the
         /// pre-fix buggy rewind code dropped alongside writing this
-        /// retirement. Idempotent: returns false if the retirement carries no
-        /// <see cref="RecordingRewindRetirement.RestoredRecordingId"/> (orphan)
-        /// or the equivalent relation is already in
-        /// <see cref="ParsekScenario.RecordingSupersedes"/>.
+        /// retirement. Returns an outcome enum so callers can produce
+        /// distinguishable log lines for each skip cause.
         /// </summary>
-        private static bool TryRestoreLegacyImmutableSupersede(
+        private static LegacyImmutableSupersedeRestoreResult TryRestoreLegacyImmutableSupersede(
             ParsekScenario scenario, RecordingRewindRetirement retirement)
         {
             if (object.ReferenceEquals(null, scenario)
                 || retirement == null
                 || string.IsNullOrEmpty(retirement.RecordingId)
                 || string.IsNullOrEmpty(retirement.RestoredRecordingId))
-                return false;
+                return LegacyImmutableSupersedeRestoreResult.MissingMetadata;
 
             if (scenario.RecordingSupersedes == null)
                 scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
@@ -713,7 +732,7 @@ namespace Parsek
                 if (string.Equals(existing.OldRecordingId, retirement.RestoredRecordingId, StringComparison.Ordinal)
                     && string.Equals(existing.NewRecordingId, retirement.RecordingId, StringComparison.Ordinal))
                 {
-                    return false;
+                    return LegacyImmutableSupersedeRestoreResult.AlreadyPresent;
                 }
             }
 
@@ -733,7 +752,7 @@ namespace Parsek
                 UT = retirement.CreatedUT,
             };
             scenario.RecordingSupersedes.Add(restored);
-            return true;
+            return LegacyImmutableSupersedeRestoreResult.Restored;
         }
 
         // ------------------------------------------------------------------
