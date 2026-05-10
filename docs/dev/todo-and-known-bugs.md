@@ -2128,7 +2128,9 @@ and
 `ZoneRenderingTests.TryGetAbsoluteSectionPlaybackFrames_RelativeSection_ReturnsFalse`
 plus the empty-frame guard.
 
-## 626. Watch-mode W->W switches restored a stale world camera direction instead of preserving the local viewing angle
+## ~~626. Watch-mode W->W switches restored a stale world camera direction instead of preserving the local viewing angle~~
+
+**Status:** CLOSED 2026-05-10. Fixed for v0.9.1 (`4b936895` Fix watch-mode W->W switches drifting to a stale world-camera angle, PR #616).
 
 When the user clicked Watch on ghost B while watching ghost A, returned to A
 several seconds later, then re-clicked Watch on B, the camera resumed pointing
@@ -2165,7 +2167,9 @@ Regression tests in `WatchModeControllerTests`:
 - `CompensateTransferredWatchAngles_TargetRelativeStateIgnoresNewTargetRotation`
 - `CompensateTransferredWatchAngles_RawWorldDirectionStateStillProjectsForChainTransfers`
 
-## 624. Finalizer pinned a low orbit with periapsis inside atmosphere as `Orbiting`
+## ~~624. Finalizer pinned a low orbit with periapsis inside atmosphere as `Orbiting`~~
+
+**Status:** CLOSED 2026-05-10. Fixed for v0.9.0 (`263e278c` #624 Atmosphere-aware bound-orbit classifier in DetermineTerminalState).
 
 Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.
 
@@ -2255,7 +2259,9 @@ production behavior, not real engine regressions.
    propagation is approximate` and the sibling `... — epoch shift is
    approximate` warning.
 
-## 625. Recording captured zero crew because stand-ins were just deleted from roster
+## ~~625. Recording captured zero crew because stand-ins were just deleted from roster~~
+
+**Status:** CLOSED 2026-05-10. Fixed for v0.9.0 (`01e64ab7` #625 Retain live-vessel stand-ins from ApplyToRoster Step 2 deletion, PR #595).
 
 Plan: `docs/dev/plans/fix-finalizer-crew-unfinished-2026-04-26.md`.
 
