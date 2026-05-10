@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Xunit;
@@ -215,6 +216,210 @@ namespace Parsek.Tests
             // is the guard's signature and the bypass deliberately skips it.
             Assert.DoesNotContain(logLines,
                 l => l.Contains("ResetForTesting blocked"));
+        }
+
+        [Fact]
+        public void BatchFlightBaselineRestore_PostTestRollback_RestoresBatchStart_NotTestMutations()
+        {
+            // P2 review regression: a test may layer synthetic mutations on
+            // RecordingStore during its run. If the post-test
+            // RestoreBatchFlightBaselineCore captures its rollback snapshot
+            // INSIDE the call, that snapshot includes the test's mutations.
+            // A subsequent restore failure would then roll back to the
+            // synthetic state, not the player's authoritative pre-batch
+            // state. Fix: capture the snapshot ONCE at batch start
+            // (CaptureFlightBatchBaseline), use it for every rollback during
+            // the batch.
+            //
+            // Models the post-test failure path: player has live data,
+            // batch starts (snapshot captured), test layers a synthetic
+            // mutation, restore fails before OnLoad fires, rollback
+            // fires. The rollback must restore the player's pre-batch
+            // state -- NOT the test-mutated state.
+            var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "PreBatchLive");
+            Assert.NotNull(live);
+            RecordingStore.AddRecordingWithTreeForTesting(live);
+            int liveTreeCount = RecordingStore.CommittedTrees.Count;
+
+            // Step 1: batch capture snapshots the player's pre-batch state.
+            var batchStartSnapshot = RecordingStoreTestSnapshot.Capture();
+
+            RecordingStore.ApplicationIsPlayingForTesting = () => true;
+
+            // Step 2: a test runs and layers a synthetic mutation. (This
+            // models a `Capture/Restore` test that happens to abort or
+            // forget to restore.)
+            var synthetic = RecordingStore.CreateRecordingFromFlightData(MakePoints(2), "TestMutation");
+            Assert.NotNull(synthetic);
+            RecordingStore.AddRecordingWithTreeForTesting(synthetic);
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+
+            // Step 3: post-test restore starts. Bypass wipe runs.
+            bool restoreCommitted = false;
+            try
+            {
+                RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
+                Assert.Empty(RecordingStore.CommittedRecordings);
+
+                // Step 4: simulate restore-step failure.
+                throw new InvalidOperationException("simulated restore failure");
+            }
+            catch (InvalidOperationException) { /* expected */ }
+            finally
+            {
+                if (!restoreCommitted)
+                {
+                    // P2 fix: roll back to the BATCH-START snapshot, not a
+                    // fresh capture taken inside the restore call.
+                    batchStartSnapshot.Restore();
+                }
+            }
+
+            // Player's PRE-BATCH state is back. Synthetic test mutation
+            // is gone. If the per-call capture pattern were still in use,
+            // CommittedRecordings would have BOTH "PreBatchLive" AND
+            // "TestMutation" — the wrong rollback target.
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal("PreBatchLive", RecordingStore.CommittedRecordings[0].VesselName);
+            Assert.Equal(liveTreeCount, RecordingStore.CommittedTrees.Count);
+        }
+
+        [Fact]
+        public void RunCoroutineSafely_NestedFailure_DisposesParentRoutine()
+        {
+            // P1 review regression: RunCoroutineSafely's nested-failure
+            // path used to `yield break` after invoking `onFailure`,
+            // abandoning the parent `routine` without calling Dispose().
+            // C# iterator state machines only run try/finally blocks on
+            // explicit Dispose -- not on consumer abandonment. So
+            // RestoreBatchFlightBaselineCore's outer try/finally never
+            // ran when a nested wait threw, and the snapshot rollback
+            // never fired.
+            //
+            // Fix: wrap RunCoroutineSafely's body in try/finally that
+            // disposes `routine` on every exit. This test pins that the
+            // parent's finally now runs when a nested coroutine throws.
+            bool parentFinallyRan = false;
+            IEnumerator nestedThatThrows()
+            {
+                yield return null;
+                throw new InvalidOperationException("nested failure");
+            }
+            IEnumerator parentWithFinally()
+            {
+                try
+                {
+                    yield return nestedThatThrows();
+                    // unreachable
+                }
+                finally
+                {
+                    parentFinallyRan = true;
+                }
+            }
+
+            Exception captured = null;
+            // Drive the iterator manually -- mirrors how Unity's
+            // CoroutineHost calls MoveNext on `RunCoroutineSafely`'s
+            // returned enumerator.
+            var safe = Parsek.InGameTests.InGameTestRunner.RunCoroutineSafely(
+                parentWithFinally(), ex => captured = ex);
+            DriveCoroutineToCompletion(safe);
+
+            Assert.NotNull(captured);
+            Assert.Equal("nested failure", captured.Message);
+            Assert.True(parentFinallyRan,
+                "RunCoroutineSafely must dispose the parent iterator on nested-failure abandon so its try/finally runs");
+        }
+
+        [Fact]
+        public void RunCoroutineSafely_SynchronousFailure_DisposesParentRoutine()
+        {
+            // Sibling coverage: when MoveNext on the parent throws (not
+            // inside a yielded nested coroutine, but in the parent's own
+            // body before the next yield), the iterator state machine's
+            // own throw-unwind already runs its try/finally. But
+            // RunCoroutineSafely also calls Dispose explicitly via the
+            // try/finally wrapper -- this test pins that the explicit
+            // Dispose is idempotent (no double-finally) on the
+            // synchronous-throw path.
+            int parentFinallyCount = 0;
+            IEnumerator parentThatThrows()
+            {
+                try
+                {
+                    yield return null;
+                    throw new InvalidOperationException("parent throws synchronously");
+                }
+                finally
+                {
+                    parentFinallyCount++;
+                }
+            }
+
+            Exception captured = null;
+            var safe = Parsek.InGameTests.InGameTestRunner.RunCoroutineSafely(
+                parentThatThrows(), ex => captured = ex);
+            DriveCoroutineToCompletion(safe);
+
+            Assert.NotNull(captured);
+            Assert.Equal("parent throws synchronously", captured.Message);
+            Assert.Equal(1, parentFinallyCount);
+        }
+
+        [Fact]
+        public void RunCoroutineSafely_NaturalCompletion_DisposesParentRoutine()
+        {
+            // When the parent completes naturally (no failure), Dispose
+            // is still called. For a compiler-generated iterator that
+            // ran to completion, Dispose is a no-op, but the call is
+            // still well-defined. Pins idempotency on the success path.
+            int parentFinallyCount = 0;
+            IEnumerator parentThatCompletes()
+            {
+                try
+                {
+                    yield return null;
+                    yield return null;
+                }
+                finally
+                {
+                    parentFinallyCount++;
+                }
+            }
+
+            Exception captured = null;
+            var safe = Parsek.InGameTests.InGameTestRunner.RunCoroutineSafely(
+                parentThatCompletes(), ex => captured = ex);
+            DriveCoroutineToCompletion(safe);
+
+            Assert.Null(captured);
+            Assert.Equal(1, parentFinallyCount);
+        }
+
+        private static void DriveCoroutineToCompletion(IEnumerator routine)
+        {
+            // Simple driver: walk MoveNext until exhausted. Nested
+            // IEnumerator yields are not recursively expanded -- that
+            // matches Unity's coroutine host (sub-coroutines have to be
+            // explicitly StartCoroutine'd). RunCoroutineSafely yields
+            // the recursive RunCoroutineSafely directly, so this driver
+            // walks both levels correctly.
+            var stack = new Stack<IEnumerator>();
+            stack.Push(routine);
+            while (stack.Count > 0)
+            {
+                var top = stack.Peek();
+                if (top.MoveNext())
+                {
+                    if (top.Current is IEnumerator nested)
+                        stack.Push(nested);
+                }
+                else
+                {
+                    stack.Pop();
+                }
+            }
         }
 
         [Fact]

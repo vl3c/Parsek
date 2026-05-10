@@ -87,6 +87,20 @@ namespace Parsek.InGameTests
             public Guid ActiveVesselId;
             public string ActiveVesselName;
             public Vessel.Situations ActiveVesselSituation;
+            // P2 review fix: snapshot the live RecordingStore state at batch
+            // capture time, BEFORE any test runs. This is the rollback
+            // target for RestoreBatchFlightBaselineCore's fail-closed path.
+            // Per-attempt snapshots from inside the restore call were
+            // correct for the pre-prime path (RecordingStore is still in
+            // the player's pre-batch state) but WRONG for the post-test
+            // path (the just-executed test may have layered synthetic
+            // mutations on top of the player's data; rolling back would
+            // preserve those mutations rather than the batch baseline).
+            // One snapshot at batch capture time, used for every rollback
+            // during the batch, gives consistent recovery to the player's
+            // pre-batch state regardless of which test triggered the
+            // restore.
+            public RecordingStoreTestSnapshot RecordingStoreSnapshot;
         }
 
         internal sealed class StagedBatchFlightParsekSaveSnapshot : IDisposable
@@ -729,7 +743,14 @@ namespace Parsek.InGameTests
                         : 0,
                     ActiveVesselId = vessel.id,
                     ActiveVesselName = vessel.vesselName,
-                    ActiveVesselSituation = vessel.situation
+                    ActiveVesselSituation = vessel.situation,
+                    // P2 review fix: capture the live RecordingStore state
+                    // at batch start, before any test mutates it. This is
+                    // the rollback target for RestoreBatchFlightBaselineCore's
+                    // fail-closed path. Cheap: shallow copies of the four
+                    // list/slot references plus the auto-assigned-groups
+                    // dict.
+                    RecordingStoreSnapshot = RecordingStoreTestSnapshot.Capture()
                 };
             }
             catch
@@ -1016,26 +1037,27 @@ namespace Parsek.InGameTests
             // from disk via OnLoad. But if any step between the wipe and
             // OnLoad firing throws -- TriggerQuickload (missing/empty
             // baseline slot, null Game / null flightState / null protoVessels,
-            // invalid activeVesselIdx) or WaitForFlightReady (timeout) --
-            // the player's live in-memory recordings have been wiped with
-            // no recovery path, reopening the exact data-loss class the
-            // ResetForTesting guard exists to prevent.
+            // invalid activeVesselIdx) or any of the WaitFor* coroutines
+            // (timeout) -- the player's live in-memory recordings have been
+            // wiped with no recovery path, reopening the exact data-loss
+            // class the ResetForTesting guard exists to prevent.
             //
-            // Capture a snapshot of the live RecordingStore state BEFORE the
-            // bypass wipe runs. On any failure path -- exception out of
-            // ActivateStagedBatchFlightBaselineRestore, TriggerQuickload, or
-            // WaitForFlightReady -- the finally block restores the snapshot
-            // so the player's in-memory state matches the .sfs they had
-            // before the failed test. After WaitForFlightReady completes
-            // OnLoad has fired and replaced RecordingStore with the baseline
-            // save's contents; we still leave restoreCommitted=false until
-            // the full restore chain succeeds, so subsequent failures still
-            // roll back. The post-OnLoad rollback is functionally redundant
-            // (the snapshot is the player's pre-test state which equals the
-            // baseline save), but it is harmlessly idempotent and the
-            // simpler invariant ("any failure restores live state") is
-            // worth more than the saved cycles.
-            var preWipeSnapshot = RecordingStoreTestSnapshot.Capture();
+            // Use the snapshot captured at batch start
+            // (CaptureFlightBatchBaseline) -- NOT a fresh per-call capture.
+            // For the pre-prime call the two are equivalent (the player's
+            // pre-batch state == current state), but for the post-test
+            // call the just-run test may have left synthetic mutations
+            // in RecordingStore. Rolling back to those mutations on
+            // restore failure would preserve test fixture state instead
+            // of the player's authoritative pre-batch state. The single
+            // batch-start snapshot is the correct rollback target for
+            // every restore attempt during the batch.
+            //
+            // Pair with the iterator-disposal fix in RunCoroutineSafely
+            // -- without that, this finally never runs when a nested
+            // wait throws, because RunCoroutineSafely abandons the parent
+            // routine without disposing it.
+            RecordingStoreTestSnapshot preWipeSnapshot = baseline?.RecordingStoreSnapshot;
             bool restoreCommitted = false;
             try
             {
@@ -1061,12 +1083,12 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                if (!restoreCommitted)
+                if (!restoreCommitted && preWipeSnapshot != null)
                 {
                     preWipeSnapshot.Restore();
                     ParsekLog.Warn(Tag,
                         "Batch FLIGHT baseline restore did not complete; rolled RecordingStore "
-                        + "back to pre-wipe snapshot to recover live data "
+                        + "back to batch-start snapshot to recover live data "
                         + "(committedRecordings=" + preWipeSnapshot.CommittedRecordingCount
                         + ", committedTrees=" + preWipeSnapshot.CommittedTreeCount
                         + ", hasPendingTree=" + preWipeSnapshot.HasPendingTree
@@ -1356,36 +1378,58 @@ namespace Parsek.InGameTests
             if (routine == null)
                 yield break;
 
-            while (true)
+            // P1 review fix: every yield-break path below abandons `routine`.
+            // C# iterator state machines do not run try/finally blocks just
+            // because the consumer stops iterating -- only an explicit
+            // Dispose() unwinds the suspended state. RestoreBatchFlightBaselineCore
+            // relies on its outer try/finally to roll RecordingStore back when
+            // a nested wait throws (TriggerQuickload skip, WaitForFlightReady
+            // timeout); without disposing the parent iterator here, that
+            // finally never runs and the player's live in-memory data stays
+            // wiped. Wrap the body so EVERY exit path disposes `routine`.
+            try
             {
-                bool hasNext;
-                try
+                while (true)
                 {
-                    hasNext = routine.MoveNext();
-                }
-                catch (Exception ex)
-                {
-                    onFailure?.Invoke(ex);
-                    yield break;
-                }
-
-                if (!hasNext)
-                    yield break;
-
-                if (routine.Current is IEnumerator nestedRoutine)
-                {
-                    Exception nestedFailure = null;
-                    yield return RunCoroutineSafely(nestedRoutine, ex => nestedFailure = ex);
-                    if (nestedFailure != null)
+                    bool hasNext;
+                    try
                     {
-                        onFailure?.Invoke(nestedFailure);
+                        hasNext = routine.MoveNext();
+                    }
+                    catch (Exception ex)
+                    {
+                        onFailure?.Invoke(ex);
                         yield break;
                     }
 
-                    continue;
-                }
+                    if (!hasNext)
+                        yield break;
 
-                yield return routine.Current;
+                    if (routine.Current is IEnumerator nestedRoutine)
+                    {
+                        Exception nestedFailure = null;
+                        yield return RunCoroutineSafely(nestedRoutine, ex => nestedFailure = ex);
+                        if (nestedFailure != null)
+                        {
+                            onFailure?.Invoke(nestedFailure);
+                            yield break;
+                        }
+
+                        continue;
+                    }
+
+                    yield return routine.Current;
+                }
+            }
+            finally
+            {
+                // Dispose is idempotent on compiler-generated iterator state
+                // machines; safe to call after natural completion (`!hasNext`),
+                // after the synchronous-throw path, and after the
+                // nested-failure path. The cast handles non-generic
+                // IEnumerator that may or may not implement IDisposable
+                // (compiler-generated iterators always do).
+                (routine as IDisposable)?.Dispose();
             }
         }
 
