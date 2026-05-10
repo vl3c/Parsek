@@ -18,7 +18,9 @@ Keep PR #811's playback guard. Existing saves and retained user recordings can a
 
 ## Evidence To Preserve
 
-Retained bundle: `logs/2026-05-10_1713`.
+Retained bundle in this workspace: `C:\Users\vlad3\Documents\Code\Parsek\logs\2026-05-10_1713`.
+
+This path is outside the plan worktree. It is the retained log bundle already present in the local workspace, not the `../logs/` output path that `scripts/collect-logs.py` uses for new captures.
 
 The affected recordings are all v12 debris and all carry `DebrisParentRecordingId = 1354326de29a4af2891c52f151995c79`:
 
@@ -67,6 +69,8 @@ Other sites that close loaded background sections with a wall-clock UT must shar
 | `FlushLoadedStateForOnRailsTransition` | Medium. It closes loaded Relative state at transition UT and sets `flushRec.ExplicitEndUT = ut`. | Normalize before appending boundary points and avoid extending parent-anchored debris Relative coverage without a terminal sample. |
 | Environment / anchor transitions inside loaded background sampling | Lower. They close on the same physics-frame UT that is near an authored sample, but still use the common close helper. | Rely on the shared normalizer rather than per-site special cases. |
 
+On-rails background state is not a producer for this specific stale Relative-tail shape because on-rails vessels do not emit env-classified Relative `TrackSection` payloads. The invariant still needs to protect transition and finalization paths that move from loaded Relative state into on-rails or commit/end metadata.
+
 There is also a finalizer-side amplifier:
 
 `RecordingFinalizationCacheApplier.TryGetLastAuthoredUT` currently treats `section.endUT` as authored when the section has payload. For stale v12 Relative debris, that is exactly the false premise. If a bad section reaches the applier before normalization, terminal acceptance can be based on metadata rather than authored renderable data. The follow-up should harden this helper or ensure every applier caller runs the normalizer first.
@@ -104,9 +108,9 @@ Fail-closed empty case: a v12 parent-anchored debris Relative section with no Re
 
 ## Proposed Implementation
 
-### Phase 0: Pin The Producer With A Retained-Data Audit
+### Phase 0: One-Time Retained-Data Verification
 
-Before changing behavior, add a focused audit utility or test helper that can load the four retained `.prec.txt` files and print one row per Relative section:
+The producer path is already strongly identified above. Before changing behavior, optionally run a throwaway local audit helper against the four retained `.prec.txt` files to confirm the exact sidecar rows:
 
 ```text
 recordingId
@@ -122,23 +126,47 @@ terminalState
 terminalUT when present
 ```
 
-This does not need to become a permanent user-facing tool. The permanent regression should be synthetic, but this audit should be run once against `logs/2026-05-10_1713` to confirm which close path wrote the first mismatch.
+Do not land the retained log files or the throwaway audit as permanent test input unless a reviewer explicitly asks for it. The permanent CI regression should be synthetic and compact. The audit is verification evidence, not a prerequisite design step.
 
 Expected output for the four known recordings: one Relative section each, `section.endUT` later than both frame tails by about 28-31s.
 
 ### Phase 1: Extract A Shared Authored-Coverage Helper
 
-Add a recorder-safe helper separate from render side effects, for example:
+Add shared frame-list primitives, then keep recorder and playback faces separate so the engine does not gain `Recording` references:
 
 ```csharp
-internal static class DebrisRelativeSectionCoverage
+internal enum DebrisRelativeCoverageMode
 {
-    internal static bool IsParentAnchoredDebris(Recording rec);
-    internal static bool TryGetRenderableCoverageEndUT(
-        Recording rec,
-        TrackSection section,
+    PlaybackCompatible,
+    RecorderPersistable
+}
+
+internal static class DebrisRelativeCoveragePrimitives
+{
+    internal static bool RelativeFramesCoverUT(
+        IList<TrajectoryPoint> frames,
+        double sectionStartUT,
+        double sectionEndUT,
+        double targetUT,
+        DebrisRelativeCoverageMode mode);
+
+    internal static bool AbsoluteShadowFramesCoverUT(
+        IList<TrajectoryPoint> frames,
+        double targetUT);
+
+    internal static bool TryGetCoverageEndUT(
+        IList<TrajectoryPoint> relativeFrames,
+        IList<TrajectoryPoint> absoluteFrames,
+        double sectionStartUT,
+        double sectionEndUT,
+        DebrisRelativeCoverageMode mode,
         out double coverageEndUT,
         out string reason);
+}
+
+internal static class DebrisRelativeRecorderPolicy
+{
+    internal static bool IsParentAnchoredDebris(Recording rec);
 
     internal static ParentAnchoredDebrisTailNormalizationResult
         NormalizeParentAnchoredRelativeSections(
@@ -146,6 +174,8 @@ internal static class DebrisRelativeSectionCoverage
             string context);
 }
 ```
+
+`DebrisRelativePlaybackPolicy` should remain the `IPlaybackTrajectory`-based playback face and delegate only to the primitive list/range helpers where useful. `GhostPlaybackEngine` must stay `Recording`-free.
 
 Implementation details:
 
@@ -161,8 +191,15 @@ Implementation details:
 - Because `TrackSection` is a struct, write any mutated section back into the list by index.
 - Mark files dirty, refresh cached stats, and rerun `RecordingEndpointResolver.RefreshEndpointDecision(...)` only when a mutation occurs.
 - Emit one aggregate `ParsekLog.Warn("BgRecorder", ...)` per recording/context when normalization mutates anything. Include `recordingId`, `context`, `clampedSections`, `droppedSections`, old/new section end, relative range, shadow range, and `DebrisParentRecordingId`.
+- Use this canonical warning shape so log tests and live grep agree:
+
+```text
+ParentAnchoredDebrisTailNormalize rec={recordingId} context={context} clamped={clampedSections} dropped={droppedSections} oldEnd={oldEnd:R} newEnd={newEnd:R} relTail={relativeTail:R} shadowTail={shadowTail:R} parentRec={DebrisParentRecordingId}
+```
 
 If PR #811 has already landed, consider moving its private frame coverage functions into this shared helper and making `DebrisRelativePlaybackPolicy` delegate to it. Avoid letting playback and recorder use slightly different definitions of "authored coverage."
+
+Do not fold `RelativeAnchorResolver.PointListCoversUT` into this helper. The resolver answers a different question: whether a child relative pose is resolvable at a UT. This plan's helper answers whether a recording has a renderable surface or a recorder-persistable section end. Similar single-frame mechanics are intentional but should stay separately named.
 
 ### Phase 2: Apply At Recorder Choke Points
 
@@ -181,6 +218,7 @@ Explicit end rule:
 - Clamp `Recording.ExplicitEndUT` only when the stale Relative section is the latest renderable payload and there is no later valid non-relative section, checkpoint, or accepted orbit tail.
 - Do not treat flat-only `Recording.Points` as later valid payload for v12 parent-anchored debris once the active Relative/shadow coverage has ended. If such a point is intended to keep the debris visible, first convert it into an explicit renderable surface.
 - Preserve `TerminalStateValue` and terminal metadata as outcome metadata. The ghost should disappear at the last trustworthy pose if there is no terminal pose sample.
+- The recordings table should continue using terminal state for the outcome badge while the span/end UT reflects the last renderable pose. Destroyed FX for a no-pose late terminal should be anchored to the last renderable pose or suppressed by retirement, not played at an unreachable metadata-only UT.
 - If a terminal event must visually occur at a later UT, the recorder must append a real terminal pose instead of stretching metadata.
 
 ### Phase 3: Harden Finalizer Last-Authored UT
@@ -200,12 +238,12 @@ This prevents the finalizer from accepting or rejecting terminal caches based on
 
 ### Phase 4: Tests
 
-Add focused xUnit tests first. Suggested files:
+Add focused xUnit tests first. Extend existing files where they already cover the path; add a new file only for the shared coverage helper:
 
-- `Source/Parsek.Tests/DebrisRelativeSectionCoverageTests.cs`
-- `Source/Parsek.Tests/BackgroundTrackSectionTests.cs`
-- `Source/Parsek.Tests/RecordingFinalizationCacheTests.cs`
-- `Source/Parsek.Tests/RecordingStorageRoundTripTests.cs`
+- Add `Source/Parsek.Tests/DebrisRelativeSectionCoverageTests.cs` or similarly named helper tests.
+- Extend `Source/Parsek.Tests/BackgroundTrackSectionTests.cs`.
+- Extend `Source/Parsek.Tests/RecordingFinalizationCacheTests.cs`.
+- Extend `Source/Parsek.Tests/RecordingStorageRoundTripTests.cs`.
 
 Coverage checklist:
 
@@ -260,7 +298,7 @@ Do not close or restart KSP from the agent session. If KSP locks copied DLLs, lo
 The implementation PR should update docs in the same behavior-changing commit:
 
 - `CHANGELOG.md`: add a concise bullet that new v12 parent-anchored debris recordings no longer persist Relative section metadata beyond authored Relative/shadow payload.
-- `docs/dev/todo-and-known-bugs.md`: extend the closed "v12 parent-anchored debris section metadata outlived authored frames" entry with a follow-up paragraph explaining that PR #811 fixed playback and this PR fixes the recorder-side producer invariant.
+- `docs/dev/todo-and-known-bugs.md`: update the existing closed "v12 parent-anchored debris section metadata outlived authored frames" entry under the same `## Done` header with a follow-up paragraph explaining that PR #811 fixed playback and this PR fixes the recorder-side producer invariant. Do not create a new open entry or reopen the closed history.
 - `.claude/CLAUDE.md` and `AGENTS.md`: add one recorder gotcha: when closing/persisting v12 parent-anchored debris Relative sections, section end must be derived from authored Relative/shadow coverage unless a real terminal pose sample is appended.
 
 ## Out Of Scope
@@ -270,7 +308,7 @@ The implementation PR should update docs in the same behavior-changing commit:
 - Do not remove PR #811's playback retirement guard.
 - Do not mutate existing user saves on load.
 - Do not synthesize duplicated endpoint samples at later UTs.
-- Do not solve the separate wide-debris-bracket optimization from the always-shadow follow-up unless the same helper naturally exposes a low-risk cleanup.
+- Do not solve the separate wide-debris-bracket optimization from the always-shadow follow-up (`docs/dev/plans/debris-always-shadow.md`) unless the same helper naturally exposes a low-risk cleanup.
 
 ## Risk Notes
 
