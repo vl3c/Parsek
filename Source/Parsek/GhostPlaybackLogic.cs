@@ -2133,9 +2133,13 @@ namespace Parsek
             ref bool visibilityChanged,
             ref bool needsReentryMeshRebuild)
         {
-            StopEngineFxForPart(state, evt.partPersistentId);
-            StopRcsFxForPart(state, evt.partPersistentId);
-            StopAudioForPart(state, evt.partPersistentId);
+            // The decoupled subtree's parts are about to become a separate debris
+            // recording with its own AudioSources. The parent ghost's per-pid
+            // AudioGhostInfo / EngineGhostInfo / RcsGhostInfo entries for those parts
+            // would otherwise keep playing, because audio sources get reanchored to the
+            // ghost's cameraPivot at spawn (AttachGhostAudioToWatchPivot) — hiding the
+            // part visual no longer takes the audio with it. Walk the whole subtree.
+            StopFxAndAudioForSubtree(state, evt.partPersistentId, tree);
             ApplyHeatState(state, evt, HeatLevel.Cold);
             if (allowTransientEffects)
                 SpawnPartPuffAtPart(ghost, evt.partPersistentId);
@@ -2151,6 +2155,68 @@ namespace Parsek
             }
             visibilityChanged = true;
             needsReentryMeshRebuild = true;
+        }
+
+        /// <summary>
+        /// Walks the part-tree subtree rooted at <paramref name="rootPid"/> and returns
+        /// every pid reachable through it (root + descendants). Pure logic: no Unity
+        /// dependencies, safe to call from xUnit. If <paramref name="tree"/> is null
+        /// only the root pid is returned, matching HidePartSubtree's null-tree
+        /// fallback.
+        /// </summary>
+        internal static List<uint> CollectSubtreePids(
+            uint rootPid, Dictionary<uint, List<uint>> tree)
+        {
+            var result = new List<uint>();
+            var stack = new Stack<uint>();
+            stack.Push(rootPid);
+            while (stack.Count > 0)
+            {
+                uint pid = stack.Pop();
+                result.Add(pid);
+                if (tree == null) continue;
+                List<uint> children;
+                if (tree.TryGetValue(pid, out children))
+                {
+                    for (int i = 0; i < children.Count; i++)
+                        stack.Push(children[i]);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Walks the part-tree subtree rooted at <paramref name="rootPid"/> and stops
+        /// engine FX, RCS FX, and ghost audio for every pid in the subtree. Used by
+        /// Decoupled events so the parent ghost's per-pid FX/audio entries for parts
+        /// that are physically gone (and now belong to a separate debris recording)
+        /// stop emitting on the parent. The single-pid Stop helpers were not enough:
+        /// HidePartSubtree hides every descendant of the decoupler, but FX and audio
+        /// dictionaries are keyed by part pid, so a child engine's plume/audio survived
+        /// the decouple and kept playing under the parent's cameraPivot until the
+        /// parent ghost itself was destroyed.
+        ///
+        /// Touches Unity APIs through the per-pid Stop helpers so it cannot be
+        /// invoked from xUnit (`System.Security.SecurityException : ECall methods
+        /// must be packaged into a system module.`). The pure-walk logic is exposed
+        /// via <see cref="CollectSubtreePids"/> for unit testing; the integrated
+        /// audio-stop behavior is covered by in-game tests.
+        /// </summary>
+        internal static void StopFxAndAudioForSubtree(
+            GhostPlaybackState state, uint rootPid, Dictionary<uint, List<uint>> tree)
+        {
+            if (state == null) return;
+            var pids = CollectSubtreePids(rootPid, tree);
+            for (int i = 0; i < pids.Count; i++)
+            {
+                StopEngineFxForPart(state, pids[i]);
+                StopRcsFxForPart(state, pids[i]);
+                StopAudioForPart(state, pids[i]);
+            }
+            if (pids.Count > 1)
+                ParsekLog.VerboseRateLimited("GhostAudio", $"subtree-fx-stop-{rootPid}",
+                    $"Stopped FX/audio for decoupled subtree rooted at pid={rootPid}: {pids.Count} pid(s)",
+                    5.0);
         }
 
         private static void ApplyDestroyedPartEvent(
