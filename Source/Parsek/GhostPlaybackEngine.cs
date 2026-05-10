@@ -1172,7 +1172,10 @@ namespace Parsek
                 && !TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     i, traj, state, visiblePlaybackUT, "GhostPlaybackEngine.RenderInRangeGhost"))
             {
-                bool orbitTailPlayback = ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
+                bool preferAuthoredGapShadow =
+                    ShouldPreferAuthoredFrameGapShadowOverOrbitTail(traj, visiblePlaybackUT);
+                bool orbitTailPlayback =
+                    !preferAuthoredGapShadow && ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
 
                 if (hasInterpolatedPoints)
                 {
@@ -5254,7 +5257,20 @@ namespace Parsek
                     "GhostPlaybackEngine.PositionLoadedGhostAtPlaybackUT"))
                 return;
 
-            if (ShouldUseOrbitTailPlayback(traj, playbackUT))
+            bool preferAuthoredGapShadow =
+                ShouldPreferAuthoredFrameGapShadowOverOrbitTail(traj, playbackUT);
+            if (preferAuthoredGapShadow
+                && TryRouteAuthoredFrameGapToShadow(
+                    index,
+                    traj,
+                    state,
+                    playbackUT,
+                    "loaded-direct-authored-frame-gap-shadow"))
+            {
+                return;
+            }
+
+            if (!preferAuthoredGapShadow && ShouldUseOrbitTailPlayback(traj, playbackUT))
             {
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
                 return;
@@ -5304,6 +5320,16 @@ namespace Parsek
             IPlaybackTrajectory traj, double playbackUT)
         {
             return TryFindOrbitTailPlaybackSegment(traj, playbackUT, out _, out _);
+        }
+
+        internal static bool ShouldPreferAuthoredFrameGapShadowOverOrbitTail(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            return DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+                && diagnostic.AbsoluteFramesCoverUT;
         }
 
         internal const double PredictedOrbitTailBridgeMaxGapSeconds = 0.5;

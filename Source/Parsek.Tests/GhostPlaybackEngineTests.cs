@@ -911,6 +911,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldPreferAuthoredFrameGapShadowOverOrbitTail_ShadowCoveredGapWithOrbitTail_ReturnsTrue()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 130.0 },
+            };
+            traj.TrackSections[0] = section;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 111.0,
+                endUT = 140.0,
+                bodyName = "Kerbin",
+            });
+
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 120.0));
+            Assert.True(GhostPlaybackEngine.ShouldPreferAuthoredFrameGapShadowOverOrbitTail(
+                traj, 120.0));
+        }
+
+        [Fact]
         public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_LiveAnchorLoopDebris_ReturnsFalse()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
