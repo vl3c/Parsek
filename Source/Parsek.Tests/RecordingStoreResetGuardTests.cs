@@ -351,10 +351,18 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(synthetic);
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
 
-            // Step 3: post-test restore starts. Bypass wipe runs.
+            // Step 3: post-test restore starts. The onWipeStart callback
+            // (round-6 fix) arms wipePerformed at the destructive
+            // boundary, immediately before RecordingStore is wiped. Then
+            // the bypass clear runs and a later reset throws.
             bool restoreCommitted = false;
+            bool wipePerformed = false;
             try
             {
+                // Round-6: wipePerformed is set by PrepareForIsolatedBatchFlightBaselineRestore's
+                // onWipeStart callback right before the first destructive
+                // reset. Modeled inline here.
+                wipePerformed = true;
                 RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
                 Assert.Empty(RecordingStore.CommittedRecordings);
 
@@ -364,7 +372,7 @@ namespace Parsek.Tests
             catch (InvalidOperationException) { /* expected */ }
             finally
             {
-                if (!restoreCommitted)
+                if (!restoreCommitted && wipePerformed)
                 {
                     // P2 fix: roll back to the BATCH-START snapshot, not a
                     // fresh capture taken inside the restore call.
@@ -379,6 +387,105 @@ namespace Parsek.Tests
             Assert.Single(RecordingStore.CommittedRecordings);
             Assert.Equal("PreBatchLive", RecordingStore.CommittedRecordings[0].VesselName);
             Assert.Equal(liveTreeCount, RecordingStore.CommittedTrees.Count);
+        }
+
+        [Fact]
+        public void BatchFlightBaselineRestore_PartialPrepWipeFailure_RollsBackRecordingStore()
+        {
+            // P2 (round 6) review regression: PrepareForIsolatedBatchFlightBaselineRestore
+            // calls eight Reset functions in sequence. The first reset
+            // (RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard)
+            // wipes RecordingStore; the seven later resets clear other
+            // save-scoped stores. If any LATER reset throws after
+            // RecordingStore was already wiped, the round-5 design that
+            // set wipePerformed=true only AFTER the helper returned would
+            // skip the rollback even though RecordingStore was cleared --
+            // leaving the player with empty in-memory recordings until a
+            // manual F9.
+            //
+            // Round-6 fix: PrepareForIsolatedBatchFlightBaselineRestore
+            // gained an onWipeStart callback invoked IMMEDIATELY before
+            // the first destructive reset. The runner sets wipePerformed=true
+            // inside the callback so the flag flips at the actual
+            // destructive boundary. A throw at-or-after that boundary
+            // (including a partial-helper failure) arms the rollback.
+            //
+            // Models the partial-prep-failure path: player has live
+            // data, batch starts (snapshot captured), test layers a
+            // mutation, prep helper runs, RecordingStore wipe succeeds,
+            // a later reset throws.
+            var live = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "PreBatchLive");
+            Assert.NotNull(live);
+            RecordingStore.AddRecordingWithTreeForTesting(live);
+
+            // Step 1: batch capture snapshots the player's pre-batch state.
+            var batchStartSnapshot = RecordingStoreTestSnapshot.Capture();
+
+            RecordingStore.ApplicationIsPlayingForTesting = () => true;
+
+            // Step 2: a test runs and layers a synthetic mutation.
+            var synthetic = RecordingStore.CreateRecordingFromFlightData(MakePoints(2), "TestMutation");
+            Assert.NotNull(synthetic);
+            RecordingStore.AddRecordingWithTreeForTesting(synthetic);
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+
+            // Step 3: restore runs the prep helper. Models its internal
+            // sequence inline: onWipeStart callback fires (arms
+            // wipePerformed), RecordingStore reset succeeds, a later
+            // reset throws.
+            bool restoreCommitted = false;
+            bool wipePerformed = false;
+            try
+            {
+                // Helper: unsubscribe + flag flips first (cannot throw on
+                // pure assignments; not modeled).
+                // Helper: onWipeStart callback fires NOW, IMMEDIATELY
+                // before the first destructive reset. This is the round-6
+                // fix point.
+                Action onWipeStart = () => wipePerformed = true;
+                onWipeStart();
+
+                // Helper: first destructive reset succeeds.
+                RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
+                Assert.Empty(RecordingStore.CommittedRecordings);
+
+                // Helper: simulate a later reset (e.g.
+                // GroupHierarchyStore.ResetForTesting,
+                // CrewReservationManager.ResetReplacementsForTesting,
+                // GameStateStore.ResetForTesting, etc.) misbehaving. Any
+                // of those throwing after RecordingStore was wiped
+                // exposes the round-5 gap: pre-fix, wipePerformed was
+                // only set true AFTER the helper returned, so the
+                // finally would have taken the no-rollback branch.
+                throw new InvalidOperationException(
+                    "simulated GroupHierarchyStore.ResetForTesting throw");
+            }
+            catch (InvalidOperationException) { /* expected */ }
+            finally
+            {
+                // Round-6 contract: rollback fires when wipePerformed is
+                // true, regardless of whether the throw happened during
+                // the helper or after it. The onWipeStart arm-point makes
+                // the partial-helper failure indistinguishable from any
+                // other post-wipe failure to this finally.
+                if (!restoreCommitted && wipePerformed)
+                {
+                    batchStartSnapshot.Restore();
+                }
+            }
+
+            // Pre-fix behavior (round-5): wipePerformed=false (helper
+            // never returned), the finally would have taken the
+            // no-rollback branch, RecordingStore would now be empty
+            // (wiped by the bypass clear, never restored).
+            //
+            // Post-fix behavior (round-6): wipePerformed=true (set by
+            // onWipeStart inside the helper), the finally fires Restore(),
+            // RecordingStore is back to BATCH-START (PreBatchLive only).
+            // TestMutation is correctly gone -- it was never in the
+            // batch-start snapshot.
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal("PreBatchLive", RecordingStore.CommittedRecordings[0].VesselName);
         }
 
         [Fact]
@@ -421,23 +528,26 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(synthetic);
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
 
-            // Step 3: restore starts but fails BEFORE the wipe (e.g.
-            // ValidateQuicksaveStructure throwing on a missing/corrupt
-            // .sfs, or LoadAndValidateGameForQuickload throwing on a
-            // structurally valid but Game-realisation-failing save).
+            // Step 3: restore starts but fails BEFORE reaching the prep
+            // helper (e.g. ValidateQuicksaveStructure throwing on a
+            // missing/corrupt .sfs, or LoadAndValidateGameForQuickload
+            // throwing on a structurally valid but Game-realisation-failing
+            // save). The prep helper's onWipeStart callback never fires
+            // because the helper itself is never called.
             bool restoreCommitted = false;
             bool wipePerformed = false;
             try
             {
-                // Pre-wipe failure: validation throws. The bypass wipe
-                // (RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard)
-                // would normally run AFTER this point and would set
-                // wipePerformed=true, but never reaches it.
+                // Pre-wipe failure: validation throws. The prep helper
+                // (which would have invoked onWipeStart -> wipePerformed=true,
+                // then RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard)
+                // is never reached.
                 throw new InvalidOperationException(
                     "simulated pre-wipe failure (e.g. ValidateQuicksaveStructure throw)");
 #pragma warning disable CS0162 // Unreachable code -- documents the post-validation step we never reach.
+                Action onWipeStart = () => wipePerformed = true;
+                onWipeStart();
                 RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
-                wipePerformed = true;
 #pragma warning restore CS0162
             }
             catch (InvalidOperationException) { /* expected */ }

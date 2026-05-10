@@ -1100,21 +1100,25 @@ namespace Parsek.InGameTests
             //     residual; manual F9 recovers.
             //   - Step 3 throws (one of the eight Reset functions
             //     misbehaves): partial wipe in memory, on-disk Parsek/
-            //     at BATCH-START. wipePerformed is set inside the try
-            //     ONLY after PrepareForIsolatedBatchFlightBaselineRestore
-            //     returned, so a throw partway through that call leaves
-            //     wipePerformed=false (no rollback). A throw on a step
-            //     LATER than the prep wipe (rare) sees wipePerformed=true
-            //     and the snapshot rollback restores RecordingStore.
-            //     committedRecordings/Trees/pendingTree/state/
-            //     AutoAssignedStandaloneGroups to BATCH-START --
-            //     consistent with on-disk. RecordingStoreTestSnapshot
-            //     does NOT capture the additional fields that
-            //     ResetForTestingInternal clears (RewindContext state,
-            //     PendingCleanupPids, suppressNextTreeSceneExitCommit,
-            //     PendingScienceSubjects, etc.); those stay at their
-            //     reset values. Documented residual; manual reload
-            //     recovers.
+            //     at BATCH-START. wipePerformed is set by the helper's
+            //     onWipeStart callback IMMEDIATELY before the first
+            //     RecordingStore reset, so any throw at-or-after that
+            //     boundary -- including a partial failure where
+            //     RecordingStore was wiped but a later reset
+            //     (GroupHierarchyStore, CrewReservationManager, ...)
+            //     threw -- arms the snapshot rollback. The rollback
+            //     restores RecordingStore.committedRecordings/Trees/
+            //     pendingTree/state/AutoAssignedStandaloneGroups to
+            //     BATCH-START -- consistent with on-disk. A throw in the
+            //     helper's flag-flip prelude (before onWipeStart fires)
+            //     leaves wipePerformed=false; in-memory state is intact
+            //     in that case so no rollback is needed.
+            //     RecordingStoreTestSnapshot does NOT capture the
+            //     additional fields that ResetForTestingInternal clears
+            //     (RewindContext state, PendingCleanupPids,
+            //     suppressNextTreeSceneExitCommit, PendingScienceSubjects,
+            //     etc.); those stay at their reset values. Documented
+            //     residual; manual reload recovers.
             //   - Step 4 throws (StartAndFocusVessel rare synchronous
             //     throw): full wipe done (wipePerformed=true), no scene
             //     change queued. Snapshot rollback restores its 5
@@ -1143,7 +1147,11 @@ namespace Parsek.InGameTests
             // batch-start: before the wipe, RecordingStore still holds
             // whatever the test left it in (post-test mutations); after
             // the wipe, RecordingStore is empty and rolling back to
-            // BATCH-START is the right move.
+            // BATCH-START is the right move. The flag is set by
+            // PrepareForIsolatedBatchFlightBaselineRestore's onWipeStart
+            // callback at the actual destructive boundary, so a partial
+            // helper failure (RecordingStore wiped, later reset throws)
+            // still arms the rollback correctly.
             RecordingStoreTestSnapshot preWipeSnapshot = baseline?.RecordingStoreSnapshot;
             bool restoreCommitted = false;
             bool wipePerformed = false;
@@ -1190,18 +1198,26 @@ namespace Parsek.InGameTests
 
                 // Step 3: prep wipe runs only after validation succeeded
                 // AND the on-disk Parsek/ has been swapped to BATCH-START.
-                // Setting wipePerformed=true ARMS the snapshot rollback in
-                // the finally below: from this point on, a failure leaves
-                // RecordingStore (partially or fully) wiped, and rolling
-                // back to BATCH-START is the right recovery target.
+                // PrepareForIsolatedBatchFlightBaselineRestore invokes the
+                // onWipeStart callback IMMEDIATELY before its first
+                // destructive store reset (RecordingStore.
+                // ResetForBatchFlightBaselineRestoreBypassingGuard). Setting
+                // wipePerformed=true inside that callback arms the snapshot
+                // rollback in the finally below at the actual destructive
+                // boundary -- not after the helper returns. The eight
+                // Reset calls inside the helper are not atomic, so if a
+                // later reset (GroupHierarchyStore, CrewReservationManager,
+                // ...) throws after RecordingStore has been wiped, the
+                // finally must still fire the rollback to recover live
+                // RecordingStore data.
                 {
                     var currentScenario = UnityEngine.Object.FindObjectOfType(typeof(ParsekScenario))
                         as ParsekScenario;
                     ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore(
                         currentScenario != null
                             ? (Action)currentScenario.UnsubscribeStateRecorderForIsolatedBatchFlightBaselineRestore
-                            : null);
-                    wipePerformed = true;
+                            : null,
+                        onWipeStart: () => wipePerformed = true);
                 }
 
                 // Step 4: commit the scene change.

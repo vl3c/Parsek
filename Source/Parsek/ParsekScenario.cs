@@ -2732,7 +2732,8 @@ namespace Parsek
         }
 
         internal static void PrepareForIsolatedBatchFlightBaselineRestore(
-            Action unsubscribeLiveRecorder = null)
+            Action unsubscribeLiveRecorder = null,
+            Action onWipeStart = null)
         {
             ParsekLog.Info("Scenario",
                 "Preparing save-scoped state for isolated FLIGHT batch baseline restore");
@@ -2745,6 +2746,17 @@ namespace Parsek
             ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
             vesselSwitchPending = false;
             vesselSwitchPendingFrame = -1;
+
+            // onWipeStart fires IMMEDIATELY before the first in-memory
+            // store reset. This is the destructive boundary -- callers
+            // wire this to arm their rollback flag here, not after this
+            // method returns, because the eight Reset calls below are not
+            // atomic. If GroupHierarchyStore.ResetForTesting (or any
+            // later reset) throws, RecordingStore has already been wiped
+            // and the caller's rollback must fire to recover live data.
+            // Arming after this method returned would leave the rollback
+            // disabled for that partial-failure window.
+            onWipeStart?.Invoke();
 
             // The next operation after this prep is a quickload from the
             // baseline save slot, which restores RecordingStore from disk
