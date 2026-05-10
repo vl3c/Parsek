@@ -923,14 +923,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RetirementPointingAtImmutable_RemovedAtLoadTime()
+        public void RetirementPointingAtImmutable_RemovedAndSupersedeRestoredAtLoadTime()
         {
             // Defensive cleanup for legacy pre-fix saves: the buggy rewind
-            // path could write a RecordingRewindRetirement against an
-            // Immutable canon recording. fix-rewind-canon-forks prevents new
-            // writes via the Pass 1/Pass 2 predicate; this sweep scrubs any
-            // such row already on disk so the canon recording becomes visible
-            // again on next replay.
+            // path dropped the supersede relation AND wrote a retirement.
+            // Just removing the retirement here would leave the canon
+            // visible AND the priorTip un-superseded → double-materialization.
+            // The sweep must reconstruct the priorTip → canon relation from
+            // the retirement metadata so the priorTip stays superseded.
             InstallTree("tree_canon",
                 new List<Recording>
                 {
@@ -943,21 +943,104 @@ namespace Parsek.Tests
                 RetirementId = "rrt_legacy_canon",
                 RecordingId = "rec_canon",
                 RestoredRecordingId = "rec_priorTip",
+                SourceSupersedeRelationId = "rsr_legacy_known",
+                CreatedUT = 286.9,
                 Reason = RecordingRewindRetirement.DefaultReason
             };
+            // No supersede relation in the scenario (the buggy code dropped
+            // it). LoadTimeSweep must reconstruct it.
             var scenario = InstallScenario(
                 retirements: new List<RecordingRewindRetirement> { legacyRetirement });
 
             LoadTimeSweep.Run();
 
             Assert.Empty(scenario.RecordingRewindRetirements);
+            // Supersede relation was reconstructed.
+            var restored = Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("rec_priorTip", restored.OldRecordingId);
+            Assert.Equal("rec_canon", restored.NewRecordingId);
+            // RelationId carried over from retirement metadata when set.
+            Assert.Equal("rsr_legacy_known", restored.RelationId);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("Removing rewind-retirement=rrt_legacy_canon")
-                && l.Contains("Immutable canon recording=rec_canon"));
+                && l.Contains("Immutable canon recording=rec_canon")
+                && l.Contains("restored supersede relation"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_OrphanWithoutRestoredId_RemovedButNoRelationCreated()
+        {
+            // Edge case: legacy retirement carries no RestoredRecordingId
+            // (orphan write or partial pre-fix data). We can't reconstruct
+            // the supersede relation. Remove the retirement and warn so the
+            // user can investigate; the canon will render alongside the
+            // priorTip until the user reseals manually.
+            InstallTree("tree_canon",
+                new List<Recording>
+                {
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var orphanRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_orphan_imm",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = null, // missing metadata
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { orphanRetirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            // No supersede relation reconstructed (no metadata to do so).
+            Assert.Empty(scenario.RecordingSupersedes);
             Assert.Contains(logLines, l =>
-                l.Contains("[LoadSweep]")
-                && l.Contains("Immutable canon recordings (legacy state cleanup)"));
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_orphan_imm")
+                && l.Contains("supersede relation cannot be reconstructed"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_SupersedeAlreadyPresent_RelationNotDuplicated()
+        {
+            // Idempotency: if a supersede relation matching the retirement's
+            // priorTip → canon pair is already in the scenario (e.g. user
+            // re-flew between rewinds), the legacy cleanup must not add a
+            // duplicate.
+            InstallTree("tree_canon",
+                new List<Recording>
+                {
+                    Rec("rec_priorTip", MergeState.Immutable),
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var existingRel = new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_already_there",
+                OldRecordingId = "rec_priorTip",
+                NewRecordingId = "rec_canon",
+                UT = 100.0
+            };
+            var legacyRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_legacy_canon",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation> { existingRel },
+                retirements: new List<RecordingRewindRetirement> { legacyRetirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            // Supersede list still has exactly one entry — the original.
+            var only = Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("rsr_already_there", only.RelationId);
         }
 
         [Fact]

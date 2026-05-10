@@ -797,6 +797,114 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Rollback_ThreeGenChain_TransitiveDemotion_AllNonCanonRetire()
+        {
+            // A → B(Immutable) → C(Provisional) → D(Immutable). Rewind past A.
+            // Pass 1: A→B preservation, B→C drop, C→D preservation.
+            // Pass 2 iter 1: pendingRetiredNewIds={C}; A→B's Old=A (not in
+            //   set) — confirm preservation. C→D's Old=C (in set) — demote;
+            //   pendingRetiredNewIds becomes {C,D}.
+            // Pass 2 iter 2: A→B still confirmed (Old=A not in set).
+            //   Terminate.
+            // Result: A→B preserved (B stays canon). B→C dropped (C retired).
+            // C→D demoted (D retired). The transitive cascade prevents D from
+            // rendering as a second canon timeline alongside B.
+            //
+            // Without the fixpoint loop, C→D would survive Pass 2 because the
+            // initial pendingRetiredNewIds was {C}-only and never updated as
+            // demotions added new retired ids.
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.CommittedProvisional);
+            var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "A", a }, { "B", b }, { "C", c }, { "D", d }
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                MakeRel("A", "B"),
+                MakeRel("B", "C"),
+                MakeRel("C", "D")
+            };
+
+            var result = RecordingStore.DropSupersedesRewoundOutOfExistenceDetailedPure(
+                a, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { a, b, c, d },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            // A→B preserved. B→C and C→D dropped.
+            Assert.Equal(2, result.DroppedRelationCount);
+            Assert.Single(supersedes); // only A→B remains
+            Assert.Equal("A", supersedes[0].OldRecordingId);
+            Assert.Equal("B", supersedes[0].NewRecordingId);
+            // B canon, C retired (Pass 1 drop), D retired (Pass 2 demoted via
+            // transitive cascade).
+            Assert.Contains("B", result.SkippedImmutableForkRecordingIds);
+            Assert.Contains("C", result.RetiredForkRecordingIds);
+            Assert.Contains("D", result.RetiredForkRecordingIds);
+            // D was demoted from preservation; C was a Pass 1 drop.
+            Assert.Equal(1, result.DemotedImmutablePreservationCount);
+            Assert.Contains("D", result.DemotedImmutablePreservationIds);
+            Assert.Equal(1, result.SkippedImmutableForkCount);
+        }
+
+        [Fact]
+        public void LiveRollback_DemotedImmutableFork_WritesRetirement()
+        {
+            // The live path's defensive Immutable guard in
+            // EnsureRewindRetirementsForRollback must NOT skip retirement for
+            // Immutable forks that the upstream classifier explicitly demoted
+            // — those are intentional drops where the priorTip is itself
+            // retired, so the canon must collapse to preserve the
+            // no-double-materialization invariant.
+            //
+            // Without the demoted-id bypass, the live path would: drop B→C
+            // and C→D, then refuse to retire D (Immutable defense), then
+            // re-insert C→D into supersedes. End state: A restored, B retired,
+            // C retired (D's priorTip), D visible (relation preserved by the
+            // defense, but C is retired so D effectively has no live source —
+            // double-materialization regression).
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.Immutable);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.CommittedProvisional);
+            var d = MakeRecWithMergeState("D", startUT: 75.0, MergeState.Immutable);
+            InstallCommittedTreeForTesting("tree-3gen", a, b, c, d);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B"),
+                    MakeRel("B", "C"),
+                    MakeRel("C", "D")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(a.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(6.5);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 6.5);
+
+            // 2 drops (B→C, C→D demoted). 2 retirements written (C, D).
+            Assert.Equal(2, dropped);
+            Assert.Single(scenario.RecordingSupersedes); // only A→B preserved
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            var retiredIds = new HashSet<string>(
+                scenario.RecordingRewindRetirements.ConvertAll(r => r.RecordingId),
+                System.StringComparer.Ordinal);
+            Assert.Contains("C", retiredIds);
+            Assert.Contains("D", retiredIds);
+            Assert.DoesNotContain("B", retiredIds); // B is canon-preserved
+            // Defensive Immutable warning must NOT fire — D was explicitly
+            // demoted, so the bypass kicks in and retirement proceeds normally.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("Skipping retirement for Immutable canon recording"));
+        }
+
+        [Fact]
         public void Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops()
         {
             // Edge case: the owner of the rewind is itself an Immutable canon

@@ -4869,11 +4869,25 @@ namespace Parsek
                     pendingDrops.Add(rel);
             }
 
-            // Pass 2 — demote preservations whose priorTip is itself retired.
+            // Pass 2 — demote preservations whose priorTip is itself retired,
+            // iterating to a fixpoint so cascades propagate.
+            //
             // pendingRetiredNewIds = { rel.NewRecordingId | rel ∈ pendingDrops }
             // (the New of each drop is the fork that gets retired; the Old gets
             // restored, so checking against Olds would be the wrong direction).
-            if (pendingImmutablePreservations.Count > 0 && pendingDrops.Count > 0)
+            //
+            // Cascade example: A → B(Provisional) → C(Immutable) → D(Immutable),
+            // rewind past A's start.
+            //   Initial: pendingDrops=[A→B], pendingImmutablePreservations=[B→C, C→D].
+            //   Pass 2 iter 1: B in pendingRetiredNewIds={B} → B→C demotes;
+            //     pendingRetiredNewIds becomes {B,C}.
+            //   Pass 2 iter 2: C now in pendingRetiredNewIds → C→D demotes too;
+            //     pendingRetiredNewIds becomes {B,C,D}.
+            //   Pass 2 iter 3: no more preservations → terminate.
+            // Without the fixpoint loop, C→D would survive the demotion pass
+            // and D would render as canon alongside the restored A — the
+            // double-materialization regression PR #776/#777 fixes.
+            if (pendingImmutablePreservations.Count > 0)
             {
                 var pendingRetiredNewIds = new HashSet<string>(
                     StringComparer.Ordinal);
@@ -4883,26 +4897,36 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(newId))
                         pendingRetiredNewIds.Add(newId);
                 }
-                for (int i = 0; i < pendingImmutablePreservations.Count; i++)
+
+                bool changedThisIteration = true;
+                while (changedThisIteration)
                 {
-                    var rel = pendingImmutablePreservations[i];
-                    if (!string.IsNullOrEmpty(rel.OldRecordingId)
-                        && pendingRetiredNewIds.Contains(rel.OldRecordingId))
+                    changedThisIteration = false;
+                    for (int i = pendingImmutablePreservations.Count - 1; i >= 0; i--)
                     {
-                        pendingDrops.Add(rel);
-                        if (!string.IsNullOrEmpty(rel.NewRecordingId))
-                            result.DemotedImmutablePreservationIds.Add(rel.NewRecordingId);
-                    }
-                    else if (!string.IsNullOrEmpty(rel.NewRecordingId))
-                    {
-                        result.SkippedImmutableForkRecordingIds.Add(rel.NewRecordingId);
+                        var rel = pendingImmutablePreservations[i];
+                        if (!string.IsNullOrEmpty(rel.OldRecordingId)
+                            && pendingRetiredNewIds.Contains(rel.OldRecordingId))
+                        {
+                            pendingImmutablePreservations.RemoveAt(i);
+                            pendingDrops.Add(rel);
+                            if (!string.IsNullOrEmpty(rel.NewRecordingId))
+                            {
+                                result.DemotedImmutablePreservationIds.Add(rel.NewRecordingId);
+                                // Adding the demoted New to the retired set
+                                // makes the cascade transitive: a later
+                                // preservation candidate whose Old is this
+                                // demoted New will also demote on the next
+                                // iteration.
+                                pendingRetiredNewIds.Add(rel.NewRecordingId);
+                            }
+                            changedThisIteration = true;
+                        }
                     }
                 }
-            }
-            else
-            {
-                // No drops to demote against — confirm every Immutable
-                // preservation candidate as a preservation.
+
+                // Anything still in pendingImmutablePreservations is a
+                // confirmed canon preservation.
                 for (int i = 0; i < pendingImmutablePreservations.Count; i++)
                 {
                     string newId = pendingImmutablePreservations[i].NewRecordingId;
@@ -5116,10 +5140,16 @@ namespace Parsek
                 // routes Immutable forks into preservations (or, when their
                 // priorTip is itself retired in the same batch, demotes them
                 // explicitly). Refuse to write a retirement for an Immutable
-                // recording even if some future maintainer extends
-                // RetiredForkRecordingIds. The contract on
-                // MergeState.Immutable is "sealed forever".
-                if (retiredRec.MergeState == MergeState.Immutable)
+                // recording when the upstream classifier did NOT explicitly
+                // demote it — that path indicates a maintainer-error code path
+                // populated RetiredForkRecordingIds with a canon id. Demoted
+                // ids must retire normally (the priorTip is gone and the
+                // canon has nothing to be canon over; preserving the relation
+                // would re-introduce the double-materialization regression).
+                bool wasExplicitlyDemoted =
+                    rollback.DemotedImmutablePreservationIds.Contains(retiredId);
+                if (retiredRec.MergeState == MergeState.Immutable
+                    && !wasExplicitlyDemoted)
                 {
                     bool restoredSupersedeLink = false;
                     if (sourceRel != null

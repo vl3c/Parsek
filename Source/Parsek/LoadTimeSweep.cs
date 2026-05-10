@@ -626,13 +626,28 @@ namespace Parsek
                 // at a canon Immutable recording. The current Pass 1/Pass 2
                 // predicate prevents new ones from being created, but legacy
                 // saves written by the old code path can still carry them.
-                // Remove + warn so the player's canon orbital vessel becomes
-                // visible again on next replay.
+                //
+                // IMPORTANT: the buggy pre-fix code also dropped the matching
+                // RecordingSupersedeRelation (priorTip → canon). Just removing
+                // the retirement here would leave the canon visible AND the
+                // priorTip un-superseded → both render together (the same
+                // double-materialization regression we're trying to fix). So
+                // we must also restore the supersede relation when the
+                // retirement carries enough metadata (RestoredRecordingId is
+                // the priorTip, RecordingId is the canon fork).
                 if (immutableRecordingIds.Contains(retirement.RecordingId))
                 {
+                    bool relationRestored = TryRestoreLegacyImmutableSupersede(
+                        scenario, retirement);
+                    string restoreNote = relationRestored
+                        ? "and restored supersede relation priorTip→canon "
+                        : (string.IsNullOrEmpty(retirement.RestoredRecordingId)
+                            ? "(no RestoredRecordingId in retirement metadata — supersede relation cannot be reconstructed; priorTip may render alongside canon, investigate) "
+                            : "(supersede relation already present or skipped) ");
                     ParsekLog.Warn(SupersedeTag,
                         $"Removing rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
                         $"pointing at Immutable canon recording={retirement.RecordingId} " +
+                        restoreNote +
                         "(legacy pre-fix save state). The canon recording will be visible after sweep.");
                     scenario.RecordingRewindRetirements.RemoveAt(i);
                     removed++;
@@ -666,6 +681,59 @@ namespace Parsek
                     "rewind-retirement row(s) whose restored recording no longer exists");
             }
             return removed;
+        }
+
+        /// <summary>
+        /// Reconstruct the priorTip → canon supersede relation that the
+        /// pre-fix buggy rewind code dropped alongside writing this
+        /// retirement. Idempotent: returns false if the retirement carries no
+        /// <see cref="RecordingRewindRetirement.RestoredRecordingId"/> (orphan)
+        /// or the equivalent relation is already in
+        /// <see cref="ParsekScenario.RecordingSupersedes"/>.
+        /// </summary>
+        private static bool TryRestoreLegacyImmutableSupersede(
+            ParsekScenario scenario, RecordingRewindRetirement retirement)
+        {
+            if (object.ReferenceEquals(null, scenario)
+                || retirement == null
+                || string.IsNullOrEmpty(retirement.RecordingId)
+                || string.IsNullOrEmpty(retirement.RestoredRecordingId))
+                return false;
+
+            if (scenario.RecordingSupersedes == null)
+                scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+
+            // Idempotency: if any supersede already names the same priorTip →
+            // canon pair, skip. The exact RelationId or UT does not matter
+            // for visibility computation (EffectiveState reads only Old/New).
+            for (int i = 0; i < scenario.RecordingSupersedes.Count; i++)
+            {
+                var existing = scenario.RecordingSupersedes[i];
+                if (existing == null) continue;
+                if (string.Equals(existing.OldRecordingId, retirement.RestoredRecordingId, StringComparison.Ordinal)
+                    && string.Equals(existing.NewRecordingId, retirement.RecordingId, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            // Synthesize a fresh relation. Use the retirement's preserved
+            // SourceSupersedeRelationId when available so audit trails
+            // referencing the original RelationId still resolve. Fall back to
+            // a "rsr_legacyrestore_<guid>" id otherwise. UT defaults to
+            // retirement.CreatedUT (the moment the buggy retirement was
+            // written) — the original merge UT is not recoverable.
+            var restored = new RecordingSupersedeRelation
+            {
+                RelationId = !string.IsNullOrEmpty(retirement.SourceSupersedeRelationId)
+                    ? retirement.SourceSupersedeRelationId
+                    : "rsr_legacyrestore_" + Guid.NewGuid().ToString("N"),
+                OldRecordingId = retirement.RestoredRecordingId,
+                NewRecordingId = retirement.RecordingId,
+                UT = retirement.CreatedUT,
+            };
+            scenario.RecordingSupersedes.Add(restored);
+            return true;
         }
 
         // ------------------------------------------------------------------
