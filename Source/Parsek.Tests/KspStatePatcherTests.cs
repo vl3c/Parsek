@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Xunit;
 
 namespace Parsek.Tests
@@ -537,6 +538,26 @@ namespace Parsek.Tests
                 l.Contains("[KspStatePatcher]") && l.Contains("ResearchAndDevelopment.Instance is null"));
         }
 
+        [Fact]
+        public void BuildSubjectIdsForPatch_IncludesPreviouslyCommittedStaleSubjects()
+        {
+            var current = new Dictionary<string, ScienceModule.SubjectState>
+            {
+                {
+                    "current-subject",
+                    new ScienceModule.SubjectState { CreditedTotal = 5.0, MaxValue = 10.0 }
+                }
+            };
+
+            var ids = KspStatePatcher.BuildSubjectIdsForPatch(
+                current,
+                new[] { "stale-subject", "current-subject" });
+
+            Assert.Equal(2, ids.Count);
+            Assert.Contains("current-subject", ids);
+            Assert.Contains("stale-subject", ids);
+        }
+
         // ================================================================
         // PatchFacilities — destruction state with no DestructibleBuildings
         // (Full integration testing of Demolish/Repair requires in-game verification
@@ -595,6 +616,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PatchFacilities_TombstonedDefaultNotFound_RemainsQueuedForRetry()
+        {
+            var pendingField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsOnNextPatch",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var pending = Assert.IsType<HashSet<string>>(pendingField.GetValue(null));
+
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/LaunchPad" });
+            logLines.Clear();
+
+            KspStatePatcher.PatchFacilities(new FacilitiesModule());
+
+            Assert.Contains("SpaceCenter/LaunchPad", pending);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]") &&
+                l.Contains("[KspStatePatcher]") &&
+                l.Contains("PatchFacilities: levels patched=") &&
+                l.Contains("notFound=1"));
+        }
+
+        [Fact]
         public void PatchFacilities_Empty_DoesNotLogInfo_UsesRateLimitedVerbose()
         {
             // No tracked facilities -> patched=0, skipped=0, notFound=0.
@@ -619,6 +662,161 @@ namespace Parsek.Tests
             // Rate-limited to one line per 5s window; 50 immediate calls
             // collapse to one.
             Assert.Equal(1, emptyLines);
+        }
+
+        [Fact]
+        public void BuildFacilityPatchTargets_PreviouslyPatchedMissingFacilityTargetsDefault()
+        {
+            var current = new Dictionary<string, FacilitiesModule.FacilityState>
+            {
+                {
+                    "SpaceCenter/MissionControl",
+                    new FacilitiesModule.FacilityState { Level = 2, Destroyed = true }
+                }
+            };
+
+            var targets = FacilityStatePatcher.BuildFacilityPatchTargets(
+                current,
+                new[] { "SpaceCenter/LaunchPad", "SpaceCenter/MissionControl" });
+
+            Assert.Equal(2, targets.Count);
+            Assert.Equal(2, targets["SpaceCenter/MissionControl"].Level);
+            Assert.True(targets["SpaceCenter/MissionControl"].Destroyed);
+            Assert.Equal(1, targets["SpaceCenter/LaunchPad"].Level);
+            Assert.False(targets["SpaceCenter/LaunchPad"].Destroyed);
+        }
+
+        [Fact]
+        public void BuildFacilityPatchTargets_TombstonedFacilityMissingAfterTombstoneTargetsDefault()
+        {
+            var current = new Dictionary<string, FacilitiesModule.FacilityState>
+            {
+                {
+                    "SpaceCenter/MissionControl",
+                    new FacilitiesModule.FacilityState { Level = 2, Destroyed = false }
+                }
+            };
+
+            var targets = FacilityStatePatcher.BuildFacilityPatchTargets(
+                current,
+                previouslyPatchedFacilityIds: null,
+                knownFacilityIdsToDefault: new[] { "SpaceCenter/LaunchPad", "SpaceCenter/MissionControl" });
+
+            Assert.Equal(2, targets.Count);
+            Assert.Equal(2, targets["SpaceCenter/MissionControl"].Level);
+            Assert.False(targets["SpaceCenter/MissionControl"].Destroyed);
+            Assert.Equal(1, targets["SpaceCenter/LaunchPad"].Level);
+            Assert.False(targets["SpaceCenter/LaunchPad"].Destroyed);
+        }
+
+        [Fact]
+        public void PatchDestructionState_HeadlessUnityFindObjectsUnavailable_SkipsWithoutThrow()
+        {
+            KspStatePatcher.SuppressUnityCallsForTesting = false;
+            var facilities = new Dictionary<string, FacilitiesModule.FacilityState>
+            {
+                {
+                    "SpaceCenter/LaunchPad",
+                    new FacilitiesModule.FacilityState { Level = 1, Destroyed = true }
+                }
+            };
+
+            var ex = Record.Exception(() =>
+                FacilityStatePatcher.PatchDestructionState(facilities));
+
+            Assert.Null(ex);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && (l.Contains("FindObjectsOfType unavailable")
+                    || l.Contains("no DestructibleBuilding objects found")));
+        }
+
+        [Fact]
+        public void ResetPatchHistoryForSaveChange_ClearsStaticFacilityHistory()
+        {
+            var field = typeof(FacilityStatePatcher).GetField(
+                "lastPatchedFacilityIds",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var history = Assert.IsType<HashSet<string>>(field.GetValue(null));
+            history.Add("SpaceCenter/LaunchPad");
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/LaunchPad" });
+
+            FacilityStatePatcher.ResetPatchHistoryForSaveChange("save-a");
+            Assert.Single(history);
+
+            FacilityStatePatcher.ResetPatchHistoryForSaveChange("save-b");
+
+            Assert.Empty(history);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("cleared facility patch history after save change")
+                && l.Contains("previous=1"));
+        }
+
+        [Fact]
+        public void ResetPatchHistoryForSaveChange_PreservesPendingDefaultsForCurrentSave()
+        {
+            var pendingField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsOnNextPatch",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var pending = Assert.IsType<HashSet<string>>(pendingField.GetValue(null));
+
+            FacilityStatePatcher.ResetPatchHistoryForSaveChange("old-save");
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/LaunchPad" });
+
+            FacilityStatePatcher.ResetPatchHistoryForSaveChange("");
+
+            Assert.Contains("SpaceCenter/LaunchPad", pending);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("preservedPendingDefaults=True"));
+        }
+
+        [Fact]
+        public void ForceDefaultFacilitiesForNextPatch_ClearsStaleSavePendingDefaultsBeforeAdding()
+        {
+            var pendingField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsOnNextPatch",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var saveField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsSaveFolder",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var pending = Assert.IsType<HashSet<string>>(pendingField.GetValue(null));
+            pending.Add("SpaceCenter/LaunchPad");
+            saveField.SetValue(null, "old-save");
+
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/Runway" });
+
+            Assert.DoesNotContain("SpaceCenter/LaunchPad", pending);
+            Assert.Contains("SpaceCenter/Runway", pending);
+            Assert.Equal("", saveField.GetValue(null));
+            Assert.Contains(logLines, l =>
+                l.Contains("[KspStatePatcher]")
+                && l.Contains("cleared 1 stale pending default target"));
+        }
+
+        [Fact]
+        public void ForceDefaultFacilitiesForNextPatch_RestampsSameIdAfterSaveChange()
+        {
+            var pendingField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsOnNextPatch",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var saveField = typeof(FacilityStatePatcher).GetField(
+                "defaultFacilityIdsSaveFolder",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var pending = Assert.IsType<HashSet<string>>(pendingField.GetValue(null));
+            pending.Add("SpaceCenter/LaunchPad");
+            saveField.SetValue(null, "old-save");
+
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                new[] { "SpaceCenter/LaunchPad" });
+
+            Assert.Single(pending);
+            Assert.Contains("SpaceCenter/LaunchPad", pending);
+            Assert.Equal("", saveField.GetValue(null));
         }
 
         // Note: the skipped-only branch (patchedCount==0 && notFoundCount==0

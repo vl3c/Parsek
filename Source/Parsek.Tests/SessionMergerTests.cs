@@ -540,7 +540,8 @@ namespace Parsek.Tests
         public void ResolveOverlaps_CrossReferenceFrameBoundary_ZeroDiscontinuity()
         {
             // ABSOLUTE section followed by RELATIVE section — discontinuity should be 0
-            // because cross-frame comparisons are skipped.
+            // without an aligned absoluteFrames shadow because raw Relative fields are
+            // anchor-local metres, not body-fixed lat/lon/alt.
             var sections = new List<TrackSection>
             {
                 MakeSection(0, 100, TrackSectionSource.Active,
@@ -555,6 +556,244 @@ namespace Parsek.Tests
 
             Assert.Equal(2, result.Count);
             Assert.Equal(0f, result[1].boundaryDiscontinuityMeters);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_CrossReferenceFrameWithShadow_ComputesDistance()
+        {
+            var prev = MakeSection(0, 100, TrackSectionSource.Active,
+                lat: 0.0, lon: 0.0, alt: 100.0,
+                endLat: 0.0, endLon: 0.0, endAlt: 100.0,
+                referenceFrame: ReferenceFrame.Absolute);
+            var next = MakeSection(100, 200, TrackSectionSource.Active,
+                lat: 144.77, lon: 0.0, alt: 0.0,
+                referenceFrame: ReferenceFrame.Relative);
+            next.anchorRecordingId = "anchor-rec";
+            next.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(100.0, 0.0, 0.0, 244.77)
+            };
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+
+            Assert.InRange(disc, 144.0f, 145.5f);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_RelativeToAbsoluteWithShadow_ComputesDistance()
+        {
+            var prev = MakeSectionWithFrame(
+                100.0, lat: 144.77, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            prev.startUT = 0.0;
+            prev.endUT = 100.0;
+            prev.anchorRecordingId = "anchor-rec";
+            prev.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(100.0, 0.0, 0.0, 244.77)
+            };
+            var next = MakeSection(100, 200, TrackSectionSource.Active,
+                lat: 0.0, lon: 0.0, alt: 100.0,
+                referenceFrame: ReferenceFrame.Absolute);
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+
+            Assert.InRange(disc, 144.0f, 145.5f);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_RelativeCrossAnchorWithShadows_ComputesDistance()
+        {
+            var prev = MakeSectionWithFrame(
+                10.0, lat: 1000.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            prev.anchorRecordingId = "anchor-a";
+            prev.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(10.0, 0.0, 0.0, 100.0)
+            };
+            var next = MakeSectionWithFrame(
+                15.0, lat: -1000.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            next.anchorRecordingId = "anchor-b";
+            next.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(15.0, 0.0, 0.0, 130.0)
+            };
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+
+            Assert.InRange(disc, 29.0f, 31.0f);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_RelativeShadowUtMismatch_ReturnsZero()
+        {
+            var prev = MakeSectionWithFrame(
+                100.0, lat: 144.77, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            prev.startUT = 0.0;
+            prev.endUT = 100.0;
+            prev.anchorRecordingId = "anchor-rec";
+            prev.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(99.9, 0.0, 0.0, 244.77)
+            };
+            var next = MakeSection(100, 200, TrackSectionSource.Active,
+                lat: 0.0, lon: 0.0, alt: 100.0,
+                referenceFrame: ReferenceFrame.Absolute);
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+
+            Assert.Equal(0f, disc);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_RelativeSameAnchorSmallDt_UsesAnchorLocalMeters()
+        {
+            var prev = MakeSectionWithFrame(
+                10.0, lat: 0.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            prev.anchorRecordingId = "anchor-rec";
+            var next = MakeSectionWithFrame(
+                10.0005, lat: 6.85, lon: -1.07, alt: 0.85,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            next.anchorRecordingId = "anchor-rec";
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+
+            Assert.InRange(disc, 6.9f, 7.1f);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_RelativeSameAnchorFiftyMsWithoutShadow_ReturnsZero()
+        {
+            var prev = MakeSectionWithFrame(
+                10.0, lat: 0.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            prev.anchorRecordingId = "anchor-rec";
+            var next = MakeSectionWithFrame(
+                10.05, lat: 144.77, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            next.anchorRecordingId = "anchor-rec";
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+
+            Assert.Equal(0f, disc);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_RelativeSameAnchorLargeDt_UsesAlignedShadows()
+        {
+            var prev = MakeSectionWithFrame(
+                10.0, lat: 0.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            prev.anchorRecordingId = "anchor-rec";
+            prev.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(10.0, 0.0, 0.0, 100.0)
+            };
+            var next = MakeSectionWithFrame(
+                15.0, lat: 30.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            next.anchorRecordingId = "anchor-rec";
+            next.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(15.0, 0.0, 0.0, 130.0)
+            };
+
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+
+            Assert.InRange(disc, 29.0f, 31.0f);
+        }
+
+        [Fact]
+        public void ComputeBoundaryDiscontinuity_LegacyRelativeNotInterpretedAsAnchorLocal()
+        {
+            var prev = MakeSectionWithFrame(
+                10.0, lat: 0.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            prev.anchorVesselId = 42u;
+            var next = MakeSectionWithFrame(
+                10.0005, lat: 30.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+            next.anchorVesselId = 42u;
+
+            float legacyDisc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.RelativeLocalFrameFormatVersion - 1);
+            float currentDisc = SessionMerger.ComputeBoundaryDiscontinuity(
+                prev, next, RecordingStore.CurrentRecordingFormatVersion);
+
+            Assert.Equal(0f, legacyDisc);
+            Assert.InRange(currentDisc, 29.0f, 31.0f);
+        }
+
+        [Fact]
+        public void AnchorIdentityKey_RelativeWithoutAnchor_ReturnsEmpty()
+        {
+            var section = MakeSectionWithFrame(
+                10.0, lat: 0.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative);
+
+            Assert.Equal(string.Empty, SessionMerger.AnchorIdentityKey(section));
+        }
+
+        [Fact]
+        public void MergeTree_LegacyRelativeThreadsRecordingFormatThroughProductionCallers()
+        {
+            var background = MakeSectionWithFrame(
+                10.0, lat: 0.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = 10.0;
+            background.anchorVesselId = 42u;
+
+            var active = MakeSectionWithFrame(
+                10.0005, lat: 30.0, lon: 0.0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Active);
+            active.startUT = 10.0;
+            active.endUT = 11.0;
+            active.anchorVesselId = 42u;
+
+            var rec = MakeRecording("rec-v5-relative", "Legacy Relative",
+                new List<TrackSection> { background, active });
+            rec.RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion - 1;
+            var tree = MakeTree("Legacy Relative Merge", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-v5-relative"];
+
+            Assert.Equal(0f, merged.TrackSections[1].boundaryDiscontinuityMeters);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity skipped") &&
+                l.Contains("recId=rec-v5-relative") &&
+                l.Contains("reason=prev-legacy-relative-not-measurable"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("current-format wrapper used"));
         }
 
         #endregion
@@ -1028,7 +1267,9 @@ namespace Parsek.Tests
             Assert.Equal(3, merged.OrbitSegments.Count);
             Assert.Equal(479.25749137883366, merged.OrbitSegments[0].startUT);
             Assert.Equal(960.51459653102938, merged.OrbitSegments[2].endUT);
-            Assert.DoesNotContain(logLines, l => l.Contains("MergeTree: boundary discontinuity"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("MergeTree: boundary discontinuity") &&
+                l.Contains("prevSrc=Background nextSrc=Background"));
             Assert.Contains(logLines, l =>
                 l.Contains("EnsureCheckpointSectionsForTopLevelOrbitSegments") &&
                 l.Contains("recording=rec-legacy-bg-gap") &&
@@ -1339,6 +1580,21 @@ namespace Parsek.Tests
             };
         }
 
+        private static TrajectoryPoint MakePoint(
+            double ut, double lat, double lon, double alt, string bodyName = "Kerbin")
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = lat,
+                longitude = lon,
+                altitude = alt,
+                bodyName = bodyName,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            };
+        }
+
         [Fact]
         public void ClassifyBoundaryDiscontinuity_NoPrev_TaggedNoPrev()
         {
@@ -1602,15 +1858,38 @@ namespace Parsek.Tests
             Assert.Equal("invalid-data", cause);
         }
 
+        [Theory]
+        [InlineData("nan")]
+        [InlineData("infinity")]
+        public void ClassifyBoundaryDiscontinuity_NonFiniteDisc_TaggedInvalidData(
+            string nonFiniteDiscKind)
+        {
+            float discMeters = nonFiniteDiscKind == "nan"
+                ? float.NaN
+                : float.PositiveInfinity;
+            var prev = MakeSectionWithFrame(100, 0, 0, 70000, new Vector3(130, 0, 0));
+            var next = MakeSectionWithFrame(101, 0, 0, 70050, Vector3.zero);
+
+            SessionMerger.ClassifyBoundaryDiscontinuity(
+                prev, next, hasPrev: true, discMeters: discMeters,
+                out double dt, out double expected, out string cause);
+
+            Assert.InRange(dt, 0.99, 1.01);
+            Assert.True(double.IsNaN(expected),
+                $"Expected NaN expectedMeters with non-finite disc, got {expected}");
+            Assert.Equal("invalid-data", cause);
+        }
+
         // Parameterised so a regression that hard-codes a single cause (e.g. always
         // emits "cause=no-prev") fails for the other rows instead of slipping past
         // a substring-only assertion.
         [Theory]
-        [InlineData("unrecorded-gap", 100f, 1.0, 110f)]
-        [InlineData("sample-skip",     10f, 0.5, 500f)]
-        [InlineData("frame-mismatch", 130f, 0.0,  50f)]
+        [InlineData("unrecorded-gap", 100f, 1.0, 110f, "ratio=1.10")]
+        [InlineData("sample-skip",     10f, 0.5, 500f, "ratio=100.00")]
+        [InlineData("frame-mismatch", 130f, 0.0,  50f, "ratio=inf")]
         public void MergeTree_DiscontinuityWarning_IncludesClassification(
-            string expectedCause, float prevVelX, double dtSeconds, float altGapMeters)
+            string expectedCause, float prevVelX, double dtSeconds,
+            float altGapMeters, string expectedRatio)
         {
             // Two adjacent Active sections — the WARN should carry dt=,
             // expectedFromVel=, and the exact cause= value matching the scenario.
@@ -1645,6 +1924,7 @@ namespace Parsek.Tests
                 l.Contains("boundary discontinuity=") &&
                 l.Contains("dt=") &&
                 l.Contains("expectedFromVel=") &&
+                l.Contains(expectedRatio) &&
                 l.Contains("cause=" + expectedCause));
         }
 
@@ -1671,7 +1951,40 @@ namespace Parsek.Tests
                 l.Contains("[WARN]") && l.Contains("[Merger]") &&
                 l.Contains("boundary discontinuity=") &&
                 l.Contains("expectedFromVel=NaN") &&
+                l.Contains("ratio=NaN") &&
                 l.Contains("cause=invalid-data"));
+        }
+
+        [Fact]
+        public void MergeTree_DiscontinuityWarning_NonFiniteUt_SanitizesLoggedDt()
+        {
+            const double boundaryUT = 1.0;
+            var prev = MakeSectionWithFrame(boundaryUT, 0, 0, 70000,
+                new Vector3(130, 0, 0));
+            var next = MakeSectionWithFrame(double.NaN, 0, 0, 70050, Vector3.zero);
+            var prevTail = prev;
+            prevTail.startUT = 0.0;
+            prevTail.endUT = boundaryUT;
+            var nextHead = next;
+            nextHead.startUT = boundaryUT + 1.0;
+            nextHead.endUT = boundaryUT + 2.0;
+            var rec = MakeRecording("rec-449-nan-ut", "Diag Vessel",
+                new List<TrackSection> { prevTail, nextHead });
+            var tree = MakeTree("449 Non-Finite UT Test", rec);
+
+            SessionMerger.MergeTree(tree);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("dt=0.00s") &&
+                l.Contains("expectedFromVel=NaN") &&
+                l.Contains("ratio=NaN") &&
+                l.Contains("cause=invalid-data"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("dt=NaN"));
         }
 
         #endregion
@@ -1872,13 +2185,19 @@ namespace Parsek.Tests
                 l.Contains("[Merger]") &&
                 l.Contains("healed unrecorded-gap") &&
                 l.Contains("rec-580-anchor"));
-            Assert.Contains(logLines, l =>
+            Assert.Equal(0f, merged.TrackSections[1].boundaryDiscontinuityMeters);
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("[WARN]") &&
                 l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("vessel='Anchor Vessel'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity skipped") &&
                 l.Contains("vessel='Anchor Vessel'") &&
                 l.Contains("prevRef=Relative") &&
                 l.Contains("nextRef=Relative") &&
-                l.Contains("cause=unrecorded-gap"));
+                l.Contains("reason=prev-relative-shadow-missing"));
         }
 
         [Fact]
@@ -1921,13 +2240,106 @@ namespace Parsek.Tests
                 l.Contains("[Merger]") &&
                 l.Contains("healed unrecorded-gap") &&
                 l.Contains("rec-580-anchor-rec"));
-            Assert.Contains(logLines, l =>
+            Assert.Equal(0f, merged.TrackSections[1].boundaryDiscontinuityMeters);
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("[WARN]") &&
                 l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("vessel='Anchor Recording Vessel'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity skipped") &&
                 l.Contains("vessel='Anchor Recording Vessel'") &&
                 l.Contains("prevRef=Relative") &&
                 l.Contains("nextRef=Relative") &&
-                l.Contains("cause=unrecorded-gap"));
+                l.Contains("reason=prev-relative-shadow-missing"));
+        }
+
+        [Fact]
+        public void MergeTree_BackgroundToActiveRelativeWithShadows_DefersHeal()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 0.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+            background.anchorRecordingId = "anchor-rec";
+            background.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(boundaryUT, 0.0, 0.0, 100.0)
+            };
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 50.0, lon: 0, alt: 0.0,
+                velocity: Vector3.zero,
+                referenceFrame: ReferenceFrame.Relative,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+            active.anchorRecordingId = "anchor-rec";
+            active.absoluteFrames = new List<TrajectoryPoint>
+            {
+                MakePoint(2.0, 0.0, 0.0, 150.0)
+            };
+
+            var rec = MakeRecording("rec-580-relative-shadow", "Relative Shadow Vessel",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("580 Relative Shadow", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-580-relative-shadow"];
+
+            Assert.Single(merged.TrackSections[0].frames);
+            Assert.Single(merged.TrackSections[1].frames);
+            Assert.InRange(merged.TrackSections[1].boundaryDiscontinuityMeters, 49f, 51f);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("rec-580-relative-shadow"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("skipped unrecorded-gap heal") &&
+                l.Contains("recId=rec-580-relative-shadow") &&
+                l.Contains("reason=relative-healer-deferred"));
+        }
+
+        [Fact]
+        public void MergeTree_StalePersistedBoundaryDiscontinuity_RecomputesBeforeHealer()
+        {
+            const double boundaryUT = 1.0;
+            var background = MakeSectionWithFrame(
+                boundaryUT, lat: 0, lon: 0, alt: 100.0,
+                velocity: new Vector3(100f, 0f, 0f),
+                source: TrackSectionSource.Background);
+            background.startUT = 0.0;
+            background.endUT = boundaryUT;
+
+            var active = MakeSectionWithFrame(
+                2.0, lat: 0, lon: 0, alt: 100.0,
+                velocity: Vector3.zero,
+                source: TrackSectionSource.Active);
+            active.startUT = boundaryUT;
+            active.endUT = 3.0;
+            active.boundaryDiscontinuityMeters = 16000000f;
+
+            var rec = MakeRecording("rec-stale-bdisc", "Stale Bdisc",
+                new List<TrackSection> { background, active });
+            var tree = MakeTree("Stale Bdisc", rec);
+
+            var merged = SessionMerger.MergeTree(tree)["rec-stale-bdisc"];
+
+            Assert.Equal(0f, merged.TrackSections[1].boundaryDiscontinuityMeters);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") &&
+                l.Contains("[Merger]") &&
+                l.Contains("vessel='Stale Bdisc'") &&
+                l.Contains("boundary discontinuity="));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("healed unrecorded-gap") &&
+                l.Contains("rec-stale-bdisc"));
         }
 
         [Fact]
@@ -1985,7 +2397,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeTree_BackgroundToActiveUnrecordedGap_LogsUnhealableSeam()
+        public void MergeTree_CrossBodyBoundary_SkipsDiscontinuity()
         {
             const double boundaryUT = 1.0;
             var background = MakeSectionWithFrame(
@@ -2012,23 +2424,23 @@ namespace Parsek.Tests
 
             Assert.Single(merged.TrackSections[0].frames);
             Assert.Single(merged.TrackSections[1].frames);
+            Assert.Equal(0f, merged.TrackSections[1].boundaryDiscontinuityMeters);
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[INFO]") &&
                 l.Contains("[Merger]") &&
                 l.Contains("rec-580-body-mismatch") &&
                 l.Contains("healed unrecorded-gap"));
-            Assert.Contains(logLines, l =>
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("[WARN]") &&
                 l.Contains("[Merger]") &&
-                l.Contains("unable to heal unrecorded-gap") &&
+                l.Contains("boundary discontinuity=") &&
+                l.Contains("vessel='Body Mismatch'"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("boundary discontinuity skipped") &&
+                l.Contains("vessel='Body Mismatch'") &&
                 l.Contains("recId=rec-580-body-mismatch") &&
                 l.Contains("reason=body-mismatch"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") &&
-                l.Contains("[Merger]") &&
-                l.Contains("vessel='Body Mismatch'") &&
-                l.Contains("boundary discontinuity=") &&
-                l.Contains("cause=unrecorded-gap"));
         }
 
         #endregion
@@ -2302,10 +2714,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeBoundaryDiscontinuity_UsesLastPrevBody_NotFirstNext()
+        public void ComputeBoundaryDiscontinuity_CrossBodyBoundary_ReturnsZero()
         {
-            // lastPrev is on Mun, firstNext is on Kerbin. The method should use
-            // lastPrev's body (Mun, 200,000m), not firstNext's (Kerbin, 600,000m).
+            // Body-fixed lat/lon/alt coordinates are not comparable across bodies.
             var prev = MakeSection(0, 100, TrackSectionSource.Active,
                 lat: 0.0, lon: 0.0, alt: 0.0,
                 endLat: 0.0, endLon: 0.0, endAlt: 0.0,
@@ -2316,9 +2727,7 @@ namespace Parsek.Tests
 
             float disc = SessionMerger.ComputeBoundaryDiscontinuity(prev, next);
 
-            // Should use Mun radius (~3491m), not Kerbin radius (~10472m)
-            Assert.True(disc > 3000f && disc < 4000f,
-                $"Expected Mun-radius distance ~3491m (lastPrev body), got {disc}m");
+            Assert.Equal(0f, disc);
         }
 
         #endregion

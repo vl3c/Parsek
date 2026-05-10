@@ -310,7 +310,7 @@ namespace Parsek.Tests
                 IsDebris = true,
                 DebrisParentRecordingId = "parent-rec-from-rewind",
                 Generation = 1,
-                SegmentPhase = "Atmospheric",
+                SegmentPhase = "atmo",
                 SegmentBodyName = "Kerbin",
                 StartBodyName = "Kerbin",
                 StartBiome = "Shores",
@@ -321,7 +321,9 @@ namespace Parsek.Tests
             {
                 RecordingId = "provisional-fork",
                 // All identity fields start at default — we must observe
-                // every one of them flip to the inheritFrom values.
+                // every one of them flip to the inheritFrom values, except
+                // SegmentPhase / SegmentBodyName which are intentionally NOT
+                // inherited (see fix-refly-fork-segment-phase-inheritance.md).
             };
 
             RewindInvoker.CopyInheritedIdentityForFork(provisional, inheritFrom);
@@ -331,8 +333,13 @@ namespace Parsek.Tests
             Assert.True(provisional.IsDebris);
             Assert.Equal("parent-rec-from-rewind", provisional.DebrisParentRecordingId);
             Assert.Equal(1, provisional.Generation);
-            Assert.Equal("Atmospheric", provisional.SegmentPhase);
-            Assert.Equal("Kerbin", provisional.SegmentBodyName);
+            // SegmentPhase / SegmentBodyName describe the recording's own most-recent
+            // segment — for the parent that means its terminating phase, which is
+            // unrelated to where the fork actually flies. AtomicMarkerWrite calls
+            // TagForkInitialSegmentPhase immediately after this helper to set them
+            // from the live post-Strip vessel.
+            Assert.Null(provisional.SegmentPhase);
+            Assert.Null(provisional.SegmentBodyName);
             Assert.Equal("Kerbin", provisional.StartBodyName);
             Assert.Equal("Shores", provisional.StartBiome);
             Assert.Equal("FLYING", provisional.StartSituation);

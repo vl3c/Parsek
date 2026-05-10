@@ -4,15 +4,14 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Phase 9 of Rewind-to-Staging (design §6.6 step 4 / §7.13 / §7.14 /
-    /// §7.15 / §7.16 / §7.41 / §7.44): v1 narrow-scope eligibility matrix.
+    /// Phase 9 of Rewind-to-Staging tombstone eligibility matrix.
     ///
     /// <para>
-    /// Only <see cref="GameActionType.KerbalAssignment"/>+Dead actions and
-    /// <see cref="GameActionType.ReputationPenalty"/> actions paired with one
-    /// of those within a 1s UT window are tombstone-eligible. Everything else
-    /// — contracts, milestones, facility upgrades, strategies, tech research,
-    /// science spending, funds spending, vessel-destruction rep — stays in ELS.
+    /// <see cref="TombstoneEligibility.IsEligible"/> remains the legacy
+    /// death-cleanup helper used by retry/autoseal classifiers. Merge tombstoning
+    /// uses <see cref="TombstoneEligibility.IsSupersedeTombstoneEligible"/> to
+    /// retire all non-seed recording-scoped career actions from the superseded
+    /// subtree, while preserving null-scoped rows and already-paid rollout costs.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
@@ -378,6 +377,68 @@ namespace Parsek.Tests
                     TombstoneEligibility.TryPairBundledRepPenalty(a, slice, out paired),
                     $"Type {t} must not pair via TryPairBundledRepPenalty; got true");
             }
+        }
+
+        [Fact]
+        public void SupersedeTombstoneEligibility_CareerActionsEligible()
+        {
+            var actions = new[]
+            {
+                new GameAction { Type = GameActionType.ScienceEarning, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.ScienceSpending, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.FundsEarning, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.FundsSpending, RecordingId = "rec_1", FundsSpendingSource = FundsSpendingSource.Other },
+                new GameAction { Type = GameActionType.MilestoneAchievement, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.ContractAccept, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.ContractComplete, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.ContractFail, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.ContractCancel, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.ReputationEarning, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.ReputationPenalty, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.KerbalAssignment, RecordingId = "rec_1", KerbalEndStateField = KerbalEndState.Aboard },
+                new GameAction { Type = GameActionType.KerbalHire, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.KerbalRescue, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.KerbalStandIn, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.FacilityUpgrade, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.FacilityDestruction, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.FacilityRepair, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.StrategyActivate, RecordingId = "rec_1" },
+                new GameAction { Type = GameActionType.StrategyDeactivate, RecordingId = "rec_1" },
+            };
+
+            foreach (var action in actions)
+            {
+                Assert.True(TombstoneEligibility.IsSupersedeTombstoneEligible(action),
+                    $"Type {action.Type} should be merge-tombstone eligible");
+            }
+        }
+
+        [Fact]
+        public void SupersedeTombstoneEligibility_PreservesSeedsNullScopeAndRollout()
+        {
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(null));
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction { Type = GameActionType.ScienceEarning, RecordingId = null }));
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction { Type = GameActionType.FundsInitial, RecordingId = "rec_1" }));
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction { Type = GameActionType.ScienceInitial, RecordingId = "rec_1" }));
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction { Type = GameActionType.ReputationInitial, RecordingId = "rec_1" }));
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction
+                {
+                    Type = GameActionType.FundsSpending,
+                    RecordingId = "rec_1",
+                    FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                }));
+        }
+
+        [Fact]
+        public void SupersedeTombstoneEligibility_UnknownFutureType_PreservedUntilReviewed()
+        {
+            Assert.False(TombstoneEligibility.IsSupersedeTombstoneEligible(
+                new GameAction { Type = (GameActionType)999, RecordingId = "rec_1" }));
         }
     }
 }

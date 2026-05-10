@@ -43,23 +43,79 @@ namespace Parsek.Rendering
 
             if (rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion)
             {
+                RelativeAnchorResolveFailure chainFailure = default;
+                bool boundaryHasAbsoluteShadow =
+                    relSection.absoluteFrames != null && relSection.absoluteFrames.Count > 0;
                 // V11 path: resolve the anchor-local boundary through the
                 // recorded anchor chain. If the chain misses, fall back to the
                 // v7+ absolute shadow below instead of failing outright.
-                if (relSection.frames != null
-                    && relSection.frames.Count > 0
-                    && TryFindBoundaryFrameSample(relSection.frames, boundaryUT, side, out TrajectoryPoint pt)
-                    && TryBuildRelativeAnchorResolverContext(rec, out RelativeAnchorResolverContext context)
-                    && TryResolveKnownRelativeBoundaryPose(
-                        context,
-                        rec,
-                        relSection,
-                        relIdx,
+                if (relSection.frames == null || relSection.frames.Count == 0)
+                {
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.PreconditionFailed,
+                        "relative-boundary-frames-missing",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
+                        boundaryUT,
+                        relIdx);
+                }
+                else if (!TryFindBoundaryFrameSample(
+                             relSection.frames,
+                             boundaryUT,
+                             side,
+                             out TrajectoryPoint pt))
+                {
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.OutOfSectionRange,
+                        "relative-boundary-frame-missing",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
+                        boundaryUT,
+                        relIdx);
+                }
+                else if (!TryBuildRelativeAnchorResolverContext(
+                             rec,
+                             out RelativeAnchorResolverContext context))
+                {
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.Other,
+                        "focus-tree-missing",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
                         pt.ut,
-                        out AnchorPose pose))
+                        relIdx);
+                }
+                else if (TryResolveKnownRelativeBoundaryPose(
+                             context,
+                             rec,
+                             relSection,
+                             relIdx,
+                             pt.ut,
+                             out AnchorPose pose,
+                             out chainFailure))
                 {
                     worldPos = pose.WorldPos;
-                    return IsFinite(worldPos);
+                    if (IsFinite(worldPos))
+                        return true;
+
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.PoseNonFinite,
+                        "relative-pose-nonfinite",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
+                        pt.ut,
+                        relIdx);
+                }
+
+                if (!chainFailure.HasFailure)
+                {
+                    chainFailure = RelativeAnchorResolveFailure.Create(
+                        RelativeAnchorResolveOutcome.Other,
+                        "relative-boundary-chain-unresolved",
+                        rec.RecordingId,
+                        relSection.anchorRecordingId,
+                        boundaryUT,
+                        relIdx);
                 }
 
                 if (TryResolveRelativeBoundaryShadowWorldPos(
@@ -84,7 +140,12 @@ namespace Parsek.Rendering
                             relIdx,
                             side,
                             boundaryUT,
-                            relSection.anchorRecordingId ?? "(missing)"),
+                            relSection.anchorRecordingId ?? "(missing)")
+                            + string.Format(
+                                CultureInfo.InvariantCulture,
+                                " chainOutcome={0} chainReason={1}",
+                                chainFailure.Outcome,
+                                RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)")),
                         5.0);
                     return true;
                 }
@@ -98,13 +159,16 @@ namespace Parsek.Rendering
                         side),
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} legacyAnchorPid={5}",
+                        "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} legacyAnchorPid={5} outcome={6} reason={7} boundaryHasAbsoluteShadow={8}",
                         rec.RecordingId ?? "(none)",
                         relIdx,
                         side,
                         boundaryUT,
                         relSection.anchorRecordingId ?? "(missing)",
-                        relSection.anchorVesselId),
+                        relSection.anchorVesselId,
+                        chainFailure.Outcome,
+                        RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)"),
+                        boundaryHasAbsoluteShadow),
                     5.0);
                 return false;
             }
@@ -126,7 +190,8 @@ namespace Parsek.Rendering
             TrackSection relSection,
             int relIdx,
             double ut,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             return RelativeAnchorResolver.TryResolveRelativeSectionPose(
                 context,
@@ -135,7 +200,8 @@ namespace Parsek.Rendering
                 relIdx,
                 ut,
                 new HashSet<string>(StringComparer.Ordinal),
-                out pose);
+                out pose,
+                out failure);
         }
 
         public bool TryResolveOrbitalCheckpointWorldPos(

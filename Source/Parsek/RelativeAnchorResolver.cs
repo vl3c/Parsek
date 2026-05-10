@@ -44,6 +44,7 @@ namespace Parsek
         public readonly Func<TrajectoryPoint, Vector3d> AbsoluteWorldPositionResolver;
         public readonly Func<TrajectoryPoint, Quaternion> BodyWorldRotationResolver;
         public readonly TryResolveOrbitalAnchorPose OrbitalCheckpointPoseResolver;
+        public readonly double DebrisLocalOffsetSquaredMeters;
 
         public RelativeAnchorResolverContext(
             RecordingTree focusTree,
@@ -55,7 +56,8 @@ namespace Parsek
             Func<Recording, TrackSection, int, string> sectionAnchorRecordingIdResolver = null,
             Func<TrajectoryPoint, Vector3d> absoluteWorldPositionResolver = null,
             Func<TrajectoryPoint, Quaternion> bodyWorldRotationResolver = null,
-            TryResolveOrbitalAnchorPose orbitalCheckpointPoseResolver = null)
+            TryResolveOrbitalAnchorPose orbitalCheckpointPoseResolver = null,
+            double debrisLocalOffsetSquaredMeters = 0.0)
         {
             FocusTree = focusTree;
             FocusRecordingId = focusRecordingId;
@@ -69,6 +71,23 @@ namespace Parsek
             AbsoluteWorldPositionResolver = absoluteWorldPositionResolver;
             BodyWorldRotationResolver = bodyWorldRotationResolver;
             OrbitalCheckpointPoseResolver = orbitalCheckpointPoseResolver;
+            DebrisLocalOffsetSquaredMeters = debrisLocalOffsetSquaredMeters;
+        }
+
+        public RelativeAnchorResolverContext WithDebrisLocalOffsetSquaredMeters(double value)
+        {
+            return new RelativeAnchorResolverContext(
+                FocusTree,
+                FocusRecordingId,
+                FocusTreeId,
+                ActiveReFlyMarker,
+                ProvisionalRecordings,
+                PendingTree,
+                SectionAnchorRecordingIdResolver,
+                AbsoluteWorldPositionResolver,
+                BodyWorldRotationResolver,
+                OrbitalCheckpointPoseResolver,
+                value);
         }
     }
 
@@ -77,23 +96,39 @@ namespace Parsek
         internal const int RecordingAnchorChainFormatVersion =
             RecordingStore.RecordingAnchorChainFormatVersion;
         private const double UtEpsilon = 1e-6;
+        internal const double SectionBoundaryEpsilonSeconds = 1e-9;
+        private const double TerminalClampDoubleSlopSeconds = 1e-6;
+        private const double HeadlessTestFixedDeltaTimeSeconds = 0.02;
+        private static readonly bool RunningInHeadlessTestRunner = DetectHeadlessTestRunner();
         // Default applies when section cadence is unavailable; maximum clamps the
         // cadence-derived threshold so sparse recordings cannot broaden the fallback.
         private const double DefaultSmallSectionGapSeconds = 0.10;
         private const double MinimumSmallSectionGapSeconds = 0.05;
         private const double MaximumSmallSectionGapSeconds = 0.10;
 
+        // Terminal anchor probes can arrive one physics tick after playback has
+        // already held or retired the ghost at its final sample. This is one
+        // fixed tick plus floating-point slop, not a generic gap tolerance.
+        internal static double TerminalClampPhysicsTickSeconds =>
+            ResolveFixedDeltaTimeSeconds();
+
+        internal static double TerminalClampThresholdSeconds =>
+            ResolveFixedDeltaTimeSeconds() + TerminalClampDoubleSlopSeconds;
+
         internal static bool TryResolveAnchorPose(
             RelativeAnchorResolverContext context,
             string anchorRecordingId,
             double ut,
             HashSet<string> visited,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (string.IsNullOrWhiteSpace(anchorRecordingId))
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
                     "anchor-recording-id-missing",
                     context.FocusRecordingId,
                     anchorRecordingId,
@@ -104,7 +139,8 @@ namespace Parsek
             HashSet<string> activeVisited = visited ?? new HashSet<string>(StringComparer.Ordinal);
             if (!activeVisited.Add(anchorRecordingId))
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.AnchorCycleDetected,
                     "anchor-cycle-detected",
                     context.FocusRecordingId,
                     anchorRecordingId,
@@ -116,7 +152,82 @@ namespace Parsek
             {
                 if (!TryFindRecording(context, anchorRecordingId, out Recording recording, out string reason))
                 {
-                    WarnUnresolved(reason, context.FocusRecordingId, anchorRecordingId, ut);
+                    failure = WarnUnresolved(
+                        MapRecordingLookupFailureOutcome(reason),
+                        reason,
+                        context.FocusRecordingId,
+                        anchorRecordingId,
+                        ut);
+                    return false;
+                }
+
+                if (!TryResolveActiveReFlyAnchorRecording(
+                        context,
+                        anchorRecordingId,
+                        recording,
+                        ut,
+                        out recording))
+                {
+                    failure = WarnUnresolved(
+                        RelativeAnchorResolveOutcome.AnchorOutOfScope,
+                        "active-provisional-out-of-scope",
+                        context.FocusRecordingId,
+                        anchorRecordingId,
+                        ut);
+                    return false;
+                }
+
+                return TryResolveRecordingPose(context, recording, ut, activeVisited, out pose, out failure);
+            }
+            finally
+            {
+                activeVisited.Remove(anchorRecordingId);
+            }
+        }
+
+        private static bool TryResolveAnchorPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            string anchorRecordingId,
+            double ut,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision)
+        {
+            pose = default;
+            rotationDecision = default;
+            if (string.IsNullOrWhiteSpace(anchorRecordingId))
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    context.FocusRecordingId,
+                    anchorRecordingId,
+                    ut);
+                return false;
+            }
+
+            HashSet<string> activeVisited = visited ?? new HashSet<string>(StringComparer.Ordinal);
+            if (!activeVisited.Add(anchorRecordingId))
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.AnchorCycleDetected,
+                    "anchor-cycle-detected",
+                    context.FocusRecordingId,
+                    anchorRecordingId,
+                    ut);
+                return false;
+            }
+
+            try
+            {
+                if (!TryFindRecording(context, anchorRecordingId, out Recording recording, out string reason))
+                {
+                    WarnUnresolved(
+                        MapRecordingLookupFailureOutcome(reason),
+                        reason,
+                        context.FocusRecordingId,
+                        anchorRecordingId,
+                        ut);
                     return false;
                 }
 
@@ -128,6 +239,7 @@ namespace Parsek
                         out recording))
                 {
                     WarnUnresolved(
+                        RelativeAnchorResolveOutcome.AnchorOutOfScope,
                         "active-provisional-out-of-scope",
                         context.FocusRecordingId,
                         anchorRecordingId,
@@ -135,7 +247,13 @@ namespace Parsek
                     return false;
                 }
 
-                return TryResolveRecordingPose(context, recording, ut, activeVisited, out pose);
+                return TryResolveRecordingPoseWithReliability(
+                    context,
+                    recording,
+                    ut,
+                    activeVisited,
+                    out pose,
+                    out rotationDecision);
             }
             finally
             {
@@ -143,23 +261,47 @@ namespace Parsek
             }
         }
 
+        internal static bool TryEvaluateRecordingAnchorRotationReliability(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            HashSet<string> visited,
+            out AnchorRotationReliabilityDecision rotationDecision)
+        {
+            return TryResolveRecordingPoseWithReliability(
+                context,
+                recording,
+                ut,
+                visited,
+                out _,
+                out rotationDecision);
+        }
+
         internal static bool TryResolveRecordingPose(
             RelativeAnchorResolverContext context,
             Recording recording,
             double ut,
             HashSet<string> visited,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (recording == null)
             {
-                WarnUnresolved("anchor-recording-null", context.FocusRecordingId, null, ut);
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-null",
+                    context.FocusRecordingId,
+                    null,
+                    ut);
                 return false;
             }
 
             if (recording.LoopAnchorVesselId != 0u)
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.AnchorOutOfScope,
                     "loop-anchor-out-of-scope",
                     recording.RecordingId,
                     recording.RecordingId,
@@ -169,27 +311,52 @@ namespace Parsek
 
             if (recording.TrackSections != null && recording.TrackSections.Count > 0)
             {
-                int sectionIndex = TrajectoryMath.FindTrackSectionForUT(recording.TrackSections, ut);
+                int sectionIndex = FindTrackSectionForUT(recording.TrackSections, ut);
                 if (sectionIndex < 0)
                 {
-                    if (TryResolveSmallSectionGapPose(context, recording, ut, out pose))
+                    if (TryResolveSmallSectionGapPose(context, recording, ut, out pose, out failure))
                         return true;
+                    if (failure.HasFailure)
+                        return false;
 
                     if (TryResolveSameChainContinuationPose(
                             context,
                             recording,
                             ut,
                             visited,
-                            out pose))
+                            out pose,
+                            out failure))
                     {
                         return true;
                     }
+                    if (failure.HasFailure)
+                        return false;
 
-                    WarnUnresolved(
+                    if (TryResolveTerminalClampedPose(
+                            context,
+                            recording,
+                            ut,
+                            visited,
+                            out pose,
+                            out failure))
+                    {
+                        return true;
+                    }
+                    if (failure.HasFailure)
+                        return false;
+
+                    ResolveTrackSectionRange(
+                        recording.TrackSections,
+                        out double rangeStartUT,
+                        out double rangeEndUT);
+                    failure = WarnUnresolved(
+                        RelativeAnchorResolveOutcome.NoSectionAtUT,
                         "anchor-out-of-recorded-range",
                         recording.RecordingId,
                         recording.RecordingId,
-                        ut);
+                        ut,
+                        rangeStartUT: rangeStartUT,
+                        rangeEndUT: rangeEndUT);
                     return false;
                 }
 
@@ -203,7 +370,8 @@ namespace Parsek
                             section,
                             sectionIndex,
                             ut,
-                            out pose);
+                            out pose,
+                            out failure);
                     case ReferenceFrame.Relative:
                         return TryResolveRelativeSectionPose(
                             context,
@@ -212,7 +380,8 @@ namespace Parsek
                             sectionIndex,
                             ut,
                             visited,
-                            out pose);
+                            out pose,
+                            out failure);
                     case ReferenceFrame.OrbitalCheckpoint:
                         return TryResolveOrbitalSectionPose(
                             context,
@@ -220,9 +389,11 @@ namespace Parsek
                             section,
                             sectionIndex,
                             ut,
-                            out pose);
+                            out pose,
+                            out failure);
                     default:
-                        WarnUnresolved(
+                        failure = WarnUnresolved(
+                            RelativeAnchorResolveOutcome.Other,
                             "anchor-section-frame-unknown",
                             recording.RecordingId,
                             recording.RecordingId,
@@ -234,7 +405,8 @@ namespace Parsek
 
             if (recording.RecordingFormatVersion >= RecordingStore.RelativeLocalFrameFormatVersion)
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.TrackSectionsMissing,
                     "anchor-track-sections-missing",
                     recording.RecordingId,
                     recording.RecordingId,
@@ -250,7 +422,158 @@ namespace Parsek
                 resolvedRecordingId: recording.RecordingId,
                 sectionStartUT: double.NaN,
                 sectionEndUT: double.NaN,
-                out pose);
+                out pose,
+                out failure);
+        }
+
+        private static bool TryResolveRecordingPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision)
+        {
+            pose = default;
+            rotationDecision = default;
+            if (recording == null)
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-null",
+                    context.FocusRecordingId,
+                    null,
+                    ut);
+                return false;
+            }
+
+            if (recording.LoopAnchorVesselId != 0u)
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.AnchorOutOfScope,
+                    "loop-anchor-out-of-scope",
+                    recording.RecordingId,
+                    recording.RecordingId,
+                    ut);
+                return false;
+            }
+
+            if (recording.TrackSections != null && recording.TrackSections.Count > 0)
+            {
+                int sectionIndex = FindTrackSectionForUT(recording.TrackSections, ut);
+                if (sectionIndex < 0)
+                {
+                    if (TryResolveSmallSectionGapPoseWithReliability(
+                            context,
+                            recording,
+                            ut,
+                            out pose,
+                            out rotationDecision))
+                    {
+                        return true;
+                    }
+
+                    if (TryResolveSameChainContinuationPoseWithReliability(
+                            context,
+                            recording,
+                            ut,
+                            visited,
+                            out pose,
+                            out rotationDecision,
+                            out bool continuationAttempted))
+                    {
+                        return true;
+                    }
+                    if (continuationAttempted)
+                        return false;
+
+                    if (TryResolveTerminalClampedPoseWithReliability(
+                            context,
+                            recording,
+                            ut,
+                            visited,
+                            out pose,
+                            out rotationDecision,
+                            out bool terminalClampAttempted))
+                    {
+                        return true;
+                    }
+                    if (terminalClampAttempted)
+                        return false;
+
+                    WarnUnresolved(
+                        RelativeAnchorResolveOutcome.NoSectionAtUT,
+                        "anchor-out-of-recorded-range",
+                        recording.RecordingId,
+                        recording.RecordingId,
+                        ut);
+                    return false;
+                }
+
+                TrackSection section = recording.TrackSections[sectionIndex];
+                switch (section.referenceFrame)
+                {
+                    case ReferenceFrame.Absolute:
+                        return TryResolveAbsoluteSectionPoseWithReliability(
+                            context,
+                            recording,
+                            section,
+                            sectionIndex,
+                            ut,
+                            out pose,
+                            out rotationDecision);
+                    case ReferenceFrame.Relative:
+                        return TryResolveRelativeSectionPoseWithReliability(
+                            context,
+                            recording,
+                            section,
+                            sectionIndex,
+                            ut,
+                            visited,
+                            out pose,
+                            out rotationDecision);
+                    case ReferenceFrame.OrbitalCheckpoint:
+                        return TryResolveOrbitalSectionPose(
+                            context,
+                            recording,
+                            section,
+                            sectionIndex,
+                            ut,
+                            out pose,
+                            out _);
+                    default:
+                        WarnUnresolved(
+                            RelativeAnchorResolveOutcome.Other,
+                            "anchor-section-frame-unknown",
+                            recording.RecordingId,
+                            recording.RecordingId,
+                            ut,
+                            sectionIndex);
+                        return false;
+                }
+            }
+
+            if (recording.RecordingFormatVersion >= RecordingStore.RelativeLocalFrameFormatVersion)
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.TrackSectionsMissing,
+                    "anchor-track-sections-missing",
+                    recording.RecordingId,
+                    recording.RecordingId,
+                    ut);
+                return false;
+            }
+
+            return TryResolveAbsoluteFramesPoseWithReliability(
+                context,
+                recording.Points,
+                ut,
+                resolvedSectionIndex: -1,
+                resolvedRecordingId: recording.RecordingId,
+                sectionStartUT: double.NaN,
+                sectionEndUT: double.NaN,
+                out pose,
+                out rotationDecision);
         }
 
         private static bool TryResolveSameChainContinuationPose(
@@ -258,9 +581,11 @@ namespace Parsek
             Recording recording,
             double ut,
             HashSet<string> visited,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (!TryFindSameChainContinuationRecording(
                     context,
                     recording,
@@ -277,7 +602,8 @@ namespace Parsek
             HashSet<string> activeVisited = visited ?? new HashSet<string>(StringComparer.Ordinal);
             if (!activeVisited.Add(continuationId))
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.AnchorCycleDetected,
                     "anchor-cycle-detected",
                     recording.RecordingId,
                     continuationId,
@@ -295,7 +621,8 @@ namespace Parsek
                         ut,
                         out resolvedContinuation))
                 {
-                    WarnUnresolved(
+                    failure = WarnUnresolved(
+                        RelativeAnchorResolveOutcome.AnchorOutOfScope,
                         "active-provisional-out-of-scope",
                         recording.RecordingId,
                         continuationId,
@@ -323,7 +650,94 @@ namespace Parsek
                     resolvedContinuation,
                     ut,
                     activeVisited,
-                    out pose);
+                    out pose,
+                    out failure);
+            }
+            finally
+            {
+                activeVisited.Remove(continuationId);
+            }
+        }
+
+        private static bool TryResolveSameChainContinuationPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision,
+            out bool attempted)
+        {
+            pose = default;
+            rotationDecision = default;
+            attempted = false;
+            if (!TryFindSameChainContinuationRecording(
+                    context,
+                    recording,
+                    ut,
+                    out Recording continuation))
+            {
+                return false;
+            }
+
+            attempted = true;
+            string continuationId = continuation.RecordingId;
+            if (string.IsNullOrEmpty(continuationId))
+                return false;
+
+            HashSet<string> activeVisited = visited ?? new HashSet<string>(StringComparer.Ordinal);
+            if (!activeVisited.Add(continuationId))
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.AnchorCycleDetected,
+                    "anchor-cycle-detected",
+                    recording.RecordingId,
+                    continuationId,
+                    ut);
+                return false;
+            }
+
+            try
+            {
+                Recording resolvedContinuation = continuation;
+                if (!TryResolveActiveReFlyAnchorRecording(
+                        context,
+                        continuationId,
+                        continuation,
+                        ut,
+                        out resolvedContinuation))
+                {
+                    WarnUnresolved(
+                        RelativeAnchorResolveOutcome.AnchorOutOfScope,
+                        "active-provisional-out-of-scope",
+                        recording.RecordingId,
+                        continuationId,
+                        ut);
+                    return false;
+                }
+
+                ParsekLog.VerboseRateLimited(
+                    "RelativeAnchorResolver",
+                    "anchor-chain-continuation|"
+                        + (recording.RecordingId ?? "(none)") + "|"
+                        + continuationId,
+                    "Anchor recording continued through same-chain successor: "
+                    + "recordingId=" + (recording.RecordingId ?? "(none)")
+                    + " successorRecordingId=" + continuationId
+                    + " chainId=" + (recording.ChainId ?? "(none)")
+                    + " chainBranch=" + recording.ChainBranch.ToString(CultureInfo.InvariantCulture)
+                    + " fromIndex=" + recording.ChainIndex.ToString(CultureInfo.InvariantCulture)
+                    + " toIndex=" + continuation.ChainIndex.ToString(CultureInfo.InvariantCulture)
+                    + " ut=" + ut.ToString("R", CultureInfo.InvariantCulture),
+                    5.0);
+
+                return TryResolveRecordingPoseWithReliability(
+                    context,
+                    resolvedContinuation,
+                    ut,
+                    activeVisited,
+                    out pose,
+                    out rotationDecision);
             }
             finally
             {
@@ -428,7 +842,7 @@ namespace Parsek
                     continue;
                 if (candidate.TrackSections == null || candidate.TrackSections.Count == 0)
                     continue;
-                if (TrajectoryMath.FindTrackSectionForUT(candidate.TrackSections, ut) < 0)
+                if (FindTrackSectionForUT(candidate.TrackSections, ut) < 0)
                     continue;
                 // First chronological same-chain continuation covering the UT wins.
                 // Priority only breaks ties when the same chain index exists in
@@ -468,6 +882,432 @@ namespace Parsek
                 && string.Equals(candidate.TreeId, requiredTreeId, StringComparison.Ordinal);
         }
 
+        private static double ResolveFixedDeltaTimeSeconds()
+        {
+            if (RunningInHeadlessTestRunner)
+                return HeadlessTestFixedDeltaTimeSeconds;
+
+            double fixedDeltaTime = ResolveUnityFixedDeltaTimeSeconds();
+            if (IsFinite(fixedDeltaTime) && fixedDeltaTime > 0.0)
+                return fixedDeltaTime;
+
+            return HeadlessTestFixedDeltaTimeSeconds;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ResolveUnityFixedDeltaTimeSeconds()
+        {
+            // Keep Unity's ECall isolated so the headless xUnit runner can
+            // choose the test fallback without JIT-compiling this accessor.
+            return Time.fixedDeltaTime;
+        }
+
+        private static bool DetectHeadlessTestRunner()
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (string.Equals(
+                    assembly.GetName().Name,
+                    "Parsek.Tests",
+                    StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static int FindTrackSectionForUT(List<TrackSection> sections, double ut)
+        {
+            int strictIndex = TrajectoryMath.FindTrackSectionForUT(sections, ut);
+            if (strictIndex >= 0)
+                return strictIndex;
+
+            if (sections == null || sections.Count == 0 || !IsFinite(ut))
+                return -1;
+
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (IsFinite(sections[i].startUT)
+                    && Math.Abs(ut - sections[i].startUT) <= SectionBoundaryEpsilonSeconds)
+                {
+                    return i;
+                }
+            }
+
+            for (int i = sections.Count - 1; i >= 0; i--)
+            {
+                if (IsFinite(sections[i].endUT)
+                    && Math.Abs(ut - sections[i].endUT) <= SectionBoundaryEpsilonSeconds)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static bool TryResolveTerminalClampedPose(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double requestedUT,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
+        {
+            pose = default;
+            failure = default;
+            if (!TryFindTerminalClamp(
+                    recording,
+                    requestedUT,
+                    out int sectionIndex,
+                    out double clampedUT,
+                    out double sectionEndUT,
+                    out double terminalPlayableUT,
+                    out double overshootSeconds,
+                    out double thresholdSeconds))
+            {
+                return false;
+            }
+
+            TrackSection section = recording.TrackSections[sectionIndex];
+            bool resolved;
+            switch (section.referenceFrame)
+            {
+                case ReferenceFrame.Absolute:
+                    resolved = TryResolveAbsoluteSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        out pose,
+                        out failure);
+                    break;
+                case ReferenceFrame.Relative:
+                    resolved = TryResolveRelativeSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        visited,
+                        out pose,
+                        out failure);
+                    break;
+                case ReferenceFrame.OrbitalCheckpoint:
+                    resolved = TryResolveOrbitalSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        out pose,
+                        out failure);
+                    break;
+                default:
+                    failure = WarnUnresolved(
+                        RelativeAnchorResolveOutcome.Other,
+                        "anchor-section-frame-unknown",
+                        recording.RecordingId,
+                        recording.RecordingId,
+                        clampedUT,
+                        sectionIndex);
+                    resolved = false;
+                    break;
+            }
+
+            if (!resolved)
+                return false;
+
+            LogTerminalClamp(
+                context,
+                recording,
+                section,
+                sectionIndex,
+                requestedUT,
+                clampedUT,
+                sectionEndUT,
+                terminalPlayableUT,
+                overshootSeconds,
+                thresholdSeconds);
+            return true;
+        }
+
+        private static bool TryResolveTerminalClampedPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double requestedUT,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision,
+            out bool attempted)
+        {
+            pose = default;
+            rotationDecision = default;
+            attempted = false;
+            if (!TryFindTerminalClamp(
+                    recording,
+                    requestedUT,
+                    out int sectionIndex,
+                    out double clampedUT,
+                    out double sectionEndUT,
+                    out double terminalPlayableUT,
+                    out double overshootSeconds,
+                    out double thresholdSeconds))
+            {
+                return false;
+            }
+
+            attempted = true;
+            TrackSection section = recording.TrackSections[sectionIndex];
+            bool resolved;
+            switch (section.referenceFrame)
+            {
+                case ReferenceFrame.Absolute:
+                    resolved = TryResolveAbsoluteSectionPoseWithReliability(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        out pose,
+                        out rotationDecision);
+                    break;
+                case ReferenceFrame.Relative:
+                    resolved = TryResolveRelativeSectionPoseWithReliability(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        visited,
+                        out pose,
+                        out rotationDecision);
+                    break;
+                case ReferenceFrame.OrbitalCheckpoint:
+                    resolved = TryResolveOrbitalSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        out pose,
+                        out _);
+                    break;
+                default:
+                    WarnUnresolved(
+                        RelativeAnchorResolveOutcome.Other,
+                        "anchor-section-frame-unknown",
+                        recording.RecordingId,
+                        recording.RecordingId,
+                        clampedUT,
+                        sectionIndex);
+                    resolved = false;
+                    break;
+            }
+
+            if (!resolved)
+                return false;
+
+            LogTerminalClamp(
+                context,
+                recording,
+                section,
+                sectionIndex,
+                requestedUT,
+                clampedUT,
+                sectionEndUT,
+                terminalPlayableUT,
+                overshootSeconds,
+                thresholdSeconds);
+            return true;
+        }
+
+        private static bool TryFindTerminalClamp(
+            Recording recording,
+            double requestedUT,
+            out int sectionIndex,
+            out double clampedUT,
+            out double sectionEndUT,
+            out double terminalPlayableUT,
+            out double overshootSeconds,
+            out double thresholdSeconds)
+        {
+            sectionIndex = -1;
+            clampedUT = double.NaN;
+            sectionEndUT = double.NaN;
+            terminalPlayableUT = double.NaN;
+            overshootSeconds = double.NaN;
+            thresholdSeconds = TerminalClampThresholdSeconds;
+
+            if (recording?.TrackSections == null
+                || recording.TrackSections.Count == 0
+                || !IsFinite(requestedUT)
+                || !IsFinite(thresholdSeconds)
+                || thresholdSeconds <= 0.0)
+            {
+                return false;
+            }
+
+            // The 1e-9 section-boundary lookup can return a terminal section
+            // even when frame coverage later rejects it because
+            // endUT > lastFrame.ut + UtEpsilon. This clamp is the separate
+            // endpoint-playback path: one physics tick plus slop, and only
+            // when the final playable sample is itself within that window.
+            if (!TryFindFinalPlayableSection(
+                    recording,
+                    out sectionIndex,
+                    out TrackSection section,
+                    out terminalPlayableUT))
+            {
+                return false;
+            }
+
+            sectionEndUT = section.endUT;
+            if (!IsFinite(sectionEndUT) || !IsFinite(terminalPlayableUT))
+                return false;
+
+            if (requestedUT <= sectionEndUT + SectionBoundaryEpsilonSeconds)
+                return false;
+
+            overshootSeconds = requestedUT - sectionEndUT;
+            if (overshootSeconds < 0.0
+                || overshootSeconds > thresholdSeconds + SectionBoundaryEpsilonSeconds)
+            {
+                return false;
+            }
+
+            double terminalSampleGapSeconds = sectionEndUT - terminalPlayableUT;
+            if (terminalSampleGapSeconds < -SectionBoundaryEpsilonSeconds
+                || terminalSampleGapSeconds > thresholdSeconds + SectionBoundaryEpsilonSeconds)
+            {
+                return false;
+            }
+
+            clampedUT = terminalPlayableUT;
+            return true;
+        }
+
+        private static bool TryFindFinalPlayableSection(
+            Recording recording,
+            out int sectionIndex,
+            out TrackSection section,
+            out double terminalPlayableUT)
+        {
+            sectionIndex = -1;
+            section = default;
+            terminalPlayableUT = double.NaN;
+            if (recording?.TrackSections == null)
+                return false;
+
+            for (int i = recording.TrackSections.Count - 1; i >= 0; i--)
+            {
+                TrackSection candidate = recording.TrackSections[i];
+                if (!TryResolveTerminalPlayableUT(recording, candidate, out double candidatePlayableUT))
+                    continue;
+
+                sectionIndex = i;
+                section = candidate;
+                terminalPlayableUT = candidatePlayableUT;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveTerminalPlayableUT(
+            Recording recording,
+            TrackSection section,
+            out double terminalPlayableUT)
+        {
+            terminalPlayableUT = double.NaN;
+            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+            {
+                if (section.checkpoints == null || section.checkpoints.Count == 0)
+                    return false;
+
+                terminalPlayableUT = section.checkpoints[section.checkpoints.Count - 1].endUT;
+                return IsFinite(terminalPlayableUT);
+            }
+
+            if (section.frames != null && section.frames.Count > 0)
+            {
+                terminalPlayableUT = section.frames[section.frames.Count - 1].ut;
+                return IsFinite(terminalPlayableUT);
+            }
+
+            if (section.referenceFrame == ReferenceFrame.Absolute
+                && recording?.Points != null
+                && recording.Points.Count > 0)
+            {
+                terminalPlayableUT = recording.Points[recording.Points.Count - 1].ut;
+                return IsFinite(terminalPlayableUT);
+            }
+
+            return false;
+        }
+
+        private static void LogTerminalClamp(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double requestedUT,
+            double clampedUT,
+            double sectionEndUT,
+            double terminalPlayableUT,
+            double overshootSeconds,
+            double thresholdSeconds)
+        {
+            string recordingId = recording?.RecordingId ?? "(none)";
+            string anchorRecordingId = ResolveTerminalClampAnchorRecordingIdForLog(
+                context,
+                recording,
+                section,
+                sectionIndex);
+            string key = "relative-anchor-terminal-clamp|"
+                + recordingId + "|"
+                + sectionIndex.ToString(CultureInfo.InvariantCulture);
+            ParsekLog.VerboseRateLimited(
+                "RelativeAnchorResolver",
+                key,
+                "relative-anchor-terminal-clamp: "
+                + "recordingId=" + recordingId
+                + " anchorRecordingId=" + anchorRecordingId
+                + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
+                + " requestedUT=" + FormatDoubleR(requestedUT)
+                + " clampedUT=" + FormatDoubleR(clampedUT)
+                + " sectionEndUT=" + FormatDoubleR(sectionEndUT)
+                + " terminalPlayableUT=" + FormatDoubleR(terminalPlayableUT)
+                + " overshootSeconds=" + FormatDoubleR(overshootSeconds)
+                + " thresholdSeconds=" + FormatDoubleR(thresholdSeconds),
+                5.0);
+        }
+
+        private static string ResolveTerminalClampAnchorRecordingIdForLog(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            TrackSection section,
+            int sectionIndex)
+        {
+            if (section.referenceFrame == ReferenceFrame.Relative
+                && TryResolveSectionAnchorRecordingId(
+                    context,
+                    recording,
+                    section,
+                    sectionIndex,
+                    out string anchorRecordingId)
+                && !string.IsNullOrEmpty(anchorRecordingId))
+            {
+                return anchorRecordingId;
+            }
+
+            return "(none)";
+        }
+
         internal static bool TryResolveSectionAnchorRecordingId(
             RelativeAnchorResolverContext context,
             Recording recording,
@@ -498,7 +1338,8 @@ namespace Parsek
             TrackSection section,
             int sectionIndex,
             double ut,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             List<TrajectoryPoint> frames =
                 section.frames != null && section.frames.Count > 0
@@ -543,16 +1384,75 @@ namespace Parsek
                 recording.RecordingId,
                 section.startUT,
                 section.endUT,
-                out pose);
+                out pose,
+                out failure);
+        }
+
+        private static bool TryResolveAbsoluteSectionPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double ut,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision)
+        {
+            List<TrajectoryPoint> frames =
+                section.frames != null && section.frames.Count > 0
+                    ? section.frames
+                    : recording.Points;
+            if (frames == section.frames
+                && !FrameListCoversUT(frames, section.startUT, section.endUT, ut))
+            {
+                List<TrajectoryPoint> flatFallbackFrames = recording.Points;
+                if (TrajectoryTextSidecarCodec.TryBuildAbsoluteShadowFlatPointsForRelativeSections(
+                        recording,
+                        out List<TrajectoryPoint> safeRelativeFlatPoints))
+                {
+                    flatFallbackFrames = safeRelativeFlatPoints;
+                }
+
+                if (FrameListCoversUT(flatFallbackFrames, section.startUT, section.endUT, ut))
+                {
+                    frames = flatFallbackFrames;
+                    ParsekLog.VerboseRateLimited(
+                        "RelativeAnchorResolver",
+                        "absolute-section-flat-fallback|"
+                            + (recording.RecordingId ?? "(none)") + "|"
+                            + sectionIndex.ToString(CultureInfo.InvariantCulture),
+                        "Absolute section anchor pose fell back to flat trajectory coverage: "
+                        + "recordingId=" + (recording.RecordingId ?? "(none)")
+                        + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
+                        + " ut=" + ut.ToString("R", CultureInfo.InvariantCulture)
+                        + " sectionStartUT=" + section.startUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " sectionEndUT=" + section.endUT.ToString("R", CultureInfo.InvariantCulture)
+                        + " sectionFrameCount=" + (section.frames?.Count ?? 0).ToString(CultureInfo.InvariantCulture)
+                        + " flatFrameCount=" + flatFallbackFrames.Count.ToString(CultureInfo.InvariantCulture),
+                        5.0);
+                }
+            }
+
+            return TryResolveAbsoluteFramesPoseWithReliability(
+                context,
+                frames,
+                ut,
+                sectionIndex,
+                recording.RecordingId,
+                section.startUT,
+                section.endUT,
+                out pose,
+                out rotationDecision);
         }
 
         private static bool TryResolveSmallSectionGapPose(
             RelativeAnchorResolverContext context,
             Recording recording,
             double ut,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (recording?.TrackSections == null
                 || recording.TrackSections.Count < 2
                 || !IsFinite(ut))
@@ -596,10 +1496,96 @@ namespace Parsek
                     after,
                     t,
                     previousSectionIndex,
-                    out pose))
+                    out pose,
+                    out failure))
             {
                 return false;
             }
+
+            TrackSection previous = recording.TrackSections[previousSectionIndex];
+            TrackSection next = recording.TrackSections[nextSectionIndex];
+            ParsekLog.VerboseRateLimited(
+                "RelativeAnchorResolver",
+                "anchor-gap-flat-points-fallback|"
+                    + (recording.RecordingId ?? "(none)") + "|"
+                    + FormatDoubleR(previous.endUT) + "|"
+                    + FormatDoubleR(next.startUT),
+                "Anchor recording pose resolved from flat trajectory inside small section gap: "
+                + "recordingId=" + (recording.RecordingId ?? "(none)")
+                + " ut=" + FormatDoubleR(ut)
+                + " previousSectionIndex=" + previousSectionIndex.ToString(CultureInfo.InvariantCulture)
+                + " nextSectionIndex=" + nextSectionIndex.ToString(CultureInfo.InvariantCulture)
+                + " previousEndUT=" + FormatDoubleR(previous.endUT)
+                + " nextStartUT=" + FormatDoubleR(next.startUT)
+                + " gapSeconds=" + FormatDoubleR(gapSeconds)
+                + " thresholdSeconds=" + FormatDoubleR(thresholdSeconds)
+                + " frameCount=" + flatPoints.Count.ToString(CultureInfo.InvariantCulture)
+                + " bracketBeforeUT=" + FormatDoubleR(before.ut)
+                + " bracketAfterUT=" + FormatDoubleR(after.ut),
+                5.0);
+            return true;
+        }
+
+        private static bool TryResolveSmallSectionGapPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double ut,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision)
+        {
+            pose = default;
+            rotationDecision = default;
+            if (recording?.TrackSections == null
+                || recording.TrackSections.Count < 2
+                || !IsFinite(ut))
+            {
+                return false;
+            }
+
+            if (!TryFindSmallSectionGap(
+                    recording.TrackSections,
+                    ut,
+                    out int previousSectionIndex,
+                    out int nextSectionIndex,
+                    out double gapSeconds,
+                    out double thresholdSeconds))
+            {
+                return false;
+            }
+
+            if (!TryGetSafeFlatPointsForSectionGap(recording, out List<TrajectoryPoint> flatPoints)
+                || flatPoints == null
+                || flatPoints.Count == 0)
+            {
+                return false;
+            }
+
+            if (!TryFindLocalFlatPointBracket(
+                    flatPoints,
+                    ut,
+                    thresholdSeconds,
+                    out TrajectoryPoint before,
+                    out TrajectoryPoint after,
+                    out float t))
+            {
+                return false;
+            }
+
+            if (!TryResolveAbsoluteBracketPoseWithReliability(
+                    context,
+                    recording.RecordingId,
+                    before,
+                    after,
+                    t,
+                    previousSectionIndex,
+                    out pose,
+                    out rotationDecision))
+            {
+                return false;
+            }
+
+            if (rotationDecision.Unreliable)
+                return true;
 
             TrackSection previous = recording.TrackSections[previousSectionIndex];
             TrackSection next = recording.TrackSections[nextSectionIndex];
@@ -848,21 +1834,26 @@ namespace Parsek
             TrajectoryPoint after,
             float t,
             int resolvedSectionIndex,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (Math.Abs(before.ut - after.ut) <= UtEpsilon)
                 return TryBuildAbsolutePoseFromPoint(
                     context,
                     before,
+                    before.ut + (after.ut - before.ut) * t,
                     resolvedSectionIndex,
                     resolvedRecordingId,
-                    out pose);
+                    out pose,
+                    out failure);
 
             if (!TryResolveWorldPosition(context, before, out Vector3d beforeWorld)
                 || !TryResolveWorldPosition(context, after, out Vector3d afterWorld))
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.Other,
                     "absolute-position-unresolved",
                     resolvedRecordingId,
                     resolvedRecordingId,
@@ -882,7 +1873,54 @@ namespace Parsek
                 worldRotation,
                 resolvedSectionIndex,
                 resolvedRecordingId);
-            return IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation);
+            if (IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation))
+                return true;
+
+            pose = default;
+            failure = WarnUnresolved(
+                RelativeAnchorResolveOutcome.PoseNonFinite,
+                "absolute-pose-nonfinite",
+                resolvedRecordingId,
+                resolvedRecordingId,
+                before.ut + (after.ut - before.ut) * t,
+                resolvedSectionIndex);
+            return false;
+        }
+
+        private static bool TryResolveAbsoluteBracketPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            string resolvedRecordingId,
+            TrajectoryPoint before,
+            TrajectoryPoint after,
+            float t,
+            int resolvedSectionIndex,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision)
+        {
+            pose = default;
+            rotationDecision = default;
+            if (Math.Abs(before.ut - after.ut) > UtEpsilon
+                && t > UtEpsilon
+                && t < 1f - UtEpsilon)
+            {
+                rotationDecision = TumblingParentInterpolationGate.EvaluateParentRotationInterpolation(
+                    resolvedRecordingId,
+                    before,
+                    after,
+                    context.DebrisLocalOffsetSquaredMeters);
+                if (rotationDecision.Unreliable)
+                    return true;
+            }
+
+            return TryResolveAbsoluteBracketPose(
+                context,
+                resolvedRecordingId,
+                before,
+                after,
+                t,
+                resolvedSectionIndex,
+                out pose,
+                out _);
         }
 
         internal static bool TryResolveRelativeSectionPose(
@@ -892,9 +1930,11 @@ namespace Parsek
             int sectionIndex,
             double ut,
             HashSet<string> visited,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (!TryResolveSectionAnchorRecordingId(
                     context,
                     recording,
@@ -905,14 +1945,28 @@ namespace Parsek
                 string reason = recording.RecordingFormatVersion >= RecordingAnchorChainFormatVersion
                     ? "anchor-recording-id-missing"
                     : "legacy-anchor-recording-id-missing";
-                WarnUnresolved(reason, recording.RecordingId, null, ut, sectionIndex);
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.Other,
+                    reason,
+                    recording.RecordingId,
+                    null,
+                    ut,
+                    sectionIndex);
                 return false;
             }
 
             // Resolve the parent at the focus UT, then apply the interpolated
             // local relative frame in that rigid anchor frame.
-            if (!TryResolveAnchorPose(context, anchorRecordingId, ut, visited, out AnchorPose parentPose))
+            if (!TryResolveAnchorPose(
+                    context,
+                    anchorRecordingId,
+                    ut,
+                    visited,
+                    out AnchorPose parentPose,
+                    out failure))
+            {
                 return false;
+            }
 
             if (!TryInterpolateRelativeFrame(
                     section.frames,
@@ -924,7 +1978,92 @@ namespace Parsek
                     out double dz,
                     out Quaternion relativeRotation))
             {
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.OutOfSectionRange,
+                    "anchor-out-of-recorded-range",
+                    recording.RecordingId,
+                    anchorRecordingId,
+                    ut,
+                    sectionIndex,
+                    rangeStartUT: IsFinite(section.startUT) ? section.startUT : double.NaN,
+                    rangeEndUT: IsFinite(section.endUT) ? section.endUT : double.NaN);
+                return false;
+            }
+
+            Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
+                parentPose.WorldPos,
+                parentPose.WorldRotation,
+                dx,
+                dy,
+                dz,
+                recording.RecordingFormatVersion);
+            Quaternion worldRotation = TrajectoryMath.ResolveRelativePlaybackRotation(
+                parentPose.WorldRotation,
+                relativeRotation);
+
+            if (!IsFinite(worldPos) || !IsFinite(worldRotation))
+            {
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PoseNonFinite,
+                    "relative-pose-nonfinite",
+                    recording.RecordingId,
+                    anchorRecordingId,
+                    ut,
+                    sectionIndex);
+                return false;
+            }
+
+            pose = new AnchorPose(worldPos, worldRotation, sectionIndex, recording.RecordingId);
+            return true;
+        }
+
+        internal static bool TryResolveRelativeSectionPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double ut,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision)
+        {
+            pose = default;
+            rotationDecision = default;
+            if (!TryResolveSectionAnchorRecordingId(
+                    context,
+                    recording,
+                    section,
+                    sectionIndex,
+                    out string anchorRecordingId))
+            {
+                string reason = recording.RecordingFormatVersion >= RecordingAnchorChainFormatVersion
+                    ? "anchor-recording-id-missing"
+                    : "legacy-anchor-recording-id-missing";
                 WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    reason,
+                    recording.RecordingId,
+                    null,
+                    ut,
+                    sectionIndex);
+                return false;
+            }
+
+            if (!TryInterpolateRelativeFrameWithBracket(
+                    section.frames,
+                    section.startUT,
+                    section.endUT,
+                    ut,
+                    out double dx,
+                    out double dy,
+                    out double dz,
+                    out Quaternion relativeRotation,
+                    out TrajectoryPoint before,
+                    out TrajectoryPoint after,
+                    out float t))
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.OutOfSectionRange,
                     "anchor-out-of-recorded-range",
                     recording.RecordingId,
                     anchorRecordingId,
@@ -932,6 +2071,76 @@ namespace Parsek
                     sectionIndex);
                 return false;
             }
+
+            // The gate at this site evaluates the CURRENT recording's
+            // anchor-local rotation bracket, with the lever arm carried by
+            // context.DebrisLocalOffsetSquaredMeters — which is the
+            // descendant child's offset already passed in by a recursive
+            // caller. When the chain is debris -> intermediate-relative
+            // -> ... -> root, this site catches a sparse intermediate-relative
+            // rotation that would amplify the descendant's offset.
+            //
+            // At the TOP-LEVEL entry from a debris child, however, there is
+            // no descendant: context.DebrisLocalOffsetSquaredMeters is 0.
+            // Evaluating the gate with offset=0 produces a misleading
+            // 'Evaluated=true Unreliable=false OffsetMeters=0' decision that
+            // would later trip the hysteresis ShouldExit branch
+            // (offset < 50 m) on every parent sample-boundary frame and
+            // release the hold for one frame, producing the synchronized
+            // chaotic flicker observed in the run-2 logs. Gate only fires
+            // when context offset is >= the magnitude floor, which by
+            // construction excludes the no-descendant top-level entry.
+            AnchorRotationReliabilityDecision childGateDecision = default;
+            bool childGateApplicable =
+                context.DebrisLocalOffsetSquaredMeters
+                    >= TumblingParentInterpolationGate.MinOffsetMagnitudeSquaredMeters;
+            if (childGateApplicable
+                && Math.Abs(before.ut - after.ut) > UtEpsilon
+                && t > UtEpsilon
+                && t < 1f - UtEpsilon)
+            {
+                childGateDecision = TumblingParentInterpolationGate.EvaluateParentRotationInterpolation(
+                    recording.RecordingId,
+                    before,
+                    after,
+                    context.DebrisLocalOffsetSquaredMeters);
+                if (childGateDecision.Unreliable)
+                {
+                    rotationDecision = childGateDecision;
+                    return true;
+                }
+            }
+
+            double offsetSquared = dx * dx + dy * dy + dz * dz;
+            RelativeAnchorResolverContext offsetContext =
+                context.WithDebrisLocalOffsetSquaredMeters(offsetSquared);
+
+            if (!TryResolveAnchorPoseWithReliability(
+                    offsetContext,
+                    anchorRecordingId,
+                    ut,
+                    visited,
+                    out AnchorPose parentPose,
+                    out AnchorRotationReliabilityDecision parentDecision))
+            {
+                rotationDecision = AnchorRotationReliabilityDecision.Combine(
+                    childGateDecision,
+                    parentDecision);
+                return false;
+            }
+
+            // Combine so an evaluated reliable child-gate result is not
+            // overwritten by an unevaluated parent recursion (e.g. a parent
+            // bracket at t=0 or t=1 where the parent gate skipped). Without
+            // combining, the host hysteresis would receive default(decision)
+            // when the parent gate skipped at a sample boundary even though
+            // the child gate at this site had a real signal to contribute.
+            rotationDecision = AnchorRotationReliabilityDecision.Combine(
+                childGateDecision,
+                parentDecision);
+
+            if (rotationDecision.Unreliable)
+                return true;
 
             Vector3d worldPos = TrajectoryMath.ResolveRelativePlaybackPosition(
                 parentPose.WorldPos,
@@ -947,6 +2156,7 @@ namespace Parsek
             if (!IsFinite(worldPos))
             {
                 WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PoseNonFinite,
                     "relative-pose-nonfinite",
                     recording.RecordingId,
                     anchorRecordingId,
@@ -965,12 +2175,15 @@ namespace Parsek
             TrackSection section,
             int sectionIndex,
             double ut,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (context.OrbitalCheckpointPoseResolver == null)
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.Other,
                     "orbital-pose-resolver-missing",
                     recording.RecordingId,
                     recording.RecordingId,
@@ -986,7 +2199,8 @@ namespace Parsek
                     ut,
                     out pose))
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.Other,
                     "orbital-pose-unresolved",
                     recording.RecordingId,
                     recording.RecordingId,
@@ -997,7 +2211,8 @@ namespace Parsek
 
             if (!IsFinite(pose.WorldPos) || !IsFinite(pose.WorldRotation))
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.PoseNonFinite,
                     "orbital-pose-nonfinite",
                     recording.RecordingId,
                     recording.RecordingId,
@@ -1018,17 +2233,28 @@ namespace Parsek
             string resolvedRecordingId,
             double sectionStartUT,
             double sectionEndUT,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (!FrameListCoversUT(frames, sectionStartUT, sectionEndUT, ut))
             {
-                WarnUnresolved(
+                ResolveFrameRange(
+                    frames,
+                    sectionStartUT,
+                    sectionEndUT,
+                    out double rangeStartUT,
+                    out double rangeEndUT);
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.OutOfSectionRange,
                     "anchor-out-of-recorded-range",
                     resolvedRecordingId,
                     resolvedRecordingId,
                     ut,
-                    resolvedSectionIndex);
+                    resolvedSectionIndex,
+                    rangeStartUT,
+                    rangeEndUT);
                 return false;
             }
 
@@ -1036,9 +2262,11 @@ namespace Parsek
                 return TryBuildAbsolutePoseFromPoint(
                     context,
                     frames[0],
+                    ut,
                     resolvedSectionIndex,
                     resolvedRecordingId,
-                    out pose);
+                    out pose,
+                    out failure);
 
             int cachedIndex = 0;
             if (!TrajectoryMath.InterpolatePoints(
@@ -1049,19 +2277,29 @@ namespace Parsek
                     out TrajectoryPoint after,
                     out float t))
             {
-                WarnUnresolved(
+                ResolveFrameRange(
+                    frames,
+                    sectionStartUT,
+                    sectionEndUT,
+                    out double rangeStartUT,
+                    out double rangeEndUT);
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.OutOfSectionRange,
                     "anchor-out-of-recorded-range",
                     resolvedRecordingId,
                     resolvedRecordingId,
                     ut,
-                    resolvedSectionIndex);
+                    resolvedSectionIndex,
+                    rangeStartUT,
+                    rangeEndUT);
                 return false;
             }
 
             if (!TryResolveWorldPosition(context, before, out Vector3d beforeWorld)
                 || !TryResolveWorldPosition(context, after, out Vector3d afterWorld))
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.Other,
                     "absolute-position-unresolved",
                     resolvedRecordingId,
                     resolvedRecordingId,
@@ -1078,24 +2316,104 @@ namespace Parsek
                 worldRotation,
                 resolvedSectionIndex,
                 resolvedRecordingId);
-            return IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation);
+            if (IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation))
+                return true;
+
+            pose = default;
+            failure = WarnUnresolved(
+                RelativeAnchorResolveOutcome.PoseNonFinite,
+                "absolute-pose-nonfinite",
+                resolvedRecordingId,
+                resolvedRecordingId,
+                ut,
+                resolvedSectionIndex);
+            return false;
+        }
+
+        private static bool TryResolveAbsoluteFramesPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            List<TrajectoryPoint> frames,
+            double ut,
+            int resolvedSectionIndex,
+            string resolvedRecordingId,
+            double sectionStartUT,
+            double sectionEndUT,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision)
+        {
+            pose = default;
+            rotationDecision = default;
+            if (!FrameListCoversUT(frames, sectionStartUT, sectionEndUT, ut))
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.OutOfSectionRange,
+                    "anchor-out-of-recorded-range",
+                    resolvedRecordingId,
+                    resolvedRecordingId,
+                    ut,
+                    resolvedSectionIndex);
+                return false;
+            }
+
+            if (frames.Count == 1)
+                return TryBuildAbsolutePoseFromPoint(
+                    context,
+                    frames[0],
+                    ut,
+                    resolvedSectionIndex,
+                    resolvedRecordingId,
+                    out pose,
+                    out _);
+
+            int cachedIndex = 0;
+            if (!TrajectoryMath.InterpolatePoints(
+                    frames,
+                    ref cachedIndex,
+                    ut,
+                    out TrajectoryPoint before,
+                    out TrajectoryPoint after,
+                    out float t))
+            {
+                WarnUnresolved(
+                    RelativeAnchorResolveOutcome.OutOfSectionRange,
+                    "anchor-out-of-recorded-range",
+                    resolvedRecordingId,
+                    resolvedRecordingId,
+                    ut,
+                    resolvedSectionIndex);
+                return false;
+            }
+
+            return TryResolveAbsoluteBracketPoseWithReliability(
+                context,
+                resolvedRecordingId,
+                before,
+                after,
+                t,
+                resolvedSectionIndex,
+                out pose,
+                out rotationDecision);
         }
 
         private static bool TryBuildAbsolutePoseFromPoint(
             RelativeAnchorResolverContext context,
             TrajectoryPoint point,
+            double requestedUT,
             int resolvedSectionIndex,
             string resolvedRecordingId,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
+            failure = default;
             if (!TryResolveWorldPosition(context, point, out Vector3d worldPos))
             {
-                WarnUnresolved(
+                failure = WarnUnresolved(
+                    RelativeAnchorResolveOutcome.Other,
                     "absolute-position-unresolved",
                     resolvedRecordingId,
                     resolvedRecordingId,
-                    point.ut,
+                    requestedUT,
                     resolvedSectionIndex);
                 return false;
             }
@@ -1104,7 +2422,18 @@ namespace Parsek
             Quaternion surfaceRotation = TrajectoryMath.SanitizeQuaternion(point.rotation);
             Quaternion worldRotation = TrajectoryMath.PureMultiply(bodyRotation, surfaceRotation);
             pose = new AnchorPose(worldPos, worldRotation, resolvedSectionIndex, resolvedRecordingId);
-            return IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation);
+            if (IsFinite(pose.WorldPos) && IsFinite(pose.WorldRotation))
+                return true;
+
+            pose = default;
+            failure = WarnUnresolved(
+                RelativeAnchorResolveOutcome.PoseNonFinite,
+                "absolute-pose-nonfinite",
+                resolvedRecordingId,
+                resolvedRecordingId,
+                requestedUT,
+                resolvedSectionIndex);
+            return false;
         }
 
         private static bool TryInterpolateRelativeFrame(
@@ -1147,6 +2476,65 @@ namespace Parsek
                     out TrajectoryPoint before,
                     out TrajectoryPoint after,
                     out float t))
+            {
+                return false;
+            }
+
+            dx = before.latitude + (after.latitude - before.latitude) * t;
+            dy = before.longitude + (after.longitude - before.longitude) * t;
+            dz = before.altitude + (after.altitude - before.altitude) * t;
+            relativeRotation = TrajectoryMath.PureSlerp(before.rotation, after.rotation, t);
+            return true;
+        }
+
+        private static bool TryInterpolateRelativeFrameWithBracket(
+            List<TrajectoryPoint> frames,
+            double sectionStartUT,
+            double sectionEndUT,
+            double ut,
+            out double dx,
+            out double dy,
+            out double dz,
+            out Quaternion relativeRotation,
+            out TrajectoryPoint before,
+            out TrajectoryPoint after,
+            out float t)
+        {
+            dx = dy = dz = 0.0;
+            relativeRotation = Quaternion.identity;
+            before = default;
+            after = default;
+            t = 0f;
+            if (frames == null || frames.Count == 0)
+                return false;
+            if (double.IsNaN(ut) || double.IsInfinity(ut))
+                return false;
+            if (frames.Count == 1)
+            {
+                if (!SingleFrameCoversUT(frames[0], sectionStartUT, sectionEndUT, ut))
+                    return false;
+
+                TrajectoryPoint point = frames[0];
+                dx = point.latitude;
+                dy = point.longitude;
+                dz = point.altitude;
+                relativeRotation = TrajectoryMath.SanitizeQuaternion(point.rotation);
+                before = point;
+                after = point;
+                return true;
+            }
+
+            if (!PointListCoversUT(frames, ut))
+                return false;
+
+            int cachedIndex = 0;
+            if (!TrajectoryMath.InterpolatePoints(
+                    frames,
+                    ref cachedIndex,
+                    ut,
+                    out before,
+                    out after,
+                    out t))
             {
                 return false;
             }
@@ -1351,12 +2739,58 @@ namespace Parsek
             return value.ToString("R", CultureInfo.InvariantCulture);
         }
 
-        private static void WarnUnresolved(
+        private static RelativeAnchorResolveOutcome MapRecordingLookupFailureOutcome(string reason)
+        {
+            // TryFindRecording currently emits only these two reasons. Add a
+            // branch here when adding a new lookup failure reason.
+            return string.Equals(reason, "anchor-cross-tree-out-of-scope", StringComparison.Ordinal)
+                ? RelativeAnchorResolveOutcome.AnchorOutOfScope
+                : RelativeAnchorResolveOutcome.AnchorRecordingNotFound;
+        }
+
+        private static void ResolveTrackSectionRange(
+            List<TrackSection> sections,
+            out double rangeStartUT,
+            out double rangeEndUT)
+        {
+            rangeStartUT = double.NaN;
+            rangeEndUT = double.NaN;
+            if (sections == null || sections.Count == 0)
+                return;
+
+            TrackSection first = sections[0];
+            TrackSection last = sections[sections.Count - 1];
+            if (IsFinite(first.startUT))
+                rangeStartUT = first.startUT;
+            if (IsFinite(last.endUT))
+                rangeEndUT = last.endUT;
+        }
+
+        private static void ResolveFrameRange(
+            List<TrajectoryPoint> frames,
+            double sectionStartUT,
+            double sectionEndUT,
+            out double rangeStartUT,
+            out double rangeEndUT)
+        {
+            rangeStartUT = double.NaN;
+            rangeEndUT = double.NaN;
+            if (frames != null && frames.Count > 0)
+            {
+                rangeStartUT = frames[0].ut;
+                rangeEndUT = frames[frames.Count - 1].ut;
+            }
+        }
+
+        private static RelativeAnchorResolveFailure WarnUnresolved(
+            RelativeAnchorResolveOutcome outcome,
             string reason,
             string recordingId,
             string anchorRecordingId,
             double ut,
-            int sectionIndex = -1)
+            int sectionIndex = -1,
+            double rangeStartUT = double.NaN,
+            double rangeEndUT = double.NaN)
         {
             var ic = CultureInfo.InvariantCulture;
             string rec = string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId;
@@ -1372,6 +2806,15 @@ namespace Parsek
                 " sectionIndex=" + section +
                 " ut=" + ut.ToString("R", ic),
                 5.0);
+            return RelativeAnchorResolveFailure.Create(
+                outcome,
+                reason,
+                recordingId,
+                anchorRecordingId,
+                ut,
+                sectionIndex,
+                rangeStartUT,
+                rangeEndUT);
         }
     }
 }

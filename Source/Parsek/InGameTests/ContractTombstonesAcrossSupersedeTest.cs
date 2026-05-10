@@ -4,9 +4,8 @@ using UnityEngine;
 namespace Parsek.InGameTests
 {
     /// <summary>
-    /// Phase 9 of Rewind-to-Staging (design §6.6 step 4 / §7.13 / §7.14 /
-    /// §11.5): end-to-end runtime test for contract state stickiness across
-    /// a re-fly merge. Runs in FLIGHT so the live <see cref="ParsekScenario"/>
+    /// End-to-end runtime test for broad contract tombstones across a re-fly
+    /// merge. Runs in FLIGHT so the live <see cref="ParsekScenario"/>
     /// instance is available.
     ///
     /// <para>
@@ -25,17 +24,17 @@ namespace Parsek.InGameTests
     /// <list type="bullet">
     ///   <item><description>Every pre-merge contract action from the subtree survives
     ///       in <see cref="Ledger.Actions"/> (nothing physically removed).</description></item>
-    ///   <item><description>NO <see cref="LedgerTombstone"/> was written against any
-    ///       contract action (v1 narrow scope — §7.13 / §7.14).</description></item>
-    ///   <item><description>The contract action is still visible in the Effective Ledger
-    ///       Set (<see cref="EffectiveState.ComputeELS"/>).</description></item>
+    ///   <item><description>A <see cref="LedgerTombstone"/> was written against every
+    ///       subtree contract action.</description></item>
+    ///   <item><description>The contract action no longer appears in the Effective
+    ///       Ledger Set (<see cref="EffectiveState.ComputeELS"/>).</description></item>
     /// </list>
     /// </summary>
-    public class ContractStickyAcrossSupersedeTest
+    public class ContractTombstonesAcrossSupersedeTest
     {
         [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
-            Description = "Re-fly merge does NOT tombstone contract actions from the superseded subtree (§7.13/§7.14)")]
-        public void ContractStickyAcrossSupersede()
+            Description = "Re-fly merge tombstones contract actions from the superseded subtree")]
+        public void ContractTombstonesAcrossSupersede()
         {
             var scenario = ParsekScenario.Instance;
             InGameAssert.IsNotNull(scenario, "ParsekScenario.Instance is null");
@@ -60,7 +59,7 @@ namespace Parsek.InGameTests
 
             // Collect every contract-type ledger action in the supersede subtree
             // BEFORE the merge commits. These are the items the test will check
-            // for stickiness.
+            // for physical retention plus ELS tombstoning.
             var subtreeBefore = EffectiveState.ComputeSessionSuppressedSubtree(marker);
             var contractActionIds = new HashSet<string>();
             var subtreeSet = new HashSet<string>(subtreeBefore);
@@ -87,7 +86,7 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Info("RewindTest",
-                $"ContractStickyAcrossSupersede: found {contractActionIds.Count} contract action(s) " +
+                $"ContractTombstonesAcrossSupersede: found {contractActionIds.Count} contract action(s) " +
                 $"in subtree of size {subtreeBefore.Count}");
 
             // Simulate the merge commit. CommitSupersede runs CommitTombstones
@@ -106,17 +105,19 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(contractActionIds.Count, surviving.Count,
                 $"All contract actions must survive in Ledger.Actions; expected {contractActionIds.Count}, got {surviving.Count}");
 
-            // Invariant 2: NO tombstone was written against any contract action.
+            // Invariant 2: every subtree contract action has a tombstone.
             var tombs = scenario.LedgerTombstones ?? new List<LedgerTombstone>();
+            var tombstoned = new HashSet<string>();
             foreach (var t in tombs)
             {
                 if (t == null || string.IsNullOrEmpty(t.ActionId)) continue;
-                InGameAssert.IsFalse(contractActionIds.Contains(t.ActionId),
-                    $"Contract action '{t.ActionId}' must NOT be tombstoned (§7.13/§7.14)");
+                if (contractActionIds.Contains(t.ActionId))
+                    tombstoned.Add(t.ActionId);
             }
+            InGameAssert.AreEqual(contractActionIds.Count, tombstoned.Count,
+                $"All contract actions must be tombstoned; expected {contractActionIds.Count}, got {tombstoned.Count}");
 
-            // Invariant 3: every contract action still appears in ELS (design §3.2 —
-            // contracts remain in ELS even when their source recording is superseded).
+            // Invariant 3: no subtree contract action remains in ELS.
             var els = EffectiveState.ComputeELS();
             var inEls = new HashSet<string>();
             foreach (var a in els)
@@ -125,12 +126,12 @@ namespace Parsek.InGameTests
                 if (contractActionIds.Contains(a.ActionId))
                     inEls.Add(a.ActionId);
             }
-            InGameAssert.AreEqual(contractActionIds.Count, inEls.Count,
-                $"All contract actions must remain in ELS; expected {contractActionIds.Count}, got {inEls.Count}");
+            InGameAssert.AreEqual(0, inEls.Count,
+                $"No contract actions may remain in ELS after broad tombstone merge; got {inEls.Count}");
 
             ParsekLog.Info("RewindTest",
-                $"ContractStickyAcrossSupersede: all {contractActionIds.Count} contract action(s) " +
-                $"survive in Ledger.Actions + ELS; zero contract tombstones written.");
+                $"ContractTombstonesAcrossSupersede: all {contractActionIds.Count} contract action(s) " +
+                "survive physically in Ledger.Actions, are tombstoned, and are absent from ELS.");
         }
 
         private static Recording FindRecording(string recordingId)

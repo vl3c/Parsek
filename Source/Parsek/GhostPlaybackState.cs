@@ -26,7 +26,6 @@ namespace Parsek
         public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
         public Dictionary<ulong, AudioGhostInfo> audioInfos; // engine/RCS audio — keyed same as engineInfos/rcsInfos
-        public OneShotAudioInfo oneShotAudio;                // shared one-shot source for decouple/explosion sounds
         public bool audioMuted;                              // true during high warp or when ghost hidden
         public bool audioPaused;                             // true while stock pause menu is open
         public float atmosphereFactor = 1f;                  // 0 in vacuum, 1 at sea level — updated per frame. Init 1 so first-frame events aren't swallowed.
@@ -74,6 +73,24 @@ namespace Parsek
         // engine resets it at the top of the next per-frame render pass for
         // this state.
         public bool anchorRetiredThisFrame;
+        // FX-suppression bit for the smooth-shadow route. PR #803: the
+        // shadow render itself fires unconditionally for v12+ parent-anchored
+        // debris when shadow data covers (regardless of whether the
+        // tumbling-parent gate fires), so this flag is NOT a "shadow was
+        // used this frame" signal -- it is the gate's per-frame fire bit AND
+        // shadow was used. The router (TryRouteAnchorRotationToShadow) sets
+        // it to fxSuppress only on shadow-route success, so the four post-
+        // position FX-flag readers (RenderInRangeGhost non-loop and the
+        // three loop / overlap branches) suppress plumes / RCS / audio on
+        // real-tumble frames (mode=gated) and keep them playing during
+        // steady-state always-shadow (mode=always). Pre-PR-803 this flag
+        // was set unconditionally to true on shadow-route success because
+        // shadow ONLY fired when the gate also fired -- the conjunction
+        // collapsed to "shadow was used"; PR #803's always-shadow path
+        // breaks that conjunction so the flag now carries the gate-fire-
+        // bit explicitly. One-frame scope: cleared at the top of the next
+        // per-frame render pass alongside anchorRetiredThisFrame.
+        public bool anchorRotationShadowRoutedThisFrame;
         // Runtime-only defensive visibility guard for v12+ parent-anchored
         // debris whose current playback UT is outside recorded Relative
         // coverage. The deterministic predicate over (trajectory, playbackUT)
@@ -108,7 +125,6 @@ namespace Parsek
             engineInfos = null;
             rcsInfos = null;
             audioInfos = null;
-            oneShotAudio = null;
             audioMuted = false;
             audioPaused = false;
             cachedAudioBody = null;
@@ -133,6 +149,7 @@ namespace Parsek
             simplified = false;
             deferVisibilityUntilPlaybackSync = false;
             anchorRetiredThisFrame = false;
+            anchorRotationShadowRoutedThisFrame = false;
             // Do not clear parentAnchoredDebrisCoverageRetired here. Visual
             // cleanup/rebuild has no trajectory + playbackUT context; only the
             // deterministic coverage helper can prove the debris is covered

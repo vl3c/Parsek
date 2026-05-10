@@ -702,6 +702,124 @@ namespace Parsek.InGameTests
             InGameAssert.IsNotNull(FlightCamera.fetch.mainCamera, "FlightCamera.mainCamera should exist");
         }
 
+        [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
+            Description = "Recording with a stale on-rails OrbitSegment plus a fresh post-burn ExoBallistic Absolute tail frame derives a stable circular orbit at spawn time")]
+        public void TerminalOrbitFromTail_DerivesPostBurnCircularOrbit()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // Mirror the Kerbal X bug from logs/2026-05-10_1713: one stored OrbitSegment
+            // covering the on-rails coast (sub-orbital, periapsis below ground), then an
+            // ExoBallistic Absolute TrackSection containing a single post-burn frame
+            // whose state vector defines a circular ~205 km orbit. The fix must walk
+            // past the segment, build the orbit from the tail frame, and the resulting
+            // periapsis must clear the atmosphere.
+            const double subOrbitalSegmentEndUT = 958.87;
+            const double postBurnFrameUT = 977.93;
+            const double postBurnAlt = 203587.0; // metres
+            // Velocity components in body-centric inertial frame, ~circular at 205 km.
+            UnityEngine.Vector3 postBurnVel = new UnityEngine.Vector3(1736.18f, -1.73f, -1178.98f);
+
+            var rec = new Recording { RecordingId = "ingame-tail-derived-orbit" };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 477.33,
+                endUT = subOrbitalSegmentEndUT,
+                inclination = 0.7917,
+                eccentricity = 0.2046,
+                semiMajorAxis = 667047.84, // periapsis = -69 km, apoapsis = 203 km
+                longitudeOfAscendingNode = 22.89,
+                argumentOfPeriapsis = 271.44,
+                meanAnomalyAtEpoch = 1.4262,
+                epoch = 477.33
+            });
+            var coastSection = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = postBurnFrameUT,
+                endUT = postBurnFrameUT,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = postBurnFrameUT,
+                        latitude = 0.7908,
+                        longitude = 8.5604,
+                        altitude = postBurnAlt,
+                        rotation = UnityEngine.Quaternion.identity,
+                        velocity = postBurnVel,
+                        bodyName = "Kerbin"
+                    }
+                }
+            };
+            rec.TrackSections.Add(coastSection);
+
+            // spawnUT == tailUT keeps the rotation-drift clamp at zero.
+            bool helperOk = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+                rec, kerbin, postBurnFrameUT,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out _, out _, out _, out _,
+                out string bodyName,
+                out string declineReason);
+
+            InGameAssert.IsTrue(helperOk,
+                $"TryDeriveTerminalOrbitSeedFromTrajectoryTail should succeed (declineReason={declineReason ?? "(null)"})");
+            InGameAssert.AreEqual("Kerbin", bodyName);
+            InGameAssert.IsTrue(semiMajorAxis > 0.0,
+                $"Derived sma must be positive, got {semiMajorAxis}");
+            InGameAssert.IsTrue(eccentricity >= 0.0 && eccentricity < 1.0,
+                $"Derived eccentricity must be in [0,1), got {eccentricity}");
+
+            double periAlt = semiMajorAxis * (1.0 - eccentricity) - kerbin.Radius;
+            double apoAlt = semiMajorAxis * (1.0 + eccentricity) - kerbin.Radius;
+
+            // Drive the full TryBuildRecordedTerminalOrbitForSpawn → safety-evaluate
+            // pipeline that the production spawn path runs. The bug repro requires the
+            // safety check to ACCEPT (not just that the helper produces an orbit).
+            bool buildOk = VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(
+                rec, kerbin, postBurnFrameUT, out Orbit propagatedOrbit);
+            InGameAssert.IsTrue(buildOk,
+                "TryBuildRecordedTerminalOrbitForSpawn should produce an orbit when tail-derive succeeds");
+            InGameAssert.IsNotNull(propagatedOrbit, "Propagated orbit should be non-null");
+
+            double safeAlt = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
+                kerbin.atmosphereDepth, TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters);
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: postBurnAlt,
+                atmosphereDepth: kerbin.atmosphereDepth,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: periAlt,
+                apoapsisAltitude: apoAlt);
+
+            // The whole point of the fix: the recording's stale segment alone would
+            // produce decision=CannotSpawnSafely with reason=periapsis-below-safe-altitude.
+            // After tail-derive, the safety check must return SpawnNow (or at minimum NOT
+            // CannotSpawnSafely). Stronger than periAlt > atmosphereDepth — the safety
+            // margin (typically 5 km above atmosphere) is what TerminalOrbitSpawnSafety
+            // actually gates on at spawn time.
+            InGameAssert.IsTrue(periAlt > safeAlt,
+                $"Derived periapsis ({periAlt:F0} m) must clear safe altitude ({safeAlt:F0} m)");
+            InGameAssert.AreEqual(
+                TerminalOrbitSpawnSafetyAction.SpawnNow,
+                decision.Action,
+                $"Safety decision for tail-derived orbit should be SpawnNow, got {decision.Action} reason={decision.ReasonCode}");
+
+            ParsekLog.Info("TestRunner",
+                $"TerminalOrbitFromTail_DerivesPostBurnCircularOrbit: " +
+                $"sma={semiMajorAxis:F1} ecc={eccentricity:F4} " +
+                $"periAlt={periAlt:F0} apoAlt={apoAlt:F0} safeAlt={safeAlt:F0} " +
+                $"inc={inclination:F4} decision={decision.Action}");
+        }
+
         #endregion
 
         #region Parsek Settings
@@ -3604,6 +3722,58 @@ namespace Parsek.InGameTests
         private readonly InGameTestRunner runner;
         public GhostPlaybackTests(InGameTestRunner runner) { this.runner = runner; }
 
+        private sealed class ReFlySettleHoldPositioner : IGhostPositioner
+        {
+            internal int AbsoluteCalls;
+
+            public void InterpolateAndPosition(
+                int index, IPlaybackTrajectory traj, GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                AbsoluteCalls++;
+            }
+
+            public void InterpolateAndPositionRelative(
+                int index, IPlaybackTrajectory traj, GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
+            {
+                InterpolateAndPosition(index, traj, state, ut, suppressFx);
+            }
+
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point) { }
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state) { }
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) { }
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx) { }
+
+            public bool TryResolveExplosionAnchorPosition(
+                int index, IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = Vector3.zero;
+                return false;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(
+                int index, GhostPlaybackState state, IPlaybackTrajectory traj,
+                double distance, double playbackUT, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache() { }
+        }
+
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "Ghost sphere can be created and destroyed")]
         public void GhostSphereLifecycle()
@@ -3733,6 +3903,622 @@ namespace Parsek.InGameTests
             {
                 IncompleteBallisticSceneExitFinalizer.ResetForTesting();
             }
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Re-Fly settle anchor hold hides primary and overlap ghost meshes without destroying their playback state")]
+        public void ReFlyPostLoadSettle_GhostMeshHiddenDuringWindow()
+        {
+            ReFlySettleStabilityTracker.Reset();
+            var positioner = new ReFlySettleHoldPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var primaryGhost = new GameObject("ParsekTestGhost_ReFlySettlePrimary");
+            var overlapGhost = new GameObject("ParsekTestGhost_ReFlySettleOverlap");
+            runner.TrackForCleanup(primaryGhost);
+            runner.TrackForCleanup(overlapGhost);
+            primaryGhost.SetActive(true);
+            overlapGhost.SetActive(true);
+
+            var primaryState = new GhostPlaybackState
+            {
+                vesselName = "ReFlySettlePrimary",
+                ghost = primaryGhost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            var overlapState = new GhostPlaybackState
+            {
+                vesselName = "ReFlySettleOverlap",
+                ghost = overlapGhost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            engine.ghostStates[0] = primaryState;
+            engine.overlapGhosts[0] = new List<GhostPlaybackState> { overlapState };
+
+            var rec = new Recording
+            {
+                RecordingId = "ingame-refly-settle-anchor",
+                VesselName = "Re-Fly Settle Anchor",
+                PlaybackEnabled = true,
+                LoopPlayback = true,
+                LoopIntervalSeconds = 50.0,
+                LoopTimeUnit = LoopTimeUnit.Sec,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" }
+                }
+            };
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = 200.0,
+                    recordingId = rec.RecordingId,
+                }
+            };
+            var ctx = new FrameContext
+            {
+                currentUT = 125.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 120.0,
+            };
+
+            try
+            {
+                int clearFrame = FlightRecorder.GetFrameCount();
+                ReFlySettleStabilityTracker.RecordSettleCleared(rec.RecordingId, clearFrame);
+                flags[0].anchorReFlyUnstable = ParsekFlight.ResolveReFlySettleStabilityForTesting(
+                    rec, clearFrame, out string anchorRecordingId, out string reason);
+                InGameAssert.IsTrue(flags[0].anchorReFlyUnstable,
+                    "clear-hold should set the anchor instability flag");
+                InGameAssert.AreEqual(rec.RecordingId, anchorRecordingId,
+                    "clear-hold should resolve against the recording id");
+                InGameAssert.AreEqual("clear-hold", reason,
+                    "clear-hold should report the tracker reason");
+
+                engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+                GhostPlaybackState retainedPrimary;
+                InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedPrimary),
+                    "anchor hold should preserve primary state");
+                InGameAssert.AreEqual(1, engine.overlapGhosts[0].Count,
+                    "anchor hold should not destroy or remove overlap state");
+                InGameAssert.IsFalse(primaryGhost.activeSelf,
+                    "anchor hold should hide the primary ghost mesh");
+                InGameAssert.IsFalse(overlapGhost.activeSelf,
+                    "anchor hold should hide overlap ghost meshes");
+                InGameAssert.AreEqual(0, positioner.AbsoluteCalls,
+                    "anchor hold should skip non-loop positioning while the anchor is unstable");
+
+                int shiftFrame = clearFrame + FlightRecorder.StabilitySettleClearHoldFrames;
+                ReFlySettleStabilityTracker.RecordFloatingOriginShift(
+                    new Vector3d(10.0, 0.0, 0.0),
+                    new Vector3d(0.0, 20.0, 0.0),
+                    shiftFrame,
+                    Time.realtimeSinceStartup);
+                flags[0].anchorReFlyUnstable = ParsekFlight.ResolveReFlySettleStabilityForTesting(
+                    rec,
+                    shiftFrame + FlightRecorder.StabilityExtensionFramesAfterShift,
+                    out anchorRecordingId,
+                    out reason);
+                InGameAssert.IsTrue(flags[0].anchorReFlyUnstable,
+                    "FloatingOrigin shift inside the clear-hold window should extend the hold");
+                InGameAssert.AreEqual("extension-window", reason,
+                    "shift extension should report the tracker reason");
+
+                engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+                InGameAssert.IsFalse(primaryGhost.activeSelf,
+                    "extension hold should keep the primary ghost hidden");
+                InGameAssert.IsFalse(overlapGhost.activeSelf,
+                    "extension hold should keep the overlap ghost hidden");
+
+                flags[0].anchorReFlyUnstable = ParsekFlight.ResolveReFlySettleStabilityForTesting(
+                    rec,
+                    shiftFrame + FlightRecorder.StabilityExtensionFramesAfterShift + 1,
+                    out _,
+                    out _);
+                InGameAssert.IsFalse(flags[0].anchorReFlyUnstable,
+                    "anchor instability should clear after the extension window expires");
+
+                engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+                InGameAssert.IsTrue(primaryGhost.activeSelf,
+                    "normal loop rendering should reactivate the primary ghost after the hold clears");
+                InGameAssert.IsTrue(overlapGhost.activeSelf,
+                    "normal loop-overlap rendering should reactivate overlap ghosts after the hold clears");
+            }
+            finally
+            {
+                ReFlySettleStabilityTracker.Reset();
+            }
+        }
+
+        /// <summary>
+        /// Positioner stub for the tumbling-parent shadow-route in-game test.
+        /// Tracks calls to TryPositionFromRelativeAbsoluteShadow and writes
+        /// a deterministic transform position so the test can verify the
+        /// engine kept the mesh active and routed through the new path.
+        /// </summary>
+        private sealed class TumblingParentShadowPositioner : IGhostPositioner
+        {
+            internal int ShadowCalls;
+            internal int InterpolateCalls;
+            internal int PositionLoopCalls;
+            internal Vector3 PrimedShadowPosition = new Vector3(123f, 234f, 345f);
+
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                InterpolateCalls++;
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
+            {
+                InterpolateCalls++;
+            }
+
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                ShadowCalls++;
+                bracketBeforeUT = target.Section.absoluteFrames != null
+                    && target.Section.absoluteFrames.Count > 0
+                    ? target.Section.absoluteFrames[0].ut
+                    : double.NaN;
+                bracketAfterUT = target.Section.absoluteFrames != null
+                    && target.Section.absoluteFrames.Count > 1
+                    ? target.Section.absoluteFrames[target.Section.absoluteFrames.Count - 1].ut
+                    : double.NaN;
+                if (state?.ghost != null)
+                    state.ghost.transform.position = PrimedShadowPosition;
+                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 100.0));
+                return true;
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point) { }
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state) { }
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) { }
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                PositionLoopCalls++;
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = Vector3.zero;
+                return false;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache() { }
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Tumbling-parent gate routes parent-anchored debris through the absoluteFrames shadow when shadow data is available; mesh stays active, anchor-rotation-shadow-route log fires, and the legacy positioner.PositionLoop is bypassed")]
+        public void TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable()
+        {
+            // End-to-end coverage of the four engine post-position branches'
+            // shadow-route paths: the engine must keep the mesh active, mark
+            // state.anchorRotationShadowRoutedThisFrame=true, leave
+            // state.anchorRetiredThisFrame=false, and bypass
+            // positioner.PositionLoop / InterpolateAndPositionRelative for
+            // the route window. Plan: docs/dev/plans/debris-smooth-trajectory-during-tumble.md.
+
+            var positioner = new TumblingParentShadowPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject("ParsekTestGhost_TumblingShadow");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Tumbling-shadow debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            engine.ghostStates[0] = state;
+
+            // Recording mirrors the run-3 playtest fixture: parent-anchored
+            // (v12+) debris with a Relative section that carries a populated
+            // absoluteFrames shadow track.
+            var rec = new Recording
+            {
+                RecordingId = "ingame-tumbling-shadow-debris",
+                VesselName = "Tumbling Parent Debris",
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = "ingame-tumbling-parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
+                },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 200.0,
+                anchorRecordingId = "ingame-tumbling-parent",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 200.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            // Host predicate forces the gate to fire (Unreliable=true) so the
+            // engine takes the route branch.
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = 200.0,
+                    recordingId = rec.RecordingId,
+                    tryEvaluateAnchorRotationReliability =
+                        (int idx, IPlaybackTrajectory traj, double playbackUT,
+                            string playbackScope,
+                            out AnchorRotationReliabilityDecision decision) =>
+                        {
+                            decision = new AnchorRotationReliabilityDecision(
+                                unreliable: true,
+                                anchorRecordingId: "ingame-tumbling-parent",
+                                bracketDegrees: 24.0,
+                                rateDegreesPerSecond: 240.0,
+                                offsetMeters: 1500.0);
+                            return true;
+                        },
+                },
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 150.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 120.0,
+            };
+
+            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+            GhostPlaybackState retainedState;
+            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
+                "shadow route should preserve ghost state");
+            InGameAssert.IsTrue(ghost.activeSelf,
+                "shadow route must keep the mesh active (the user-visible point of this fix)");
+            InGameAssert.IsTrue(retainedState.anchorRotationShadowRoutedThisFrame,
+                "engine must mark state.anchorRotationShadowRoutedThisFrame=true on the route frame");
+            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
+                "shadow route must NOT mark anchorRetiredThisFrame=true (that would skip Activate / TrackGhostAppearance)");
+            InGameAssert.AreEqual(1, positioner.ShadowCalls,
+                "engine must call positioner.TryPositionFromRelativeAbsoluteShadow exactly once on the gate-fire frame");
+            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
+                "engine must NOT call positioner.PositionLoop when the shadow route succeeds");
+            InGameAssert.AreEqual(0, positioner.InterpolateCalls,
+                "engine must NOT call positioner.InterpolateAndPosition[Relative] when the shadow route succeeds");
+            // The shadow positioner wrote its primed position; verify it is
+            // what the ghost transform now reads.
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "Always-shadow steady state (PR #803): parent-anchored debris with shadow data renders via the absoluteFrames lerp every frame, even when the tumbling-parent gate is INACTIVE; FX suppression flag stays clear so plumes / RCS / audio play normally outside tumble windows")]
+        public void ParentAnchoredDebris_AlwaysShadow_StableThroughout()
+        {
+            // Companion to TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable
+            // -- that test covers the gate=Active branch (mode=gated). This
+            // test covers the new gate=Inactive branch (mode=always) introduced
+            // in PR #803, where shadow renders unconditionally for v12+
+            // parent-anchored debris when shadow data covers the playback UT.
+            // The fix's user-visible promise: zero per-frame instability
+            // pops at the gate-fire / gate-release boundaries that were the
+            // residual artifact in the post-PR-#800 playtest.
+
+            var positioner = new TumblingParentShadowPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject("ParsekTestGhost_AlwaysShadow");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Always-shadow debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            engine.ghostStates[0] = state;
+
+            var rec = new Recording
+            {
+                RecordingId = "ingame-always-shadow-debris",
+                VesselName = "Always-shadow debris",
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = "ingame-always-shadow-parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
+                },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 200.0,
+                anchorRecordingId = "ingame-always-shadow-parent",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 200.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            // Host predicate returns Unreliable=false -- gate does NOT fire,
+            // exercising the new always-on shadow branch.
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = 200.0,
+                    recordingId = rec.RecordingId,
+                    tryEvaluateAnchorRotationReliability =
+                        (int idx, IPlaybackTrajectory traj, double playbackUT,
+                            string playbackScope,
+                            out AnchorRotationReliabilityDecision decision) =>
+                        {
+                            decision = new AnchorRotationReliabilityDecision(
+                                unreliable: false,
+                                anchorRecordingId: "ingame-always-shadow-parent",
+                                bracketDegrees: 4.0,
+                                rateDegreesPerSecond: 18.0,
+                                offsetMeters: 1500.0);
+                            return true;
+                        },
+                },
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 150.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 120.0,
+            };
+
+            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+            GhostPlaybackState retainedState;
+            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
+                "always-shadow path should preserve ghost state");
+            InGameAssert.IsTrue(ghost.activeSelf,
+                "always-shadow path must keep the mesh active outside tumble windows too");
+            InGameAssert.IsFalse(retainedState.anchorRotationShadowRoutedThisFrame,
+                "FX suppression flag must STAY CLEAR when the gate is inactive (steady-state shadow render does not suppress plumes / RCS / audio)");
+            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
+                "always-shadow path must NOT mark anchorRetiredThisFrame=true");
+            InGameAssert.AreEqual(1, positioner.ShadowCalls,
+                "engine must call TryPositionFromRelativeAbsoluteShadow once even though the gate is inactive (this is the PR #803 behaviour change)");
+            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
+                "engine must NOT call positioner.PositionLoop when the shadow positioner succeeds");
+            InGameAssert.AreEqual(0, positioner.InterpolateCalls,
+                "engine must NOT call positioner.InterpolateAndPosition[Relative] when the shadow positioner succeeds");
+            // Ghost transform reflects the shadow positioner's primed position
+            // — confirms it ran end-to-end, not just that the call counter
+            // incremented.
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "PR #803 contract regression: the gate evaluator returning FALSE (focus-tree miss / resolver-side issue) must NOT block the shadow render — shadow is always-on for v12+ parent-anchored debris when shadow data covers, regardless of evaluator runtime success")]
+        public void ParentAnchoredDebris_AlwaysShadow_EvaluatorMiss_StillRendersShadow()
+        {
+            // Companion to ParentAnchoredDebris_AlwaysShadow_StableThroughout.
+            // That test pins the evaluator-returned-true case (mode=always with
+            // a populated decision struct). This one pins the evaluator-
+            // returned-false case (mode=always with a defaulted decision
+            // struct -- the runtime evaluator hit a focus-tree miss or a
+            // resolver-side issue, but the host predicate already filtered
+            // the recording in scope at flag-build time, so the shadow render
+            // must still fire).
+            //
+            // Round-1 P2-2 fix accidentally gated the shadow attempt on
+            // gateEvaluated, contradicting the PR contract. Round-2 P2 fix
+            // dropped that gate; this test would have caught the regression.
+
+            var positioner = new TumblingParentShadowPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, ut) => 0.0;
+
+            var ghost = new GameObject("ParsekTestGhost_AlwaysShadow_EvaluatorMiss");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Always-shadow evaluator-miss debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                appearanceCount = 1,
+            };
+            engine.ghostStates[0] = state;
+
+            var rec = new Recording
+            {
+                RecordingId = "ingame-always-shadow-evaluator-miss",
+                VesselName = "Always-shadow evaluator-miss debris",
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = "ingame-always-shadow-evaluator-miss-parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
+                },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 200.0,
+                anchorRecordingId = "ingame-always-shadow-evaluator-miss-parent",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 200.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            // Host predicate: the runtime evaluator returns FALSE (e.g. focus
+            // tree wasn't found, or the resolver short-circuited internally
+            // for some non-LoopAnchorVesselId reason). The decision struct
+            // stays defaulted. The router must STILL try shadow.
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = 200.0,
+                    recordingId = rec.RecordingId,
+                    tryEvaluateAnchorRotationReliability =
+                        (int idx, IPlaybackTrajectory traj, double playbackUT,
+                            string playbackScope,
+                            out AnchorRotationReliabilityDecision decision) =>
+                        {
+                            decision = default;
+                            return false;
+                        },
+                },
+            };
+
+            var ctx = new FrameContext
+            {
+                currentUT = 150.0,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 120.0,
+            };
+
+            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+
+            GhostPlaybackState retainedState;
+            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
+                "evaluator-miss path must preserve ghost state");
+            InGameAssert.IsTrue(ghost.activeSelf,
+                "evaluator-miss must NOT block the shadow render -- mesh stays active");
+            InGameAssert.IsFalse(retainedState.anchorRotationShadowRoutedThisFrame,
+                "FX suppression flag must stay clear (gate evaluator returned false, so fxSuppress is false)");
+            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
+                "evaluator-miss must NOT retire the ghost");
+            InGameAssert.AreEqual(1, positioner.ShadowCalls,
+                "engine MUST still call TryPositionFromRelativeAbsoluteShadow even when the evaluator returned false (this is the regression that the round-1 P2-2 fix introduced)");
+            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
+                "engine must NOT fall back to legacy PositionLoop when shadow successfully runs");
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
+            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
@@ -9703,41 +10489,59 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
-            Description = "#265: OneShotAudio pause/unpause path works")]
-        public IEnumerator PauseUnpauseAudio_OneShotPath()
+            Description = "Phantom-engine-after-decouple regression: StopFxAndAudioForSubtree must stop a child engine's looping AudioSource on the parent ghost when the decoupler fires, not just the decoupler's own pid.")]
+        public IEnumerator StopFxAndAudioForSubtree_DecoupledChildEngineAudioStops()
         {
-            var go = new GameObject("ParsekTest_OneShotAudio");
-            runner.TrackForCleanup(go);
-            var audioSource = go.AddComponent<AudioSource>();
-            audioSource.clip = AudioClip.Create("test_oneshot", 44100, 1, 44100, false);
-            audioSource.loop = true;
-            audioSource.volume = 0f;
-            audioSource.Play();
+            const uint decouplerPid = 100;
+            const uint enginePid = 200;
+            ulong engineKey = FlightRecorder.EncodeEngineKey(enginePid, 0);
+
+            var engineGo = new GameObject("ParsekTest_DecoupledEngineAudio");
+            runner.TrackForCleanup(engineGo);
+            var engineSource = engineGo.AddComponent<AudioSource>();
+            engineSource.clip = AudioClip.Create("test_decoupled_engine", 44100, 1, 44100, false);
+            engineSource.loop = true;
+            engineSource.volume = 0f;
+            engineSource.Play();
 
             yield return null;
-
-            InGameAssert.IsTrue(audioSource.isPlaying,
-                "OneShotAudio should be playing before pause");
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Engine AudioSource should be playing before the decouple");
 
             var state = new GhostPlaybackState
             {
-                oneShotAudio = new OneShotAudioInfo { audioSource = audioSource }
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    {
+                        engineKey,
+                        new AudioGhostInfo
+                        {
+                            partPersistentId = enginePid,
+                            moduleIndex = 0,
+                            audioSource = engineSource,
+                            currentPower = 1f
+                        }
+                    }
+                },
+                partTree = new Dictionary<uint, List<uint>>
+                {
+                    { decouplerPid, new List<uint> { enginePid } }
+                }
             };
 
-            GhostPlaybackLogic.PauseAllAudio(state);
+            GhostPlaybackLogic.StopFxAndAudioForSubtree(state, decouplerPid, state.partTree);
             yield return null;
 
-            InGameAssert.IsFalse(audioSource.isPlaying,
-                "OneShotAudio should be paused after PauseAllAudio");
-
-            GhostPlaybackLogic.UnpauseAllAudio(state);
-            yield return null;
-
-            InGameAssert.IsTrue(audioSource.isPlaying,
-                "OneShotAudio should resume after UnpauseAllAudio");
+            // Pre-fix: only decouplerPid's audio info would be processed, so the
+            // engine child's AudioSource would keep playing. Post-fix: subtree
+            // walk reaches the engine and StopAudioForPart stops it.
+            InGameAssert.IsFalse(engineSource.isPlaying,
+                "Engine AudioSource on a child of the decoupled subtree must be stopped, not just the decoupler's own pid");
+            InGameAssert.ApproxEqual(0f, state.audioInfos[engineKey].currentPower, 0.001f,
+                "Engine currentPower must be cleared by the subtree walk");
 
             ParsekLog.Verbose("TestRunner",
-                "OneShotAudio pause/unpause cycle verified");
+                "Phantom-engine-after-decouple regression: subtree walk stopped the child engine's AudioSource on decouple");
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.SPACECENTER,
@@ -9756,12 +10560,12 @@ namespace Parsek.InGameTests
                     UnityEngine.Object.FindObjectsOfType<AudioSource>()
                         .Select(source => source.GetInstanceID()));
 
-                bool queued = GhostPlaybackLogic.TryPlayExplosionOneShotWithAudioGate(
+                bool queued = GhostPlaybackLogic.TryPlayIndependentExplosionOneShot(
                     ghostRoot.transform.position,
                     atmosphereFactor: 1f,
                     distanceMeters: 0.0,
+                    power: 0.5,
                     contextDescription: "KSC in-game fallback audio test",
-                    busyLogKey: "ksc-ingame-fallback-audio-busy",
                     resolveExplosionAudioCandidate: () => new GhostPlaybackLogic.ExplosionOneShotAudioCandidate
                     {
                         canPlay = true,
@@ -9773,7 +10577,7 @@ namespace Parsek.InGameTests
                     });
 
                 InGameAssert.IsTrue(queued,
-                    "KSC fallback explosion audio should queue when the global gate is free");
+                    "KSC fallback explosion audio should queue an independent AudioSource");
                 yield return null;
 
                 var createdSource = UnityEngine.Object.FindObjectsOfType<AudioSource>()
@@ -9820,113 +10624,6 @@ namespace Parsek.InGameTests
             }
         }
 
-        [InGameTest(Category = "ExplosionFx", Scene = GameScenes.FLIGHT,
-            Description = "Visual-only stock explosion spawn: instantiates an FXMonger explosion prefab with audio muted; run from Ctrl+Shift+T in the Flight scene")]
-        public IEnumerator TryInstantiateStockExplosionVisual_LiveFxMonger_SpawnsMutedPrefab()
-        {
-            FXMonger fetch = GhostVisualBuilder.ResolveLiveFxMonger();
-            if (fetch == null)
-            {
-                InGameAssert.Skip("FXMonger.fetch not live in this scene");
-                yield break;
-            }
-
-            // Snapshot existing AudioSources so we can find the new ones (if any) the
-            // visual-only spawn produced and verify they were muted.
-            var beforeIds = new HashSet<int>(
-                UnityEngine.Object.FindObjectsOfType<AudioSource>()
-                    .Select(s => s.GetInstanceID()));
-
-            // Snapshot the live FXMonger.explosionObjects count so we can assert the
-            // visual-only spawn registers exactly one entry (registration is what makes
-            // FXMonger.OffsetPositions cover the spawn on Krakensbane / floating-origin
-            // shifts; without it the visual would jump on a frame-origin reset).
-            List<FXObject> explosionObjects = GhostVisualBuilder.ResolveFxMongerExplosionObjects(fetch);
-            InGameAssert.IsNotNull(explosionObjects,
-                "FXMonger.explosionObjects must be reachable via reflection for floating-origin tracking");
-            int beforeCount = explosionObjects.Count;
-
-            Vector3 spawnPos = FlightGlobals.ActiveVessel != null
-                ? FlightGlobals.ActiveVessel.transform.position
-                  + FlightGlobals.ActiveVessel.transform.forward * 200f
-                : Vector3.zero;
-
-            bool ok = GhostVisualBuilder.TryInstantiateStockExplosionVisual(
-                spawnPos,
-                power: 0.5,
-                out string failureReason);
-            InGameAssert.IsTrue(ok,
-                $"TryInstantiateStockExplosionVisual must succeed with a live FXMonger: {failureReason}");
-
-            // Allow Unity one frame to instantiate the prefab and run any Awake/Start logic.
-            yield return null;
-
-            // Inspect any newly-introduced AudioSources — the visual-only path mutes them
-            // (and stops them, and disables playOnAwake) so they should not be playing.
-            var newSources = UnityEngine.Object.FindObjectsOfType<AudioSource>()
-                .Where(s => s != null && !beforeIds.Contains(s.GetInstanceID()))
-                .ToList();
-            for (int i = 0; i < newSources.Count; i++)
-            {
-                var src = newSources[i];
-                runner.TrackForCleanup(src.gameObject);
-                InGameAssert.IsTrue(src.mute,
-                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must be muted");
-                InGameAssert.IsFalse(src.isPlaying,
-                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must not be playing");
-                InGameAssert.IsFalse(src.playOnAwake,
-                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must have playOnAwake=false");
-            }
-
-            // Verify registration: the spawn added exactly one FXObject whose effectObj
-            // sits at our spawnPos. We deliberately do not equality-compare against any
-            // GameObject reference because the registered entry is owned by FXMonger now;
-            // tracking by position is enough to prove the registration ran.
-            int afterCount = explosionObjects.Count;
-            InGameAssert.AreEqual(beforeCount + 1, afterCount,
-                $"Visual-only spawn must register exactly one FXObject; before={beforeCount} after={afterCount}");
-            FXObject registered = explosionObjects[afterCount - 1];
-            InGameAssert.IsNotNull(registered,
-                "Newly-registered FXObject must not be null");
-            InGameAssert.IsNotNull(registered.effectObj,
-                "Registered FXObject.effectObj must reference the live spawn GameObject");
-            runner.TrackForCleanup(registered.effectObj);
-            InGameAssert.ApproxEqual(spawnPos.x, registered.effectObj.transform.position.x, 0.01f,
-                "Registered FXObject root position X must match spawnPos");
-            InGameAssert.ApproxEqual(spawnPos.y, registered.effectObj.transform.position.y, 0.01f,
-                "Registered FXObject root position Y must match spawnPos");
-            InGameAssert.ApproxEqual(spawnPos.z, registered.effectObj.transform.position.z, 0.01f,
-                "Registered FXObject root position Z must match spawnPos");
-
-            // Verify floating-origin tracking actually applies to the spawn: simulate a
-            // 100 m Krakensbane shift by calling FXMonger.OffsetPositions directly and
-            // checking the registered root transform moved by the offset. This is the
-            // exact path FloatingOrigin.SetOffset takes after a recentre (decompiled
-            // FloatingOrigin ~line 721).
-            Vector3 preOffsetPos = registered.effectObj.transform.position;
-            Vector3d offset = new Vector3d(100.0, 0.0, 0.0);
-            FXMonger.OffsetPositions(offset);
-            yield return null;
-            Vector3 postOffsetPos = registered.effectObj.transform.position;
-            InGameAssert.ApproxEqual(preOffsetPos.x + 100f, postOffsetPos.x, 0.1f,
-                "Visual-only spawn must follow FXMonger.OffsetPositions on the X axis");
-            InGameAssert.ApproxEqual(preOffsetPos.y, postOffsetPos.y, 0.1f,
-                "Visual-only spawn Y axis must be unchanged by an X-only offset");
-            InGameAssert.ApproxEqual(preOffsetPos.z, postOffsetPos.z, 0.1f,
-                "Visual-only spawn Z axis must be unchanged by an X-only offset");
-
-            // Reverse the offset so we don't leave the test FX shifted away from the
-            // active vessel (cosmetic only — the prefab self-destructs after particles
-            // expire, but the shift is visible during that window).
-            FXMonger.OffsetPositions(-offset);
-
-            ParsekLog.Verbose("TestRunner",
-                $"Visual-only stock explosion spawned at {spawnPos}; new audio sources={newSources.Count} (all muted); " +
-                $"explosionObjects registered: {beforeCount}→{afterCount}; offset shift: " +
-                $"({preOffsetPos.x:F1},{preOffsetPos.y:F1},{preOffsetPos.z:F1}) → " +
-                $"({postOffsetPos.x:F1},{postOffsetPos.y:F1},{postOffsetPos.z:F1})");
-        }
-
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
             Description = "#265: Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio iterates all ghost states")]
         public void EngineLevel_PauseUnpauseGhostAudio_NoCrash()
@@ -9967,12 +10664,6 @@ namespace Parsek.InGameTests
             engineSource.spatialBlend = 1f;
             engineSource.panStereo = 0.35f;
 
-            var oneShotAudioRoot = new GameObject("ghost_audio_oneshot");
-            oneShotAudioRoot.transform.SetParent(ghostRoot.transform, false);
-            var oneShotSource = oneShotAudioRoot.AddComponent<AudioSource>();
-            oneShotSource.spatialBlend = 1f;
-            oneShotSource.panStereo = -0.4f;
-
             var result = new GhostBuildResult
             {
                 audioInfos = new List<AudioGhostInfo>
@@ -9983,10 +10674,6 @@ namespace Parsek.InGameTests
                         moduleIndex = 0,
                         audioSource = engineSource
                     }
-                },
-                oneShotAudio = new OneShotAudioInfo
-                {
-                    audioSource = oneShotSource
                 }
             };
 
@@ -9998,20 +10685,12 @@ namespace Parsek.InGameTests
                 "Part visuals should stay under the ghost root when audio is re-anchored");
             InGameAssert.IsTrue(engineSource.transform.parent == cameraPivot.transform,
                 "Engine ghost audio should be parented to cameraPivot");
-            InGameAssert.IsTrue(oneShotSource.transform.parent == cameraPivot.transform,
-                "One-shot ghost audio should be parented to cameraPivot");
             InGameAssert.IsTrue(engineSource.transform.localPosition == Vector3.zero,
                 "Engine ghost audio should sit at the watch pivot local origin");
-            InGameAssert.IsTrue(oneShotSource.transform.localPosition == Vector3.zero,
-                "One-shot ghost audio should sit at the watch pivot local origin");
             InGameAssert.ApproxEqual(0f, engineSource.panStereo, 0.0001f,
                 "Engine ghost audio panStereo should stay centered");
-            InGameAssert.ApproxEqual(0f, oneShotSource.panStereo, 0.0001f,
-                "One-shot ghost audio panStereo should stay centered");
             InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, engineSource.spatialBlend, 0.0001f,
                 "Engine ghost audio spatialBlend should use the damped watch-safe blend");
-            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, oneShotSource.spatialBlend, 0.0001f,
-                "One-shot ghost audio spatialBlend should use the damped watch-safe blend");
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
@@ -13857,6 +14536,15 @@ namespace Parsek.InGameTests
             {
             }
 
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
+            }
+
             public void PositionAtPoint(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, TrajectoryPoint point)
             {
@@ -14392,6 +15080,15 @@ namespace Parsek.InGameTests
                 if (state.ghost != null && state.ghost.activeSelf)
                     state.ghost.SetActive(false);
                 state.anchorRetiredThisFrame = true;
+            }
+
+            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
             }
 
             public void PositionAtPoint(int index, IPlaybackTrajectory traj,

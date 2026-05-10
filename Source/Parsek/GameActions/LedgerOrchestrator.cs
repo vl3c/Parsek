@@ -173,6 +173,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Ensures the kerbal module exists before queuing merge-tombstone roster
+        /// cleanup work. Does not reinitialize a partially initialized orchestrator.
+        /// </summary>
+        internal static bool TryEnsureKerbalsModuleForTombstoneRosterCleanup()
+        {
+            if (kerbalsModule != null)
+                return true;
+
+            if (initialized)
+            {
+                ParsekLog.Warn(Tag,
+                    "Tombstoned roster cleanup queue skipped: LedgerOrchestrator is initialized but KerbalsModule is missing");
+                return false;
+            }
+
+            ParsekLog.Warn(Tag,
+                "Tombstoned roster cleanup requested before LedgerOrchestrator.Initialize; initializing modules before queueing cleanup");
+            Initialize();
+
+            if (kerbalsModule != null)
+                return true;
+
+            ParsekLog.Warn(Tag,
+                "Tombstoned roster cleanup queue skipped: KerbalsModule unavailable after initialization");
+            return false;
+        }
+
+        /// <summary>
         /// Called when a recording is committed. Converts events to GameActions,
         /// adds to ledger, recalculates, and patches KSP state.
         /// </summary>
@@ -1274,7 +1302,8 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: utCutoff.HasValue,
-                authoritativeRepeatableRecordState: utCutoff.HasValue);
+                authoritativeRepeatableRecordState: utCutoff.HasValue,
+                techPatchCutoff: utCutoff);
         }
 
         /// <summary>
@@ -1289,7 +1318,8 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: false,
-                authoritativeRepeatableRecordState: false);
+                authoritativeRepeatableRecordState: false,
+                techPatchCutoff: utCutoff);
         }
 
         /// <summary>
@@ -1304,7 +1334,32 @@ namespace Parsek
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: false,
-                authoritativeRepeatableRecordState: false);
+                authoritativeRepeatableRecordState: false,
+                techPatchCutoff: utCutoff);
+        }
+
+        /// <summary>
+        /// Post-supersede tombstone refresh. The broad tombstone scope can remove
+        /// career effects from the full ELS after the normal commit-time recalc has
+        /// already run, so this path walks the full timeline, bypasses live-tree
+        /// deferral, and still enables an authoritative repeatable-record patch.
+        /// Tech-tree patching stays disabled unless the current tombstone pass
+        /// retired a ScienceSpending row that may need a baseline-seeded unlock
+        /// removed.
+        /// </summary>
+        internal static void RecalculateAndPatchAfterTombstones(
+            IReadOnlyCollection<string> currentTombstonedScienceSpendingNodeIds)
+        {
+            bool patchTechTree = currentTombstonedScienceSpendingNodeIds != null &&
+                currentTombstonedScienceSpendingNodeIds.Count > 0;
+            FacilityStatePatcher.ForceDefaultFacilitiesForNextPatch(
+                BuildTombstonedFacilityIdsForPatch());
+            RecalculateAndPatchCore(
+                utCutoff: null,
+                bypassPatchDeferral: true,
+                authoritativeRepeatableRecordState: true,
+                techPatchCutoff: patchTechTree ? double.MaxValue : (double?)null,
+                excludeTombstonedTechFromBaseline: patchTechTree);
         }
 
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
@@ -1544,7 +1599,9 @@ namespace Parsek
         private static void RecalculateAndPatchCore(
             double? utCutoff,
             bool bypassPatchDeferral,
-            bool authoritativeRepeatableRecordState)
+            bool authoritativeRepeatableRecordState,
+            double? techPatchCutoff,
+            bool excludeTombstonedTechFromBaseline = false)
         {
             Initialize();
 
@@ -1609,7 +1666,9 @@ namespace Parsek
                 ApplyRecalculatedStateToKsp(
                     actions,
                     utCutoff,
-                    authoritativeRepeatableRecordState);
+                    authoritativeRepeatableRecordState,
+                    techPatchCutoff,
+                    excludeTombstonedTechFromBaseline);
             }
 
             // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
@@ -1699,7 +1758,9 @@ namespace Parsek
         private static void ApplyRecalculatedStateToKsp(
             List<GameAction> actions,
             double? utCutoff,
-            bool authoritativeRepeatableRecordState)
+            bool authoritativeRepeatableRecordState,
+            double? techPatchCutoff,
+            bool excludeTombstonedTechFromBaseline)
         {
             // KSP state mutations (PostWalk already called by engine). Repeatable
             // Records* nodes only rebuild strictly from ledger-backed thresholds on
@@ -1714,19 +1775,26 @@ namespace Parsek
             // through PatchTechTree's existing null-target guard.
             HashSet<string> targetTechIds = null;
             double? techBaselineUt = null;
-            if (utCutoff.HasValue)
+            HashSet<string> baselineTechExclusions = null;
+            if (techPatchCutoff.HasValue)
             {
+                if (excludeTombstonedTechFromBaseline)
+                    baselineTechExclusions = BuildTombstonedScienceSpendingNodeIds();
+
                 targetTechIds = KspStatePatcher.BuildTargetTechIdsForPatch(
                     GameStateStore.Baselines,
                     actions,
-                    utCutoff);
+                    techPatchCutoff,
+                    baselineTechExclusions);
                 techBaselineUt = KspStatePatcher.GetSelectedTechBaselineUt(
                     GameStateStore.Baselines,
-                    utCutoff);
+                    techPatchCutoff);
                 ParsekLog.Verbose(Tag,
-                    "RecalculateAndPatch: rewind-path tech-tree patch enabled " +
-                    $"(utCutoff={utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
+                    "RecalculateAndPatch: tech-tree patch enabled " +
+                    $"(walkCutoff={(utCutoff.HasValue ? utCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                    $"techCutoff={techPatchCutoff.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, " +
                     $"baselineUt={(techBaselineUt.HasValue ? techBaselineUt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "null")}, " +
+                    $"baselineTechExclusions={(baselineTechExclusions == null ? "0" : baselineTechExclusions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))}, " +
                     $"targetCount={(targetTechIds == null ? "null" : targetTechIds.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))})");
             }
             else
@@ -1739,8 +1807,125 @@ namespace Parsek
                 milestonesModule, facilitiesModule, contractsModule,
                 targetTechIds,
                 authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
-                techUtCutoff: utCutoff,
+                techUtCutoff: techPatchCutoff,
                 techBaselineUt: techBaselineUt);
+        }
+
+        internal static HashSet<string> BuildTombstonedFacilityIdsForPatch()
+        {
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
+                return null;
+
+            var facilityIds = new HashSet<string>(StringComparer.Ordinal);
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.FacilityId))
+                {
+                    continue;
+                }
+
+                switch (action.Type)
+                {
+                    case GameActionType.FacilityUpgrade:
+                    case GameActionType.FacilityDestruction:
+                    case GameActionType.FacilityRepair:
+                        if (tombstonedActionIds.Contains(action.ActionId))
+                            facilityIds.Add(action.FacilityId);
+                        break;
+                }
+            }
+
+            return facilityIds.Count == 0 ? null : facilityIds;
+        }
+
+        internal static HashSet<Guid> BuildTombstonedContractGuidsForPatch()
+        {
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
+                return null;
+
+            var contractIds = new HashSet<Guid>();
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.ContractId) ||
+                    !tombstonedActionIds.Contains(action.ActionId))
+                {
+                    continue;
+                }
+
+                switch (action.Type)
+                {
+                    case GameActionType.ContractAccept:
+                    case GameActionType.ContractComplete:
+                    case GameActionType.ContractFail:
+                    case GameActionType.ContractCancel:
+                        Guid contractGuid;
+                        if (Guid.TryParse(action.ContractId, out contractGuid))
+                            contractIds.Add(contractGuid);
+                        break;
+                }
+            }
+
+            return contractIds.Count == 0 ? null : contractIds;
+        }
+
+        private static HashSet<string> BuildTombstonedScienceSpendingNodeIds()
+        {
+            var tombstonedActionIds = BuildTombstonedActionIds();
+            if (tombstonedActionIds == null)
+                return null;
+
+            var excludedTechIds = new HashSet<string>(StringComparer.Ordinal);
+            var source = Ledger.Actions;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var action = source[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceSpending ||
+                    string.IsNullOrEmpty(action.ActionId) ||
+                    string.IsNullOrEmpty(action.NodeId))
+                {
+                    continue;
+                }
+
+                if (tombstonedActionIds.Contains(action.ActionId))
+                    excludedTechIds.Add(action.NodeId);
+            }
+
+            return excludedTechIds.Count == 0 ? null : excludedTechIds;
+        }
+
+        private static HashSet<string> BuildTombstonedActionIds()
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) ||
+                scenario.LedgerTombstones == null ||
+                scenario.LedgerTombstones.Count == 0)
+            {
+                return null;
+            }
+
+            var tombstonedActionIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var tombstone = scenario.LedgerTombstones[i];
+                if (tombstone == null || string.IsNullOrEmpty(tombstone.ActionId))
+                    continue;
+                tombstonedActionIds.Add(tombstone.ActionId);
+            }
+
+            if (tombstonedActionIds.Count == 0)
+                return null;
+            return tombstonedActionIds;
         }
 
         internal static bool HasActionsAfterUT(double ut)
@@ -3302,8 +3487,8 @@ namespace Parsek
             // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
             // leak into affordability.
             // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
-            // any tombstoned action (kerbal deaths + bundled rep penalties) is
-            // excluded from the affordability probe's walk.
+            // any explicitly tombstoned action is excluded from the affordability
+            // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
             RecalculationEngine.Recalculate(actions, nowUT);
@@ -3336,8 +3521,8 @@ namespace Parsek
             // cutoff = Planetarium.GetUniversalTime() so post-rewind future actions don't
             // leak into affordability.
             // Phase 9 of Rewind-to-Staging (design §3.2): route through ELS so
-            // any tombstoned action (kerbal deaths + bundled rep penalties) is
-            // excluded from the affordability probe's walk.
+            // any explicitly tombstoned action is excluded from the affordability
+            // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
             RecalculationEngine.Recalculate(actions, nowUT);

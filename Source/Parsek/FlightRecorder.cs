@@ -53,7 +53,11 @@ namespace Parsek
         // 0.1s covers scene-load physics tick variability across local framerates.
         internal const int ReFlyPostLoadSettleRequiredUnpackedFrames = 2;
         internal const float ReFlyPostLoadSettleMinLevelSeconds = 0.1f;
+        internal const int StabilityExtensionFramesAfterShift = 2;
+        // TODO: retune from Re-Fly settle/FloatingOrigin evidence after playtest.
+        internal const int StabilitySettleClearHoldFrames = 60;
         private const double SectionBoundaryUtEpsilon = 1e-6;
+        internal static Func<int> FrameCountProviderForTesting;
         internal static Func<float> TimeSinceLevelLoadProviderForTesting;
         private bool reFlyPostLoadSettleActive;
         private int reFlyPostLoadSettleUnpackedFrames;
@@ -100,7 +104,7 @@ namespace Parsek
             string anchorRecordingId,
             double ut,
             out AnchorPose pose,
-            out string reason);
+            out RelativeAnchorResolveFailure failure);
         internal static TryResolveRecordedAnchorPoseOverride RecordedAnchorPoseOverrideForTesting;
 
         // Part event tracking
@@ -468,6 +472,18 @@ namespace Parsek
             return TimeSinceLevelLoadProviderForTesting != null
                 ? TimeSinceLevelLoadProviderForTesting()
                 : Time.timeSinceLevelLoad;
+        }
+
+        internal static int GetFrameCount()
+        {
+            return FrameCountProviderForTesting != null
+                ? FrameCountProviderForTesting()
+                : GetUnityFrameCount();
+        }
+
+        private static int GetUnityFrameCount()
+        {
+            return Time.frameCount;
         }
 
         internal static ReFlyPostLoadSettleDecision EvaluateReFlyPostLoadSettle(
@@ -5458,6 +5474,45 @@ namespace Parsek
                 situation: situation);
         }
 
+        internal static string FormatRelativeExitDistanceForLog(
+            bool anchorFound,
+            double distanceMeters)
+        {
+            if (!anchorFound
+                || double.IsNaN(distanceMeters)
+                || double.IsInfinity(distanceMeters)
+                || distanceMeters < 0.0
+                || distanceMeters == double.MaxValue)
+            {
+                return "unresolved";
+            }
+
+            return distanceMeters.ToString("F1", CultureInfo.InvariantCulture) + "m";
+        }
+
+        internal static string FormatRelativeExitDistanceFieldForLog(
+            bool anchorFound,
+            double distanceMeters)
+        {
+            string distance = FormatRelativeExitDistanceForLog(anchorFound, distanceMeters);
+            return distance == "unresolved"
+                ? "dist=unresolved"
+                : "dist=" + distance;
+        }
+
+        internal static string BuildRelativeModeExitedLogMessage(
+            string previousAnchorRecordingId,
+            uint diagnosticPid,
+            bool anchorFound,
+            double distanceMeters,
+            uint vesselPid)
+        {
+            return $"RELATIVE mode exited: previousAnchorRecordingId={previousAnchorRecordingId ?? "(none)"} " +
+                   $"diagnosticPid={diagnosticPid} " +
+                   $"{FormatRelativeExitDistanceFieldForLog(anchorFound, distanceMeters)} " +
+                   $"vesselPid={vesselPid}";
+        }
+
         private void UpdateAnchorDetection(Vessel v)
         {
             // Skip anchor detection while on the surface — RELATIVE mode is for orbital
@@ -5474,7 +5529,6 @@ namespace Parsek
                 // skipped frames, so last recorded point could be far from here.
                 double boundaryUT = Planetarium.GetUniversalTime();
                 SamplePositionAtUT(v, boundaryUT);
-                var ic = CultureInfo.InvariantCulture;
                 string oldAnchorRecordingId = currentAnchorRecordingId;
                 uint oldAnchorPid = currentAnchorPid;
                 isRelativeMode = false;
@@ -5574,7 +5628,6 @@ namespace Parsek
                     // skipped frames, so last recorded point could be far from here.
                     double boundaryUT = Planetarium.GetUniversalTime();
                     SamplePositionAtUT(v, boundaryUT);
-                    var ic = CultureInfo.InvariantCulture;
                     string oldAnchorRecordingId = currentAnchorRecordingId;
                     uint oldAnchorPid = currentAnchorPid;
                     if (!result.found)
@@ -5593,10 +5646,12 @@ namespace Parsek
                     ActivateHighFidelitySampling(boundaryUT, "relative-exit");
                     AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-distance");
                     ParsekLog.Info("Anchor",
-                        $"RELATIVE mode exited: previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
-                        $"diagnosticPid={oldAnchorPid} " +
-                        $"dist={(result.found ? result.distance : double.MaxValue).ToString("F1", ic)}m " +
-                        $"vesselPid={RecordingVesselId}");
+                        BuildRelativeModeExitedLogMessage(
+                            oldAnchorRecordingId,
+                            oldAnchorPid,
+                            result.found,
+                            result.distance,
+                            RecordingVesselId));
                 }
             }
         }
@@ -5894,6 +5949,19 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(string recordingId)
+        {
+            return IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(recordingId, GetFrameCount());
+        }
+
+        internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(
+            string recordingId,
+            int frame)
+        {
+            return IsReFlyPostLoadSettleActiveForRecording(recordingId)
+                || ReFlySettleStabilityTracker.IsHoldActiveForRecording(recordingId, frame);
+        }
+
         internal TrackSection CurrentTrackSectionForTesting => currentTrackSection;
 
         private void ArmReFlyPostLoadSettleIfNeeded(Vessel v, bool isPromotion)
@@ -5951,18 +6019,23 @@ namespace Parsek
 
             if (decision.Clear)
             {
+                string clearRecordingId = reFlyPostLoadSettleRecordingId;
                 ParsekLog.Info("Recorder",
                     $"Re-Fly post-load settle complete: session={ShortId(reFlyPostLoadSettleSessionId)} " +
-                    $"recording={ShortId(reFlyPostLoadSettleRecordingId)} " +
+                    $"recording={ShortId(clearRecordingId)} " +
                     $"ut={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                     $"unpackedFrames={reFlyPostLoadSettleUnpackedFrames} " +
                     $"elapsedLevelSeconds={elapsed.ToString("F3", CultureInfo.InvariantCulture)}");
+                ReFlySettleStabilityTracker.RecordSettleCleared(clearRecordingId, GetFrameCount());
                 ResetReFlyPostLoadSettle();
                 return false;
             }
 
             if (decision.Hold)
             {
+                ReFlySettleStabilityTracker.RecordSettleActive(
+                    reFlyPostLoadSettleRecordingId,
+                    GetFrameCount());
                 ParsekLog.VerboseRateLimited("Recorder",
                     "refly-post-load-settle|" + (reFlyPostLoadSettleSessionId ?? "<no-session>"),
                     $"Re-Fly post-load settle holding trajectory sample: " +
@@ -6717,8 +6790,11 @@ namespace Parsek
                              resumeAnchorRecordingId,
                              ut,
                              out _,
-                             out string resumeRejectReason))
+                             out RelativeAnchorResolveFailure resumeRejectFailure))
                 {
+                    string resumeRejectReason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                        resumeRejectFailure,
+                        "recorded-anchor-unresolved");
                     ParsekLog.Warn("Anchor",
                         $"RELATIVE resume rejected: anchorRecordingId={resumeAnchorRecordingId} " +
                         $"reason={resumeRejectReason} diagnosticPid={resumeAnchorDiagnosticPid} " +
@@ -7265,8 +7341,14 @@ namespace Parsek
                 return false;
             }
 
-            if (!TryResolveCurrentAnchorPose(point.ut, out AnchorPose anchorPose, out string reason))
+            if (!TryResolveCurrentAnchorPose(
+                    point.ut,
+                    out AnchorPose anchorPose,
+                    out RelativeAnchorResolveFailure failure))
             {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    failure,
+                    "recorded-anchor-unresolved");
                 // Anchor recording no longer resolves — force transition out of RELATIVE mode.
                 // The point keeps its absolute lat/lon/alt from the vessel (correct for ABSOLUTE).
                 // Close the RELATIVE section and start a new ABSOLUTE section so the frame
@@ -7381,8 +7463,11 @@ namespace Parsek
                     candidate,
                     boundaryUT,
                     out AnchorPose anchorPose,
-                    out string reason))
+                    out RelativeAnchorResolveFailure failure))
             {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    failure,
+                    "recorded-anchor-unresolved");
                 ParsekLog.Warn("Anchor",
                     $"RELATIVE boundary seed skipped: anchorRecordingId={candidate.RecordingId} " +
                     $"source={candidate.Source} diagnosticPid={candidate.DiagnosticPid} " +
@@ -7421,7 +7506,7 @@ namespace Parsek
         private bool TryResolveCurrentAnchorPose(
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out RelativeAnchorResolveFailure failure)
         {
             if (hasCurrentAnchorCandidate
                 && string.Equals(
@@ -7433,27 +7518,32 @@ namespace Parsek
                     currentAnchorCandidate,
                     ut,
                     out pose,
-                    out reason);
+                    out failure);
             }
 
             return TryResolveRecordedAnchorPose(
                 currentAnchorRecordingId,
                 ut,
                 out pose,
-                out reason);
+                out failure);
         }
 
         private bool TryResolveAnchorPoseForCandidate(
             RecordingAnchorCandidate candidate,
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out RelativeAnchorResolveFailure failure)
         {
             pose = default;
-            reason = null;
+            failure = default;
             if (string.IsNullOrWhiteSpace(candidate.RecordingId))
             {
-                reason = "anchor-recording-id-missing";
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    ActiveTree?.ActiveRecordingId,
+                    candidate.RecordingId,
+                    ut);
                 return false;
             }
 
@@ -7488,25 +7578,30 @@ namespace Parsek
                     5.0);
             }
 
-            return TryResolveRecordedAnchorPose(candidate.RecordingId, ut, out pose, out reason);
+            return TryResolveRecordedAnchorPose(candidate.RecordingId, ut, out pose, out failure);
         }
 
         private bool TryResolveRecordedAnchorPose(
             string anchorRecordingId,
             double ut,
             out AnchorPose pose,
-            out string reason)
+            out RelativeAnchorResolveFailure failure)
         {
-            reason = null;
+            failure = default;
             if (string.IsNullOrWhiteSpace(anchorRecordingId))
             {
                 pose = default;
-                reason = "anchor-recording-id-missing";
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    ActiveTree?.ActiveRecordingId,
+                    anchorRecordingId,
+                    ut);
                 return false;
             }
 
             if (RecordedAnchorPoseOverrideForTesting != null)
-                return RecordedAnchorPoseOverrideForTesting(anchorRecordingId, ut, out pose, out reason);
+                return RecordedAnchorPoseOverrideForTesting(anchorRecordingId, ut, out pose, out failure);
 
             var context = BuildRecorderRelativeAnchorResolverContext();
             recordedAnchorResolverVisited.Clear();
@@ -7518,14 +7613,22 @@ namespace Parsek
                     anchorRecordingId,
                     ut,
                     recordedAnchorResolverVisited,
-                    out pose);
+                    out pose,
+                    out failure);
             }
             finally
             {
                 recordedAnchorResolverVisited.Clear();
             }
-            if (!resolved)
-                reason = "recorded-anchor-unresolved";
+            if (!resolved && !failure.HasFailure)
+            {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.Other,
+                    "recorded-anchor-unresolved",
+                    ActiveTree?.ActiveRecordingId,
+                    anchorRecordingId,
+                    ut);
+            }
             return resolved;
         }
 

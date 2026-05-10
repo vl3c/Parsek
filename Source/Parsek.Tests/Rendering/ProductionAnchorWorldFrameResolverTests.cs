@@ -257,7 +257,8 @@ namespace Parsek.Tests.Rendering
                 relSection,
                 relIdx: 0,
                 ut: 10,
-                out AnchorPose pose);
+                out AnchorPose pose,
+                out _);
 
             Assert.True(resolved);
             Assert.Equal(101.0, pose.WorldPos.x, 6);

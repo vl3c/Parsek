@@ -21,6 +21,22 @@ namespace Parsek
         internal const int MaxDistancePriorityPenalty = 64;
         internal const int MaxAudioSourcePriority = 255;
         internal const float ExplosionOneShotFallbackDurationSeconds = 2.0f;
+
+        // Vessel length divisor used for the terminal-vessel explosion power bucket via
+        // `Mathf.Clamp01(vesselLength / divisor)`. ComputeGhostLength returns the ghost mesh extent
+        // (~30 m for a stock heavy lifter); divide by 20 so a typical Mainsail-class stack pushes
+        // power into the upper bucket while a stock pod stays lower. The per-part path uses
+        // `Part.explosionPotential` directly (no scale derivation needed).
+        internal const float VesselLengthPowerDivisor = 20f;
+
+        // Stock `Part.explosionPotential` default (decompiled `Part.cs:591`). Most stock parts
+        // inherit this value and stock `Part.explode()` calls
+        // `FXMonger.Explode(this, pos, explosionPotential + speedOffset)` where speedOffset is 0,
+        // 0.12, or 0.25 depending on craft surface speed. Used as the per-part fallback when the
+        // part name doesn't resolve to a loaded `AvailablePart` (modded parts that aren't installed,
+        // or synthetic / unknown part snapshots).
+        internal const double DefaultPartExplosionPotential = 0.5;
+
         private const double ResolutionLogIntervalSeconds = 5.0;
 
         private static readonly Dictionary<string, string> presetMap = new Dictionary<string, string>
@@ -268,7 +284,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve the audio clip path for a one-shot event (decouple, explosion).
+        /// Resolve the audio clip path for a one-shot event (decouple, explosion). For
+        /// destroyed events the caller should prefer <see cref="ResolveDestroyedClipByPower"/>
+        /// so the chosen clip matches stock FXMonger's size-bucketed selection. This overload
+        /// always returns the large explosion clip for legacy callers and as a safe fallback.
         /// Returns null for event types that have no associated sound.
         /// </summary>
         internal static string ResolveOneShotClip(PartEventType eventType)
@@ -277,6 +296,26 @@ namespace Parsek
             {
                 case PartEventType.Destroyed: return "sound_explosion_large";
                 default: return null;
+            }
+        }
+
+        /// <summary>
+        /// Pick a stock destroyed-event clip path that mirrors FXMonger's size-bucketed slot
+        /// selection: small parts / vessels get `sound_explosion_debris1`, mid-size get
+        /// `sound_explosion_debris2`, large stacks get `sound_explosion_large`. Bucket
+        /// boundaries replicate stock's `(int)(power * (length-1))` index pick on a
+        /// 3-element array. Used by the KSC playback path which spawns its own AudioSource
+        /// (FXMonger isn't live outside the flight scene) so size-appropriate sound still
+        /// holds when the stock controller doesn't drive the audio.
+        /// </summary>
+        internal static string ResolveDestroyedClipByPower(double power)
+        {
+            int slot = UnityEngine.Mathf.Clamp((int)(UnityEngine.Mathf.Clamp01((float)power) * 2), 0, 2);
+            switch (slot)
+            {
+                case 0: return "sound_explosion_debris1";
+                case 1: return "sound_explosion_debris2";
+                default: return "sound_explosion_large";
             }
         }
 

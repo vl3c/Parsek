@@ -34,9 +34,12 @@ namespace Parsek.Tests
                 "",
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose,
+                out RelativeAnchorResolveFailure failure);
 
             Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.PreconditionFailed, failure.Outcome);
+            Assert.Equal("anchor-recording-id-missing", failure.Reason);
             Assert.Equal(0.0, pose.WorldPos.x, 6);
             Assert.Equal(0.0, pose.WorldPos.y, 6);
             Assert.Equal(0.0, pose.WorldPos.z, 6);
@@ -55,9 +58,12 @@ namespace Parsek.Tests
                 "missing-anchor",
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _,
+                out RelativeAnchorResolveFailure failure);
 
             Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.AnchorRecordingNotFound, failure.Outcome);
+            Assert.Equal("anchor-recording-not-found", failure.Reason);
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-recording-not-found") &&
@@ -90,9 +96,12 @@ namespace Parsek.Tests
                 relative.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _,
+                out RelativeAnchorResolveFailure failure);
 
             Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.Other, failure.Outcome);
+            Assert.Equal("anchor-recording-id-missing", failure.Reason);
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-recording-id-missing") &&
@@ -127,7 +136,7 @@ namespace Parsek.Tests
                 relative.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(relative.RecordingId, pose.ResolvedRecordingId);
@@ -170,7 +179,7 @@ namespace Parsek.Tests
                 relative.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(relative.RecordingId, pose.ResolvedRecordingId);
@@ -209,7 +218,7 @@ namespace Parsek.Tests
                 relative.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(relative.RecordingId, pose.ResolvedRecordingId);
@@ -257,7 +266,7 @@ namespace Parsek.Tests
                 relative.RecordingId,
                 15.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(relative.RecordingId, pose.ResolvedRecordingId);
@@ -299,7 +308,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 10.02,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
@@ -343,9 +352,15 @@ namespace Parsek.Tests
                 child.RecordingId,
                 10.25,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _,
+                out RelativeAnchorResolveFailure failure);
 
             Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.NoSectionAtUT, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.Equal(-1, failure.SectionIndex);
+            Assert.Equal(0.0, failure.RangeStartUT, 6);
+            Assert.Equal(20.0, failure.RangeEndUT, 6);
             Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
@@ -381,7 +396,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 10.02,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _, out _);
 
             Assert.False(resolved);
             Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
@@ -415,7 +430,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 10.02,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
@@ -459,7 +474,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 10.02,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _, out _);
 
             Assert.False(resolved);
             Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
@@ -493,7 +508,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 10.02,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _, out _);
 
             Assert.False(resolved);
             Assert.DoesNotContain(logLines, l => l.Contains("small section gap"));
@@ -501,6 +516,375 @@ namespace Parsek.Tests
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-out-of-recorded-range") &&
                 l.Contains("recordingId=relative-anchor"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_EndPlusTinyEpsilon_UsesResolverSectionSeamTolerance()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 10.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.0 + 1e-12,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(111.0, pose.WorldPos.x, 6);
+            Assert.DoesNotContain(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AnchorOnePhysicsTickPastTerminalSection_ClampsToFinalPlayableFrameAndLogs()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
+                "terminal-anchor",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            double requestedUT = 10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds;
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                requestedUT,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(110.98, pose.WorldPos.x, 6);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=terminal-anchor") &&
+                l.Contains("sectionIndex=0") &&
+                l.Contains("clampedUT=9.98") &&
+                l.Contains("sectionEndUT=10") &&
+                l.Contains("terminalPlayableUT=9.98") &&
+                l.Contains("thresholdSeconds="));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_RelativeTerminalClamp_ReentersRelativeAnchorUnderVisitedGuard()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording root = MakeTerminalEdgeAbsoluteRecording(
+                "root-terminal",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            Recording mid = MakeTerminalEdgeRelativeRecording(
+                "mid-terminal",
+                tree.Id,
+                localOffset: new Vector3d(2, 0, 0),
+                anchorRecordingId: root.RecordingId,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98);
+            Recording outer = MakeTerminalEdgeRelativeRecording(
+                "outer-terminal",
+                tree.Id,
+                localOffset: new Vector3d(3, 0, 0),
+                anchorRecordingId: mid.RecordingId,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98);
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(4, 0, 0),
+                anchorRecordingId: outer.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(mid);
+            tree.AddOrReplaceRecording(outer);
+            tree.AddOrReplaceRecording(child);
+
+            double requestedUT = 10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds;
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                requestedUT,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
+            Assert.Equal(118.98, pose.WorldPos.x, 6);
+            Assert.Equal(0.0, pose.WorldPos.y, 6);
+            Assert.Equal(0.0, pose.WorldPos.z, 6);
+            Assert.Single(logLines.FindAll(l => l.Contains("relative-anchor-terminal-clamp")));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=outer-terminal") &&
+                l.Contains("anchorRecordingId=mid-terminal") &&
+                l.Contains("clampedUT=9.98"));
+            Assert.DoesNotContain(logLines, l => l.Contains("anchor-cycle-detected"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_TerminalClampThresholdBoundary_PassesThenFailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
+                "terminal-anchor",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 10.0,
+                terminalWorld: new Vector3d(110, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            double threshold = RelativeAnchorResolver.TerminalClampThresholdSeconds;
+            double smallDelta = 1e-7;
+            bool resolvedInside = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.0 + threshold - smallDelta,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolvedInside);
+            Assert.Equal(111.0, pose.WorldPos.x, 6);
+            Assert.Contains(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
+
+            logLines.Clear();
+            ParsekLog.ResetRateLimitsForTesting();
+
+            bool resolvedOutside = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.0 + threshold + smallDelta,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolvedOutside);
+            Assert.Equal(RelativeAnchorResolveOutcome.NoSectionAtUT, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.DoesNotContain(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AnchorPastTerminalClampWindow_FailsClosed()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
+                "terminal-anchor",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 10.0,
+                terminalWorld: new Vector3d(110, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.2,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.NoSectionAtUT, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.DoesNotContain(logLines, l => l.Contains("relative-anchor-terminal-clamp"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_SameChainSuccessorAtTerminalEdge_WinsBeforePredecessorClamp()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording firstHalf = MakeTerminalEdgeAbsoluteRecording(
+                "first-half",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            firstHalf.ChainId = "chain-parent";
+            firstHalf.ChainIndex = 0;
+
+            Recording secondHalf = MakeAbsoluteRecording(
+                "second-half",
+                tree.Id,
+                new Vector3d(200, 0, 0),
+                new Vector3d(210, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            secondHalf.ChainId = firstHalf.ChainId;
+            secondHalf.ChainIndex = 1;
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: firstHalf.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(firstHalf);
+            tree.AddOrReplaceRecording(secondHalf);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out _);
+
+            Assert.True(resolved);
+            Assert.Equal(201.02, pose.WorldPos.x, 5);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("Anchor recording continued through same-chain successor") &&
+                l.Contains("recordingId=first-half") &&
+                l.Contains("successorRecordingId=second-half"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=first-half"));
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_AnchorTerminalClamp_UsesReliabilityPathAndLogs()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeTerminalEdgeAbsoluteRecording(
+                "terminal-anchor",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(10, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.False(decision.Unreliable);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=terminal-anchor"));
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_FailingSameChainSuccessor_BlocksPredecessorTerminalClamp()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording firstHalf = MakeTerminalEdgeAbsoluteRecording(
+                "first-half",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            firstHalf.ChainId = "chain-parent";
+            firstHalf.ChainIndex = 0;
+
+            Recording badSecondHalf = MakeRelativeRecording(
+                "second-half",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: null,
+                startUT: 10.0,
+                endUT: 20.0);
+            badSecondHalf.ChainId = firstHalf.ChainId;
+            badSecondHalf.ChainIndex = 1;
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(10, 0, 0),
+                anchorRecordingId: firstHalf.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(firstHalf);
+            tree.AddOrReplaceRecording(badSecondHalf);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.False(resolved);
+            Assert.False(decision.Unreliable);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("Anchor recording continued through same-chain successor") &&
+                l.Contains("recordingId=first-half") &&
+                l.Contains("successorRecordingId=second-half"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-recording-id-missing") &&
+                l.Contains("recordingId=second-half"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=first-half"));
         }
 
         [Fact]
@@ -532,7 +916,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
@@ -582,7 +966,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 12.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
@@ -652,7 +1036,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 12.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(113.0, pose.WorldPos.x, 6);
@@ -712,7 +1096,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 12.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(113.0, pose.WorldPos.x, 6);
@@ -743,7 +1127,7 @@ namespace Parsek.Tests
                 recording.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _, out _);
 
             Assert.False(resolved);
             Assert.Contains(logLines, l =>
@@ -792,7 +1176,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out AnchorPose pose);
+                out AnchorPose pose, out _);
 
             Assert.True(resolved);
             Assert.Equal(child.RecordingId, pose.ResolvedRecordingId);
@@ -833,7 +1217,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _, out _);
 
             Assert.False(resolved);
             Assert.Contains(logLines, l =>
@@ -864,7 +1248,7 @@ namespace Parsek.Tests
                 a.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _, out _);
 
             Assert.False(resolved);
             Assert.Contains(logLines, l =>
@@ -896,7 +1280,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _, out _);
 
             Assert.False(resolved);
             Assert.Contains(logLines, l =>
@@ -927,7 +1311,7 @@ namespace Parsek.Tests
                 child.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
-                out _);
+                out _, out _);
 
             Assert.False(resolved);
             Assert.Contains(logLines, l =>
@@ -935,11 +1319,642 @@ namespace Parsek.Tests
                 l.Contains("reason=anchor-cross-tree-out-of-scope"));
         }
 
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_UnreliableTumblingParent_ReturnsDecision()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording parent = MakeAbsoluteRecording(
+                "parent",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.1);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.1,
+                new Vector3d(0, 0, 0),
+                RotationZDegrees(24.0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1500, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.05,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.True(decision.Unreliable);
+            Assert.Equal(parent.RecordingId, decision.AnchorRecordingId);
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_SmallOffsetTumblingParent_ReturnsReliable()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording parent = MakeAbsoluteRecording(
+                "parent",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.1);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.1,
+                new Vector3d(0, 0, 0),
+                RotationZDegrees(24.0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(10, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.05,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.False(decision.Unreliable);
+            Assert.Equal(parent.RecordingId, decision.AnchorRecordingId);
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_ExactWaypoint_ReturnsReliable()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording parent = MakeAbsoluteRecording(
+                "parent",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.1);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.1,
+                new Vector3d(0, 0, 0),
+                RotationZDegrees(24.0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1500, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.False(decision.Unreliable);
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_RelativeParentRotationInterpolation_ReturnsUnreliable()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording root = MakeAbsoluteRecording(
+                "root",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.1);
+            Recording parent = MakeRelativeRecording(
+                "parent",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: root.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.1,
+                new Vector3d(1, 0, 0),
+                RotationZDegrees(24.0));
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1500, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.1);
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.05,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            Assert.True(decision.Unreliable);
+            Assert.Equal(parent.RecordingId, decision.AnchorRecordingId);
+        }
+
+        [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_StableChildBracket_ParentBoundaryT_ReturnsUnevaluated()
+        {
+            // Regression for the playtest run-3 finding: when the child's own
+            // bracket is mid-range (gate would evaluate) but the parent's
+            // bracket is at t=0 or t=1 (gate skips), the resolver must NOT
+            // emit a misleading 'Evaluated=true Unreliable=false offset=0'
+            // decision from the child's own anchor-local rotation site. That
+            // decision was tripping ShouldExit's offset-below-floor branch in
+            // the host hysteresis on every parent sample-boundary frame,
+            // releasing the hold for one frame in lockstep across all debris
+            // children of the same parent.
+            //
+            // Setup: stable parent (no rotation), child with 1500 m offset,
+            // child's own local rotation samples are mid-bracket at the
+            // requested UT, parent's samples align so its bracket is at the
+            // boundary.
+            var tree = new RecordingTree { Id = "tree" };
+            // Parent at exact UTs 100 and 100.2 — stable rotation.
+            Recording parent = MakeAbsoluteRecording(
+                "parent",
+                tree.Id,
+                new Vector3d(0, 0, 0),
+                new Vector3d(0, 0, 0),
+                startUT: 100.0,
+                endUT: 100.2);
+            parent.TrackSections[0].frames[0] = MakePoint(
+                100.0, new Vector3d(0, 0, 0), Quaternion.identity);
+            parent.TrackSections[0].frames[1] = MakePoint(
+                100.2, new Vector3d(0, 0, 0), Quaternion.identity);
+            // Child's frames at UT 100.0 and 100.2 too, but we sample at
+            // 100.1 — mid-bracket for both child and parent. Move parent's
+            // second frame to t-boundary by sampling at 100.0 instead.
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1500, 0, 0),
+                anchorRecordingId: parent.RecordingId,
+                startUT: 100.0,
+                endUT: 100.2);
+
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+
+            // Sample at UT exactly equal to parent's first frame UT — parent
+            // bracket has t at the boundary.
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                100.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.True(resolved);
+            // The child gate must NOT contribute a misleading offset=0
+            // evaluation at the top-level. Either the decision is
+            // unevaluated (gate skipped both at child site and parent site)
+            // or it's evaluated with the proper descendant offset (which
+            // here is 1500 m). Critically it must NOT carry offset=0.
+            Assert.False(
+                decision.Evaluated && decision.OffsetMeters < TumblingParentInterpolationGate.MinOffsetMagnitudeMeters,
+                "decision must not surface a Evaluated=true offset<floor outcome from the no-descendant top-level entry");
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_PendingTreeOutsideFocusScope_ReturnsAnchorOutOfScopeFailure()
+        {
+            var focusTree = new RecordingTree { Id = "focus-tree" };
+            var pendingTree = new RecordingTree { Id = "other-tree" };
+            Recording child = MakeRelativeRecording(
+                "child",
+                focusTree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: "pending-anchor");
+            Recording pendingAnchor = MakeAbsoluteRecording(
+                "pending-anchor",
+                pendingTree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            focusTree.AddOrReplaceRecording(child);
+            pendingTree.AddOrReplaceRecording(pendingAnchor);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(focusTree, pendingTree: pendingTree),
+                child.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.AnchorOutOfScope, failure.Outcome);
+            Assert.Equal("anchor-cross-tree-out-of-scope", failure.Reason);
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_RelativePoseNonFinite_ReturnsPoseNonFiniteFailure()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            Recording relative = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(double.NaN, 0, 0),
+                anchorRecordingId: absolute.RecordingId);
+            tree.AddOrReplaceRecording(absolute);
+            tree.AddOrReplaceRecording(relative);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                relative.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.PoseNonFinite, failure.Outcome);
+            Assert.Equal("relative-pose-nonfinite", failure.Reason);
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_RelativeFrameInterpolationMiss_ReturnsSectionRange()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(120, 0, 0),
+                startUT: 0.0,
+                endUT: 20.0);
+            Recording relative = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: absolute.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            TrackSection section = relative.TrackSections[0];
+            section.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(0.0, new Vector3d(1, 0, 0), Quaternion.identity),
+                MakePoint(10.0, new Vector3d(1, 0, 0), Quaternion.identity),
+            };
+            relative.TrackSections[0] = section;
+            tree.AddOrReplaceRecording(absolute);
+            tree.AddOrReplaceRecording(relative);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                relative.RecordingId,
+                15.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.OutOfSectionRange, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.Equal(0, failure.SectionIndex);
+            Assert.Equal(0.0, failure.RangeStartUT, 6);
+            Assert.Equal(20.0, failure.RangeEndUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_EmptyAbsoluteFrames_ReturnsOutOfSectionRangeWithNaNRange()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            TrackSection section = absolute.TrackSections[0];
+            section.frames = new List<TrajectoryPoint>();
+            absolute.TrackSections[0] = section;
+            absolute.Points.Clear();
+            tree.AddOrReplaceRecording(absolute);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                absolute.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.OutOfSectionRange, failure.Outcome);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            Assert.True(double.IsNaN(failure.RangeStartUT));
+            Assert.True(double.IsNaN(failure.RangeEndUT));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_AbsolutePoseNonFinite_ReturnsPoseNonFiniteFailure()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(double.MaxValue, 0, 0),
+                new Vector3d(-double.MaxValue, 0, 0));
+            tree.AddOrReplaceRecording(absolute);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                absolute.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.PoseNonFinite, failure.Outcome);
+            Assert.Equal("absolute-pose-nonfinite", failure.Reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=absolute-pose-nonfinite") &&
+                l.Contains("recordingId=absolute-anchor"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_SingleAbsoluteFrameFailure_ReportsRequestedUT()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording absolute = MakeAbsoluteRecording(
+                "absolute-anchor",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 10.0,
+                endUT: 20.0);
+            TrackSection section = absolute.TrackSections[0];
+            section.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(10.0, new Vector3d(100, 0, 0), Quaternion.identity),
+            };
+            absolute.TrackSections[0] = section;
+            tree.AddOrReplaceRecording(absolute);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(
+                    tree,
+                    absoluteWorldPositionResolver: p => new Vector3d(double.NaN, double.NaN, double.NaN)),
+                absolute.RecordingId,
+                15.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.Other, failure.Outcome);
+            Assert.Equal("absolute-position-unresolved", failure.Reason);
+            Assert.Equal(15.0, failure.RequestedUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_SmallSectionGapResolverFailureDoesNotEmitOuterRangeWarning()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteGapAnchor(
+                "absolute-anchor",
+                tree.Id,
+                gapStartUT: 10.0,
+                gapEndUT: 10.04);
+            Recording child = MakeRelativeRecording(
+                "relative-child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(
+                    tree,
+                    absoluteWorldPositionResolver: p => new Vector3d(double.NaN, double.NaN, double.NaN)),
+                child.RecordingId,
+                10.02,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.Other, failure.Outcome);
+            Assert.Equal("absolute-position-unresolved", failure.Reason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("recordingId=absolute-anchor"));
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_SameChainContinuationRevisit_ReturnsCycleFailure()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording firstHalf = MakeAbsoluteRecording(
+                "first-half",
+                tree.Id,
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0),
+                startUT: 0.0,
+                endUT: 10.0);
+            firstHalf.ChainId = "chain";
+            firstHalf.ChainIndex = 0;
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: firstHalf.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+            child.ChainId = firstHalf.ChainId;
+            child.ChainIndex = 1;
+            tree.AddOrReplaceRecording(firstHalf);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                MakeContext(tree),
+                child.RecordingId,
+                12.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal(RelativeAnchorResolveOutcome.AnchorCycleDetected, failure.Outcome);
+            Assert.Equal("anchor-cycle-detected", failure.Reason);
+            Assert.Equal(child.RecordingId, failure.AnchorRecordingId);
+        }
+
+        [Fact]
+        public void ResolverFalseReturns_HaveStructuredFailure()
+        {
+            var context = MakeContext(new RecordingTree { Id = "tree" });
+            RelativeAnchorResolveFailure failure;
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                "",
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("empty anchor recording id", resolved, failure);
+
+            resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                "cycle",
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal) { "cycle" },
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("anchor cycle", resolved, failure);
+
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                null,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("null recording", resolved, failure);
+
+            Recording loopAnchor = MakeAbsoluteRecording(
+                "loop-anchor",
+                "tree",
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            loopAnchor.LoopAnchorVesselId = 123u;
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                loopAnchor,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("loop anchor", resolved, failure);
+
+            var missingSections = new Recording
+            {
+                RecordingId = "missing-sections",
+                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                TreeId = "tree",
+            };
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                missingSections,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("missing track sections", resolved, failure);
+
+            Recording unknownFrame = MakeAbsoluteRecording(
+                "unknown-frame",
+                "tree",
+                new Vector3d(100, 0, 0),
+                new Vector3d(110, 0, 0));
+            TrackSection unknownSection = unknownFrame.TrackSections[0];
+            unknownSection.referenceFrame = (ReferenceFrame)999;
+            unknownFrame.TrackSections[0] = unknownSection;
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                unknownFrame,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("unknown section frame", resolved, failure);
+
+            Recording relativeMissingAnchor = MakeRelativeRecording(
+                "relative-missing-anchor",
+                "tree",
+                new Vector3d(1, 0, 0));
+            resolved = RelativeAnchorResolver.TryResolveRelativeSectionPose(
+                context,
+                relativeMissingAnchor,
+                relativeMissingAnchor.TrackSections[0],
+                0,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("relative section missing anchor", resolved, failure);
+
+            var orbitalWithoutResolver = new Recording
+            {
+                RecordingId = "orbital-anchor",
+                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                TreeId = "tree",
+            };
+            orbitalWithoutResolver.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 0.0,
+                endUT = 10.0,
+                checkpoints = new List<OrbitSegment>(),
+                source = TrackSectionSource.Checkpoint,
+            });
+            resolved = RelativeAnchorResolver.TryResolveRecordingPose(
+                context,
+                orbitalWithoutResolver,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out failure);
+            AssertFalseWithStructuredFailure("orbital resolver missing", resolved, failure);
+        }
+
+        private static void AssertFalseWithStructuredFailure(
+            string scenario,
+            bool resolved,
+            RelativeAnchorResolveFailure failure)
+        {
+            Assert.False(resolved);
+            Assert.True(
+                failure.HasFailure,
+                scenario + " returned false with default failure");
+            Assert.NotEqual(RelativeAnchorResolveOutcome.None, failure.Outcome);
+            Assert.False(
+                string.IsNullOrWhiteSpace(failure.Reason),
+                scenario + " returned false without a reason");
+        }
+
         private static RelativeAnchorResolverContext MakeContext(
             RecordingTree tree,
             Func<Recording, TrackSection, int, string> anchorRecordingIdResolver = null,
             RecordingTree pendingTree = null,
-            ReFlySessionMarker marker = null)
+            ReFlySessionMarker marker = null,
+            Func<TrajectoryPoint, Vector3d> absoluteWorldPositionResolver = null)
         {
             return new RelativeAnchorResolverContext(
                 tree,
@@ -948,7 +1963,8 @@ namespace Parsek.Tests
                 activeReFlyMarker: marker,
                 pendingTree: pendingTree,
                 sectionAnchorRecordingIdResolver: anchorRecordingIdResolver,
-                absoluteWorldPositionResolver: p => new Vector3d(p.latitude, p.longitude, p.altitude),
+                absoluteWorldPositionResolver: absoluteWorldPositionResolver
+                    ?? (p => new Vector3d(p.latitude, p.longitude, p.altitude)),
                 bodyWorldRotationResolver: p => Quaternion.identity);
         }
 
@@ -983,6 +1999,57 @@ namespace Parsek.Tests
                 checkpoints = new List<OrbitSegment>(),
                 source = TrackSectionSource.Active,
             });
+            return rec;
+        }
+
+        private static Recording MakeTerminalEdgeAbsoluteRecording(
+            string recordingId,
+            string treeId,
+            double sectionEndUT,
+            double terminalPlayableUT,
+            Vector3d terminalWorld)
+        {
+            Recording rec = MakeAbsoluteRecording(
+                recordingId,
+                treeId,
+                new Vector3d(100, 0, 0),
+                terminalWorld,
+                startUT: 0.0,
+                endUT: sectionEndUT);
+            TrackSection section = rec.TrackSections[0];
+            section.sampleRateHz = 50f;
+            section.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(0.0, new Vector3d(100, 0, 0), Quaternion.identity),
+                MakePoint(terminalPlayableUT, terminalWorld, Quaternion.identity),
+            };
+            rec.TrackSections[0] = section;
+            return rec;
+        }
+
+        private static Recording MakeTerminalEdgeRelativeRecording(
+            string recordingId,
+            string treeId,
+            Vector3d localOffset,
+            string anchorRecordingId,
+            double sectionEndUT,
+            double terminalPlayableUT)
+        {
+            Recording rec = MakeRelativeRecording(
+                recordingId,
+                treeId,
+                localOffset,
+                anchorRecordingId: anchorRecordingId,
+                startUT: 0.0,
+                endUT: sectionEndUT);
+            TrackSection section = rec.TrackSections[0];
+            section.sampleRateHz = 50f;
+            section.frames = new List<TrajectoryPoint>
+            {
+                MakePoint(0.0, localOffset, Quaternion.identity),
+                MakePoint(terminalPlayableUT, localOffset, Quaternion.identity),
+            };
+            rec.TrackSections[0] = section;
             return rec;
         }
 

@@ -24,7 +24,8 @@ namespace Parsek.Tests
     ///      env-classification path never runs while on rails.
     ///   3. Packed/on-rails closes may emit only OrbitalCheckpoint/ExoBallistic
     ///      TrackSections, never per-orbit Atmospheric/ExoBallistic toggles.
-    ///   4. Same-body adjacent checkpoint sections are not splittable boundaries.
+    ///   4. Same-class adjacent checkpoint sections are not splittable boundaries,
+    ///      including ExoBallistic SOI transitions that #547 keeps cohesive.
     ///
     /// These tests exercise (1), (3), and (4) directly. Together they trip if any future
     /// refactor moves TrackSection state onto the on-rails struct or inverts the
@@ -184,7 +185,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void OnRails_Checkpoint_Body_Change_Produces_Split_Candidate()
+        public void OnRails_Checkpoint_Body_Change_StaysCohesive()
         {
             var rec = new Recording
             {
@@ -202,11 +203,26 @@ namespace Parsek.Tests
             rec.OrbitSegments.Add(kerbin.checkpoints[0]);
             rec.OrbitSegments.Add(mun.checkpoints[0]);
 
-            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
-                new List<Recording> { rec });
+            var logLines = new List<string>();
+            List<(int, int)> candidates;
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                    new List<Recording> { rec });
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
 
-            Assert.Single(candidates);
-            Assert.Equal((0, 1), candidates[0]);
+            Assert.Empty(candidates);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]") &&
+                l.Contains("Split summary") &&
+                l.Contains("exoCoastBodyChangeKept=1"));
         }
 
         /// <summary>

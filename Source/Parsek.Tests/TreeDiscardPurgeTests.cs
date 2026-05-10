@@ -349,6 +349,266 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardPendingTree_WithCommittedOverlap_PurgesPendingOnlyTreeState()
+        {
+            var committedBp = Bp("bp_shared", "rp_committed");
+            committedBp.ParentRecordingIds.Add("rec_shared");
+            committedBp.ChildRecordingIds.Add("rec_committed_only");
+            InstallTree("tree_overlap",
+                new List<Recording>
+                {
+                    Rec("rec_shared", "tree_overlap"),
+                    Rec("rec_committed_only", "tree_overlap"),
+                },
+                new List<BranchPoint> { committedBp });
+
+            var pendingSharedBp = Bp("bp_shared", "rp_committed");
+            pendingSharedBp.ParentRecordingIds.Add("rec_shared");
+            var pendingBp = Bp("bp_pending", "rp_pending");
+            pendingBp.ParentRecordingIds.Add("rec_pending_only");
+            var pending = new RecordingTree
+            {
+                Id = "tree_overlap",
+                TreeName = "Pending overlap",
+                BranchPoints = new List<BranchPoint> { pendingSharedBp, pendingBp },
+                RootRecordingId = "rec_shared",
+                ActiveRecordingId = "rec_shared",
+            };
+            pending.AddOrReplaceRecording(Rec("rec_shared", "tree_overlap", MergeState.NotCommitted));
+            pending.AddOrReplaceRecording(Rec("rec_pending_only", "tree_overlap", MergeState.NotCommitted));
+            RecordingStore.StashPendingTree(pending);
+
+            Ledger.AddAction(KerbalDeath("rec_shared", "act_shared"));
+            Ledger.AddAction(KerbalDeath("rec_pending_only", "act_pending"));
+            Ledger.AddAction(KerbalDeath("rec_committed_only", "act_committed_only"));
+
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint>
+                {
+                    Rp("rp_committed", "bp_shared", Slot(0, "rec_shared")),
+                    Rp("rp_pending", "bp_pending", Slot(0, "rec_pending_only")),
+                },
+                supersedes: new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rel_shared",
+                        OldRecordingId = "rec_shared",
+                        NewRecordingId = "rec_other",
+                    },
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rel_pending",
+                        OldRecordingId = "rec_pending_only",
+                        NewRecordingId = "rec_other",
+                    },
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rel_committed_only",
+                        OldRecordingId = "rec_committed_only",
+                        NewRecordingId = "rec_other",
+                    },
+                },
+                retirements: new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "ret_shared",
+                        RecordingId = "rec_shared",
+                        RestoredRecordingId = "rec_other",
+                        Reason = RecordingRewindRetirement.DefaultReason,
+                    },
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "ret_pending",
+                        RecordingId = "rec_pending_only",
+                        RestoredRecordingId = "rec_other",
+                        Reason = RecordingRewindRetirement.DefaultReason,
+                    },
+                },
+                tombstones: new List<LedgerTombstone>
+                {
+                    new LedgerTombstone
+                    {
+                        TombstoneId = "tomb_shared",
+                        ActionId = "act_shared",
+                        RetiringRecordingId = "rec_other",
+                    },
+                    new LedgerTombstone
+                    {
+                        TombstoneId = "tomb_pending",
+                        ActionId = "act_pending",
+                        RetiringRecordingId = "rec_other",
+                    },
+                    new LedgerTombstone
+                    {
+                        TombstoneId = "tomb_pending_fallback",
+                        ActionId = "act_missing_pending",
+                        RetiringRecordingId = "rec_pending_only",
+                    },
+                    new LedgerTombstone
+                    {
+                        TombstoneId = "tomb_shared_fallback",
+                        ActionId = "act_missing_shared",
+                        RetiringRecordingId = "rec_shared",
+                    },
+                    new LedgerTombstone
+                    {
+                        TombstoneId = "tomb_committed_only",
+                        ActionId = "act_committed_only",
+                        RetiringRecordingId = "rec_other",
+                    },
+                });
+
+            RecordingStore.DiscardPendingTree();
+
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Contains(scenario.RewindPoints, rp => rp.RewindPointId == "rp_committed");
+            Assert.DoesNotContain(scenario.RewindPoints, rp => rp.RewindPointId == "rp_pending");
+            Assert.Contains("rp_pending", deletedRpIds);
+            Assert.DoesNotContain("rp_committed", deletedRpIds);
+            Assert.Equal("rp_committed", committedBp.RewindPointId);
+            Assert.Equal("rp_committed", pendingSharedBp.RewindPointId);
+            Assert.Null(pendingBp.RewindPointId);
+
+            Assert.Contains(scenario.RecordingSupersedes, r => r.RelationId == "rel_shared");
+            Assert.Contains(scenario.RecordingSupersedes, r => r.RelationId == "rel_committed_only");
+            Assert.DoesNotContain(scenario.RecordingSupersedes, r => r.RelationId == "rel_pending");
+
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RetirementId == "ret_shared");
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements, r => r.RetirementId == "ret_pending");
+
+            Assert.Contains(scenario.LedgerTombstones, t => t.TombstoneId == "tomb_shared");
+            Assert.Contains(scenario.LedgerTombstones, t => t.TombstoneId == "tomb_shared_fallback");
+            Assert.Contains(scenario.LedgerTombstones, t => t.TombstoneId == "tomb_committed_only");
+            Assert.DoesNotContain(scenario.LedgerTombstones, t => t.TombstoneId == "tomb_pending");
+            Assert.DoesNotContain(scenario.LedgerTombstones, t => t.TombstoneId == "tomb_pending_fallback");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("PurgeTree: tree=tree_overlap")
+                && l.Contains("rps=1")
+                && l.Contains("supersedes=1")
+                && l.Contains("rewindRetirements=1")
+                && l.Contains("tombstones=2"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][Rewind]")
+                && l.Contains("skipped 1 committed-overlap branch point id"));
+        }
+
+        [Fact]
+        public void DiscardPendingTree_CommittedParentPendingChild_PurgesPendingBranchRp()
+        {
+            InstallTree("tree_committed_parent",
+                new List<Recording>
+                {
+                    Rec("rec_committed_parent", "tree_committed_parent"),
+                },
+                new List<BranchPoint>());
+
+            var pendingBp = Bp("bp_committed_parent_pending_child", "rp_pending_child");
+            pendingBp.ParentRecordingIds.Add("rec_committed_parent");
+            pendingBp.ChildRecordingIds.Add("rec_pending_child");
+            var pending = new RecordingTree
+            {
+                Id = "tree_pending_child",
+                TreeName = "Pending child branch",
+                BranchPoints = new List<BranchPoint> { pendingBp },
+                RootRecordingId = "rec_committed_parent",
+                ActiveRecordingId = "rec_pending_child",
+            };
+            pending.AddOrReplaceRecording(
+                Rec("rec_committed_parent", "tree_pending_child", MergeState.NotCommitted));
+            pending.AddOrReplaceRecording(
+                Rec("rec_pending_child", "tree_pending_child", MergeState.NotCommitted));
+            RecordingStore.StashPendingTree(pending);
+
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint>
+                {
+                    Rp(
+                        "rp_pending_child",
+                        "bp_committed_parent_pending_child",
+                        Slot(0, "rec_pending_child")),
+                });
+
+            RecordingStore.DiscardPendingTree();
+
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Contains("rp_pending_child", deletedRpIds);
+            Assert.Null(pendingBp.RewindPointId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("Purged rp=rp_pending_child")
+                && l.Contains("bp=bp_committed_parent_pending_child"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("PurgeTree: tree=tree_pending_child")
+                && l.Contains("rps=1"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN][Rewind]")
+                && l.Contains("non-pending child slot refs")
+                && l.Contains("tree=tree_pending_child"));
+        }
+
+        [Fact]
+        public void DiscardPendingTree_RpWithPendingBranchPointButCommittedSlot_IsPreserved()
+        {
+            InstallTree("tree_committed_slot",
+                new List<Recording>
+                {
+                    Rec("rec_committed_slot", "tree_committed_slot"),
+                },
+                new List<BranchPoint>());
+
+            var mixedBp = Bp("bp_pending_mixed", "rp_mixed");
+            mixedBp.ParentRecordingIds.Add("rec_pending_slot");
+            var pureBp = Bp("bp_pending_pure", "rp_pure");
+            pureBp.ParentRecordingIds.Add("rec_pending_pure");
+            var pending = new RecordingTree
+            {
+                Id = "tree_pending_slots",
+                TreeName = "Pending slots",
+                BranchPoints = new List<BranchPoint> { mixedBp, pureBp },
+                RootRecordingId = "rec_pending_slot",
+                ActiveRecordingId = "rec_pending_slot",
+            };
+            pending.AddOrReplaceRecording(
+                Rec("rec_pending_slot", "tree_pending_slots", MergeState.NotCommitted));
+            pending.AddOrReplaceRecording(
+                Rec("rec_pending_pure", "tree_pending_slots", MergeState.NotCommitted));
+            pending.AddOrReplaceRecording(
+                Rec("rec_committed_slot", "tree_pending_slots", MergeState.NotCommitted));
+            RecordingStore.StashPendingTree(pending);
+
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint>
+                {
+                    Rp(
+                        "rp_mixed",
+                        "bp_pending_mixed",
+                        Slot(0, "rec_pending_slot"),
+                        Slot(1, "rec_committed_slot")),
+                    Rp("rp_pure", "bp_pending_pure", Slot(0, "rec_pending_pure")),
+                });
+
+            RecordingStore.DiscardPendingTree();
+
+            Assert.Contains(scenario.RewindPoints, rp => rp.RewindPointId == "rp_mixed");
+            Assert.DoesNotContain(scenario.RewindPoints, rp => rp.RewindPointId == "rp_pure");
+            Assert.DoesNotContain("rp_mixed", deletedRpIds);
+            Assert.Contains("rp_pure", deletedRpIds);
+            Assert.Equal("rp_mixed", mixedBp.RewindPointId);
+            Assert.Null(pureBp.RewindPointId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][Rewind]")
+                && l.Contains("skipped 1 rewind point(s) with non-pending child slot refs"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("PurgeTree: tree=tree_pending_slots")
+                && l.Contains("rps=1"));
+        }
+
+        [Fact]
         public void PurgeTree_ClearsReservationsForTreeKerbals()
         {
             // Set up: 1 in-tree kerbal-death tombstone. After PurgeTree

@@ -291,7 +291,7 @@ Verify:
 - Physical sections should still split on meaningful environment/reference/source boundaries.
 - If a split cuts near a checkpoint section, the section and its checkpoint payload must be retained on the correct side or safely duplicated only when the interval genuinely overlaps the split.
 - Many adjacent same-body `OrbitalCheckpoint`/`ExoBallistic` sections produce zero split candidates.
-- Adjacent checkpoint sections across different bodies either intentionally split or intentionally do not split; decide this in the test name. The current plan accepts SOI-created adjacent checkpoint sections, so the implementation should pin the intended optimizer behavior.
+- Adjacent checkpoint sections across different bodies deliberately remain unsplit under the current optimizer rule that keeps same-class ExoBallistic transfer coasts cohesive; pin that behavior in the test name.
 
 ### 8. Keep the Merger Warning Unsuppressed Initially
 
@@ -386,7 +386,7 @@ Add optimizer tests:
 - checkpoint bridge does not create an unwanted optimizer split by itself
 - splitting around a checkpoint bridge does not strip the checkpoint payload from both resulting recordings
 - `N_OnRails_Closes_Same_Body_Same_Env_Produce_Zero_Split_Candidates`: adjacent `OrbitalCheckpoint` / `ExoBallistic` / same-body sections are treated as not a splittable boundary
-- SOI-cross checkpoint variant: adjacent checkpoint sections with different bodies pin the intended behavior, either split because body changes or deliberately remain unsplit
+- `OnRails_Checkpoint_Body_Change_StaysCohesive`: adjacent checkpoint sections with different bodies pin the current same-class ExoBallistic transfer-coast behavior
 
 Add negative regression test:
 

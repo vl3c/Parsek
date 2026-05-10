@@ -21,8 +21,9 @@ Companion artifacts:
 `RecordingOptimizer.FindSplitCandidatesForOptimizer`
 ([Source/Parsek/RecordingOptimizer.cs:210](../../../Source/Parsek/RecordingOptimizer.cs:210))
 splits a recording at every `TrackSection` boundary where
-`SplitEnvironmentClass(env)` differs (or where the body changes — #251). Today
-this is a pure geometric check: the boundary fires whenever a vessel crosses
+`SplitEnvironmentClass(env)` differs, plus body changes except coasting
+ExoBallistic SOI transitions (#251/#547). Today this is a pure geometric check:
+the boundary fires whenever a vessel crosses
 the 70 km atmosphere line or the airless-body approach line, regardless of
 what the trajectory does on either side.
 
@@ -135,8 +136,10 @@ transition from `prev = sections[s-1]` to `next = sections[s]`):
                                                                        Surface /
                                                                        ExoPropulsive.
 2. If env class unchanged AND body unchanged:→ not a boundary, skip
-3. If body changed:                          → split  (#251 unchanged)
-4. If prev or next is Surface (class 2):     → if a brief Atmospheric/Approach
+3. If body changed and both sides are Exo:   → keep cohesive; UI labels show
+                                               the body path
+4. If body changed otherwise:                → split  (#251 retained)
+5. If prev or next is Surface (class 2):     → if a brief Atmospheric/Approach
                                                run is bracketed by Surface on
                                                both sides, suppress as a
                                                surface graze; otherwise split
@@ -377,8 +380,9 @@ persistence predicate.
 ## 4. Worked examples
 
 Predicate traces walk the §3 ordering top-down (seam → not-a-boundary →
-body → Surface default / surface graze → ExoPropulsive → persistence) and use
-the collapse-walk semantics of §3.1.
+coasting ExoBallistic body-change suppression → other body changes → Surface
+default / surface graze → ExoPropulsive → persistence) and use the collapse-walk
+semantics of §3.1.
 
 | Recording shape (sections) | Boundaries (s) | Predicate trace | Result |
 |---|---|---|---|
@@ -394,7 +398,9 @@ the collapse-walk semantics of §3.1.
 | `Surface,Atmo[long],Exo[40s],Atmo[long],Surface` (Karman-line tourist hop, ≤150 km apogee) | s=1, s=2, s=3, s=4 | s=1, s=4: Surface default split (Atmo runs are long, so not surface grazes). s=2: forward walk through Exo[40s] → bracket=Atmo, class 0 = prev class 0. Forward bracket → suppress. s=3: backward walk → bracket=Atmo, class 0 = next class 0. Backward bracket → suppress. | s=1,4 split; s=2,3 suppress ✓ |
 | `Surface,Atmo[long],Exo[300s],Atmo[long],Surface` (real suborbital arc with sustained apogee) | s=1, s=2, s=3, s=4 | s=2: forward walk cumDur=300s>K, no forward bracket. Backward walk: prev=Atmo[long] not brief. s=3: prev=Exo[300s] not brief. | all split ✓ |
 | **`Exo[long],Atmo[40s],Atmo[40s_break],Atmo[40s_break],Exo[long]`** (cumulative-too-long) | s=1, s=4 | s=1: forward walk through three Atmo sections, cumDur=120s. cumDur < K is FALSE (strict <). No forward bracket. s=4: symmetric. | both split ✓ (sustained Atmo run is a real phase) |
-| `Kerbin Atmo,Mun ExoBallistic` (SOI traversal mid-coast, body change) | s=1 | body change short-circuit. | split ✓ (#251) |
+| `Kerbin ExoBallistic,Mun ExoBallistic` (SOI traversal mid-coast, body change) | s=1 | coasting ExoBallistic body change stays cohesive; display label surfaces `Kerbin -> Mun`. | not a candidate ✓ |
+| `Kerbin ExoBallistic,Mun ExoPropulsive` (SOI traversal while burning) | s=1 | ExoPropulsive SOI boundary remains meaningful. | split ✓ |
+| `Kerbin Atmo,Mun ExoBallistic` (SOI traversal with class change) | s=1 | body/class boundary remains meaningful. | split ✓ (#251) |
 | `Loaded[long, Exo],Absolute[1 frame, Atmo, IsBoundarySeam=true]` (Producer C) | s=1 | seam short-circuit (§5). | not a candidate ✓ |
 | `Loaded[long, Exo],Absolute[1 frame, Atmo, IsBoundarySeam=false]` (theoretical: seam without flag) | s=1 | persistence predicate; forward walk: s+1 doesn't exist; no forward bracket. Backward walk: prev long, no fire. Falls through to split. | split (legacy fallback for old recordings — accepted; see §6) |
 
@@ -590,6 +596,7 @@ suppression-counter line is the right shape; reuse it.
                                              grazeForward=<x> grazeBackward=<y>
                                              surfaceGrazeForward=<sf> surfaceGrazeBackward=<sb>
                                              seamSkipped=<z>
+                                             exoCoastBodyChangeKept=<b>
                                              splittableButRejected=<w>
 ```
 
@@ -599,7 +606,7 @@ Discriminator enum (replaces the PR #625 `SplitBoundaryReason` shape):
 internal enum SplitBoundaryReason
 {
     NotABoundary = 0,                   // env unchanged AND body unchanged
-    BodyChange,                         // #251 — always-meaningful
+    BodyChange,                         // #251 — body boundary except coasting ExoBallistic SOI transfer
     SurfaceInvolved,                    // class 2 (Surface) on either side
     ExoPropulsiveAtCrossing,            // S3 short-circuit — engine firing
     PersistedPhaseChange,               // persistence predicate accepted
@@ -607,7 +614,8 @@ internal enum SplitBoundaryReason
     SuppressedGrazeBackward,            // backward bracket fired (clause B)
     SuppressedSurfaceGrazeForward,      // Surface -> brief Atmo/Approach -> Surface
     SuppressedSurfaceGrazeBackward,     // Surface -> brief Atmo/Approach -> Surface
-    SuppressedBoundarySeam              // §5 — Producer-C seam flag set
+    SuppressedBoundarySeam,             // §5 — Producer-C seam flag set
+    SuppressedExoCoastBodyChange        // coasting ExoBallistic SOI transfer kept cohesive
 }
 ```
 
@@ -650,8 +658,8 @@ expected to fire, and what regression it guards against.
 7. **`Persistence_BoundarySeam_NotASplitCandidate`** — `Loaded[long,Exo],Absolute[1 frame,Atmo,seam=true]`. s=1 not a candidate (seam short-circuit, §5). **Guards** the Producer-C path.
 8. **`Persistence_BoundarySeamFlagOnEitherSide_NotASplitCandidate`** — symmetric variant where the *previous* section has `isBoundarySeam=true`. Symmetric short-circuit. **Guards** the bidirectional flag check.
 9. **`Persistence_ExoPropulsiveAtCrossing_AlwaysSplits_RegressionOfS3`** — `Atmo[300],ExoPropulsive[600]`. S3 short-circuit. **Guards** the "engine-on at boundary" case stays a guaranteed split.
-10. **`Persistence_BodyChange_SameEnvClass_Splits_RegressionOf251`** — Kerbin `ExoBallistic`,Mun `ExoBallistic`. #251 short-circuit. **Guards** SOI traversal stays a split.
-11. **`Persistence_BodyChange_AndClassChange_NoBracket_Splits`** — Kerbin `ExoBallistic`,Mun `Atmospheric`. Body change short-circuits before persistence predicate runs. **Guards** the predicate ordering — body change beats env class.
+10. **`Persistence_BodyChange_SameExoClass_StaysCohesive`** — Kerbin `ExoBallistic`,Mun `ExoBallistic`. **Guards** SOI transfer coasts stay one loopable recording and rely on display labels for body clarity.
+11. **`Persistence_BodyChange_AndClassChange_NoBracket_Splits`** — Kerbin `ExoBallistic`,Mun `Atmospheric`. Body/class boundary still splits before persistence predicate runs. **Guards** non-coast body transitions stay meaningful.
 12. **`Persistence_ApproachExoGrazing_BothSuppress`** — Mun `Exo[1000],Approach[40],Exo[1000]`. Approach↔Exo goes through the same gate as Atmo↔Exo (eccentric Mun grazing case). **Guards** the airless-body-graze symmetric coverage.
 13. **`Persistence_ApproachToSurface_AlwaysSplits`** — Mun `Approach[60],Surface`. s=1 Surface default split because the Approach run is not bracketed by Surface. **Guards** the Surface bucket isn't accidentally squeezed by the predicate.
 14. **Surface-graze follow-up coverage** — `SurfaceMobile[1.78],Atmo[10.48],Atmo[2.08],SurfaceMobile[4.3],SurfaceStationary[7.56]` suppresses both surface-bracketed Atmo boundaries and logs `surfaceGrazeForward=1 surfaceGrazeBackward=1`; `Surface,Atmo[>K],Surface` still splits; surface body changes still split; `Exo,Atmo,Surface` reentry still splits because the Atmo run is not bracketed by Surface; `Surface,Approach,Surface` suppresses by the same rule.

@@ -12,22 +12,71 @@ namespace Parsek
             double ut,
             out AnchorPose pose)
         {
+            return TryResolveSectionAnchorPose(
+                focusRecording,
+                section,
+                ut,
+                out pose,
+                out _);
+        }
+
+        internal static bool TryResolveSectionAnchorPose(
+            Recording focusRecording,
+            TrackSection section,
+            double ut,
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
+        {
             pose = default;
+            failure = default;
             if (focusRecording == null)
+            {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-null",
+                    null,
+                    null,
+                    ut);
                 return false;
+            }
             if (section.referenceFrame != ReferenceFrame.Relative)
+            {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-section-frame-unknown",
+                    focusRecording.RecordingId,
+                    null,
+                    ut);
                 return false;
+            }
             if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
+            {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "anchor-recording-id-missing",
+                    focusRecording.RecordingId,
+                    section.anchorRecordingId,
+                    ut);
                 return false;
+            }
             if (!TryBuildContext(focusRecording, out RelativeAnchorResolverContext context))
+            {
+                failure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.Other,
+                    "focus-tree-missing",
+                    focusRecording.RecordingId,
+                    section.anchorRecordingId,
+                    ut);
                 return false;
+            }
 
             return RelativeAnchorResolver.TryResolveAnchorPose(
                 context,
                 section.anchorRecordingId.Trim(),
                 ut,
                 new HashSet<string>(StringComparer.Ordinal),
-                out pose);
+                out pose,
+                out failure);
         }
 
         internal static bool TryFindFocusRecording(
