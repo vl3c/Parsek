@@ -1027,10 +1027,13 @@ namespace Parsek
             // heuristic only when no paired funds event is present.
             if (rec.TerminalStateValue == TerminalState.Recovered)
             {
+                RecoveredVesselIdentity recoveryIdentity =
+                    RecoveredVesselIdentity.FromRawName(rec.VesselName);
                 if (TryFindRecoveryFundsEvent(
                         GameStateStore.Events,
                         endUT,
                         skipConsumed: false,
+                        recoveryIdentity,
                         out GameStateEvent pairedRecoveryEvent,
                         out string pairedDedupKey))
                 {
@@ -2852,6 +2855,23 @@ namespace Parsek
                 events,
                 ut,
                 skipConsumed,
+                out matched,
+                out dedupKey);
+        }
+
+        private static bool TryFindRecoveryFundsEvent(
+            IReadOnlyList<GameStateEvent> events,
+            double ut,
+            bool skipConsumed,
+            RecoveredVesselIdentity preferredIdentity,
+            out GameStateEvent matched,
+            out string dedupKey)
+        {
+            return LedgerRecoveryFundsPairing.TryFindRecoveryFundsEvent(
+                events,
+                ut,
+                skipConsumed,
+                preferredIdentity,
                 out matched,
                 out dedupKey);
         }
