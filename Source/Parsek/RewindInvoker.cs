@@ -279,11 +279,15 @@ namespace Parsek
         /// runtime taggers, so the fork's tag uses the same vocabulary as every
         /// other recording's first segment.
         ///
-        /// Logs Verbose when a tag is produced, Warn when <paramref name="liveVessel"/>
-        /// is null (the strip pipeline returned no vessel handle to a path that
-        /// requires it — diagnostic signal for upstream regressions). A non-null
-        /// vessel with null <c>mainBody</c> is the test-stub / Unity-null shape
-        /// and logs Verbose only.
+        /// Logs Verbose at every branch (tagged / null-vessel / null-mainBody)
+        /// for diagnostic visibility. Aligns with the sibling
+        /// <see cref="TryRefreshForkSnapshotsFromLiveVessel"/> helper, which
+        /// also runs immediately after this one in <see cref="AtomicMarkerWrite"/>
+        /// and uses Verbose for the same null-vessel-in-test-fixture case.
+        /// (Promoting either to Warn would fire on every existing
+        /// <c>AtomicMarkerWriteTests</c> in-place test path that uses
+        /// <c>MakeStripResult</c>'s null <c>SelectedVessel</c> stub, polluting
+        /// the test log sink without an assertion.)
         /// </summary>
         internal static void TagForkInitialSegmentPhase(
             Recording provisional, Vessel liveVessel, string sessionId)
@@ -291,7 +295,7 @@ namespace Parsek
             if (provisional == null) return;
             if (liveVessel == null)
             {
-                ParsekLog.Warn(InvokeTag,
+                ParsekLog.Verbose(InvokeTag,
                     "TagForkInitialSegmentPhase: live vessel null — leaving fork SegmentPhase " +
                     $"unset rec={provisional.RecordingId} sess={sessionId ?? "<none>"}");
                 return;
@@ -310,7 +314,8 @@ namespace Parsek
 
             ParsekLog.Verbose(InvokeTag,
                 $"TagForkInitialSegmentPhase: tagged from live vessel " +
-                $"rec={provisional.RecordingId} body={provisional.SegmentBodyName ?? "<none>"} " +
+                $"rec={provisional.RecordingId} pid={liveVessel.persistentId} " +
+                $"body={provisional.SegmentBodyName ?? "<none>"} " +
                 $"phase={provisional.SegmentPhase} situation={liveVessel.situation} " +
                 $"alt={liveVessel.altitude:F0}m sess={sessionId ?? "<none>"}");
         }

@@ -77,7 +77,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TagForkInitialSegmentPhase_NullLiveVessel_LogsWarn_LeavesFieldsEmpty()
+        public void TagForkInitialSegmentPhase_NullLiveVessel_LogsVerbose_LeavesFieldsEmpty()
         {
             var provisional = new Recording { RecordingId = "fork-rec" };
 
@@ -86,9 +86,15 @@ namespace Parsek.Tests
 
             Assert.Null(provisional.SegmentPhase);
             Assert.Null(provisional.SegmentBodyName);
+            // Verbose (not Warn): the existing AtomicMarkerWriteTests in-place
+            // tests use a null SelectedVessel stub (Vessel is a Unity type, can't
+            // be constructed in xUnit), so the null branch is exercised by the
+            // routine test fixture. Promoting to Warn would pollute the test log
+            // sink without an assertion. The sibling helper
+            // TryRefreshForkSnapshotsFromLiveVessel uses the same Verbose pattern.
             Assert.Contains(_logLines, l =>
                 l.Contains("[Rewind]")
-                && l.Contains("[WARN]")
+                && l.Contains("[VERBOSE]")
                 && l.Contains("TagForkInitialSegmentPhase: live vessel null")
                 && l.Contains("rec=fork-rec")
                 && l.Contains("sess=sess_test"));
@@ -107,23 +113,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CopyInheritedIdentity_ThenTagForkInitialSegmentPhase_OrderIsLoadBearing()
+        public void CopyInheritedIdentityForFork_DoesNotClobberPreSetPhaseFields()
         {
-            // Sequencing canary: CopyInheritedIdentityForFork must run BEFORE
-            // TagForkInitialSegmentPhase so the runtime tagger's IsNullOrEmpty
-            // guard sees an empty SegmentPhase. If a future refactor swaps the
-            // order (e.g. tag first, then copy-inherited last), the
-            // copy-inherited step would have to re-introduce the inheritance to
-            // not regress non-inherited fields — which is exactly the bug this
-            // fix addresses.
+            // Regression canary for the inheritance-line removal: prove that
+            // CopyInheritedIdentityForFork no longer overwrites SegmentPhase
+            // or SegmentBodyName when the provisional already has them set.
+            // If a future refactor reintroduces the two inheritance lines,
+            // this test fails because "atmo" would replace "exo".
             //
-            // We can't drive TagForkInitialSegmentPhase to a positive outcome
-            // without a Unity Vessel, but we can prove that calling
-            // CopyInheritedIdentityForFork after a hypothetical pre-set tag
-            // does NOT clobber the tag (because we removed the inheritance
-            // lines). Combined with TagForkInitialSegmentPhase's guard
-            // (delegated to TagSegmentPhaseIfMissing's IsNullOrEmpty check),
-            // this confirms the post-fix order is safe in both directions.
+            // Indirectly anchors the AtomicMarkerWrite call ordering:
+            // TagForkInitialSegmentPhase runs after CopyInheritedIdentityForFork
+            // and would no-op (IsNullOrEmpty guard inside
+            // TagSegmentPhaseIfMissing) if a prior step had set these fields.
+            // Either way — copy-then-tag or tag-then-copy — the post-fix
+            // helper is safe; this test pins the copy half.
             var inheritFrom = new Recording
             {
                 RecordingId = "parent-rec",
@@ -140,9 +143,6 @@ namespace Parsek.Tests
 
             RewindInvoker.CopyInheritedIdentityForFork(provisional, inheritFrom);
 
-            // Prior values survive — no inheritance overwrite. If the fix
-            // regresses (inheritance lines reintroduced), this assertion fails
-            // because "atmo" would replace "exo".
             Assert.Equal("exo", provisional.SegmentPhase);
             Assert.Equal("Kerbin", provisional.SegmentBodyName);
         }
