@@ -1228,7 +1228,9 @@ namespace Parsek
                 state.anchorRetiredThisFrame);
             GhostRenderTrace.EmitPostUpdate(
                 traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired,
-                ResolveRenderSurface(anchorRotationRoute, retired));
+                ResolveRenderSurface(anchorRotationRoute, retired),
+                rawPlaybackUT: ctx.currentUT,
+                activationStartUT: ResolveGhostActivationStartUT(traj));
             if (!retired)
                 MarkPrimaryGhostPositionedThisFrame(state);
             if (retired)
@@ -1255,6 +1257,25 @@ namespace Parsek
                 string initialActivationHiddenReason;
                 bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
                     traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
+                bool hasGhostTransform = state?.ghost != null;
+                Vector3 ghostPosition = hasGhostTransform
+                    ? state.ghost.transform.position
+                    : Vector3.zero;
+                GhostRenderTrace.EmitActivationDecision(
+                    trajectory: traj,
+                    ghostIndex: i,
+                    currentUT: ctx.currentUT,
+                    rawPlaybackUT: ctx.currentUT,
+                    visiblePlaybackUT: visiblePlaybackUT,
+                    activationStartUT: ResolveGhostActivationStartUT(traj),
+                    framesRemaining: state?.initialRelativeActivationHiddenFramesRemaining ?? 0,
+                    hidden: initialActivationHidden,
+                    hideReason: initialActivationHidden
+                        ? (initialActivationHiddenReason ?? "unknown")
+                        : null,
+                    callSite: "RenderInRangeGhost",
+                    currentPosition: ghostPosition,
+                    hasCurrentPosition: hasGhostTransform);
                 if (initialActivationHidden)
                 {
                     if (state.ghost != null && state.ghost.activeSelf)
@@ -1840,7 +1861,9 @@ namespace Parsek
             bool loopShadowRouted = state.anchorRotationShadowRoutedThisFrame;
             GhostRenderTrace.EmitPostUpdate(
                 traj, index, ctx.currentUT, loopUT, state, "loop-primary", loopRetired,
-                ResolveRenderSurface(primaryLoopRoute, loopRetired));
+                ResolveRenderSurface(primaryLoopRoute, loopRetired),
+                rawPlaybackUT: loopUT,
+                activationStartUT: ResolveGhostActivationStartUT(traj));
             if (loopRetired)
             {
                 // Retired loop ghost: stop FX cleanly, do NOT re-activate, do
@@ -2111,7 +2134,9 @@ namespace Parsek
                         bool primaryShadowRouted = primaryState.anchorRotationShadowRoutedThisFrame;
                         GhostRenderTrace.EmitPostUpdate(
                             traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired,
-                            ResolveRenderSurface(overlapPrimaryRoute, primaryRetired));
+                            ResolveRenderSurface(overlapPrimaryRoute, primaryRetired),
+                            rawPlaybackUT: primaryLoopUT,
+                            activationStartUT: ResolveGhostActivationStartUT(traj));
                         if (primaryRetired)
                         {
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
@@ -2308,7 +2333,9 @@ namespace Parsek
                     traj, index, ctx.currentUT, loopUT, ovState,
                     "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture),
                     overlapRetired,
-                    ResolveRenderSurface(overlapLoopRoute, overlapRetired));
+                    ResolveRenderSurface(overlapLoopRoute, overlapRetired),
+                    rawPlaybackUT: loopUT,
+                    activationStartUT: ResolveGhostActivationStartUT(traj));
                 if (overlapRetired)
                 {
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
@@ -4171,12 +4198,13 @@ namespace Parsek
 
         internal bool EnsureGhostVisualsLoadedForWatch(
             int index, IPlaybackTrajectory traj, double playbackUT,
+            double currentUT,
             bool forceRebuildLoadedVisuals = false)
         {
             if (!ghostStates.TryGetValue(index, out var state) || state == null)
                 return false;
             if (TryHandleParentAnchoredDebrisCoverageRetired(
-                    index, traj, state, playbackUT, playbackUT, TimeWarp.CurrentRate,
+                    index, traj, state, playbackUT, currentUT, TimeWarp.CurrentRate,
                     "GhostPlaybackEngine.EnsureGhostVisualsLoadedForWatch",
                     emitExitWatch: false,
                     out _))
@@ -4193,7 +4221,7 @@ namespace Parsek
                 && loadStatus != GhostVisualLoadStatus.Ready)
                 return false;
 
-            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT);
+            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT, currentUT);
             return true;
         }
 
@@ -5198,7 +5226,8 @@ namespace Parsek
         }
 
         private void SynchronizeLoadedGhostForWatch(
-            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT,
+            double currentUT)
         {
             if (!HasLoadedGhostVisuals(state))
                 return;
@@ -5221,8 +5250,43 @@ namespace Parsek
             }
             else
             {
-                if (ShouldHoldInitialActivationHiddenThisFrame(
-                        traj, state, playbackUT, out string _))
+                bool watchSyncHidden = ShouldHoldInitialActivationHiddenThisFrame(
+                    traj, state, playbackUT, out string watchSyncHideReason);
+                bool hasGhostTransform = state?.ghost != null;
+                Vector3 ghostPosition = hasGhostTransform
+                    ? state.ghost.transform.position
+                    : Vector3.zero;
+                // Watch-sync does not call ResolveVisiblePlaybackUT, so raw ==
+                // visible == playbackUT and clampFired is invariant false. The
+                // explicit pass-through here makes that guarantee visible to
+                // post-hoc trace readers and lets investigators compare watch-
+                // sync activation flow with the RenderInRangeGhost path on the
+                // same fields. Watch-sync rows are activation-only (no
+                // surrounding FrameStart / AfterUpdate context) — accepted as
+                // v1 asymmetry, see plan §1a.
+                //
+                // currentUT (Planetarium UT) is threaded separately from
+                // playbackUT because looped watch targets pass loop-mapped
+                // recording time as playbackUT — using it as currentUT would
+                // open the activation-transition detailed window in the wrong
+                // time coordinate and miss subsequent AfterUpdate / LateUpdate
+                // emits that key off real Planetarium UT.
+                GhostRenderTrace.EmitActivationDecision(
+                    trajectory: traj,
+                    ghostIndex: index,
+                    currentUT: currentUT,
+                    rawPlaybackUT: playbackUT,
+                    visiblePlaybackUT: playbackUT,
+                    activationStartUT: ResolveGhostActivationStartUT(traj),
+                    framesRemaining: state?.initialRelativeActivationHiddenFramesRemaining ?? 0,
+                    hidden: watchSyncHidden,
+                    hideReason: watchSyncHidden
+                        ? (watchSyncHideReason ?? "unknown")
+                        : null,
+                    callSite: "SynchronizeLoadedGhostForWatch",
+                    currentPosition: ghostPosition,
+                    hasCurrentPosition: hasGhostTransform);
+                if (watchSyncHidden)
                 {
                     if (state.ghost != null && state.ghost.activeSelf)
                         state.ghost.SetActive(false);
@@ -5242,6 +5306,20 @@ namespace Parsek
                     TrackGhostAppearance(index, traj, state, playbackUT, "watch-sync");
                 }
             }
+        }
+
+        /// <summary>
+        /// Test seam exposing the otherwise-private
+        /// <see cref="SynchronizeLoadedGhostForWatch"/> for Phase 1 unit tests
+        /// that need to drive the watch-resume activation flow directly.
+        /// Caller is responsible for pre-populating the playback state and
+        /// the trajectory just as the production path would.
+        /// </summary>
+        internal void SynchronizeLoadedGhostForWatchForTesting(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT,
+            double currentUT)
+        {
+            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT, currentUT);
         }
 
         private void PositionLoadedGhostAtPlaybackUT(
