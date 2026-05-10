@@ -44,6 +44,15 @@ namespace Parsek.InGameTests
         /// that mutate the live FLIGHT session but can be returned to a known
         /// baseline automatically. Leave false for tests whose failure mode can
         /// still poison or hang the session irrecoverably.
+        /// <para>
+        /// The post-test restore fires unconditionally after any test that
+        /// reaches the runner's <c>RunOneTest</c> body and has this flag set --
+        /// including tests that self-skip via <c>InGameAssert.Skip</c> after
+        /// recording / staging / scene mutations. The runner cannot know
+        /// what the body did before it decided to skip, so the next batch
+        /// test always starts from the captured baseline. Scene-eligibility
+        /// skips happen before <c>RunOneTest</c> and never trigger a restore.
+        /// </para>
         /// </summary>
         public bool RestoreBatchFlightBaselineAfterExecution { get; set; }
 

@@ -3738,40 +3738,63 @@ namespace Parsek
         /// </para>
         /// </summary>
         internal static void ResetForTesting()
+            => ResetForTestingInternal(allowWipingLiveSaveData: false);
+
+        /// <summary>
+        /// Wipe-and-reset variant for the in-game test runner's batch FLIGHT
+        /// baseline restore flow. The next operation after this call is a
+        /// <c>QuickloadResumeHelpers.TriggerQuickload</c> from the baseline
+        /// save slot, which restores the player's clean pre-batch state from
+        /// disk via <c>OnLoad</c>. The in-memory wipe is therefore a
+        /// transient about-to-be-overwritten step, not a destructive
+        /// player-save mutation; the live-save guard exists to prevent the
+        /// PersistenceSplitOptimizerTest 2026-05-01 class of bug where a
+        /// test wiped state without restoring it. Documented at
+        /// <see cref="ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore"/>
+        /// — that's the only caller. Bypassing the guard from anywhere else
+        /// re-opens the production bug.
+        /// </summary>
+        internal static void ResetForBatchFlightBaselineRestoreBypassingGuard()
+            => ResetForTestingInternal(allowWipingLiveSaveData: true);
+
+        private static void ResetForTestingInternal(bool allowWipingLiveSaveData)
         {
-            bool isPlaying;
-            if (ApplicationIsPlayingForTesting != null)
+            if (!allowWipingLiveSaveData)
             {
-                isPlaying = ApplicationIsPlayingForTesting();
-            }
-            else
-            {
-                isPlaying = TryReadUnityApplicationIsPlaying();
-            }
-            if (isPlaying)
-            {
-                int recCount = committedRecordings.Count;
-                int treeCount = committedTrees.Count;
-                bool hasPending = pendingTree != null;
-                bool hasSavedPendingDuringActiveRestore =
-                    savedPendingTreeDuringActiveRestore != null;
-                if (recCount > 0
-                    || treeCount > 0
-                    || hasPending
-                    || hasSavedPendingDuringActiveRestore)
+                bool isPlaying;
+                if (ApplicationIsPlayingForTesting != null)
                 {
-                    string msg =
-                        $"ResetForTesting blocked: refusing to wipe live save data " +
-                        $"(committedRecordings={recCount}, committedTrees={treeCount}, " +
-                        $"hasPendingTree={hasPending}, " +
-                        $"hasSavedPendingDuringActiveRestore={hasSavedPendingDuringActiveRestore}). " +
-                        $"The in-game test runner shares " +
-                        $"static state with the player's save — call " +
-                        $"RecordingStoreTestSnapshot.Capture()/Restore() around the " +
-                        $"test body instead of ResetForTesting(). Production bug source: " +
-                        $"PersistenceSplitOptimizerTest 2026-05-01.";
-                    ParsekLog.Error("RecordingStore", msg);
-                    throw new InvalidOperationException(msg);
+                    isPlaying = ApplicationIsPlayingForTesting();
+                }
+                else
+                {
+                    isPlaying = TryReadUnityApplicationIsPlaying();
+                }
+                if (isPlaying)
+                {
+                    int recCount = committedRecordings.Count;
+                    int treeCount = committedTrees.Count;
+                    bool hasPending = pendingTree != null;
+                    bool hasSavedPendingDuringActiveRestore =
+                        savedPendingTreeDuringActiveRestore != null;
+                    if (recCount > 0
+                        || treeCount > 0
+                        || hasPending
+                        || hasSavedPendingDuringActiveRestore)
+                    {
+                        string msg =
+                            $"ResetForTesting blocked: refusing to wipe live save data " +
+                            $"(committedRecordings={recCount}, committedTrees={treeCount}, " +
+                            $"hasPendingTree={hasPending}, " +
+                            $"hasSavedPendingDuringActiveRestore={hasSavedPendingDuringActiveRestore}). " +
+                            $"The in-game test runner shares " +
+                            $"static state with the player's save — call " +
+                            $"RecordingStoreTestSnapshot.Capture()/Restore() around the " +
+                            $"test body instead of ResetForTesting(). Production bug source: " +
+                            $"PersistenceSplitOptimizerTest 2026-05-01.";
+                        ParsekLog.Error("RecordingStore", msg);
+                        throw new InvalidOperationException(msg);
+                    }
                 }
             }
 

@@ -2861,7 +2861,8 @@ namespace Parsek
         }
 
         internal static void PrepareForIsolatedBatchFlightBaselineRestore(
-            Action unsubscribeLiveRecorder = null)
+            Action unsubscribeLiveRecorder = null,
+            Action onWipeStart = null)
         {
             ParsekLog.Info("Scenario",
                 "Preparing save-scoped state for isolated FLIGHT batch baseline restore");
@@ -2875,7 +2876,26 @@ namespace Parsek
             vesselSwitchPending = false;
             vesselSwitchPendingFrame = -1;
 
-            RecordingStore.ResetForTesting();
+            // onWipeStart fires IMMEDIATELY before the first in-memory
+            // store reset. This is the destructive boundary -- callers
+            // wire this to arm their rollback flag here, not after this
+            // method returns, because the eight Reset calls below are not
+            // atomic. If GroupHierarchyStore.ResetForTesting (or any
+            // later reset) throws, RecordingStore has already been wiped
+            // and the caller's rollback must fire to recover live data.
+            // Arming after this method returned would leave the rollback
+            // disabled for that partial-failure window.
+            onWipeStart?.Invoke();
+
+            // The next operation after this prep is a quickload from the
+            // baseline save slot, which restores RecordingStore from disk
+            // via OnLoad. The in-memory wipe is transient. Use the
+            // explicit guard-bypassing variant -- ResetForTesting() throws
+            // when committedRecordings/Trees are non-empty (the
+            // PersistenceSplitOptimizerTest 2026-05-01 bug guard), and any
+            // batch FLIGHT test running on a save with live recordings hits
+            // that throw on the prep step before its body runs.
+            RecordingStore.ResetForBatchFlightBaselineRestoreBypassingGuard();
             GroupHierarchyStore.ResetForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
             GameStateStore.ResetForTesting();
