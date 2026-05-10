@@ -444,6 +444,21 @@ namespace Parsek
             else
                 transition = "visible";
 
+            // Steady visible state — every non-loop non-retired render frame
+            // would otherwise emit one ActivationDecision row for the rest of
+            // the ghost's lifetime, which floods KSP.log when ghost render
+            // tracing is enabled. The activation flow is fully described by
+            // the hidden frames + the first-visible transition; subsequent
+            // visible frames carry no new activation-decision information.
+            // Early-return preserves all hidden / first-visible logging while
+            // dropping the steady-state noise. State updates below are also
+            // skipped: wasHiddenLastActivationDecision was already set to
+            // false on the first-visible emit, so the state stays correct to
+            // observe a future re-hide (loop wrap, scene reload) without
+            // further bookkeeping here.
+            if (transition == "visible")
+                return;
+
             bool clampFired = Math.Abs(rawPlaybackUT - visiblePlaybackUT) > 1e-9;
             double activationLead = double.IsNaN(activationStartUT)
                 ? double.NaN

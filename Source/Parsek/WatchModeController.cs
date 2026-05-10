@@ -1764,6 +1764,7 @@ namespace Parsek
             }
 
             if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, rec, watchLoadUT,
+                currentUT: Planetarium.GetUniversalTime(),
                 forceRebuildLoadedVisuals: resetLoopPhaseForWatch))
                 return false;
 
@@ -3421,7 +3422,8 @@ namespace Parsek
             double playbackUT = ResolveWatchPlaybackUT(committed[index], currentState,
                 Planetarium.GetUniversalTime());
 
-            if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, traj, playbackUT))
+            if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, traj, playbackUT,
+                    currentUT: Planetarium.GetUniversalTime()))
                 return false;
 
             return host.Engine.TryGetGhostState(index, out state)

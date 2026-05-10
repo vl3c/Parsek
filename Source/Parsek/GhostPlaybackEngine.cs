@@ -4116,6 +4116,7 @@ namespace Parsek
 
         internal bool EnsureGhostVisualsLoadedForWatch(
             int index, IPlaybackTrajectory traj, double playbackUT,
+            double currentUT,
             bool forceRebuildLoadedVisuals = false)
         {
             if (!ghostStates.TryGetValue(index, out var state) || state == null)
@@ -4138,7 +4139,7 @@ namespace Parsek
                 && loadStatus != GhostVisualLoadStatus.Ready)
                 return false;
 
-            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT);
+            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT, currentUT);
             return true;
         }
 
@@ -5143,7 +5144,8 @@ namespace Parsek
         }
 
         private void SynchronizeLoadedGhostForWatch(
-            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT,
+            double currentUT)
         {
             if (!HasLoadedGhostVisuals(state))
                 return;
@@ -5180,10 +5182,17 @@ namespace Parsek
                 // same fields. Watch-sync rows are activation-only (no
                 // surrounding FrameStart / AfterUpdate context) — accepted as
                 // v1 asymmetry, see plan §1a.
+                //
+                // currentUT (Planetarium UT) is threaded separately from
+                // playbackUT because looped watch targets pass loop-mapped
+                // recording time as playbackUT — using it as currentUT would
+                // open the activation-transition detailed window in the wrong
+                // time coordinate and miss subsequent AfterUpdate / LateUpdate
+                // emits that key off real Planetarium UT.
                 GhostRenderTrace.EmitActivationDecision(
                     trajectory: traj,
                     ghostIndex: index,
-                    currentUT: playbackUT,
+                    currentUT: currentUT,
                     rawPlaybackUT: playbackUT,
                     visiblePlaybackUT: playbackUT,
                     activationStartUT: ResolveGhostActivationStartUT(traj),
@@ -5225,9 +5234,10 @@ namespace Parsek
         /// the trajectory just as the production path would.
         /// </summary>
         internal void SynchronizeLoadedGhostForWatchForTesting(
-            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT)
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT,
+            double currentUT)
         {
-            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT);
+            SynchronizeLoadedGhostForWatch(index, traj, state, playbackUT, currentUT);
         }
 
         private void PositionLoadedGhostAtPlaybackUT(

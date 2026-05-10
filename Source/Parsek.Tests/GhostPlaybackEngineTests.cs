@@ -1791,6 +1791,7 @@ namespace Parsek.Tests
                 index: 3,
                 traj: traj,
                 playbackUT: 111.0,
+                currentUT: 111.0,
                 forceRebuildLoadedVisuals: true);
 
             Assert.False(loaded);
