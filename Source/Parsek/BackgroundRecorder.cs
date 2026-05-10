@@ -1481,6 +1481,12 @@ namespace Parsek
             // Clean up tracking state — also flushes any accumulated TrackSections
             // to rec via OnVesselRemovedFromBackground → FlushTrackSectionsToRecording.
             OnVesselRemovedFromBackground(vesselPid, endUT);
+            if (rec != null)
+            {
+                DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                    rec,
+                    $"EndDebrisRecording pid={vesselPid}");
+            }
 
             RecordingFinalizationCacheApplyResult cacheResult;
             bool cacheApplied = rec != null
@@ -2188,6 +2194,10 @@ namespace Parsek
                     {
                         SampleBoundaryPoint(v, flushRec, ut.Value);
                     }
+
+                    DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                        flushRec,
+                        $"OnVesselRemovedFromBackground pid={vesselPid}");
                 }
                 loadedStates.Remove(vesselPid);
             }
@@ -2418,6 +2428,9 @@ namespace Parsek
         internal static void PersistFinalizedRecording(Recording rec, string context)
         {
             if (rec == null) return;
+            DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                rec,
+                $"PersistFinalizedRecording {context}");
             if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
             {
                 ParsekLog.Verbose("BgRecorder",
@@ -2589,6 +2602,9 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(kvp.Value, out treeRec))
                 {
                     treeRec.ExplicitEndUT = commitUT;
+                    DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                        treeRec,
+                        $"FinalizeAllForCommit pid={kvp.Key}");
                 }
             }
 
@@ -4249,6 +4265,10 @@ namespace Parsek
 
             if (!persistNoPayloadBoundarySection)
                 AppendBoundaryPointToRecording(flushRec, boundaryPoint, loadedState.vesselPid);
+
+            DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                flushRec,
+                $"FlushLoadedStateForOnRailsTransition pid={loadedState.vesselPid}");
         }
 
         private void SampleBoundaryPoint(Vessel v, Recording treeRec, double ut)
@@ -5987,6 +6007,9 @@ namespace Parsek
             int dedupedOrbitCopies = RecordingStore.AppendOrbitSegmentsFromTrackSections(state.trackSections, treeRec.OrbitSegments);
             treeRec.CachedStats = null;
             treeRec.CachedStatsPointCount = 0;
+            DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                treeRec,
+                $"FlushTrackSectionsToRecording pid={state.vesselPid}");
 
             ParsekLog.Info("BgRecorder",
                 $"Flushed {state.trackSections.Count} TrackSections to recording: " +

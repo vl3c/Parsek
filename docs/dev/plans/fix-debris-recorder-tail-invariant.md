@@ -196,7 +196,7 @@ Implementation details:
 - Use this canonical warning shape so log tests and live grep agree:
 
 ```text
-ParentAnchoredDebrisTailNormalize rec={recordingId} context={context} clamped={clampedSections} dropped={droppedSections} oldEnd={oldEnd:R} newEnd={newEnd:R} relTail={relativeTail:R} shadowTail={shadowTail:R} parentRec={DebrisParentRecordingId}
+ParentAnchoredDebrisTailNormalize rec={recordingId} context={context} clamped={clampedSections} dropped={droppedSections} oldEnd={oldEnd:R} newEnd={newEnd:R} relTail={relativeTail:R} shadowTail={shadowTail:R} parentRec={DebrisParentRecordingId} flatTrimmed={trimmedFlatPoints}
 ```
 
 Phase 1 deliverable: move PR #811's private frame coverage functions into these shared primitives and make `DebrisRelativePlaybackPolicy` delegate to them. Avoid letting playback and recorder use slightly different definitions of "authored coverage."

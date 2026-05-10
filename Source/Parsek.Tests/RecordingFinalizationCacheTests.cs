@@ -315,6 +315,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryApply_ParentAnchoredDebris_IgnoresFlatBoundaryPointAndStaleRelativeSectionEnd()
+        {
+            var rec = MakeRecording("rec-parent-debris", 42u, 100.0, 110.0, 140.0);
+            rec.IsDebris = true;
+            rec.DebrisParentRecordingId = "parent-rec";
+            rec.ExplicitEndUT = 140.0;
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Relative,
+                source = TrackSectionSource.Background,
+                startUT = 100.0,
+                endUT = 140.0,
+                anchorRecordingId = "parent-rec",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin" }
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin" }
+                },
+                checkpoints = new List<OrbitSegment>()
+            });
+            var cache = MakeCache(
+                "rec-parent-debris",
+                42u,
+                TerminalState.Destroyed,
+                120.0,
+                Segment(110.0, 120.0));
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                cache,
+                Options("unit-parent-debris"),
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied);
+            Assert.Equal(110.0, result.LastAuthoredUT);
+            Assert.Equal(110.0, rec.TrackSections[0].endUT);
+            Assert.Equal(120.0, rec.ExplicitEndUT);
+            Assert.Equal(new[] { 100.0, 110.0 }, rec.Points.Select(p => p.ut).ToArray());
+            Assert.Single(rec.OrbitSegments);
+            Assert.True(rec.OrbitSegments[0].isPredicted);
+            Assert.Equal(110.0, rec.OrbitSegments[0].startUT);
+            Assert.Equal(120.0, rec.OrbitSegments[0].endUT);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][BgRecorder]")
+                && line.Contains("ParentAnchoredDebrisTailNormalize")
+                && line.Contains("context=RecordingFinalizationCacheApplier"));
+        }
+
+        [Fact]
         public void TryApply_ReplacesExistingPredictedTailInRepairMode()
         {
             var rec = MakeRecording("rec-repair", 42u, 100.0);
