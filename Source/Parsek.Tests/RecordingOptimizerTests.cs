@@ -4488,6 +4488,227 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        [Fact]
+        public void RunOptimizationPass_MultiStageTree_SplitsChildBranchesAndPreservesBranchTopology()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            try
+            {
+                var rover = new Recording
+                {
+                    RecordingId = "root_rover",
+                    TreeId = "tree_multistage",
+                    VesselName = "Rover",
+                    VesselPersistentId = 1001,
+                    ChildBranchPointId = "bp_launch"
+                };
+                rover.Points.Add(new TrajectoryPoint { ut = 0, altitude = 0, bodyName = "Kerbin" });
+                rover.Points.Add(new TrajectoryPoint { ut = 10, altitude = 0, bodyName = "Kerbin" });
+                rover.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.SurfaceMobile,
+                    startUT = 0,
+                    endUT = 10,
+                    frames = new List<TrajectoryPoint>()
+                });
+
+                var roverContinuation = new Recording
+                {
+                    RecordingId = "rover_cont",
+                    TreeId = "tree_multistage",
+                    VesselName = "Rover",
+                    VesselPersistentId = 1001,
+                    ParentBranchPointId = "bp_launch"
+                };
+                roverContinuation.Points.Add(new TrajectoryPoint { ut = 10, altitude = 0, bodyName = "Kerbin" });
+                roverContinuation.Points.Add(new TrajectoryPoint { ut = 20, altitude = 0, bodyName = "Kerbin" });
+                roverContinuation.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.SurfaceStationary,
+                    startUT = 10,
+                    endUT = 20,
+                    frames = new List<TrajectoryPoint>()
+                });
+
+                var rocket = MakeRecordingWithSections(100, 300, 600,
+                    SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+                rocket.RecordingId = "rocket";
+                rocket.TreeId = "tree_multistage";
+                rocket.VesselName = "Rocket";
+                rocket.VesselPersistentId = 2002;
+                rocket.ParentBranchPointId = "bp_launch";
+                rocket.ChildBranchPointId = "bp_sep";
+
+                var transferStage = new Recording
+                {
+                    RecordingId = "transfer_stage",
+                    TreeId = "tree_multistage",
+                    VesselName = "Transfer Stage",
+                    VesselPersistentId = 3003,
+                    ParentBranchPointId = "bp_sep",
+                    TerminalStateValue = TerminalState.Destroyed
+                };
+                transferStage.Points.Add(new TrajectoryPoint { ut = 600, altitude = 90000, bodyName = "Kerbin" });
+                transferStage.Points.Add(new TrajectoryPoint { ut = 700, altitude = 80000, bodyName = "Kerbin" });
+                transferStage.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    startUT = 600,
+                    endUT = 700,
+                    frames = new List<TrajectoryPoint>()
+                });
+
+                var capsule = MakeRecordingWith3Sections(
+                    600, 860, 1040, 1200,
+                    SegmentEnvironment.ExoBallistic,
+                    SegmentEnvironment.Atmospheric,
+                    SegmentEnvironment.SurfaceStationary,
+                    body1: "Kerbin",
+                    body2: "Kerbin",
+                    body3: "Kerbin");
+                capsule.RecordingId = "capsule";
+                capsule.TreeId = "tree_multistage";
+                capsule.VesselName = "Capsule";
+                capsule.VesselPersistentId = 4004;
+                capsule.ParentBranchPointId = "bp_sep";
+                capsule.ChildBranchPointId = "bp_dock";
+
+                var stationMerged = new Recording
+                {
+                    RecordingId = "station_merged",
+                    TreeId = "tree_multistage",
+                    VesselName = "Station",
+                    VesselPersistentId = 5005,
+                    ParentBranchPointId = "bp_dock"
+                };
+                stationMerged.Points.Add(new TrajectoryPoint { ut = 1200, altitude = 0, bodyName = "Kerbin" });
+                stationMerged.Points.Add(new TrajectoryPoint { ut = 1260, altitude = 0, bodyName = "Kerbin" });
+                stationMerged.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.SurfaceStationary,
+                    startUT = 1200,
+                    endUT = 1260,
+                    frames = new List<TrajectoryPoint>()
+                });
+
+                var launchBp = new BranchPoint
+                {
+                    Id = "bp_launch",
+                    UT = 10,
+                    Type = BranchPointType.Launch,
+                    ParentRecordingIds = new List<string> { "root_rover" },
+                    ChildRecordingIds = new List<string> { "rover_cont", "rocket" }
+                };
+                var sepBp = new BranchPoint
+                {
+                    Id = "bp_sep",
+                    UT = 600,
+                    Type = BranchPointType.JointBreak,
+                    ParentRecordingIds = new List<string> { "rocket" },
+                    ChildRecordingIds = new List<string> { "transfer_stage", "capsule" }
+                };
+                var dockBp = new BranchPoint
+                {
+                    Id = "bp_dock",
+                    UT = 1200,
+                    Type = BranchPointType.Dock,
+                    ParentRecordingIds = new List<string> { "capsule" },
+                    ChildRecordingIds = new List<string> { "station_merged" },
+                    TargetVesselPersistentId = 5005
+                };
+                var tree = new RecordingTree
+                {
+                    Id = "tree_multistage",
+                    TreeName = "Multistage Optimizer Tree",
+                    RootRecordingId = "root_rover",
+                    BranchPoints = new List<BranchPoint> { launchBp, sepBp, dockBp },
+                    Recordings = new Dictionary<string, Recording>
+                    {
+                        { "root_rover", rover },
+                        { "rover_cont", roverContinuation },
+                        { "rocket", rocket },
+                        { "transfer_stage", transferStage },
+                        { "capsule", capsule },
+                        { "station_merged", stationMerged }
+                    }
+                };
+                RecordingStore.CommittedTrees.Add(tree);
+
+                var recordings = RecordingStore.CommittedRecordings;
+                RecordingStore.AddRecordingWithTreeForTesting(rover);
+                RecordingStore.AddRecordingWithTreeForTesting(roverContinuation);
+                RecordingStore.AddRecordingWithTreeForTesting(rocket);
+                RecordingStore.AddRecordingWithTreeForTesting(transferStage);
+                RecordingStore.AddRecordingWithTreeForTesting(capsule);
+                RecordingStore.AddRecordingWithTreeForTesting(stationMerged);
+
+                RecordingStore.RunOptimizationPass();
+
+                Assert.Equal(9, recordings.Count);
+                Assert.Equal(9, tree.Recordings.Count);
+
+                var rocketHead = recordings.Single(r => r.RecordingId == "rocket");
+                Assert.False(string.IsNullOrEmpty(rocketHead.ChainId));
+                var rocketSegments = recordings
+                    .Where(r => !string.IsNullOrEmpty(r.ChainId) && r.ChainId == rocketHead.ChainId)
+                    .OrderBy(r => r.StartUT)
+                    .ToList();
+                Assert.Equal(2, rocketSegments.Count);
+                Assert.Equal("bp_launch", rocketSegments[0].ParentBranchPointId);
+                Assert.Null(rocketSegments[0].ChildBranchPointId);
+                Assert.Equal("bp_sep", rocketSegments[1].ChildBranchPointId);
+                for (int i = 0; i < rocketSegments.Count; i++)
+                    Assert.Equal(i, rocketSegments[i].ChainIndex);
+
+                var capsuleHead = recordings.Single(r => r.RecordingId == "capsule");
+                Assert.False(string.IsNullOrEmpty(capsuleHead.ChainId));
+                var capsuleSegments = recordings
+                    .Where(r => !string.IsNullOrEmpty(r.ChainId) && r.ChainId == capsuleHead.ChainId)
+                    .OrderBy(r => r.StartUT)
+                    .ToList();
+                Assert.Equal(3, capsuleSegments.Count);
+                Assert.NotEqual(rocketHead.ChainId, capsuleHead.ChainId);
+                Assert.Equal("bp_sep", capsuleSegments[0].ParentBranchPointId);
+                Assert.Null(capsuleSegments[0].ChildBranchPointId);
+                Assert.Null(capsuleSegments[1].ChildBranchPointId);
+                Assert.Equal("bp_dock", capsuleSegments[2].ChildBranchPointId);
+                for (int i = 0; i < capsuleSegments.Count; i++)
+                    Assert.Equal(i, capsuleSegments[i].ChainIndex);
+
+                Assert.Equal(new[] { rocketSegments[1].RecordingId }, sepBp.ParentRecordingIds);
+                Assert.Equal(new[] { capsuleSegments[2].RecordingId }, dockBp.ParentRecordingIds);
+                // Upstream child ids stay on the original head segment; chain traversal follows ChainId for split tails.
+                Assert.Equal(new[] { "rover_cont", "rocket" }, launchBp.ChildRecordingIds);
+                Assert.Equal(new[] { "transfer_stage", "capsule" }, sepBp.ChildRecordingIds);
+                Assert.Equal(new[] { "station_merged" }, dockBp.ChildRecordingIds);
+
+                foreach (var segment in rocketSegments.Concat(capsuleSegments))
+                    Assert.True(tree.Recordings.ContainsKey(segment.RecordingId), segment.RecordingId);
+
+                var lineagePids = GhostChainWalker.GetRootLineageVesselPids(tree);
+                Assert.Contains((uint)1001, lineagePids);
+                Assert.Contains((uint)2002, lineagePids);
+                Assert.Contains((uint)3003, lineagePids);
+                Assert.Contains((uint)4004, lineagePids);
+                Assert.Contains((uint)5005, lineagePids);
+
+                var chains = GhostChainWalker.ComputeAllGhostChains(
+                    new List<RecordingTree> { tree }, rewindUT: 0);
+                var dockChain = GhostChainWalker.FindChainForVessel(chains, 5005);
+                Assert.NotNull(dockChain);
+                Assert.Equal((uint)5005, dockChain.OriginalVesselPid);
+                Assert.Single(dockChain.Links);
+                Assert.Equal(capsuleSegments[2].RecordingId, dockChain.Links[0].recordingId);
+                Assert.Equal("bp_dock", dockChain.Links[0].branchPointId);
+                Assert.Equal("station_merged", dockChain.TipRecordingId);
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
         /// <summary>
         /// Verifies that the all-boring leaf trim works end-to-end through RunOptimizationPass.
         /// After splitting Approach from Surface, the Surface leaf (all SurfaceStationary)
@@ -4870,23 +5091,36 @@ namespace Parsek.Tests
             Assert.Equal((0, 1), candidates[0]);
         }
 
-        // Test #10: Body change (#251) — Kerbin ExoBallistic → Mun ExoBallistic. Same env class,
-        // body change short-circuits before the persistence predicate runs. SOI traversal stays
-        // a split.
+        // Test #10: Kerbin ExoBallistic -> Mun ExoBallistic. Coasting body changes
+        // stay cohesive so transfer coasts remain one loopable recording; the UI surfaces
+        // the body path instead.
         [Fact]
-        public void Persistence_BodyChange_SameEnvClass_Splits_RegressionOf251()
+        public void Persistence_BodyChange_ExoBallisticCoast_StaysCohesive()
         {
             var rec = MakePersistenceRecording("body-change-same-class", 17000,
                 (SegmentEnvironment.ExoBallistic, 600, "Kerbin", false),
                 (SegmentEnvironment.ExoBallistic, 600, "Mun", false));
 
             var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Empty(candidates);
+        }
+
+        // Test #11: A cross-body ExoPropulsive boundary remains split-worthy. The
+        // cohesive-transfer rule only applies to ballistic/coasting Exo transitions.
+        [Fact]
+        public void Persistence_BodyChange_ExoPropulsiveCrossing_Splits()
+        {
+            var rec = MakePersistenceRecording("body-change-exo-propulsive", 17000,
+                (SegmentEnvironment.ExoBallistic, 600, "Kerbin", false),
+                (SegmentEnvironment.ExoPropulsive, 600, "Mun", false));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
             Assert.Single(candidates);
             Assert.Equal((0, 1), candidates[0]);
         }
 
-        // Test #11: Body change AND env-class change with no bracket — body change short-circuits
-        // before the persistence predicate runs.
+        // Test #12: Body change AND env-class change with no bracket still splits through
+        // the environment boundary.
         [Fact]
         public void Persistence_BodyChange_AndClassChange_NoBracket_Splits()
         {
@@ -4899,7 +5133,7 @@ namespace Parsek.Tests
             Assert.Equal((0, 1), candidates[0]);
         }
 
-        // Test #12: Mun grazing — Approach↔Exo goes through the same persistence predicate as
+        // Test #13: Mun grazing — Approach↔Exo goes through the same persistence predicate as
         // Atmo↔Exo (eccentric Mun grazing case is structurally identical to atmo grazing).
         [Fact]
         public void Persistence_ApproachExoGrazing_BothSuppress()
@@ -4913,7 +5147,7 @@ namespace Parsek.Tests
             Assert.Empty(candidates);
         }
 
-        // Test #13: Mun Approach→Surface always splits (Surface bucket bypasses the persistence
+        // Test #14: Mun Approach→Surface always splits (Surface bucket bypasses the persistence
         // predicate — gated upstream by Vessel.Situations).
         [Fact]
         public void Persistence_ApproachToSurface_AlwaysSplits()

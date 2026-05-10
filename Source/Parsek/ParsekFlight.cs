@@ -13829,7 +13829,7 @@ namespace Parsek
                 {
                     Vector3 pos = ghostObject.transform.position;
                     float len = GhostVisualBuilder.ComputeGhostLength(ghostObject);
-                    double power = Mathf.Clamp01(len / 20f);
+                    double power = Mathf.Clamp01(len / GhostAudioPresets.VesselLengthPowerDivisor);
                     ParsekLog.Info("ExplosionFx",
                         $"Stock FXMonger.Explode for manual preview \"{previewRecording.VesselName}\" " +
                         $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m " +
@@ -13843,12 +13843,11 @@ namespace Parsek
                         for (int c = 0; c < t.childCount; c++)
                             t.GetChild(c).gameObject.SetActive(false);
                     }
-                    GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                    GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(
                         pos,
                         power,
                         len,
-                        $"manual preview \"{previewRecording.VesselName}\"",
-                        "manual-preview-stock-explosion-visual-only-busy");
+                        $"manual preview \"{previewRecording.VesselName}\"");
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);

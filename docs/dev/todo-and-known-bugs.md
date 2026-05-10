@@ -11,6 +11,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 multi-debris explosion audio inaudible in watch mode
+
+- ~~In watch mode, when a vessel breakup dropped many debris pieces over a short window only the first debris explosion produced sound — every following ghost terminal explosion silently rendered the visual fireball.~~ Reproduced by `logs/2026-05-10_1134_debris-explosion-audio` (Kerbal X breakup, 8 debris ghosts hitting ground over 11:31:13 → 11:31:27, ~14 s window). Of the 8 terminal explosions, exactly 1 produced audible sound (`vol=0.17 sound_explosion_large`); the other 7 logged `Stock visual-only explosion … (audio gate busy, suppressed SHIP_VOLUME clip to avoid mixer clipping)`. The user also reported ghost explosion sounds being "different" from stock destruction sounds. Root causes:
+  1. `ApplyDestroyedPartEvent` called `PlayOneShotAtGhost(state, Destroyed)` which always played `sound_explosion_large` (8.6 s, the largest stock explosion clip) through the ghost's per-vessel cameraPivot-anchored AudioSource, regardless of part size. Stock destruction goes through `FXMonger.Explode` which power-indexes into `explosionSounds[]` (`[debris1, debris2, large]`) and so picks the size-appropriate clip — small parts get the shorter `sound_explosion_debris1` (5.3 s), large parts the longer `large` clip. Parsek always picked `large`, hence the "different" sound.
+  2. The same `PlayOneShotAtGhost` reserved a global temporal "audio gate" (`explosionOneShotBusyUntilRealtime`) for the full clip duration (~8.6 s on every part-destroyed event). `TryTriggerStockExplosionFxWithAudioGate` checked the gate before calling `FXMonger.Explode` for terminal vessel destruction; on a busy gate it took the `TryInstantiateStockExplosionVisual` branch (visual-only, audio muted). So one part-destroyed event suppressed every following terminal-vessel `FXMonger.Explode` audio for the next 8.6 s — exactly the multi-debris breakup window.
+
+**Fix:** Replaced `PlayOneShotAtGhost(Destroyed)` with `PlayPartDestroyedFxAtPart(ghost, partPid, partName, audioPaused, atmosphereFactor, audioPriorityDistanceMeters)` in `GhostPlaybackLogic.cs`. The new helper looks up the destroyed part's transform via `GhostVisualBuilder.FindGhostPartTransform`, resolves the stock power bucket via `ResolvePartExplosionPower(partName)` which reads the part prefab's `explosionPotential` (decompiled `Part.cs:11610` calls `FXMonger.Explode(this, pos, explosionPotential + speedOffset)` with `Part.explosionPotential = 0.5f` default), and calls `GhostVisualBuilder.TryTriggerStockExplosionFx` so `FXMonger.Explode` picks the same clip from its `explosionSounds[]` array that stock `Part.explode()` would pick for the same part, and inherits stock's 10 m spatial coalescing (decompiled `FXMonger.LateUpdate` ~line 553-573). The speed-offset bonus (0/0.12/0.25 by surface speed) is omitted because ghost playback doesn't have the live ship speed at destruction time — that produces audio one bucket lower than stock for fast-moving destruction events but the alternative would require recording the speed in every PartEvent. When FXMonger isn't live (KSC scene), `TryTriggerStockExplosionFx` returns false, or the stock pause menu is open (`audioPaused`), the helper falls back to `SpawnPartPuffAtPart` so destroyed-part events still produce a small particle puff visual cue — matching the pre-fix Parsek puff and avoiding queueing a SHIP_VOLUME `PlayOneShot` that doesn't honor `PauseAllAudio`'s per-source `Pause()` calls. The fallback path ALSO queues an independent positional explosion AudioSource via `TryPlayIndependentExplosionOneShot` whenever audio isn't paused and `atmosphereFactor > 0`, so KSC per-part destruction stays audible (pre-fix the per-vessel `oneShotAudio.audioSource.PlayOneShot` covered this path; this PR removed that plumbing without an independent-audio fallback, which silenced KSC mid-recording per-part destruction events). The temporal gate (`explosionOneShotBusyUntilRealtime`, `TryReserveOneShotSound` / `ShouldStartOneShotSound` / `TryReserveExplosionSound` / `ReleaseExplosionSoundReservation` / `IsExplosionOneShotSoundBusy`) was deleted entirely. `TryTriggerStockExplosionFxWithAudioGate` collapsed to a much smaller `TryTriggerStockExplosionFxOrCustom` (FXMonger.Explode → custom particle fallback if FXMonger threw / wasn't live). `TryPlayExplosionOneShotWithAudioGate` (KSC scene path, used when FXMonger isn't loaded outside flight) collapsed to `TryPlayIndependentExplosionOneShot`. `TryInstantiateStockExplosionVisual` was deleted; `ResolveFxMongerExplosionObjects` was re-introduced for the pause path that walks every in-flight stock explosion GameObject and pauses their AudioSources via `PauseFxMongerExplosionAudioSources` (without that walk, opening the Esc menu mid-explosion would leave FXMonger's PlayOneShot voices playing through the pause because Parsek's per-source `PauseAllAudio` only reaches its own tracked sources). `StockExplosionFxWithAudioGateResult` enum simplified to two values (`StockQueued`, `StockFailedCustomVisualSpawned`).
+
+**Coverage:** `GhostAudioTests.TryTriggerStockExplosionFxOrCustom_StockSucceeds_QueuesStock` and `..._StockFails_FallsBackToCustomVisual` pin the new flight-scene helper. `GhostAudioTests.TryPlayIndependentExplosionOneShot_*` covers the simplified KSC path (clip-unavailable, normal queue, play throws). `GhostAudioTests.ResolvePartExplosionPower_*` pins the bucket boundaries against the prefab's `explosionPotential` (stock-default 0.5 → debris2, explicit small/large overrides, unknown-part fallback to default, null/empty partName fallback, out-of-range clamp). `GhostAudioTests.ResolveDestroyedClipByPower_*` pins the KSC fallback's size-appropriate clip selection against the same bucket boundaries. `KscGhostPlaybackTests.ShouldQueueKscExplicitExplosionAudio_OnlyWhenUnpausedAndStockFailed` updated for the simplified `StockExplosionFxResult` enum. The Unity-side of the per-part FXMonger delegation (transform lookup, FXMonger-not-live puff fallback, `PartLoader.getPartInfoByName` resolution) is exercised in-game; the existing `KscExplosionFallbackAudio_FireAndForgetSourceSurvivesGhostDestroy` in-game test was reworked to call `TryPlayIndependentExplosionOneShot`. The `TryInstantiateStockExplosionVisual_LiveFxMonger_SpawnsMutedPrefab` in-game test and the now-defunct `PauseUnpauseAudio_OneShotPath` test were removed along with their helpers (`OneShotAudioInfo`, `BuildOneShotAudioSource`, `state.oneShotAudio`). **Pause-menu skip:** `PlayPartDestroyedFxAtPart` accepts an `audioPaused` parameter from `ApplyDestroyedPartEvent` (`state.audioPaused`) and short-circuits the FXMonger path when the stock Esc menu is open — without that guard, a destroyed-part event applied while the menu is open would queue audio that bypasses the per-source pause. **In-flight FXMonger pause:** `PauseExplosionOneShotAudio` walks every entry in `FXMonger.fetch.explosionObjects` (via the re-introduced `ResolveFxMongerExplosionObjects` reflection accessor) and pauses every AudioSource on every effect GameObject — without that walk, opening Esc DURING an already-playing FXMonger explosion would leave the SHIP_VOLUME `PlayOneShot` voice playing through the pause (regressing the pre-fix `state.oneShotAudio.audioSource.Pause()` behavior). The paused sources land in the same `pausedExplosionOneShotAudioSources` list that `UnpauseExplosionOneShotAudio` already drains, so `UnPause()` on resume happens through the existing path.
+
+**Known follow-up:** the original `44ecd87e` commit introduced the temporal gate to prevent Unity-mixer clipping when many concurrent SHIP_VOLUME explosion clips overlap on the same source. After this PR, concurrent stock `FXMonger.Explode` calls each spawn fresh AudioSources (per decompiled FXMonger.LateUpdate), and stock's 10 m proximity coalesce merges nearby blasts — so the original concern should not apply. **This was not playtested with the actual repro** (`logs/2026-05-10_1134_debris-explosion-audio` — Kerbal X breakup, ghosts at 35–80 m apart firing within 0.8 s). If audible mixer clipping turns out to be a problem in flight, the fix is to keep the gate plumbing removed but introduce per-position spatial coalescing (similar to FXMonger's `minSqrBlast`) for terminal-vessel calls only, with a small sub-second window — not the full clip duration the old gate used.
+
+---
+
 ## Done - v0.9.2 tumbling parent rotation interpolation destabilized debris
 
 - ~~Parent-anchored debris far from a rapidly tumbling parent could translate chaotically when playback slerped sparse parent attitude samples.~~ The visible failure mode was worst for tens-of-meters-plus offsets: a modest parent rotation bracket becomes a large swept positional arc for child debris even when the child's own local offset samples are valid.
@@ -22,6 +36,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Follow-up C (smooth-trajectory route):** the previous gate hid the debris during the unstable window, which playtest reported looked worse than the chaotic motion the gate was suppressing -- ~2 s of vanished mesh + a single-frame teleport at release of up to 845 m in run-1 logs. The action on a fired gate is now "render via the recording's `absoluteFrames` shadow lerp + suppress FX/events" instead of "hide mesh + FX teardown." `TryHideForAnchorRotationUnreliable` became `TryRouteAnchorRotationUnreliable` returning `AnchorRotationUnreliableRoute` (None / ShadowPositioned / Hidden); a new `IGhostPositioner.TryPositionFromRelativeAbsoluteShadow` reuses the existing `InterpolateAndPosition` helper with `target.Section.absoluteFrames`, so body / altitude / GhostPosEntry FloatingOrigin reapply / `InterpolationResult` population are all reused from the legacy v11 shadow path. Recordings without `absoluteFrames` route to `Hidden` and run the legacy hide path. The router fires from all three gate callsites (non-loop `RenderInRangeGhost`, primary loop `PositionLoopAtPlaybackUT`, overlap loop via `UpdateExpireAndPositionOverlaps -> PositionLoopAtPlaybackUT`); a sibling `state.anchorRotationShadowRoutedThisFrame` flag carries the shadow-route signal back to the post-position pipeline so FX/events suppress for the frame even though the mesh stays active. Phase D boundary stays crisp: shadow is read only after the gate has positively classified the parent chain unreliable, only as recorded data, never a substitute for live anchors. Plan: `docs/dev/plans/debris-smooth-trajectory-during-tumble.md`. Transition-blend across route flips and additional unit/in-game tests are tracked as further follow-ups.
 
 **Known further follow-ups:** transition-blend over wall-clock 0.15 s (capped at 6 frames) on route-edge frames where chain-pose vs shadow-pose delta exceeds 5 m -- not yet implemented; the plan calls for instrumentation-first tuning (if 95th-percentile delta is well below 5 m on first playtest, drop the blend entirely). In-game `TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable` test that asserts `dM` stays within 5x of `expectedDM` through the chaos window. Optional rotation-jitter follow-up if mesh-rotation popping is visible in playtest (the shadow's own `srfRelRotation` slerp is bounded -- no lever-arm amplification -- but is not guaranteed to match the actual sub-sample rotation path).
+
+---
+
+## Done - v0.9.2 phantom engine audio after decouple
+
+- ~~In watch mode, after a stage decoupled mid-recording the parent ghost kept emitting the upper-stage engine sound — even after the (now-debris) subtree carrying that engine had hit the ground / water and exploded.~~ Reproduced by `logs/2026-05-10_1014_watch-engine-sound-after-explosion`. User watched Kerbal X #0 (parent capsule, no engines visible). Engine `pid=2032658568` (`liquidEngine2-2.v2`, upper stage) ignited at 10:10:22.104, decoupled into debris ghost #9 at 10:10:24.807, which fell and exploded at 10:10:42.324 muting only its own audio. The parent's matching audio source kept playing for ~10s longer, until the chain transition at 10:10:52.053 finally tore it down (`Cleanup: stopped 1 audio source(s) for 'Kerbal X'`). Root cause in `GhostPlaybackLogic.ApplyDecoupledPartEvent`: `HidePartSubtree` walks the entire subtree below the decoupler and `SetActive(false)`s every descendant, but `StopEngineFxForPart` / `StopRcsFxForPart` / `StopAudioForPart` were called only on the decoupler's own pid. Audio sources had been reanchored to the ghost's `cameraPivot` at spawn (`AttachGhostAudioToWatchPivot`), so hiding the part visual no longer took the audio with it — the parent's `state.audioInfos[engineKey]` survived with `currentPower > 0` and kept emitting through `cameraPivot`.
+
+**Fix:** Added `StopFxAndAudioForSubtree` in `GhostPlaybackLogic.cs` that walks the same subtree as `HidePartSubtree` (stack-based, uses `state.partTree`) and calls the per-pid `StopEngineFxForPart` / `StopRcsFxForPart` / `StopAudioForPart` for every pid in the subtree. `ApplyDecoupledPartEvent` replaces its three single-pid stop calls with one call to the new helper. The null-tree fallback walks only the root pid, matching `HidePartSubtree`'s null-tree branch. A `[GhostAudio] Stopped FX/audio for decoupled subtree rooted at pid=...` summary log fires when the walk visits more than one pid.
+
+**Coverage:** `DecoupledSubtreeAudioStopTests` covers the pure subtree-walk side of the fix — `CollectSubtreePids_DecouplerWithEngineAndRcsChildren_ReturnsAllThree`, `CollectSubtreePids_DeepSubtree_VisitsAllDescendants`, `CollectSubtreePids_NullTree_ReturnsRootOnly`, `CollectSubtreePids_TreeMissingRootEntry_ReturnsRootOnly`, `CollectSubtreePids_TreeWithSiblingBranch_DoesNotCrossBranches`, and `StopFxAndAudioForSubtree_NullState_NoThrow`. The integrated audio-stop side is covered by the in-game test `StopFxAndAudioForSubtree_DecoupledChildEngineAudioStops` (real `AudioSource.Play()` on a child engine pid + decoupler subtree walk asserting `isPlaying == false` and `currentPower == 0`) — the per-pid Stop helpers reference Unity ECalls and cannot run from xUnit.
 
 ---
 
@@ -117,13 +141,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - radial booster debris origin alignment remains inexact after initial-slide fix
+## Done - radial booster debris origin alignment remains inexact after initial-slide fix
 
 - The retained `logs/2026-05-09_0042_radial-booster-position-inexact` bundle shows PR #776's hide/clamp path working (`firstFrameClamped=T`, first visible frames are Relative, no `SinglePoint` fallback), but radial side-booster debris still appears a few metres offset from the expected decoupler/booster contact. The concrete recordings (`61573dc3`, `5679c491`, `f44b52af`, `cf08fb37`) all root their ghost craft at `radialDecoupler1-2`, while the visible booster tank is a child offset from that root. See `docs/dev/plans/investigate-radial-debris-origin.md`.
 - **Fix direction:** the retained `logs/2026-05-09_1135_radial-debris-diagnostics` bundle showed the seed and split callback already matching the radial-decoupler root (`rootMatchesPendingJointChildSeed=T`), while the first ordinary loaded-background samples were vessel-pose samples `2.9-4.0 m` away from the live root part. PR #780 routes v12+ parent-anchored debris ordinary background samples through root-part surface pose so the seed, ordinary samples, Relative frames, absolute shadow, and ghost visual root share the same reference. Follow-up logs from `logs/2026-05-09_1229_radial-debris-too-far-forward` proved that fix landed (`absolute-root` about `0.01 m`) and exposed the remaining seed bridge: the structural seed was still converted against the live parent pose at background initialization about `0.52 s` later, producing tens-of-metres local offsets and causing playback to hide until the first ordinary sample. `logs/2026-05-09_1312_radial-booster-init-still-forward-latest` then showed why the recorded-parent lookup did not fire: the final saved parent sidecar has the seed-UT sections, but the active parent tree recording has not flushed its open TrackSection when `InitializeLoadedState` runs. PR #780 now queues the active recorder's structural parent point for focused breakup debris and consumes that queued split-UT parent pose before falling back to the tree resolver or live parent pose. Contact-node correction remains deferred unless post-fix logs show a smaller residual interface offset.
 - **Follow-up fix (`logs/2026-05-09_1416_radial-booster-still-too-forward-after-pr780-revert`):** After PR #780 the seed alignment was correct (`seed-anchor` magnitude matched the booster→parent vesselTransform distance), but every first-ordinary sample collapsed to a much smaller offset. The recorder's live anchor pose for relative recordings used `liveAnchor.GetWorldPos3D()` (CoM, per the decompiled `CoMD` path) for the position field while the rotation field used `liveAnchor.transform.rotation` (vesselTransform), and KSP's `UpdatePosVel` writes `Vessel.latitude/longitude/altitude` from `vesselTransform.position` so playback's `body.GetWorldSurfacePosition` resolves to vesselTransform-aligned. The position/rotation reference asymmetry baked the parent's CoM-to-vesselTransform vector (~10 m for Kerbal X) into every ordinary offset, rendering radial booster ghosts ~10 m forward of true position throughout playback. Fix: live anchor position now uses `(Vector3d)liveAnchor.transform.position` (explicitly `vessel.transform`, not `GetTransform()` — the latter follows `ReferenceTransform` / "Control From Here" which is a separate contract) in `BackgroundRecorder.TryResolveBackgroundAnchorPoseForCandidate`, `FlightRecorder.TryResolveAnchorPoseForCandidate`, the debris seed fallback in `BackgroundRecorder.InitializeLoadedState`, the loop-relative playback path (`ParsekFlight.TryResolveLoopLiveAnchorPose` — also covers the LateUpdate reapplication call site), and `ProductionAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos`. The recorder and playback now share the same vesselTransform contract end-to-end.
 
-**Status:** OPEN 2026-05-09 pending in-game validation of the live-anchor vesselTransform fix.
+**Status:** CLOSED 2026-05-10. Live-anchor vesselTransform fix validated in-game.
 
 ---
 
@@ -197,7 +221,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - splashed-then-rest tail keeps Splashed terminal even on high-velocity water impact
+## Done - splashed-then-rest tail keeps Splashed terminal even on high-velocity water impact
 
 - During the 2026-05-07 playtest of the debris-rendering stack, a Re-Fly of the upper-stage capsule splashed at ~UT 16746 and the recorder produced an `eb8a39dd…` "Kerbal X" surface tail (`startUT=16742.2`, `endUT=16751.4`) with `terminal=Splashed` that KSC then rendered as a capsule "floating on the water" after impact (`logs/2026-05-07_2251_refly-after-anchor-fix/KSP.log:188742`, `:188780`, `:190153`). The user's expectation was that a hard impact should classify as Destroyed and not spawn a floating ghost — KSP's water-impact lenience marks `vessel.situation=SPLASHED` even when the impact velocity well exceeds the part's `crashTolerance`, so Parsek faithfully recorded what KSP said but visually the outcome looks wrong.
 - The optimizer split (`RecordingOptimizer.SplitAtSection` driven by `SplitBoundaryReason.SurfaceInvolved`) creates a brief surface tail at the atmospheric→surface boundary; that tail then inherits `TerminalStateValue` from the original via `RecordingOptimizer.cs:907 second.TerminalStateValue = original.TerminalStateValue;`. The KSC ghost spawn path renders any structurally-eligible Kerbin recording with a non-superseded `PlaybackEnabled` (`ParsekKSC.ShouldShowInKSC`), so the tail spawns regardless of whether its surface phase represents a meaningful "vessel rests here" state vs. a "moment of impact" tail.
@@ -212,13 +236,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 The user's framing in their 2026-05-07 review was "if the capsule impact should destroy it, the terminal classification/surface split is wrong" — they explicitly point at the classification side (option 1), not the rendering gate (option 3). Approach 1 is preferred but should ship as a focused PR with its own test surface; bundling it with the in-place fork ghost-snapshot fix introduced too much risk.
 
-**Status:** OPEN 2026-05-07. Design choice required from the user before implementation.
+**Status:** CLOSED 2026-05-10. The partial fix below covers the explicit-destruction path; the broader KSP water-impact lenience case is accepted as upstream behaviour and not pursued further.
 
 **Partial fix (2026-05-09):** `logs/2026-05-09_1135_radial-debris-diagnostics` exposed a narrower variant where `StopRecordingForChainBoundary` froze `CaptureAtStop` with `VesselDestroyed=false`, then `OnVesselWillDestroy` fired during the pending split before `FallbackCommitSplitRecorder` appended that stale capture. The pending-split fallback now bridges `FlightRecorder.VesselDestroyedDuringRecording` into the frozen capture's `VesselDestroyed` flag before tree append / standalone commit, so this explicit-destruction path persists the active capsule as `Destroyed` instead of letting scene-exit live-vessel finalization reclassify it as `Splashed`. `ChainSegmentManager.CommitSegmentCore` remains outside this partial fix because it services legacy chain commits, not the tree-mode `pendingSplitRecorder` path shown in this log; a separate legacy-chain stop/commit destruction race should get its own repro and fix. The broader KSP water-impact lenience case remains open for recordings that never get an explicit destruction callback.
 
 ---
 
-## Open - Splashed-on-ocean ghost mesh sinks below waterline during Watch playback
+## Done - Splashed-on-ocean ghost mesh sinks below waterline during Watch playback
 
 - During Watch on a Re-Fly tree's Splashed leaf (Kerbal X capsule, recording `39df7c67e074467fb14c1948fbe1600f`), the ghost capsule rendered with its mesh half-submerged in the ocean for the entire ~12 s playback window instead of bobbing at the waterline. Source: `logs/2026-05-06_2246_refly-vessel-spawn-debris-watch` — `Watch focus (transfer): rec=#1 ... vessel="Kerbal X" ... alt=0m ghostBody=Kerbin`, `Watch horizon basis: rec=#1 ... alt=0m` repeated for the duration of the watch hold, and the trajectory sidecar `saves/x6/Parsek/Recordings/39df7c67e074467fb14c1948fbe1600f.prec.txt` showing all 36 points at `alt = -0.1 .. 0.5` (sea-level root-part origin) with `clearance ≈ 641` against `recTerrain=-640.8 curTerrain=-640.8` from the `Pipeline-Terrain TailLift inactive` line.
 
@@ -226,11 +250,11 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 **Suspected fix:** Treat ocean splashdowns as a distinct surface case throughout the ghost altitude pipeline. `ParsekFlight.ApplyLandedGhostClearance` and `ParsekFlight.ClampGhostsToTerrain` should recognise when `body.ocean == true` and `pqsTerrain < 0`, then use `Math.Max(0, pqsTerrain)` as the floor reference and add a vessel-mesh half-height term (the same bug-#282 ~1.8 m floor for an mk1-3 pod, generalised from the ghost's combined renderer bounds via `GhostVisualBuilder` / `TryGetCombinedVisibleRendererBounds`). The active-playback path needs the same treatment — either route `IGhostPositioner.InterpolateAndPosition` (around `ParsekFlight.cs:17249-17263`) through a new `ApplySplashedSurfaceClearance` step that mirrors `ApplyLandedGhostClearance` for ocean terminals, or have `ResolvePhase7EffectiveAltitude` return `Math.Max(0, currentTerrain) + Math.Max(recordedGroundClearance, meshHalfHeight)` when the recording's `TerminalStateValue == TerminalState.Splashed` and the body has an ocean. The misleading "TerrainAltitude returns sea-level-corrected" comment in `Source/Parsek/Rendering/TerrainCacheBuckets.cs:229` should also be corrected — the log evidence (`recTerrain=-640.8`) shows it returns the raw PQS seafloor height even with `withOcean=true`.
 
-**Status:** OPEN 2026-05-06.
+**Status:** CLOSED 2026-05-10.
 
 ---
 
-## Open - capsule upper-stage staging unresponsive after Re-Fly load (suspected stock KSP bug — Parsek workaround shipped)
+## Done - capsule upper-stage staging unresponsive after Re-Fly load (suspected stock KSP bug — Parsek workaround shipped)
 
 - During a Re-Fly of the capsule's upper stage (slot=0 of `rp_14ac29c4...`), the player sat in the live upper-stage vessel for ~26 s with no engine ignition, no decoupler activation, no parachute deploy — then pressed Esc, cancelled out via the Re-Fly revert dialog with "Discard". Source: `logs/2026-05-06_2308_staging-broken-after-first-flight/KSP.log`. The session's recording at `[Recorder] Recording started: vessel="Kerbal X", parts=17, points=0, promotion, treeRec=rec[rec_1a2a|Kerbal X|tree|-]` (line 18348) ran to `[Recorder] Recording stopped. 82 points, 0 orbit segments over 18.4s` (line 22292) without emitting a single `[Recorder] Part event: Decoupled ...` or `[Recorder] Engine throttle ...` log line — the `[Recorder] Engine tracking: 'liquidEngine2-2.v2' pid=2032658568 midx=0 id=Engine` line (23:05:07.634) confirms the upper-stage engine module IS visible to Parsek, just never fires.
 
@@ -240,7 +264,7 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 **Suggested follow-up:** Repro on stock KSP with no mods (load any decoupling-boundary quicksave) to confirm the corruption is upstream. If yes, file with Squad / KSP Community Fixes. If `ResumeStaging` alone proves insufficient in some edge case, the next layer of workaround would also re-clamp `vessel.currentStage = max(part.inverseStage for part in vessel.parts) + 1` to force the "next-up" stage to point past the last actually-stageable slot.
 
-**Status:** WORKAROUND SHIPPED 2026-05-06; upstream-confirmation still open.
+**Status:** CLOSED 2026-05-10. Workaround shipped 2026-05-06; upstream stock-KSP repro is not being pursued further on the Parsek side.
 
 ---
 
@@ -569,11 +593,11 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 ---
 
-## Active - v0.9.1 ghost-watch separation jitter observability
+## Done - v0.9.1 ghost-watch separation jitter observability
 
 - New `[PlaybackTrace]` per-frame log line for the 5-second window after each structural separation event during ghost playback. Source: user reported "wobble and jitter" during ghost watch of `Kerbal X Probe` separation in `logs/2026-05-01_1731_watch-separation-wobble/`. The recording's track sections around UT 41.74 (upper-stage decouple) showed `ABS [..., 41.78] frames=2 → REL [41.78, 42.24] frames=1 → REL [42.24, 42.28] frames=2 → ABS [42.28, ...]`: a 0.46-second relative section with one shadow point. The forward-bridge mechanism interpolates linearly across the gap to the next absolute section's first frame at 42.28, but the live KSP.log has no per-frame ghost world position to confirm whether the visual jitter comes from the sparse interpolation, a section-boundary handoff, or an anchor offset glitch. **Why this exists:** the existing one-shot `[GhostAppearance]` line on first ghost activation and the section-level `RELATIVE absolute shadow playback` summary do not show per-frame motion; we cannot tell from current logs whether two consecutive frames are a smooth 50 m/s of motion or a 1 km teleport. **Wire-up (`Source/Parsek/PlaybackTrace.cs` + `GhostPlaybackEngine.cs`):** a `MaybeEmitFrame` call sits after the positioner block in `GhostPlaybackEngine.RenderInRangeGhost` (after `state.ghost.transform.position` is final, before / outside the retired branch). The call is a no-op outside the gate window. **Gate:** `IsInPostStructuralEventWindow(traj, currentUT)` returns true when `currentUT` is within `PostEventWindowSeconds = 5.0` of a `TrajectoryPoint` carrying `TrajectoryPointFlags.StructuralEventSnapshot` (bit 0). Per-recording cache of structural-event UTs (sorted ascending, defensive) lazily built on first query and cleared on `DestroyAllGhosts`. **Output line:** `rec=<short> #<idx> ut=<F3> sec=<idx> [<startUT>,<endUT>] ref=<Absolute|Relative|...> worldPos=(x,y,z) dM=<F2> dSpd=<F1> [sectionCrossed]` — the `dM` / `dSpd` come from the previous trace frame for this same `(recordingId, ghostIdx)` cursor, and `sectionCrossed` flags the frame where `FindTrackSectionForUT` returned a different section index than the previous trace frame. **On by default:** no settings toggle — the trace fires automatically whenever a ghost is within 5 s of a structural-event flag in its trajectory, and stays silent during cruise. The retired (anchor-unresolvable) branch in `RenderInRangeGhost` skips the trace because its (0,0,0) transform would pollute the delta computation; the next non-retired frame establishes a fresh cursor. **Coverage:** 16 unit tests in `PlaybackTraceTests.cs` — gate (null/empty rec id, no flags, exact-match / 0.5s / 4s / 5s / 5.001s / way-after, multiple events tracking most-recent, defensive sort on unsorted Points, before-any-event), cache lifecycle (lazy populate, empty-list memoization, Reset clears), and end-to-end emission (outside-window silence, in-window line shape, two-frame delta math, section-crossed marker, missing-TrackSections fallback to `sec=-1` / `[?,?]`).
 
-**Status:** Observability wired up; Phases A-C of `docs/dev/plans/ghost-anchor-recording-chain-plan.md` landed the v11 schema, recorder anchor selection, and playback chain handoff. Headless coverage now pins the engine/positioner target contract, multi-link resolver failures, and production boundary resolver fencing. The KSP-only validation remains open: re-capture or synthesize the `logs/2026-05-01_1731_watch-separation-wobble/` fixture under v11, replay the UT 41.74-46.74 separation window with `[PlaybackTrace]` enabled, and preserve the trace showing smooth `dM` / `dSpd` before Phase D deletion work.
+**Status:** CLOSED 2026-05-10. Observability wired up and Phases A-C landed; Phase D deletion work has since shipped (see Done items above). Headless coverage pins the engine/positioner target contract, multi-link resolver failures, and production boundary resolver fencing. The follow-up KSP-only fixture replay was overtaken by subsequent v11/v12 anchor-chain fixes that resolved the original wobble class — no further validation campaign needed.
 
 **Watch boundary follow-up (2026-05-03):** `logs/2026-05-03_0059_newest/` showed a separate Watch-only section-boundary jump after the Re-Fly fixes. The parent recording's absolute section ended at UT `2528.584`, but its last section-local frame was still UT `2528.504`; normal Watch playback clamped to that stale frame until the next absolute section activated, then jumped about `122m`. Fix: normal absolute-section playback now builds a playback-only bridged frame list when a section's own frames do not bracket its declared start/end, borrowing at most one adjacent absolute playback frame from the previous/next section. Relative neighbours contribute only their `absoluteFrames` shadow; Relative metre-offset `frames` remain fenced out. `GhostRenderTrace` remains available for this class of investigation but is now behind a disabled-by-default diagnostics setting after the bundle produced more than 200k render-trace rows and dominated Watch performance; the diagnostics toggle is persisted through the external settings store so enabling it in-game survives the scene reload before Watch/Re-Fly starts.
 
@@ -781,11 +805,13 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 
 ---
 
-## TODO - Relative frame decouple distance overflow
+## Done - Relative frame decouple distance overflow
 
 - `logs/2026-05-01_1545_optimizer-merge-investigation/KSP.log` logged `RELATIVE mode exited` with `dist=1.79e+308m` immediately after the decouple at UT 279.53. This did not affect the reported playback because the chain was classified Absolute by the time it played, but the double.MaxValue-like displacement points to a degenerate relative-frame distance calculation at the decouple boundary.
 
-**Status:** OPEN.
+**Fix:** RELATIVE exit diagnostics now render unresolved anchor distances as `dist=unresolved` instead of formatting the `double.MaxValue` sentinel as metres.
+
+**Status:** DONE.
 
 ---
 
@@ -1265,9 +1291,9 @@ if a stock or modded UI exposes a clickable affordance, the overlay candidate
 set and the click-block predicate must share the same `MilestoneStore` source
 helper, with any UI-only suppression kept outside the click-block predicate.
 
-## 639. FinalizerCache patched-conic atmospheric tail can refresh to `Orbiting` from a future segment
+## ~~639. FinalizerCache patched-conic atmospheric tail can refresh to `Orbiting` from a future segment~~
 
-**Status:** TODO - investigated 2026-05-01, not fixed by the active-recorder destruction override.
+**Status:** CLOSED 2026-05-10. Investigated 2026-05-01; the active-recorder destruction override is the authoritative source for terminal classification at destroy time, so the cache thrash is a diagnostic artefact rather than a correctness bug. Closing as not-pursued; reopen if a future path emerges that depends on the cache without `VesselDestroyedDuringRecording` as override.
 
 Source: `logs/2026-05-01_1358_suborbital-vs-destroyed/KSP.log`. The active recorder's finalizer cache flipped from `Destroyed` earlier in flight (`terminal=Destroyed` at lines 9482, 9555, 9912) to `Orbiting` near destruction (`terminal=Orbiting` at lines 11181 and 11437). At the destroy event, `Extrapolator Start` logged `ut=611.574` while the actual recorder/game UT was about `61.1` (`OnVesselWillDestroy:entry ... ut=61.1` at line 11432).
 
@@ -1275,7 +1301,7 @@ Call-site evidence: `FlightRecorder.RefreshFinalizationCache` passes `Planetariu
 
 Impact: the active-recorder destruction fix no longer depends on this cache, but cache thrash can still make diagnostics misleading and may affect other paths that do not have `VesselDestroyedDuringRecording` as an authoritative override. Future fix candidates: detect stale/future atmospheric patched-conic tails at destruction-time refresh, clamp or reject predicted segment starts that are implausibly far from `refreshUT` while the live vessel is still low in atmosphere, or add an atmospheric-body impact short-circuit with terrain/atmosphere validation instead of falling through to a 50-year horizon cap.
 
-## 638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan
+## ~~638. Historical reference: Re-Fly post-merge RELATIVE-to-ABSOLUTE promotion plan~~
 
 **Status:** Historical, deferred — not active correctness work.
 
@@ -1293,7 +1319,7 @@ parent-chain discovery must be transitive and #614-safe, zero PIDs never
 match, and legacy v6 or partial-shadow skips must retain explicit runtime
 fallback or warning semantics.
 
-## 637. Track remaining refactor opportunities after Refactor-4 archive
+## ~~637. Track remaining refactor opportunities after Refactor-4 archive~~
 
 **Status:** TODO - active reference in
 `docs/dev/plans/refactor-remaining-opportunities.md`, reconciled 2026-04-30.
@@ -2278,10 +2304,7 @@ Review follow-ups raised during the `2026-04-25_0153` post-landing review (desig
 
 Follow-up from `logs/2026-05-07_2040_ts-materialize-list-state`: materialize now forces an immediate Tracking Station ghost-lifecycle pass and explicitly rebuilds stock `SpaceTracking.buildVesselsList` after TS vessel mutations, so newly visible post-warp ghosts and the spawned real vessel appear in the left-side list without waiting for the periodic lifecycle/list refresh. The same cleanup path is used when the Tracking Station control surface hides ghosts, dismissing any ghost popup/focus state before rebuilding the stock list. Spawned-vessel focus retries back off to a 0.1s cadence and cancel if the user selects another ghost or real vessel after the retry is scheduled, while treating same-recording atmospheric marker selection and stale stock selection from before materialization as stable.
 
-The remaining latent carryover items below are tracked in the design doc under Known Limitations / Future Work and are not yet addressed:
-
-- Index-to-recording-id refactor to lift the 13 grep-audit exemptions added in Phase 3.
-- Halt `EffectiveRecordingId` walk at cross-tree boundaries (v1 does not produce cross-tree supersedes; latent-invariant guard).
+All previously-tracked latent carryover items in this section have been closed (2026-05-10). The original list lives in the design doc under Known Limitations / Future Work for historical reference.
 
 ---
 
@@ -2682,7 +2705,7 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
-## 613. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin
+## ~~613. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin~~
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Bug B in the
 3-bug post-fix playtest. After a Re-Fly rewind, recording #9 ("Kerbal X")
@@ -2936,7 +2959,7 @@ resolver, inclusive final RELATIVE-section lookup, single-point RELATIVE
 routing decision, loop-anchor fallback, zero-anchor retire routing, and
 ABSOLUTE-section non-match.
 
-**Status:** Open until merged.
+**Status:** CLOSED 2026-05-10. PR #594 merged (commit `b2ab5943`).
 
 ---
 
@@ -4592,7 +4615,7 @@ and asserts both targets are still killed.
 
 ---
 
-## 588. Ghost upper stage destroyed at SOI change to Mun and never re-created — `state-vector-from-orbital-checkpoint` skip blocks the fallback
+## ~~588. Ghost upper stage destroyed at SOI change to Mun and never re-created — `state-vector-from-orbital-checkpoint` skip blocks the fallback~~
 
 **Source:** same playtest as #585. User: "after rewind, watching the
 upper stage get to the Mun — the ghost position in Mun orbit was not
@@ -4664,7 +4687,7 @@ or outside-window cases. Covered by
 `GhostMapSoiGapStateVectorTests` plus the explicit opt-in branch in
 `StateVectorWorldFrameTests`.
 
-**Status:** ~~done~~.
+**Status:** CLOSED. Fix shipped via the `StateVectorSoiGap` source carve-out described above; covered by `GhostMapSoiGapStateVectorTests`.
 
 ---
 
@@ -6208,15 +6231,17 @@ The regression uses the policy spawn override, matching existing headless
 
 **Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), especially the traced Kerbin-launch-to-Mun-landing scenario.
 
-**Concern:** the optimizer only splits on environment-class changes, not body changes, so a long exo segment can legitimately span Kerbin orbit, transfer coast, and Mun orbit while still inheriting `SegmentBodyName` from its first trajectory point. The current result is structurally correct and loopable, but the player-facing label can still read like a lie (`Kerbin` even though the recording includes Mun orbit time). We need a deliberate decision here instead of leaving it as an accidental quirk: either keep the single exo segment and surface a multi-body label (`Kerbin -> Mun`), or introduce an optional body-change split criterion if that proves clearer in practice.
+**Concern:** the optimizer split behavior around same-class Exo body changes needed an explicit decision. A long exo segment can legitimately span Kerbin orbit, transfer coast, and Mun orbit while still inheriting `SegmentBodyName` from its first trajectory point. The current result is structurally correct and loopable, but the player-facing label can still read like a lie (`Kerbin` even though the recording includes Mun orbit time). We need a deliberate decision here instead of leaving it as an accidental quirk: either keep the single exo segment and surface a multi-body label (`Kerbin -> Mun`), or introduce an optional body-change split criterion if that proves clearer in practice.
 
 **Files:** `Source/Parsek/RecordingOptimizer.cs`, `Source/Parsek/RecordingStore.cs`, timeline/recordings UI that renders `SegmentBodyName`, `docs/dev/recording-optimizer-review.md`.
 
-**Status:** TODO. Likely UX/research follow-up, not a v0.8.3 ship blocker.
+**Fix:** Chose the cohesive-recording option for coasting ExoBallistic SOI transitions. `RecordingOptimizer` now keeps Kerbin ExoBallistic -> Mun ExoBallistic boundaries in one recording, while preserving splits for environment-class changes, ExoPropulsive SOI boundaries, and non-Exo body changes. Recordings table/timeline labels build a display-only body path from trajectory/TrackSection payloads (`Kerbin -> Mun exo`) without mutating `SegmentBodyName`, so map/orbit rendering continues to read body names from `OrbitSegments` and trajectory points at runtime.
+
+**Status:** CLOSED 2026-05-10. Fixed for v0.9.2.
 
 ---
 
-## 548. Static background continuations and all-boring surface leaf segments should not read like empty ghost recordings
+## ~~548. Static background continuations and all-boring surface leaf segments should not read like empty ghost recordings~~
 
 **Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), issues 1 and 2.
 
@@ -6228,11 +6253,13 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Files:** `Source/Parsek/BackgroundRecorder.cs`, `Source/Parsek/RecordingOptimizer.cs`, recordings/timeline UI that lists committed segments, `docs/dev/recording-optimizer-review.md`.
 
-**Status:** TODO. UX cleanup / follow-up analysis.
+**Fix:** Added a read-time `RecordingVisualClassifier` and Recordings window badges for the two visually empty-but-valid shapes. Surface-position/time-range placeholders with no playable trail now render with a `static` status, and terminal leaf recordings whose visible sections are all stationary/coasting with no non-inert events render with `stationary` or a terminal-preserving suffix such as `Landed still`. The rows stay visible and retain their normal rename/group/archive/Watch/Re-Fly affordances; no recording schema, optimizer trimming, spawn, map-presence, or Watch behavior changed. Plan: `docs/dev/plans/fix-548-recording-visual-classifier.md`.
+
+**Status:** Done.
 
 ---
 
-## 549. Recording optimizer needs end-to-end branch-point coverage when tree recordings are split post-commit
+## ~~549. Recording optimizer needs end-to-end branch-point coverage when tree recordings are split post-commit~~
 
 **Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), issue 5.
 
@@ -6240,7 +6267,9 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Files:** `Source/Parsek.Tests/RecordingOptimizer*`, `Source/Parsek.Tests/RecordingStore*`, any integration-style optimizer/tree fixture that exercises `RunOptimizationPass` on a multi-stage tree with branch points.
 
-**Status:** TODO. Medium-priority coverage gap.
+**Coverage:** `RecordingOptimizerTests.RunOptimizationPass_MultiStageTree_SplitsChildBranchesAndPreservesBranchTopology` covers a non-Re-Fly multi-stage tree where optimized recordings are both children of upstream branch points and parents of downstream branch points. It pins downstream `ChildBranchPointId` placement, exact `BranchPoint.ParentRecordingIds` relinking, the intentional upstream `ChildRecordingIds` invariant, chain indexing, committed-tree dictionary membership, root-lineage traversal, and `GhostChainWalker.ComputeAllGhostChains` claim/tip resolution from an optimizer-rewritten chain tail.
+
+**Status:** CLOSED 2026-05-10. Test-only coverage fix.
 
 ---
 

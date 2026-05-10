@@ -10105,41 +10105,59 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
-            Description = "#265: OneShotAudio pause/unpause path works")]
-        public IEnumerator PauseUnpauseAudio_OneShotPath()
+            Description = "Phantom-engine-after-decouple regression: StopFxAndAudioForSubtree must stop a child engine's looping AudioSource on the parent ghost when the decoupler fires, not just the decoupler's own pid.")]
+        public IEnumerator StopFxAndAudioForSubtree_DecoupledChildEngineAudioStops()
         {
-            var go = new GameObject("ParsekTest_OneShotAudio");
-            runner.TrackForCleanup(go);
-            var audioSource = go.AddComponent<AudioSource>();
-            audioSource.clip = AudioClip.Create("test_oneshot", 44100, 1, 44100, false);
-            audioSource.loop = true;
-            audioSource.volume = 0f;
-            audioSource.Play();
+            const uint decouplerPid = 100;
+            const uint enginePid = 200;
+            ulong engineKey = FlightRecorder.EncodeEngineKey(enginePid, 0);
+
+            var engineGo = new GameObject("ParsekTest_DecoupledEngineAudio");
+            runner.TrackForCleanup(engineGo);
+            var engineSource = engineGo.AddComponent<AudioSource>();
+            engineSource.clip = AudioClip.Create("test_decoupled_engine", 44100, 1, 44100, false);
+            engineSource.loop = true;
+            engineSource.volume = 0f;
+            engineSource.Play();
 
             yield return null;
-
-            InGameAssert.IsTrue(audioSource.isPlaying,
-                "OneShotAudio should be playing before pause");
+            InGameAssert.IsTrue(engineSource.isPlaying,
+                "Engine AudioSource should be playing before the decouple");
 
             var state = new GhostPlaybackState
             {
-                oneShotAudio = new OneShotAudioInfo { audioSource = audioSource }
+                audioInfos = new Dictionary<ulong, AudioGhostInfo>
+                {
+                    {
+                        engineKey,
+                        new AudioGhostInfo
+                        {
+                            partPersistentId = enginePid,
+                            moduleIndex = 0,
+                            audioSource = engineSource,
+                            currentPower = 1f
+                        }
+                    }
+                },
+                partTree = new Dictionary<uint, List<uint>>
+                {
+                    { decouplerPid, new List<uint> { enginePid } }
+                }
             };
 
-            GhostPlaybackLogic.PauseAllAudio(state);
+            GhostPlaybackLogic.StopFxAndAudioForSubtree(state, decouplerPid, state.partTree);
             yield return null;
 
-            InGameAssert.IsFalse(audioSource.isPlaying,
-                "OneShotAudio should be paused after PauseAllAudio");
-
-            GhostPlaybackLogic.UnpauseAllAudio(state);
-            yield return null;
-
-            InGameAssert.IsTrue(audioSource.isPlaying,
-                "OneShotAudio should resume after UnpauseAllAudio");
+            // Pre-fix: only decouplerPid's audio info would be processed, so the
+            // engine child's AudioSource would keep playing. Post-fix: subtree
+            // walk reaches the engine and StopAudioForPart stops it.
+            InGameAssert.IsFalse(engineSource.isPlaying,
+                "Engine AudioSource on a child of the decoupled subtree must be stopped, not just the decoupler's own pid");
+            InGameAssert.ApproxEqual(0f, state.audioInfos[engineKey].currentPower, 0.001f,
+                "Engine currentPower must be cleared by the subtree walk");
 
             ParsekLog.Verbose("TestRunner",
-                "OneShotAudio pause/unpause cycle verified");
+                "Phantom-engine-after-decouple regression: subtree walk stopped the child engine's AudioSource on decouple");
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.SPACECENTER,
@@ -10158,12 +10176,12 @@ namespace Parsek.InGameTests
                     UnityEngine.Object.FindObjectsOfType<AudioSource>()
                         .Select(source => source.GetInstanceID()));
 
-                bool queued = GhostPlaybackLogic.TryPlayExplosionOneShotWithAudioGate(
+                bool queued = GhostPlaybackLogic.TryPlayIndependentExplosionOneShot(
                     ghostRoot.transform.position,
                     atmosphereFactor: 1f,
                     distanceMeters: 0.0,
+                    power: 0.5,
                     contextDescription: "KSC in-game fallback audio test",
-                    busyLogKey: "ksc-ingame-fallback-audio-busy",
                     resolveExplosionAudioCandidate: () => new GhostPlaybackLogic.ExplosionOneShotAudioCandidate
                     {
                         canPlay = true,
@@ -10175,7 +10193,7 @@ namespace Parsek.InGameTests
                     });
 
                 InGameAssert.IsTrue(queued,
-                    "KSC fallback explosion audio should queue when the global gate is free");
+                    "KSC fallback explosion audio should queue an independent AudioSource");
                 yield return null;
 
                 var createdSource = UnityEngine.Object.FindObjectsOfType<AudioSource>()
@@ -10222,113 +10240,6 @@ namespace Parsek.InGameTests
             }
         }
 
-        [InGameTest(Category = "ExplosionFx", Scene = GameScenes.FLIGHT,
-            Description = "Visual-only stock explosion spawn: instantiates an FXMonger explosion prefab with audio muted; run from Ctrl+Shift+T in the Flight scene")]
-        public IEnumerator TryInstantiateStockExplosionVisual_LiveFxMonger_SpawnsMutedPrefab()
-        {
-            FXMonger fetch = GhostVisualBuilder.ResolveLiveFxMonger();
-            if (fetch == null)
-            {
-                InGameAssert.Skip("FXMonger.fetch not live in this scene");
-                yield break;
-            }
-
-            // Snapshot existing AudioSources so we can find the new ones (if any) the
-            // visual-only spawn produced and verify they were muted.
-            var beforeIds = new HashSet<int>(
-                UnityEngine.Object.FindObjectsOfType<AudioSource>()
-                    .Select(s => s.GetInstanceID()));
-
-            // Snapshot the live FXMonger.explosionObjects count so we can assert the
-            // visual-only spawn registers exactly one entry (registration is what makes
-            // FXMonger.OffsetPositions cover the spawn on Krakensbane / floating-origin
-            // shifts; without it the visual would jump on a frame-origin reset).
-            List<FXObject> explosionObjects = GhostVisualBuilder.ResolveFxMongerExplosionObjects(fetch);
-            InGameAssert.IsNotNull(explosionObjects,
-                "FXMonger.explosionObjects must be reachable via reflection for floating-origin tracking");
-            int beforeCount = explosionObjects.Count;
-
-            Vector3 spawnPos = FlightGlobals.ActiveVessel != null
-                ? FlightGlobals.ActiveVessel.transform.position
-                  + FlightGlobals.ActiveVessel.transform.forward * 200f
-                : Vector3.zero;
-
-            bool ok = GhostVisualBuilder.TryInstantiateStockExplosionVisual(
-                spawnPos,
-                power: 0.5,
-                out string failureReason);
-            InGameAssert.IsTrue(ok,
-                $"TryInstantiateStockExplosionVisual must succeed with a live FXMonger: {failureReason}");
-
-            // Allow Unity one frame to instantiate the prefab and run any Awake/Start logic.
-            yield return null;
-
-            // Inspect any newly-introduced AudioSources — the visual-only path mutes them
-            // (and stops them, and disables playOnAwake) so they should not be playing.
-            var newSources = UnityEngine.Object.FindObjectsOfType<AudioSource>()
-                .Where(s => s != null && !beforeIds.Contains(s.GetInstanceID()))
-                .ToList();
-            for (int i = 0; i < newSources.Count; i++)
-            {
-                var src = newSources[i];
-                runner.TrackForCleanup(src.gameObject);
-                InGameAssert.IsTrue(src.mute,
-                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must be muted");
-                InGameAssert.IsFalse(src.isPlaying,
-                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must not be playing");
-                InGameAssert.IsFalse(src.playOnAwake,
-                    $"Visual-only stock explosion AudioSource '{src.gameObject.name}' must have playOnAwake=false");
-            }
-
-            // Verify registration: the spawn added exactly one FXObject whose effectObj
-            // sits at our spawnPos. We deliberately do not equality-compare against any
-            // GameObject reference because the registered entry is owned by FXMonger now;
-            // tracking by position is enough to prove the registration ran.
-            int afterCount = explosionObjects.Count;
-            InGameAssert.AreEqual(beforeCount + 1, afterCount,
-                $"Visual-only spawn must register exactly one FXObject; before={beforeCount} after={afterCount}");
-            FXObject registered = explosionObjects[afterCount - 1];
-            InGameAssert.IsNotNull(registered,
-                "Newly-registered FXObject must not be null");
-            InGameAssert.IsNotNull(registered.effectObj,
-                "Registered FXObject.effectObj must reference the live spawn GameObject");
-            runner.TrackForCleanup(registered.effectObj);
-            InGameAssert.ApproxEqual(spawnPos.x, registered.effectObj.transform.position.x, 0.01f,
-                "Registered FXObject root position X must match spawnPos");
-            InGameAssert.ApproxEqual(spawnPos.y, registered.effectObj.transform.position.y, 0.01f,
-                "Registered FXObject root position Y must match spawnPos");
-            InGameAssert.ApproxEqual(spawnPos.z, registered.effectObj.transform.position.z, 0.01f,
-                "Registered FXObject root position Z must match spawnPos");
-
-            // Verify floating-origin tracking actually applies to the spawn: simulate a
-            // 100 m Krakensbane shift by calling FXMonger.OffsetPositions directly and
-            // checking the registered root transform moved by the offset. This is the
-            // exact path FloatingOrigin.SetOffset takes after a recentre (decompiled
-            // FloatingOrigin ~line 721).
-            Vector3 preOffsetPos = registered.effectObj.transform.position;
-            Vector3d offset = new Vector3d(100.0, 0.0, 0.0);
-            FXMonger.OffsetPositions(offset);
-            yield return null;
-            Vector3 postOffsetPos = registered.effectObj.transform.position;
-            InGameAssert.ApproxEqual(preOffsetPos.x + 100f, postOffsetPos.x, 0.1f,
-                "Visual-only spawn must follow FXMonger.OffsetPositions on the X axis");
-            InGameAssert.ApproxEqual(preOffsetPos.y, postOffsetPos.y, 0.1f,
-                "Visual-only spawn Y axis must be unchanged by an X-only offset");
-            InGameAssert.ApproxEqual(preOffsetPos.z, postOffsetPos.z, 0.1f,
-                "Visual-only spawn Z axis must be unchanged by an X-only offset");
-
-            // Reverse the offset so we don't leave the test FX shifted away from the
-            // active vessel (cosmetic only — the prefab self-destructs after particles
-            // expire, but the shift is visible during that window).
-            FXMonger.OffsetPositions(-offset);
-
-            ParsekLog.Verbose("TestRunner",
-                $"Visual-only stock explosion spawned at {spawnPos}; new audio sources={newSources.Count} (all muted); " +
-                $"explosionObjects registered: {beforeCount}→{afterCount}; offset shift: " +
-                $"({preOffsetPos.x:F1},{preOffsetPos.y:F1},{preOffsetPos.z:F1}) → " +
-                $"({postOffsetPos.x:F1},{postOffsetPos.y:F1},{postOffsetPos.z:F1})");
-        }
-
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
             Description = "#265: Engine-level PauseAllGhostAudio/UnpauseAllGhostAudio iterates all ghost states")]
         public void EngineLevel_PauseUnpauseGhostAudio_NoCrash()
@@ -10369,12 +10280,6 @@ namespace Parsek.InGameTests
             engineSource.spatialBlend = 1f;
             engineSource.panStereo = 0.35f;
 
-            var oneShotAudioRoot = new GameObject("ghost_audio_oneshot");
-            oneShotAudioRoot.transform.SetParent(ghostRoot.transform, false);
-            var oneShotSource = oneShotAudioRoot.AddComponent<AudioSource>();
-            oneShotSource.spatialBlend = 1f;
-            oneShotSource.panStereo = -0.4f;
-
             var result = new GhostBuildResult
             {
                 audioInfos = new List<AudioGhostInfo>
@@ -10385,10 +10290,6 @@ namespace Parsek.InGameTests
                         moduleIndex = 0,
                         audioSource = engineSource
                     }
-                },
-                oneShotAudio = new OneShotAudioInfo
-                {
-                    audioSource = oneShotSource
                 }
             };
 
@@ -10400,20 +10301,12 @@ namespace Parsek.InGameTests
                 "Part visuals should stay under the ghost root when audio is re-anchored");
             InGameAssert.IsTrue(engineSource.transform.parent == cameraPivot.transform,
                 "Engine ghost audio should be parented to cameraPivot");
-            InGameAssert.IsTrue(oneShotSource.transform.parent == cameraPivot.transform,
-                "One-shot ghost audio should be parented to cameraPivot");
             InGameAssert.IsTrue(engineSource.transform.localPosition == Vector3.zero,
                 "Engine ghost audio should sit at the watch pivot local origin");
-            InGameAssert.IsTrue(oneShotSource.transform.localPosition == Vector3.zero,
-                "One-shot ghost audio should sit at the watch pivot local origin");
             InGameAssert.ApproxEqual(0f, engineSource.panStereo, 0.0001f,
                 "Engine ghost audio panStereo should stay centered");
-            InGameAssert.ApproxEqual(0f, oneShotSource.panStereo, 0.0001f,
-                "One-shot ghost audio panStereo should stay centered");
             InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, engineSource.spatialBlend, 0.0001f,
                 "Engine ghost audio spatialBlend should use the damped watch-safe blend");
-            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, oneShotSource.spatialBlend, 0.0001f,
-                "One-shot ghost audio spatialBlend should use the damped watch-safe blend");
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,

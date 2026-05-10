@@ -6289,11 +6289,6 @@ namespace Parsek
                     }
                 }
             }
-            if (state.oneShotAudio?.audioSource != null && state.oneShotAudio.audioSource.isPlaying)
-            {
-                state.oneShotAudio.audioSource.Stop();
-                audioStopped++;
-            }
             if (audioStopped > 0)
                 ParsekLog.Verbose("GhostAudio", $"Cleanup: stopped {audioStopped} audio source(s) for '{state.vesselName}'");
 
@@ -6526,7 +6521,7 @@ namespace Parsek
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
-            double power = Mathf.Clamp01(vesselLength / 20f);
+            double power = Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
 
             if (state.audioPaused)
             {
@@ -6543,12 +6538,11 @@ namespace Parsek
                     $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
                     $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
                     10.0);
-                GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(
                     worldPos,
                     power,
                     vesselLength,
-                    $"ghost #{recIdx} \"{traj.VesselName}\"",
-                    $"stock-explosion-visual-only-busy-{recIdx}");
+                    $"ghost #{recIdx} \"{traj.VesselName}\"");
             }
 
             GhostPlaybackLogic.HideAllGhostParts(state);
