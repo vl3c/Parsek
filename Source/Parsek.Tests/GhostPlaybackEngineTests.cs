@@ -1235,6 +1235,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AlwaysShadow_LiveAnchorRecording_ExcludedByPredicate()
+        {
+            // Reviewer P1 regression: a recording with v12+ parent linkage AND
+            // a live-anchor loop assignment must NOT route through the
+            // always-shadow path. Pre-PR-#803 the resolver short-circuited at
+            // `LoopAnchorVesselId != 0` ("loop-anchor-out-of-scope") so the
+            // gate evaluator returned false; the router treated the result as
+            // None and legacy ran. PR #803's always-shadow path bypasses the
+            // resolver, so the same predicate alone (IsDebris &&
+            // DebrisParentRecordingId != null) would happily route the live-
+            // anchor recording's debris through the recorded shadow track,
+            // breaking the live-anchor contract.
+            //
+            // Fix: include `LoopAnchorVesselId == 0u` in the host predicate
+            // ShouldEvaluateAnchorRotationReliability so the
+            // `tryEvaluateAnchorRotationReliability` callback is null for
+            // live-anchor recordings, the router returns None, and the legacy
+            // resolver chain runs as today.
+            var live = new Recording
+            {
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec",
+                LoopAnchorVesselId = 12345u,
+            };
+            Assert.False(
+                ParsekFlight.ShouldEvaluateAnchorRotationReliabilityForTesting(live),
+                "live-anchor (LoopAnchorVesselId != 0) recordings must be excluded from the always-shadow predicate even when the v12+ parent linkage is set");
+
+            // And the symmetric positive case: same fields but no live-anchor
+            // assignment should still qualify (PR #800 + #803 path is intact).
+            var noLive = new Recording
+            {
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec",
+                LoopAnchorVesselId = 0u,
+            };
+            Assert.True(
+                ParsekFlight.ShouldEvaluateAnchorRotationReliabilityForTesting(noLive),
+                "v12+ parent-anchored debris without a live-anchor assignment must still qualify for the always-shadow path");
+        }
+
+        [Fact]
         public void AlwaysShadow_NotV12Debris_NoPredicate_FallsThroughToLegacy()
         {
             // Predicate gate: TrajectoryPlaybackFlags.tryEvaluateAnchorRotationReliability

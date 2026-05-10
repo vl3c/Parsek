@@ -58,75 +58,73 @@ When shadow data does not cover the playback UT (older recordings without `absol
 
 ## What this preserves
 
-- **Live-anchor case** (`Recording.LoopAnchorVesselId != 0` Relative-loop playback) is excluded by `ShouldEvaluateAnchorRotationReliability` already (`ParsekFlight.cs:15119-15124` predicate is `IsDebris && DebrisParentRecordingId != null`). The new always-shadow path uses the same predicate, so live-anchor playback continues through the existing legacy resolver untouched.
+- **Live-anchor case** (`Recording.LoopAnchorVesselId != 0` Relative-loop playback) is excluded by tightening `ShouldEvaluateAnchorRotationReliability` (`ParsekFlight.cs:15119-15124`) to require `LoopAnchorVesselId == 0u` in addition to `IsDebris && DebrisParentRecordingId != null`. **This addition is required** — without it the always-shadow path bypasses the resolver-level `LoopAnchorVesselId != 0` short-circuit at `RelativeAnchorResolver.cs:288-297` ("loop-anchor-out-of-scope") that today keeps live-anchor recordings on legacy. Adding the check at the predicate level is a no-op for PR #800's gate (the resolver was returning false for those recordings anyway), but it correctly excludes them from the new shadow path. A regression test covers a recording with `IsDebris=true && DebrisParentRecordingId != null && LoopAnchorVesselId != 0`.
 - **Legacy v6/v11 debris** (no `DebrisParentRecordingId`) is unaffected; routes through the existing `LegacyDebrisShadowGate` (PR 3c) unchanged.
-- **FX suppression during real tumbles** keeps working: the gate evaluator still runs, sets `state.anchorRotationShadowRoutedThisFrame` when the gate would have fired (new semantic: "FX should be suppressed this frame"), and the existing `LoopShadowFxBranch` switch in `GhostPlaybackEngine.cs:1850-` continues to tear down running FX when the bit is set. Steady-state always-shadow playback (no tumble) does not suppress FX — debris keeps its plumes / reentry visible during normal flight, which is the correct behaviour and matches today's no-gate-fired behaviour.
+- **FX suppression during real tumbles** keeps working: the gate evaluator still runs, the router sets `state.anchorRotationShadowRoutedThisFrame = fxSuppress` (the gate's per-frame fire bit) inside `TryRouteAnchorRotationToShadow` only when the shadow positioner succeeds. Downstream FX wiring at the four post-position sites reads that flag (not the route enum), so steady-state shadow render leaves the flag false and FX play normally; gated-mode shadow render sets it true and the existing `LoopShadowFxBranch` / `AdjustFxFlagsForShadowRoute` paths tear down running FX. The non-loop site at `GhostPlaybackEngine.cs:1247-1251` was previously reading `anchorRotationShadowed` (the route enum, true on every shadow frame) — that read is changed to `state.anchorRotationShadowRoutedThisFrame` so steady-state always-shadow does not silently suppress FX. The three loop / overlap sites already read the flag (lines 1836, 2106, 2300) and need no behavioural change.
 - **Hide fallback** stays available for the rare case where shadow does not cover AND gate fires AND legacy reconstruction would be visible chaos. Same `HideAnchorRotationUnreliableState` helper, same lifecycle.
 
 ## Concrete changes
 
-### 1. New positioner step: try shadow always
+### 1. Refactor the router
 
-Add a new method on the engine, `TryPositionViaAbsoluteShadowIfParentAnchoredDebris`, that:
+`TryRouteAnchorRotationUnreliable` (`GhostPlaybackEngine.cs:2712`) is the right place to put the new ladder — it is the single function called by both the non-loop branch (`RenderInRangeGhost`, `GhostPlaybackEngine.cs:1150`) and the shared loop / overlap branch (`PositionLoopAtPlaybackUT`, `GhostPlaybackEngine.cs:3148`). Two router call sites total (not four — the four sites listed elsewhere in this plan are the post-position trace sites where `EmitPostUpdate` is called).
 
-1. Returns `false` immediately if `traj` is not v12+ parent-anchored debris (predicate identical to `ShouldEvaluateAnchorRotationReliability`).
-2. Resolves the active Relative section at `playbackUT` via `TrajectoryMath.FindTrackSectionForUT`. Returns `false` if the section is not Relative or has no `absoluteFrames` (pre-v7 recording, or non-Relative section).
-3. Returns `false` if `playbackUT` is outside `[absoluteFrames[0].ut, absoluteFrames[last].ut]` (with `1e-6` epsilon, matching `TryPositionFromRelativeAbsoluteShadow`'s existing coverage check at `ParsekFlight.cs:16710-16718`).
-4. Calls `positioner.TryPositionFromRelativeAbsoluteShadow(...)`. Returns the positioner's result.
+Pre-PR-#803 the router checked `decision.Unreliable` first and only tried shadow when the gate fired. Post-PR-#803:
 
-This method is called from each of the four engine sites that today call `TryRouteAnchorRotationUnreliable` *before* the gate runs:
-
-| File | Line(s) | Branch |
-|---|---|---|
-| `GhostPlaybackEngine.cs` | 1148-1188 | `RenderInRangeGhost` non-loop |
-| `GhostPlaybackEngine.cs` | 1822-1846 | `UpdateLoopPlayback` primary loop |
-| `GhostPlaybackEngine.cs` | 2096-2120 | `UpdateOverlapPlayback` overlap-primary |
-| `GhostPlaybackEngine.cs` | 2289-2310 | `UpdateExpireAndPositionOverlaps` overlap-loop |
-
-At each site:
 ```csharp
-state.anchorRetiredThisFrame = false;
-state.anchorRotationShadowRoutedThisFrame = false;
-
-bool shadowPositioned = TryPositionViaAbsoluteShadowIfParentAnchoredDebris(
-    i, traj, state, visiblePlaybackUT, "non-loop", out double bracketBeforeUT, out double bracketAfterUT);
-
-// Gate still evaluates -- its result is used only for FX suppression now.
-bool fxSuppressed = TryEvaluateAnchorRotationFxSuppression(
-    i, traj, f, state, visiblePlaybackUT, "non-loop");
-
-if (shadowPositioned)
+private AnchorRotationUnreliableRoute TryRouteAnchorRotationUnreliable(...)
 {
-    state.anchorRotationShadowRoutedThisFrame = fxSuppressed;
-    // Skip the legacy positioning chain. Pipeline runs Activate /
-    // TrackGhostAppearance / ApplyFrameVisuals normally; ApplyFrameVisuals
-    // honours fxSuppressed via the existing LoopShadowFxBranch path.
-}
-else
-{
-    // Legacy positioning chain runs (TryPositionRelativeSectionAtPlaybackUT,
-    // PositionFromOrbit, InterpolateAndPosition, etc.).
-    // If gate said unreliable AND legacy was used, fall back to Hide.
-    if (fxSuppressed)
+    if (flags.tryEvaluateAnchorRotationReliability == null)
+        return AnchorRotationUnreliableRoute.None;
+
+    string playbackScope = BuildAnchorRotationHysteresisScope(state, phase);
+
+    // Always evaluate the gate. Its result drives FX suppression even
+    // when we render via shadow, and is the sole reason to fall back to
+    // Hide when shadow coverage is unavailable.
+    bool fxSuppress = false;
+    AnchorRotationReliabilityDecision decision = default;
+    if (flags.tryEvaluateAnchorRotationReliability(
+            index, traj, playbackUT, playbackScope, out decision))
     {
-        // Same Hide path as today: anchorRetiredThisFrame=true, mesh hidden,
-        // FX torn down, exit-watch event fired if applicable.
-        HideAnchorRotationUnreliableState(i, traj, state, visiblePlaybackUT, ctx.warpRate);
-        // ... same exit-watch + GhostRenderTrace.EmitGuardSkip emit as today
+        fxSuppress = decision.Unreliable;
     }
-    // else: clean legacy frame, no suppression.
+
+    // Tier 1: shadow render. Independent of gate.
+    if (state != null
+        && TryRouteAnchorRotationToShadow(
+            index, traj, state, playbackUT, decision, fxSuppress, phase, playbackScope))
+    {
+        return AnchorRotationUnreliableRoute.ShadowPositioned;
+    }
+
+    // Tier 2: shadow not covering AND gate did not fire. Legacy runs.
+    if (!fxSuppress)
+        return AnchorRotationUnreliableRoute.None;
+
+    // Tier 3: shadow not covering AND gate fired. Hide.
+    HideAnchorRotationUnreliableState(...);
+    // ... existing exit-watch + GhostRenderTrace.EmitGuardSkip emit ...
+    return AnchorRotationUnreliableRoute.Hidden;
 }
 ```
 
-### 2. Split the existing router
+`TryRouteAnchorRotationToShadow` takes `fxSuppress` as a new parameter and writes it to `state.anchorRotationShadowRoutedThisFrame` (replacing today's unconditional `true`). The shadow-route log line gains `mode=gated|always` to distinguish steady-state shadow from real-tumble shadow.
 
-`TryRouteAnchorRotationUnreliable` (`GhostPlaybackEngine.cs:2712`) currently does both decision *and* shadow-route attempt. Split:
+`PositionLoopAtPlaybackUT` (`GhostPlaybackEngine.cs:3136`) now returns `AnchorRotationUnreliableRoute` instead of `void`, so the three loop / overlap call sites can derive their post-position trace surface from the route enum.
 
-- **`TryEvaluateAnchorRotationFxSuppression`**: exact same evaluator + hysteresis flow as today's first half, returns `bool` (formerly the `decision.Unreliable` after hysteresis). Owns the `anchor-rotation-interp-hold-engaged/-released` log lines (already emitted inside `TryEvaluateAnchorRotationReliability`'s callback so this is unchanged at the source level — only the engine-side caller plumbing renames).
-- **`TryPositionViaAbsoluteShadowIfParentAnchoredDebris`**: new method described in §1.
-- **Old `TryRouteAnchorRotationUnreliable` deleted.**
+### 2. Plumb trace surface labels at the four post-position sites
 
-`TryRouteAnchorRotationToShadow` (`GhostPlaybackEngine.cs:2802`) survives as the inner helper called by the new always-shadow positioner: same coverage check, same `positioner.TryPositionFromRelativeAbsoluteShadow` call, same `anchor-rotation-shadow-route` log line (now fires on every covered frame instead of only inside hold windows). The line gets one extra field, `mode=always|gated`, distinguishing the always-shadow steady state from the gate-also-fired case (gate decision is available because `TryEvaluateAnchorRotationFxSuppression` runs alongside).
+The four `GhostRenderTrace.EmitPostUpdate` call sites pass an `activeSurface` argument derived from the route enum and the post-position retired flag, via a new pure helper `ResolveRenderSurface(route, retired)`:
+
+| File | Line | Branch |
+|---|---|---|
+| `GhostPlaybackEngine.cs` | 1226 | `RenderInRangeGhost` non-loop |
+| `GhostPlaybackEngine.cs` | 1838 | `UpdateLoopPlayback` primary loop |
+| `GhostPlaybackEngine.cs` | 2109 | `UpdateOverlapPlayback` overlap-primary |
+| `GhostPlaybackEngine.cs` | 2304 | `UpdateExpireAndPositionOverlaps` overlap-loop |
+
+The non-loop site additionally changes its `AdjustFxFlagsForShadowRoute(... shadowRouted: anchorRotationShadowed)` call to read `shadowRouted: state.anchorRotationShadowRoutedThisFrame`, matching the three loop / overlap sites that already read the flag. Without this change, every steady-state shadow frame would suppress FX — the route enum is true whenever shadow was used, but FX should suppress only when the gate is also firing.
 
 ### 3. Trace observability
 
@@ -141,28 +139,24 @@ Both are surgical: existing log lines pick up two extra fields each; no new log 
 
 #### Unit: `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`
 
-New `[Collection("Sequential")]`-attached tests:
+The success-path tests (gate inactive + shadow data → shadow render; gate active + shadow data → shadow render with FX suppression) need a real Unity GameObject because the engine's `state.ghost == null` short-circuit invokes Unity's overloaded `==` on real ghosts. xUnit can only express literal-null `state.ghost` values, which trips the short-circuit and bypasses the shadow positioner. Those tests live in `RuntimeTests.cs`.
 
-1. **`AlwaysShadow_RoutesShadow_WhenCoverageAvailable_AndGateInactive`** — synthesize a v12 parent-anchored debris recording with `frames` at 2.2 s cadence and `absoluteFrames` at 220 ms cadence; the parent recording is rotation-stable (gate would never fire). Drive a frame at a UT inside section coverage. Assert: positioner's `TryPositionFromRelativeAbsoluteShadow` was called; gate evaluated but didn't fire; `state.anchorRotationShadowRoutedThisFrame == false` (FX not suppressed in steady state); active surface is `shadow` (via either trace assertion or test-mock surface field).
-2. **`AlwaysShadow_FallsThroughToLegacy_WhenAbsoluteFramesNull`** — same fixture, set `absoluteFrames = null`. Assert: shadow positioner not called; legacy `TryPositionRelativeSectionAtPlaybackUT` invoked; trace surface = `legacy`.
-3. **`AlwaysShadow_FallsThroughToHide_WhenLegacyAndGateUnreliable`** — `absoluteFrames = null` AND mock gate returns `Unreliable=true`. Assert: shadow not called; legacy not run; `state.anchorRetiredThisFrame == true`; trace surface = `hidden`.
-4. **`AlwaysShadow_OutOfCoverageUT_FallsBackToLegacy`** — `absoluteFrames` populated but playback UT past last sample. Assert: shadow positioner returned `false`; legacy ran; trace surface = `legacy`.
-5. **`AlwaysShadow_GateFires_SuppressesFx_WhileShadowPositioned`** — shadow available + gate `Unreliable=true`. Assert: shadow ran (mesh stays visible); `state.anchorRotationShadowRoutedThisFrame == true`; `LoopShadowFxBranch` resolves to `ForcedShadowTeardown`.
-6. **`AlwaysShadow_NotV12Debris_LegacyRoute`** — recording with `IsDebris=false` or `DebrisParentRecordingId=null`. Assert: shadow positioner not called even when `absoluteFrames` exists; legacy resolver runs.
-7. **`AlwaysShadow_LiveAnchorLoop_NotInScope`** — `Recording.LoopAnchorVesselId != 0` (live-anchor loop). Assert: same as (6) — predicate gate keeps live-anchor playback on the legacy path.
+xUnit tests cover the legacy / hide / no-predicate fallthrough branches and the surface-resolver helper:
 
-The mock `SpawnPrimingPositioner` already added in PR #800 needs:
-- `int LegacyPositionCalls`, `int ShadowPositionCalls`, `int HidePathCalls`
-- `bool ShadowPositionShouldSucceed` (existing)
-- new `bool TraceSurfaceCapture` recording the per-frame surface choice for assertion.
+1. **`AlwaysShadow_GateInactive_NoShadowData_FallsThroughToLegacy`** — Tier 2: older recording without `absoluteFrames`, gate inactive. Asserts shadow positioner not called; legacy `PositionLoop` invoked; FX not suppressed.
+2. **`AlwaysShadow_GateActive_NoShadowData_FallsThroughToHide`** — Tier 3: no shadow data + gate fires. Asserts shadow positioner not called; legacy not run; `anchorRetiredThisFrame=true`; exit-watch event fires; the existing `anchor-rotation-unreliable` log line is asserted.
+3. **`AlwaysShadow_NullGhostShortCircuit_GateInactive_FallsThroughToLegacy`** — engine's `state?.ghost == null` short-circuit pins: shadow attempt is bypassed; legacy runs.
+4. **`AlwaysShadow_NotV12Debris_NoPredicate_FallsThroughToLegacy`** — `flags.tryEvaluateAnchorRotationReliability == null` (host predicate excluded the recording). Asserts shadow positioner not called even with `absoluteFrames` present; legacy runs.
+5. **`AlwaysShadow_LiveAnchorRecording_ExcludedByPredicate`** — reviewer P1 regression: a recording with `IsDebris=true && DebrisParentRecordingId != null && LoopAnchorVesselId != 0` must be excluded by `ShouldEvaluateAnchorRotationReliabilityForTesting`. Symmetric positive case (no live anchor) verifies the predicate still admits the v12+ parent-anchored debris path.
+6-9. **`ResolveRenderSurface_*`** — pure-helper coverage for the four-branch surface enum: `Shadow` regardless of retired, `Hidden` regardless of retired when route is Hidden, `Hidden` when route is None and retired, `Legacy` when route is None and not retired.
 
-Fixture `MakeParentAnchoredDebrisWithShadowFrames` extended with optional `wideDebrisBracket: bool` parameter that emits `frames` at 2.2 s cadence to exercise the bracket-width regression specifically.
+The mock `SpawnPrimingPositioner` from PR #800 already exposes `ShadowPositionCalls`, `PositionLoopCalls`, `InterpolateCalls`, `ShadowPositionShouldSucceed`, `PrimedShadowBracketBeforeUT/AfterUT`. No new mock fields needed.
 
 #### In-game: `Source/Parsek/InGameTests/RuntimeTests.cs`
 
-`TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable` already exists from PR #800. Add a sibling:
+`TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable` from PR #800 covers the gate-active / `mode=gated` success path — same asserts continue to hold (the route still positions via shadow, the FX flag is still set true when the gate fires).
 
-- **`ParentAnchoredDebris_AlwaysShadow_StableThroughout`**: drive a parent-anchored debris ghost through three frames at UTs spanning the recorded section. Assert mesh stays active each frame, `state.anchorRotationShadowRoutedThisFrame == false` on all three (no gate fire), and per-frame position delta matches the `absoluteFrames` lerp output to within 0.01 m.
+New sibling **`ParentAnchoredDebris_AlwaysShadow_StableThroughout`** covers the gate-inactive / `mode=always` success path: drives the engine with a recording that has covering `absoluteFrames` and a host predicate that returns `Unreliable=false`. Asserts mesh stays active, `state.anchorRotationShadowRoutedThisFrame == false` (FX not suppressed in steady state), `state.anchorRetiredThisFrame == false`, the shadow positioner ran exactly once, the legacy `PositionLoop` and `InterpolateAndPosition[Relative]` were not called, and the ghost transform reflects the shadow positioner's primed position end-to-end.
 
 ### 5. Documentation
 
@@ -176,7 +170,7 @@ Fixture `MakeParentAnchoredDebrisWithShadowFrames` extended with optional `wideD
 
 **Risk 2: shadow path silently produces a different visual trajectory than legacy outside tumble windows.** Possible if recorder-side shadow sampling is misaligned. Verified in the playtest log: inside the smooth-route window every parent-anchored ghost showed `dM ≈ expectedDM` — shadow lerp tracks the recorded path correctly. The same shadow data is on disk for the entire section, so steady-state always-shadow renders the same trajectory the gate-shadow window already validated.
 
-**Risk 3: FX-suppression semantic flip.** Today `state.anchorRotationShadowRoutedThisFrame` is set by `TryRouteAnchorRotationToShadow` when the gate fires AND shadow was used. After this PR it is set by the engine when the gate evaluator fires (independent of shadow vs legacy). The downstream readers (loop / overlap branches at lines 1836, 2106, 2300, plus the FX-branch resolver) interpret it as "suppress FX this frame," which matches the new semantic. Documented in the field's XML comment.
+**Risk 3: FX-suppression semantic flip.** Pre-PR-#803 `state.anchorRotationShadowRoutedThisFrame` was set by `TryRouteAnchorRotationToShadow` to unconditional `true` when the gate fired AND shadow was used (the only path that set it). Post-PR-#803 it is set to the gate's `fxSuppress` bit only when shadow is used (route enum = `ShadowPositioned`); legacy and hide paths leave it at the per-frame `false` initialization. So the flag is `true` exactly when (shadow rendered AND gate fired) — the same boolean expression the four downstream FX-flag readers want. The non-loop reader at `GhostPlaybackEngine.cs:1247-1251` is migrated from the route enum (true on every shadow frame, including steady state — would over-suppress) to the flag, matching the three loop / overlap readers. Documented in the field's XML comment.
 
 **Risk 4: legacy hide path becomes harder to exercise.** Hide is now reachable only when `absoluteFrames == null` AND the gate fires. The existing in-game test `TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable` covers the shadow-used branch; new unit test (3) above covers the legacy+hide fallback. Adequate.
 

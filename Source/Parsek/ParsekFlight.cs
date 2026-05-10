@@ -15116,11 +15116,28 @@ namespace Parsek
             return flags;
         }
 
+        internal static bool ShouldEvaluateAnchorRotationReliabilityForTesting(Recording rec)
+            => ShouldEvaluateAnchorRotationReliability(rec);
+
         private static bool ShouldEvaluateAnchorRotationReliability(Recording rec)
         {
+            // PR #803: also exclude live-anchor loop recordings. The resolver
+            // (RelativeAnchorResolver.cs:288-297) already short-circuits on
+            // `LoopAnchorVesselId != 0` with `loop-anchor-out-of-scope`, so
+            // PR #800's gate behaviour is unchanged (the evaluator returned
+            // false for those recordings either way). The check matters for
+            // PR #803's always-shadow path: without it, the new router
+            // would keep going past the failed evaluator into
+            // `TryRouteAnchorRotationToShadow` and route a live-anchor loop
+            // recording's debris through the recorded shadow track, which
+            // breaks the live-anchor contract (debris must follow the live
+            // parent, not the recorded world position frozen at recording
+            // time). The gate predicate is the right place to gate both
+            // paths.
             return rec != null
                 && rec.IsDebris
-                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId);
+                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && rec.LoopAnchorVesselId == 0u;
         }
 
         private bool TryEvaluateAnchorRotationReliability(
