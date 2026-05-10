@@ -370,7 +370,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SerializeTrajectoryInto_V1WithoutTrackSections_FallsBackToFlatTrajectory()
+        public void SerializeTrajectoryInto_V1FlatOrbitFallback_AddsCheckpointBridge()
         {
             var rec = new Recording
             {

@@ -275,11 +275,6 @@ namespace Parsek
                         rec,
                         markDirty: true,
                         context: "TrajectorySidecarBinary.Read");
-                }
-                if (!sectionAuthoritative &&
-                    probe.FormatVersion >= 1 &&
-                    rec.TrackSections.Count > 0)
-                {
                     healedMalformedFlatFallback = RecordingStore.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
                         rec, allowRelativeSections: true);
                 }

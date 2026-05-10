@@ -1072,8 +1072,6 @@ namespace Parsek
                     else
                         trackSections.RemoveAt(i);
                 }
-
-                break;
             }
         }
 
@@ -1101,8 +1099,6 @@ namespace Parsek
                     else
                         orbitSegments.RemoveAt(i);
                 }
-
-                break;
             }
         }
 

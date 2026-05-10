@@ -271,6 +271,48 @@ namespace Parsek.Tests
             Assert.Empty(second.OrbitSegments);
         }
 
+        [Fact]
+        public void SplitAtSection_ClipsEarlierCheckpointBridgeThatWrapsSplitBoundary()
+        {
+            const double splitUT = 200.0;
+            TrackSection wrappingCheckpoint = MakeCheckpointSection(100.0, 300.0, "Kerbin");
+            TrackSection containedCheckpoint = MakeCheckpointSection(150.0, 160.0, "Kerbin");
+            TrackSection splitCheckpoint = MakeCheckpointSection(splitUT, 240.0, "Kerbin");
+            var rec = new Recording
+            {
+                RecordingId = "rec_split_earlier_checkpoint_overlap",
+                VesselName = "Kerbal X Probe",
+                ChainId = "chain_split_earlier",
+                ChainIndex = 0,
+                ChainBranch = 0,
+                TrackSections = new List<TrackSection>
+                {
+                    wrappingCheckpoint,
+                    containedCheckpoint,
+                    splitCheckpoint
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    wrappingCheckpoint.checkpoints[0],
+                    containedCheckpoint.checkpoints[0],
+                    splitCheckpoint.checkpoints[0]
+                }
+            };
+
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 2);
+
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.Equal(splitUT, rec.TrackSections[0].endUT);
+            Assert.Single(rec.TrackSections[0].checkpoints);
+            Assert.Equal(splitUT, rec.TrackSections[0].checkpoints[0].endUT);
+            Assert.Equal(2, rec.OrbitSegments.Count);
+            Assert.Equal(splitUT, rec.OrbitSegments[0].endUT);
+            Assert.Single(second.TrackSections);
+            Assert.Equal(splitUT, second.TrackSections[0].startUT);
+            Assert.Single(second.OrbitSegments);
+            Assert.Equal(splitUT, second.OrbitSegments[0].startUT);
+        }
+
         /// <summary>
         /// Sanity check: a recording with two real env-class TrackSections still
         /// triggers a split candidate. Otherwise the test above would pass for the

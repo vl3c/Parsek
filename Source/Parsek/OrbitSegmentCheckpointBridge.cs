@@ -25,6 +25,8 @@ namespace Parsek
     {
         private const double UtTolerance = 1e-6;
         private const double ScalarTolerance = 1e-9;
+        // Dedup tolerance for values produced by the same segment after "R"
+        // round-trip serialization; not an orbit-mechanics equivalence threshold.
         private const double DistanceTolerance = 1e-6;
         private const double VectorTolerance = 1e-6;
 
@@ -118,6 +120,10 @@ namespace Parsek
 
             stats.Clipped += ClipExistingCheckpointSectionsAgainstPhysicalSections(rec.TrackSections);
 
+            // OrbitSegments are maintained in chronological append order, with
+            // predicted terminal tails as a suffix. Once a predicted segment appears,
+            // later entries are treated as part of that terminal tail rather than
+            // promoted into durable checkpoint bridge sections.
             bool sawPredictedSegment = false;
             for (int i = 0; i < rec.OrbitSegments.Count; i++)
             {
