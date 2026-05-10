@@ -351,7 +351,9 @@ namespace Parsek.Tests
         [Fact]
         public void DiscardPendingTree_WithCommittedOverlap_PurgesPendingOnlyTreeState()
         {
-            var committedBp = Bp("bp_committed", "rp_committed");
+            var committedBp = Bp("bp_shared", "rp_committed");
+            committedBp.ParentRecordingIds.Add("rec_shared");
+            committedBp.ChildRecordingIds.Add("rec_committed_only");
             InstallTree("tree_overlap",
                 new List<Recording>
                 {
@@ -360,12 +362,15 @@ namespace Parsek.Tests
                 },
                 new List<BranchPoint> { committedBp });
 
+            var pendingSharedBp = Bp("bp_shared", "rp_committed");
+            pendingSharedBp.ParentRecordingIds.Add("rec_shared");
             var pendingBp = Bp("bp_pending", "rp_pending");
+            pendingBp.ParentRecordingIds.Add("rec_pending_only");
             var pending = new RecordingTree
             {
                 Id = "tree_overlap",
                 TreeName = "Pending overlap",
-                BranchPoints = new List<BranchPoint> { pendingBp },
+                BranchPoints = new List<BranchPoint> { pendingSharedBp, pendingBp },
                 RootRecordingId = "rec_shared",
                 ActiveRecordingId = "rec_shared",
             };
@@ -380,7 +385,7 @@ namespace Parsek.Tests
             var scenario = InstallScenario(
                 rps: new List<RewindPoint>
                 {
-                    Rp("rp_committed", "bp_committed", Slot(0, "rec_shared")),
+                    Rp("rp_committed", "bp_shared", Slot(0, "rec_shared")),
                     Rp("rp_pending", "bp_pending", Slot(0, "rec_pending_only")),
                 },
                 supersedes: new List<RecordingSupersedeRelation>
@@ -463,6 +468,7 @@ namespace Parsek.Tests
             Assert.Contains("rp_pending", deletedRpIds);
             Assert.DoesNotContain("rp_committed", deletedRpIds);
             Assert.Equal("rp_committed", committedBp.RewindPointId);
+            Assert.Equal("rp_committed", pendingSharedBp.RewindPointId);
             Assert.Null(pendingBp.RewindPointId);
 
             Assert.Contains(scenario.RecordingSupersedes, r => r.RelationId == "rel_shared");
@@ -480,9 +486,13 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]")
                 && l.Contains("PurgeTree: tree=tree_overlap")
+                && l.Contains("rps=1")
                 && l.Contains("supersedes=1")
                 && l.Contains("rewindRetirements=1")
                 && l.Contains("tombstones=2"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][Rewind]")
+                && l.Contains("skipped 1 committed-overlap branch point id"));
         }
 
         [Fact]

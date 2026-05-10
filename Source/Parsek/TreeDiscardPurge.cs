@@ -147,10 +147,25 @@ namespace Parsek
         {
             // Collect the tree's membership sets once up-front so the
             // individual purge passes can answer "is X in the tree?" in O(1).
-            var branchPointIds = CollectBranchPointIds(tree);
+            int skippedCommittedBranchPoints;
+            int skippedBranchPointsWithCommittedRefs;
+            var branchPointIds = CollectBranchPointIds(
+                tree,
+                recordingIdsToPurge,
+                out skippedCommittedBranchPoints,
+                out skippedBranchPointsWithCommittedRefs);
             var recordingIds = recordingIdsToPurge ?? CollectRecordingIds(tree);
+            if (recordingIdsToPurge != null
+                && (skippedCommittedBranchPoints > 0 || skippedBranchPointsWithCommittedRefs > 0))
+            {
+                ParsekLog.Warn(RewindTag,
+                    $"PurgeTree: skipped {skippedCommittedBranchPoints.ToString(CultureInfo.InvariantCulture)} " +
+                    "committed-overlap branch point id(s) and " +
+                    $"{skippedBranchPointsWithCommittedRefs.ToString(CultureInfo.InvariantCulture)} branch point(s) " +
+                    $"with non-pending recording refs for tree={treeId}");
+            }
 
-            int rpsPurged = PurgeRewindPoints(scenario, branchPointIds, treeId);
+            int rpsPurged = PurgeRewindPoints(scenario, branchPointIds, recordingIdsToPurge, treeId);
             int supersedesPurged = PurgeSupersedeRelations(scenario, recordingIds, treeId);
             int retirementsPurged = PurgeRewindRetirements(scenario, recordingIds, treeId);
             int tombstonesPurged = PurgeLedgerTombstones(scenario, recordingIds, treeId);
@@ -209,18 +224,117 @@ namespace Parsek
             return null;
         }
 
-        private static HashSet<string> CollectBranchPointIds(RecordingTree tree)
+        private static HashSet<string> CollectBranchPointIds(
+            RecordingTree tree,
+            HashSet<string> recordingIdsToPurge,
+            out int skippedCommittedBranchPoints,
+            out int skippedBranchPointsWithCommittedRefs)
         {
+            skippedCommittedBranchPoints = 0;
+            skippedBranchPointsWithCommittedRefs = 0;
             var set = new HashSet<string>(StringComparer.Ordinal);
             if (tree?.BranchPoints == null) return set;
+            if (recordingIdsToPurge != null && recordingIdsToPurge.Count == 0)
+                return set;
+
             for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
                 var bp = tree.BranchPoints[i];
                 if (bp == null) continue;
-                if (!string.IsNullOrEmpty(bp.Id))
-                    set.Add(bp.Id);
+                if (string.IsNullOrEmpty(bp.Id)) continue;
+
+                if (recordingIdsToPurge != null)
+                {
+                    if (IsCommittedBranchPointId(bp.Id))
+                    {
+                        skippedCommittedBranchPoints++;
+                        continue;
+                    }
+
+                    if (BranchPointReferencesNonPendingRecording(bp, recordingIdsToPurge))
+                    {
+                        skippedBranchPointsWithCommittedRefs++;
+                        continue;
+                    }
+                }
+
+                set.Add(bp.Id);
             }
             return set;
+        }
+
+        private static bool IsCommittedBranchPointId(string branchPointId)
+        {
+            if (string.IsNullOrEmpty(branchPointId))
+                return false;
+
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null)
+                return false;
+
+            for (int t = 0; t < trees.Count; t++)
+            {
+                var tree = trees[t];
+                if (tree?.BranchPoints == null) continue;
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    var bp = tree.BranchPoints[b];
+                    if (bp == null) continue;
+                    if (string.Equals(bp.Id, branchPointId, StringComparison.Ordinal))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool BranchPointReferencesNonPendingRecording(
+            BranchPoint bp,
+            HashSet<string> recordingIdsToPurge)
+        {
+            if (recordingIdsToPurge == null)
+                return false;
+
+            return ContainsNonPendingRecording(bp?.ParentRecordingIds, recordingIdsToPurge)
+                || ContainsNonPendingRecording(bp?.ChildRecordingIds, recordingIdsToPurge);
+        }
+
+        private static bool RewindPointReferencesNonPendingRecording(
+            RewindPoint rp,
+            HashSet<string> recordingIdsToPurge)
+        {
+            if (recordingIdsToPurge == null || rp?.ChildSlots == null)
+                return false;
+
+            for (int i = 0; i < rp.ChildSlots.Count; i++)
+            {
+                string recordingId = rp.ChildSlots[i]?.OriginChildRecordingId;
+                if (string.IsNullOrEmpty(recordingId))
+                    continue;
+                if (!recordingIdsToPurge.Contains(recordingId))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsNonPendingRecording(
+            List<string> recordingIds,
+            HashSet<string> recordingIdsToPurge)
+        {
+            if (recordingIds == null || recordingIdsToPurge == null)
+                return false;
+
+            for (int i = 0; i < recordingIds.Count; i++)
+            {
+                string recordingId = recordingIds[i];
+                if (string.IsNullOrEmpty(recordingId))
+                    continue;
+                if (!recordingIdsToPurge.Contains(recordingId))
+                    return true;
+            }
+
+            return false;
         }
 
         private static HashSet<string> CollectRecordingIds(RecordingTree tree)
@@ -241,18 +355,27 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         private static int PurgeRewindPoints(
-            ParsekScenario scenario, HashSet<string> branchPointIds, string treeId)
+            ParsekScenario scenario,
+            HashSet<string> branchPointIds,
+            HashSet<string> recordingIdsToPurge,
+            string treeId)
         {
             if (scenario.RewindPoints == null || scenario.RewindPoints.Count == 0)
                 return 0;
 
             int purged = 0;
+            int skippedNonPendingSlots = 0;
             for (int i = scenario.RewindPoints.Count - 1; i >= 0; i--)
             {
                 var rp = scenario.RewindPoints[i];
                 if (rp == null) continue;
                 if (string.IsNullOrEmpty(rp.BranchPointId)) continue;
                 if (!branchPointIds.Contains(rp.BranchPointId)) continue;
+                if (RewindPointReferencesNonPendingRecording(rp, recordingIdsToPurge))
+                {
+                    skippedNonPendingSlots++;
+                    continue;
+                }
 
                 // Best-effort quicksave delete.
                 TryDeleteQuicksaveFile(rp);
@@ -266,7 +389,7 @@ namespace Parsek
                 // downstream; clearing the back-ref makes the in-tree state
                 // consistent if anything queries it between PurgeTree and
                 // the actual tree removal).
-                ClearBranchPointBackref(rp);
+                ClearBranchPointBackref(rp, branchPointIds);
 
                 ParsekLog.Info(RewindTag,
                     $"Purged rp={rp.RewindPointId ?? "<no-id>"} " +
@@ -274,6 +397,12 @@ namespace Parsek
                 purged++;
             }
 
+            if (skippedNonPendingSlots > 0)
+            {
+                ParsekLog.Warn(RewindTag,
+                    $"PurgeTree: skipped {skippedNonPendingSlots.ToString(CultureInfo.InvariantCulture)} " +
+                    $"rewind point(s) with non-pending child slot refs for tree={treeId}");
+            }
             return purged;
         }
 
@@ -326,7 +455,7 @@ namespace Parsek
             }
         }
 
-        private static void ClearBranchPointBackref(RewindPoint rp)
+        private static void ClearBranchPointBackref(RewindPoint rp, HashSet<string> branchPointIds)
         {
             if (rp == null || string.IsNullOrEmpty(rp.RewindPointId)) return;
             string rpId = rp.RewindPointId;
@@ -341,6 +470,7 @@ namespace Parsek
                     {
                         var bp = tree.BranchPoints[b];
                         if (bp == null) continue;
+                        if (!BranchPointIdIsInSet(bp.Id, branchPointIds)) continue;
                         if (!string.Equals(bp.RewindPointId, rpId, StringComparison.Ordinal))
                             continue;
                         bp.RewindPointId = null;
@@ -354,11 +484,19 @@ namespace Parsek
                 {
                     var bp = pending.BranchPoints[b];
                     if (bp == null) continue;
+                    if (!BranchPointIdIsInSet(bp.Id, branchPointIds)) continue;
                     if (!string.Equals(bp.RewindPointId, rpId, StringComparison.Ordinal))
                         continue;
                     bp.RewindPointId = null;
                 }
             }
+        }
+
+        private static bool BranchPointIdIsInSet(string branchPointId, HashSet<string> branchPointIds)
+        {
+            return !string.IsNullOrEmpty(branchPointId)
+                && branchPointIds != null
+                && branchPointIds.Contains(branchPointId);
         }
 
         // ------------------------------------------------------------------
