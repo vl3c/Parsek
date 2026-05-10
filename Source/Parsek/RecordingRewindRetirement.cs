@@ -12,6 +12,14 @@ namespace Parsek
     {
         public const string DefaultReason = "rewound-out-supersede-fork";
 
+        /// <summary>
+        /// Reason for retirements written for the OLD-side recording of a
+        /// supersede relation that was rewound out of existence. Distinct from
+        /// <see cref="DefaultReason"/> so log scrapers and tests can tell which
+        /// loop in <c>EnsureRewindRetirementsForRollback</c> wrote the row.
+        /// </summary>
+        public const string RewoundOutOldSideReason = "rewound-out-supersede-old-side";
+
         /// <summary>Stable id; format <c>rrt_&lt;Guid-N&gt;</c>.</summary>
         public string RetirementId;
 
