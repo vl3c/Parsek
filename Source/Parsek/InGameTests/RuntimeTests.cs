@@ -702,6 +702,96 @@ namespace Parsek.InGameTests
             InGameAssert.IsNotNull(FlightCamera.fetch.mainCamera, "FlightCamera.mainCamera should exist");
         }
 
+        [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
+            Description = "Recording with a stale on-rails OrbitSegment plus a fresh post-burn ExoBallistic Absolute tail frame derives a stable circular orbit at spawn time")]
+        public void TerminalOrbitFromTail_DerivesPostBurnCircularOrbit()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // Mirror the Kerbal X bug from logs/2026-05-10_1713: one stored OrbitSegment
+            // covering the on-rails coast (sub-orbital, periapsis below ground), then an
+            // ExoBallistic Absolute TrackSection containing a single post-burn frame
+            // whose state vector defines a circular ~205 km orbit. The fix must walk
+            // past the segment, build the orbit from the tail frame, and the resulting
+            // periapsis must clear the atmosphere.
+            const double subOrbitalSegmentEndUT = 958.87;
+            const double postBurnFrameUT = 977.93;
+            const double postBurnAlt = 203587.0; // metres
+            // Velocity components in body-centric inertial frame, ~circular at 205 km.
+            UnityEngine.Vector3 postBurnVel = new UnityEngine.Vector3(1736.18f, -1.73f, -1178.98f);
+
+            var rec = new Recording { RecordingId = "ingame-tail-derived-orbit" };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 477.33,
+                endUT = subOrbitalSegmentEndUT,
+                inclination = 0.7917,
+                eccentricity = 0.2046,
+                semiMajorAxis = 667047.84, // periapsis = -69 km, apoapsis = 203 km
+                longitudeOfAscendingNode = 22.89,
+                argumentOfPeriapsis = 271.44,
+                meanAnomalyAtEpoch = 1.4262,
+                epoch = 477.33
+            });
+            var coastSection = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = postBurnFrameUT,
+                endUT = postBurnFrameUT,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = postBurnFrameUT,
+                        latitude = 0.7908,
+                        longitude = 8.5604,
+                        altitude = postBurnAlt,
+                        rotation = UnityEngine.Quaternion.identity,
+                        velocity = postBurnVel,
+                        bodyName = "Kerbin"
+                    }
+                }
+            };
+            rec.TrackSections.Add(coastSection);
+
+            bool ok = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+                rec, kerbin,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out _, out _, out _, out _,
+                out string bodyName);
+
+            InGameAssert.IsTrue(ok, "TryDeriveTerminalOrbitSeedFromTrajectoryTail should succeed");
+            InGameAssert.AreEqual("Kerbin", bodyName);
+            InGameAssert.IsTrue(semiMajorAxis > 0.0,
+                $"Derived sma must be positive, got {semiMajorAxis}");
+            InGameAssert.IsTrue(eccentricity >= 0.0 && eccentricity < 1.0,
+                $"Derived eccentricity must be in [0,1), got {eccentricity}");
+
+            double periAlt = semiMajorAxis * (1.0 - eccentricity) - kerbin.Radius;
+            double apoAlt = semiMajorAxis * (1.0 + eccentricity) - kerbin.Radius;
+            double atmAlt = kerbin.atmosphereDepth;
+
+            // The derived orbit's periapsis must clear the atmosphere — that's the
+            // whole point of the fix. Allow a generous slack because of body-rotation
+            // drift between the recorded UT and current sim UT.
+            InGameAssert.IsTrue(periAlt > atmAlt,
+                $"Derived periapsis ({periAlt:F0} m) must exceed atmosphere depth ({atmAlt:F0} m)");
+
+            ParsekLog.Info("TestRunner",
+                $"TerminalOrbitFromTail_DerivesPostBurnCircularOrbit: " +
+                $"sma={semiMajorAxis:F1} ecc={eccentricity:F4} " +
+                $"periAlt={periAlt:F0} apoAlt={apoAlt:F0} inc={inclination:F4}");
+        }
+
         #endregion
 
         #region Parsek Settings
