@@ -1004,6 +1004,105 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RetirementPointingAtImmutable_DemotedCanonReason_NotSwept()
+        {
+            // The post-fix Pass-2 demotion intentionally retires Immutable
+            // forks whose priorTip is itself being retired in the same
+            // rewind batch (the canon collapses to preserve the
+            // no-double-materialization invariant). The retirement is tagged
+            // with RecordingRewindRetirement.DemotedCanonReason. LoadTimeSweep
+            // must NOT treat such a retirement as legacy bad state — doing
+            // so would remove the retirement and reconstruct the priorTip →
+            // canon supersede, making the demoted canon visible again and
+            // silently undoing the Pass-2 fix on every save/load cycle.
+            //
+            // Repro shape: A → B(Provisional) → C(Immutable). After the
+            // user's parent Rewind, in-memory state is A→B and B→C dropped,
+            // B retired (DefaultReason), C retired (DemotedCanonReason).
+            // Save → load → sweep: B's retirement stays (B is Provisional,
+            // not Immutable, untouched). C's retirement is Immutable but
+            // carries DemotedCanonReason — must also stay.
+            InstallTree("tree_mixed",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable),
+                    Rec("rec_b", MergeState.CommittedProvisional),
+                    Rec("rec_c", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var bRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_b",
+                RecordingId = "rec_b",
+                RestoredRecordingId = "rec_a",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var cDemotedRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_c_demoted",
+                RecordingId = "rec_c",
+                RestoredRecordingId = "rec_b",
+                Reason = RecordingRewindRetirement.DemotedCanonReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement>
+                {
+                    bRetirement, cDemotedRetirement
+                });
+
+            LoadTimeSweep.Run();
+
+            // Both retirements survive: B stays retired (its Provisional
+            // recording is not subject to the Immutable cleanup), C stays
+            // retired because its DemotedCanonReason tag flags it as
+            // intentional.
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "rec_b");
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "rec_c");
+            // No supersede was reconstructed — neither cleanup path fired.
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_c_demoted"));
+        }
+
+        [Fact]
+        public void RetirementPointingAtImmutable_DefaultReason_SweptAsLegacy()
+        {
+            // Counterpart to the test above: a retirement pointing at an
+            // Immutable recording WITHOUT the DemotedCanonReason tag is
+            // pre-fix legacy bad state. The sweep removes it and reconstructs
+            // the dropped supersede relation.
+            InstallTree("tree_legacy",
+                new List<Recording>
+                {
+                    Rec("rec_priorTip", MergeState.Immutable),
+                    Rec("rec_canon", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var legacyRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_legacy",
+                RecordingId = "rec_canon",
+                RestoredRecordingId = "rec_priorTip",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { legacyRetirement });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing rewind-retirement=rrt_legacy")
+                && l.Contains("restored supersede relation"));
+        }
+
+        [Fact]
         public void RetirementPointingAtImmutable_SupersedeAlreadyPresent_RelationNotDuplicated()
         {
             // Idempotency: if a supersede relation matching the retirement's

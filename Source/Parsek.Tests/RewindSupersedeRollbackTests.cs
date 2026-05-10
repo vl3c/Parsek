@@ -974,6 +974,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LiveRollback_DemotedImmutableFork_RetirementCarriesDemotedCanonReason()
+        {
+            // Pass-2 demoted Immutable retirements MUST carry
+            // RecordingRewindRetirement.DemotedCanonReason — not the default
+            // reason. LoadTimeSweep's legacy-Immutable cleanup uses the
+            // reason tag to distinguish intentional Pass-2 demotions from
+            // pre-fix bad state. Without the tag, a save/load round-trip on
+            // a legitimate mixed-chain rollback would have the sweep undo
+            // the demotion (remove the retirement and reconstruct the
+            // priorTip → canon supersede), making the demoted canon visible
+            // again and silently re-introducing the regression in-game.
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRecWithMergeState("B", startUT: 31.5, MergeState.CommittedProvisional);
+            var c = MakeRecWithMergeState("C", startUT: 50.0, MergeState.Immutable);
+            InstallCommittedTreeForTesting("tree-mixed", a, b, c);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B"),
+                    MakeRel("B", "C")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            RewindContext.BeginRewind(a.StartUT, default(BudgetSummary), 0, 0, 0);
+            RewindContext.SetAdjustedUT(6.5);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 6.5);
+
+            Assert.Equal(2, dropped);
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            // B is the Pass-1 drop — default reason.
+            var bRetirement = scenario.RecordingRewindRetirements.Find(
+                r => r.RecordingId == "B");
+            Assert.NotNull(bRetirement);
+            Assert.Equal(RecordingRewindRetirement.DefaultReason, bRetirement.Reason);
+            // C is the Pass-2 demoted Immutable — DemotedCanonReason.
+            var cRetirement = scenario.RecordingRewindRetirements.Find(
+                r => r.RecordingId == "C");
+            Assert.NotNull(cRetirement);
+            Assert.Equal(RecordingRewindRetirement.DemotedCanonReason, cRetirement.Reason);
+        }
+
+        [Fact]
         public void Rollback_OwnerIsImmutableFork_RewindOnSelfStillDrops()
         {
             // Edge case: the owner of the rewind is itself an Immutable canon

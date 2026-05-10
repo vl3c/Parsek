@@ -12,6 +12,23 @@ namespace Parsek
     {
         public const string DefaultReason = "rewound-out-supersede-fork";
 
+        /// <summary>
+        /// Reason value applied when the upstream Pass 2 demotion explicitly
+        /// retired an <see cref="MergeState.Immutable"/> canon fork because
+        /// its priorTip was itself being retired in the same rewind batch.
+        ///
+        /// <para>This is distinct from <see cref="DefaultReason"/>: a
+        /// retirement carrying this reason is intentional (the canon had no
+        /// live source to be canon over after the cascade), and load-time
+        /// sweeps must NOT treat it as legacy pre-fix bad state. By contrast,
+        /// any pre-fix save that retired an Immutable fork without the Pass-2
+        /// classifier ran with <see cref="DefaultReason"/>, so the
+        /// load-time sweep can use the reason field to disambiguate the
+        /// "remove + reconstruct" cleanup path from the "leave intact" intent
+        /// path.</para>
+        /// </summary>
+        public const string DemotedCanonReason = "rewound-out-supersede-fork-demoted-canon";
+
         /// <summary>Stable id; format <c>rrt_&lt;Guid-N&gt;</c>.</summary>
         public string RetirementId;
 

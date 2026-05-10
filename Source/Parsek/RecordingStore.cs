@@ -5170,6 +5170,17 @@ namespace Parsek
                     continue;
                 }
 
+                // Demoted canon (Pass 2) retirements carry a distinct Reason
+                // so LoadTimeSweep's legacy-Immutable sweep can tell intentional
+                // demotions apart from pre-fix bad state. Without this tag, a
+                // legitimate Pass-2 demotion saved to disk would be undone on
+                // next load (sweep would remove the retirement and reconstruct
+                // the priorTip → canon supersede relation, making the
+                // demoted canon visible again — exactly the regression this
+                // PR is fixing in-memory).
+                string retirementReason = wasExplicitlyDemoted
+                    ? RecordingRewindRetirement.DemotedCanonReason
+                    : RecordingRewindRetirement.DefaultReason;
                 var retirement = new RecordingRewindRetirement
                 {
                     RetirementId = "rrt_" + Guid.NewGuid().ToString("N"),
@@ -5179,7 +5190,7 @@ namespace Parsek
                     RewindUT = rewindAdjustedUT,
                     CreatedUT = CurrentUniversalTimeForRewindRetirement(),
                     CreatedRealTime = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-                    Reason = RecordingRewindRetirement.DefaultReason,
+                    Reason = retirementReason,
                 };
                 scenario.RecordingRewindRetirements.Add(retirement);
                 existing.Add(retiredId);

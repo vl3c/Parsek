@@ -622,20 +622,31 @@ namespace Parsek
                     continue;
                 }
 
-                // Defensive Immutable cleanup: a retirement should never point
-                // at a canon Immutable recording. The current Pass 1/Pass 2
-                // predicate prevents new ones from being created, but legacy
-                // saves written by the old code path can still carry them.
+                // Defensive Immutable cleanup: a retirement pointing at a
+                // canon Immutable recording is either:
+                //   (a) Pre-fix legacy bad state. The old buggy code path
+                //       retired Immutable forks unconditionally; that broke
+                //       the canon contract. Cleanup: remove the retirement
+                //       and reconstruct the dropped priorTip → canon
+                //       supersede relation so the priorTip stays superseded.
+                //   (b) Intentional Pass-2 demotion from this PR. The canon
+                //       fork's priorTip was itself retired in the same
+                //       rewind batch, so the canon collapses. The retirement
+                //       carries Reason=DemotedCanonReason as a tag so this
+                //       sweep can tell intent (b) apart from legacy (a).
                 //
-                // IMPORTANT: the buggy pre-fix code also dropped the matching
-                // RecordingSupersedeRelation (priorTip → canon). Just removing
-                // the retirement here would leave the canon visible AND the
-                // priorTip un-superseded → both render together (the same
-                // double-materialization regression we're trying to fix). So
-                // we must also restore the supersede relation when the
-                // retirement carries enough metadata (RestoredRecordingId is
-                // the priorTip, RecordingId is the canon fork).
-                if (immutableRecordingIds.Contains(retirement.RecordingId))
+                // Without the reason tag a sweep would fail to disambiguate:
+                // both `A → B(Imm) → C(Imm)` (legacy) and `A → B(Prov) →
+                // C(Imm) → D(Imm)` (post-fix) produce retirements pointing
+                // at Immutable forks whose RestoredRecordingId is also a
+                // retired fork in the same batch.
+                bool isImmutableTarget =
+                    immutableRecordingIds.Contains(retirement.RecordingId);
+                bool isIntentionalDemotedCanon = isImmutableTarget
+                    && string.Equals(retirement.Reason,
+                        RecordingRewindRetirement.DemotedCanonReason,
+                        StringComparison.Ordinal);
+                if (isImmutableTarget && !isIntentionalDemotedCanon)
                 {
                     LegacyImmutableSupersedeRestoreResult restoreResult =
                         TryRestoreLegacyImmutableSupersede(scenario, retirement);
