@@ -1,6 +1,6 @@
 # Fix Plan: Controlled-Vessel Ghost Initial Slide
 
-Date: 2026-05-10 (rev. 3)
+Date: 2026-05-10 (rev. 4)
 
 Worktree: `C:\Users\vlad3\Documents\Code\Parsek-fix-controlled-ghost-init-slide`
 
@@ -14,7 +14,8 @@ Does NOT change the recorder, the reference-frame contract, anchor eligibility, 
 
 - **rev. 1:** proposed a new `ShouldHoldInitialClampWindowActivationHidden` gate plus `InitialClampStabilizationSeconds`. Two reviewers (internal Opus + external) landed the same kill: the engine positions first then decides hide/activate within one frame ([`GhostPlaybackEngine.cs:1177` → `:1253` → `:1285`](Source/Parsek/GhostPlaybackEngine.cs)) AND the gate was fed `visiblePlaybackUT` (clamp-resolved, not raw `playbackUT`). The proposed shape couldn't deliver the stated invariant and the tests would have missed it.
 - **rev. 2:** dropped the new helper / constant / reason tag. Two-phase plan: ad-hoc diagnostic logging commit, then bump `InitialActivationHiddenMinimumFrames` 2 → 3 if the catch-up hypothesis confirmed.
-- **rev. 3 (this draft):** per user direction, Phase 1 is no longer ad-hoc temporary logging — it's a permanent enhancement to `GhostRenderTrace` and a new structured `ActivationDecision` phase emit in the activation-flow logging path. The investigation in Phase 2 uses the enhanced tracer and ships a real fix in Phase 3 only after the mechanism is empirically pinned. The fix shape from rev. 2 (constant bump) remains the leading candidate but is now contingent rather than presumed.
+- **rev. 3:** per user direction, Phase 1 became a permanent enhancement to `GhostRenderTrace` plus a new structured `ActivationDecision` phase emit in the activation-flow logging path. Investigation in Phase 2 uses the enhanced tracer; Phase 3 ships only after the mechanism is empirically pinned.
+- **rev. 4 (this draft):** four review findings addressed. P2#1 — `EmitPostUpdate` has four call sites, not one (non-loop, primary loop, overlap-primary loop, overlap), each with its own raw / visible UT semantics; the plan now defines per-path raw UT and updates all four sites. P2#2 — `EmitPostUpdate` fires BEFORE the activation-decision branch in `RenderInRangeGhost`, so opening the activation-transition detailed window inside `EmitActivationDecision` is too late for the activation frame's own `AfterUpdate` row; the plan now characterizes the activation frame via `ActivationDecision` alone and reserves the window for SUBSEQUENT frames. P2#3 — `SynchronizeLoadedGhostForWatch` ([`GhostPlaybackEngine.cs:5142`](Source/Parsek/GhostPlaybackEngine.cs:5142)) also runs the activation hide/activate split on the watch-resume path; the plan now instruments it. P3#4 — `IsDetailedWindowOpen` is private; tests now use a new internal `IsDetailedWindowOpenForTesting` helper.
 
 ## Problem
 
@@ -63,7 +64,13 @@ Before naming gaps, here's what [`GhostRenderTrace.cs`](Source/Parsek/GhostRende
 
 ### 1a. New tracer phase: `ActivationDecision`
 
-Add `GhostRenderTrace.EmitActivationDecision(...)` called from inside `RenderInRangeGhost`'s activation branch ([`GhostPlaybackEngine.cs:1252-1293`](Source/Parsek/GhostPlaybackEngine.cs:1252)). Fires every frame a deferred ghost is in the activation-hidden / activation-decision window (i.e. while `state.deferVisibilityUntilPlaybackSync` is true and `appearanceCount == 0`, plus one frame after the transition for a definitive last activation log). Fields:
+Add `GhostRenderTrace.EmitActivationDecision(...)` called from EVERY engine path that runs the activation hide/activate split. Three call sites:
+
+- `RenderInRangeGhost` non-loop path ([`GhostPlaybackEngine.cs:1252-1293`](Source/Parsek/GhostPlaybackEngine.cs:1252)). Both branches.
+- `SynchronizeLoadedGhostForWatch` ([`GhostPlaybackEngine.cs:5142-5161`](Source/Parsek/GhostPlaybackEngine.cs:5142)). Both branches. This is the watch-resume path — explicitly one of the symptom classes Phase 1's observability is meant to cover.
+- Loop paths via `PositionLoopAtPlaybackUT` and `UpdateExpireAndPositionOverlaps` are out of scope for `ActivationDecision` for v1: their state machine is intertwined with cycle wraparound and overlap accounting; instrumenting them would be a larger surface than the user's "lowest-risk" framing wants. Documented under §Out of Scope.
+
+Fires every frame a deferred ghost is in the activation-hidden / activation-decision window (i.e. while `state.deferVisibilityUntilPlaybackSync` is true and `appearanceCount == 0`, plus one frame after the transition for a definitive last activation log). Fields:
 
 ```
 phase=ActivationDecision rec=… ghostIndex=N frame=N currentUT=… playbackUT=…
@@ -91,11 +98,26 @@ Append three fields to `EmitPostUpdate`'s output line:
 … rawPlaybackUT=…  visibleLead=…  clampFired=true|false
 ```
 
-Cheap: the values are computable inside `EmitPostUpdate` from already-passed `playbackUT` (visible) and a new `rawPlaybackUT` parameter from the call site. Existing `playbackUT` field semantics unchanged.
+`EmitPostUpdate` has FOUR call sites in the engine, each with its own raw-UT semantics. The plan defines them per-path and updates each call site:
 
-### 1c. Open a detailed window on activation transition
+| Call site | Method | Existing `playbackUT` arg (visible) | `rawPlaybackUT` to pass | Notes |
+| --- | --- | --- | --- | --- |
+| [`GhostPlaybackEngine.cs:1226`](Source/Parsek/GhostPlaybackEngine.cs:1226) | `RenderInRangeGhost` (non-loop) | `visiblePlaybackUT` (post-`ResolveVisiblePlaybackUT`) | `ctx.currentUT` | Clamp may fire while `deferVisibilityUntilPlaybackSync` is true. |
+| [`GhostPlaybackEngine.cs:1838`](Source/Parsek/GhostPlaybackEngine.cs:1838) | `PositionLoopAtPlaybackUT` (primary loop) | `loopUT` (already cycle-mapped) | `loopUT` itself if `ResolveVisiblePlaybackUT` is NOT called on this path; otherwise the pre-resolve loop UT | Verify against the actual code: if no clamp resolution runs here, raw == visible and `clampFired` is always false for loop rows. |
+| [`GhostPlaybackEngine.cs:2109`](Source/Parsek/GhostPlaybackEngine.cs:2109) | `UpdateLoopingPlayback` overlap-primary | `loopUT` | same as above | Same caveat. |
+| [`GhostPlaybackEngine.cs:2304`](Source/Parsek/GhostPlaybackEngine.cs:2304) | `UpdateExpireAndPositionOverlaps` overlap | `loopUT` | same as above | Same caveat. |
 
-In `EmitActivationDecision`, when `transition=first-visible` (i.e. `hidden` flipped from `true` → `false` for this state), open a detailed window of `ActivationTransitionWindowSeconds = 1.0` at the current UT, tagged `activation-transition`. Reuses `OpenDetailedWindow` infrastructure. Ensures the immediately-following `AfterUpdate` and `LateUpdate` traces stay un-gated for analysis even when first-seen has expired.
+**Implementation note:** before threading `rawPlaybackUT` through each path, walk `PositionLoopAtPlaybackUT` and `UpdateExpireAndPositionOverlaps` to confirm whether `ResolveVisiblePlaybackUT` runs there at all. If it does NOT, document `clampFired=false` as the always-true-for-loop-paths invariant rather than synthesizing a fake clamp field. If it DOES, capture the pre-resolve UT separately and pass it. **Do not pass `ctx.currentUT` blindly to the loop call sites** — `ctx.currentUT` is the raw FRAME UT, not the loop-cycle-mapped UT, and would make every loop row report `clampFired=true` spuriously. Existing `playbackUT` field semantics unchanged.
+
+### 1c. Open a detailed window on activation transition (for SUBSEQUENT frames)
+
+The activation-decision branch in `RenderInRangeGhost` runs AFTER `EmitPostUpdate` ([call order: `:1226` → `:1252-1293`](Source/Parsek/GhostPlaybackEngine.cs:1226)). So if this plan tried to open the detailed window inside `EmitActivationDecision` and use it to ungate the SAME frame's `AfterUpdate`, the window would open too late — `EmitPostUpdate` for the activation frame has already evaluated its gate.
+
+The plan handles this by NOT trying to ungate the activation frame's `AfterUpdate`. The activation frame is fully characterized by `EmitActivationDecision` itself, which carries pose, lead, clamp state, hide reason, and `hiddenPoseDelta` — strictly more activation-flow information than `AfterUpdate`'s line on its own. The detailed window opened on `transition=first-visible` is for the NEXT 1.0 s of frames — the `AfterUpdate` and `LateUpdate` rows that follow the activation, where post-activation render artifacts (FX, mesh settling, render-order quirks) would manifest.
+
+Implementation: inside `EmitActivationDecision`, when `transition=first-visible`, open a detailed window of `ActivationTransitionWindowSeconds = 1.0` at `currentUT`, tagged `activation-transition`. Reuses `OpenDetailedWindow` infrastructure.
+
+Alternative considered and rejected: predicting the activation transition BEFORE `EmitPostUpdate` so the window opens early enough to ungate the activation frame's `AfterUpdate`. This requires either calling `ShouldHoldInitialActivationHiddenThisFrame` twice per frame (the gate has side effects via `ConsumeInitialRelativeHiddenFrame`, so the second call would corrupt counter state) or refactoring the gate into a peek/commit pair. Both options expand the surgery surface beyond the user's "lowest-risk" framing for what is fundamentally an observability change. Rejected; the activation frame's coverage via `ActivationDecision` alone is sufficient.
 
 ### 1d. Track last-hidden pose per state
 
@@ -103,24 +125,26 @@ Add `state.lastHiddenPosition` (Vector3) and `state.lastHiddenPositionFrame` (in
 
 ### Implementation surface
 
-- `Source/Parsek/GhostRenderTrace.cs` — new `EmitActivationDecision` method, two new fields on `TraceState`, one new constant `ActivationTransitionWindowSeconds`, three new fields appended to the existing `AfterUpdate` line. Also extend `EmitPostUpdate`'s signature with `double rawPlaybackUT` and update its single call site.
-- `Source/Parsek/GhostPlaybackEngine.cs` — call `EmitActivationDecision` from both branches at line 1252-1293 (hidden branch and activate branch). Pass `currentUT`, `visiblePlaybackUT`, the `initialActivationHidden` boolean, the `initialActivationHiddenReason`, and `state.initialRelativeActivationHiddenFramesRemaining`. Pass `currentUT` as `rawPlaybackUT` to the existing `EmitPostUpdate` call. Per-frame work overhead is negligible — these fire only when the tracer's `IsEnabled` toggle is on and the gate or transition opens a detailed window.
+- `Source/Parsek/GhostRenderTrace.cs` — new `EmitActivationDecision` method, two new fields on `TraceState` (`lastHiddenPosition`, `lastHiddenPositionFrame`), one new constant `ActivationTransitionWindowSeconds = 1.0`, three new fields appended to the existing `AfterUpdate` line. Extend `EmitPostUpdate`'s signature with `double rawPlaybackUT` (positional, after `playbackUT`). Add a new internal `IsDetailedWindowOpenForTesting(string recordingId, double currentUT)` helper exposing the existing private `IsDetailedWindowOpen` for unit tests (P3#4).
+- `Source/Parsek/GhostPlaybackEngine.cs` — call `EmitActivationDecision` from BOTH branches at lines 1252-1293 (`RenderInRangeGhost` non-loop) AND from BOTH branches at lines 5142-5161 (`SynchronizeLoadedGhostForWatch`). Each call passes the path-appropriate raw UT, the resolved visible UT, the `initialActivationHidden` boolean, the hide reason string (`null` for the watch-sync path, which doesn't capture a reason today — see Phase 1 caveat below), and `state.initialRelativeActivationHiddenFramesRemaining`. Update all FOUR `EmitPostUpdate` call sites to pass the per-path raw UT per the table in §1b. Per-frame work overhead is negligible — emits fire only when the tracer's `IsEnabled` toggle is on.
+
+**Watch-sync hide-reason caveat:** `SynchronizeLoadedGhostForWatch` at line 5143 calls `ShouldHoldInitialActivationHiddenThisFrame(traj, state, playbackUT, out string _)` and discards the reason. Phase 1 changes that to capture the reason into a local and pass it through to `EmitActivationDecision`. Behaviour-neutral — only the discarded `out` parameter is now consumed.
 
 ### Phase 1 tests
 
 - `Source/Parsek.Tests/GhostRenderTraceTests.cs` (new file or add to an existing one — grep for `GhostRenderTrace` test coverage first):
   - `EmitActivationDecision_HiddenFrame_EmitsExpectedFields` — drive a synthetic state through a hidden frame, capture the emitted line via `ParsekLog.TestSinkForTesting`, assert all the field tokens are present and well-formed.
   - `EmitActivationDecision_FirstVisibleTransition_EmitsHiddenPoseDelta` — drive two hidden frames at distinct positions, then a visible frame, assert `transition=first-visible` and `hiddenPoseDelta` reflects the delta from the last hidden frame.
-  - `EmitActivationDecision_OpensDetailedWindowOnTransition` — assert `IsDetailedWindowOpen` returns true for the recording id at and after the first-visible transition until `ActivationTransitionWindowSeconds` elapses.
+  - `EmitActivationDecision_OpensDetailedWindowOnTransition` — assert via the new `IsDetailedWindowOpenForTesting(recordingId, currentUT)` helper that the window is open at and after the first-visible transition until `ActivationTransitionWindowSeconds` elapses, and CLOSED on the activation frame's `EmitPostUpdate` (since the window opens after `EmitPostUpdate` on the activation frame — that's the documented limitation).
   - `EmitPostUpdate_AppendsRawPlaybackUTAndLeadAndClamped` — drive a frame where `rawPlaybackUT != playbackUT` (clamp firing), assert the three new fields appear with expected values.
-- `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` — extend an existing `RenderInRangeGhost`-touching test (or add one) that asserts `EmitActivationDecision` is called once per frame with the right `hidden` and `hideReason` for the first three frames of an Absolute-section spawn.
+- `Source/Parsek.Tests/GhostPlaybackEngineTests.cs` — extend an existing `RenderInRangeGhost`-touching test (or add one) that asserts `EmitActivationDecision` is called once per frame with the right `hidden` and `hideReason` for the first three frames of an Absolute-section spawn. Add a parallel test for `SynchronizeLoadedGhostForWatch` exercising both branches.
 
 ### Phase 1 risks
 
 - **Adds tokens to the `AfterUpdate` line.** Downstream log consumers parse `AfterUpdate` lines positionally OR by token name. `scripts/validate-ksp-log.ps1`, in-game test runner log assertions, and any external grep tooling need a quick check. Tokens are appended (not reordered), so positional parsers may tolerate it; named-token parsers will need the new fields ignored or consumed.
 - **New phase token `ActivationDecision`** — same concern, downstream consumers that filter by phase name need to learn it (or ignore it).
 - **Tracer is gated by `IsEnabled`** (the diagnostics setting), so default behavior outside diagnostics mode is unchanged. Cost is paid only when the user opts in.
-- **`EmitPostUpdate` signature change** — single call site in the engine, mechanical update.
+- **`EmitPostUpdate` signature change** — FOUR call sites in the engine (per §1b table), each requires the path-appropriate raw UT. Mechanical update once the per-path raw-UT semantics are confirmed by source walk; loop paths must NOT receive `ctx.currentUT` blindly (would synthesize spurious `clampFired=true`).
 
 ### Phase 1 validation
 
@@ -162,8 +186,10 @@ Acknowledged limit per external reviewer P1: the constant-bump shape does NOT st
 - Stateful "un-clamped pose stabilized" tracking. Held as escalation if Phase 3 chosen fix is insufficient.
 - Tightening or widening `InitialVisibleFrameClampWindowSeconds = 0.02`. Tuning of the existing clamp is a separate question.
 - Removing the existing `ParsekLog.VerboseRateLimited` "initial activation hidden" line. Once `EmitActivationDecision` is in place and field-tested, that older line is redundant; a follow-up cleanup commit can remove it. Not in scope for this fix.
+- `EmitActivationDecision` instrumentation of the loop / overlap / overlap-primary call sites in `PositionLoopAtPlaybackUT` and `UpdateExpireAndPositionOverlaps`. Loop activation is intertwined with cycle wraparound and overlap accounting; instrumenting it deterministically requires reasoning about per-cycle activation state that the v1 surface does not need. If a future symptom report points at a looped recording's activation behaviour, instrument those paths in a follow-up. The §1b `AfterUpdate` field additions DO cover those paths (since `EmitPostUpdate` is called from all four).
 
 ## Review Notes
 
-- rev. 3 (this draft) integrates internal Opus + external review feedback from rev. 1 → rev. 2 plus user direction on rev. 3: observability gaps are closed permanently in Phase 1 instead of via an ad-hoc temporary commit.
-- Phase 1 is reviewer-eligible on its own (engine state field additions, tracer signature change, new phase token). Per `.claude/CLAUDE.md` Code Review Follow-Ups: a tracer enhancement that touches a shared API surface qualifies as risky-enough for one full review pass before merge. Phase 3's eventual fix likely qualifies for a separate review pass depending on shape.
+- rev. 3 integrated internal Opus + external review feedback from rev. 1 → rev. 2 plus user direction on permanent observability.
+- rev. 4 (this draft) integrates four further external review findings: P2#1 (`EmitPostUpdate` four call sites with per-path raw-UT semantics), P2#2 (window-open ordering — drop the activation-frame `AfterUpdate` ungating claim), P2#3 (`SynchronizeLoadedGhostForWatch` instrumentation), P3#4 (private `IsDetailedWindowOpen` → new `IsDetailedWindowOpenForTesting`).
+- Phase 1 is reviewer-eligible on its own (engine state field additions, tracer signature change with four call-site updates, new phase token, watch-sync instrumentation). Per `.claude/CLAUDE.md` Code Review Follow-Ups: a tracer enhancement that touches a shared API surface across multiple call sites qualifies as risky-enough for one full review pass before merge. Phase 3's eventual fix likely qualifies for a separate review pass depending on shape.
