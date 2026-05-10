@@ -2675,17 +2675,17 @@ namespace Parsek
             IPlaybackTrajectory traj,
             double playbackUT)
         {
-            if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj))
-                return false;
+            return ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj, playbackUT, out _);
+        }
 
-            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
-                return true;
-
-            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
-            if (sectionIdx < 0)
-                return true;
-
-            return traj.TrackSections[sectionIdx].referenceFrame != ReferenceFrame.Relative;
+        internal static bool ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            return DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                traj, playbackUT, out diagnostic);
         }
 
         private bool TryPositionRelativeSectionAtPlaybackUT(
@@ -2737,16 +2737,24 @@ namespace Parsek
                 return AnchorRotationUnreliableRoute.None;
 
             string playbackScope = BuildAnchorRotationHysteresisScope(state, phase);
-            // Always evaluate the gate. Its result drives FX suppression even
-            // when we render via shadow, and is the sole reason to fall back to
-            // Hide when shadow coverage is unavailable.
+            // Evaluate the gate unless the child Relative frames are already
+            // outside authored coverage. The gate resolves the recorded child
+            // pose for diagnostics; probing it past the child frame tail only
+            // recreates resolver spam. Shadow routing below remains available
+            // when absoluteFrames cover this UT.
             AnchorRotationReliabilityDecision decision = default;
-            bool gateEvaluated = flags.tryEvaluateAnchorRotationReliability(
-                index,
-                traj,
-                playbackUT,
-                playbackScope,
-                out decision);
+            bool skipGateForAuthoredFrameGap =
+                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    playbackUT,
+                    out _);
+            bool gateEvaluated = !skipGateForAuthoredFrameGap
+                && flags.tryEvaluateAnchorRotationReliability(
+                    index,
+                    traj,
+                    playbackUT,
+                    playbackScope,
+                    out decision);
             bool fxSuppress = gateEvaluated && decision.Unreliable;
 
             // Tier 1: shadow render. Independent of the gate ENTIRELY -- the
@@ -3047,14 +3055,18 @@ namespace Parsek
             double playbackUT,
             string callsite)
         {
-            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(traj, playbackUT))
+            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
             {
                 if (state != null)
                     state.parentAnchoredDebrisCoverageRetired = false;
                 return false;
             }
 
-            MarkParentAnchoredDebrisCoverageRetired(index, traj, state, playbackUT, callsite);
+            MarkParentAnchoredDebrisCoverageRetired(
+                index, traj, state, playbackUT, callsite, diagnostic);
             return true;
         }
 
@@ -3070,14 +3082,18 @@ namespace Parsek
             out bool ghostActive)
         {
             ghostActive = HasLoadedGhostVisuals(state);
-            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(traj, playbackUT))
+            if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
             {
                 if (state != null)
                     state.parentAnchoredDebrisCoverageRetired = false;
                 return false;
             }
 
-            MarkParentAnchoredDebrisCoverageRetired(index, traj, state, playbackUT, callsite);
+            MarkParentAnchoredDebrisCoverageRetired(
+                index, traj, state, playbackUT, callsite, diagnostic);
             if (state != null)
             {
                 if (HasLoadedGhostVisuals(state))
@@ -3093,6 +3109,7 @@ namespace Parsek
                 traj, index, currentUT,
                 "parent-anchored-debris-outside-relative-coverage playbackUT="
                 + playbackUT.ToString("R", CultureInfo.InvariantCulture)
+                + " coverageReason=" + (diagnostic.Reason ?? "(unknown)")
                 + " callsite=" + (callsite ?? "(unknown)"));
 
             if (emitExitWatch)
@@ -3122,7 +3139,8 @@ namespace Parsek
             IPlaybackTrajectory traj,
             GhostPlaybackState state,
             double playbackUT,
-            string callsite)
+            string callsite,
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
         {
             GameObject ghost = state != null ? state.ghost : null;
             if (!ReferenceEquals(ghost, null))
@@ -3135,19 +3153,38 @@ namespace Parsek
 
             string recordingId = traj?.RecordingId ?? "(none)";
             string key = BuildParentAnchoredDebrisCoverageRetiredKey(index, recordingId);
-            // Warn (not Verbose): no covering Relative section is a recording
-            // coverage gap, not the transient anchor-miss handled in ParsekFlight.
+            // Warn (not Verbose): missing authored debris coverage is a
+            // recording coverage gap, not the transient anchor-miss handled in
+            // ParsekFlight.
             ParsekLog.WarnRateLimited(
                 "Anchor",
                 key,
                 "recorded-relative-retired: " +
                 "reason=parent-anchored-debris-outside-relative-coverage " +
+                $"coverageReason={diagnostic.Reason ?? "(unknown)"} " +
                 $"recording=#{index.ToString(CultureInfo.InvariantCulture)} " +
                 $"vessel=\"{traj?.VesselName ?? state?.vesselName ?? "(unknown)"}\" " +
                 $"recordingId={recordingId} " +
                 $"playbackUT={playbackUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"sectionIndex={diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture)} " +
+                $"sectionUT={FormatCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT)} " +
+                $"relativeFrames={FormatCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT)} " +
+                $"absoluteFrames={FormatCoverageRange(diagnostic.FirstAbsoluteFrameUT, diagnostic.LastAbsoluteFrameUT)} " +
+                $"anchorRec={diagnostic.AnchorRecordingId ?? "(none)"} " +
                 $"callsite={callsite ?? "(unknown)"}",
                 5.0);
+        }
+
+        private static string FormatCoverageRange(double startUT, double endUT)
+        {
+            if (double.IsNaN(startUT) || double.IsNaN(endUT))
+                return "(none)";
+
+            return "["
+                + startUT.ToString("R", CultureInfo.InvariantCulture)
+                + ","
+                + endUT.ToString("R", CultureInfo.InvariantCulture)
+                + "]";
         }
 
         private static string BuildParentAnchoredDebrisCoverageRetiredKey(

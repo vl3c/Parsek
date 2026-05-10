@@ -872,6 +872,119 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_InsideSectionAfterAuthoredFrames_ReturnsTrue()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 },
+            };
+            traj.TrackSections[0] = section;
+
+            Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj,
+                120.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("relative-and-shadow-frames-out-of-range", diagnostic.Reason);
+            Assert.Equal(0, diagnostic.SectionIndex);
+            Assert.Equal(100.0, diagnostic.FirstRelativeFrameUT);
+            Assert.Equal(110.0, diagnostic.LastRelativeFrameUT);
+            Assert.Equal(100.0, diagnostic.FirstAbsoluteFrameUT);
+            Assert.Equal(110.0, diagnostic.LastAbsoluteFrameUT);
+        }
+
+        [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_ShadowFramesCover_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 130.0 },
+            };
+            traj.TrackSections[0] = section;
+
+            Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj,
+                120.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("covered-by-absolute-shadow", diagnostic.Reason);
+            Assert.False(diagnostic.RelativeFramesCoverUT);
+            Assert.True(diagnostic.AbsoluteFramesCoverUT);
+        }
+
+        [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_LiveAnchorLoopDebris_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            traj.LoopAnchorVesselId = 77u;
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            traj.TrackSections[0] = section;
+
+            Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj, 120.0));
+        }
+
+        [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleRelativeFrameWithinSection_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+            };
+            traj.TrackSections[0] = section;
+
+            Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj,
+                120.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("covered-by-relative-frames", diagnostic.Reason);
+        }
+
+        [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_ProjectedFlatPointsCover_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.frames = null;
+            traj.TrackSections[0] = section;
+
+            Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj,
+                105.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("covered-by-relative-frames", diagnostic.Reason);
+            Assert.Equal(100.0, diagnostic.FirstRelativeFrameUT);
+            Assert.Equal(110.0, diagnostic.LastRelativeFrameUT);
+        }
+
+        [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_EmptyFramesAndNoProjectedPoints_ReturnsTrue()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            traj.Points.Clear();
+            TrackSection section = traj.TrackSections[0];
+            section.frames = new List<TrajectoryPoint>();
+            section.absoluteFrames = new List<TrajectoryPoint>();
+            traj.TrackSections[0] = section;
+
+            Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj,
+                105.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("relative-and-shadow-frames-out-of-range", diagnostic.Reason);
+        }
+
+        [Fact]
         public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_AbsoluteSection_ReturnsTrue()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
@@ -979,6 +1092,7 @@ namespace Parsek.Tests
                 l.Contains("[Anchor]")
                 && l.Contains("recorded-relative-retired")
                 && l.Contains("reason=parent-anchored-debris-outside-relative-coverage")
+                && l.Contains("coverageReason=no-covering-section")
                 && l.Contains("recordingId=debris-rec"));
         }
 
@@ -1009,8 +1123,121 @@ namespace Parsek.Tests
                 l.Contains("[Anchor]")
                 && l.Contains("recorded-relative-retired")
                 && l.Contains("reason=parent-anchored-debris-outside-relative-coverage")
+                && l.Contains("coverageReason=no-covering-section")
                 && l.Contains("recordingId=debris-rec")
                 && l.Contains("callsite=test-loop"));
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_ParentAnchoredDebrisAfterAuthoredFrames_DoesNotEvaluateResolverGate()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 },
+            };
+            traj.TrackSections[0] = section;
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+            bool evaluatorCalled = false;
+            var flags = new TrajectoryPlaybackFlags
+            {
+                tryEvaluateAnchorRotationReliability =
+                    (int idx, IPlaybackTrajectory observedTraj, double playbackUT,
+                        string playbackScope,
+                        out AnchorRotationReliabilityDecision decision) =>
+                    {
+                        evaluatorCalled = true;
+                        decision = default;
+                        return false;
+                    }
+            };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 4,
+                traj: traj,
+                state: state,
+                loopUT: 120.0,
+                suppressFx: true,
+                callsite: "test-loop",
+                flags: flags,
+                frameUT: 120.0,
+                warpRate: 1f,
+                emitExitWatch: false);
+
+            Assert.False(evaluatorCalled);
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(0, positioner.PositionLoopCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("recorded-relative-retired")
+                && l.Contains("coverageReason=relative-and-shadow-frames-out-of-range"));
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_ShadowCoveredAfterRelativeFrames_SkipsResolverGateWithoutRetiring()
+        {
+            var positioner = new SpawnPrimingPositioner
+            {
+                ShadowPositionShouldSucceed = true,
+                PrimedShadowBracketBeforeUT = 100.0,
+                PrimedShadowBracketAfterUT = 130.0,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 130.0 },
+            };
+            traj.TrackSections[0] = section;
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+            bool evaluatorCalled = false;
+            var flags = new TrajectoryPlaybackFlags
+            {
+                tryEvaluateAnchorRotationReliability =
+                    (int idx, IPlaybackTrajectory observedTraj, double playbackUT,
+                        string playbackScope,
+                        out AnchorRotationReliabilityDecision decision) =>
+                    {
+                        evaluatorCalled = true;
+                        decision = default;
+                        return false;
+                    }
+            };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 4,
+                traj: traj,
+                state: state,
+                loopUT: 120.0,
+                suppressFx: true,
+                callsite: "test-loop",
+                flags: flags,
+                frameUT: 120.0,
+                warpRate: 1f,
+                emitExitWatch: false);
+
+            Assert.False(evaluatorCalled);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            Assert.Equal(1, positioner.PositionLoopCalls);
         }
 
         [Fact]
