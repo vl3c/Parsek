@@ -623,10 +623,10 @@ namespace Parsek
 
         internal static bool ShouldQueueKscExplicitExplosionAudio(
             bool pauseMenuOpen,
-            GhostPlaybackLogic.StockExplosionFxWithAudioGateResult stockResult)
+            GhostPlaybackLogic.StockExplosionFxResult stockResult)
         {
             return !pauseMenuOpen
-                && stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned;
+                && stockResult == GhostPlaybackLogic.StockExplosionFxResult.StockFailedCustomVisualSpawned;
         }
 
         void PauseGhostAudioIfMenuOpen(GhostPlaybackState state)
@@ -1950,8 +1950,8 @@ namespace Parsek
                 $"vesselLength={vesselLength:F1}m");
 
             double power = Mathf.Clamp01(vesselLength / 20f);
-            GhostPlaybackLogic.StockExplosionFxWithAudioGateResult stockResult =
-                GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned;
+            GhostPlaybackLogic.StockExplosionFxResult stockResult =
+                GhostPlaybackLogic.StockExplosionFxResult.StockFailedCustomVisualSpawned;
 
             if (GhostVisualBuilder.IsFxMongerLive())
             {
@@ -1961,35 +1961,30 @@ namespace Parsek
                     $"vesselLength={vesselLength:F1}m power={power.ToString("F2", CultureInfo.InvariantCulture)}",
                     10.0);
 
-                GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(
                     worldPos,
                     power,
                     vesselLength,
                     context,
-                    $"ksc-stock-explosion-visual-only-busy-{recIdx}",
                     recordResult: result => stockResult = result);
             }
             else
             {
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-unavailable-{recIdx}",
-                    $"Stock explosion FX unavailable for {context}; spawning custom visual FX and using explicit gated audio",
+                    $"Stock explosion FX unavailable for {context}; spawning custom visual FX and using independent explosion audio",
                     10.0);
                 GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             }
 
             if (ShouldQueueKscExplicitExplosionAudio(pauseMenuOpen, stockResult))
             {
-                // If a live stock controller fails after reserving the gate, the helper releases
-                // before this explicit fallback. KSC playback runs on Unity's single update thread,
-                // so no other ghost can interleave between result capture and this reservation.
-                GhostPlaybackLogic.TryPlayExplosionOneShotWithAudioGate(
+                GhostPlaybackLogic.TryPlayIndependentExplosionOneShot(
                     worldPos,
                     KscExplosionAtmosphereFactor,
                     GhostPlaybackLogic.ResolveAudioPriorityDistance(state),
-                    context,
-                    $"ksc-explicit-explosion-audio-busy-{recIdx}");
+                    context);
             }
-            else if (pauseMenuOpen && stockResult == GhostPlaybackLogic.StockExplosionFxWithAudioGateResult.StockFailedCustomVisualSpawned)
+            else if (pauseMenuOpen && stockResult == GhostPlaybackLogic.StockExplosionFxResult.StockFailedCustomVisualSpawned)
             {
                 ParsekLog.VerboseRateLimited("GhostAudio", $"ksc-explicit-explosion-audio-paused-{recIdx}",
                     $"Explosion one-shot skipped for {context} because the pause menu is open",

@@ -13838,12 +13838,11 @@ namespace Parsek
                         for (int c = 0; c < t.childCount; c++)
                             t.GetChild(c).gameObject.SetActive(false);
                     }
-                    GhostPlaybackLogic.TryTriggerStockExplosionFxWithAudioGate(
+                    GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(
                         pos,
                         power,
                         len,
-                        $"manual preview \"{previewRecording.VesselName}\"",
-                        "manual-preview-stock-explosion-visual-only-busy");
+                        $"manual preview \"{previewRecording.VesselName}\"");
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);
