@@ -123,6 +123,42 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Relative anchor exit diagnostics
+
+        [Fact]
+        public void BuildRelativeModeExitedLogMessage_UnresolvedAnchor_LogsUnresolvedDistance()
+        {
+            string message = FlightRecorder.BuildRelativeModeExitedLogMessage(
+                "anchor-rec",
+                528453942u,
+                anchorFound: false,
+                distanceMeters: double.MaxValue,
+                vesselPid: 2708531065u);
+
+            Assert.Contains("RELATIVE mode exited", message);
+            Assert.Contains("previousAnchorRecordingId=anchor-rec", message);
+            Assert.Contains("diagnosticPid=528453942", message);
+            Assert.Contains("dist=unresolved", message);
+            Assert.Contains("vesselPid=2708531065", message);
+            Assert.Equal(
+                "dist=unresolved",
+                FlightRecorder.FormatRelativeExitDistanceFieldForLog(false, double.MaxValue));
+            Assert.DoesNotContain("179769313486232", message);
+            Assert.DoesNotContain("1.79e+308", message);
+        }
+
+        [Fact]
+        public void FormatRelativeExitDistanceForLog_FiniteAnchorDistance_FormatsMeters()
+        {
+            string distance = FlightRecorder.FormatRelativeExitDistanceForLog(
+                anchorFound: true,
+                distanceMeters: 4.06);
+
+            Assert.Equal("4.1m", distance);
+        }
+
+        #endregion
+
         #region Re-Fly post-load settle gate
 
         [Fact]
