@@ -17,7 +17,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** Added `StopFxAndAudioForSubtree` in `GhostPlaybackLogic.cs` that walks the same subtree as `HidePartSubtree` (stack-based, uses `state.partTree`) and calls the per-pid `StopEngineFxForPart` / `StopRcsFxForPart` / `StopAudioForPart` for every pid in the subtree. `ApplyDecoupledPartEvent` replaces its three single-pid stop calls with one call to the new helper. The null-tree fallback walks only the root pid, matching `HidePartSubtree`'s null-tree branch. A `[GhostAudio] Stopped FX/audio for decoupled subtree rooted at pid=...` summary log fires when the walk visits more than one pid.
 
-**Coverage:** `DecoupledSubtreeAudioStopTests` covers the engine + RCS child case, deep grandchild walks, the null-tree fallback, the null-state guard, the single-pid no-summary case, and a regression-shape test that pins the pre-fix single-pid stop did not clear engine power.
+**Coverage:** `DecoupledSubtreeAudioStopTests` covers the pure subtree-walk side of the fix — `CollectSubtreePids_DecouplerWithEngineAndRcsChildren_ReturnsAllThree`, `CollectSubtreePids_DeepSubtree_VisitsAllDescendants`, `CollectSubtreePids_NullTree_ReturnsRootOnly`, `CollectSubtreePids_TreeMissingRootEntry_ReturnsRootOnly`, `CollectSubtreePids_TreeWithSiblingBranch_DoesNotCrossBranches`, and `StopFxAndAudioForSubtree_NullState_NoThrow`. The integrated audio-stop side is covered by the in-game test `StopFxAndAudioForSubtree_DecoupledChildEngineAudioStops` (real `AudioSource.Play()` on a child engine pid + decoupler subtree walk asserting `isPlaying == false` and `currentPower == 0`) — the per-pid Stop helpers reference Unity ECalls and cannot run from xUnit.
 
 ---
 
