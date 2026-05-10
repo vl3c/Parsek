@@ -11,6 +11,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - controlled-vessel ghost initial slide observability landed, fix shape contingent
+
+Watch-mode playback of an Absolute-section non-debris controlled-vessel ghost (e.g. Kerbal X Probe in `logs/2026-05-10_1713`) shows a brief visible slide on the first frame after activation. The position is correct after the slide; the user-perceived issue is the visible transition.
+
+Phase 1 (this PR) ships permanent observability in `GhostRenderTrace`: new `EmitActivationDecision` structured phase emit (covers `RenderInRangeGhost` non-loop and `SynchronizeLoadedGhostForWatch` watch-resume), three new `AfterUpdate` fields (`rawPlaybackUT`, `visibleLead`, `clampFired`), an `activation-transition` detailed window opening on the first-visible transition for 1.0 s, and per-state hidden-pose tracking with a `hiddenPoseDelta` field on the transition row. Plan: `docs/dev/plans/fix-controlled-ghost-init-slide.md`.
+
+Phase 2 is the investigation step: capture a fresh log bundle replaying the `s14` save through the probe-decouple → watch-frame sequence with `Settings → Diagnostics → Ghost render tracing` enabled, then walk the `phase=ActivationDecision` lines through the plan's decision matrix (`hiddenPoseDelta`, `clampFired`, post-activation `dM` vs `expectedDM`) to pick the Phase 3 fix shape. Leading candidate from the plan rev. 2 is `InitialActivationHiddenMinimumFrames = 2 -> 3`.
+
 ## Done - v0.9.2 in-place Re-Fly fork inherited stale SegmentPhase/SegmentBodyName
 
 - ~~The in-place Re-Fly fork's `CopyInheritedIdentityForFork` copied the parent recording's `SegmentPhase` and `SegmentBodyName` onto the new provisional. Those fields describe the recording's own most-recent segment classification, not launch identity, so a Re-Fly off a Suborbital atmo segment that flew on to stable orbit saved with `segmentPhase=atmo` and the recordings table showed "Kerbin atmo" even though `terminalState=Orbiting` and `tOrbEcc=0.32`.~~ Reproduced by `logs/2026-05-10_1713/saves/s14/persistent.sfs` (`rec_b1566ae4…` treeOrder=10 inheriting from `32d9674c…` per `KSP.log:19465 inheritedFrom=origin sourceRec=32d9674c…`). Once non-empty, every runtime tagger that derives the phase from live vessel state guarded on `string.IsNullOrEmpty(SegmentPhase)` and became a no-op, so the inherited value rode through to OnSave.

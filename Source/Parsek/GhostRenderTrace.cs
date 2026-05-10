@@ -16,6 +16,7 @@ namespace Parsek
         internal const double InitialWindowSeconds = 4.0;
         internal const double SectionChangeWindowSeconds = 2.0;
         internal const double AnomalyWindowSeconds = 5.0;
+        internal const double ActivationTransitionWindowSeconds = 1.0;
         internal const double LargePoseDeltaMeters = 25.0;
         internal const double VelocityDeltaMultiplier = 4.0;
         internal const double VelocityDeltaSlackMeters = 25.0;
@@ -29,6 +30,20 @@ namespace Parsek
             public bool hasLastRenderedPose;
             public Vector3 lastRenderedPosition;
             public double lastPlaybackUT;
+            // Last position observed while the deferred ghost was activation-
+            // hidden. Read on the first-visible transition to compute the
+            // hidden-pose delta so investigators can attribute slides to the
+            // catch-up jump versus downstream artifacts. Default-init zero is
+            // not meaningful; gate every read on hasLastHiddenPosition.
+            public bool hasLastHiddenPosition;
+            public Vector3 lastHiddenPosition;
+            public int lastHiddenPositionFrame;
+            // Sticky "we have already seen a hidden activation frame" flag so
+            // that the first non-hidden EmitActivationDecision call can emit
+            // transition=first-visible exactly once. Cleared on Reset() with
+            // the rest of TraceState; survives across frames within a single
+            // activation lifecycle.
+            public bool wasHiddenLastActivationDecision;
         }
 
         internal struct GateDecision
@@ -119,10 +134,57 @@ namespace Parsek
 
         internal static bool ForceEnabledForTesting;
 
+        /// <summary>
+        /// Test seam for the ambient Unity frame counter. Production reads
+        /// <c>Time.frameCount</c>; xUnit cannot call into Unity natives so
+        /// tests override this to a deterministic value. Reset to <c>null</c>
+        /// in test teardown.
+        /// </summary>
+        internal static System.Func<int> FrameCounterOverrideForTesting;
+
         internal static void Reset()
         {
             states.Clear();
             detailedUntilByRecording.Clear();
+        }
+
+        private static int CurrentFrameCount()
+        {
+            var ovr = FrameCounterOverrideForTesting;
+            if (ovr != null)
+                return ovr();
+            return UnityFrameCount();
+        }
+
+        // Isolated in its own method so xUnit JIT verification of
+        // CurrentFrameCount does not have to walk into a Unity ECall site.
+        // Test runs always go through the override above; this method is only
+        // ever JIT-compiled when the override is null, which only happens
+        // inside the live KSP runtime where the ECall is legal.
+        private static int UnityFrameCount()
+        {
+            return Time.frameCount;
+        }
+
+        // Same isolation pattern for Transform.position / Transform.rotation:
+        // these are Unity ECalls and the JIT verifier in the xUnit runtime
+        // rejects any method whose IL references them, even on unreachable
+        // branches. Tests pass playbackState=null, so these helpers are never
+        // invoked there; production calls them only when state.ghost is
+        // non-null, where the ECall is legal.
+        private static Vector3 ReadGhostPosition(GhostPlaybackState playbackState)
+        {
+            return playbackState.ghost.transform.position;
+        }
+
+        private static Quaternion ReadGhostRotation(GhostPlaybackState playbackState)
+        {
+            return playbackState.ghost.transform.rotation;
+        }
+
+        private static bool IsGhostActiveSelf(GhostPlaybackState playbackState)
+        {
+            return playbackState.ghost.activeSelf;
         }
 
         internal static void OpenDetailedWindow(
@@ -216,7 +278,9 @@ namespace Parsek
             GhostPlaybackState playbackState,
             string path,
             bool retired,
-            RenderSurface surface = RenderSurface.Unknown)
+            RenderSurface surface = RenderSurface.Unknown,
+            double rawPlaybackUT = double.NaN,
+            double activationStartUT = double.NaN)
         {
             if (!IsEnabled)
                 return;
@@ -229,8 +293,8 @@ namespace Parsek
             states.TryGetValue(key, out state);
 
             bool hasGhost = playbackState?.ghost != null;
-            Vector3 position = hasGhost ? playbackState.ghost.transform.position : Vector3.zero;
-            Quaternion rotation = hasGhost ? playbackState.ghost.transform.rotation : Quaternion.identity;
+            Vector3 position = hasGhost ? ReadGhostPosition(playbackState) : default(Vector3);
+            Quaternion rotation = hasGhost ? ReadGhostRotation(playbackState) : default(Quaternion);
 
             double deltaMeters = state.hasLastRenderedPose
                 ? Vector3.Distance(state.lastRenderedPosition, position)
@@ -260,6 +324,22 @@ namespace Parsek
 
             if (gate.Emit)
             {
+                // rawPlaybackUT defaults to NaN from callers that have not yet
+                // migrated to the new signature; in that case treat raw == visible
+                // and emit clampFired=false. Migrated callers (RenderInRangeGhost
+                // non-loop passes ctx.currentUT; loop sites pass loopUT) drive
+                // the actual clamp attribution. Loop paths never call
+                // ResolveVisiblePlaybackUT today, so loopUT == playbackUT and
+                // clampFired stays false there as well — verified by source walk
+                // (only :999, :1138, :5094 invoke ResolveVisiblePlaybackUT).
+                bool hasRawUT = !double.IsNaN(rawPlaybackUT);
+                double effectiveRawUT = hasRawUT ? rawPlaybackUT : playbackUT;
+                bool clampFired = hasRawUT
+                    && Math.Abs(effectiveRawUT - playbackUT) > 1e-9;
+                double visibleLead = double.IsNaN(activationStartUT)
+                    ? double.NaN
+                    : playbackUT - activationStartUT;
+
                 EmitRaw(
                     gate.Important,
                     recordingId,
@@ -270,7 +350,7 @@ namespace Parsek
                     "path=" + Token(path)
                     + " reason=" + Token(gate.Reason)
                     + " retired=" + Bool(retired)
-                    + " active=" + Bool(hasGhost && playbackState.ghost.activeSelf)
+                    + " active=" + Bool(hasGhost && IsGhostActiveSelf(playbackState))
                     + " surface=" + RenderSurfaceToken(surface)
                     + " pos=" + FormatVector3(position)
                     + " rot=" + FormatQuaternion(rotation)
@@ -278,11 +358,14 @@ namespace Parsek
                     + " expectedDM=" + FormatDouble(expectedDeltaMeters, "F2")
                     + " velocity=" + FormatVector3(playbackState != null
                         ? playbackState.lastInterpolatedVelocity
-                        : Vector3.zero)
+                        : default(Vector3))
                     + " body=" + Token(playbackState?.lastInterpolatedBodyName)
                     + " alt=" + FormatDouble(playbackState != null
                         ? playbackState.lastInterpolatedAltitude
-                        : double.NaN, "F2"));
+                        : double.NaN, "F2")
+                    + " rawPlaybackUT=" + FormatDouble(effectiveRawUT, "F3")
+                    + " visibleLead=" + FormatDouble(visibleLead, "F3")
+                    + " clampFired=" + Bool(clampFired));
             }
 
             state.initialized = true;
@@ -291,6 +374,151 @@ namespace Parsek
             state.hasLastRenderedPose = hasGhost;
             state.lastRenderedPosition = position;
             state.lastPlaybackUT = playbackUT;
+            states[key] = state;
+        }
+
+        /// <summary>
+        /// Structured activation-decision emit for deferred ghosts. Called from
+        /// every engine path that runs the activation hide/activate split:
+        /// <c>RenderInRangeGhost</c> (non-loop) and
+        /// <c>SynchronizeLoadedGhostForWatch</c> (watch resume). Logs the
+        /// decision (hidden vs visible), the reason from
+        /// <c>ShouldHoldInitialActivationHiddenThisFrame</c>, the activation lead
+        /// against both raw and visible playback UTs, the clamp state, the
+        /// frames-remaining counter, and the transition flag. On the
+        /// first-visible transition, opens an <c>activation-transition</c>
+        /// detailed window of <see cref="ActivationTransitionWindowSeconds"/>
+        /// so subsequent <c>AfterUpdate</c> / <c>LateUpdate</c> rows stay
+        /// ungated even when the <c>first-seen</c> window has expired (e.g.
+        /// for warp-end deferred spawns or watch-resume activations late in a
+        /// session).
+        ///
+        /// <para>Carve-out: callers MUST skip this emit on retired frames.
+        /// <c>RenderInRangeGhost</c>'s retired short-circuit at
+        /// <c>GhostPlaybackEngine.cs:1231-1236</c> bypasses the activation
+        /// branch entirely — emitting an activation decision there would lie
+        /// about a decision that did not run.</para>
+        ///
+        /// <para>FX-flag-agnostic: this emit logs the activation decision, not
+        /// the FX decisions downstream of it. Watch-sync and the non-loop
+        /// hidden branch take different <c>skipPartEvents</c> paths; that
+        /// asymmetry is captured in subsequent log lines (e.g. engine FX logs),
+        /// not here.</para>
+        /// </summary>
+        internal static void EmitActivationDecision(
+            IPlaybackTrajectory trajectory,
+            int ghostIndex,
+            double currentUT,
+            double rawPlaybackUT,
+            double visiblePlaybackUT,
+            double activationStartUT,
+            int framesRemaining,
+            bool hidden,
+            string hideReason,
+            string callSite,
+            Vector3 currentPosition,
+            bool hasCurrentPosition)
+        {
+            if (!IsEnabled)
+                return;
+            if (trajectory == null || string.IsNullOrEmpty(trajectory.RecordingId))
+                return;
+
+            string recordingId = trajectory.RecordingId;
+            string key = BuildStateKey(recordingId, ghostIndex);
+            TraceState state;
+            states.TryGetValue(key, out state);
+
+            // Transition flag derived from the per-state sticky
+            // wasHiddenLastActivationDecision: hidden→visible on a state that
+            // has previously emitted at least one hidden decision is the
+            // first-visible transition. A visible decision with no prior
+            // hidden frames means the ghost activated immediately (no hide
+            // ever held it back) — emit transition=visible without firing the
+            // window-open path.
+            string transition;
+            if (hidden)
+                transition = "hidden";
+            else if (state.wasHiddenLastActivationDecision)
+                transition = "first-visible";
+            else
+                transition = "visible";
+
+            bool clampFired = Math.Abs(rawPlaybackUT - visiblePlaybackUT) > 1e-9;
+            double activationLead = double.IsNaN(activationStartUT)
+                ? double.NaN
+                : rawPlaybackUT - activationStartUT;
+            double visibleLead = double.IsNaN(activationStartUT)
+                ? double.NaN
+                : visiblePlaybackUT - activationStartUT;
+
+            double hiddenPoseDelta = double.NaN;
+            if (transition == "first-visible"
+                && state.hasLastHiddenPosition
+                && hasCurrentPosition)
+            {
+                hiddenPoseDelta = Vector3.Distance(
+                    state.lastHiddenPosition, currentPosition);
+            }
+
+            // Open the activation-transition window FIRST so that the
+            // ShouldEmitPhase gate consulted for this very emit also sees the
+            // window open. Subsequent AfterUpdate / LateUpdate rows in the
+            // next ActivationTransitionWindowSeconds are then traceable even
+            // when first-seen has expired.
+            if (transition == "first-visible")
+            {
+                OpenDetailedWindow(
+                    recordingId,
+                    currentUT,
+                    ActivationTransitionWindowSeconds,
+                    "activation-transition");
+            }
+
+            // Emit unconditionally — activation decisions are rare-per-ghost
+            // events and skipping them on a closed gate would defeat the
+            // purpose of the structured trace. ShouldEmitPhase is consulted
+            // only as defence-in-depth against a future settings flip.
+            if (ShouldEmitPhase(recordingId, currentUT, important: false, force: true))
+            {
+                string prevPosToken = state.hasLastHiddenPosition
+                    ? FormatVector3(state.lastHiddenPosition)
+                    : "<none>";
+                EmitRaw(
+                    important: transition == "first-visible",
+                    recordingId: recordingId,
+                    ghostIndex: ghostIndex,
+                    currentUT: currentUT,
+                    playbackUT: visiblePlaybackUT,
+                    phase: "ActivationDecision",
+                    details: "callSite=" + Token(callSite)
+                    + " rawPlaybackUT=" + FormatDouble(rawPlaybackUT, "F3")
+                    + " visiblePlaybackUT=" + FormatDouble(visiblePlaybackUT, "F3")
+                    + " activationStart=" + FormatDouble(activationStartUT, "F3")
+                    + " activationLead=" + FormatDouble(activationLead, "F3")
+                    + " visibleLead=" + FormatDouble(visibleLead, "F3")
+                    + " clampFired=" + Bool(clampFired)
+                    + " hidden=" + Bool(hidden)
+                    + " hideReason=" + Token(hideReason)
+                    + " framesRemaining=" + framesRemaining.ToString(CultureInfo.InvariantCulture)
+                    + " transition=" + transition
+                    + " prevHiddenPos=" + prevPosToken
+                    + " hiddenPoseDelta=" + FormatDouble(hiddenPoseDelta, "F3"));
+            }
+
+            // Update sticky hidden-frame tracking AFTER emitting so the
+            // emitted line reflects the previous frame's state.
+            if (hidden && hasCurrentPosition)
+            {
+                state.hasLastHiddenPosition = true;
+                state.lastHiddenPosition = currentPosition;
+                state.lastHiddenPositionFrame = CurrentFrameCount();
+                state.wasHiddenLastActivationDecision = true;
+            }
+            else if (!hidden)
+            {
+                state.wasHiddenLastActivationDecision = false;
+            }
             states[key] = state;
         }
 
@@ -361,7 +589,7 @@ namespace Parsek
                     currentUT,
                     currentUT,
                     "GuardSkip",
-                    Time.frameCount)
+                    CurrentFrameCount())
                 + " reason=" + Token(reason)
                 + " vessel=" + Token(trajectory?.VesselName)
                 + " startUT=" + FormatDouble(trajectory.StartUT, "F3")
@@ -583,6 +811,17 @@ namespace Parsek
                 && currentUT <= until;
         }
 
+        /// <summary>
+        /// Test seam exposing the otherwise-private detailed-window predicate.
+        /// Used by Phase 1 unit tests to verify the activation-transition
+        /// window opens on the first-visible transition.
+        /// </summary>
+        internal static bool IsDetailedWindowOpenForTesting(
+            string recordingId, double currentUT)
+        {
+            return IsDetailedWindowOpen(recordingId, currentUT);
+        }
+
         private static void EmitRaw(
             bool important,
             string recordingId,
@@ -598,7 +837,7 @@ namespace Parsek
                     currentUT,
                     playbackUT,
                     phase,
-                    Time.frameCount)
+                    CurrentFrameCount())
                 + " " + details;
             if (important)
                 ParsekLog.Info("GhostRenderTrace", message);
