@@ -646,10 +646,11 @@ namespace Parsek
                     retainedWithMissingRestored++;
             }
 
-            if (removed > 0)
+            int orphanOnly = removed - removedImmutableRetirements;
+            if (orphanOnly > 0)
             {
                 ParsekLog.Info(SweepTag,
-                    $"[LoadSweep] Cleaned {removed.ToString(CultureInfo.InvariantCulture)} " +
+                    $"[LoadSweep] Cleaned {orphanOnly.ToString(CultureInfo.InvariantCulture)} " +
                     "orphan rewind-retirement row(s); persists on next OnSave");
             }
             if (removedImmutableRetirements > 0)

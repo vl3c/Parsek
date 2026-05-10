@@ -523,5 +523,46 @@ namespace Parsek.Tests
                 $"ghost playback reaches EndUT. Got reason='{result.reason}'.");
             Assert.Equal(string.Empty, result.reason);
         }
+
+        [Fact]
+        public void ShouldSpawnAtRecordingEnd_TreeContextLeaf_ReturnsTrue_ForPreservedCanonForkAfterParentRewind()
+        {
+            // Sibling of the test above, this time with a real tree context so
+            // ShouldSpawnAtRecordingEnd's IsEffectiveLeafForVessel /
+            // IsNonLeafInTree helpers actually walk RecordingStore.CommittedTrees
+            // and apply the leaf-shaped logic instead of taking the no-tree
+            // shortcut.
+            var canonFork = new Recording
+            {
+                RecordingId = "canon-orbital-tree-probe",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = 2823934496u,
+                ExplicitStartUT = 456.79,
+                ExplicitEndUT = 992.23,
+                VesselSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Orbiting,
+                MergeState = MergeState.Immutable,
+                VesselSpawned = false,
+                SpawnedVesselPersistentId = 0,
+                SpawnSuppressedByRewind = false,
+                TerminalSpawnSupersededByRecordingId = null,
+                ChildBranchPointId = null,
+            };
+            // Single-recording tree: canonFork is automatically the effective
+            // leaf for its vessel; IsNonLeafInTree's "parent of branch point"
+            // path is also skipped (ChildBranchPointId is null).
+            RecordingStore.AddRecordingWithTreeForTesting(
+                canonFork, treeName: "canon-tree");
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                canonFork,
+                isActiveChainMember: false,
+                isChainLooping: false);
+
+            Assert.True(result.needsSpawn,
+                $"Canon Immutable orbital fork (with tree context) must be " +
+                $"spawn-eligible after parent rewind. Got reason='{result.reason}'.");
+            Assert.Equal(string.Empty, result.reason);
+        }
     }
 }

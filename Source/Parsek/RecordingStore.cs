@@ -5091,23 +5091,16 @@ namespace Parsek
                     continue;
                 }
 
-                // Defence-in-depth: the predicate-classifier upstream already
-                // routes Immutable forks into preservations (or, when their
-                // priorTip is itself retired in the same batch, demotes them
-                // explicitly). Refuse to write a retirement for an Immutable
-                // recording even if some future maintainer extends
-                // RetiredForkRecordingIds. The contract on
-                // MergeState.Immutable is "sealed forever".
-                if (retiredRec.MergeState == MergeState.Immutable)
-                {
-                    if (!SuppressLogging)
-                        ParsekLog.Warn("Rewind",
-                            $"Skipping retirement for Immutable canon recording rec={retiredId} " +
-                            $"— predicate-classifier should have preserved or explicitly demoted this. " +
-                            $"Investigate the upstream Pass 1/Pass 2 logic.");
-                    continue;
-                }
-
+                // Look up the source relation up front so the Immutable defense
+                // path (next) can re-insert it into RecordingSupersedes.
+                // Without that re-insert, a maintainer-error path that fed an
+                // Immutable id into RetiredForkRecordingIds would leave the
+                // relation already removed from supersedes (the upstream apply
+                // loop mutates the live list), the canon fork un-retired by
+                // this defense, and the priorTip un-superseded — i.e. exactly
+                // the double-materialization regression that PR #776/#777
+                // existed to prevent. Restoring the relation here re-supersedes
+                // the priorTip so only the canon fork is visible.
                 RecordingSupersedeRelation sourceRel = null;
                 for (int i = 0; i < rollback.DroppedRelations.Count; i++)
                 {
@@ -5117,6 +5110,34 @@ namespace Parsek
                         sourceRel = rel;
                         break;
                     }
+                }
+
+                // Defence-in-depth: the predicate-classifier upstream already
+                // routes Immutable forks into preservations (or, when their
+                // priorTip is itself retired in the same batch, demotes them
+                // explicitly). Refuse to write a retirement for an Immutable
+                // recording even if some future maintainer extends
+                // RetiredForkRecordingIds. The contract on
+                // MergeState.Immutable is "sealed forever".
+                if (retiredRec.MergeState == MergeState.Immutable)
+                {
+                    bool restoredSupersedeLink = false;
+                    if (sourceRel != null
+                        && scenario.RecordingSupersedes != null
+                        && !scenario.RecordingSupersedes.Contains(sourceRel))
+                    {
+                        scenario.RecordingSupersedes.Add(sourceRel);
+                        restoredSupersedeLink = true;
+                    }
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("Rewind",
+                            $"Skipping retirement for Immutable canon recording rec={retiredId} " +
+                            (restoredSupersedeLink
+                                ? $"and re-inserting supersede relation {sourceRel.RelationId ?? "<no-id>"} (priorTip stays superseded) "
+                                : "(no source relation to restore — priorTip may render alongside canon, investigate) ") +
+                            $"— predicate-classifier should have preserved or explicitly demoted this. " +
+                            $"Investigate the upstream Pass 1/Pass 2 logic.");
+                    continue;
                 }
 
                 var retirement = new RecordingRewindRetirement
