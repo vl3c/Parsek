@@ -8,7 +8,7 @@
 >
 > Kept as historical record of what was considered and shipped on this attempt. The persistence-based redesign described in `docs/dev/plans/optimizer-persistence-split.md` superseded this note's PartEvent-window approach and shipped (Phase 1: data model + binary v8 bump; Phase 2: predicate; Phase 3: integration tests + closeout). See `docs/dev/todo-and-known-bugs.md` #632 for the closeout summary of what changed and the player-visible effects.
 >
-> **2026-05-10 update:** #547 narrowed the later body-change rule: same-class Exo SOI transitions now stay one cohesive recording and use multi-body display labels; non-Exo body changes and environment-class changes still split.
+> **2026-05-10 update:** #547 narrowed the later body-change rule: coasting ExoBallistic SOI transitions now stay one cohesive recording and use multi-body display labels; ExoPropulsive SOI boundaries, non-Exo body changes, and environment-class changes still split.
 
 ---
 
@@ -20,7 +20,7 @@ Companion to `extending-rewind-to-stable-leaves.md` §2.1 / §S16. That note fla
 
 ## 1. TL;DR
 
-`RecordingOptimizer.FindSplitCandidatesForOptimizer` splits a committed recording at every TrackSection boundary where `SplitEnvironmentClass(env)` differs, plus non-Exo body changes (#251). Same-class Exo body changes were later narrowed by #547 so transfer coasts stay cohesive. The class boundary is purely geometric: it fires whenever a vessel crosses the 70 km atmosphere line, the airless-body approach line, etc. — regardless of whether anything *actually happened* at the crossing.
+`RecordingOptimizer.FindSplitCandidatesForOptimizer` splits a committed recording at every TrackSection boundary where `SplitEnvironmentClass(env)` differs, plus body changes except coasting ExoBallistic SOI transitions (#251/#547). ExoBallistic coast body changes were later narrowed by #547 so transfer coasts stay cohesive. The class boundary is purely geometric: it fires whenever a vessel crosses the 70 km atmosphere line, the airless-body approach line, etc. — regardless of whether anything *actually happened* at the crossing.
 
 The original proposal: keep the body-change rule (#251) untouched, keep splits at boundaries that involve `Surface*` or `Approach`, but require a small **meaningful-action signal** for the otherwise-noisy `Atmospheric ↔ Exo*` pair. The signal is an existing `PartEvent` (thrust, decoupling, parachute, gear, thermal animation, etc.) within a window around the crossing UT. Pure geometric crossings — periapsis grazing on a stable orbit, on-rails passes — produce no nearby PartEvents and therefore no split.
 
@@ -98,7 +98,7 @@ These are not common but they are not zero, and the redesign is cheap.
 
 **Aggregating into three buckets:**
 
-1. **Body change (#251)** — orthogonal, always meaningful in this historical proposal. Later #547 narrowed same-class Exo body changes to stay cohesive.
+1. **Body change (#251)** — orthogonal, always meaningful in this historical proposal. Later #547 narrowed coasting ExoBallistic body changes to stay cohesive.
 2. **Boundary involves Surface (class 2) or Approach (class 3)** — always meaningful. Surface boundaries are gated by `Vessel.Situations` flags + debounce. Approach boundaries get the same default-allow treatment in v1: the airless-flyby noise case (§4 row 9) is rare in practice and a single false-positive split per flyby is mild, while a passive-flyby gate would require yet more signal-engineering. **Decision: Approach↔Exo is *not* gated; treat any class-3 boundary as always meaningful, matching the helper in §5.** §8 open Q3 records this as a v1.1 candidate to revisit if playtests show false positives.
 3. **Pure Atmospheric ↔ Exo pair** — the entire noise cluster sits here. Gate behind a meaningful-action signal.
 
@@ -246,7 +246,7 @@ Tests to add under `#region FindSplitCandidatesForOptimizer` (the production spl
 8. **ExoBallistic → ExoBallistic (no class change)** → empty (current behavior, regression check).
 9. **Atmo ↔ Surface boundary** → split (Surface bucket bypasses the gate).
 10. **ExoBallistic ↔ Surface boundary** → split.
-11. **Body change with same env class on both sides** → historical proposal split; later #547 keeps same-class Exo body changes cohesive.
+11. **Body change with same env class on both sides** → historical proposal split; later #547 keeps coasting ExoBallistic body changes cohesive.
 12. **Body change AND class change AND no PartEvents** → split (body-change / class-change short-circuits the env-meaningful gate).
 13. **Multiple atmo↔exo oscillations in one recording, all without PartEvents** → empty. The N×splits-per-orbit eccentric case.
 14. **Multiple atmo↔exo oscillations, with engine event on the *first* crossing only** → split exactly once (at the meaningful crossing). Confirms per-boundary independence.

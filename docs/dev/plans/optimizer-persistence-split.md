@@ -21,8 +21,9 @@ Companion artifacts:
 `RecordingOptimizer.FindSplitCandidatesForOptimizer`
 ([Source/Parsek/RecordingOptimizer.cs:210](../../../Source/Parsek/RecordingOptimizer.cs:210))
 splits a recording at every `TrackSection` boundary where
-`SplitEnvironmentClass(env)` differs (plus non-Exo body changes — #251). Today
-this is a pure geometric check: the boundary fires whenever a vessel crosses
+`SplitEnvironmentClass(env)` differs, plus body changes except coasting
+ExoBallistic SOI transitions (#251/#547). Today this is a pure geometric check:
+the boundary fires whenever a vessel crosses
 the 70 km atmosphere line or the airless-body approach line, regardless of
 what the trajectory does on either side.
 
@@ -379,8 +380,9 @@ persistence predicate.
 ## 4. Worked examples
 
 Predicate traces walk the §3 ordering top-down (seam → not-a-boundary →
-body → Surface default / surface graze → ExoPropulsive → persistence) and use
-the collapse-walk semantics of §3.1.
+coasting ExoBallistic body-change suppression → other body changes → Surface
+default / surface graze → ExoPropulsive → persistence) and use the collapse-walk
+semantics of §3.1.
 
 | Recording shape (sections) | Boundaries (s) | Predicate trace | Result |
 |---|---|---|---|
@@ -396,7 +398,8 @@ the collapse-walk semantics of §3.1.
 | `Surface,Atmo[long],Exo[40s],Atmo[long],Surface` (Karman-line tourist hop, ≤150 km apogee) | s=1, s=2, s=3, s=4 | s=1, s=4: Surface default split (Atmo runs are long, so not surface grazes). s=2: forward walk through Exo[40s] → bracket=Atmo, class 0 = prev class 0. Forward bracket → suppress. s=3: backward walk → bracket=Atmo, class 0 = next class 0. Backward bracket → suppress. | s=1,4 split; s=2,3 suppress ✓ |
 | `Surface,Atmo[long],Exo[300s],Atmo[long],Surface` (real suborbital arc with sustained apogee) | s=1, s=2, s=3, s=4 | s=2: forward walk cumDur=300s>K, no forward bracket. Backward walk: prev=Atmo[long] not brief. s=3: prev=Exo[300s] not brief. | all split ✓ |
 | **`Exo[long],Atmo[40s],Atmo[40s_break],Atmo[40s_break],Exo[long]`** (cumulative-too-long) | s=1, s=4 | s=1: forward walk through three Atmo sections, cumDur=120s. cumDur < K is FALSE (strict <). No forward bracket. s=4: symmetric. | both split ✓ (sustained Atmo run is a real phase) |
-| `Kerbin ExoBallistic,Mun ExoBallistic` (SOI traversal mid-coast, body change) | s=1 | same-class Exo body change stays cohesive; display label surfaces `Kerbin -> Mun`. | not a candidate ✓ |
+| `Kerbin ExoBallistic,Mun ExoBallistic` (SOI traversal mid-coast, body change) | s=1 | coasting ExoBallistic body change stays cohesive; display label surfaces `Kerbin -> Mun`. | not a candidate ✓ |
+| `Kerbin ExoBallistic,Mun ExoPropulsive` (SOI traversal while burning) | s=1 | ExoPropulsive SOI boundary remains meaningful. | split ✓ |
 | `Kerbin Atmo,Mun ExoBallistic` (SOI traversal with class change) | s=1 | body/class boundary remains meaningful. | split ✓ (#251) |
 | `Loaded[long, Exo],Absolute[1 frame, Atmo, IsBoundarySeam=true]` (Producer C) | s=1 | seam short-circuit (§5). | not a candidate ✓ |
 | `Loaded[long, Exo],Absolute[1 frame, Atmo, IsBoundarySeam=false]` (theoretical: seam without flag) | s=1 | persistence predicate; forward walk: s+1 doesn't exist; no forward bracket. Backward walk: prev long, no fire. Falls through to split. | split (legacy fallback for old recordings — accepted; see §6) |
@@ -593,7 +596,7 @@ suppression-counter line is the right shape; reuse it.
                                              grazeForward=<x> grazeBackward=<y>
                                              surfaceGrazeForward=<sf> surfaceGrazeBackward=<sb>
                                              seamSkipped=<z>
-                                             exoBodyChangeKept=<b>
+                                             exoCoastBodyChangeKept=<b>
                                              splittableButRejected=<w>
 ```
 
@@ -603,7 +606,7 @@ Discriminator enum (replaces the PR #625 `SplitBoundaryReason` shape):
 internal enum SplitBoundaryReason
 {
     NotABoundary = 0,                   // env unchanged AND body unchanged
-    BodyChange,                         // #251 — non-Exo or class-changing body boundary
+    BodyChange,                         // #251 — body boundary except coasting ExoBallistic SOI transfer
     SurfaceInvolved,                    // class 2 (Surface) on either side
     ExoPropulsiveAtCrossing,            // S3 short-circuit — engine firing
     PersistedPhaseChange,               // persistence predicate accepted
@@ -612,7 +615,7 @@ internal enum SplitBoundaryReason
     SuppressedSurfaceGrazeForward,      // Surface -> brief Atmo/Approach -> Surface
     SuppressedSurfaceGrazeBackward,     // Surface -> brief Atmo/Approach -> Surface
     SuppressedBoundarySeam,             // §5 — Producer-C seam flag set
-    SuppressedExoBodyChange             // same-class Exo SOI transfer kept cohesive
+    SuppressedExoCoastBodyChange        // coasting ExoBallistic SOI transfer kept cohesive
 }
 ```
 

@@ -192,11 +192,13 @@ namespace Parsek
                     int nextClass = SplitEnvironmentClass(rec.TrackSections[s].environment);
                     int prevClass = SplitEnvironmentClass(rec.TrackSections[s - 1].environment);
                     // Split where coarse environment class changes OR where a body change
-                    // should still split. Same-class Exo body changes intentionally stay
-                    // cohesive so transfer coasts render as one loopable recording.
+                    // should still split. Coasting ExoBallistic body changes intentionally
+                    // stay cohesive so transfer coasts render as one loopable recording.
                     bool envChanged = nextClass != prevClass;
                     bool bodyChanged = SectionBodyChanged(rec.TrackSections[s - 1], rec.TrackSections[s]);
-                    bool bodyChangeSplits = bodyChanged && ShouldSplitForBodyChange(prevClass, nextClass);
+                    bool bodyChangeSplits = bodyChanged
+                        && !ShouldKeepCohesiveCrossBodyExoCoast(
+                            rec.TrackSections[s - 1], rec.TrackSections[s], prevClass, nextClass);
                     if (!envChanged && !bodyChangeSplits)
                         continue;
 
@@ -239,7 +241,7 @@ namespace Parsek
         /// The accept reasons (BodyChange / SurfaceInvolved / ExoPropulsiveAtCrossing /
         /// PersistedPhaseChange) drive the Verbose accept log; the suppress reasons
         /// (SuppressedGrazeForward / SuppressedGrazeBackward / SuppressedSurfaceGrazeForward /
-        /// SuppressedSurfaceGrazeBackward / SuppressedBoundarySeam / SuppressedExoBodyChange)
+        /// SuppressedSurfaceGrazeBackward / SuppressedBoundarySeam / SuppressedExoCoastBodyChange)
         /// feed the per-recording
         /// aggregate suppression-counter log. NotABoundary is the case
         /// where env class is unchanged AND body is unchanged — not a decision to log.
@@ -257,7 +259,7 @@ namespace Parsek
             SuppressedSurfaceGrazeForward,
             SuppressedSurfaceGrazeBackward,
             SuppressedBoundarySeam,
-            SuppressedExoBodyChange
+            SuppressedExoCoastBodyChange
         }
 
         /// <summary>
@@ -265,7 +267,7 @@ namespace Parsek
         /// docs/dev/plans/optimizer-persistence-split.md:
         ///   1. Seam short-circuit (hard "always wins" override — Producer-C boundary seam).
         ///   2. Not a boundary (env unchanged AND body unchanged) — caller skips.
-        ///   3. Same-class Exo body change — keep as one cohesive transfer segment.
+        ///   3. Same-class ExoBallistic body change — keep as one cohesive transfer coast.
         ///   4. Other body change (#251) — always meaningful.
         ///   5. Surface involved — split unless the boundary is a brief Atmo/Approach run
         ///      bracketed by Surface on both sides.
@@ -306,12 +308,12 @@ namespace Parsek
                 return false;
             }
 
-            // Step 3: same-class Exo body changes stay cohesive. Orbit/map renderers still
+            // Step 3: same-class ExoBallistic body changes stay cohesive. Orbit/map renderers still
             // read body names from OrbitSegments/points at runtime, while UI display builds a
             // multi-body label from the recorded payload.
-            if (bodyChanged && !ShouldSplitForBodyChange(prevClass, nextClass))
+            if (bodyChanged && ShouldKeepCohesiveCrossBodyExoCoast(prev, next, prevClass, nextClass))
             {
-                reason = SplitBoundaryReason.SuppressedExoBodyChange;
+                reason = SplitBoundaryReason.SuppressedExoCoastBodyChange;
                 return false;
             }
 
@@ -525,7 +527,7 @@ namespace Parsek
                 int suppressedSurfaceGrazeForward = 0;
                 int suppressedSurfaceGrazeBackward = 0;
                 int suppressedBoundarySeam = 0;
-                int suppressedExoBodyChange = 0;
+                int suppressedExoCoastBodyChange = 0;
                 int splittableButRejected = 0;
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
@@ -579,14 +581,14 @@ namespace Parsek
                         case SplitBoundaryReason.SuppressedBoundarySeam:
                             suppressedBoundarySeam++;
                             break;
-                        case SplitBoundaryReason.SuppressedExoBodyChange:
-                            suppressedExoBodyChange++;
+                        case SplitBoundaryReason.SuppressedExoCoastBodyChange:
+                            suppressedExoCoastBodyChange++;
                             break;
                     }
                 }
 
                 // Aggregate per-recording summary line. Covers both predicate-suppressed
-                // boundaries (graze patterns, same-class Exo body changes, seam short-circuits)
+                // boundaries (graze patterns, coasting cross-body Exo transitions, seam short-circuits)
                 // AND splittable boundaries
                 // that CanAutoSplit later rejected. The line title is "Split summary" because
                 // "splittableButRejected" is downstream-rejected by CanAutoSplit, not
@@ -594,7 +596,7 @@ namespace Parsek
                 // would imply the predicate caused all of it.
                 if (suppressedGrazeForward > 0 || suppressedGrazeBackward > 0
                     || suppressedSurfaceGrazeForward > 0 || suppressedSurfaceGrazeBackward > 0
-                    || suppressedBoundarySeam > 0 || suppressedExoBodyChange > 0
+                    || suppressedBoundarySeam > 0 || suppressedExoCoastBodyChange > 0
                     || splittableButRejected > 0)
                 {
                     ParsekLog.Verbose("Optimizer",
@@ -605,7 +607,7 @@ namespace Parsek
                         $"surfaceGrazeForward={suppressedSurfaceGrazeForward} " +
                         $"surfaceGrazeBackward={suppressedSurfaceGrazeBackward} " +
                         $"seamSkipped={suppressedBoundarySeam} " +
-                        $"exoBodyChangeKept={suppressedExoBodyChange} " +
+                        $"exoCoastBodyChangeKept={suppressedExoCoastBodyChange} " +
                         $"splittableButRejected={splittableButRejected}");
                 }
             }
@@ -1086,8 +1088,9 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if two adjacent TrackSections have different celestial bodies.
-        /// Detects SOI transitions. Same-class Exo transitions are kept cohesive by
-        /// the optimizer split predicate and surfaced through display labels instead.
+        /// Detects SOI transitions. Same-class ExoBallistic coast transitions are kept
+        /// cohesive by the optimizer split predicate and surfaced through display labels
+        /// instead; ExoPropulsive body boundaries still split.
         /// Uses orbit segment body if available, otherwise first trajectory point body.
         /// </summary>
         internal static bool SectionBodyChanged(TrackSection prev, TrackSection next)
@@ -1099,9 +1102,16 @@ namespace Parsek
             return prevBody != nextBody;
         }
 
-        private static bool ShouldSplitForBodyChange(int prevClass, int nextClass)
+        private static bool ShouldKeepCohesiveCrossBodyExoCoast(
+            TrackSection prev,
+            TrackSection next,
+            int prevClass,
+            int nextClass)
         {
-            return prevClass != ExoSplitClass || nextClass != ExoSplitClass;
+            return prevClass == ExoSplitClass
+                && nextClass == ExoSplitClass
+                && prev.environment == SegmentEnvironment.ExoBallistic
+                && next.environment == SegmentEnvironment.ExoBallistic;
         }
 
         private static string GetSectionBody(TrackSection section)

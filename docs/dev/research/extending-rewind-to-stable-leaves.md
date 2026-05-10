@@ -62,7 +62,7 @@ R3 implements that exactly: a small, simple default predicate plus a player-cont
 
 A single physical vessel often produces a chain of `Recording` instances linked by `ChainId` / `ChainBranch=0` / `ChainIndex`. Two mechanisms create chain segments:
 
-1. **Optimizer env-class splits.** `RecordingOptimizer.SplitAtSection` cuts at TrackSection boundaries when env class changes (Atmospheric / Exo / SurfaceMobile-or-Stationary / Approach) or non-Exo body changes (#251); same-class Exo body changes stay cohesive and rely on multi-body display labels. See [RecordingOptimizer.cs:178-230](../../../Source/Parsek/RecordingOptimizer.cs).
+1. **Optimizer env-class splits.** `RecordingOptimizer.SplitAtSection` cuts at TrackSection boundaries when env class changes (Atmospheric / Exo / SurfaceMobile-or-Stationary / Approach) or body changes that are not coasting ExoBallistic SOI transitions (#251/#547); ExoBallistic coast body changes stay cohesive and rely on multi-body display labels. See [RecordingOptimizer.cs:178-230](../../../Source/Parsek/RecordingOptimizer.cs).
 2. **Continuation across focus switch / scene exit.** Active recording closes; on return, a fresh recording starts; chained by `ChainId`.
 
 A Mun lander chain might look like:

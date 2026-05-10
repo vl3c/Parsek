@@ -6220,7 +6220,7 @@ The regression uses the policy spawn override, matching existing headless
 
 **Files:** `Source/Parsek/RecordingOptimizer.cs`, `Source/Parsek/RecordingStore.cs`, timeline/recordings UI that renders `SegmentBodyName`, `docs/dev/recording-optimizer-review.md`.
 
-**Fix:** Chose the cohesive-recording option for same-class Exo SOI transitions. `RecordingOptimizer` now keeps Kerbin Exo -> Mun Exo boundaries in one recording, while preserving splits for environment-class changes and non-Exo body changes. Recordings table/timeline labels build a display-only body path from trajectory/TrackSection payloads (`Kerbin -> Mun exo`) without mutating `SegmentBodyName`, so map/orbit rendering continues to read body names from `OrbitSegments` and trajectory points at runtime.
+**Fix:** Chose the cohesive-recording option for coasting ExoBallistic SOI transitions. `RecordingOptimizer` now keeps Kerbin ExoBallistic -> Mun ExoBallistic boundaries in one recording, while preserving splits for environment-class changes, ExoPropulsive SOI boundaries, and non-Exo body changes. Recordings table/timeline labels build a display-only body path from trajectory/TrackSection payloads (`Kerbin -> Mun exo`) without mutating `SegmentBodyName`, so map/orbit rendering continues to read body names from `OrbitSegments` and trajectory points at runtime.
 
 **Status:** CLOSED 2026-05-10. Fixed for v0.9.2.
 

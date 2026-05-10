@@ -4870,11 +4870,11 @@ namespace Parsek.Tests
             Assert.Equal((0, 1), candidates[0]);
         }
 
-        // Test #10: Kerbin ExoBallistic -> Mun ExoBallistic. Same env class body changes
+        // Test #10: Kerbin ExoBallistic -> Mun ExoBallistic. Coasting body changes
         // stay cohesive so transfer coasts remain one loopable recording; the UI surfaces
         // the body path instead.
         [Fact]
-        public void Persistence_BodyChange_SameExoClass_StaysCohesive()
+        public void Persistence_BodyChange_ExoBallisticCoast_StaysCohesive()
         {
             var rec = MakePersistenceRecording("body-change-same-class", 17000,
                 (SegmentEnvironment.ExoBallistic, 600, "Kerbin", false),
@@ -4884,7 +4884,21 @@ namespace Parsek.Tests
             Assert.Empty(candidates);
         }
 
-        // Test #11: Body change AND env-class change with no bracket still splits through
+        // Test #11: A cross-body ExoPropulsive boundary remains split-worthy. The
+        // cohesive-transfer rule only applies to ballistic/coasting Exo transitions.
+        [Fact]
+        public void Persistence_BodyChange_ExoPropulsiveCrossing_Splits()
+        {
+            var rec = MakePersistenceRecording("body-change-exo-propulsive", 17000,
+                (SegmentEnvironment.ExoBallistic, 600, "Kerbin", false),
+                (SegmentEnvironment.ExoPropulsive, 600, "Mun", false));
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(SingleRec(rec));
+            Assert.Single(candidates);
+            Assert.Equal((0, 1), candidates[0]);
+        }
+
+        // Test #12: Body change AND env-class change with no bracket still splits through
         // the environment boundary.
         [Fact]
         public void Persistence_BodyChange_AndClassChange_NoBracket_Splits()
@@ -4898,7 +4912,7 @@ namespace Parsek.Tests
             Assert.Equal((0, 1), candidates[0]);
         }
 
-        // Test #12: Mun grazing — Approach↔Exo goes through the same persistence predicate as
+        // Test #13: Mun grazing — Approach↔Exo goes through the same persistence predicate as
         // Atmo↔Exo (eccentric Mun grazing case is structurally identical to atmo grazing).
         [Fact]
         public void Persistence_ApproachExoGrazing_BothSuppress()
@@ -4912,7 +4926,7 @@ namespace Parsek.Tests
             Assert.Empty(candidates);
         }
 
-        // Test #13: Mun Approach→Surface always splits (Surface bucket bypasses the persistence
+        // Test #14: Mun Approach→Surface always splits (Surface bucket bypasses the persistence
         // predicate — gated upstream by Vessel.Situations).
         [Fact]
         public void Persistence_ApproachToSurface_AlwaysSplits()
