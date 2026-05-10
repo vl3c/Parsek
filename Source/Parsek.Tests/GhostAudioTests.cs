@@ -127,6 +127,70 @@ namespace Parsek.Tests
             Assert.True(rocketPriority < jetPriority);
         }
 
+        [Theory]
+        // bounds-magnitude → expected FXMonger explosionSounds[] slot on a 3-element array.
+        // Stock indexes with `(int)(power * (length-1))`, so on length=3:
+        //   power < 0.5  → slot 0 (sound_explosion_debris1)
+        //   0.5 ≤ p < 1  → slot 1 (sound_explosion_debris2)
+        //   power == 1   → slot 2 (sound_explosion_large)
+        // ComputePartDestroyedPower halves the bounds magnitude and divides by PartScalePowerDivisor (10),
+        // so the breakpoints in input space are: <10 m bounds → slot 0, 10–<20 m → slot 1, ≥20 m → slot 2.
+        [InlineData(0f, 0)]      // missing renderer
+        [InlineData(0.5f, 0)]    // tiny debris fragment
+        [InlineData(2f, 0)]      // EVA-kerbal-class
+        [InlineData(8f, 0)]      // typical small part — still slot 0
+        [InlineData(9.99f, 0)]   // just below the 0.5-power threshold
+        [InlineData(10f, 1)]     // exactly the slot-1 threshold (5 m partScale → 0.5 power)
+        [InlineData(15f, 1)]     // mid-bucket large part
+        [InlineData(19.99f, 1)]  // just below the slot-2 threshold
+        [InlineData(20f, 2)]     // exactly the slot-2 threshold (clamped 1.0)
+        [InlineData(40f, 2)]     // way over — clamp01 holds
+        public void ComputePartDestroyedPower_BucketsToExpectedExplosionSoundIndex(
+            float boundsMagnitude, int expectedSlotOnThreeElementArray)
+        {
+            double power = GhostPlaybackLogic.ComputePartDestroyedPower(boundsMagnitude);
+
+            Assert.InRange(power, 0.0, 1.0);
+            // Replicate stock FXMonger.LateUpdate's index pick: `(int)(power * (length-1))`.
+            int slot = (int)(power * 2);
+            Assert.Equal(expectedSlotOnThreeElementArray, slot);
+        }
+
+        [Fact]
+        public void ComputePartDestroyedPower_NegativeBoundsClampToZero()
+        {
+            // Unity's Renderer.bounds is never negative in practice, but the helper should
+            // not produce a negative power if a defensive caller hands in a negative value.
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputePartDestroyedPower(-5f));
+        }
+
+        [Fact]
+        public void ComputePartDestroyedPower_PositiveInfinityClampsToMaxPower()
+        {
+            // Renderer.bounds.size.magnitude is finite in practice but Mathf.Clamp01's upper
+            // branch must hold for the formula to be safe under arithmetic anomalies.
+            Assert.Equal(1.0, GhostPlaybackLogic.ComputePartDestroyedPower(float.PositiveInfinity));
+        }
+
+        [Theory]
+        // Mirrors stock FXMonger's `(int)(power * (length-1))` index pick on a 3-element
+        // explosionSounds array — Parsek's KSC fallback path picks the same clips by hand
+        // because FXMonger isn't loaded outside the flight scene.
+        [InlineData(0.0, "sound_explosion_debris1")]
+        [InlineData(0.25, "sound_explosion_debris1")]
+        [InlineData(0.49, "sound_explosion_debris1")]
+        [InlineData(0.5, "sound_explosion_debris2")]
+        [InlineData(0.75, "sound_explosion_debris2")]
+        [InlineData(0.99, "sound_explosion_debris2")]
+        [InlineData(1.0, "sound_explosion_large")]
+        [InlineData(2.0, "sound_explosion_large")]   // clamped
+        [InlineData(-1.0, "sound_explosion_debris1")] // clamped
+        public void ResolveDestroyedClipByPower_PicksClipMatchingFxMongerSlot(
+            double power, string expected)
+        {
+            Assert.Equal(expected, GhostAudioPresets.ResolveDestroyedClipByPower(power));
+        }
+
         [Fact]
         public void TryTriggerStockExplosionFxOrCustom_StockSucceeds_QueuesStock()
         {
@@ -200,6 +264,7 @@ namespace Parsek.Tests
                 new UnityEngine.Vector3(1f, 1f, 1f),
                 atmosphereFactor: 1f,
                 distanceMeters: 0.0,
+                power: 0.5,
                 contextDescription: "KSC ghost #7 \"NoClip\"",
                 resolveExplosionAudioCandidate: () => new GhostPlaybackLogic.ExplosionOneShotAudioCandidate
                 {
@@ -228,6 +293,7 @@ namespace Parsek.Tests
                 new UnityEngine.Vector3(5f, 6f, 7f),
                 atmosphereFactor: 1f,
                 distanceMeters: 125.0,
+                power: 0.5,
                 contextDescription: "KSC ghost #9 \"Fallback\"",
                 resolveExplosionAudioCandidate: () => new GhostPlaybackLogic.ExplosionOneShotAudioCandidate
                 {
@@ -262,6 +328,7 @@ namespace Parsek.Tests
                 new UnityEngine.Vector3(8f, 9f, 10f),
                 atmosphereFactor: 1f,
                 distanceMeters: 0.0,
+                power: 0.5,
                 contextDescription: "KSC ghost #10 \"Throw\"",
                 resolveExplosionAudioCandidate: () => new GhostPlaybackLogic.ExplosionOneShotAudioCandidate
                 {

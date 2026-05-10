@@ -9943,44 +9943,6 @@ namespace Parsek.InGameTests
                 "Phantom-engine-after-decouple regression: subtree walk stopped the child engine's AudioSource on decouple");
         }
 
-        [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,
-            Description = "#265: OneShotAudio pause/unpause path works")]
-        public IEnumerator PauseUnpauseAudio_OneShotPath()
-        {
-            var go = new GameObject("ParsekTest_OneShotAudio");
-            runner.TrackForCleanup(go);
-            var audioSource = go.AddComponent<AudioSource>();
-            audioSource.clip = AudioClip.Create("test_oneshot", 44100, 1, 44100, false);
-            audioSource.loop = true;
-            audioSource.volume = 0f;
-            audioSource.Play();
-
-            yield return null;
-
-            InGameAssert.IsTrue(audioSource.isPlaying,
-                "OneShotAudio should be playing before pause");
-
-            var state = new GhostPlaybackState
-            {
-                oneShotAudio = new OneShotAudioInfo { audioSource = audioSource }
-            };
-
-            GhostPlaybackLogic.PauseAllAudio(state);
-            yield return null;
-
-            InGameAssert.IsFalse(audioSource.isPlaying,
-                "OneShotAudio should be paused after PauseAllAudio");
-
-            GhostPlaybackLogic.UnpauseAllAudio(state);
-            yield return null;
-
-            InGameAssert.IsTrue(audioSource.isPlaying,
-                "OneShotAudio should resume after UnpauseAllAudio");
-
-            ParsekLog.Verbose("TestRunner",
-                "OneShotAudio pause/unpause cycle verified");
-        }
-
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.SPACECENTER,
             Description = "KSC terminal explosion fallback queues a fire-and-forget AudioSource; run from Ctrl+Shift+T in the Space Center scene")]
         public IEnumerator KscExplosionFallbackAudio_FireAndForgetSourceSurvivesGhostDestroy()
@@ -10001,6 +9963,7 @@ namespace Parsek.InGameTests
                     ghostRoot.transform.position,
                     atmosphereFactor: 1f,
                     distanceMeters: 0.0,
+                    power: 0.5,
                     contextDescription: "KSC in-game fallback audio test",
                     resolveExplosionAudioCandidate: () => new GhostPlaybackLogic.ExplosionOneShotAudioCandidate
                     {
@@ -10100,12 +10063,6 @@ namespace Parsek.InGameTests
             engineSource.spatialBlend = 1f;
             engineSource.panStereo = 0.35f;
 
-            var oneShotAudioRoot = new GameObject("ghost_audio_oneshot");
-            oneShotAudioRoot.transform.SetParent(ghostRoot.transform, false);
-            var oneShotSource = oneShotAudioRoot.AddComponent<AudioSource>();
-            oneShotSource.spatialBlend = 1f;
-            oneShotSource.panStereo = -0.4f;
-
             var result = new GhostBuildResult
             {
                 audioInfos = new List<AudioGhostInfo>
@@ -10116,10 +10073,6 @@ namespace Parsek.InGameTests
                         moduleIndex = 0,
                         audioSource = engineSource
                     }
-                },
-                oneShotAudio = new OneShotAudioInfo
-                {
-                    audioSource = oneShotSource
                 }
             };
 
@@ -10131,20 +10084,12 @@ namespace Parsek.InGameTests
                 "Part visuals should stay under the ghost root when audio is re-anchored");
             InGameAssert.IsTrue(engineSource.transform.parent == cameraPivot.transform,
                 "Engine ghost audio should be parented to cameraPivot");
-            InGameAssert.IsTrue(oneShotSource.transform.parent == cameraPivot.transform,
-                "One-shot ghost audio should be parented to cameraPivot");
             InGameAssert.IsTrue(engineSource.transform.localPosition == Vector3.zero,
                 "Engine ghost audio should sit at the watch pivot local origin");
-            InGameAssert.IsTrue(oneShotSource.transform.localPosition == Vector3.zero,
-                "One-shot ghost audio should sit at the watch pivot local origin");
             InGameAssert.ApproxEqual(0f, engineSource.panStereo, 0.0001f,
                 "Engine ghost audio panStereo should stay centered");
-            InGameAssert.ApproxEqual(0f, oneShotSource.panStereo, 0.0001f,
-                "One-shot ghost audio panStereo should stay centered");
             InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, engineSource.spatialBlend, 0.0001f,
                 "Engine ghost audio spatialBlend should use the damped watch-safe blend");
-            InGameAssert.ApproxEqual(GhostVisualBuilder.GhostAudioSpatialBlend, oneShotSource.spatialBlend, 0.0001f,
-                "One-shot ghost audio spatialBlend should use the damped watch-safe blend");
         }
 
         [InGameTest(Category = "GhostAudio", Scene = GameScenes.FLIGHT,

@@ -6037,11 +6037,6 @@ namespace Parsek
                     }
                 }
             }
-            if (state.oneShotAudio?.audioSource != null && state.oneShotAudio.audioSource.isPlaying)
-            {
-                state.oneShotAudio.audioSource.Stop();
-                audioStopped++;
-            }
             if (audioStopped > 0)
                 ParsekLog.Verbose("GhostAudio", $"Cleanup: stopped {audioStopped} audio source(s) for '{state.vesselName}'");
 
@@ -6274,7 +6269,7 @@ namespace Parsek
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
-            double power = Mathf.Clamp01(vesselLength / 20f);
+            double power = Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
 
             if (state.audioPaused)
             {

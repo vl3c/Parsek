@@ -1949,7 +1949,7 @@ namespace Parsek
                 $"Explosion for ghost #{recIdx} \"{vesselName}\" " +
                 $"vesselLength={vesselLength:F1}m");
 
-            double power = Mathf.Clamp01(vesselLength / 20f);
+            double power = Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
             GhostPlaybackLogic.StockExplosionFxResult stockResult =
                 GhostPlaybackLogic.StockExplosionFxResult.StockFailedCustomVisualSpawned;
 
@@ -1982,6 +1982,7 @@ namespace Parsek
                     worldPos,
                     KscExplosionAtmosphereFactor,
                     GhostPlaybackLogic.ResolveAudioPriorityDistance(state),
+                    power,
                     context);
             }
             else if (pauseMenuOpen && stockResult == GhostPlaybackLogic.StockExplosionFxResult.StockFailedCustomVisualSpawned)

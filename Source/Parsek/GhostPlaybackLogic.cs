@@ -1148,8 +1148,6 @@ namespace Parsek
 
             PopulateAudioInfos(state, result);
 
-            state.oneShotAudio = result.oneShotAudio;
-
             if (ShouldEvaluateOrphanEnginePlayback(state, traj))
                 AutoStartOrphanEnginePlayback(state, traj);
         }
@@ -2269,18 +2267,21 @@ namespace Parsek
 
             if (GhostVisualBuilder.IsFxMongerLive())
             {
-                float partScale = 1f;
+                float rendererBoundsSizeMagnitude = 0f;
                 var renderer = t.GetComponentInChildren<Renderer>();
                 if (renderer != null)
-                    partScale = renderer.bounds.size.magnitude * 0.5f;
-                // Map part scale (~0.5–6 m typical) to stock's [0..1] power bucket the same way the
-                // terminal-vessel path does (Mathf.Clamp01(length / 20f)). Small parts land near 0
-                // and pick FXMonger.explosionSounds[0] (sound_explosion_debris1, ~5.3 s); larger
-                // parts grade up through the array to sound_explosion_large at the top.
-                double power = Mathf.Clamp01(partScale / 10f);
+                    rendererBoundsSizeMagnitude = renderer.bounds.size.magnitude;
+                double power = ComputePartDestroyedPower(rendererBoundsSizeMagnitude);
 
                 if (GhostVisualBuilder.TryTriggerStockExplosionFx(t.position, power, out string failure))
+                {
+                    ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-fxmonger-{persistentId}",
+                        $"FXMonger.Explode queued for destroyed part pid={persistentId} " +
+                        $"at ({t.position.x:F1},{t.position.y:F1},{t.position.z:F1}) " +
+                        $"power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                        5.0);
                     return;
+                }
 
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-fxmonger-failed-{persistentId}",
                     $"FXMonger.Explode failed for destroyed part pid={persistentId}: {failure}; falling back to particle puff",
@@ -2292,6 +2293,30 @@ namespace Parsek
             // transform lookup and renderer-bounds derivation; cheap on the rare destroyed-part
             // path and avoids duplicating the partScale formula here.
             SpawnPartPuffAtPart(ghost, persistentId);
+            ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-puff-{persistentId}",
+                $"Particle puff spawned for destroyed part pid={persistentId} " +
+                $"(FXMonger unavailable or failed)",
+                5.0);
+        }
+
+        /// <summary>
+        /// Pure power formula used by <see cref="PlayPartDestroyedFxAtPart"/> to bucket an
+        /// individual destroyed part into stock FXMonger's `explosionSounds[]` / `explosions[]`
+        /// arrays. Stock indexes both arrays with `(int)(power * (length-1))`, so on a 3-element
+        /// array a part with scale below ~5 m maps to slot 0 (`sound_explosion_debris1`, ~5.3 s),
+        /// scale up to ~10 m maps to slot 1 (`debris2`, ~5.4 s), and only very large parts grade
+        /// to slot 2 (`sound_explosion_large`, ~8.6 s) — matching how stock destruction sounds
+        /// scale with the broken part's mesh size.
+        ///
+        /// Input is the renderer's `bounds.size.magnitude` (a diagonal of the AABB); the helper
+        /// halves it to approximate the part's typical "radius" before dividing by
+        /// <see cref="GhostAudioPresets.PartScalePowerDivisor"/>. Pure / static so xUnit can pin
+        /// the bucket boundaries against future tuning regressions.
+        /// </summary>
+        internal static double ComputePartDestroyedPower(float rendererBoundsSizeMagnitude)
+        {
+            float partScale = rendererBoundsSizeMagnitude * 0.5f;
+            return Mathf.Clamp01(partScale / GhostAudioPresets.PartScalePowerDivisor);
         }
 
         private static void ApplyParachuteCutEvent(
@@ -2961,8 +2986,6 @@ namespace Parsek
                     else if (info.audioSource.isPlaying)
                         info.audioSource.Pause();
                 }
-                if (state.oneShotAudio?.audioSource != null && state.oneShotAudio.audioSource.isPlaying)
-                    state.oneShotAudio.audioSource.Pause();
                 return;
             }
 
@@ -3167,11 +3190,17 @@ namespace Parsek
         /// auto-destroys after the clip finishes), so concurrent voices don't stack on a single
         /// shared source — Unity's mixer plus the source's 3D rolloff handle simultaneous KSC ghost
         /// explosions the same way stock FXMonger handles concurrent flight-scene explosions.
+        ///
+        /// <paramref name="power"/> drives clip selection through <see cref="GhostAudioPresets.ResolveDestroyedClipByPower"/>
+        /// so size-appropriate clips play here too: a small KSC ghost picks the shorter
+        /// `sound_explosion_debris1`, a heavy lifter picks `sound_explosion_large`, mirroring how
+        /// stock FXMonger's `explosionSounds[]` array is indexed in the flight-scene path.
         /// </summary>
         internal static bool TryPlayIndependentExplosionOneShot(
             Vector3 worldPosition,
             float atmosphereFactor,
             double distanceMeters,
+            double power,
             string contextDescription,
             ResolveExplosionOneShotAudioCandidateDelegate resolveExplosionAudioCandidate = null,
             PlayExplosionOneShotAudioDelegate playExplosionAudio = null)
@@ -3181,7 +3210,7 @@ namespace Parsek
                 : contextDescription;
             ResolveExplosionOneShotAudioCandidateDelegate resolveCandidate =
                 resolveExplosionAudioCandidate
-                ?? (() => ResolveExplosionOneShotAudioCandidate(atmosphereFactor, distanceMeters));
+                ?? (() => ResolveExplosionOneShotAudioCandidate(atmosphereFactor, distanceMeters, power));
 
             ExplosionOneShotAudioCandidate candidate = resolveCandidate();
             if (!candidate.canPlay)
@@ -3211,9 +3240,10 @@ namespace Parsek
 
         internal static ExplosionOneShotAudioCandidate ResolveExplosionOneShotAudioCandidate(
             float atmosphereFactor,
-            double distanceMeters)
+            double distanceMeters,
+            double power)
         {
-            string clipPath = GhostAudioPresets.ResolveOneShotClip(PartEventType.Destroyed);
+            string clipPath = GhostAudioPresets.ResolveDestroyedClipByPower(power);
             if (clipPath == null)
             {
                 return new ExplosionOneShotAudioCandidate
@@ -3410,8 +3440,6 @@ namespace Parsek
                         StopLoopedGhostAudio(info, "muted");
                 }
             }
-            if (state.oneShotAudio?.audioSource != null)
-                state.oneShotAudio.audioSource.Stop();
         }
 
         /// <summary>
@@ -3448,8 +3476,6 @@ namespace Parsek
                         info.audioSource.Pause();
                 }
             }
-            if (state.oneShotAudio?.audioSource != null && state.oneShotAudio.audioSource.isPlaying)
-                state.oneShotAudio.audioSource.Pause();
         }
 
         /// <summary>
@@ -3472,8 +3498,6 @@ namespace Parsek
                         info.audioSource.UnPause();
                 }
             }
-            if (state.oneShotAudio?.audioSource != null)
-                state.oneShotAudio.audioSource.UnPause();
         }
 
         /// <summary>

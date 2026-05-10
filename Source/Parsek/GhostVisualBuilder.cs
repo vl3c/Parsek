@@ -473,7 +473,6 @@ namespace Parsek
                 colorChangerInfos = build.colorChangerInfos.Count > 0 ? build.colorChangerInfos : null,
                 compoundPartInfos = build.compoundPartInfos.Count > 0 ? build.compoundPartInfos : null,
                 audioInfos = build.audioInfos.Count > 0 ? build.audioInfos : null,
-                oneShotAudio = BuildOneShotAudioSource(build.root),
             };
         }
 
@@ -2453,32 +2452,6 @@ namespace Parsek
             return result.Count > 0 ? result : null;
         }
 
-        /// <summary>
-        /// Build a single non-looping AudioSource on a dedicated child of the ghost root
-        /// for one-shot events (decouple, explosion). Returns null if root is null.
-        /// </summary>
-        internal static OneShotAudioInfo BuildOneShotAudioSource(GameObject ghostRoot)
-        {
-            if (ghostRoot == null) return null;
-
-            var sourceObject = new GameObject("ghost_audio_oneshot");
-            sourceObject.transform.SetParent(ghostRoot.transform, false);
-            var source = sourceObject.AddComponent<AudioSource>();
-            // Seed a neutral baseline. The per-vessel one-shot AudioSource is currently
-            // unused at runtime — destruction sounds delegate to FXMonger.Explode (flight
-            // scene) or to the independent KSC explosion one-shot path which spawns its own
-            // AudioSource. Pause/Stop/UnPause helpers still touch this source so it stays
-            // built into the ghost audio object hierarchy as a no-op stub.
-            ApplyGhostAudioDefaults(
-                source,
-                loop: false,
-                GhostAudioPresets.BaselineGameAudioPriority);
-            source.volume = 1f; // base volume=1 — PlayOneShot volumeScale multiplies against this
-
-            ParsekLog.Verbose("GhostAudio", $"Built one-shot audio source on '{ghostRoot.name}'");
-            return new OneShotAudioInfo { audioSource = source };
-        }
-
         internal static void AttachGhostAudioToWatchPivot(GhostBuildResult result, Transform cameraPivot)
         {
             if (result == null || cameraPivot == null)
@@ -2498,16 +2471,12 @@ namespace Parsek
                 }
             }
 
-            AudioSource oneShotSource = result.oneShotAudio?.audioSource;
-            bool hasOneShotSource = oneShotSource != null;
-            ReanchorGhostAudioSource(oneShotSource, cameraPivot);
-
-            if (loopSourceCount > 0 || hasOneShotSource)
+            if (loopSourceCount > 0)
             {
                 string ghostName = result.root != null ? result.root.name : "<null-root>";
                 ParsekLog.Verbose("GhostAudio",
                     $"Attached watch-pivot ghost audio on '{ghostName}' to '{cameraPivot.name}' " +
-                    $"(loop={loopSourceCount}, oneShot={(hasOneShotSource ? 1 : 0)}, " +
+                    $"(loop={loopSourceCount}, " +
                     $"spatialBlend={GhostAudioSpatialBlend:0.##}, panStereo=0)");
             }
         }
