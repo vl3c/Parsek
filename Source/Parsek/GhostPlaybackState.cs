@@ -26,7 +26,6 @@ namespace Parsek
         public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
         public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
         public Dictionary<ulong, AudioGhostInfo> audioInfos; // engine/RCS audio — keyed same as engineInfos/rcsInfos
-        public OneShotAudioInfo oneShotAudio;                // shared one-shot source for decouple/explosion sounds
         public bool audioMuted;                              // true during high warp or when ghost hidden
         public bool audioPaused;                             // true while stock pause menu is open
         public float atmosphereFactor = 1f;                  // 0 in vacuum, 1 at sea level — updated per frame. Init 1 so first-frame events aren't swallowed.
@@ -108,7 +107,6 @@ namespace Parsek
             engineInfos = null;
             rcsInfos = null;
             audioInfos = null;
-            oneShotAudio = null;
             audioMuted = false;
             audioPaused = false;
             cachedAudioBody = null;

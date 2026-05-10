@@ -144,11 +144,6 @@ namespace Parsek
         public float currentPower;
     }
 
-    internal class OneShotAudioInfo
-    {
-        public AudioSource audioSource;
-    }
-
     internal enum RoboticVisualMode
     {
         Rotational,
@@ -296,6 +291,5 @@ namespace Parsek
         public List<ColorChangerGhostInfo> colorChangerInfos;
         public List<CompoundPartGhostInfo> compoundPartInfos;
         public List<AudioGhostInfo> audioInfos;
-        public OneShotAudioInfo oneShotAudio;
     }
 }
