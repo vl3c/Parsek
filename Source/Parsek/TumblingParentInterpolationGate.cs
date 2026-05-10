@@ -5,6 +5,18 @@ namespace Parsek
 {
     internal readonly struct AnchorRotationReliabilityDecision
     {
+        /// <summary>
+        /// True only when an evaluation actually ran (a valid bracket pair was
+        /// available and the gate computed bracket angle, rate, and offset).
+        /// False when the resolver fell through without evaluating — for example
+        /// at sample boundaries where t is at 0 or 1 and slerp is a no-op, or
+        /// when the recursive resolver path reached a non-relative section
+        /// without entering the gate. Hysteresis must NOT exit a hold based on
+        /// an unevaluated decision; the bracket/rate/offset fields default to
+        /// zero in that case and would otherwise satisfy <see cref="TumblingParentInterpolationGate.ShouldExit"/>'s
+        /// offset-below-floor branch and prematurely release the hold.
+        /// </summary>
+        public readonly bool Evaluated;
         public readonly bool Unreliable;
         public readonly string AnchorRecordingId;
         public readonly double BracketDegrees;
@@ -16,8 +28,10 @@ namespace Parsek
             string anchorRecordingId,
             double bracketDegrees,
             double rateDegreesPerSecond,
-            double offsetMeters)
+            double offsetMeters,
+            bool evaluated = true)
         {
+            Evaluated = evaluated;
             Unreliable = unreliable;
             AnchorRecordingId = anchorRecordingId;
             BracketDegrees = bracketDegrees;
@@ -32,7 +46,24 @@ namespace Parsek
                 AnchorRecordingId,
                 BracketDegrees,
                 RateDegreesPerSecond,
-                OffsetMeters);
+                OffsetMeters,
+                Evaluated);
+        }
+
+        /// <summary>
+        /// Combine two decisions across a recursive resolver call so the parent
+        /// recursion's output cannot silently overwrite the child gate's already-
+        /// taken evaluation. Unreliable wins; otherwise an evaluated decision
+        /// beats an unevaluated one; otherwise either may be returned.
+        /// </summary>
+        public static AnchorRotationReliabilityDecision Combine(
+            AnchorRotationReliabilityDecision earlier,
+            AnchorRotationReliabilityDecision later)
+        {
+            if (earlier.Unreliable) return earlier;
+            if (later.Unreliable) return later;
+            if (later.Evaluated) return later;
+            return earlier;
         }
     }
 
@@ -136,6 +167,21 @@ namespace Parsek
             AnchorRotationReliabilityDecision decision,
             ref AnchorRotationHysteresisState state)
         {
+            // No evaluation ran this frame (the resolver skipped the gate at a
+            // sample boundary, or the recursion reached a non-relative section
+            // without entering it). Preserve the prior hold state — bracket,
+            // rate, and offset are all zero on an unevaluated decision and
+            // would otherwise trip ShouldExit's offset-below-floor branch and
+            // release the hold for one frame, causing the synchronized
+            // teleport-flicker observed at every parent-sample boundary in
+            // dense-tumble playback (PR #793 follow-up).
+            if (!decision.Evaluated)
+            {
+                if (state.Held)
+                    state.HeldFrames++;
+                return state.Held;
+            }
+
             bool held = state.Held
                 ? !ShouldExit(decision.BracketDegrees, decision.RateDegreesPerSecond, decision.OffsetMeters)
                 : ShouldEnter(decision.BracketDegrees, decision.RateDegreesPerSecond, decision.OffsetMeters);

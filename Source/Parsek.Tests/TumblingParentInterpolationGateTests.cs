@@ -76,6 +76,142 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EvaluateParentRotationInterpolation_MarksDecisionEvaluated()
+        {
+            TrajectoryPoint before = Point(100.0, Quaternion.identity);
+            TrajectoryPoint after = Point(100.1, TrajectoryMath.PureAngleAxis(24f, Vector3.up));
+
+            AnchorRotationReliabilityDecision evaluatedReliable =
+                TumblingParentInterpolationGate.EvaluateParentRotationInterpolation(
+                    "parent",
+                    before,
+                    after,
+                    debrisLocalOffsetSquaredMeters: 10.0 * 10.0);
+            Assert.True(evaluatedReliable.Evaluated);
+            Assert.False(evaluatedReliable.Unreliable);
+
+            AnchorRotationReliabilityDecision evaluatedUnreliable =
+                TumblingParentInterpolationGate.EvaluateParentRotationInterpolation(
+                    "parent",
+                    before,
+                    after,
+                    debrisLocalOffsetSquaredMeters: 1500.0 * 1500.0);
+            Assert.True(evaluatedUnreliable.Evaluated);
+            Assert.True(evaluatedUnreliable.Unreliable);
+
+            AnchorRotationReliabilityDecision defaultDecision = default;
+            Assert.False(defaultDecision.Evaluated);
+            Assert.False(defaultDecision.Unreliable);
+        }
+
+        [Fact]
+        public void UpdateHysteresis_UnevaluatedDecision_PreservesHeldState()
+        {
+            // Reproduces the run-2 false-release pattern: gate engaged on a
+            // chaotic bracket, then a sample-boundary frame where the resolver
+            // skips the gate (t at 0 or 1) and propagates default(decision).
+            // The hysteresis must NOT exit on default's offset=0 / rate=0.
+            var state = new AnchorRotationHysteresisState();
+            var enter = new AnchorRotationReliabilityDecision(
+                unreliable: true,
+                anchorRecordingId: "parent",
+                bracketDegrees: 44.72,
+                rateDegreesPerSecond: 203.3,
+                offsetMeters: 1506.4);
+
+            Assert.True(TumblingParentInterpolationGate.UpdateHysteresis(enter, ref state));
+            Assert.True(state.Held);
+            Assert.Equal(1, state.HeldFrames);
+
+            // Sample-boundary frame: resolver skipped gate, decision is default.
+            AnchorRotationReliabilityDecision unevaluated = default;
+            Assert.False(unevaluated.Evaluated);
+
+            for (int i = 0; i < 10; i++)
+            {
+                Assert.True(
+                    TumblingParentInterpolationGate.UpdateHysteresis(unevaluated, ref state),
+                    $"unevaluated frame #{i} unexpectedly released the hold");
+                Assert.True(state.Held);
+            }
+
+            // HeldFrames continues to advance through unevaluated frames so
+            // post-release diagnostics report the full hold duration.
+            Assert.Equal(11, state.HeldFrames);
+        }
+
+        [Fact]
+        public void UpdateHysteresis_UnevaluatedDecision_DoesNotEnterFromIdle()
+        {
+            var state = new AnchorRotationHysteresisState();
+            AnchorRotationReliabilityDecision unevaluated = default;
+
+            Assert.False(TumblingParentInterpolationGate.UpdateHysteresis(unevaluated, ref state));
+            Assert.False(state.Held);
+            Assert.Equal(0, state.HeldFrames);
+        }
+
+        [Fact]
+        public void UpdateHysteresis_EvaluatedExitDecision_StillReleasesAfterHold()
+        {
+            // The unevaluated-decision guard must not block a legitimate exit.
+            var state = new AnchorRotationHysteresisState();
+            var enter = new AnchorRotationReliabilityDecision(
+                unreliable: true,
+                anchorRecordingId: "parent",
+                bracketDegrees: 44.72,
+                rateDegreesPerSecond: 203.3,
+                offsetMeters: 1506.4);
+            Assert.True(TumblingParentInterpolationGate.UpdateHysteresis(enter, ref state));
+
+            var exit = new AnchorRotationReliabilityDecision(
+                unreliable: false,
+                anchorRecordingId: "parent",
+                bracketDegrees: 3.87,
+                rateDegreesPerSecond: 17.6,
+                offsetMeters: 1500.0);
+            Assert.True(exit.Evaluated);
+            Assert.False(TumblingParentInterpolationGate.UpdateHysteresis(exit, ref state));
+            Assert.False(state.Held);
+            Assert.Equal(0, state.HeldFrames);
+        }
+
+        [Fact]
+        public void Decision_Combine_PrefersUnreliableThenEvaluated()
+        {
+            var earlierEvaluatedReliable = new AnchorRotationReliabilityDecision(
+                unreliable: false, anchorRecordingId: "p", bracketDegrees: 2.0,
+                rateDegreesPerSecond: 30.0, offsetMeters: 1500.0);
+            var laterUnevaluated = default(AnchorRotationReliabilityDecision);
+            var laterEvaluatedReliable = new AnchorRotationReliabilityDecision(
+                unreliable: false, anchorRecordingId: "g", bracketDegrees: 1.0,
+                rateDegreesPerSecond: 10.0, offsetMeters: 1500.0);
+            var laterUnreliable = new AnchorRotationReliabilityDecision(
+                unreliable: true, anchorRecordingId: "g", bracketDegrees: 50.0,
+                rateDegreesPerSecond: 250.0, offsetMeters: 1500.0);
+
+            // Earlier evaluated reliable + later unevaluated -> earlier wins.
+            var combinedSkippedParent = AnchorRotationReliabilityDecision.Combine(
+                earlierEvaluatedReliable, laterUnevaluated);
+            Assert.True(combinedSkippedParent.Evaluated);
+            Assert.False(combinedSkippedParent.Unreliable);
+            Assert.Equal("p", combinedSkippedParent.AnchorRecordingId);
+
+            // Later evaluated reliable beats earlier evaluated reliable.
+            var combinedBothEvaluated = AnchorRotationReliabilityDecision.Combine(
+                earlierEvaluatedReliable, laterEvaluatedReliable);
+            Assert.Equal("g", combinedBothEvaluated.AnchorRecordingId);
+
+            // Either side unreliable wins.
+            var combinedLaterUnreliable = AnchorRotationReliabilityDecision.Combine(
+                earlierEvaluatedReliable, laterUnreliable);
+            Assert.True(combinedLaterUnreliable.Unreliable);
+            var combinedEarlierUnreliable = AnchorRotationReliabilityDecision.Combine(
+                laterUnreliable, earlierEvaluatedReliable);
+            Assert.True(combinedEarlierUnreliable.Unreliable);
+        }
+
+        [Fact]
         public void AnchorRotationHysteresisKey_UsesOrdinalValueEquality()
         {
             var left = new AnchorRotationHysteresisKey("child", "anchor");

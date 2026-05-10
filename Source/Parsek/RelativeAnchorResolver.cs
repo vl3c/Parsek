@@ -1600,17 +1600,21 @@ namespace Parsek
                 return false;
             }
 
+            AnchorRotationReliabilityDecision childGateDecision = default;
             if (Math.Abs(before.ut - after.ut) > UtEpsilon
                 && t > UtEpsilon
                 && t < 1f - UtEpsilon)
             {
-                rotationDecision = TumblingParentInterpolationGate.EvaluateParentRotationInterpolation(
+                childGateDecision = TumblingParentInterpolationGate.EvaluateParentRotationInterpolation(
                     recording.RecordingId,
                     before,
                     after,
                     context.DebrisLocalOffsetSquaredMeters);
-                if (rotationDecision.Unreliable)
+                if (childGateDecision.Unreliable)
+                {
+                    rotationDecision = childGateDecision;
                     return true;
+                }
             }
 
             double offsetSquared = dx * dx + dy * dy + dz * dz;
@@ -1623,10 +1627,23 @@ namespace Parsek
                     ut,
                     visited,
                     out AnchorPose parentPose,
-                    out rotationDecision))
+                    out AnchorRotationReliabilityDecision parentDecision))
             {
+                rotationDecision = AnchorRotationReliabilityDecision.Combine(
+                    childGateDecision,
+                    parentDecision);
                 return false;
             }
+
+            // Combine so the child gate's evaluated-and-reliable result is not
+            // overwritten by an unevaluated parent recursion (e.g. a parent
+            // bracket at t=0 or t=1 where the gate skipped). Without combining,
+            // the host hysteresis would receive default(decision) on every
+            // sample-boundary frame and prematurely release the hold (PR #793
+            // follow-up: synchronized debris flicker observed in run-2 logs).
+            rotationDecision = AnchorRotationReliabilityDecision.Combine(
+                childGateDecision,
+                parentDecision);
 
             if (rotationDecision.Unreliable)
                 return true;
