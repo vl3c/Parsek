@@ -789,11 +789,13 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 
 ---
 
-## TODO - Relative frame decouple distance overflow
+## Done - Relative frame decouple distance overflow
 
 - `logs/2026-05-01_1545_optimizer-merge-investigation/KSP.log` logged `RELATIVE mode exited` with `dist=1.79e+308m` immediately after the decouple at UT 279.53. This did not affect the reported playback because the chain was classified Absolute by the time it played, but the double.MaxValue-like displacement points to a degenerate relative-frame distance calculation at the decouple boundary.
 
-**Status:** OPEN.
+**Fix:** RELATIVE exit diagnostics now render unresolved anchor distances as `dist=unresolved` instead of formatting the `double.MaxValue` sentinel as metres.
+
+**Status:** DONE.
 
 ---
 
