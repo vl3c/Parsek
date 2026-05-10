@@ -128,27 +128,26 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        // bounds-magnitude → expected FXMonger explosionSounds[] slot on a 3-element array.
+        // partInfo.explosionPotential → FXMonger explosionSounds[] slot on a 3-element array.
         // Stock indexes with `(int)(power * (length-1))`, so on length=3:
         //   power < 0.5  → slot 0 (sound_explosion_debris1)
         //   0.5 ≤ p < 1  → slot 1 (sound_explosion_debris2)
         //   power == 1   → slot 2 (sound_explosion_large)
-        // ComputePartDestroyedPower halves the bounds magnitude and divides by PartScalePowerDivisor (10),
-        // so the breakpoints in input space are: <10 m bounds → slot 0, 10–<20 m → slot 1, ≥20 m → slot 2.
-        [InlineData(0f, 0)]      // missing renderer
-        [InlineData(0.5f, 0)]    // tiny debris fragment
-        [InlineData(2f, 0)]      // EVA-kerbal-class
-        [InlineData(8f, 0)]      // typical small part — still slot 0
-        [InlineData(9.99f, 0)]   // just below the 0.5-power threshold
-        [InlineData(10f, 1)]     // exactly the slot-1 threshold (5 m partScale → 0.5 power)
-        [InlineData(15f, 1)]     // mid-bucket large part
-        [InlineData(19.99f, 1)]  // just below the slot-2 threshold
-        [InlineData(20f, 2)]     // exactly the slot-2 threshold (clamped 1.0)
-        [InlineData(40f, 2)]     // way over — clamp01 holds
-        public void ComputePartDestroyedPower_BucketsToExpectedExplosionSoundIndex(
-            float boundsMagnitude, int expectedSlotOnThreeElementArray)
+        // ResolvePartExplosionPower returns the prefab's explosionPotential clamped to [0,1].
+        [InlineData(0.1f, 0)]    // explicit small explosion (some structural panels)
+        [InlineData(0.49f, 0)]   // just below the slot-1 threshold
+        [InlineData(0.5f, 1)]    // stock default (Part.explosionPotential = 0.5f) → debris2
+        [InlineData(0.75f, 1)]   // fast-moving stock default (with speed offset 0.25)
+        [InlineData(0.99f, 1)]   // just below the slot-2 threshold
+        [InlineData(1.0f, 2)]    // explicit large (e.g. heavy fuel tanks have higher potentials)
+        [InlineData(2.0f, 2)]    // out-of-range high — clamp01 holds
+        [InlineData(-1.0f, 0)]   // out-of-range low — clamp01 holds
+        public void ResolvePartExplosionPower_BucketsByPrefabExplosionPotential(
+            float prefabExplosionPotential, int expectedSlotOnThreeElementArray)
         {
-            double power = GhostPlaybackLogic.ComputePartDestroyedPower(boundsMagnitude);
+            double power = GhostPlaybackLogic.ResolvePartExplosionPower(
+                "stockPart",
+                lookup: _ => prefabExplosionPotential);
 
             Assert.InRange(power, 0.0, 1.0);
             // Replicate stock FXMonger.LateUpdate's index pick: `(int)(power * (length-1))`.
@@ -157,19 +156,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputePartDestroyedPower_NegativeBoundsClampToZero()
+        public void ResolvePartExplosionPower_UnknownPartFallsBackToStockDefault()
         {
-            // Unity's Renderer.bounds is never negative in practice, but the helper should
-            // not produce a negative power if a defensive caller hands in a negative value.
-            Assert.Equal(0.0, GhostPlaybackLogic.ComputePartDestroyedPower(-5f));
+            // When the lookup returns null (part not loaded, modded part absent, snapshot
+            // synthetic name), use the stock Part.explosionPotential default (0.5) so audio
+            // matches stock behavior for unknown parts.
+            double power = GhostPlaybackLogic.ResolvePartExplosionPower(
+                "missingMod_widget",
+                lookup: _ => null);
+
+            Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential, power);
         }
 
         [Fact]
-        public void ComputePartDestroyedPower_PositiveInfinityClampsToMaxPower()
+        public void ResolvePartExplosionPower_NullOrEmptyPartNameUsesStockDefault()
         {
-            // Renderer.bounds.size.magnitude is finite in practice but Mathf.Clamp01's upper
-            // branch must hold for the formula to be safe under arithmetic anomalies.
-            Assert.Equal(1.0, GhostPlaybackLogic.ComputePartDestroyedPower(float.PositiveInfinity));
+            // Guards against a synthetic PartEvent that never populated partName — the helper
+            // should still produce a valid power (the stock default) instead of throwing or
+            // returning a sentinel that maps to the wrong slot.
+            Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential,
+                GhostPlaybackLogic.ResolvePartExplosionPower(null, lookup: _ => null));
+            Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential,
+                GhostPlaybackLogic.ResolvePartExplosionPower(string.Empty, lookup: _ => null));
         }
 
         [Theory]

@@ -2226,7 +2226,7 @@ namespace Parsek
             StopRcsFxForPart(state, evt.partPersistentId);
             StopAudioForPart(state, evt.partPersistentId);
             if (allowTransientEffects)
-                PlayPartDestroyedFxAtPart(ghost, evt.partPersistentId, audioPaused: state?.audioPaused ?? false);
+                PlayPartDestroyedFxAtPart(ghost, evt.partPersistentId, evt.partName, state.audioPaused);
             ApplyHeatState(state, evt, HeatLevel.Cold);
             HideGhostPart(ghost, evt.partPersistentId);
             RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
@@ -2236,19 +2236,23 @@ namespace Parsek
 
         /// <summary>
         /// Spawn a stock-style explosion (visual + audio) at an individual destroyed part's world
-        /// position. Delegates to <see cref="FXMonger.Explode(Part, Vector3d, double)"/> so KSP picks
-        /// the size-appropriate clip from its <c>explosionSounds</c> array (decompiled FXMonger.LateUpdate
-        /// indexes <c>explosions[(int)(power * (length-1))]</c>) and so multiple nearby ghost-part
-        /// explosions coalesce via stock's 10 m proximity merge instead of stacking. Power is derived
-        /// from the part's renderer bounds — small parts (debris pieces, broken-off panels) map to the
-        /// smallest stock clip, large parts to the larger clips, matching how stock destruction sounds.
+        /// position. Delegates to <see cref="FXMonger.Explode(Part, Vector3d, double)"/> with the
+        /// part's recorded `explosionPotential` so KSP picks the size-appropriate clip from its
+        /// `explosionSounds[]` array — decompiled `Part.cs:11610` calls
+        /// `FXMonger.Explode(this, partTransform.position, explosionPotential + speedOffset)` and
+        /// most stock parts default to `explosionPotential = 0.5f` (decompiled `Part.cs:591`),
+        /// which lands on slot 1 (`sound_explosion_debris2`) for the 3-element stock array.
+        /// We omit the speedOffset (0/0.12/0.25 by surface speed) because ghost playback doesn't
+        /// know the live ship speed at destruction time; that produces audio one bucket lower
+        /// than stock for fast-moving destruction events but the alternative would require
+        /// recording the speed in every PartEvent.
         ///
         /// Replaces the old `PlayOneShotAtGhost(Destroyed)` path which always played
-        /// <c>sound_explosion_large</c> (the longest, 8.6 s clip) through the ghost's per-vessel
-        /// cameraPivot-anchored AudioSource — that path occupied a global temporal "audio gate" for the
-        /// full clip duration which then suppressed every subsequent terminal-vessel
-        /// <see cref="FXMonger.Explode"/> call inside the same window, leaving multi-debris breakups
-        /// nearly silent in watch mode (only the first explosion played sound).
+        /// <c>sound_explosion_large</c> through the ghost's per-vessel cameraPivot-anchored
+        /// AudioSource regardless of part size and reserved a global "audio gate" for the full
+        /// clip duration that then suppressed every subsequent terminal-vessel
+        /// <see cref="FXMonger.Explode"/> call inside the same window, leaving multi-debris
+        /// breakups nearly silent in watch mode (only the first explosion played sound).
         ///
         /// While the stock pause menu is open (<paramref name="audioPaused"/>=true), the FXMonger
         /// path is skipped — `FXMonger.Explode` would queue a SHIP_VOLUME `PlayOneShot` on a fresh
@@ -2266,7 +2270,8 @@ namespace Parsek
         /// explosion prefab array, threw, etc.) so destroyed-part events are never silent and
         /// visual-less.
         /// </summary>
-        internal static void PlayPartDestroyedFxAtPart(GameObject ghost, uint persistentId, bool audioPaused)
+        internal static void PlayPartDestroyedFxAtPart(
+            GameObject ghost, uint persistentId, string partName, bool audioPaused)
         {
             if (ghost == null) return;
             if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
@@ -2280,16 +2285,12 @@ namespace Parsek
             // the destroyed part still has a visual cue; audio stays silent until the pause clears.
             if (!audioPaused && GhostVisualBuilder.IsFxMongerLive())
             {
-                float rendererBoundsSizeMagnitude = 0f;
-                var renderer = t.GetComponentInChildren<Renderer>();
-                if (renderer != null)
-                    rendererBoundsSizeMagnitude = renderer.bounds.size.magnitude;
-                double power = ComputePartDestroyedPower(rendererBoundsSizeMagnitude);
+                double power = ResolvePartExplosionPower(partName);
 
                 if (GhostVisualBuilder.TryTriggerStockExplosionFx(t.position, power, out string failure))
                 {
                     ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-fxmonger-{persistentId}",
-                        $"FXMonger.Explode queued for destroyed part pid={persistentId} " +
+                        $"FXMonger.Explode queued for destroyed part pid={persistentId} part='{partName ?? "?"}' " +
                         $"at ({t.position.x:F1},{t.position.y:F1},{t.position.z:F1}) " +
                         $"power={power.ToString("F2", CultureInfo.InvariantCulture)}",
                         5.0);
@@ -2320,23 +2321,43 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure power formula used by <see cref="PlayPartDestroyedFxAtPart"/> to bucket an
-        /// individual destroyed part into stock FXMonger's `explosionSounds[]` / `explosions[]`
-        /// arrays. Stock indexes both arrays with `(int)(power * (length-1))`, so on a 3-element
-        /// array a part with scale below ~5 m maps to slot 0 (`sound_explosion_debris1`, ~5.3 s),
-        /// scale up to ~10 m maps to slot 1 (`debris2`, ~5.4 s), and only very large parts grade
-        /// to slot 2 (`sound_explosion_large`, ~8.6 s) — matching how stock destruction sounds
-        /// scale with the broken part's mesh size.
-        ///
-        /// Input is the renderer's `bounds.size.magnitude` (a diagonal of the AABB); the helper
-        /// halves it to approximate the part's typical "radius" before dividing by
-        /// <see cref="GhostAudioPresets.PartScalePowerDivisor"/>. Pure / static so xUnit can pin
-        /// the bucket boundaries against future tuning regressions.
+        /// Resolves the FXMonger power bucket for a destroyed part by looking up the part prefab's
+        /// `explosionPotential` (matching stock `Part.explode()` which calls
+        /// <c>FXMonger.Explode(this, pos, explosionPotential + speedOffset)</c>). Returns
+        /// <see cref="GhostAudioPresets.DefaultPartExplosionPotential"/> (0.5 — stock default) when
+        /// the part name is missing or doesn't resolve to a loaded `AvailablePart`. Power is
+        /// clamped to [0,1] so a custom-cfg part with `explosionPotential` outside that range still
+        /// produces a valid index pick. Pure helper with optional <paramref name="lookup"/> seam
+        /// for unit tests; production callers leave it null and use PartLoader.
         /// </summary>
-        internal static double ComputePartDestroyedPower(float rendererBoundsSizeMagnitude)
+        internal static double ResolvePartExplosionPower(
+            string partName, ExplosionPotentialLookup lookup = null)
         {
-            float partScale = rendererBoundsSizeMagnitude * 0.5f;
-            return Mathf.Clamp01(partScale / GhostAudioPresets.PartScalePowerDivisor);
+            ExplosionPotentialLookup resolve = lookup ?? DefaultExplosionPotentialLookup;
+            float? potential = resolve(partName);
+            if (!potential.HasValue)
+                return GhostAudioPresets.DefaultPartExplosionPotential;
+            return Mathf.Clamp01(potential.Value);
+        }
+
+        internal delegate float? ExplosionPotentialLookup(string partName);
+
+        private static float? DefaultExplosionPotentialLookup(string partName)
+        {
+            if (string.IsNullOrEmpty(partName)) return null;
+            try
+            {
+                AvailablePart info = PartLoader.getPartInfoByName(partName);
+                return info?.partPrefab?.explosionPotential;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion-potential-lookup-failed-{partName}",
+                    $"PartLoader.getPartInfoByName('{partName}') threw {ex.GetType().Name}: {ex.Message}; " +
+                    $"using default explosionPotential",
+                    30.0);
+                return null;
+            }
         }
 
         private static void ApplyParachuteCutEvent(
@@ -3380,6 +3401,45 @@ namespace Parsek
                 }
             }
 
+            // Also pause any FXMonger-spawned explosion AudioSources still playing in-flight.
+            // FXMonger.LateUpdate spawns a fresh AudioSource per ProtoExplosion (decompiled
+            // FXMonger.LateUpdate ~line 553-573 / 781-803 / 882-904) and PlayOneShots SHIP_VOLUME
+            // — those sources are owned by FXMonger, not Parsek's per-vessel audioInfos, so
+            // PauseAllAudio's per-source loop above doesn't reach them. Without this walk, opening
+            // the Esc menu mid-explosion would leave the FXMonger PlayOneShot voices playing
+            // through the pause (regressing the pre-fix tracked-oneShotAudio pause behavior, where
+            // PauseAllAudio's `state.oneShotAudio.audioSource.Pause()` covered the per-vessel
+            // PlayOneShot voice). Tracked sources pile into `pausedExplosionOneShotAudioSources`
+            // so UnpauseExplosionOneShotAudio's existing iteration resumes them via UnPause().
+            paused += PauseFxMongerExplosionAudioSources();
+
+            return paused;
+        }
+
+        private static int PauseFxMongerExplosionAudioSources()
+        {
+            List<FXObject> objects = GhostVisualBuilder.ResolveFxMongerExplosionObjects();
+            if (objects == null)
+                return 0;
+
+            int paused = 0;
+            for (int i = 0; i < objects.Count; i++)
+            {
+                FXObject fxObj = objects[i];
+                GameObject effectObj = fxObj?.effectObj;
+                if (effectObj == null) continue;
+
+                AudioSource[] sources = effectObj.GetComponentsInChildren<AudioSource>(includeInactive: false);
+                for (int s = 0; s < sources.Length; s++)
+                {
+                    AudioSource source = sources[s];
+                    if (source == null || !source.isPlaying) continue;
+                    source.Pause();
+                    if (!ContainsAudioSourceReference(pausedExplosionOneShotAudioSources, source))
+                        pausedExplosionOneShotAudioSources.Add(source);
+                    paused++;
+                }
+            }
             return paused;
         }
 

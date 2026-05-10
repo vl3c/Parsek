@@ -22,20 +22,20 @@ namespace Parsek
         internal const int MaxAudioSourcePriority = 255;
         internal const float ExplosionOneShotFallbackDurationSeconds = 2.0f;
 
-        // Power-bucket divisors used to pick a slot in stock FXMonger's `[debris1, debris2, large]`
-        // explosion arrays via `Mathf.Clamp01(scalar / divisor)`. The two divisors match the two
-        // input scales involved in ghost destruction:
-        //  - VesselLengthPowerDivisor: full-vessel terminal explosion uses the ghost mesh extent
-        //    (`ComputeGhostLength`, ~30 m for a stock heavy lifter); divide by 20 so a typical
-        //    Mainsail-class stack pushes power into the upper bucket while a stock pod stays lower.
-        //  - PartScalePowerDivisor: per-part destruction uses `renderer.bounds.size.magnitude * 0.5`
-        //    (~5 m for a fairing, ~2 m for a large engine, sub-1 m for debris fragments); divide
-        //    by 10 so the same scale-vs-power gradient lands a small piece on debris1 and only
-        //    very large parts grade up.
-        // Keeping the two divisors as named constants prevents an accidental "harmonization" that
-        // would silently shift the bucket boundaries for every destruction event in the game.
+        // Vessel length divisor used for the terminal-vessel explosion power bucket via
+        // `Mathf.Clamp01(vesselLength / divisor)`. ComputeGhostLength returns the ghost mesh extent
+        // (~30 m for a stock heavy lifter); divide by 20 so a typical Mainsail-class stack pushes
+        // power into the upper bucket while a stock pod stays lower. The per-part path uses
+        // `Part.explosionPotential` directly (no scale derivation needed).
         internal const float VesselLengthPowerDivisor = 20f;
-        internal const float PartScalePowerDivisor = 10f;
+
+        // Stock `Part.explosionPotential` default (decompiled `Part.cs:591`). Most stock parts
+        // inherit this value and stock `Part.explode()` calls
+        // `FXMonger.Explode(this, pos, explosionPotential + speedOffset)` where speedOffset is 0,
+        // 0.12, or 0.25 depending on craft surface speed. Used as the per-part fallback when the
+        // part name doesn't resolve to a loaded `AvailablePart` (modded parts that aren't installed,
+        // or synthetic / unknown part snapshots).
+        internal const double DefaultPartExplosionPotential = 0.5;
 
         private const double ResolutionLogIntervalSeconds = 5.0;
 

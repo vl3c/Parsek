@@ -6781,6 +6781,13 @@ namespace Parsek
         // without the per-call cost of Object.FindObjectOfType<FXMonger>() scanning the scene.
         private static System.Reflection.FieldInfo fxMongerFetchField;
 
+        // Cached FieldInfo for FXMonger's protected `explosionObjects` list (the per-explosion
+        // FXObject roster stock FXMonger.LateUpdate appends to as each ProtoExplosion fires).
+        // Used by the pause/unpause path to walk every in-flight stock explosion GameObject and
+        // pause their AudioSources alongside Parsek's own tracked sources — without this,
+        // FXMonger-spawned PlayOneShot voices would punch through Parsek's per-source pause.
+        private static System.Reflection.FieldInfo fxMongerExplosionObjectsField;
+
         // Returns the live FXMonger singleton or null. Centralises the reflection
         // accessor so callers that need the instance (to read `explosions[]`) and
         // callers that just need an availability check share one cached lookup.
@@ -6802,6 +6809,29 @@ namespace Parsek
         internal static bool IsFxMongerLive()
         {
             return ResolveLiveFxMonger() != null;
+        }
+
+        /// <summary>
+        /// Reflectively reads FXMonger's protected `explosionObjects` list on the live singleton
+        /// so the pause/unpause path can iterate every in-flight stock explosion GameObject and
+        /// pause their AudioSources. Returns null if the singleton is gone or the field has been
+        /// renamed in a future KSP version (caller logs once and falls open — the pause won't
+        /// reach FXMonger sources but the rest of Parsek's tracked sources will still pause).
+        /// </summary>
+        internal static List<FXObject> ResolveFxMongerExplosionObjects()
+        {
+            FXMonger fetch = ResolveLiveFxMonger();
+            if (fetch == null)
+                return null;
+            if (fxMongerExplosionObjectsField == null)
+            {
+                fxMongerExplosionObjectsField = typeof(FXMonger).GetField(
+                    "explosionObjects",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (fxMongerExplosionObjectsField == null)
+                    return null;
+            }
+            return fxMongerExplosionObjectsField.GetValue(fetch) as List<FXObject>;
         }
 
         /// <summary>
