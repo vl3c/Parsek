@@ -7865,9 +7865,16 @@ namespace Parsek
             if (!IsFiniteVector3d(rawWorld))
                 return false;
             if (!IsFiniteVector3d(velocity))
-                velocity = vessel.obt_velocity;
-            if (!IsFiniteVector3d(velocity))
+            {
+                ParsekLog.Verbose(
+                    string.IsNullOrEmpty(subsystem) ? "Recorder" : subsystem,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryCanonicalizeReFlyRecordingOrbitSegment skipped: rec={0} context={1} reason=orbital-velocity-non-finite startUT={2:F2}",
+                        recordingId ?? "(null)",
+                        context ?? "(null)",
+                        startUT));
                 return false;
+            }
 
             if (!TryApplyReFlyRecordingFrameOffsetToWorld(
                     recordingId,
@@ -7884,10 +7891,11 @@ namespace Parsek
             try
             {
                 canonicalOrbit = new Orbit();
-                canonicalOrbit.UpdateFromStateVectors(
+                OrbitReseed.FromWorldPosAndZupVelocity(
+                    canonicalOrbit,
+                    vessel.mainBody,
                     canonicalWorld,
                     velocity,
-                    vessel.mainBody,
                     startUT);
             }
             catch
