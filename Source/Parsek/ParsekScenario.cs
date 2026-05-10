@@ -751,6 +751,10 @@ namespace Parsek
                     pendingCommittedOverlapCount++;
 
                 bool wasDirty = rec.FilesDirty;
+                // Non-dirty overlaps are still listed in the pending tree node: they
+                // reference already-durable committed sidecars. Only dirty overlap
+                // writes are blocked because they would mutate committed history
+                // before the player consents to Merge.
                 if (wasDirty)
                 {
                     pendingDirtyCount++;
@@ -1990,9 +1994,11 @@ namespace Parsek
                         $"OnLoad: cold-start active tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
                         $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
                 }
+                bool coldActiveTreeRestoredFromSave =
+                    RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
+                    || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
                 bool coldPendingTreeRestoredFromSave = TryRestorePendingTreeNode(
-                    node, RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                          || RecordingStore.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch);
+                    node, coldActiveTreeRestoredFromSave);
                 if (coldPendingTreeRestoredFromSave)
                 {
                     ParsekLog.Info("Scenario",

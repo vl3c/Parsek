@@ -347,6 +347,8 @@ namespace Parsek
         // still "in-flight", untriaged, waiting for OnLoad to decide revert-vs-quickload.
         // See docs/dev/plans/quickload-resume-recording.md.
         private static PendingTreeState pendingTreeState = PendingTreeState.Finalized;
+        // True only for a Finalized pending tree known to be represented by an
+        // isPending=True save node; every pending-slot ownership/state change resets it.
         private static bool pendingTreeSerializedForSave;
         internal static string CleanOrphanFilesDirectoryOverrideForTesting;
 
@@ -1795,6 +1797,9 @@ namespace Parsek
             }
 
             pendingTree = tree;
+            // SavePendingTreeIfAny only serializes Finalized pending trees today;
+            // restore therefore reinstalls saved pending nodes as Finalized and
+            // does not arm PendingStashedThisTransition.
             pendingTreeState = PendingTreeState.Finalized;
             PendingStashedThisTransition = false;
             pendingTreeSerializedForSave = true;
@@ -2053,6 +2058,7 @@ namespace Parsek
             if (pendingTree == null) return;
             if (pendingTreeState == PendingTreeState.Finalized) return;
             pendingTreeState = PendingTreeState.Finalized;
+            pendingTreeSerializedForSave = false;
             ParsekLog.Info("RecordingStore",
                 $"Pending tree '{pendingTree.TreeName}' transitioned Limbo → Finalized");
         }
@@ -3536,6 +3542,7 @@ namespace Parsek
         internal static void SetPendingTreeStateForTesting(PendingTreeState state)
         {
             pendingTreeState = state;
+            pendingTreeSerializedForSave = false;
         }
 
         /// <summary>

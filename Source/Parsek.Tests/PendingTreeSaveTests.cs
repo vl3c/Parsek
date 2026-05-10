@@ -90,7 +90,8 @@ namespace Parsek.Tests
         [Fact]
         public void SaveTreeRecordings_DoesNotWriteLimboPendingAsPending()
         {
-            CreateRecordingsDir("limbo-skip-empty");
+            string recordingsDir = CreateRecordingsDir("limbo-skip-with-sidecar");
+            File.WriteAllText(Path.Combine(recordingsDir, "rec_limbo.prec"), "p");
             var limbo = MakeTree("tree_limbo", "Limbo Mission", "rec_limbo");
             RecordingStore.StashPendingTree(limbo, PendingTreeState.Limbo);
 
@@ -102,10 +103,15 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("SavePendingTreeIfAny: skipped pending tree")
                 && l.Contains("state=Limbo"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("writing 0 RECORDING_TREE nodes")
+                && l.Contains("1 stranded sidecar"));
 
             RecordingStore.ResetForTesting();
             logLines.Clear();
-            CreateRecordingsDir("limbo-switch-skip-empty");
+            recordingsDir = CreateRecordingsDir("limbo-switch-skip-with-sidecar");
+            File.WriteAllText(Path.Combine(recordingsDir, "rec_limbo_switch.prec"), "p");
 
             var vesselSwitch = MakeTree("tree_limbo_switch", "Switch Mission", "rec_limbo_switch");
             RecordingStore.StashPendingTree(vesselSwitch, PendingTreeState.LimboVesselSwitch);
@@ -117,6 +123,10 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("SavePendingTreeIfAny: skipped pending tree")
                 && l.Contains("state=LimboVesselSwitch"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("writing 0 RECORDING_TREE nodes")
+                && l.Contains("1 stranded sidecar"));
         }
 
         [Fact]
