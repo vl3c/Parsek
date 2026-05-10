@@ -170,11 +170,20 @@ namespace Parsek.Tests
             internal int PositionFromOrbitCalls;
             internal int PositionLoopCalls;
             internal int ZoneCalls;
+            internal int ShadowPositionCalls;
             internal double LastUT;
             internal double LastPointUT;
             internal double LastOrbitUT;
             internal double LastLoopUT;
+            internal double LastShadowUT;
             internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
+            // Test-controlled return value for the shadow positioner. When
+            // false (default) the engine routes through the legacy hide path
+            // exactly as it did pre-route. When true, set
+            // PrimedShadowBracketBeforeUT / PrimedShadowBracketAfterUT.
+            internal bool ShadowPositionShouldSucceed = false;
+            internal double PrimedShadowBracketBeforeUT = double.NaN;
+            internal double PrimedShadowBracketAfterUT = double.NaN;
 
             public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
@@ -197,9 +206,16 @@ namespace Parsek.Tests
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {
-                bracketBeforeUT = double.NaN;
-                bracketAfterUT = double.NaN;
-                return false;
+                ShadowPositionCalls++;
+                LastShadowUT = playbackUT;
+                bracketBeforeUT = PrimedShadowBracketBeforeUT;
+                bracketAfterUT = PrimedShadowBracketAfterUT;
+                if (!ShadowPositionShouldSucceed)
+                    return false;
+                if (state?.ghost != null)
+                    state.ghost.transform.position = PrimedPosition;
+                state?.SetInterpolated(new InterpolationResult(Vector3.zero, "Kerbin", 123.0));
+                return true;
             }
 
             public void PositionAtPoint(int index, IPlaybackTrajectory traj,
@@ -1334,6 +1350,46 @@ namespace Parsek.Tests
                 {
                     new TrajectoryPoint { ut = 100.0 },
                     new TrajectoryPoint { ut = 110.0 },
+                },
+            });
+            return traj;
+        }
+
+        /// <summary>
+        /// Variant with a populated `absoluteFrames` shadow on the Relative
+        /// section -- exercises the new tumbling-quality shadow route.
+        /// </summary>
+        private static MockTrajectory MakeParentAnchoredDebrisWithShadowFrames()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "debris-rec";
+            traj.VesselName = "Kerbal X Debris";
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorRecordingId = "parent-rec",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+                absoluteFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
                 },
             });
             return traj;
