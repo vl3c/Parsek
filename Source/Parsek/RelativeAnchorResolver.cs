@@ -96,11 +96,24 @@ namespace Parsek
         internal const int RecordingAnchorChainFormatVersion =
             RecordingStore.RecordingAnchorChainFormatVersion;
         private const double UtEpsilon = 1e-6;
+        internal const double SectionBoundaryEpsilonSeconds = 1e-9;
+        private const double TerminalClampDoubleSlopSeconds = 1e-6;
+        private const double HeadlessTestFixedDeltaTimeSeconds = 0.02;
+        private static readonly bool RunningInHeadlessTestRunner = DetectHeadlessTestRunner();
         // Default applies when section cadence is unavailable; maximum clamps the
         // cadence-derived threshold so sparse recordings cannot broaden the fallback.
         private const double DefaultSmallSectionGapSeconds = 0.10;
         private const double MinimumSmallSectionGapSeconds = 0.05;
         private const double MaximumSmallSectionGapSeconds = 0.10;
+
+        // Terminal anchor probes can arrive one physics tick after playback has
+        // already held or retired the ghost at its final sample. This is one
+        // fixed tick plus floating-point slop, not a generic gap tolerance.
+        internal static double TerminalClampPhysicsTickSeconds =>
+            ResolveFixedDeltaTimeSeconds();
+
+        internal static double TerminalClampThresholdSeconds =>
+            ResolveFixedDeltaTimeSeconds() + TerminalClampDoubleSlopSeconds;
 
         internal static bool TryResolveAnchorPose(
             RelativeAnchorResolverContext context,
@@ -298,7 +311,7 @@ namespace Parsek
 
             if (recording.TrackSections != null && recording.TrackSections.Count > 0)
             {
-                int sectionIndex = TrajectoryMath.FindTrackSectionForUT(recording.TrackSections, ut);
+                int sectionIndex = FindTrackSectionForUT(recording.TrackSections, ut);
                 if (sectionIndex < 0)
                 {
                     if (TryResolveSmallSectionGapPose(context, recording, ut, out pose, out failure))
@@ -307,6 +320,19 @@ namespace Parsek
                         return false;
 
                     if (TryResolveSameChainContinuationPose(
+                            context,
+                            recording,
+                            ut,
+                            visited,
+                            out pose,
+                            out failure))
+                    {
+                        return true;
+                    }
+                    if (failure.HasFailure)
+                        return false;
+
+                    if (TryResolveTerminalClampedPose(
                             context,
                             recording,
                             ut,
@@ -434,7 +460,7 @@ namespace Parsek
 
             if (recording.TrackSections != null && recording.TrackSections.Count > 0)
             {
-                int sectionIndex = TrajectoryMath.FindTrackSectionForUT(recording.TrackSections, ut);
+                int sectionIndex = FindTrackSectionForUT(recording.TrackSections, ut);
                 if (sectionIndex < 0)
                 {
                     if (TryResolveSmallSectionGapPoseWithReliability(
@@ -453,10 +479,27 @@ namespace Parsek
                             ut,
                             visited,
                             out pose,
-                            out rotationDecision))
+                            out rotationDecision,
+                            out bool continuationAttempted))
                     {
                         return true;
                     }
+                    if (continuationAttempted)
+                        return false;
+
+                    if (TryResolveTerminalClampedPoseWithReliability(
+                            context,
+                            recording,
+                            ut,
+                            visited,
+                            out pose,
+                            out rotationDecision,
+                            out bool terminalClampAttempted))
+                    {
+                        return true;
+                    }
+                    if (terminalClampAttempted)
+                        return false;
 
                     WarnUnresolved(
                         RelativeAnchorResolveOutcome.NoSectionAtUT,
@@ -622,10 +665,12 @@ namespace Parsek
             double ut,
             HashSet<string> visited,
             out AnchorPose pose,
-            out AnchorRotationReliabilityDecision rotationDecision)
+            out AnchorRotationReliabilityDecision rotationDecision,
+            out bool attempted)
         {
             pose = default;
             rotationDecision = default;
+            attempted = false;
             if (!TryFindSameChainContinuationRecording(
                     context,
                     recording,
@@ -635,6 +680,7 @@ namespace Parsek
                 return false;
             }
 
+            attempted = true;
             string continuationId = continuation.RecordingId;
             if (string.IsNullOrEmpty(continuationId))
                 return false;
@@ -796,7 +842,7 @@ namespace Parsek
                     continue;
                 if (candidate.TrackSections == null || candidate.TrackSections.Count == 0)
                     continue;
-                if (TrajectoryMath.FindTrackSectionForUT(candidate.TrackSections, ut) < 0)
+                if (FindTrackSectionForUT(candidate.TrackSections, ut) < 0)
                     continue;
                 // First chronological same-chain continuation covering the UT wins.
                 // Priority only breaks ties when the same chain index exists in
@@ -834,6 +880,432 @@ namespace Parsek
             return candidate != null
                 && !string.IsNullOrEmpty(candidate.TreeId)
                 && string.Equals(candidate.TreeId, requiredTreeId, StringComparison.Ordinal);
+        }
+
+        private static double ResolveFixedDeltaTimeSeconds()
+        {
+            if (RunningInHeadlessTestRunner)
+                return HeadlessTestFixedDeltaTimeSeconds;
+
+            double fixedDeltaTime = ResolveUnityFixedDeltaTimeSeconds();
+            if (IsFinite(fixedDeltaTime) && fixedDeltaTime > 0.0)
+                return fixedDeltaTime;
+
+            return HeadlessTestFixedDeltaTimeSeconds;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ResolveUnityFixedDeltaTimeSeconds()
+        {
+            // Keep Unity's ECall isolated so the headless xUnit runner can
+            // choose the test fallback without JIT-compiling this accessor.
+            return Time.fixedDeltaTime;
+        }
+
+        private static bool DetectHeadlessTestRunner()
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (string.Equals(
+                    assembly.GetName().Name,
+                    "Parsek.Tests",
+                    StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static int FindTrackSectionForUT(List<TrackSection> sections, double ut)
+        {
+            int strictIndex = TrajectoryMath.FindTrackSectionForUT(sections, ut);
+            if (strictIndex >= 0)
+                return strictIndex;
+
+            if (sections == null || sections.Count == 0 || !IsFinite(ut))
+                return -1;
+
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (IsFinite(sections[i].startUT)
+                    && Math.Abs(ut - sections[i].startUT) <= SectionBoundaryEpsilonSeconds)
+                {
+                    return i;
+                }
+            }
+
+            for (int i = sections.Count - 1; i >= 0; i--)
+            {
+                if (IsFinite(sections[i].endUT)
+                    && Math.Abs(ut - sections[i].endUT) <= SectionBoundaryEpsilonSeconds)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static bool TryResolveTerminalClampedPose(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double requestedUT,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
+        {
+            pose = default;
+            failure = default;
+            if (!TryFindTerminalClamp(
+                    recording,
+                    requestedUT,
+                    out int sectionIndex,
+                    out double clampedUT,
+                    out double sectionEndUT,
+                    out double terminalPlayableUT,
+                    out double overshootSeconds,
+                    out double thresholdSeconds))
+            {
+                return false;
+            }
+
+            TrackSection section = recording.TrackSections[sectionIndex];
+            bool resolved;
+            switch (section.referenceFrame)
+            {
+                case ReferenceFrame.Absolute:
+                    resolved = TryResolveAbsoluteSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        out pose,
+                        out failure);
+                    break;
+                case ReferenceFrame.Relative:
+                    resolved = TryResolveRelativeSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        visited,
+                        out pose,
+                        out failure);
+                    break;
+                case ReferenceFrame.OrbitalCheckpoint:
+                    resolved = TryResolveOrbitalSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        out pose,
+                        out failure);
+                    break;
+                default:
+                    failure = WarnUnresolved(
+                        RelativeAnchorResolveOutcome.Other,
+                        "anchor-section-frame-unknown",
+                        recording.RecordingId,
+                        recording.RecordingId,
+                        clampedUT,
+                        sectionIndex);
+                    resolved = false;
+                    break;
+            }
+
+            if (!resolved)
+                return false;
+
+            LogTerminalClamp(
+                context,
+                recording,
+                section,
+                sectionIndex,
+                requestedUT,
+                clampedUT,
+                sectionEndUT,
+                terminalPlayableUT,
+                overshootSeconds,
+                thresholdSeconds);
+            return true;
+        }
+
+        private static bool TryResolveTerminalClampedPoseWithReliability(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            double requestedUT,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out AnchorRotationReliabilityDecision rotationDecision,
+            out bool attempted)
+        {
+            pose = default;
+            rotationDecision = default;
+            attempted = false;
+            if (!TryFindTerminalClamp(
+                    recording,
+                    requestedUT,
+                    out int sectionIndex,
+                    out double clampedUT,
+                    out double sectionEndUT,
+                    out double terminalPlayableUT,
+                    out double overshootSeconds,
+                    out double thresholdSeconds))
+            {
+                return false;
+            }
+
+            attempted = true;
+            TrackSection section = recording.TrackSections[sectionIndex];
+            bool resolved;
+            switch (section.referenceFrame)
+            {
+                case ReferenceFrame.Absolute:
+                    resolved = TryResolveAbsoluteSectionPoseWithReliability(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        out pose,
+                        out rotationDecision);
+                    break;
+                case ReferenceFrame.Relative:
+                    resolved = TryResolveRelativeSectionPoseWithReliability(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        visited,
+                        out pose,
+                        out rotationDecision);
+                    break;
+                case ReferenceFrame.OrbitalCheckpoint:
+                    resolved = TryResolveOrbitalSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        clampedUT,
+                        out pose,
+                        out _);
+                    break;
+                default:
+                    WarnUnresolved(
+                        RelativeAnchorResolveOutcome.Other,
+                        "anchor-section-frame-unknown",
+                        recording.RecordingId,
+                        recording.RecordingId,
+                        clampedUT,
+                        sectionIndex);
+                    resolved = false;
+                    break;
+            }
+
+            if (!resolved)
+                return false;
+
+            LogTerminalClamp(
+                context,
+                recording,
+                section,
+                sectionIndex,
+                requestedUT,
+                clampedUT,
+                sectionEndUT,
+                terminalPlayableUT,
+                overshootSeconds,
+                thresholdSeconds);
+            return true;
+        }
+
+        private static bool TryFindTerminalClamp(
+            Recording recording,
+            double requestedUT,
+            out int sectionIndex,
+            out double clampedUT,
+            out double sectionEndUT,
+            out double terminalPlayableUT,
+            out double overshootSeconds,
+            out double thresholdSeconds)
+        {
+            sectionIndex = -1;
+            clampedUT = double.NaN;
+            sectionEndUT = double.NaN;
+            terminalPlayableUT = double.NaN;
+            overshootSeconds = double.NaN;
+            thresholdSeconds = TerminalClampThresholdSeconds;
+
+            if (recording?.TrackSections == null
+                || recording.TrackSections.Count == 0
+                || !IsFinite(requestedUT)
+                || !IsFinite(thresholdSeconds)
+                || thresholdSeconds <= 0.0)
+            {
+                return false;
+            }
+
+            // The 1e-9 section-boundary lookup can return a terminal section
+            // even when frame coverage later rejects it because
+            // endUT > lastFrame.ut + UtEpsilon. This clamp is the separate
+            // endpoint-playback path: one physics tick plus slop, and only
+            // when the final playable sample is itself within that window.
+            if (!TryFindFinalPlayableSection(
+                    recording,
+                    out sectionIndex,
+                    out TrackSection section,
+                    out terminalPlayableUT))
+            {
+                return false;
+            }
+
+            sectionEndUT = section.endUT;
+            if (!IsFinite(sectionEndUT) || !IsFinite(terminalPlayableUT))
+                return false;
+
+            if (requestedUT <= sectionEndUT + SectionBoundaryEpsilonSeconds)
+                return false;
+
+            overshootSeconds = requestedUT - sectionEndUT;
+            if (overshootSeconds < 0.0
+                || overshootSeconds > thresholdSeconds + SectionBoundaryEpsilonSeconds)
+            {
+                return false;
+            }
+
+            double terminalSampleGapSeconds = sectionEndUT - terminalPlayableUT;
+            if (terminalSampleGapSeconds < -SectionBoundaryEpsilonSeconds
+                || terminalSampleGapSeconds > thresholdSeconds + SectionBoundaryEpsilonSeconds)
+            {
+                return false;
+            }
+
+            clampedUT = terminalPlayableUT;
+            return true;
+        }
+
+        private static bool TryFindFinalPlayableSection(
+            Recording recording,
+            out int sectionIndex,
+            out TrackSection section,
+            out double terminalPlayableUT)
+        {
+            sectionIndex = -1;
+            section = default;
+            terminalPlayableUT = double.NaN;
+            if (recording?.TrackSections == null)
+                return false;
+
+            for (int i = recording.TrackSections.Count - 1; i >= 0; i--)
+            {
+                TrackSection candidate = recording.TrackSections[i];
+                if (!TryResolveTerminalPlayableUT(recording, candidate, out double candidatePlayableUT))
+                    continue;
+
+                sectionIndex = i;
+                section = candidate;
+                terminalPlayableUT = candidatePlayableUT;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveTerminalPlayableUT(
+            Recording recording,
+            TrackSection section,
+            out double terminalPlayableUT)
+        {
+            terminalPlayableUT = double.NaN;
+            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+            {
+                if (section.checkpoints == null || section.checkpoints.Count == 0)
+                    return false;
+
+                terminalPlayableUT = section.checkpoints[section.checkpoints.Count - 1].endUT;
+                return IsFinite(terminalPlayableUT);
+            }
+
+            if (section.frames != null && section.frames.Count > 0)
+            {
+                terminalPlayableUT = section.frames[section.frames.Count - 1].ut;
+                return IsFinite(terminalPlayableUT);
+            }
+
+            if (section.referenceFrame == ReferenceFrame.Absolute
+                && recording?.Points != null
+                && recording.Points.Count > 0)
+            {
+                terminalPlayableUT = recording.Points[recording.Points.Count - 1].ut;
+                return IsFinite(terminalPlayableUT);
+            }
+
+            return false;
+        }
+
+        private static void LogTerminalClamp(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double requestedUT,
+            double clampedUT,
+            double sectionEndUT,
+            double terminalPlayableUT,
+            double overshootSeconds,
+            double thresholdSeconds)
+        {
+            string recordingId = recording?.RecordingId ?? "(none)";
+            string anchorRecordingId = ResolveTerminalClampAnchorRecordingIdForLog(
+                context,
+                recording,
+                section,
+                sectionIndex);
+            string key = "relative-anchor-terminal-clamp|"
+                + recordingId + "|"
+                + sectionIndex.ToString(CultureInfo.InvariantCulture);
+            ParsekLog.VerboseRateLimited(
+                "RelativeAnchorResolver",
+                key,
+                "relative-anchor-terminal-clamp: "
+                + "recordingId=" + recordingId
+                + " anchorRecordingId=" + anchorRecordingId
+                + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
+                + " requestedUT=" + FormatDoubleR(requestedUT)
+                + " clampedUT=" + FormatDoubleR(clampedUT)
+                + " sectionEndUT=" + FormatDoubleR(sectionEndUT)
+                + " terminalPlayableUT=" + FormatDoubleR(terminalPlayableUT)
+                + " overshootSeconds=" + FormatDoubleR(overshootSeconds)
+                + " thresholdSeconds=" + FormatDoubleR(thresholdSeconds),
+                5.0);
+        }
+
+        private static string ResolveTerminalClampAnchorRecordingIdForLog(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            TrackSection section,
+            int sectionIndex)
+        {
+            if (section.referenceFrame == ReferenceFrame.Relative
+                && TryResolveSectionAnchorRecordingId(
+                    context,
+                    recording,
+                    section,
+                    sectionIndex,
+                    out string anchorRecordingId)
+                && !string.IsNullOrEmpty(anchorRecordingId))
+            {
+                return anchorRecordingId;
+            }
+
+            return "(none)";
         }
 
         internal static bool TryResolveSectionAnchorRecordingId(

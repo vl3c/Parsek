@@ -21,12 +21,13 @@ namespace Parsek
     /// recordings get removed; everything the player had before the test is reinstated
     /// in-place.</para>
     ///
-    /// <para><b>Scope — what IS captured.</b> Exactly five pieces of in-memory state:
+    /// <para><b>Scope — what IS captured.</b> Exactly six pieces of in-memory state:
     /// <list type="bullet">
     ///   <item><description><c>committedRecordings</c> — list contents and ordering, reference-shallow.</description></item>
     ///   <item><description><c>committedTrees</c> — list contents and ordering, reference-shallow.</description></item>
     ///   <item><description><c>pendingTree</c> — the slot reference, reference-shallow.</description></item>
     ///   <item><description><c>pendingTreeState</c> — the enum value.</description></item>
+    ///   <item><description><c>savedPendingTreeDuringActiveRestore</c> — the preserved pending-tree reference, reference-shallow.</description></item>
     ///   <item><description><c>RecordingGroupStore.AutoAssignedStandaloneGroups</c> — dict copy.</description></item>
     /// </list></para>
     ///
@@ -63,6 +64,8 @@ namespace Parsek
         private readonly List<RecordingTree> committedTrees;
         private readonly RecordingTree pendingTree;
         private readonly PendingTreeState pendingTreeState;
+        private readonly RecordingTree savedPendingTreeDuringActiveRestore;
+        private readonly bool savedPendingTreeDuringActiveRestoreSerializedForSave;
         private readonly Dictionary<string, string> autoAssignedStandaloneGroups;
 
         private RecordingStoreTestSnapshot(
@@ -70,12 +73,17 @@ namespace Parsek
             List<RecordingTree> committedTrees,
             RecordingTree pendingTree,
             PendingTreeState pendingTreeState,
+            RecordingTree savedPendingTreeDuringActiveRestore,
+            bool savedPendingTreeDuringActiveRestoreSerializedForSave,
             Dictionary<string, string> autoAssignedStandaloneGroups)
         {
             this.committedRecordings = committedRecordings;
             this.committedTrees = committedTrees;
             this.pendingTree = pendingTree;
             this.pendingTreeState = pendingTreeState;
+            this.savedPendingTreeDuringActiveRestore = savedPendingTreeDuringActiveRestore;
+            this.savedPendingTreeDuringActiveRestoreSerializedForSave =
+                savedPendingTreeDuringActiveRestoreSerializedForSave;
             this.autoAssignedStandaloneGroups = autoAssignedStandaloneGroups;
         }
 
@@ -95,6 +103,8 @@ namespace Parsek
                 new List<RecordingTree>(RecordingStore.CommittedTrees),
                 RecordingStore.PendingTree,
                 RecordingStore.PendingTreeStateValue,
+                RecordingStore.SavedPendingTreeDuringActiveRestore,
+                RecordingStore.SavedPendingTreeDuringActiveRestoreSerializedForSave,
                 RecordingGroupStore.SnapshotAutoAssignedStandaloneGroupsForTesting());
         }
 
@@ -110,6 +120,8 @@ namespace Parsek
                 committedTrees,
                 pendingTree,
                 pendingTreeState,
+                savedPendingTreeDuringActiveRestore,
+                savedPendingTreeDuringActiveRestoreSerializedForSave,
                 autoAssignedStandaloneGroups);
         }
     }

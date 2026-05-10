@@ -246,8 +246,12 @@ namespace Parsek
             // chase through supersede successors.
             provisional.DebrisParentRecordingId = inheritFrom.DebrisParentRecordingId;
             provisional.Generation = inheritFrom.Generation;
-            provisional.SegmentPhase = inheritFrom.SegmentPhase;
-            provisional.SegmentBodyName = inheritFrom.SegmentBodyName;
+            // SegmentPhase / SegmentBodyName are intentionally NOT copied. Those fields
+            // describe the most-recent segment of THIS recording — for the parent that
+            // means its terminating phase, which is unrelated to where the fork actually
+            // flies. The runtime tagger called from AtomicMarkerWrite immediately after
+            // this helper populates them from the live post-Strip vessel instead. See
+            // docs/dev/plans/fix-refly-fork-segment-phase-inheritance.md.
             provisional.StartBodyName = inheritFrom.StartBodyName;
             provisional.StartBiome = inheritFrom.StartBiome;
             provisional.StartSituation = inheritFrom.StartSituation;
@@ -258,6 +262,62 @@ namespace Parsek
             provisional.GhostVisualSnapshot = inheritFrom.GhostVisualSnapshot != null
                 ? inheritFrom.GhostVisualSnapshot.CreateCopy()
                 : null;
+        }
+
+        /// <summary>
+        /// Tags <paramref name="provisional"/>.<see cref="Recording.SegmentPhase"/>
+        /// and <see cref="Recording.SegmentBodyName"/> from the live post-Strip
+        /// vessel state at fork-creation time. Replaces the prior stale-inheritance
+        /// path in <see cref="CopyInheritedIdentityForFork"/> — the fork is a new
+        /// flight whose phase classification must come from its own starting state,
+        /// not from the parent's most-recent-segment classification (which would be
+        /// "atmo" for an inherited Suborbital flight even when the fork goes on to
+        /// reach orbit).
+        ///
+        /// Delegates to <see cref="ParsekFlight.TagSegmentPhaseIfMissing"/> for the
+        /// shared body/altitude/situation classification used by the rest of the
+        /// runtime taggers, so the fork's tag uses the same vocabulary as every
+        /// other recording's first segment.
+        ///
+        /// Logs Verbose at every branch (tagged / null-vessel / null-mainBody)
+        /// for diagnostic visibility. Aligns with the sibling
+        /// <see cref="TryRefreshForkSnapshotsFromLiveVessel"/> helper, which
+        /// also runs immediately after this one in <see cref="AtomicMarkerWrite"/>
+        /// and uses Verbose for the same null-vessel-in-test-fixture case.
+        /// (Promoting either to Warn would fire on every existing
+        /// <c>AtomicMarkerWriteTests</c> in-place test path that uses
+        /// <c>MakeStripResult</c>'s null <c>SelectedVessel</c> stub, polluting
+        /// the test log sink without an assertion.)
+        /// </summary>
+        internal static void TagForkInitialSegmentPhase(
+            Recording provisional, Vessel liveVessel, string sessionId)
+        {
+            if (provisional == null) return;
+            if (liveVessel == null)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    "TagForkInitialSegmentPhase: live vessel null — leaving fork SegmentPhase " +
+                    $"unset rec={provisional.RecordingId} sess={sessionId ?? "<none>"}");
+                return;
+            }
+
+            ParsekFlight.TagSegmentPhaseIfMissing(provisional, liveVessel);
+
+            if (string.IsNullOrEmpty(provisional.SegmentPhase))
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    $"TagForkInitialSegmentPhase: classification skipped (mainBody null) " +
+                    $"rec={provisional.RecordingId} pid={liveVessel.persistentId} " +
+                    $"sess={sessionId ?? "<none>"}");
+                return;
+            }
+
+            ParsekLog.Verbose(InvokeTag,
+                $"TagForkInitialSegmentPhase: tagged from live vessel " +
+                $"rec={provisional.RecordingId} pid={liveVessel.persistentId} " +
+                $"body={provisional.SegmentBodyName ?? "<none>"} " +
+                $"phase={provisional.SegmentPhase} situation={liveVessel.situation} " +
+                $"alt={liveVessel.altitude:F0}m sess={sessionId ?? "<none>"}");
         }
 
         /// <summary>
@@ -1097,6 +1157,7 @@ namespace Parsek
                     // marker-swap is gated on inPlaceContinuation), and the
                     // live vessel stays as the original full assembly.
                     CopyInheritedIdentityForFork(provisional, inheritFrom);
+                    TagForkInitialSegmentPhase(provisional, stripResult.SelectedVessel, sessionId);
                     bool snapshotRefreshedFromLive = TryRefreshForkSnapshotsFromLiveVessel(
                         provisional, stripResult.SelectedVessel, sessionId);
                     provisional.CapturePreReFlyAnchorTrajectoryFrom(inheritFrom, sessionId);

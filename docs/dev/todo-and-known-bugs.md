@@ -23,6 +23,76 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly spawn refused circularized upper stage with stale on-rails OrbitSegment
+
+- ~~A `terminal=Orbiting` recording whose only stored OrbitSegment was captured during the pre-burn on-rails coast (apoapsis 200 km, periapsis −69 km — sub-orbital ellipse) was rejected at Re-Fly spawn time even though the recording's last absolute frame held a valid post-circ-burn ~205 km circular orbit state vector.~~ Reproduced by `logs/2026-05-10_1713`, recording `d73240bdca8f4f74a19fca3ea4165a16` (Kerbal X upper stage). Trace: scene-exit finalizer captured `terminal=Orbiting` from `vessel.situation`, but the periodic finalization refresh that would have re-stamped the post-burn elements fired mid-burn at UT 976.37 (rejected; orbit unstable) and the next refresh did not run vessel-loaded. The spawn-time orbit picker (`RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed`) walked `OrbitSegments` last-to-first, returned the only entry — the stale sub-orbital one — and `TerminalOrbitSpawnSafety.Evaluate` rejected with `periapsis-below-safe-altitude`. The capsule never spawned, even though the post-burn frame at UT 977.93 (alt 203 587 m, |v| 2 098.6 m/s ≈ circular at that altitude) reseeds cleanly via `Orbit.UpdateFromStateVectors`.
+
+**Fix:** `VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn` now consults a new `TryDeriveTerminalOrbitSeedFromTrajectoryTail` first. The helper walks `Recording.TrackSections` in reverse, picks the latest `ExoBallistic` Absolute coast frame on the spawn body (or the v7+ `absoluteFrames` shadow when the section is `Relative`), skips `Surface*` / `Atmospheric` / `Approach` / `ExoPropulsive` environments, walks back inside a section past trailing corrupt frames, and reseeds an orbit via `body.GetWorldSurfacePosition` + `Orbit.UpdateFromStateVectors` — the same pattern `IncompleteBallisticSceneExitFinalizer` already uses. Two guards bound the tail-derive seed: (a) `TailDerivedOrbitFreshnessEpsilon = 1e-3 s` defers to the existing seed when a stored OrbitSegment endUT meets-or-exceeds the tail UT; (b) `TailDerivedOrbitMaxRotationDriftSeconds = 30 s` defers when the spawn UT diverges from the tail UT by more than 30 s, because `body.GetWorldSurfacePosition` uses the body's CURRENT rotation (so LAN/argPe error scales with the time gap × body rotation rate). Hyperbolic / parabolic tails are accepted (`IsFiniteOrbitSeedElements` requires sma to be finite and nonzero, not strictly positive) so the safety check downstream can decide rather than the helper silently rejecting and falling back to a stale ellipse. The chosen path is logged on the existing success line as `source=trajectory-tail` or `source=stored-segment`; the existing failure WARN now also carries `triedTail=true` so a single grep distinguishes stored-only failures from helper-tried failures. `RecordingEndpointResolver` is unchanged — ghost-rendering callers (`VesselGhoster`, `GhostMapPresence`) continue reading the stored segment, so a recording in this exact shape still draws the pre-burn ellipse on the map (pre-existing display gap, not introduced here; tracked separately below).
+
+**Coverage:** `SpawnTerminalOrbitFromTailTests` (22 cases) covers the data-walking, freshness, and drift branches: `TryFindLatestCoastTrajectoryFrame` walks past `ExoPropulsive`/`Surface*`/`Atmospheric`/`Approach` tails, hard-skips Relative `frames` without `absoluteFrames` shadow, prefers `absoluteFrames` when present, walks back inside a section past corrupt trailing frames, and rejects body mismatches and non-finite velocities; `ResolveLatestStoredOrbitSegmentEndUT` picks max endUT per body and skips degenerate (`sma <= 0` or non-finite) segments to mirror `RecordingEndpointResolver.TryGetLastMatchingSegment`; `TryDeriveTerminalOrbitSeedFromTrajectoryTail` short-circuits with a structured `declineReason` out-param on null input, no coast frame, stored-segment-newer-than-tail (incl. the freshness epsilon boundary AND a degenerate-segment doesn't-shadow-tail case), and rotation-drift-out-of-bounds. The orbit-math leg (`Orbit.UpdateFromStateVectors` over `body.GetWorldSurfacePosition`) is exercised by the in-game test `TerminalOrbitFromTail_DerivesPostBurnCircularOrbit` (Category `SpawnTerminalOrbit`, `Scene = FLIGHT`) which builds a synthetic recording mirroring the Kerbal X bug, drives both the helper AND `TryBuildRecordedTerminalOrbitForSpawn` end-to-end, and asserts `TerminalOrbitSpawnSafety.Evaluate` returns `SpawnNow` (not just `periAlt > atmosphereDepth` — the actual spawn-time gate uses `safeAltitude = atmosphereDepth + 5 km` margin).
+
+---
+
+## Open - ghost map orbit line drawn from stale OrbitSegment for orbiting recordings whose post-burn frames superseded it
+
+- For recordings shaped like the Kerbal X bug above (one stored sub-orbital `OrbitSegment` from the pre-burn on-rails coast, plus an `ExoBallistic` Absolute tail frame that defines a post-burn circular orbit), the spawn path now reseeds correctly, but `VesselGhoster.TryResolvePropagatedOrbitSeed` and `GhostMapPresence.TryResolveGhostProtoOrbitSeed` still pull from `RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed`, which returns the stale segment. Result: in the Tracking Station and on the map view, the ghost orbit line for these recordings shows the pre-burn sub-orbital ellipse passing through the planet — even though the spawned real vessel sits on the correct post-burn orbit. Pre-existing display gap (recordings in this shape today already show the wrong orbit line); the spawn fix above did not introduce it but also did not address it.
+
+**Fix:** Lift the tail-derive logic up to `RecordingEndpointResolver` so all callers get the freshest seed. Either (a) modify `TryGetEndpointAlignedOrbitSeed` to accept an optional body and prefer tail-derived elements when fresher, or (b) add a wrapper helper `TryGetFreshestOrbitSeed(rec, body, ...)` that combines stored-segment + tail-derive and migrate ghost callers to it. Both options preserve the spawn-side fix as a fallback when no body context is available.
+
+---
+
+## Done - v0.9.2 in-place Re-Fly fork inherited stale SegmentPhase/SegmentBodyName
+
+- ~~The in-place Re-Fly fork's `CopyInheritedIdentityForFork` copied the parent recording's `SegmentPhase` and `SegmentBodyName` onto the new provisional. Those fields describe the recording's own most-recent segment classification, not launch identity, so a Re-Fly off a Suborbital atmo segment that flew on to stable orbit saved with `segmentPhase=atmo` and the recordings table showed "Kerbin atmo" even though `terminalState=Orbiting` and `tOrbEcc=0.32`.~~ Reproduced by `logs/2026-05-10_1713/saves/s14/persistent.sfs` (`rec_b1566ae4…` treeOrder=10 inheriting from `32d9674c…` per `KSP.log:19465 inheritedFrom=origin sourceRec=32d9674c…`). Once non-empty, every runtime tagger that derives the phase from live vessel state guarded on `string.IsNullOrEmpty(SegmentPhase)` and became a no-op, so the inherited value rode through to OnSave.
+
+**Fix:** Drop the two inheritance lines from `RewindInvoker.CopyInheritedIdentityForFork` (`Source/Parsek/RewindInvoker.cs:249-250`) and add a new `RewindInvoker.TagForkInitialSegmentPhase(provisional, stripResult.SelectedVessel, sessionId)` call immediately after `CopyInheritedIdentityForFork` in `AtomicMarkerWrite`. The new helper delegates to `ParsekFlight.TagSegmentPhaseIfMissing` so the fork's tag uses the same body/altitude/situation classification (and same lowercase vocabulary `"atmo"`/`"exo"`/`"approach"`/`"surface"`) as every other recording's first segment. Verbose logs in all three branches (success, null-vessel, null-mainBody) — aligns with the sibling `TryRefreshForkSnapshotsFromLiveVessel` helper which uses Verbose for the same null-vessel-in-test-fixture case (Warn would pollute the existing `AtomicMarkerWriteTests` in-place test paths whose `MakeStripResult` stub returns null `SelectedVessel`).
+
+**Coverage:** `RewindForkSegmentPhaseTests` (new xUnit class — drop-on-inherit, null-vessel, sequencing canary), updated `DebrisParentAnchorContractTests.CopyInheritedIdentityForFork_DebrisProvisional_PropagatesParentRecordingId` (assertion flipped to `Assert.Null` on the two fields, with a comment pinning the rationale), updated `AtomicMarkerWriteTests.AtomicMarkerWrite_PriorTipInCommittedList_InheritsFromChainTipAndForks` (chain-tip inheritance still proven by VesselName/PID/Generation; SegmentPhase no longer inherited), and `ReFlyForkSegmentPhaseTest` (new in-game test under `Category="Rewind"` that runs `TagForkInitialSegmentPhase` against `FlightGlobals.ActiveVessel` and asserts the produced phase is in the lowercase vocabulary `{atmo, exo, approach, surface}` and the body name matches the active vessel's `mainBody.name` — vocabulary membership rather than an inline classifier reimplementation that would just be `f(x) == f(x)` against the same `TagSegmentPhaseIfMissing` the helper delegates to).
+
+**Plan:** [docs/dev/plans/fix-refly-fork-segment-phase-inheritance.md](plans/fix-refly-fork-segment-phase-inheritance.md).
+
+**Stage 2 follow-up (Open):** This PR fixes the stale-inheritance symptom but the saved phase still reflects the fork's START state, not its END state. A Re-Fly that takes off in atmo and stops in orbit will save with `phase=atmo` (the new fork-creation tag) unless the optimizer later splits the recording. See "Open - SegmentPhase saved value reflects start state, not end state" below.
+
+---
+
+## Open - SegmentPhase saved value reflects start state, not end state
+
+- After the in-place Re-Fly fork stale-inheritance fix lands, the fork's saved `SegmentPhase` reflects the live post-Strip vessel's environment at fork creation time. For a Re-Fly that takes off in atmo and stops in orbit, that's `atmo`. Stops happen via `ParsekFlight.StopRecording` (writes to `recorder.CaptureAtStop.SegmentPhase`) and `FlightRecorder.ForceStop` (does not tag `CaptureAtStop` per the explicit comment at `Source/Parsek/FlightRecorder.cs:9327` — "Intentionally does not set CaptureAtStop. Forced stops happen during scene transitions where vessel state may already be changing/unreliable"), but `FlushRecorderToTreeRecording` does not propagate `CaptureAtStop.SegmentPhase` into the tree recording — so the saved phase never reflects the recorder's stop-time state for any non-chain, non-branch recording. This is a separate latent bug that the Stage 1 fix makes more visible (once inheritance no longer hides it, every "linear flight that changes phase" recording will show its start phase, not its end phase, in the recordings table).
+- **Fix direction:** propagate `CaptureAtStop.SegmentPhase` / `SegmentBodyName` to the tree recording at flush/finalize time. Audit every `FlushRecorderToTreeRecording` call site. Also consider tagging in `RefreshActiveEffectiveLeafSnapshot` when the active leaf re-snapshots from the live vessel.
+- **Precedence constraint for Stage 2 — IMPORTANT:** the Stage 1 fork-creation tag (set in `RewindInvoker.TagForkInitialSegmentPhase`) is itself a "start tag" that Stage 2 needs to clobber when an end-state tag is available. Stage 2 must NOT just guard on `IsNullOrEmpty` (that's exactly the no-op trap that produced this whole class of bugs). The correct precedence order is roughly: chain-commit phase (unconditional) > optimizer split phase (unconditional) > end-state tag from `CaptureAtStop` at flush (unconditional, overrides start tag) > Stage 1 fork-creation start tag > inherited (REMOVED in Stage 1). Stage 2 also needs to be careful not to overwrite a chain-set phase mid-flight when the recorder's `CaptureAtStop` is from a later linear continuation.
+
+**Status:** OPEN 2026-05-10. Separate PR. Out of scope for `fix-refly-fork-segment-phase-inheritance`.
+
+---
+
+## Open - dead-code SegmentPhase tag block in `ParsekFlight.StopRecording`
+
+- `ParsekFlight.StopRecording` (`Source/Parsek/ParsekFlight.cs:9847-9869`) writes the final phase tag to `recorder.CaptureAtStop.SegmentPhase`, not to the tree recording. Since `FlushRecorderToTreeRecording` does not propagate the field, this tag never lands on disk for tree-mode recordings. It survives only because some legacy non-tree code paths read `CaptureAtStop` directly. After the in-place Re-Fly inheritance fix it becomes a more visible trap — it looks like it's tagging the saved phase but it isn't.
+- **Fix direction:** either delete the block (the chain-commit and branch-commit paths cover the live-tree path) or rewire it to also write to the active tree recording. Tracked together with the Stage 2 flush-propagation fix above.
+
+**Status:** OPEN 2026-05-10. Separate PR. Out of scope for `fix-refly-fork-segment-phase-inheritance`.
+
+---
+
+## Open - duplicated SegmentPhase classifier in three sites
+
+- `ParsekFlight.TagSegmentPhaseIfMissing` (line 3773), `ParsekFlight.StopRecording` tag block (line 9847), and `ChainSegmentManager.CommitVesselSwitchTermination` (line 773) all duplicate the same body/altitude/situation classification logic verbatim. The Stage 1 Re-Fly fork fix routes through `TagSegmentPhaseIfMissing` so it inherits any future improvement, but the three copies are a drift hazard.
+- **Fix direction:** extract a single `ClassifySegmentPhase(Vessel v, out string phase, out string body)` static helper. Borderline gold-plating; only worth doing if a fourth caller materializes or one of the three sites needs to diverge.
+
+**Status:** OPEN 2026-05-10. Low priority.
+
+---
+
+## Done - v0.9.2 Re-Fly originals re-appear after post-merge Rewind
+
+- ~~After a successful Re-Fly, opening the Recordings window correctly hid the originals via the freshly-written supersede relations. But if the user then clicked Rewind on the launch row, the originals — including a `Destroyed` outcome the Re-Fly had successfully replaced — re-appeared in the recordings table.~~ Reproduced by `logs/2026-05-10_1713` (Kerbal X probe). Owner is the Kerbal X main rocket recording (StartUT 301.94, rewindAdjustedUT 286.9 after the launch lead-time gap). Subtree carries the four Probe recordings: atmo half `32d9674c`, exo half `cbec2f47` with `terminalState=Destroyed`, exo continuation `97d7d55d`, and the Re-Fly fork `rec_b1566ae4` (Orbiting). Re-Fly committed three supersedes (all-old → fork). Quicksave at the end of the Re-Fly merge has the supersedes; persistent.sfs after the post-merge Rewind has zero supersedes and one retirement entry retiring only the fork — so the Recordings UI re-shows the three originals (`memberCount=9` post-merge → `memberCount=11` post-rewind). The "Destroyed" probe outcome is the smoking-gun visible regression.
+
+**Fix:** `RecordingStore.EnsureRewindRetirementsForRollback` previously only iterated `rollback.RetiredForkRecordingIds` (the *new* sides of dropped supersedes). The fix adds a second pass over `rollback.RestoredRecordingIds` (the *old* sides) and writes a retirement when the live recording's `StartUT > rewindAdjustedUT` (strict). Strict `>` keeps the canonical "rewind to launch" pattern green: when `owner.StartUT == rewindAdjustedUT` the owner stays in `RestoredRecordingIds` and remains visible. The owner's id is also explicitly skipped (with a verbose log line) so an owner whose `StartUT > rewindAdjustedUT` because of `RewindToLaunchLeadTimeSeconds` still stays visible if it ever lands in `RestoredRecordingIds` (stacked re-fly case). New retirements carry a fresh `RecordingRewindRetirement.RewoundOutOldSideReason = "rewound-out-supersede-old-side"` constant so log scrapers and tests can distinguish the two passes; `RestoredRecordingId` and `SourceSupersedeRelationId` are null on old-side rows because the original has nothing to fall back to. The summary log line now also reports `retiredOldSides=N`. Cross-`LoadScene` re-apply (`ReapplyRewindSupersedeDropAfterLoad`) inherits the fix transparently because it routes through the same live entry; the existing `existing.Contains(...)` guard keeps the second drop idempotent.
+
+**Coverage:** `RewindSupersedeRollbackTests.LiveRollback_RetiresOldSides_WhenAllStartAfterRewindUT` mirrors the playtest scenario and asserts both the fork retirement, the three old-side retirements (with `Reason = RewoundOutOldSideReason`, null `RestoredRecordingId` and `SourceSupersedeRelationId`), `EffectiveState.IsRewindRetired` returning true for the Destroyed probe, the owner staying visible, and the new `retiredOldSides=3` summary log line. `LiveRollback_KeepsOwnerVisible_WhenOwnerWasOldSide` covers the stacked re-fly case where the owner ends up in `RestoredRecordingIds` (owner.StartUT > rewindAdjustedUT) — owner stays visible and the verbose owner-skip log line fires. `LiveRollback_KeepsOriginAtBoundary_WhenStartUTEqualsRewindUT` covers the canonical rewind-to-launch boundary (owner StartUT == rewindAdjustedUT) and asserts no old-side retirement is written. `LiveRollback_DeduplicatesRetirement_WhenMultipleOldRowsPointToSameNew` was updated to assert the additional old-side retirement that the fix now writes for B in the existing two-relation fan-in fixture. `ReapplyRewindSupersedeDropAfterLoad_Idempotent_DoesNotDuplicateOldSideRetirements` proves a second post-load re-apply does not duplicate either fork or old-side retirements.
+
+---
+
 ## Done - v0.9.2 multi-debris explosion audio inaudible in watch mode
 
 - ~~In watch mode, when a vessel breakup dropped many debris pieces over a short window only the first debris explosion produced sound — every following ghost terminal explosion silently rendered the visual fireball.~~ Reproduced by `logs/2026-05-10_1134_debris-explosion-audio` (Kerbal X breakup, 8 debris ghosts hitting ground over 11:31:13 → 11:31:27, ~14 s window). Of the 8 terminal explosions, exactly 1 produced audible sound (`vol=0.17 sound_explosion_large`); the other 7 logged `Stock visual-only explosion … (audio gate busy, suppressed SHIP_VOLUME clip to avoid mixer clipping)`. The user also reported ghost explosion sounds being "different" from stock destruction sounds. Root causes:
@@ -177,12 +247,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
+## Done - section-boundary off-by-ε in `RelativeAnchorResolver.FindTrackSectionForUT`
 
 - During the 2026-05-08 playtest of the post-anchor-fix debris-rendering stack, the slot=0 Re-Fly playback emitted 22 `[WARN][RelativeAnchorResolver] relative-anchor-unresolved: reason=anchor-out-of-recorded-range` lines (`logs/2026-05-08_1740_rewind-and-refly-regressions/KSP.log:55431-65652` and follow-ups). Every UT in the warns is exactly `section.endUT + 1e-13..3e-12` — double-precision rounding noise from per-frame UT accumulation pushing the playback query just past the section's recorded endUT. The resolver's `FindTrackSectionForUT` treats this as "past the last section" and returns the unresolved sentinel. Ghost #9 (the Probe fork) showed a 2.5 m positional discontinuity at the UT 50.10 section seam where two adjacent Relative sections each anchored their own offset.
-- **Fix direction:** make `FindTrackSectionForUT` tolerant of `ut ∈ [endUT, endUT + 1e-9]` mapping to the last sample of the matching section (or first of next). Add a regression scenario to PR #766's resolver harness pinning `ut == section.endUT` and `ut == section.endUT + 1e-12` to the expected pose.
+- Later log review found the same resolver/caller mismatch at the terminal edge: some anchor probes arrived exactly one physics tick after the final section end while playback had already held the ghost at its final playable frame.
+- **Fix:** `RelativeAnchorResolver` now uses a resolver-local `1e-9` section seam tolerance for anchor section lookup and same-chain successor filtering while keeping global `TrajectoryMath.FindTrackSectionForUT` strict. After same-chain continuation gets precedence, final-section terminal probes clamp only inside a derived `Time.fixedDeltaTime + 1e-6` window and only to the final playable sample/frame UT; larger misses still fail closed and terminal clamps emit a rate-limited resolver log.
 
-**Status:** OPEN 2026-05-08. Separate PR.
+**Status:** CLOSED 2026-05-10.
 
 ---
 
@@ -314,7 +385,7 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 ---
 
-## Open - watch for stranded-sidecar warning during pending finalized tree saves (not proven data loss)
+## Done - watch for stranded-sidecar warning during pending finalized tree saves (not proven data loss)
 
 - During the retained Re-Fly session `logs/2026-05-06_2351_refly-phase-d-rewind-button-debris`, one intermediate save emitted `[Parsek][WARN][Scenario] OnSave: writing 0 RECORDING_TREE nodes but disk has 8 stranded sidecar recording ID(s). Likely state-management bug — sidecars preserved by CleanOrphanFiles safety guard on next load. Restore from quicksave.sfs or backup if recordings are missing.` at KSP.log line 11510. This happened immediately after the tree was finalized, stashed as pending, and the merge dialog was deferred to the post-report scene transition: `Stashed pending tree 'Kerbal X' (8 recordings, state=Finalized)`, `ShowPostDestructionTreeMergeDialog: pending tree stashed — deferring to post-report scene transition`, then `OnSave: saving 0 committed tree(s)`.
 
@@ -322,7 +393,9 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 **Caution for later:** If this warning repeats outside the narrow "finalized pending tree stashed, merge dialog not yet answered" window, or if it is followed by missing recordings after scene load, treat it as a state-management bug. The likely area is `ParsekScenario.OnSave`'s stranded-sidecar detector not distinguishing pending finalized trees from genuinely missing committed trees, or a save path that should serialize/stage pending tree metadata before the dialog completes. Keep the existing warning, but consider adding context fields (`pendingTreeId`, `pendingState`, committed count, sidecar count) so future logs make the distinction obvious.
 
-**Status:** WATCH / NOT PROVEN 2026-05-07.
+**Fix:** Finalized pending trees now serialize as `RECORDING_TREE` nodes marked `isPending=True`, restore to `PendingTreeState.Finalized`, remain preserved when an active-tree restore also owns the pending-limbo slot, and are counted before the stranded-sidecar detector so the deferred merge window no longer produces a false stranded-sidecar warning.
+
+**Status:** CLOSED 2026-05-10.
 
 ---
 
@@ -809,15 +882,15 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 
 ---
 
-## TODO - Pending tree dropped from .sfs when autosave fires post-stash in FLIGHT
+## Done - Pending tree dropped from .sfs when autosave fires post-stash in FLIGHT
 
 - An autosave (or quicksave) taken inside the FLIGHT scene while the post-destruction tree merge dialog is stashed loses the pending tree from the saved `persistent.sfs`. Sidecar files survive on disk (the new `CleanOrphanFiles` guard preserves them and the `OnSave: writing 0 RECORDING_TREE nodes but disk has N stranded sidecar` warn surfaces it), so a quickload that follows the autosave drops the recording's metadata even though the bulk data is intact. Source: `logs/2026-05-01_2208_investigate/KSP.log` lines 9920-9932 — at 21:50:01.489 `ShowPostDestructionTreeMergeDialog` stashed `R0` as pending (`pend.tree=f46ba80a:Finalized`), at 21:50:02.613 KSP autosaved while still in FLIGHT and `committedRecordings=0/committedTrees=0`, and the warn fired with 1 stranded sidecar. The recovery path was the user's prior 21:49:10 quicksave taken before the crash.
 
 **Root cause:** `ParsekScenario.OnSave` only persists committed recording trees through `SaveTreeRecordings` and the live in-flight tree through `SaveActiveTreeIfAny`. The pending-tree slot (after `StashPendingTree`) is neither active nor committed, so it is never serialized. `SafetyNetAutoCommitPending` would auto-commit it but only fires when `LoadedScene != FLIGHT`, leaving the FLIGHT-scene autosave window unguarded. The post-destruction stash deliberately keeps the tree pending across the flight-results screen, so the autosave timing is reachable in normal play.
 
-**Fix sketch:** either serialize the pending-tree slot as a `RECORDING_TREE` ConfigNode marked with an `isPending=True` (mirror of the `isActive=True` branch), or extend `SafetyNetAutoCommitPending` to also fire in FLIGHT when the dialog is stashed and the scene is awaiting the post-results transition. The first option preserves the player's option to revert; the second commits without dialog, which the player did not consent to. Prefer option 1.
+**Fix:** Finalized pending trees are saved as `RECORDING_TREE` nodes with `isPending=True`, loaded back without recorder-resume semantics, preserved alongside active-tree quickload resume when both markers coexist, excluded from committed-tree loops, and Discard refreshes both `persistent.sfs` and `quicksave.sfs` after serialized pending metadata is removed.
 
-**Status:** OPEN. Discovered during the in-game-test-runner-wipe investigation (PR fixing `PersistenceSplitOptimizerTest`). Out of scope for that PR; tracked here for a follow-up.
+**Status:** CLOSED 2026-05-10. Discovered during the in-game-test-runner-wipe investigation (PR fixing `PersistenceSplitOptimizerTest`). Out of scope for that PR; tracked here for a follow-up.
 
 ---
 

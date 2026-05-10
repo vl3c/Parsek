@@ -702,6 +702,124 @@ namespace Parsek.InGameTests
             InGameAssert.IsNotNull(FlightCamera.fetch.mainCamera, "FlightCamera.mainCamera should exist");
         }
 
+        [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
+            Description = "Recording with a stale on-rails OrbitSegment plus a fresh post-burn ExoBallistic Absolute tail frame derives a stable circular orbit at spawn time")]
+        public void TerminalOrbitFromTail_DerivesPostBurnCircularOrbit()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // Mirror the Kerbal X bug from logs/2026-05-10_1713: one stored OrbitSegment
+            // covering the on-rails coast (sub-orbital, periapsis below ground), then an
+            // ExoBallistic Absolute TrackSection containing a single post-burn frame
+            // whose state vector defines a circular ~205 km orbit. The fix must walk
+            // past the segment, build the orbit from the tail frame, and the resulting
+            // periapsis must clear the atmosphere.
+            const double subOrbitalSegmentEndUT = 958.87;
+            const double postBurnFrameUT = 977.93;
+            const double postBurnAlt = 203587.0; // metres
+            // Velocity components in body-centric inertial frame, ~circular at 205 km.
+            UnityEngine.Vector3 postBurnVel = new UnityEngine.Vector3(1736.18f, -1.73f, -1178.98f);
+
+            var rec = new Recording { RecordingId = "ingame-tail-derived-orbit" };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 477.33,
+                endUT = subOrbitalSegmentEndUT,
+                inclination = 0.7917,
+                eccentricity = 0.2046,
+                semiMajorAxis = 667047.84, // periapsis = -69 km, apoapsis = 203 km
+                longitudeOfAscendingNode = 22.89,
+                argumentOfPeriapsis = 271.44,
+                meanAnomalyAtEpoch = 1.4262,
+                epoch = 477.33
+            });
+            var coastSection = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = postBurnFrameUT,
+                endUT = postBurnFrameUT,
+                frames = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = postBurnFrameUT,
+                        latitude = 0.7908,
+                        longitude = 8.5604,
+                        altitude = postBurnAlt,
+                        rotation = UnityEngine.Quaternion.identity,
+                        velocity = postBurnVel,
+                        bodyName = "Kerbin"
+                    }
+                }
+            };
+            rec.TrackSections.Add(coastSection);
+
+            // spawnUT == tailUT keeps the rotation-drift clamp at zero.
+            bool helperOk = VesselSpawner.TryDeriveTerminalOrbitSeedFromTrajectoryTail(
+                rec, kerbin, postBurnFrameUT,
+                out double inclination,
+                out double eccentricity,
+                out double semiMajorAxis,
+                out _, out _, out _, out _,
+                out string bodyName,
+                out string declineReason);
+
+            InGameAssert.IsTrue(helperOk,
+                $"TryDeriveTerminalOrbitSeedFromTrajectoryTail should succeed (declineReason={declineReason ?? "(null)"})");
+            InGameAssert.AreEqual("Kerbin", bodyName);
+            InGameAssert.IsTrue(semiMajorAxis > 0.0,
+                $"Derived sma must be positive, got {semiMajorAxis}");
+            InGameAssert.IsTrue(eccentricity >= 0.0 && eccentricity < 1.0,
+                $"Derived eccentricity must be in [0,1), got {eccentricity}");
+
+            double periAlt = semiMajorAxis * (1.0 - eccentricity) - kerbin.Radius;
+            double apoAlt = semiMajorAxis * (1.0 + eccentricity) - kerbin.Radius;
+
+            // Drive the full TryBuildRecordedTerminalOrbitForSpawn → safety-evaluate
+            // pipeline that the production spawn path runs. The bug repro requires the
+            // safety check to ACCEPT (not just that the helper produces an orbit).
+            bool buildOk = VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(
+                rec, kerbin, postBurnFrameUT, out Orbit propagatedOrbit);
+            InGameAssert.IsTrue(buildOk,
+                "TryBuildRecordedTerminalOrbitForSpawn should produce an orbit when tail-derive succeeds");
+            InGameAssert.IsNotNull(propagatedOrbit, "Propagated orbit should be non-null");
+
+            double safeAlt = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
+                kerbin.atmosphereDepth, TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters);
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: postBurnAlt,
+                atmosphereDepth: kerbin.atmosphereDepth,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: periAlt,
+                apoapsisAltitude: apoAlt);
+
+            // The whole point of the fix: the recording's stale segment alone would
+            // produce decision=CannotSpawnSafely with reason=periapsis-below-safe-altitude.
+            // After tail-derive, the safety check must return SpawnNow (or at minimum NOT
+            // CannotSpawnSafely). Stronger than periAlt > atmosphereDepth — the safety
+            // margin (typically 5 km above atmosphere) is what TerminalOrbitSpawnSafety
+            // actually gates on at spawn time.
+            InGameAssert.IsTrue(periAlt > safeAlt,
+                $"Derived periapsis ({periAlt:F0} m) must clear safe altitude ({safeAlt:F0} m)");
+            InGameAssert.AreEqual(
+                TerminalOrbitSpawnSafetyAction.SpawnNow,
+                decision.Action,
+                $"Safety decision for tail-derived orbit should be SpawnNow, got {decision.Action} reason={decision.ReasonCode}");
+
+            ParsekLog.Info("TestRunner",
+                $"TerminalOrbitFromTail_DerivesPostBurnCircularOrbit: " +
+                $"sma={semiMajorAxis:F1} ecc={eccentricity:F4} " +
+                $"periAlt={periAlt:F0} apoAlt={apoAlt:F0} safeAlt={safeAlt:F0} " +
+                $"inc={inclination:F4} decision={decision.Action}");
+        }
+
         #endregion
 
         #region Parsek Settings
