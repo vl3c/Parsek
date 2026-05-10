@@ -1172,10 +1172,10 @@ namespace Parsek
                 && !TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     i, traj, state, visiblePlaybackUT, "GhostPlaybackEngine.RenderInRangeGhost"))
             {
-                bool preferAuthoredGapShadow =
-                    ShouldPreferAuthoredFrameGapShadowOverOrbitTail(traj, visiblePlaybackUT);
+                bool authoredGapHasShadow =
+                    AuthoredFrameGapHasShadowCoverage(traj, visiblePlaybackUT);
                 bool orbitTailPlayback =
-                    !preferAuthoredGapShadow && ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
+                    !authoredGapHasShadow && ShouldUseOrbitTailPlayback(traj, visiblePlaybackUT);
 
                 if (hasInterpolatedPoints)
                 {
@@ -2706,9 +2706,7 @@ namespace Parsek
             }
 
             if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
-                return TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
-                    index, traj, state, playbackUT,
-                    "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT");
+                return false;
 
             if (TryRouteAuthoredFrameGapToShadow(
                     index,
@@ -5257,9 +5255,9 @@ namespace Parsek
                     "GhostPlaybackEngine.PositionLoadedGhostAtPlaybackUT"))
                 return;
 
-            bool preferAuthoredGapShadow =
-                ShouldPreferAuthoredFrameGapShadowOverOrbitTail(traj, playbackUT);
-            if (preferAuthoredGapShadow
+            bool authoredGapHasShadow =
+                AuthoredFrameGapHasShadowCoverage(traj, playbackUT);
+            if (authoredGapHasShadow
                 && TryRouteAuthoredFrameGapToShadow(
                     index,
                     traj,
@@ -5270,7 +5268,7 @@ namespace Parsek
                 return;
             }
 
-            if (!preferAuthoredGapShadow && ShouldUseOrbitTailPlayback(traj, playbackUT))
+            if (!authoredGapHasShadow && ShouldUseOrbitTailPlayback(traj, playbackUT))
             {
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
                 return;
@@ -5322,7 +5320,7 @@ namespace Parsek
             return TryFindOrbitTailPlaybackSegment(traj, playbackUT, out _, out _);
         }
 
-        internal static bool ShouldPreferAuthoredFrameGapShadowOverOrbitTail(
+        internal static bool AuthoredFrameGapHasShadowCoverage(
             IPlaybackTrajectory traj, double playbackUT)
         {
             return DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
@@ -5792,6 +5790,8 @@ namespace Parsek
             if (traj.Points != null && traj.Points.Count >= 2)
             {
                 bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
+                bool authoredGapHasShadow =
+                    AuthoredFrameGapHasShadowCoverage(traj, playbackUT);
                 bool canUseOrbitPrecedence = TryResolvePendingOrbitSegmentInterpolation(
                     traj, playbackUT, applySubSurfaceGuard: true, out InterpolationResult orbitSegmentResult);
                 if (surfaceSkip && canUseOrbitPrecedence)
@@ -5801,7 +5801,7 @@ namespace Parsek
                         $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} surface track section active, skipping orbit precedence"));
                 }
 
-                if (!surfaceSkip && canUseOrbitPrecedence)
+                if (!surfaceSkip && !authoredGapHasShadow && canUseOrbitPrecedence)
                 {
                     result = orbitSegmentResult;
                     return LogPendingPlaybackInterpolationResolved(

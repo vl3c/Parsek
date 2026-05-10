@@ -911,7 +911,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldPreferAuthoredFrameGapShadowOverOrbitTail_ShadowCoveredGapWithOrbitTail_ReturnsTrue()
+        public void AuthoredFrameGapHasShadowCoverage_ShadowCoveredGapWithOrbitTail_ReturnsTrue()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
@@ -930,8 +930,31 @@ namespace Parsek.Tests
             });
 
             Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 120.0));
-            Assert.True(GhostPlaybackEngine.ShouldPreferAuthoredFrameGapShadowOverOrbitTail(
+            Assert.True(GhostPlaybackEngine.AuthoredFrameGapHasShadowCoverage(
                 traj, 120.0));
+        }
+
+        [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleAbsoluteShadowFrame_ReturnsTrue()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.absoluteFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 120.0 },
+            };
+            traj.TrackSections[0] = section;
+
+            Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj,
+                120.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("relative-and-shadow-frames-out-of-range", diagnostic.Reason);
+            Assert.False(diagnostic.RelativeFramesCoverUT);
+            Assert.False(diagnostic.AbsoluteFramesCoverUT);
+            Assert.Equal(120.0, diagnostic.FirstAbsoluteFrameUT);
+            Assert.Equal(120.0, diagnostic.LastAbsoluteFrameUT);
         }
 
         [Fact]
@@ -3713,6 +3736,103 @@ namespace Parsek.Tests
                 && l.Contains("RelativeSpawnGhost")
                 && l.Contains("relative absolute shadow point interpolation")
                 && l.Contains("altitude=63000.0"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_AuthoredFrameGapWithShadow_SkipsOrbitPrecedence()
+        {
+            logLines.Clear();
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100,
+                    bodyName = "Kerbin",
+                    latitude = 12,
+                    longitude = -4,
+                    altitude = -0.5,
+                    velocity = new Vector3(1f, 0f, 0f),
+                    rotation = Quaternion.identity
+                },
+                new TrajectoryPoint
+                {
+                    ut = 110,
+                    bodyName = "Kerbin",
+                    latitude = 18,
+                    longitude = -7,
+                    altitude = 0.5,
+                    velocity = new Vector3(3f, 0f, 0f),
+                    rotation = Quaternion.identity
+                }
+            };
+            var absoluteShadowFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100,
+                    bodyName = "Kerbin",
+                    altitude = 62000,
+                    velocity = new Vector3(20f, 0f, 0f),
+                    rotation = Quaternion.identity
+                },
+                new TrajectoryPoint
+                {
+                    ut = 130,
+                    bodyName = "Kerbin",
+                    altitude = 68000,
+                    velocity = new Vector3(50f, 0f, 0f),
+                    rotation = Quaternion.identity
+                }
+            };
+            var traj = new MockTrajectory
+            {
+                RecordingId = "debris-gap-shadow",
+                VesselName = "RelativeDebrisSpawnGhost",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec",
+                Points = relativeFrames,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 800000,
+                        startUT = 111,
+                        endUT = 140
+                    }
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100,
+                        endUT = 140,
+                        anchorRecordingId = "parent-rec",
+                        frames = relativeFrames,
+                        absoluteFrames = absoluteShadowFrames
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 120.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.Equal(66000.0, result.altitude, 3);
+            Assert.Equal(new Vector3(40f, 0f, 0f), result.velocity);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("RelativeDebrisSpawnGhost")
+                && l.Contains("relative absolute shadow point interpolation")
+                && l.Contains("altitude=66000.0"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("active orbit segment")
+                || l.Contains("body='Mun'"));
         }
 
         [Fact]

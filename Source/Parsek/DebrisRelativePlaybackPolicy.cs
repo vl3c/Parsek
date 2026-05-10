@@ -75,11 +75,7 @@ namespace Parsek
             if (traj.LoopAnchorVesselId != 0u)
                 return false;
 
-            return diagnostic.Reason == "parent-recording-id-empty"
-                || diagnostic.Reason == "no-track-sections"
-                || diagnostic.Reason == "no-covering-section"
-                || diagnostic.Reason == "non-relative-section"
-                || diagnostic.Reason == "relative-and-shadow-frames-out-of-range";
+            return ShouldRetireFromDiagnostic(diagnostic);
         }
 
         internal static bool ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
@@ -94,7 +90,7 @@ namespace Parsek
                 return false;
             }
 
-            if (ShouldRetireOutsideAuthoredRelativeCoverage(traj, playbackUT, out diagnostic))
+            if (ShouldRetireFromDiagnostic(diagnostic))
                 return true;
 
             return diagnostic.SectionIndex >= 0
@@ -183,6 +179,16 @@ namespace Parsek
             return diagnostic;
         }
 
+        private static bool ShouldRetireFromDiagnostic(
+            ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            return diagnostic.Reason == "parent-recording-id-empty"
+                || diagnostic.Reason == "no-track-sections"
+                || diagnostic.Reason == "no-covering-section"
+                || diagnostic.Reason == "non-relative-section"
+                || diagnostic.Reason == "relative-and-shadow-frames-out-of-range";
+        }
+
         private static List<TrajectoryPoint> ResolveRelativeFrames(
             IPlaybackTrajectory traj,
             TrackSection section)
@@ -251,6 +257,9 @@ namespace Parsek
             List<TrajectoryPoint> frames,
             double playbackUT)
         {
+            // The shadow renderer interpolates between two samples; unlike a
+            // single Relative frame, one absolute shadow point cannot cover a
+            // full section span. See TryPositionFromRelativeAbsoluteShadow.
             if (frames == null || frames.Count < 2)
                 return false;
             if (double.IsNaN(playbackUT) || double.IsInfinity(playbackUT))

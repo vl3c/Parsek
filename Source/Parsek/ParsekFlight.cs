@@ -18086,10 +18086,10 @@ namespace Parsek
                 DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
                     rec,
                     ut,
-                    out _);
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
             if (skipRecordedRelativeResolver)
             {
-                return DebrisRelativePlaybackPolicy.AbsoluteShadowFramesCoverUT(section, ut)
+                return diagnostic.AbsoluteFramesCoverUT
                     && TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos);
             }
 
@@ -20133,7 +20133,17 @@ namespace Parsek
                 return false;
             }
 
-            if (TryResolveOrbitTailWorldPosition(
+            bool skipRecordedRelativeResolverForAuthoredFrameGap =
+                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
+            bool authoredGapHasShadow =
+                skipRecordedRelativeResolverForAuthoredFrameGap
+                && diagnostic.AbsoluteFramesCoverUT;
+
+            if (!authoredGapHasShadow
+                && TryResolveOrbitTailWorldPosition(
                     traj, playbackUT, index * 10000, out worldPos))
             {
                 return true;
@@ -20151,12 +20161,7 @@ namespace Parsek
                             traj.RecordingId,
                             sectionIdx,
                             section);
-                        bool skipRecordedRelativeResolver =
-                            DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
-                                traj,
-                                playbackUT,
-                                out _);
-                        if (!skipRecordedRelativeResolver
+                        if (!skipRecordedRelativeResolverForAuthoredFrameGap
                             && TryResolveRelativeWorldPosition(
                                 section.frames ?? traj.Points,
                                 playbackUT,
@@ -20168,10 +20173,8 @@ namespace Parsek
                         }
                         if (section.absoluteFrames != null
                             && section.absoluteFrames.Count > 0
-                            && (!skipRecordedRelativeResolver
-                                || DebrisRelativePlaybackPolicy.AbsoluteShadowFramesCoverUT(
-                                    section,
-                                    playbackUT)))
+                            && (!skipRecordedRelativeResolverForAuthoredFrameGap
+                                || diagnostic.AbsoluteFramesCoverUT))
                         {
                             int absoluteCachedIndex = 0;
                             return TryResolvePointWorldPosition(
