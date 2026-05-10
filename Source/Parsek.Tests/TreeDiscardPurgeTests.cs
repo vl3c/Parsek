@@ -496,6 +496,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardPendingTree_CommittedParentPendingChild_PurgesPendingBranchRp()
+        {
+            InstallTree("tree_committed_parent",
+                new List<Recording>
+                {
+                    Rec("rec_committed_parent", "tree_committed_parent"),
+                },
+                new List<BranchPoint>());
+
+            var pendingBp = Bp("bp_committed_parent_pending_child", "rp_pending_child");
+            pendingBp.ParentRecordingIds.Add("rec_committed_parent");
+            pendingBp.ChildRecordingIds.Add("rec_pending_child");
+            var pending = new RecordingTree
+            {
+                Id = "tree_pending_child",
+                TreeName = "Pending child branch",
+                BranchPoints = new List<BranchPoint> { pendingBp },
+                RootRecordingId = "rec_committed_parent",
+                ActiveRecordingId = "rec_pending_child",
+            };
+            pending.AddOrReplaceRecording(
+                Rec("rec_committed_parent", "tree_pending_child", MergeState.NotCommitted));
+            pending.AddOrReplaceRecording(
+                Rec("rec_pending_child", "tree_pending_child", MergeState.NotCommitted));
+            RecordingStore.StashPendingTree(pending);
+
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint>
+                {
+                    Rp(
+                        "rp_pending_child",
+                        "bp_committed_parent_pending_child",
+                        Slot(0, "rec_pending_child")),
+                });
+
+            RecordingStore.DiscardPendingTree();
+
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Contains("rp_pending_child", deletedRpIds);
+            Assert.Null(pendingBp.RewindPointId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("Purged rp=rp_pending_child")
+                && l.Contains("bp=bp_committed_parent_pending_child"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("PurgeTree: tree=tree_pending_child")
+                && l.Contains("rps=1"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN][Rewind]")
+                && l.Contains("non-pending child slot refs")
+                && l.Contains("tree=tree_pending_child"));
+        }
+
+        [Fact]
         public void DiscardPendingTree_RpWithPendingBranchPointButCommittedSlot_IsPreserved()
         {
             InstallTree("tree_committed_slot",

@@ -148,21 +148,16 @@ namespace Parsek
             // Collect the tree's membership sets once up-front so the
             // individual purge passes can answer "is X in the tree?" in O(1).
             int skippedCommittedBranchPoints;
-            int skippedBranchPointsWithCommittedRefs;
             var branchPointIds = CollectBranchPointIds(
                 tree,
                 recordingIdsToPurge,
-                out skippedCommittedBranchPoints,
-                out skippedBranchPointsWithCommittedRefs);
+                out skippedCommittedBranchPoints);
             var recordingIds = recordingIdsToPurge ?? CollectRecordingIds(tree);
-            if (recordingIdsToPurge != null
-                && (skippedCommittedBranchPoints > 0 || skippedBranchPointsWithCommittedRefs > 0))
+            if (recordingIdsToPurge != null && skippedCommittedBranchPoints > 0)
             {
                 ParsekLog.Warn(RewindTag,
                     $"PurgeTree: skipped {skippedCommittedBranchPoints.ToString(CultureInfo.InvariantCulture)} " +
-                    "committed-overlap branch point id(s) and " +
-                    $"{skippedBranchPointsWithCommittedRefs.ToString(CultureInfo.InvariantCulture)} branch point(s) " +
-                    $"with non-pending recording refs for tree={treeId}");
+                    $"committed-overlap branch point id(s) for tree={treeId}");
             }
 
             int rpsPurged = PurgeRewindPoints(scenario, branchPointIds, recordingIdsToPurge, treeId);
@@ -227,19 +222,18 @@ namespace Parsek
         private static HashSet<string> CollectBranchPointIds(
             RecordingTree tree,
             HashSet<string> recordingIdsToPurge,
-            out int skippedCommittedBranchPoints,
-            out int skippedBranchPointsWithCommittedRefs)
+            out int skippedCommittedBranchPoints)
         {
             skippedCommittedBranchPoints = 0;
-            skippedBranchPointsWithCommittedRefs = 0;
             var set = new HashSet<string>(StringComparer.Ordinal);
             if (tree?.BranchPoints == null) return set;
             if (recordingIdsToPurge != null && recordingIdsToPurge.Count == 0)
                 return set;
 
-            // Tier 1 for pending discard: only branch points owned exclusively
-            // by pending-only topology are eligible for destructive RP cleanup.
-            // This removes pure committed-overlap topology before RP deletion.
+            // Tier 1 for pending discard: branch-point IDs already present in
+            // committed history are protected. Parent/child recording refs may
+            // legitimately cross from committed parent to pending child, so the
+            // RP child-slot filter below owns mixed-side preservation.
             for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
                 var bp = tree.BranchPoints[i];
@@ -251,12 +245,6 @@ namespace Parsek
                     if (IsCommittedBranchPointId(bp.Id))
                     {
                         skippedCommittedBranchPoints++;
-                        continue;
-                    }
-
-                    if (BranchPointReferencesNonPendingRecording(bp, recordingIdsToPurge))
-                    {
-                        skippedBranchPointsWithCommittedRefs++;
                         continue;
                     }
                 }
@@ -291,17 +279,6 @@ namespace Parsek
             return false;
         }
 
-        private static bool BranchPointReferencesNonPendingRecording(
-            BranchPoint bp,
-            HashSet<string> recordingIdsToPurge)
-        {
-            if (recordingIdsToPurge == null)
-                return false;
-
-            return ContainsNonPendingRecording(bp?.ParentRecordingIds, recordingIdsToPurge)
-                || ContainsNonPendingRecording(bp?.ChildRecordingIds, recordingIdsToPurge);
-        }
-
         private static bool RewindPointReferencesNonPendingRecording(
             RewindPoint rp,
             HashSet<string> recordingIdsToPurge)
@@ -312,25 +289,6 @@ namespace Parsek
             for (int i = 0; i < rp.ChildSlots.Count; i++)
             {
                 string recordingId = rp.ChildSlots[i]?.OriginChildRecordingId;
-                if (string.IsNullOrEmpty(recordingId))
-                    continue;
-                if (!recordingIdsToPurge.Contains(recordingId))
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static bool ContainsNonPendingRecording(
-            List<string> recordingIds,
-            HashSet<string> recordingIdsToPurge)
-        {
-            if (recordingIds == null || recordingIdsToPurge == null)
-                return false;
-
-            for (int i = 0; i < recordingIds.Count; i++)
-            {
-                string recordingId = recordingIds[i];
                 if (string.IsNullOrEmpty(recordingId))
                     continue;
                 if (!recordingIdsToPurge.Contains(recordingId))
