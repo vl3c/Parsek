@@ -244,7 +244,7 @@ Rules:
 - Inspect non-predicted top-level `OrbitSegments`.
 - Skip segments that already have an overlapping checkpoint `TrackSection`.
 - Skip zero-duration or invalid segments.
-- Append checkpoint sections for real on-rails intervals that do not overlap physical `TrackSections`.
+- Append checkpoint sections for real on-rails intervals, then rely on normal merge overlap resolution to clip lower-priority checkpoint intervals around physical `TrackSections`.
 - Prefer conservative gating: if uncertain whether a segment is a terminal prediction, skip and log the skip reason.
 
 This helper should be shared by, or invoked from, all of the following:
@@ -371,7 +371,7 @@ Add tests for merger normalization:
 - existing checkpoint section prevents duplicate injection
 - predicted orbit segment is skipped
 - invalid or zero-duration orbit segment is skipped
-- exact legacy shape from the investigation: multiple top-level non-predicted orbit segments, including one that overlaps the following Absolute Background section, normalizes into checkpoint sections and lets `ResolveOverlaps` trim lower-priority checkpoint overlap without recreating an Absolute-to-Absolute boundary
+- exact legacy shape from the investigation: multiple top-level non-predicted orbit segments, including one that overlaps the following Absolute Background section, normalizes into checkpoint sections and lets `ResolveOverlaps` trim lower-priority checkpoint overlap and its embedded checkpoint payload without recreating an Absolute-to-Absolute boundary
 
 Add persistence tests:
 
@@ -380,11 +380,13 @@ Add persistence tests:
 - section-authoritative rewrite may omit flat top-level `OrbitSegments`, but load rebuilds `rec.OrbitSegments` from checkpoint sections
 - split/re-merge of the post-fix shape keeps a checkpoint bridge between the two Absolute Background sections
 - legacy recording with top-level orbit bridge but no checkpoint sections is normalized before save/split so the bridge is not lost
+- merge -> sidecar write -> sidecar read does not reintroduce a full overlapping checkpoint section after overlap resolution clipped it
 
 Add optimizer tests:
 
 - checkpoint bridge does not create an unwanted optimizer split by itself
 - splitting around a checkpoint bridge does not strip the checkpoint payload from both resulting recordings
+- splitting at a physical section boundary clips any previous overlapping checkpoint bridge to the split UT
 - `N_OnRails_Closes_Same_Body_Same_Env_Produce_Zero_Split_Candidates`: adjacent `OrbitalCheckpoint` / `ExoBallistic` / same-body sections are treated as not a splittable boundary
 - `OnRails_Checkpoint_Body_Change_StaysCohesive`: adjacent checkpoint sections with different bodies pin the current same-class ExoBallistic transfer-coast behavior
 

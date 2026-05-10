@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using Xunit;
@@ -1266,7 +1267,12 @@ namespace Parsek.Tests
             Assert.Equal(TrackSectionSource.Checkpoint, merged.TrackSections[3].source);
             Assert.Equal(3, merged.OrbitSegments.Count);
             Assert.Equal(479.25749137883366, merged.OrbitSegments[0].startUT);
-            Assert.Equal(960.51459653102938, merged.OrbitSegments[2].endUT);
+            Assert.Equal(resumedLoaded.startUT, merged.OrbitSegments[2].endUT);
+            Assert.Equal(resumedLoaded.startUT, merged.TrackSections[3].endUT);
+            Assert.DoesNotContain(merged.TrackSections, s =>
+                s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
+                s.startUT < resumedLoaded.startUT &&
+                s.endUT > resumedLoaded.startUT);
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("MergeTree: boundary discontinuity") &&
                 l.Contains("prevSrc=Background nextSrc=Background"));
@@ -1274,6 +1280,34 @@ namespace Parsek.Tests
                 l.Contains("EnsureCheckpointSectionsForTopLevelOrbitSegments") &&
                 l.Contains("recording=rec-legacy-bg-gap") &&
                 l.Contains("added=3"));
+
+            string path = Path.Combine(
+                Path.GetTempPath(),
+                "parsek-legacy-bg-gap-" + Guid.NewGuid().ToString("N") + ".prec");
+            try
+            {
+                RecordingStore.WriteTrajectorySidecar(path, merged, sidecarEpoch: 11);
+                TrajectorySidecarProbe probe;
+                Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
+
+                var restored = new Recording { RecordingId = merged.RecordingId };
+                RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
+
+                Assert.Equal(5, restored.TrackSections.Count);
+                Assert.Equal(3, restored.TrackSections.Count(s =>
+                    s.referenceFrame == ReferenceFrame.OrbitalCheckpoint));
+                Assert.Equal(3, restored.OrbitSegments.Count);
+                Assert.Equal(resumedLoaded.startUT, restored.OrbitSegments[2].endUT);
+                Assert.DoesNotContain(restored.TrackSections, s =>
+                    s.referenceFrame == ReferenceFrame.OrbitalCheckpoint &&
+                    s.startUT < resumedLoaded.startUT &&
+                    s.endUT > resumedLoaded.startUT);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
         }
 
         [Theory]

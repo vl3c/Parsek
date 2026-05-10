@@ -1641,11 +1641,10 @@ namespace Parsek.Tests
 
             Assert.True(appended);
             Assert.Null(skipReason);
-            Assert.Equal(3, rec.TrackSections.Count);
-            Assert.Empty(rec.TrackSections[0].checkpoints);
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, rec.TrackSections[0].referenceFrame);
+            Assert.Single(rec.TrackSections[0].checkpoints);
             Assert.Equal(ReferenceFrame.Absolute, rec.TrackSections[1].referenceFrame);
-            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, rec.TrackSections[2].referenceFrame);
-            Assert.Single(rec.TrackSections[2].checkpoints);
             Assert.Single(rec.OrbitSegments);
         }
 

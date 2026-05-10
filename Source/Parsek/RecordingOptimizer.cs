@@ -855,6 +855,7 @@ namespace Parsek
             second.TrackSections = new List<TrackSection>(
                 original.TrackSections.GetRange(sectionIndex, original.TrackSections.Count - sectionIndex));
             original.TrackSections.RemoveRange(sectionIndex, original.TrackSections.Count - sectionIndex);
+            TrimFirstHalfTrackSectionsAtSplit(original.TrackSections, splitUT);
 
             // 7. Partition OrbitSegments by UT
             if (original.HasOrbitSegments)
@@ -868,6 +869,7 @@ namespace Parsek
                         original.OrbitSegments.RemoveAt(i);
                     }
                 }
+                TrimFirstHalfOrbitSegmentsAtSplit(original.OrbitSegments, splitUT);
             }
 
             // 8. Clone GhostVisualSnapshot (safe: CanAutoSplit ensures no ghosting triggers).
@@ -1045,6 +1047,63 @@ namespace Parsek
                 $"flatSync={originalFlatSyncMode}/{secondFlatSyncMode})");
 
             return second;
+        }
+
+        private static void TrimFirstHalfTrackSectionsAtSplit(
+            List<TrackSection> trackSections,
+            double splitUT)
+        {
+            if (trackSections == null || trackSections.Count == 0)
+                return;
+
+            for (int i = trackSections.Count - 1; i >= 0; i--)
+            {
+                TrackSection section = trackSections[i];
+                if (section.startUT >= splitUT)
+                {
+                    trackSections.RemoveAt(i);
+                    continue;
+                }
+
+                if (section.endUT > splitUT)
+                {
+                    if (TryTrimTrackSectionPayload(ref section, splitUT))
+                        trackSections[i] = section;
+                    else
+                        trackSections.RemoveAt(i);
+                }
+
+                break;
+            }
+        }
+
+        private static void TrimFirstHalfOrbitSegmentsAtSplit(
+            List<OrbitSegment> orbitSegments,
+            double splitUT)
+        {
+            if (orbitSegments == null || orbitSegments.Count == 0)
+                return;
+
+            for (int i = orbitSegments.Count - 1; i >= 0; i--)
+            {
+                OrbitSegment segment = orbitSegments[i];
+                if (segment.startUT >= splitUT)
+                {
+                    orbitSegments.RemoveAt(i);
+                    continue;
+                }
+
+                if (segment.endUT > splitUT)
+                {
+                    segment.endUT = splitUT;
+                    if (segment.endUT > segment.startUT)
+                        orbitSegments[i] = segment;
+                    else
+                        orbitSegments.RemoveAt(i);
+                }
+
+                break;
+            }
         }
 
         /// <summary>

@@ -83,6 +83,7 @@ namespace Parsek
             if (TryAttachToLastEmptyCheckpointSection(rec.TrackSections, segment))
             {
                 AppendFlatOrbitCache(rec, segment);
+                SortOrbitSegments(rec.OrbitSegments);
                 rec.CachedStats = null;
                 rec.CachedStatsPointCount = 0;
                 if (markDirty)
@@ -90,8 +91,11 @@ namespace Parsek
                 return true;
             }
 
+            RemoveEmptyCheckpointSectionsMatching(rec.TrackSections, segment);
             rec.TrackSections.Add(BuildClosedCheckpointSection(segment));
             AppendFlatOrbitCache(rec, segment);
+            SortTrackSections(rec.TrackSections);
+            SortOrbitSegments(rec.OrbitSegments);
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
             if (markDirty)
@@ -145,16 +149,41 @@ namespace Parsek
                 stats.Added++;
             }
 
-            if (stats.Added > 0)
+            bool sorted = EnsureTrackSectionsSorted(rec.TrackSections);
+            if (stats.Added > 0 || sorted)
             {
-                SortTrackSections(rec.TrackSections);
                 rec.CachedStats = null;
                 rec.CachedStatsPointCount = 0;
-                if (markDirty)
+                if (markDirty && (stats.Added > 0 || sorted))
                     rec.MarkFilesDirty();
             }
 
             return stats;
+        }
+
+        internal static bool TryTrimOrbitSegmentToRange(
+            OrbitSegment segment,
+            double startUT,
+            double endUT,
+            out OrbitSegment trimmed)
+        {
+            trimmed = segment;
+            if (!IsValidClosedSegment(segment)
+                || !IsFinite(startUT)
+                || !IsFinite(endUT)
+                || endUT <= startUT + UtTolerance)
+            {
+                return false;
+            }
+
+            double clippedStartUT = Math.Max(segment.startUT, startUT);
+            double clippedEndUT = Math.Min(segment.endUT, endUT);
+            if (clippedEndUT <= clippedStartUT + UtTolerance)
+                return false;
+
+            trimmed.startUT = clippedStartUT;
+            trimmed.endUT = clippedEndUT;
+            return true;
         }
 
         internal static bool AnyCheckpointMatches(List<TrackSection> sections, OrbitSegment segment)
@@ -222,6 +251,26 @@ namespace Parsek
             return true;
         }
 
+        private static void RemoveEmptyCheckpointSectionsMatching(
+            List<TrackSection> sections,
+            OrbitSegment segment)
+        {
+            if (sections == null || sections.Count == 0)
+                return;
+
+            for (int i = sections.Count - 1; i >= 0; i--)
+            {
+                TrackSection section = sections[i];
+                if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                    && NearlyEqual(section.startUT, segment.startUT, UtTolerance)
+                    && NearlyEqual(section.endUT, segment.endUT, UtTolerance)
+                    && (section.checkpoints == null || section.checkpoints.Count == 0))
+                {
+                    sections.RemoveAt(i);
+                }
+            }
+        }
+
         private static bool LastSectionCheckpointMatches(List<TrackSection> sections, OrbitSegment segment)
         {
             if (sections == null || sections.Count == 0)
@@ -272,11 +321,58 @@ namespace Parsek
 
         private static void SortTrackSections(List<TrackSection> sections)
         {
+            if (sections == null || sections.Count < 2)
+                return;
+
             sections.Sort((a, b) =>
             {
                 int cmp = a.startUT.CompareTo(b.startUT);
                 if (cmp != 0) return cmp;
                 cmp = ((int)a.source).CompareTo((int)b.source);
+                if (cmp != 0) return cmp;
+                return a.endUT.CompareTo(b.endUT);
+            });
+        }
+
+        private static bool EnsureTrackSectionsSorted(List<TrackSection> sections)
+        {
+            if (sections == null || sections.Count < 2)
+                return false;
+
+            bool sorted = true;
+            for (int i = 1; i < sections.Count; i++)
+            {
+                if (CompareTrackSections(sections[i - 1], sections[i]) > 0)
+                {
+                    sorted = false;
+                    break;
+                }
+            }
+
+            if (sorted)
+                return false;
+
+            SortTrackSections(sections);
+            return true;
+        }
+
+        private static int CompareTrackSections(TrackSection a, TrackSection b)
+        {
+            int cmp = a.startUT.CompareTo(b.startUT);
+            if (cmp != 0) return cmp;
+            cmp = ((int)a.source).CompareTo((int)b.source);
+            if (cmp != 0) return cmp;
+            return a.endUT.CompareTo(b.endUT);
+        }
+
+        private static void SortOrbitSegments(List<OrbitSegment> segments)
+        {
+            if (segments == null || segments.Count < 2)
+                return;
+
+            segments.Sort((a, b) =>
+            {
+                int cmp = a.startUT.CompareTo(b.startUT);
                 if (cmp != 0) return cmp;
                 return a.endUT.CompareTo(b.endUT);
             });

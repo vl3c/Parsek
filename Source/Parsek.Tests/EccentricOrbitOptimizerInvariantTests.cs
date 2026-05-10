@@ -225,6 +225,52 @@ namespace Parsek.Tests
                 l.Contains("exoCoastBodyChangeKept=1"));
         }
 
+        [Fact]
+        public void SplitAtSection_ClipsOverlappingCheckpointBridgeAtSplitBoundary()
+        {
+            const double checkpointStartUT = 909.023508884545;
+            const double splitUT = 958.87146746423491;
+            const double checkpointEndUT = 960.51459653102938;
+            TrackSection checkpoint = MakeCheckpointSection(
+                checkpointStartUT, checkpointEndUT, "Kerbin");
+            var physical = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Background,
+                startUT = splitUT,
+                endUT = 979.7714674642159,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = splitUT, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 979.7714674642159, bodyName = "Kerbin" }
+                },
+                checkpoints = new List<OrbitSegment>()
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec_split_checkpoint_overlap",
+                VesselName = "Kerbal X Probe",
+                ChainId = "chain_split",
+                ChainIndex = 0,
+                ChainBranch = 0,
+                TrackSections = new List<TrackSection> { checkpoint, physical },
+                OrbitSegments = new List<OrbitSegment> { checkpoint.checkpoints[0] }
+            };
+
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.Single(rec.TrackSections);
+            Assert.Equal(splitUT, rec.TrackSections[0].endUT);
+            Assert.Single(rec.TrackSections[0].checkpoints);
+            Assert.Equal(splitUT, rec.TrackSections[0].checkpoints[0].endUT);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(splitUT, rec.OrbitSegments[0].endUT);
+            Assert.Single(second.TrackSections);
+            Assert.Equal(splitUT, second.TrackSections[0].startUT);
+            Assert.Empty(second.OrbitSegments);
+        }
+
         /// <summary>
         /// Sanity check: a recording with two real env-class TrackSections still
         /// triggers a split candidate. Otherwise the test above would pass for the

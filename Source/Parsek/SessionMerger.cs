@@ -1689,9 +1689,12 @@ namespace Parsek
             var trimmed = new List<OrbitSegment>();
             for (int i = 0; i < checkpoints.Count; i++)
             {
-                // Include checkpoint if its time range overlaps with [startUT, endUT]
-                if (checkpoints[i].endUT >= startUT && checkpoints[i].startUT <= endUT)
-                    trimmed.Add(checkpoints[i]);
+                OrbitSegment clipped;
+                if (OrbitSegmentCheckpointBridge.TryTrimOrbitSegmentToRange(
+                        checkpoints[i], startUT, endUT, out clipped))
+                {
+                    trimmed.Add(clipped);
+                }
             }
 
             return trimmed.Count > 0 ? trimmed : null;
