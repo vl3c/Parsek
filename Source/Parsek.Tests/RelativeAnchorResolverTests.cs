@@ -771,6 +771,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryEvaluateRecordingAnchorRotationReliability_FailingSameChainSuccessor_BlocksPredecessorTerminalClamp()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording firstHalf = MakeTerminalEdgeAbsoluteRecording(
+                "first-half",
+                tree.Id,
+                sectionEndUT: 10.0,
+                terminalPlayableUT: 9.98,
+                terminalWorld: new Vector3d(109.98, 0, 0));
+            firstHalf.ChainId = "chain-parent";
+            firstHalf.ChainIndex = 0;
+
+            Recording badSecondHalf = MakeRelativeRecording(
+                "second-half",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: null,
+                startUT: 10.0,
+                endUT: 20.0);
+            badSecondHalf.ChainId = firstHalf.ChainId;
+            badSecondHalf.ChainIndex = 1;
+
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(10, 0, 0),
+                anchorRecordingId: firstHalf.RecordingId,
+                startUT: 0.0,
+                endUT: 20.0);
+            tree.AddOrReplaceRecording(firstHalf);
+            tree.AddOrReplaceRecording(badSecondHalf);
+            tree.AddOrReplaceRecording(child);
+
+            bool resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
+                MakeContext(tree),
+                child,
+                10.0 + RelativeAnchorResolver.TerminalClampPhysicsTickSeconds,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorRotationReliabilityDecision decision);
+
+            Assert.False(resolved);
+            Assert.False(decision.Unreliable);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("Anchor recording continued through same-chain successor") &&
+                l.Contains("recordingId=first-half") &&
+                l.Contains("successorRecordingId=second-half"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-recording-id-missing") &&
+                l.Contains("recordingId=second-half"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("relative-anchor-terminal-clamp") &&
+                l.Contains("recordingId=first-half"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_TwoLinkRelativeChain_ComposesThroughRecordedAnchors()
         {
             var tree = new RecordingTree { Id = "tree" };

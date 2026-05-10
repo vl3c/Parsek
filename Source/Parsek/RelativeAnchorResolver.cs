@@ -479,10 +479,13 @@ namespace Parsek
                             ut,
                             visited,
                             out pose,
-                            out rotationDecision))
+                            out rotationDecision,
+                            out bool continuationAttempted))
                     {
                         return true;
                     }
+                    if (continuationAttempted)
+                        return false;
 
                     if (TryResolveTerminalClampedPoseWithReliability(
                             context,
@@ -662,10 +665,12 @@ namespace Parsek
             double ut,
             HashSet<string> visited,
             out AnchorPose pose,
-            out AnchorRotationReliabilityDecision rotationDecision)
+            out AnchorRotationReliabilityDecision rotationDecision,
+            out bool attempted)
         {
             pose = default;
             rotationDecision = default;
+            attempted = false;
             if (!TryFindSameChainContinuationRecording(
                     context,
                     recording,
@@ -675,6 +680,7 @@ namespace Parsek
                 return false;
             }
 
+            attempted = true;
             string continuationId = continuation.RecordingId;
             if (string.IsNullOrEmpty(continuationId))
                 return false;
