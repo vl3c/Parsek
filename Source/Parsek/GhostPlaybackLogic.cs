@@ -2226,7 +2226,7 @@ namespace Parsek
             StopRcsFxForPart(state, evt.partPersistentId);
             StopAudioForPart(state, evt.partPersistentId);
             if (allowTransientEffects)
-                PlayPartDestroyedFxAtPart(ghost, evt.partPersistentId);
+                PlayPartDestroyedFxAtPart(ghost, evt.partPersistentId, audioPaused: state?.audioPaused ?? false);
             ApplyHeatState(state, evt, HeatLevel.Cold);
             HideGhostPart(ghost, evt.partPersistentId);
             RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
@@ -2250,6 +2250,15 @@ namespace Parsek
         /// <see cref="FXMonger.Explode"/> call inside the same window, leaving multi-debris breakups
         /// nearly silent in watch mode (only the first explosion played sound).
         ///
+        /// While the stock pause menu is open (<paramref name="audioPaused"/>=true), the FXMonger
+        /// path is skipped — `FXMonger.Explode` would queue a SHIP_VOLUME `PlayOneShot` on a fresh
+        /// AudioSource that does NOT respect the engine-side pause, so a destroyed-part event
+        /// applied in the same frame the player opens Esc would punch through the pause and
+        /// regress the flight pause-audio fix. The puff fallback path runs instead so the
+        /// destruction still produces a visual cue without queuing audio. This mirrors the
+        /// terminal-vessel <see cref="GhostPlaybackEngine.TriggerExplosionIfDestroyed"/> path
+        /// which already takes the visual-only branch when `state.audioPaused` is set.
+        ///
         /// FXMonger isn't loaded outside the flight scene; KSC playback (and any other scene where
         /// the singleton is not live) falls back to the small Parsek particle puff via
         /// <see cref="SpawnPartPuffAtPart"/>, matching the pre-FXMonger visual cue. The same
@@ -2257,7 +2266,7 @@ namespace Parsek
         /// explosion prefab array, threw, etc.) so destroyed-part events are never silent and
         /// visual-less.
         /// </summary>
-        internal static void PlayPartDestroyedFxAtPart(GameObject ghost, uint persistentId)
+        internal static void PlayPartDestroyedFxAtPart(GameObject ghost, uint persistentId, bool audioPaused)
         {
             if (ghost == null) return;
             if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
@@ -2265,7 +2274,11 @@ namespace Parsek
             var t = GhostVisualBuilder.FindGhostPartTransform(ghost, persistentId);
             if (t == null || !t.gameObject.activeSelf) return;
 
-            if (GhostVisualBuilder.IsFxMongerLive())
+            // FXMonger.Explode would PlayOneShot a SHIP_VOLUME clip on a fresh AudioSource that
+            // doesn't honor PauseAllAudio's per-source `Pause()` calls — so while the stock Esc
+            // menu is open we must not call into FXMonger at all. Take the puff fallback path so
+            // the destroyed part still has a visual cue; audio stays silent until the pause clears.
+            if (!audioPaused && GhostVisualBuilder.IsFxMongerLive())
             {
                 float rendererBoundsSizeMagnitude = 0f;
                 var renderer = t.GetComponentInChildren<Renderer>();
@@ -2287,15 +2300,22 @@ namespace Parsek
                     $"FXMonger.Explode failed for destroyed part pid={persistentId}: {failure}; falling back to particle puff",
                     10.0);
             }
+            else if (audioPaused)
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-paused-{persistentId}",
+                    $"Pause menu open: skipping FXMonger.Explode for destroyed part pid={persistentId}, " +
+                    $"falling back to particle puff (visual only)",
+                    5.0);
+            }
 
-            // FXMonger unavailable (KSC scene) or threw: keep the small Parsek particle puff as a
-            // visual cue so destroyed-part events still register. SpawnPartPuffAtPart re-runs the
-            // transform lookup and renderer-bounds derivation; cheap on the rare destroyed-part
-            // path and avoids duplicating the partScale formula here.
+            // FXMonger unavailable (KSC scene), threw, or pause-menu-open: keep the small Parsek
+            // particle puff as a visual cue so destroyed-part events still register without queuing
+            // audio. SpawnPartPuffAtPart re-runs the transform lookup and renderer-bounds derivation;
+            // cheap on the rare destroyed-part path and avoids duplicating the partScale formula here.
             SpawnPartPuffAtPart(ghost, persistentId);
             ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-puff-{persistentId}",
                 $"Particle puff spawned for destroyed part pid={persistentId} " +
-                $"(FXMonger unavailable or failed)",
+                $"(FXMonger unavailable, failed, or audio paused)",
                 5.0);
         }
 
