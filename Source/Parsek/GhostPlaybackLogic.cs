@@ -2252,35 +2252,46 @@ namespace Parsek
         /// <see cref="FXMonger.Explode"/> call inside the same window, leaving multi-debris breakups
         /// nearly silent in watch mode (only the first explosion played sound).
         ///
-        /// FXMonger isn't loaded outside the flight scene; KSC playback skips this helper silently
-        /// (KSC mid-recording per-part destruction is rare and not worth a separate audio path).
-        /// Falls open if the part transform can't be resolved or FXMonger throws.
+        /// FXMonger isn't loaded outside the flight scene; KSC playback (and any other scene where
+        /// the singleton is not live) falls back to the small Parsek particle puff via
+        /// <see cref="SpawnPartPuffAtPart"/>, matching the pre-FXMonger visual cue. The same
+        /// puff fallback covers the rare case where FXMonger.Explode itself returns false (no
+        /// explosion prefab array, threw, etc.) so destroyed-part events are never silent and
+        /// visual-less.
         /// </summary>
         internal static void PlayPartDestroyedFxAtPart(GameObject ghost, uint persistentId)
         {
             if (ghost == null) return;
             if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
-            if (!GhostVisualBuilder.IsFxMongerLive()) return;
 
             var t = GhostVisualBuilder.FindGhostPartTransform(ghost, persistentId);
             if (t == null || !t.gameObject.activeSelf) return;
 
-            float partScale = 1f;
-            var renderer = t.GetComponentInChildren<Renderer>();
-            if (renderer != null)
-                partScale = renderer.bounds.size.magnitude * 0.5f;
-            // Map part scale (~0.5–6 m typical) to stock's [0..1] power bucket the same way the
-            // terminal-vessel path does (Mathf.Clamp01(length / 20f)). Small parts land near 0
-            // and pick FXMonger.explosionSounds[0] (sound_explosion_debris1, ~5.3 s); larger
-            // parts grade up through the array to sound_explosion_large at the top.
-            double power = Mathf.Clamp01(partScale / 10f);
-
-            if (!GhostVisualBuilder.TryTriggerStockExplosionFx(t.position, power, out string failure))
+            if (GhostVisualBuilder.IsFxMongerLive())
             {
+                float partScale = 1f;
+                var renderer = t.GetComponentInChildren<Renderer>();
+                if (renderer != null)
+                    partScale = renderer.bounds.size.magnitude * 0.5f;
+                // Map part scale (~0.5–6 m typical) to stock's [0..1] power bucket the same way the
+                // terminal-vessel path does (Mathf.Clamp01(length / 20f)). Small parts land near 0
+                // and pick FXMonger.explosionSounds[0] (sound_explosion_debris1, ~5.3 s); larger
+                // parts grade up through the array to sound_explosion_large at the top.
+                double power = Mathf.Clamp01(partScale / 10f);
+
+                if (GhostVisualBuilder.TryTriggerStockExplosionFx(t.position, power, out string failure))
+                    return;
+
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-fxmonger-failed-{persistentId}",
-                    $"FXMonger.Explode failed for destroyed part pid={persistentId}: {failure}",
+                    $"FXMonger.Explode failed for destroyed part pid={persistentId}: {failure}; falling back to particle puff",
                     10.0);
             }
+
+            // FXMonger unavailable (KSC scene) or threw: keep the small Parsek particle puff as a
+            // visual cue so destroyed-part events still register. SpawnPartPuffAtPart re-runs the
+            // transform lookup and renderer-bounds derivation; cheap on the rare destroyed-part
+            // path and avoids duplicating the partScale formula here.
+            SpawnPartPuffAtPart(ghost, persistentId);
         }
 
         private static void ApplyParachuteCutEvent(

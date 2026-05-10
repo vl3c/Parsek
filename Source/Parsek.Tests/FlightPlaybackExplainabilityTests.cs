@@ -64,6 +64,7 @@ namespace Parsek.Tests
             Assert.Equal("session-suppressed", GhostPlaybackSkipReason.SessionSuppressed.ToLogToken());
             Assert.Equal("superseded-by-relation", GhostPlaybackSkipReason.SupersededByRelation.ToLogToken());
             Assert.Equal("rewind-retired", GhostPlaybackSkipReason.RewindRetired.ToLogToken());
+            Assert.Equal("anchor-rotation-unreliable", GhostPlaybackSkipReason.AnchorRotationUnreliable.ToLogToken());
             Assert.Equal("anchor-refly-unstable", GhostPlaybackSkipReason.AnchorReFlyUnstable.ToLogToken());
         }
 
@@ -190,6 +191,44 @@ namespace Parsek.Tests
             finally
             {
                 ParsekScenario.SetInstanceForTesting(null);
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ComputePlaybackFlags_AnchorRotationReliabilityCallback_OnlyForParentAnchoredDebris()
+        {
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                Recording nonDebris = MakeRecording("rec-non-debris", "Normal Vessel");
+                nonDebris.IsDebris = false;
+                nonDebris.DebrisParentRecordingId = "parent-rec";
+
+                Recording legacyDebris = MakeRecording("rec-legacy-debris", "Legacy Debris");
+                legacyDebris.IsDebris = true;
+                legacyDebris.DebrisParentRecordingId = null;
+
+                Recording parentAnchoredDebris = MakeRecording("rec-v12-debris", "Parent Debris");
+                parentAnchoredDebris.IsDebris = true;
+                parentAnchoredDebris.DebrisParentRecordingId = "parent-rec";
+
+                var committed = new List<Recording>
+                {
+                    nonDebris,
+                    legacyDebris,
+                    parentAnchoredDebris
+                };
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 100.0);
+
+                Assert.Null(flags[0].tryEvaluateAnchorRotationReliability);
+                Assert.Null(flags[1].tryEvaluateAnchorRotationReliability);
+                Assert.NotNull(flags[2].tryEvaluateAnchorRotationReliability);
+            }
+            finally
+            {
                 RecordingStore.ResetForTesting();
             }
         }
@@ -438,8 +477,9 @@ namespace Parsek.Tests
                 supersededByRelation = 14,
                 rewindRetired = 15,
                 spawnSuppressedDeadOnArrival = 16,
-                anchorReFlyUnstable = 17,
-                active = 18
+                anchorRotationUnreliable = 17,
+                anchorReFlyUnstable = 18,
+                active = 19
             };
 
             string message = GhostPlaybackEngine.BuildFrameSummaryMessage(counters);
@@ -461,8 +501,9 @@ namespace Parsek.Tests
             Assert.Contains("supersededByRelation=14", message);
             Assert.Contains("rewindRetired=15", message);
             Assert.Contains("spawnSuppressedDeadOnArrival=16", message);
-            Assert.Contains("anchorReFlyUnstable=17", message);
-            Assert.Contains("active=18", message);
+            Assert.Contains("anchorRotationUnreliable=17", message);
+            Assert.Contains("anchorReFlyUnstable=18", message);
+            Assert.Contains("active=19", message);
         }
 
         [Fact]
@@ -491,6 +532,13 @@ namespace Parsek.Tests
         public void FrameSummary_EmitsWhenRewindRetiredNonZero()
         {
             var counters = new GhostPlaybackFrameCounters { rewindRetired = 1 };
+            Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
+        }
+
+        [Fact]
+        public void FrameSummary_EmitsWhenAnchorRotationUnreliableNonZero()
+        {
+            var counters = new GhostPlaybackFrameCounters { anchorRotationUnreliable = 1 };
             Assert.True(GhostPlaybackEngine.ShouldEmitFrameSummary(counters));
         }
 

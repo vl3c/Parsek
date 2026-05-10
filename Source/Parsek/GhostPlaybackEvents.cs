@@ -26,7 +26,8 @@ namespace Parsek
         // handler still fires the PlaybackCompleted event for consumers
         // that expect it.
         SpawnSuppressedDeadOnArrival = 13,
-        AnchorReFlyUnstable = 14,
+        AnchorRotationUnreliable = 14,
+        AnchorReFlyUnstable = 15,
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -63,6 +64,8 @@ namespace Parsek
                     return "rewind-retired";
                 case GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival:
                     return "spawn-suppressed-dead-on-arrival";
+                case GhostPlaybackSkipReason.AnchorRotationUnreliable:
+                    return "anchor-rotation-unreliable";
                 case GhostPlaybackSkipReason.AnchorReFlyUnstable:
                     return "anchor-refly-unstable";
                 default:
@@ -70,6 +73,13 @@ namespace Parsek
             }
         }
     }
+
+    internal delegate bool TryEvaluateAnchorRotationReliability(
+        int index,
+        IPlaybackTrajectory traj,
+        double playbackUT,
+        string playbackScope,
+        out AnchorRotationReliabilityDecision decision);
 
     internal struct GhostPlaybackFrameCounters
     {
@@ -89,6 +99,7 @@ namespace Parsek
         public int supersededByRelation;
         public int rewindRetired;
         public int spawnSuppressedDeadOnArrival;
+        public int anchorRotationUnreliable;
         public int anchorReFlyUnstable;
         public int active;
     }
@@ -132,6 +143,9 @@ namespace Parsek
 
         /// <summary>Vessel persistent ID (for event payloads and logging).</summary>
         public uint vesselPersistentId;
+
+        /// <summary>Optional host predicate for transient tumbling-parent interpolation hides.</summary>
+        public TryEvaluateAnchorRotationReliability tryEvaluateAnchorRotationReliability;
 
         /// <summary>Transient Re-Fly settle/FloatingOrigin stability hold; hide-only gate.</summary>
         public bool anchorReFlyUnstable;
