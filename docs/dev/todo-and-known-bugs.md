@@ -282,7 +282,7 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 ---
 
-## Open - watch for stranded-sidecar warning during pending finalized tree saves (not proven data loss)
+## Done - watch for stranded-sidecar warning during pending finalized tree saves (not proven data loss)
 
 - During the retained Re-Fly session `logs/2026-05-06_2351_refly-phase-d-rewind-button-debris`, one intermediate save emitted `[Parsek][WARN][Scenario] OnSave: writing 0 RECORDING_TREE nodes but disk has 8 stranded sidecar recording ID(s). Likely state-management bug — sidecars preserved by CleanOrphanFiles safety guard on next load. Restore from quicksave.sfs or backup if recordings are missing.` at KSP.log line 11510. This happened immediately after the tree was finalized, stashed as pending, and the merge dialog was deferred to the post-report scene transition: `Stashed pending tree 'Kerbal X' (8 recordings, state=Finalized)`, `ShowPostDestructionTreeMergeDialog: pending tree stashed — deferring to post-report scene transition`, then `OnSave: saving 0 committed tree(s)`.
 
@@ -290,7 +290,9 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 **Caution for later:** If this warning repeats outside the narrow "finalized pending tree stashed, merge dialog not yet answered" window, or if it is followed by missing recordings after scene load, treat it as a state-management bug. The likely area is `ParsekScenario.OnSave`'s stranded-sidecar detector not distinguishing pending finalized trees from genuinely missing committed trees, or a save path that should serialize/stage pending tree metadata before the dialog completes. Keep the existing warning, but consider adding context fields (`pendingTreeId`, `pendingState`, committed count, sidecar count) so future logs make the distinction obvious.
 
-**Status:** WATCH / NOT PROVEN 2026-05-07.
+**Fix:** Finalized pending trees now serialize as `RECORDING_TREE` nodes marked `isPending=True`, restore to `PendingTreeState.Finalized`, and are counted before the stranded-sidecar detector so the deferred merge window no longer produces a false stranded-sidecar warning.
+
+**Status:** CLOSED 2026-05-10.
 
 ---
 
@@ -777,15 +779,15 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 
 ---
 
-## TODO - Pending tree dropped from .sfs when autosave fires post-stash in FLIGHT
+## Done - Pending tree dropped from .sfs when autosave fires post-stash in FLIGHT
 
 - An autosave (or quicksave) taken inside the FLIGHT scene while the post-destruction tree merge dialog is stashed loses the pending tree from the saved `persistent.sfs`. Sidecar files survive on disk (the new `CleanOrphanFiles` guard preserves them and the `OnSave: writing 0 RECORDING_TREE nodes but disk has N stranded sidecar` warn surfaces it), so a quickload that follows the autosave drops the recording's metadata even though the bulk data is intact. Source: `logs/2026-05-01_2208_investigate/KSP.log` lines 9920-9932 — at 21:50:01.489 `ShowPostDestructionTreeMergeDialog` stashed `R0` as pending (`pend.tree=f46ba80a:Finalized`), at 21:50:02.613 KSP autosaved while still in FLIGHT and `committedRecordings=0/committedTrees=0`, and the warn fired with 1 stranded sidecar. The recovery path was the user's prior 21:49:10 quicksave taken before the crash.
 
 **Root cause:** `ParsekScenario.OnSave` only persists committed recording trees through `SaveTreeRecordings` and the live in-flight tree through `SaveActiveTreeIfAny`. The pending-tree slot (after `StashPendingTree`) is neither active nor committed, so it is never serialized. `SafetyNetAutoCommitPending` would auto-commit it but only fires when `LoadedScene != FLIGHT`, leaving the FLIGHT-scene autosave window unguarded. The post-destruction stash deliberately keeps the tree pending across the flight-results screen, so the autosave timing is reachable in normal play.
 
-**Fix sketch:** either serialize the pending-tree slot as a `RECORDING_TREE` ConfigNode marked with an `isPending=True` (mirror of the `isActive=True` branch), or extend `SafetyNetAutoCommitPending` to also fire in FLIGHT when the dialog is stashed and the scene is awaiting the post-results transition. The first option preserves the player's option to revert; the second commits without dialog, which the player did not consent to. Prefer option 1.
+**Fix:** Finalized pending trees are saved as `RECORDING_TREE` nodes with `isPending=True`, loaded back into the finalized pending slot without recorder-resume semantics, excluded from committed-tree loops, and Discard refreshes quicksave after serialized pending metadata is removed.
 
-**Status:** OPEN. Discovered during the in-game-test-runner-wipe investigation (PR fixing `PersistenceSplitOptimizerTest`). Out of scope for that PR; tracked here for a follow-up.
+**Status:** CLOSED 2026-05-10. Discovered during the in-game-test-runner-wipe investigation (PR fixing `PersistenceSplitOptimizerTest`). Out of scope for that PR; tracked here for a follow-up.
 
 ---
 

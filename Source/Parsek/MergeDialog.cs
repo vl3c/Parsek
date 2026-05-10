@@ -697,10 +697,26 @@ namespace Parsek
             if (TryDiscardActiveReFlyAttempt(tree))
                 return true;
 
+            bool refreshSerializedPendingMarker =
+                RecordingStore.HasPendingTree
+                && RecordingStore.PendingTreeSerializedForSave;
+            int discardedRecordingCount = tree.Recordings?.Count ?? 0;
+
             // #466: while the merge/discard choice is pending, mid-flight effects stay live
             // in KSP and patching is deferred. Discard must now rebuild from the committed
             // ledger immediately after the pending tree is removed.
             ParsekScenario.DiscardPendingTreeAndRecalculate("merge dialog discard");
+            if (refreshSerializedPendingMarker)
+            {
+                RecordingStore.RefreshQuicksaveAfterDiscard(
+                    "merge dialog Tree Discard", discardedRecordingCount);
+            }
+            else
+            {
+                ParsekLog.Verbose("MergeDialog",
+                    "MergeDiscard: quicksave refresh skipped because pending tree " +
+                    "was not marked as serialized");
+            }
             ClearPendingFlag("merge dialog discard button");
             ParsekLog.ScreenMessage("Recording discarded", 2f);
             ParsekLog.Info("MergeDialog",

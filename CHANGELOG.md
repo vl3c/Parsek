@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Finalized pending tree recordings now survive FLIGHT autosaves and quicksaves before the merge/discard choice, instead of saving only sidecars and dropping the tree metadata from `.sfs`.
 - RELATIVE mode exit diagnostics now print `dist=unresolved` when the previous anchor cannot be resolved at a decouple boundary, instead of formatting the `double.MaxValue` sentinel as a real metres distance.
 - Decoupled subtrees no longer leave phantom engine/RCS audio playing on the parent ghost. When a stage decouples mid-playback the Decoupled event now stops FX and audio for every part in the decoupled subtree, not just the decoupler itself, so a watched capsule no longer keeps emitting the upper-stage rumble after the (now-debris) booster carrying that engine has hit the ground and exploded.
 - During an active Re-Fly, debris ghosts of the recording being re-flown stay hidden along with their parent. The session-suppressed-subtree closure now follows the v12 `DebrisParentRecordingId` ownership link only when the candidate's `ParentBranchPointId` resolves to a Breakup branch point owned by the re-flown recording, so destroyed parents with multiple breakup branch points propagate suppression to every breakup descendant while background-split anchor-only side-off debris stay visible.

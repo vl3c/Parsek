@@ -286,6 +286,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeDiscard_SerializedPendingTree_RefreshesQuicksaveWithoutCommitting()
+        {
+            var rec = MakeRecording(
+                "rec-serialized-discard", "tree-serialized-discard", 100.0, 200.0);
+            var tree = MakeTree("tree-serialized-discard", "rec-serialized-discard", rec);
+            RecordingStore.StashPendingTree(tree);
+
+            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
+            ParsekScenario.SaveTreeRecordings(scenarioNode);
+            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+            Assert.True(ParsekScenario.IsPendingTreeNode(
+                scenarioNode.GetNodes("RECORDING_TREE")[0]));
+
+            int saveCalls = 0;
+            RecordingStore.SaveGameForTesting = (name, folder, mode) =>
+            {
+                saveCalls++;
+                Assert.Equal("quicksave", name);
+                Assert.Equal(SaveMode.OVERWRITE, mode);
+                return "ok";
+            };
+
+            bool result = MergeDialog.MergeDiscardWithResult(tree);
+
+            Assert.True(result);
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Empty(RecordingStore.CommittedTrees);
+            Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.Equal(1, saveCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Quicksave]")
+                && l.Contains("Refreshed quicksave.sfs after merge dialog Tree Discard")
+                && l.Contains("discarded tree had 1 recording IDs"));
+        }
+
+        [Fact]
         public void MergeDiscard_RecalculatesAfterPendingTreeRemoval()
         {
             LedgerOrchestrator.Initialize();

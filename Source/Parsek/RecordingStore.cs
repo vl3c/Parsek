@@ -347,6 +347,7 @@ namespace Parsek
         // still "in-flight", untriaged, waiting for OnLoad to decide revert-vs-quickload.
         // See docs/dev/plans/quickload-resume-recording.md.
         private static PendingTreeState pendingTreeState = PendingTreeState.Finalized;
+        private static bool pendingTreeSerializedForSave;
         internal static string CleanOrphanFilesDirectoryOverrideForTesting;
 
         public static IReadOnlyList<Recording> CommittedRecordings => committedRecordings;
@@ -354,6 +355,7 @@ namespace Parsek
         public static bool HasPendingTree => pendingTree != null;
         public static RecordingTree PendingTree => pendingTree;
         public static PendingTreeState PendingTreeStateValue => pendingTreeState;
+        internal static bool PendingTreeSerializedForSave => pendingTreeSerializedForSave;
 
         // Phase 2 (Rewind-to-Staging): state-version counter consumed by
         // <see cref="EffectiveState"/> to invalidate the ERS cache. Every code
@@ -666,6 +668,7 @@ namespace Parsek
         {
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+            pendingTreeSerializedForSave = false;
             ClearCommitted();
             ClearRewindReplayTargetScope();
             Log("[Parsek] All recordings cleared");
@@ -1745,6 +1748,7 @@ namespace Parsek
             }
             pendingTree = tree;
             pendingTreeState = state;
+            pendingTreeSerializedForSave = false;
             if (tree != null)
             {
                 PendingStashedThisTransition = true;
@@ -1756,6 +1760,46 @@ namespace Parsek
                     ParsekLog.Verbose("RecordingStore",
                         $"StashPendingTree: active {activeStashRec.DebugName}");
             }
+        }
+
+        internal static void MarkPendingTreeSerializedForSave(string context)
+        {
+            if (pendingTree == null)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"MarkPendingTreeSerializedForSave skipped: no pending tree context={context ?? "<none>"}");
+                return;
+            }
+
+            pendingTreeSerializedForSave = true;
+            ParsekLog.Verbose("RecordingStore",
+                $"Pending tree '{pendingTree.TreeName}' marked as serialized " +
+                $"(state={pendingTreeState}, context={context ?? "<none>"})");
+        }
+
+        internal static void RestorePendingTreeFromSave(RecordingTree tree)
+        {
+            if (tree == null)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    "RestorePendingTreeFromSave called with null tree");
+                return;
+            }
+
+            if (pendingTree != null)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"RestorePendingTreeFromSave: overwriting existing pending tree " +
+                    $"'{pendingTree.TreeName}' (state={pendingTreeState}, serialized={pendingTreeSerializedForSave}) " +
+                    $"with saved pending tree '{tree.TreeName}'");
+            }
+
+            pendingTree = tree;
+            pendingTreeState = PendingTreeState.Finalized;
+            PendingStashedThisTransition = false;
+            pendingTreeSerializedForSave = true;
+            Log($"[Parsek] Restored pending tree '{tree.TreeName}' from save " +
+                $"({tree.Recordings.Count} recordings, state=Finalized, stashedThisTransition=False)");
         }
 
         /// <summary>
@@ -1850,6 +1894,7 @@ namespace Parsek
             CommitTree(pendingTree);
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+            pendingTreeSerializedForSave = false;
         }
 
         /// <summary>
@@ -1885,12 +1930,27 @@ namespace Parsek
             if (idsToPurge.Count > 0)
                 GameStateStore.PurgeEventsForRecordings(idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
 
+            int skippedCommittedDeletes = 0;
             foreach (var rec in pendingTree.Recordings.Values)
+            {
+                if (IsCommittedRecordingId(rec?.RecordingId))
+                {
+                    skippedCommittedDeletes++;
+                    continue;
+                }
                 DeleteRecordingFiles(rec);
+            }
+            if (skippedCommittedDeletes > 0)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"DiscardPendingTree: skipped deleting {skippedCommittedDeletes} recording sidecar set(s) " +
+                    "because the recording ID still exists in committed history");
+            }
             GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}' (state={pendingTreeState})");
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+            pendingTreeSerializedForSave = false;
             ClearRewindReplayTargetScope();
         }
 
@@ -1944,6 +2004,7 @@ namespace Parsek
 
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+            pendingTreeSerializedForSave = false;
             Log($"[Parsek] Unstashed pending tree '{treeName}' on revert " +
                 $"(was state={prevState}, {recCount} recording(s), {subjectsCleared} pending science subject(s) cleared): " +
                 "sidecar files preserved for F9-from-flight-quicksave; " +
@@ -2008,6 +2069,7 @@ namespace Parsek
             var tree = pendingTree;
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+            pendingTreeSerializedForSave = false;
             if (tree != null)
             {
                 Log($"[Parsek] Popped pending tree '{tree.TreeName}' (caller takes ownership, files preserved)");
@@ -3153,6 +3215,51 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Refreshes quicksave after an explicit pending-tree discard when the discarded
+        /// tree had already been serialized as <c>isPending=True</c>. This removes stale
+        /// pending metadata from quicksave without committing the discarded tree.
+        /// </summary>
+        internal static void RefreshQuicksaveAfterDiscard(string reason, int discardedRecordingCount)
+        {
+            var saveFn = SaveGameForTesting ?? GamePersistence.SaveGame;
+
+            if (SaveGameForTesting == null)
+            {
+                if (HighLogic.LoadedScene == GameScenes.LOADING)
+                {
+                    ParsekLog.Verbose("Quicksave",
+                        $"Discard refresh skipped (LOADING scene): reason={reason}");
+                    return;
+                }
+                if (HighLogic.CurrentGame == null)
+                {
+                    ParsekLog.Verbose("Quicksave",
+                        $"Discard refresh skipped (CurrentGame is null): reason={reason}");
+                    return;
+                }
+            }
+
+            try
+            {
+                string result = saveFn("quicksave", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(result))
+                {
+                    ParsekLog.Warn("Quicksave",
+                        $"GamePersistence.SaveGame returned null after {reason} — quicksave NOT refreshed");
+                    return;
+                }
+                ParsekLog.Info("Quicksave",
+                    $"Refreshed quicksave.sfs after {reason} " +
+                    $"(discarded tree had {discardedRecordingCount} recording IDs)");
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("Quicksave",
+                    $"Exception refreshing quicksave after {reason}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// For each debris recording in a tree, finds the non-debris recording whose
         /// UT range covers the debris's StartUT and sets LoopSyncParentIdx to its
         /// committed index. This enables the engine to replay debris ghosts on the
@@ -3386,6 +3493,7 @@ namespace Parsek
             RecordingGroupStore.ResetForTesting();
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
+            pendingTreeSerializedForSave = false;
             CleanOrphanFilesDirectoryOverrideForTesting = null;
             WriteReadableSidecarMirrorsOverrideForTesting = null;
             CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
@@ -3438,6 +3546,7 @@ namespace Parsek
                 committedTrees.AddRange(snapshotTrees);
             pendingTree = snapshotPendingTree;
             pendingTreeState = snapshotPendingState;
+            pendingTreeSerializedForSave = false;
             RecordingGroupStore.RestoreAutoAssignedStandaloneGroupsForTesting(snapshotAutoAssignedGroups);
             BumpStateVersion();
         }
@@ -4574,6 +4683,11 @@ namespace Parsek
                     return rec;
             }
             return null;
+        }
+
+        internal static bool IsCommittedRecordingId(string recordingId)
+        {
+            return TryFindCommittedRecordingById(recordingId) != null;
         }
 
         /// <summary>
