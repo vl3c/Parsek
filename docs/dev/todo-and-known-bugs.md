@@ -2286,10 +2286,7 @@ Review follow-ups raised during the `2026-04-25_0153` post-landing review (desig
 
 Follow-up from `logs/2026-05-07_2040_ts-materialize-list-state`: materialize now forces an immediate Tracking Station ghost-lifecycle pass and explicitly rebuilds stock `SpaceTracking.buildVesselsList` after TS vessel mutations, so newly visible post-warp ghosts and the spawned real vessel appear in the left-side list without waiting for the periodic lifecycle/list refresh. The same cleanup path is used when the Tracking Station control surface hides ghosts, dismissing any ghost popup/focus state before rebuilding the stock list. Spawned-vessel focus retries back off to a 0.1s cadence and cancel if the user selects another ghost or real vessel after the retry is scheduled, while treating same-recording atmospheric marker selection and stale stock selection from before materialization as stable.
 
-The remaining latent carryover items below are tracked in the design doc under Known Limitations / Future Work and are not yet addressed:
-
-- Index-to-recording-id refactor to lift the 13 grep-audit exemptions added in Phase 3.
-- Halt `EffectiveRecordingId` walk at cross-tree boundaries (v1 does not produce cross-tree supersedes; latent-invariant guard).
+All previously-tracked latent carryover items in this section have been closed (2026-05-10). The original list lives in the design doc under Known Limitations / Future Work for historical reference.
 
 ---
 
@@ -2690,7 +2687,7 @@ and docking-target no-suppress tests use `Assert.StartsWith` since
 
 ---
 
-## 613. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin
+## ~~613. Relative-frame ghost playback retains stale anchor pid after Re-Fly rewind, freezing the ghost at world origin~~
 
 **Source:** `logs/2026-04-26_1025_3bugs-refly/KSP.log`. Bug B in the
 3-bug post-fix playtest. After a Re-Fly rewind, recording #9 ("Kerbal X")
@@ -2944,7 +2941,7 @@ resolver, inclusive final RELATIVE-section lookup, single-point RELATIVE
 routing decision, loop-anchor fallback, zero-anchor retire routing, and
 ABSOLUTE-section non-match.
 
-**Status:** Open until merged.
+**Status:** CLOSED 2026-05-10. PR #594 merged (commit `b2ab5943`).
 
 ---
 
@@ -4600,7 +4597,7 @@ and asserts both targets are still killed.
 
 ---
 
-## 588. Ghost upper stage destroyed at SOI change to Mun and never re-created — `state-vector-from-orbital-checkpoint` skip blocks the fallback
+## ~~588. Ghost upper stage destroyed at SOI change to Mun and never re-created — `state-vector-from-orbital-checkpoint` skip blocks the fallback~~
 
 **Source:** same playtest as #585. User: "after rewind, watching the
 upper stage get to the Mun — the ghost position in Mun orbit was not
@@ -4672,7 +4669,7 @@ or outside-window cases. Covered by
 `GhostMapSoiGapStateVectorTests` plus the explicit opt-in branch in
 `StateVectorWorldFrameTests`.
 
-**Status:** ~~done~~.
+**Status:** CLOSED. Fix shipped via the `StateVectorSoiGap` source carve-out described above; covered by `GhostMapSoiGapStateVectorTests`.
 
 ---
 
