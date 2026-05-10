@@ -290,7 +290,7 @@ The user's framing in their 2026-05-07 review was "if the capsule impact should 
 
 **Caution for later:** If this warning repeats outside the narrow "finalized pending tree stashed, merge dialog not yet answered" window, or if it is followed by missing recordings after scene load, treat it as a state-management bug. The likely area is `ParsekScenario.OnSave`'s stranded-sidecar detector not distinguishing pending finalized trees from genuinely missing committed trees, or a save path that should serialize/stage pending tree metadata before the dialog completes. Keep the existing warning, but consider adding context fields (`pendingTreeId`, `pendingState`, committed count, sidecar count) so future logs make the distinction obvious.
 
-**Fix:** Finalized pending trees now serialize as `RECORDING_TREE` nodes marked `isPending=True`, restore to `PendingTreeState.Finalized`, and are counted before the stranded-sidecar detector so the deferred merge window no longer produces a false stranded-sidecar warning.
+**Fix:** Finalized pending trees now serialize as `RECORDING_TREE` nodes marked `isPending=True`, restore to `PendingTreeState.Finalized`, remain preserved when an active-tree restore also owns the pending-limbo slot, and are counted before the stranded-sidecar detector so the deferred merge window no longer produces a false stranded-sidecar warning.
 
 **Status:** CLOSED 2026-05-10.
 
@@ -785,7 +785,7 @@ Coverage: two new in-game tests — `MergeNonFocusReFlyToOrbitImmutableTest` (au
 
 **Root cause:** `ParsekScenario.OnSave` only persists committed recording trees through `SaveTreeRecordings` and the live in-flight tree through `SaveActiveTreeIfAny`. The pending-tree slot (after `StashPendingTree`) is neither active nor committed, so it is never serialized. `SafetyNetAutoCommitPending` would auto-commit it but only fires when `LoadedScene != FLIGHT`, leaving the FLIGHT-scene autosave window unguarded. The post-destruction stash deliberately keeps the tree pending across the flight-results screen, so the autosave timing is reachable in normal play.
 
-**Fix:** Finalized pending trees are saved as `RECORDING_TREE` nodes with `isPending=True`, loaded back into the finalized pending slot without recorder-resume semantics, excluded from committed-tree loops, and Discard refreshes both `persistent.sfs` and `quicksave.sfs` after serialized pending metadata is removed.
+**Fix:** Finalized pending trees are saved as `RECORDING_TREE` nodes with `isPending=True`, loaded back without recorder-resume semantics, preserved alongside active-tree quickload resume when both markers coexist, excluded from committed-tree loops, and Discard refreshes both `persistent.sfs` and `quicksave.sfs` after serialized pending metadata is removed.
 
 **Status:** CLOSED 2026-05-10. Discovered during the in-game-test-runner-wipe investigation (PR fixing `PersistenceSplitOptimizerTest`). Out of scope for that PR; tracked here for a follow-up.
 

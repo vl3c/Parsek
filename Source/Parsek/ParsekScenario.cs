@@ -719,21 +719,46 @@ namespace Parsek
 
         private static void SavePendingTreeIfAny(ConfigNode node)
         {
-            if (!RecordingStore.HasPendingTree)
-                return;
+            if (RecordingStore.HasPendingTree)
+            {
+                var pendingTree = RecordingStore.PendingTree;
+                var pendingState = RecordingStore.PendingTreeStateValue;
+                if (pendingTree != null)
+                {
+                    if (pendingState == PendingTreeState.Finalized)
+                    {
+                        SavePendingTreeNode(
+                            node,
+                            pendingTree,
+                            preservedDuringActiveRestore: false);
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("Scenario",
+                            $"SavePendingTreeIfAny: skipped pending tree '{pendingTree.TreeName}' " +
+                            $"state={pendingState} (only Finalized pending trees are serialized)");
+                    }
+                }
+            }
 
-            var pendingTree = RecordingStore.PendingTree;
-            var pendingState = RecordingStore.PendingTreeStateValue;
+            var savedPending = RecordingStore.SavedPendingTreeDuringActiveRestore;
+            if (savedPending != null
+                && !ReferenceEquals(savedPending, RecordingStore.PendingTree))
+            {
+                SavePendingTreeNode(
+                    node,
+                    savedPending,
+                    preservedDuringActiveRestore: true);
+            }
+        }
+
+        private static void SavePendingTreeNode(
+            ConfigNode node,
+            RecordingTree pendingTree,
+            bool preservedDuringActiveRestore)
+        {
             if (pendingTree == null)
                 return;
-
-            if (pendingState != PendingTreeState.Finalized)
-            {
-                ParsekLog.Verbose("Scenario",
-                    $"SavePendingTreeIfAny: skipped pending tree '{pendingTree.TreeName}' " +
-                    $"state={pendingState} (only Finalized pending trees are serialized)");
-                return;
-            }
 
             int pendingRecCount = 0;
             int pendingDirtyCount = 0;
@@ -784,10 +809,14 @@ namespace Parsek
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
             pendingTree.Save(treeNode);
             treeNode.AddValue("isPending", "True");
-            RecordingStore.MarkPendingTreeSerializedForSave("SavePendingTreeIfAny");
+            if (preservedDuringActiveRestore)
+                RecordingStore.MarkSavedPendingTreeDuringActiveRestoreSerializedForSave("SavePendingTreeIfAny");
+            else
+                RecordingStore.MarkPendingTreeSerializedForSave("SavePendingTreeIfAny");
 
             ParsekLog.Info("Scenario",
                 $"OnSave: wrote PENDING tree '{pendingTree.TreeName}' " +
+                (preservedDuringActiveRestore ? "preserved during active-tree restore " : "") +
                 $"({pendingRecCount} recording(s), dirty={pendingDirtyCount}, saved={pendingSavedCount}, " +
                 $"failed={pendingSaveFailedCount}, committedOverlap={pendingCommittedOverlapCount}, " +
                 $"skippedCommittedDirty={pendingSkippedCommittedDirtyCount})");
@@ -2001,9 +2030,12 @@ namespace Parsek
                     node, coldActiveTreeRestoredFromSave);
                 if (coldPendingTreeRestoredFromSave)
                 {
+                    string pendingRestoreDisposition = RecordingStore.HasSavedPendingTreeDuringActiveRestore
+                        ? "preserved alongside active-tree restore"
+                        : "restored as finalized pending";
                     ParsekLog.Info("Scenario",
                         $"OnLoad: cold-start pending tree detected (state={RecordingStore.PendingTreeStateValue}) — " +
-                        "restored as finalized pending");
+                        pendingRestoreDisposition);
                 }
 
                 // Clean orphaned sidecar files (recordings deleted in previous sessions)
@@ -3135,13 +3167,17 @@ namespace Parsek
             if (pendingMarkerCount == 0)
                 return false;
 
+            bool preserveDuringActiveRestore = false;
             if (activeMarkerCount > 0)
             {
+                preserveDuringActiveRestore = activeTreeRestoredFromSave;
                 ParsekLog.Warn("Scenario",
                     $"TryRestorePendingTreeNode: found {pendingMarkerCount} pending marker(s) " +
-                    $"alongside {activeMarkerCount} active marker(s); skipping pending restore " +
-                    $"and preferring active tree restore (activeRestored={activeTreeRestoredFromSave})");
-                return false;
+                    $"alongside {activeMarkerCount} active marker(s); " +
+                    (preserveDuringActiveRestore
+                        ? "preserving saved pending tree separately while active tree restore keeps priority"
+                        : "active restore did not run, restoring pending tree normally") +
+                    $" (activeRestored={activeTreeRestoredFromSave})");
             }
 
             if (pendingMarkerCount > 1)
@@ -3167,12 +3203,17 @@ namespace Parsek
             if (RepairMissingContiguousChainPredecessors(tree, "TryRestorePendingTreeNode") > 0)
                 tree.RebuildBackgroundMap();
 
-            RecordingStore.RestorePendingTreeFromSave(tree);
+            if (preserveDuringActiveRestore)
+                RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(tree);
+            else
+                RecordingStore.RestorePendingTreeFromSave(tree);
             EmitSidecarHydrationRollup(
                 tree.TreeName, sidecarHydrationFailures, syntheticFixtureFailures, "pending tree");
 
             ParsekLog.Info("Scenario",
-                $"TryRestorePendingTreeNode: restored pending tree '{tree.TreeName}' " +
+                $"TryRestorePendingTreeNode: " +
+                (preserveDuringActiveRestore ? "preserved" : "restored") +
+                $" pending tree '{tree.TreeName}' " +
                 $"({tree.Recordings.Count} recording(s), sidecarFailures={sidecarHydrationFailures}, " +
                 $"stashedThisTransition={RecordingStore.PendingStashedThisTransition})");
             ParsekLog.RecState("TryRestorePendingTreeNode:restored", CaptureScenarioRecorderState());

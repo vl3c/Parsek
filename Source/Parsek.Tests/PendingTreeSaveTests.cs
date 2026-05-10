@@ -169,23 +169,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryRestorePendingTreeNode_ActiveAndPendingMarkers_PrefersActiveAndSkipsPending()
+        public void TryRestorePendingTreeNode_ActiveAndPendingMarkers_PreservesPendingAlongsideActiveRestore()
         {
+            string recordingsDir = CreateRecordingsDir("active-pending-conflict");
+            string pendingPrec = Path.Combine(recordingsDir, "rec_pending_conflict.prec");
+            string orphanPrec = Path.Combine(recordingsDir, "rec_orphan_conflict.prec");
+            File.WriteAllText(pendingPrec, "keep");
+            File.WriteAllText(orphanPrec, "orphan");
             var pending = MakeTree("tree_pending_conflict", "Pending Conflict", "rec_pending_conflict");
             var active = MakeTree("tree_active_conflict", "Active Conflict", "rec_active_conflict");
             var node = new ConfigNode("PARSEK_SCENARIO");
             AddTreeNode(node, pending, isPending: true, isActive: false);
             AddTreeNode(node, active, isPending: false, isActive: true);
 
+            bool activeRestored = ParsekScenario.TryRestoreActiveTreeNode(node);
             bool restored = ParsekScenario.TryRestorePendingTreeNode(
                 node, activeTreeRestoredFromSave: true);
 
-            Assert.False(restored);
-            Assert.False(RecordingStore.HasPendingTree);
+            Assert.True(activeRestored);
+            Assert.True(restored);
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Equal("tree_active_conflict", RecordingStore.PendingTree.Id);
+            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
+            Assert.True(RecordingStore.HasSavedPendingTreeDuringActiveRestore);
+            Assert.Equal("tree_pending_conflict",
+                RecordingStore.SavedPendingTreeDuringActiveRestore.Id);
+
+            HashSet<string> validIds = ParsekScenario.BuildValidRecordingIdsForKspLoad();
+            Assert.Contains("rec_active_conflict", validIds);
+            Assert.Contains("rec_pending_conflict", validIds);
+            RecordingStore.CleanOrphanFiles();
+            Assert.True(File.Exists(pendingPrec));
+            Assert.False(File.Exists(orphanPrec));
+
+            var saveNode = new ConfigNode("PARSEK_SCENARIO");
+            ParsekScenario.SaveTreeRecordings(saveNode);
+            ConfigNode[] savedTreeNodes = saveNode.GetNodes("RECORDING_TREE");
+            Assert.Single(savedTreeNodes);
+            Assert.True(ParsekScenario.IsPendingTreeNode(savedTreeNodes[0]));
+            Assert.False(ParsekScenario.IsActiveTreeNode(savedTreeNodes[0]));
+            Assert.Equal("tree_pending_conflict", savedTreeNodes[0].GetValue("id"));
+
+            var poppedActive = RecordingStore.PopPendingTree();
+            Assert.Equal("tree_active_conflict", poppedActive.Id);
+            Assert.True(RecordingStore.PromoteSavedPendingTreeAfterActiveRestore("test"));
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
+            Assert.Equal("tree_pending_conflict", RecordingStore.PendingTree.Id);
+            Assert.True(RecordingStore.PendingTreeSerializedForSave);
+
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN][Scenario]")
                 && l.Contains("alongside 1 active marker")
-                && l.Contains("preferring active tree restore"));
+                && l.Contains("preserving saved pending tree separately"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains("wrote PENDING tree")
+                && l.Contains("preserved during active-tree restore"));
         }
 
         [Fact]

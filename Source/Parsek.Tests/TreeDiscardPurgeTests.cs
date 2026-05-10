@@ -496,6 +496,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardPendingTree_RpWithPendingBranchPointButCommittedSlot_IsPreserved()
+        {
+            InstallTree("tree_committed_slot",
+                new List<Recording>
+                {
+                    Rec("rec_committed_slot", "tree_committed_slot"),
+                },
+                new List<BranchPoint>());
+
+            var mixedBp = Bp("bp_pending_mixed", "rp_mixed");
+            mixedBp.ParentRecordingIds.Add("rec_pending_slot");
+            var pureBp = Bp("bp_pending_pure", "rp_pure");
+            pureBp.ParentRecordingIds.Add("rec_pending_pure");
+            var pending = new RecordingTree
+            {
+                Id = "tree_pending_slots",
+                TreeName = "Pending slots",
+                BranchPoints = new List<BranchPoint> { mixedBp, pureBp },
+                RootRecordingId = "rec_pending_slot",
+                ActiveRecordingId = "rec_pending_slot",
+            };
+            pending.AddOrReplaceRecording(
+                Rec("rec_pending_slot", "tree_pending_slots", MergeState.NotCommitted));
+            pending.AddOrReplaceRecording(
+                Rec("rec_pending_pure", "tree_pending_slots", MergeState.NotCommitted));
+            pending.AddOrReplaceRecording(
+                Rec("rec_committed_slot", "tree_pending_slots", MergeState.NotCommitted));
+            RecordingStore.StashPendingTree(pending);
+
+            var scenario = InstallScenario(
+                rps: new List<RewindPoint>
+                {
+                    Rp(
+                        "rp_mixed",
+                        "bp_pending_mixed",
+                        Slot(0, "rec_pending_slot"),
+                        Slot(1, "rec_committed_slot")),
+                    Rp("rp_pure", "bp_pending_pure", Slot(0, "rec_pending_pure")),
+                });
+
+            RecordingStore.DiscardPendingTree();
+
+            Assert.Contains(scenario.RewindPoints, rp => rp.RewindPointId == "rp_mixed");
+            Assert.DoesNotContain(scenario.RewindPoints, rp => rp.RewindPointId == "rp_pure");
+            Assert.DoesNotContain("rp_mixed", deletedRpIds);
+            Assert.Contains("rp_pure", deletedRpIds);
+            Assert.Equal("rp_mixed", mixedBp.RewindPointId);
+            Assert.Null(pureBp.RewindPointId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN][Rewind]")
+                && l.Contains("skipped 1 rewind point(s) with non-pending child slot refs"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("PurgeTree: tree=tree_pending_slots")
+                && l.Contains("rps=1"));
+        }
+
+        [Fact]
         public void PurgeTree_ClearsReservationsForTreeKerbals()
         {
             // Set up: 1 in-tree kerbal-death tombstone. After PurgeTree

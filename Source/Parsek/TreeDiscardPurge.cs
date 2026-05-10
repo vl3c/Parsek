@@ -237,6 +237,9 @@ namespace Parsek
             if (recordingIdsToPurge != null && recordingIdsToPurge.Count == 0)
                 return set;
 
+            // Tier 1 for pending discard: only branch points owned exclusively
+            // by pending-only topology are eligible for destructive RP cleanup.
+            // This removes pure committed-overlap topology before RP deletion.
             for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
                 var bp = tree.BranchPoints[i];
@@ -371,6 +374,11 @@ namespace Parsek
                 if (rp == null) continue;
                 if (string.IsNullOrEmpty(rp.BranchPointId)) continue;
                 if (!branchPointIds.Contains(rp.BranchPointId)) continue;
+                // Tier 2 for pending discard: an RP can point at a pending-only
+                // branch point while its child slots still reference committed
+                // recordings. Preserve that RP and its BP back-ref; downstream
+                // orphan cleanup can handle the pending BP after the tree is gone,
+                // but this path must not delete a quicksave tied to committed history.
                 if (RewindPointReferencesNonPendingRecording(rp, recordingIdsToPurge))
                 {
                     skippedNonPendingSlots++;
@@ -462,6 +470,8 @@ namespace Parsek
             var trees = RecordingStore.CommittedTrees;
             if (trees != null)
             {
+                // Defensive for legacy full-tree purges; pending-discard callers
+                // filter committed branch point ids out before this point.
                 for (int t = 0; t < trees.Count; t++)
                 {
                     var tree = trees[t];
