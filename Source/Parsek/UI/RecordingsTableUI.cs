@@ -192,6 +192,8 @@ namespace Parsek
         private GUIStyle statusStyleFuture;
         private GUIStyle statusStyleActive;
         private GUIStyle statusStylePast;
+        private GUIStyle statusStyleStatic;
+        private GUIStyle statusStyleStationary;
 
         // Zero-horizontal-padding body-box style: preserves the dark list-area
         // background without shifting rows inward (so column left edges align with
@@ -1341,6 +1343,8 @@ namespace Parsek
                     CurrentRecordingRewindRetirementsForDisplay())) return false;
             if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
 
+            RecordingVisualKind visualKind = RecordingVisualClassifier.Classify(rec, committed);
+
             // Cross-link: detect target row during draw pass
             if (!string.IsNullOrEmpty(pendingScrollToRecordingId) &&
                 rec.RecordingId == pendingScrollToRecordingId)
@@ -1428,6 +1432,7 @@ namespace Parsek
             // Status (#98: merged countdown into status column)
             GUIStyle statusStyle;
             string statusText;
+            bool statusTextIsTerminalState = false;
             if (now < rec.StartUT)
             {
                 statusStyle = statusStyleFuture;
@@ -1446,9 +1451,21 @@ namespace Parsek
             {
                 statusStyle = statusStylePast;
                 if (rec.TerminalStateValue.HasValue && !rec.IsDebris)
+                {
                     statusText = rec.TerminalStateValue.Value.ToString();
+                    statusTextIsTerminalState = true;
+                }
                 else
                     statusText = "past";
+            }
+
+            string visualStatusText = FormatRecordingVisualStatusText(
+                visualKind, statusText, statusTextIsTerminalState);
+            if (visualStatusText != statusText)
+            {
+                statusText = visualStatusText;
+                if (!statusTextIsTerminalState)
+                    statusStyle = GetRecordingVisualStatusStyle(visualKind);
             }
 
             // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
@@ -1461,7 +1478,10 @@ namespace Parsek
                 if (chainStatus != null)
                     chainStatusTooltip = chainStatus;
             }
-            var statusContent = new GUIContent(statusText, chainStatusTooltip);
+            string statusTooltip = CombineTooltipText(
+                GetRecordingVisualStatusTooltip(visualKind),
+                chainStatusTooltip);
+            var statusContent = new GUIContent(statusText, statusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowStatus");
 
@@ -3807,6 +3827,84 @@ namespace Parsek
             return rec.SegmentPhase;
         }
 
+        internal static string FormatRecordingVisualStatusText(
+            RecordingVisualKind visualKind, string baseStatusText,
+            bool preserveBaseStatusText)
+        {
+            string visualStatusText = GetRecordingVisualStatusText(visualKind);
+            if (string.IsNullOrEmpty(visualStatusText))
+                return baseStatusText;
+
+            if (preserveBaseStatusText && !string.IsNullOrEmpty(baseStatusText))
+            {
+                string suffix = GetTerminalVisualStatusSuffix(visualKind);
+                if (!string.IsNullOrEmpty(suffix))
+                    return baseStatusText + " " + suffix;
+            }
+
+            return visualStatusText;
+        }
+
+        internal static string GetRecordingVisualStatusText(RecordingVisualKind visualKind)
+        {
+            switch (visualKind)
+            {
+                case RecordingVisualKind.StaticPlaceholder:
+                    return "static";
+                case RecordingVisualKind.StationaryTail:
+                    return "stationary";
+                default:
+                    return null;
+            }
+        }
+
+        private static string GetTerminalVisualStatusSuffix(RecordingVisualKind visualKind)
+        {
+            switch (visualKind)
+            {
+                case RecordingVisualKind.StaticPlaceholder:
+                case RecordingVisualKind.StationaryTail:
+                    return "still";
+                default:
+                    return null;
+            }
+        }
+
+        internal static string GetRecordingVisualStatusTooltip(RecordingVisualKind visualKind)
+        {
+            switch (visualKind)
+            {
+                case RecordingVisualKind.StaticPlaceholder:
+                    return "Static placeholder: landed background continuation with a surface position and time range, but no playable trail. Kept visible for row controls.";
+                case RecordingVisualKind.StationaryTail:
+                    return "Stationary tail: terminal leaf with only stationary/coasting sections and no visual events. Kept visible because it may carry end-of-recording spawn state.";
+                default:
+                    return null;
+            }
+        }
+
+        private GUIStyle GetRecordingVisualStatusStyle(RecordingVisualKind visualKind)
+        {
+            switch (visualKind)
+            {
+                case RecordingVisualKind.StaticPlaceholder:
+                    return statusStyleStatic ?? statusStylePast ?? GUI.skin.label;
+                case RecordingVisualKind.StationaryTail:
+                    return statusStyleStationary ?? statusStylePast ?? GUI.skin.label;
+                default:
+                    return statusStylePast ?? GUI.skin.label;
+            }
+        }
+
+        private static string CombineTooltipText(string primary, string secondary)
+        {
+            bool hasPrimary = !string.IsNullOrEmpty(primary);
+            bool hasSecondary = !string.IsNullOrEmpty(secondary);
+            if (!hasPrimary) return hasSecondary ? secondary : "";
+            if (!hasSecondary) return primary;
+            return primary + "\n" + secondary;
+        }
+
         /// <summary>
         /// Sort key for a single recording based on the current sort column.
         /// For Index/Phase sort, uses the row position to preserve sortedIndices order.
@@ -4954,6 +5052,12 @@ namespace Parsek
 
             statusStylePast = new GUIStyle(GUI.skin.label) { padding = statusPadding };
             statusStylePast.normal.textColor = new Color(0.5f, 0.5f, 0.5f);
+
+            statusStyleStatic = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStyleStatic.normal.textColor = new Color(1f, 0.72f, 0.25f);
+
+            statusStyleStationary = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStyleStationary.normal.textColor = new Color(0.65f, 0.85f, 1f);
         }
 
         /// <summary>

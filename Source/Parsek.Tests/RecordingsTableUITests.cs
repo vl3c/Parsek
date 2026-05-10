@@ -1633,6 +1633,42 @@ namespace Parsek.Tests
             Assert.DoesNotContain("<= 10", tooltip);
         }
 
+        [Fact]
+        public void FormatRecordingVisualStatusText_StaticPlaceholder_OverridesGenericStatus()
+        {
+            string status = RecordingsTableUI.FormatRecordingVisualStatusText(
+                RecordingVisualKind.StaticPlaceholder, "past", preserveBaseStatusText: false);
+
+            Assert.Equal("static", status);
+        }
+
+        [Fact]
+        public void FormatRecordingVisualStatusText_StationaryTail_OverridesGenericStatus()
+        {
+            string status = RecordingsTableUI.FormatRecordingVisualStatusText(
+                RecordingVisualKind.StationaryTail, "past", preserveBaseStatusText: false);
+
+            Assert.Equal("stationary", status);
+        }
+
+        [Fact]
+        public void FormatRecordingVisualStatusText_StationaryTail_PreservesTerminalStatus()
+        {
+            string status = RecordingsTableUI.FormatRecordingVisualStatusText(
+                RecordingVisualKind.StationaryTail, "Landed", preserveBaseStatusText: true);
+
+            Assert.Equal("Landed still", status);
+        }
+
+        [Fact]
+        public void FormatRecordingVisualStatusText_StaticPlaceholder_PreservesTerminalStatus()
+        {
+            string status = RecordingsTableUI.FormatRecordingVisualStatusText(
+                RecordingVisualKind.StaticPlaceholder, "Splashed", preserveBaseStatusText: true);
+
+            Assert.Equal("Splashed still", status);
+        }
+
         // ── ApplyAutoLoopRange ──
 
         [Fact]

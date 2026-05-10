@@ -6239,7 +6239,7 @@ The regression uses the policy spawn override, matching existing headless
 
 ---
 
-## 548. Static background continuations and all-boring surface leaf segments should not read like empty ghost recordings
+## ~~548. Static background continuations and all-boring surface leaf segments should not read like empty ghost recordings~~
 
 **Source:** `docs/dev/recording-optimizer-review.md` (2026-04-07), issues 1 and 2.
 
@@ -6251,7 +6251,9 @@ Both cases are valid data, but they clutter the UI and read like broken/empty gh
 
 **Files:** `Source/Parsek/BackgroundRecorder.cs`, `Source/Parsek/RecordingOptimizer.cs`, recordings/timeline UI that lists committed segments, `docs/dev/recording-optimizer-review.md`.
 
-**Status:** TODO. UX cleanup / follow-up analysis.
+**Fix:** Added a read-time `RecordingVisualClassifier` and Recordings window badges for the two visually empty-but-valid shapes. Surface-position/time-range placeholders with no playable trail now render with a `static` status, and terminal leaf recordings whose visible sections are all stationary/coasting with no non-inert events render with `stationary` or a terminal-preserving suffix such as `Landed still`. The rows stay visible and retain their normal rename/group/archive/Watch/Re-Fly affordances; no recording schema, optimizer trimming, spawn, map-presence, or Watch behavior changed. Plan: `docs/dev/plans/fix-548-recording-visual-classifier.md`.
+
+**Status:** Done.
 
 ---
 
