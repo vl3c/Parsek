@@ -5878,16 +5878,10 @@ namespace Parsek
                     body,
                     worldPos,
                     vel,
+                    soiChanged,
                     ut))
             {
                 return StateVectorOrbitUpdateResult.Failed;
-            }
-
-            if (soiChanged && vessel.orbitRenderer != null)
-            {
-                vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
-                vessel.orbitRenderer.enabled = false;
-                vessel.orbitRenderer.enabled = true;
             }
 
             lifecycleUpdatedThisTick++;
@@ -5938,6 +5932,7 @@ namespace Parsek
             CelestialBody body,
             Vector3d worldPos,
             Vector3d vel,
+            bool soiChanged,
             double ut)
         {
             string failureReason = null;
@@ -5976,6 +5971,12 @@ namespace Parsek
                     ut);
                 vessel.orbitDriver.updateFromParameters();
                 NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
+                if (soiChanged && vessel.orbitRenderer != null)
+                {
+                    vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                    vessel.orbitRenderer.enabled = false;
+                    vessel.orbitRenderer.enabled = true;
+                }
                 return true;
             }
             catch (Exception ex)
@@ -7501,7 +7502,7 @@ namespace Parsek
                 {
                     LogSkippedEndpointSeedSegment(traj, candidate, "non-positive-sma");
                     LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
-                    continue;
+                    return false;
                 }
 
                 if (LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate))

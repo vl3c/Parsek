@@ -941,8 +941,57 @@ namespace Parsek
         private const float MapOrbitUpdateIntervalSec = 0.5f;
         private float nextMapOrbitUpdateTime;
 
-        private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
-            new Dictionary<int, (string body, double sma, double ecc)>();
+        internal struct MapOrbitKey : IEquatable<MapOrbitKey>
+        {
+            public string body;
+            public double sma;
+            public double ecc;
+            public double inclination;
+            public double lan;
+            public double argumentOfPeriapsis;
+
+            public MapOrbitKey(OrbitSegment segment)
+            {
+                body = segment.bodyName;
+                sma = segment.semiMajorAxis;
+                ecc = segment.eccentricity;
+                inclination = segment.inclination;
+                lan = segment.longitudeOfAscendingNode;
+                argumentOfPeriapsis = segment.argumentOfPeriapsis;
+            }
+
+            public bool Equals(MapOrbitKey other)
+            {
+                return string.Equals(body, other.body, StringComparison.Ordinal)
+                    && sma == other.sma
+                    && ecc == other.ecc
+                    && inclination == other.inclination
+                    && lan == other.lan
+                    && argumentOfPeriapsis == other.argumentOfPeriapsis;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is MapOrbitKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int hash = body != null ? body.GetHashCode() : 0;
+                    hash = (hash * 397) ^ sma.GetHashCode();
+                    hash = (hash * 397) ^ ecc.GetHashCode();
+                    hash = (hash * 397) ^ inclination.GetHashCode();
+                    hash = (hash * 397) ^ lan.GetHashCode();
+                    hash = (hash * 397) ^ argumentOfPeriapsis.GetHashCode();
+                    return hash;
+                }
+            }
+        }
+
+        private readonly Dictionary<int, MapOrbitKey> lastMapOrbitByIndex =
+            new Dictionary<int, MapOrbitKey>();
 
         private readonly HashSet<string> terminalMapRetentionLoggedIds =
             new HashSet<string>();
@@ -1264,7 +1313,7 @@ namespace Parsek
             PruneTerminalMapRetentionLogKeys(committed);
 
             // 2a. Segment-based orbit updates (existing)
-            List<KeyValuePair<int, (string body, double sma, double ecc)>> orbitUpdates = null;
+            List<KeyValuePair<int, MapOrbitKey>> orbitUpdates = null;
             List<int> toRemoveFromMap = null;
             List<(int idx, string expectedBody)> toRequeue = null;
 
@@ -1301,8 +1350,8 @@ namespace Parsek
                         {
                             if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, fallbackSegment))
                             {
-                                if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
-                                orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, fallbackKey));
+                                if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, MapOrbitKey>>();
+                                orbitUpdates.Add(new KeyValuePair<int, MapOrbitKey>(idx, fallbackKey));
                             }
                             else
                             {
@@ -1368,16 +1417,15 @@ namespace Parsek
                     continue;
                 }
 
-                if (seg.Value.bodyName == kvp.Value.body
-                    && seg.Value.semiMajorAxis == kvp.Value.sma
-                    && seg.Value.eccentricity == kvp.Value.ecc)
+                if (TryGetMapOrbitKey(TrackingStationGhostSource.Segment, seg.Value, out var segmentKey)
+                    && segmentKey.Equals(kvp.Value))
                     continue;
 
                 if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, seg.Value))
                 {
-                    if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
-                    orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
-                        idx, (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity)));
+                    if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, MapOrbitKey>>();
+                    orbitUpdates.Add(new KeyValuePair<int, MapOrbitKey>(
+                        idx, segmentKey));
                 }
                 else
                 {
@@ -1422,7 +1470,7 @@ namespace Parsek
             {
                 List<int> toReDefer = null;
                 List<int> toExitStateVector = null;
-                List<KeyValuePair<int, (string body, double sma, double ecc)>> stateVectorSegmentUpdates = null;
+                List<KeyValuePair<int, MapOrbitKey>> stateVectorSegmentUpdates = null;
 
                 foreach (var kvp in stateVectorOrbitTrajectories)
                 {
@@ -1488,8 +1536,8 @@ namespace Parsek
                                 && TryGetMapOrbitKey(source, segment, out var segmentKey))
                             {
                                 if (stateVectorSegmentUpdates == null)
-                                    stateVectorSegmentUpdates = new List<KeyValuePair<int, (string, double, double)>>();
-                                stateVectorSegmentUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, segmentKey));
+                                    stateVectorSegmentUpdates = new List<KeyValuePair<int, MapOrbitKey>>();
+                                stateVectorSegmentUpdates.Add(new KeyValuePair<int, MapOrbitKey>(idx, segmentKey));
                             }
                             else
                             {
@@ -1640,16 +1688,16 @@ namespace Parsek
         private static bool TryGetMapOrbitKey(
             TrackingStationGhostSource source,
             OrbitSegment segment,
-            out (string body, double sma, double ecc) orbitKey)
+            out MapOrbitKey orbitKey)
         {
             if (source == TrackingStationGhostSource.Segment
                 || source == TrackingStationGhostSource.TerminalOrbit)
             {
-                orbitKey = (segment.bodyName, segment.semiMajorAxis, segment.eccentricity);
+                orbitKey = new MapOrbitKey(segment);
                 return true;
             }
 
-            orbitKey = default((string, double, double));
+            orbitKey = default(MapOrbitKey);
             return false;
         }
 
@@ -1657,15 +1705,15 @@ namespace Parsek
             Recording rec,
             int idx,
             double currentUT,
-            (string body, double sma, double ecc) currentKey,
+            MapOrbitKey currentKey,
             bool alreadyMaterialized,
             ref int cachedStateVectorIndex,
             out OrbitSegment fallbackSegment,
-            out (string body, double sma, double ecc) fallbackKey,
+            out MapOrbitKey fallbackKey,
             out bool changed)
         {
             fallbackSegment = default(OrbitSegment);
-            fallbackKey = default((string, double, double));
+            fallbackKey = default(MapOrbitKey);
             changed = false;
 
             TrackingStationGhostSource fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
@@ -1683,13 +1731,8 @@ namespace Parsek
             if (fallbackSource != TrackingStationGhostSource.TerminalOrbit)
                 return false;
 
-            fallbackKey = (
-                fallbackSegment.bodyName,
-                fallbackSegment.semiMajorAxis,
-                fallbackSegment.eccentricity);
-            changed = fallbackKey.body != currentKey.body
-                || fallbackKey.sma != currentKey.sma
-                || fallbackKey.ecc != currentKey.ecc;
+            fallbackKey = new MapOrbitKey(fallbackSegment);
+            changed = !fallbackKey.Equals(currentKey);
             if (changed)
             {
                 ParsekLog.Info("Policy",

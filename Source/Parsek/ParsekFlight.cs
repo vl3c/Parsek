@@ -19595,7 +19595,10 @@ namespace Parsek
             for (int s = 0; s < rec.OrbitSegments.Count; s++)
             {
                 var seg = rec.OrbitSegments[s];
-                if (ut >= seg.startUT && ut <= seg.endUT)
+                if (OrbitResolution.IsSegmentActiveAtUT(
+                        seg,
+                        ut,
+                        s == rec.OrbitSegments.Count - 1))
                 {
                     int cacheKey = orbitCacheBase + s;
                     if (loggedOrbitSegments.Add(cacheKey))

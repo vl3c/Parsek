@@ -320,11 +320,11 @@ namespace Parsek
                 for (int i = traj.OrbitSegments.Count - 1; i >= 0; i--)
                 {
                     OrbitSegment seg = traj.OrbitSegments[i];
-                    if (!string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
-                        || seg.semiMajorAxis <= 0.0)
-                    {
+                    if (!string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal))
                         continue;
-                    }
+
+                    if (seg.semiMajorAxis <= 0.0)
+                        return false;
 
                     if (IsInvalidPositiveEndpointSeedSegment(seg))
                     {

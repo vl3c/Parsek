@@ -1432,13 +1432,33 @@ namespace Parsek.Tests
             var state = new GhostPlaybackState
             {
                 anchorRetiredThisFrame = true,
+                orbitPlacementFailedThisFrame = true,
                 anchorRotationShadowRoutedThisFrame = true
             };
 
             GhostPlaybackEngine.ResetHiddenPrewarmPositioningFlagsForTesting(state);
 
             Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.orbitPlacementFailedThisFrame);
             Assert.False(state.anchorRotationShadowRoutedThisFrame);
+        }
+
+        [Theory]
+        [InlineData(true, false, false, true)]
+        [InlineData(true, true, false, false)]
+        [InlineData(true, false, true, false)]
+        [InlineData(false, false, false, false)]
+        public void ShouldSuppressPastEndCompletionForEndpointRetire_OrbitFailureCompletes(
+            bool endpointRetired,
+            bool endpointOrbitPlacementFailed,
+            bool parentAnchoredDebrisCoverageCompleted,
+            bool expected)
+        {
+            Assert.Equal(expected,
+                GhostPlaybackEngine.ShouldSuppressPastEndCompletionForEndpointRetire(
+                    endpointRetired,
+                    endpointOrbitPlacementFailed,
+                    parentAnchoredDebrisCoverageCompleted));
         }
 
         [Fact]

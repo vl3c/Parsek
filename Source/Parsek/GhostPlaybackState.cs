@@ -73,6 +73,11 @@ namespace Parsek
         // engine resets it at the top of the next per-frame render pass for
         // this state.
         public bool anchorRetiredThisFrame;
+        // One-frame companion set only by stored-orbit placement failures.
+        // Those failures use the anchor-retire teardown gate for stale-transform
+        // protection, but past-end completion must distinguish them from
+        // retryable relative-anchor misses so PlaybackCompleted still fires.
+        public bool orbitPlacementFailedThisFrame;
         // FX-suppression bit for the smooth-shadow route. PR #803: the
         // shadow render itself fires unconditionally for v12+ parent-anchored
         // debris when shadow data covers (regardless of whether the
@@ -149,6 +154,7 @@ namespace Parsek
             simplified = false;
             deferVisibilityUntilPlaybackSync = false;
             anchorRetiredThisFrame = false;
+            orbitPlacementFailedThisFrame = false;
             anchorRotationShadowRoutedThisFrame = false;
             // Do not clear parentAnchoredDebrisCoverageRetired here. Visual
             // cleanup/rebuild has no trajectory + playbackUT context; only the
