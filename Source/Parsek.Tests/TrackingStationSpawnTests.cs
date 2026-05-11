@@ -715,7 +715,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrySelectTrackingStationFocusFrames_LoopAnchoredDebrisChain_UsesRelativeFrames()
+        public void TrySelectTrackingStationFocusFrames_LoopAnchoredDebrisChain_UsesBodyFixedPrimary()
         {
             Recording child = MakeTrackingStationDebrisRecording("ts-loop-child", "ts-loop-parent");
             child.TreeId = "ts-loop-tree";
@@ -745,7 +745,7 @@ namespace Parsek.Tests
                     out string reason);
 
                 Assert.True(selected, reason);
-                Assert.Same(section.frames, frames);
+                Assert.Same(section.bodyFixedFrames, frames);
             }
             finally
             {

@@ -1443,16 +1443,11 @@ namespace Parsek
 
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
-                bool useLoopAnchoredDebrisChain =
-                    GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(recording, sampleUT);
-                if (useLoopAnchoredDebrisChain
-                    && section.frames != null
-                    && section.frames.Count > 0)
-                {
-                    frames = section.frames;
-                    return true;
-                }
-
+                // TryResolveRecordingWorldPosition consumes the selected list as
+                // body-fixed lat/lon/alt. v13 Relative frames are anchor-local
+                // metre offsets, so Tracking Station focus/icon positioning must
+                // use the body-fixed primary surface unless this path grows a
+                // real relative world-pose resolver.
                 if (!ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
                         section, sampleUT, out _, out _))
                 {
@@ -1462,8 +1457,6 @@ namespace Parsek
                 }
 
                 frames = section.bodyFixedFrames;
-                if (useLoopAnchoredDebrisChain)
-                    reason = "relative-fallback-body-fixed-primary";
                 return true;
             }
 
