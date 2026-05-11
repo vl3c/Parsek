@@ -1621,6 +1621,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_ZeroEndpointSegmentPreservesTerminalFallback()
+        {
+            var rec = new Recording
+            {
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitInclination = 3.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitSemiMajorAxis = 250000.0,
+                TerminalOrbitLAN = 10.0,
+                TerminalOrbitArgumentOfPeriapsis = 20.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.5,
+                TerminalOrbitEpoch = 400.0,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 250.0, bodyName = "Mun" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 250.0,
+                endUT = 450.0,
+                inclination = 4.0,
+                eccentricity = 0.01,
+                semiMajorAxis = 0.0,
+                longitudeOfAscendingNode = 11.0,
+                argumentOfPeriapsis = 22.0,
+                meanAnomalyAtEpoch = 0.7,
+                epoch = 350.0,
+                bodyName = "Mun"
+            });
+
+            Assert.True(VesselSpawner.TryGetEndpointAlignedRecordedOrbitSeedForSpawn(
+                rec,
+                out double inclination,
+                out _,
+                out double semiMajorAxis,
+                out _,
+                out _,
+                out double meanAnomalyAtEpoch,
+                out _,
+                out string bodyName));
+
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(250000.0, semiMajorAxis, 10);
+            Assert.Equal(3.0, inclination, 10);
+            Assert.Equal(0.5, meanAnomalyAtEpoch, 10);
+        }
+
+        [Fact]
         public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_UsesLastSegmentMatchingEndpointBody()
         {
             var rec = new Recording

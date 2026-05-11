@@ -3221,6 +3221,53 @@ namespace Parsek.Tests
             Assert.False(first.Equals(changedTiming));
         }
 
+        [Fact]
+        public void MapOrbitKey_IncludesVisibleBounds()
+        {
+            var first = new ParsekPlaybackPolicy.MapOrbitKey(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 200.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 1000000,
+                eccentricity = 0.01,
+                inclination = 5.0,
+                longitudeOfAscendingNode = 10.0,
+                argumentOfPeriapsis = 15.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
+            });
+            var changedStart = new ParsekPlaybackPolicy.MapOrbitKey(new OrbitSegment
+            {
+                startUT = 120.0,
+                endUT = 200.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 1000000,
+                eccentricity = 0.01,
+                inclination = 5.0,
+                longitudeOfAscendingNode = 10.0,
+                argumentOfPeriapsis = 15.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
+            });
+            var changedEnd = new ParsekPlaybackPolicy.MapOrbitKey(new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 240.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 1000000,
+                eccentricity = 0.01,
+                inclination = 5.0,
+                longitudeOfAscendingNode = 10.0,
+                argumentOfPeriapsis = 15.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
+            });
+
+            Assert.False(first.Equals(changedStart));
+            Assert.False(first.Equals(changedEnd));
+        }
+
         #endregion
 
         #region Endpoint-Aligned Orbit Seeds
@@ -3415,7 +3462,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveGhostProtoOrbitSeed_ZeroEndpointSegment_FailsClosedAndLogs()
+        public void TryResolveGhostProtoOrbitSeed_ZeroEndpointSegment_SkipsToTerminalSeedAndLogs()
         {
             var traj = new MockTrajectory
             {
@@ -3437,19 +3484,22 @@ namespace Parsek.Tests
                 }
             };
 
-            Assert.False(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
+            Assert.True(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
                 traj,
+                out double inclination,
+                out _,
+                out double semiMajorAxis,
                 out _,
                 out _,
                 out _,
                 out _,
-                out _,
-                out _,
-                out _,
-                out _,
+                out string bodyName,
                 out GhostMapPresence.GhostProtoOrbitSeedDiagnostics diagnostics));
 
-            Assert.Equal("invalid-endpoint-orbit-segment", diagnostics.FailureReason);
+            Assert.Equal("endpoint-terminal-orbit", diagnostics.Source);
+            Assert.Equal("Kerbin", bodyName);
+            Assert.Equal(900000.0, semiMajorAxis, 10);
+            Assert.Equal(7.0, inclination, 10);
             Assert.Contains(logLines, l =>
                 l.Contains("Endpoint orbit seed segment skipped")
                 && l.Contains("rec=endpoint_zero")
@@ -3532,12 +3582,8 @@ namespace Parsek.Tests
             Assert.Equal("endpoint-conflict", diagnostics.FailureReason);
         }
 
-        [Theory]
-        [InlineData(0.0)]
-        [InlineData(0.5)]
-        [InlineData(double.NaN)]
-        public void TryGetEndpointAlignedOrbitSeed_InvalidEndpointSegment_FailsClosed(
-            double sma)
+        [Fact]
+        public void TryGetEndpointAlignedOrbitSeed_ZeroEndpointSegment_PreservesTerminalFallback()
         {
             var traj = new MockTrajectory
             {
@@ -3554,24 +3600,27 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Orbiting,
                 OrbitSegments = new List<OrbitSegment>
                 {
-                    EndpointSeedSegment("Kerbin", sma)
+                    EndpointSeedSegment("Kerbin", 0.0)
                 }
             };
 
-            Assert.False(RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+            Assert.True(RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
                 traj,
+                out double inclination,
+                out _,
+                out double semiMajorAxis,
                 out _,
                 out _,
                 out _,
                 out _,
-                out _,
-                out _,
-                out _,
-                out _,
+                out string bodyName,
                 out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics diagnostics));
-            Assert.Equal("none", diagnostics.Source);
+            Assert.Equal("endpoint-terminal-orbit", diagnostics.Source);
             Assert.Equal("Kerbin", diagnostics.EndpointBodyName);
-            Assert.Equal("invalid-endpoint-orbit-segment", diagnostics.FailureReason);
+            Assert.Null(diagnostics.FailureReason);
+            Assert.Equal("Kerbin", bodyName);
+            Assert.Equal(900000.0, semiMajorAxis, 10);
+            Assert.Equal(7.0, inclination, 10);
         }
 
         [Fact]

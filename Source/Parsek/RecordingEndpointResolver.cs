@@ -301,8 +301,7 @@ namespace Parsek
                 out double segArgumentOfPeriapsis,
                 out double segMeanAnomalyAtEpoch,
                 out double segEpoch,
-                out string segBodyName,
-                out bool invalidCandidate)
+                out string segBodyName)
             {
                 segInclination = 0.0;
                 segEccentricity = 0.0;
@@ -312,7 +311,6 @@ namespace Parsek
                 segMeanAnomalyAtEpoch = 0.0;
                 segEpoch = 0.0;
                 segBodyName = null;
-                invalidCandidate = false;
 
                 if (traj.OrbitSegments == null)
                     return false;
@@ -324,16 +322,7 @@ namespace Parsek
                         continue;
 
                     if (seg.semiMajorAxis <= 0.0)
-                    {
-                        invalidCandidate = IsInvalidPositiveEndpointSeedSegment(seg);
                         return false;
-                    }
-
-                    if (IsInvalidPositiveEndpointSeedSegment(seg))
-                    {
-                        invalidCandidate = true;
-                        return false;
-                    }
 
                     segInclination = seg.inclination;
                     segEccentricity = seg.eccentricity;
@@ -361,17 +350,10 @@ namespace Parsek
                     out argumentOfPeriapsis,
                     out meanAnomalyAtEpoch,
                     out epoch,
-                    out bodyName,
-                    out bool invalidEndpointSegment))
+                    out bodyName))
                 {
                     diagnostics.Source = "endpoint-segment";
                     return true;
-                }
-
-                if (invalidEndpointSegment)
-                {
-                    diagnostics.FailureReason = "invalid-endpoint-orbit-segment";
-                    return false;
                 }
 
                 if (!hasMatchingTerminalOrbit)
@@ -405,29 +387,16 @@ namespace Parsek
                 out argumentOfPeriapsis,
                 out meanAnomalyAtEpoch,
                 out epoch,
-                out bodyName,
-                out bool invalidFallbackEndpointSegment))
+                out bodyName))
             {
                 diagnostics.Source = "endpoint-segment";
                 return true;
-            }
-
-            if (invalidFallbackEndpointSegment)
-            {
-                diagnostics.FailureReason = "invalid-endpoint-orbit-segment";
-                return false;
             }
 
             diagnostics.FailureReason = terminalBodyConflicts
                 ? "endpoint-conflict"
                 : "no-matching-orbit-seed";
             return false;
-        }
-
-        private static bool IsInvalidPositiveEndpointSeedSegment(OrbitSegment segment)
-        {
-            return !OrbitResolution.IsFiniteOrbitSegment(segment)
-                || Math.Abs(segment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters;
         }
 
         private static bool CanUseTerminalOrbitSeedForEndpoint(

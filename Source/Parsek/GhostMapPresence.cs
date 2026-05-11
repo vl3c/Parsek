@@ -414,9 +414,10 @@ namespace Parsek
                 var seg = f.Segment.Value;
                 sb.Append(" segmentBody=").Append(seg.bodyName ?? "(null)");
                 sb.AppendFormat(ic,
-                    " segmentUT={0:F1}-{1:F1} sma={2:F0} ecc={3:F4} inc={4:F4} mna={5:F4} epoch={6:F1}",
+                    " segmentUT={0:F1}-{1:F1} sma={2:F0} ecc={3:F4} inc={4:F4} lan={5:F4} argPe={6:F4} mna={7:F4} epoch={8:F1}",
                     seg.startUT, seg.endUT,
                     seg.semiMajorAxis, seg.eccentricity, seg.inclination,
+                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
                     seg.meanAnomalyAtEpoch, seg.epoch);
             }
 
@@ -4201,7 +4202,7 @@ namespace Parsek
                 ? FormatWorldPosition(worldPos)
                 : "(unresolved)";
             return string.Format(ic,
-                "sourceKind={0} rec={1} body={2} sourceUT={3:F1}-{4:F1} epoch={5:F1} sma={6:F0} ecc={7:F6} world={8}",
+                "sourceKind={0} rec={1} body={2} sourceUT={3:F1}-{4:F1} epoch={5:F1} sma={6:F0} ecc={7:F6} inc={8:F6} lan={9:F6} argPe={10:F6} mna={11:F6} world={12}",
                 sourceKind,
                 recId,
                 segment.bodyName ?? "(null)",
@@ -4210,6 +4211,10 @@ namespace Parsek
                 segment.epoch,
                 segment.semiMajorAxis,
                 segment.eccentricity,
+                segment.inclination,
+                segment.longitudeOfAscendingNode,
+                segment.argumentOfPeriapsis,
+                segment.meanAnomalyAtEpoch,
                 world);
         }
 
@@ -7557,7 +7562,7 @@ namespace Parsek
                 if (candidate.semiMajorAxis <= 0.0)
                 {
                     LogSkippedEndpointSeedSegment(traj, candidate, "non-positive-sma");
-                    invalidCandidate = LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
+                    LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
                     return false;
                 }
 

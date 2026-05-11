@@ -95,6 +95,8 @@ namespace Parsek.Tests
                 semiMajorAxis = 4_070_696,
                 eccentricity = 0.84,
                 inclination = 0.10,
+                longitudeOfAscendingNode = 0.25,
+                argumentOfPeriapsis = 0.50,
                 meanAnomalyAtEpoch = 1.18,
                 epoch = 100.0,
             };
@@ -112,6 +114,8 @@ namespace Parsek.Tests
             Assert.Contains("sma=4070696", line);
             Assert.Contains("ecc=0.8400", line);
             Assert.Contains("inc=0.1000", line);
+            Assert.Contains("lan=0.2500", line);
+            Assert.Contains("argPe=0.5000", line);
             Assert.Contains("mna=1.1800", line);
             Assert.Contains("epoch=100.0", line);
         }

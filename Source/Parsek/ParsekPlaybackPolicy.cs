@@ -935,7 +935,7 @@ namespace Parsek
             new Dictionary<int, string>();
 
         /// <summary>
-        /// Tracks the last orbit segment body+SMA per recording index for change detection.
+        /// Tracks the last applied orbit segment tuple per recording index for change detection.
         /// Used to update the ghost ProtoVessel orbit as the ghost traverses segments.
         /// </summary>
         private const float MapOrbitUpdateIntervalSec = 0.5f;
@@ -943,6 +943,8 @@ namespace Parsek
 
         internal struct MapOrbitKey : IEquatable<MapOrbitKey>
         {
+            public double startUT;
+            public double endUT;
             public string body;
             public double sma;
             public double ecc;
@@ -954,6 +956,8 @@ namespace Parsek
 
             public MapOrbitKey(OrbitSegment segment)
             {
+                startUT = segment.startUT;
+                endUT = segment.endUT;
                 body = segment.bodyName;
                 sma = segment.semiMajorAxis;
                 ecc = segment.eccentricity;
@@ -966,7 +970,9 @@ namespace Parsek
 
             public bool Equals(MapOrbitKey other)
             {
-                return string.Equals(body, other.body, StringComparison.Ordinal)
+                return startUT == other.startUT
+                    && endUT == other.endUT
+                    && string.Equals(body, other.body, StringComparison.Ordinal)
                     && sma == other.sma
                     && ecc == other.ecc
                     && inclination == other.inclination
@@ -985,7 +991,9 @@ namespace Parsek
             {
                 unchecked
                 {
-                    int hash = body != null ? body.GetHashCode() : 0;
+                    int hash = startUT.GetHashCode();
+                    hash = (hash * 397) ^ endUT.GetHashCode();
+                    hash = (hash * 397) ^ (body != null ? body.GetHashCode() : 0);
                     hash = (hash * 397) ^ sma.GetHashCode();
                     hash = (hash * 397) ^ ecc.GetHashCode();
                     hash = (hash * 397) ^ inclination.GetHashCode();
