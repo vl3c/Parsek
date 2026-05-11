@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
 using UnityEngine;
 using Xunit;
 
@@ -141,6 +143,39 @@ namespace Parsek.Tests
             Assert.Equal("Mun", segment.bodyName);
             Assert.Equal(200.0, segment.startUT);
             Assert.Equal(300.0, segment.endUT);
+        }
+
+        [Fact]
+        public void RefreshTrackingStationGhosts_SoiGapStateVectorPastCoverageBeforeEnd_RemovesGhost()
+        {
+            Recording rec = MakeSoiGapRecording(
+                "soi-gap-refresh-expired-before-end",
+                checkpointBody: "Mun",
+                futureSegmentBody: "Mun");
+            rec.TerminalStateValue = TerminalState.SubOrbital;
+            rec.ExplicitEndUT = 400.0;
+            rec.Points = new List<TrajectoryPoint>(rec.TrackSections[0].frames);
+
+            var vessel = (Vessel)FormatterServices.GetUninitializedObject(typeof(Vessel));
+            vessel.persistentId = 123456u;
+            RecordingIndexVesselsForTesting()[0] = vessel;
+            GhostMapPresence.ghostMapVesselPids.Add(vessel.persistentId);
+            StateVectorTrajectoriesForTesting()[0] = rec;
+            SoiGapStateVectorIndicesForTesting().Add(0);
+            StateVectorCachedIndicesForTesting()[0] = 1;
+
+            InvokeRefreshTrackingStationGhosts(
+                new List<Recording> { rec },
+                new HashSet<string>(),
+                currentUT: 310.0);
+
+            Assert.False(RecordingIndexVesselsForTesting().ContainsKey(0));
+            Assert.DoesNotContain(0, SoiGapStateVectorIndicesForTesting());
+            Assert.DoesNotContain(vessel.persistentId, GhostMapPresence.ghostMapVesselPids);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("Removed tracking-station ghost #0")
+                && l.Contains("reason=soi-gap-state-vector-source-expired"));
         }
 
         [Fact]
@@ -353,6 +388,46 @@ namespace Parsek.Tests
                 recordingIndex: 1,
                 allowSoiGapStateVectorFallback: allowSoiGapStateVectorFallback,
                 expectedSoiGapBody: expectedSoiGapBody);
+        }
+
+        private static void InvokeRefreshTrackingStationGhosts(
+            IReadOnlyList<Recording> committed,
+            HashSet<string> suppressed,
+            double currentUT)
+        {
+            var method = typeof(GhostMapPresence).GetMethod(
+                "RefreshTrackingStationGhosts",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            method.Invoke(null, new object[] { committed, suppressed, currentUT });
+        }
+
+        private static Dictionary<int, Vessel> RecordingIndexVesselsForTesting()
+        {
+            return (Dictionary<int, Vessel>)typeof(GhostMapPresence)
+                .GetField("vesselsByRecordingIndex", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
+        }
+
+        private static Dictionary<int, IPlaybackTrajectory> StateVectorTrajectoriesForTesting()
+        {
+            return (Dictionary<int, IPlaybackTrajectory>)typeof(GhostMapPresence)
+                .GetField("trackingStationStateVectorOrbitTrajectories", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
+        }
+
+        private static HashSet<int> SoiGapStateVectorIndicesForTesting()
+        {
+            return (HashSet<int>)typeof(GhostMapPresence)
+                .GetField("trackingStationSoiGapStateVectorOrbitIndices", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
+        }
+
+        private static Dictionary<int, int> StateVectorCachedIndicesForTesting()
+        {
+            return (Dictionary<int, int>)typeof(GhostMapPresence)
+                .GetField("trackingStationStateVectorCachedIndices", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
         }
 
         private static Recording MakeSoiGapRecording(

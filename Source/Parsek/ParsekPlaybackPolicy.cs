@@ -1158,9 +1158,10 @@ namespace Parsek
             TrackingStationGhostSource refreshSource,
             bool hasFlatTrajectoryCoverage)
         {
-            return isSoiGapStateVector
-                && refreshSource == TrackingStationGhostSource.None
-                && !hasFlatTrajectoryCoverage;
+            return GhostMapPresence.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector,
+                refreshSource,
+                hasFlatTrajectoryCoverage);
         }
 
         internal static bool HasFlatTrajectoryCoverageForStateVectorUpdate(

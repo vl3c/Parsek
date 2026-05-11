@@ -3511,6 +3511,16 @@ namespace Parsek
             return false;
         }
 
+        internal static bool ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+            bool isSoiGapStateVector,
+            TrackingStationGhostSource refreshSource,
+            bool hasRecordedTrackCoverage)
+        {
+            return isSoiGapStateVector
+                && refreshSource == TrackingStationGhostSource.None
+                && !hasRecordedTrackCoverage;
+        }
+
         /// <summary>
         /// Finds the immediate orbit-segment gap bracketing <paramref name="ut"/>.
         /// <paramref name="segments"/> must be sorted by increasing UT, matching the
@@ -5371,30 +5381,41 @@ namespace Parsek
                     continue;
                 }
 
-                if (isStateVector
-                    && isSoiGapStateVector
-                    && TryResolveTrackingStationOrbitRefreshSource(
-                        rec,
-                        currentUT,
-                        out OrbitSegment authoritativeSegment,
-                        out TrackingStationGhostSource authoritativeSource))
+                if (isStateVector && isSoiGapStateVector)
                 {
-                    if (!UpdateGhostOrbitForRecording(
-                            idx,
-                            authoritativeSegment,
-                            authoritativeSource,
-                            removeOnFailure: false))
+                    if (TryResolveTrackingStationOrbitRefreshSource(
+                            rec,
+                            currentUT,
+                            out OrbitSegment authoritativeSegment,
+                            out TrackingStationGhostSource authoritativeSource))
+                    {
+                        if (!UpdateGhostOrbitForRecording(
+                                idx,
+                                authoritativeSegment,
+                                authoritativeSource,
+                                removeOnFailure: false))
+                        {
+                            if (toRemove == null) toRemove = new List<(int, string)>();
+                            toRemove.Add((idx, "orbit update rejected"));
+                        }
+                        else
+                        {
+                            trackingStationStateVectorOrbitTrajectories.Remove(idx);
+                            trackingStationSoiGapStateVectorOrbitIndices.Remove(idx);
+                            trackingStationStateVectorCachedIndices.Remove(idx);
+                        }
+                        continue;
+                    }
+
+                    if (ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                            isSoiGapStateVector,
+                            TrackingStationGhostSource.None,
+                            HasRecordedTrackCoverageAtUT(rec, currentUT)))
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
-                        toRemove.Add((idx, "orbit update rejected"));
+                        toRemove.Add((idx, "soi-gap-state-vector-source-expired"));
+                        continue;
                     }
-                    else
-                    {
-                        trackingStationStateVectorOrbitTrajectories.Remove(idx);
-                        trackingStationSoiGapStateVectorOrbitIndices.Remove(idx);
-                        trackingStationStateVectorCachedIndices.Remove(idx);
-                    }
-                    continue;
                 }
 
                 if (isStateVector)
@@ -7907,10 +7928,12 @@ namespace Parsek
             int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
             int tsSoiGapStateVectorCount = trackingStationSoiGapStateVectorOrbitIndices.Count;
             int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
+            int deferredStateVectorCount = activeReFlyDeferredStateVectorGhostSessions.Count;
 
             int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount + orbitSegmentCount
                 + chainCount + indexCount + reverseCount + reverseIdCount
-                + tsStateVectorCount + tsSoiGapStateVectorCount + tsStateVectorCacheCount;
+                + tsStateVectorCount + tsSoiGapStateVectorCount + tsStateVectorCacheCount
+                + deferredStateVectorCount;
 
             if (totalTracked == 0)
             {
@@ -7941,11 +7964,13 @@ namespace Parsek
                     "ResetBetweenTestRuns: cleared bookkeeping reason={0} " +
                     "pids={1} suppressedIcons={2} orbitBounds={3} orbitSegments={4} " +
                     "chainVessels={5} indexVessels={6} reverseLookup={7} reverseIdLookup={8} " +
-                    "tsStateVectors={9} tsSoiGapStateVectors={10} tsStateVectorCache={11}",
+                    "tsStateVectors={9} tsSoiGapStateVectors={10} tsStateVectorCache={11} " +
+                    "deferredStateVectors={12}",
                     reason ?? "(null)",
                     pidCount, suppressedIconCount, orbitBoundsCount,
                     orbitSegmentCount, chainCount, indexCount, reverseCount, reverseIdCount,
-                    tsStateVectorCount, tsSoiGapStateVectorCount, tsStateVectorCacheCount));
+                    tsStateVectorCount, tsSoiGapStateVectorCount, tsStateVectorCacheCount,
+                    deferredStateVectorCount));
         }
 
         // ------------------------------------------------------------------

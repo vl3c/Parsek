@@ -938,6 +938,28 @@ namespace Parsek.Tests
             Assert.DoesNotContain(vessel.persistentId, GhostMapPresence.ghostMapVesselPids);
         }
 
+        [Fact]
+        public void GhostChain_UpdateChainGhostOrbitIfNeeded_NoCurrentSegment_ClearsRegisteredMapVessel()
+        {
+            var chain = new GhostChain { OriginalVesselPid = 123 };
+            OrbitSegment segment = ChainMapSegment();
+            ParsekFlight.StoreChainMapOrbit(chain, segment);
+            var vessel = (Vessel)FormatterServices.GetUninitializedObject(typeof(Vessel));
+            vessel.persistentId = 789u;
+            ChainMapVesselsForTesting()[chain.OriginalVesselPid] = vessel;
+            GhostMapPresence.ghostMapVesselPids.Add(vessel.persistentId);
+
+            ParsekFlight.UpdateChainGhostOrbitIfNeeded(
+                chain,
+                new List<OrbitSegment> { segment },
+                currentUT: 250.0);
+
+            Assert.Null(chain.LastMapOrbitBodyName);
+            Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+            Assert.False(GhostMapPresence.HasChainMapVessel(chain.OriginalVesselPid));
+            Assert.DoesNotContain(vessel.persistentId, GhostMapPresence.ghostMapVesselPids);
+        }
+
         /// <summary>
         /// Segment change detection: identical applied orbit means no change.
         /// </summary>
@@ -3867,6 +3889,13 @@ namespace Parsek.Tests
                 .GetValue(null);
         }
 
+        private static Dictionary<int, string> ActiveReFlyDeferredStateVectorGhostSessionsForTesting()
+        {
+            return (Dictionary<int, string>)typeof(GhostMapPresence)
+                .GetField("activeReFlyDeferredStateVectorGhostSessions", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
+        }
+
         #region Chain-aware integration
 
         /// <summary>
@@ -4337,6 +4366,20 @@ namespace Parsek.Tests
                 l.Contains("[GhostMap]") && l.Contains("ResetBetweenTestRuns")
                 && l.Contains("suppressedIcons=1") && l.Contains("orbitBounds=1")
                 && l.Contains("orbitSegments=1"));
+        }
+
+        [Fact]
+        public void ResetBetweenTestRuns_ClearsDeferredStateVectorSessionsWhenOnlyTrackedState()
+        {
+            ActiveReFlyDeferredStateVectorGhostSessionsForTesting()[7] = "session-abc";
+
+            GhostMapPresence.ResetBetweenTestRuns("unit-test-deferred-state-vector");
+
+            Assert.Empty(ActiveReFlyDeferredStateVectorGhostSessionsForTesting());
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]") && l.Contains("ResetBetweenTestRuns")
+                && l.Contains("unit-test-deferred-state-vector")
+                && l.Contains("deferredStateVectors=1"));
         }
 
         /// <summary>

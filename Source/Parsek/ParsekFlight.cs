@@ -14942,13 +14942,24 @@ namespace Parsek
         /// Check if the chain ghost's orbit segment changed and update the ghost map ProtoVessel.
         /// Called each frame after positioning a chain ghost to keep the map orbit line in sync.
         /// </summary>
-        private static void UpdateChainGhostOrbitIfNeeded(
+        internal static void UpdateChainGhostOrbitIfNeeded(
             GhostChain chain, List<OrbitSegment> segments, double currentUT)
         {
-            if (segments == null || segments.Count == 0) return;
+            if (chain == null)
+                return;
+
+            if (segments == null || segments.Count == 0)
+            {
+                ClearChainMapOrbitVessel(chain, "chain-orbit-no-segments");
+                return;
+            }
 
             OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(segments, currentUT);
-            if (!seg.HasValue) return;
+            if (!seg.HasValue)
+            {
+                ClearChainMapOrbitVessel(chain, "chain-orbit-no-current-segment");
+                return;
+            }
 
             if (IsChainMapOrbitUnchanged(chain, seg.Value))
                 return;
