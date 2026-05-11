@@ -5155,6 +5155,18 @@ namespace Parsek
                 if (HasLoadedGhostVisuals(state))
                 {
                     PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
+                    if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                            state.anchorRetiredThisFrame))
+                    {
+                        ApplyFrameVisuals(index, traj, state, playbackUT, warpRate,
+                            skipPartEvents: true, suppressVisualFx: true,
+                            allowTransientEffects: false);
+                        if (state.ghost.activeSelf)
+                            state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                        return false;
+                    }
+
                     if (state.ghost.activeSelf)
                         state.ghost.SetActive(false);
                     ResetGhostAppearanceTracking(state);

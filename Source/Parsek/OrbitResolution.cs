@@ -401,7 +401,7 @@ namespace Parsek
             for (int i = 0; i < segments.Count; i++)
             {
                 OrbitSegment segment = segments[i];
-                if (targetUT < segment.startUT || targetUT > segment.endUT)
+                if (!IsSegmentActiveAtUT(segment, targetUT, i == segments.Count - 1))
                     continue;
 
                 if (!TryResolveOrbitFromSegment(
@@ -439,6 +439,15 @@ namespace Parsek
             if (sawRejectedSegment && failureReason == OrbitWorldPositionFailureReason.NoSegment)
                 failureReason = OrbitWorldPositionFailureReason.SegmentRejected;
             return false;
+        }
+
+        internal static bool IsSegmentActiveAtUT(OrbitSegment segment, double targetUT, bool isFinalSegment)
+        {
+            // Match TrajectoryMath.FindOrbitSegment: segment boundaries are half-open
+            // except for the final segment, whose end UT is inclusive.
+            return isFinalSegment
+                ? targetUT >= segment.startUT && targetUT <= segment.endUT
+                : targetUT >= segment.startUT && targetUT < segment.endUT;
         }
 
         internal static bool ShouldRejectLegacySurfaceOrbitSegment(

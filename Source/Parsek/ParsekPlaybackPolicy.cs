@@ -1453,19 +1453,30 @@ namespace Parsek
 
                         if (source == TrackingStationGhostSource.StateVectorSoiGap)
                         {
-                            if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(
-                                idx,
-                                traj,
-                                soiGapPoint,
-                                currentUT,
-                                allowOrbitalCheckpointStateVector: true,
-                                stateVectorUpdateReason: "soi-gap-state-vector-fallback"))
+                            GhostMapPresence.StateVectorOrbitUpdateResult updateResult =
+                                GhostMapPresence.UpdateGhostOrbitFromStateVectors(
+                                    idx,
+                                    traj,
+                                    soiGapPoint,
+                                    currentUT,
+                                    allowOrbitalCheckpointStateVector: true,
+                                    stateVectorUpdateReason: "soi-gap-state-vector-fallback");
+                            if (updateResult == GhostMapPresence.StateVectorOrbitUpdateResult.RetryLater)
                             {
                                 GhostMapPresence.RemoveGhostVesselForRecording(
                                     idx,
                                     GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeUpdate);
                                 if (toReDefer == null) toReDefer = new List<int>();
                                 toReDefer.Add(idx);
+                            }
+                            else if (updateResult == GhostMapPresence.StateVectorOrbitUpdateResult.Failed)
+                            {
+                                GhostMapPresence.RemoveGhostVesselForRecording(
+                                    idx,
+                                    "state-vector-update-failed");
+                                lastMapOrbitByIndex.Remove(idx);
+                                if (toExitStateVector == null) toExitStateVector = new List<int>();
+                                toExitStateVector.Add(idx);
                             }
                             continue;
                         }
@@ -1524,13 +1535,24 @@ namespace Parsek
                         }
                     }
 
-                    if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT))
+                    GhostMapPresence.StateVectorOrbitUpdateResult stateVectorUpdateResult =
+                        GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT);
+                    if (stateVectorUpdateResult == GhostMapPresence.StateVectorOrbitUpdateResult.RetryLater)
                     {
                         GhostMapPresence.RemoveGhostVesselForRecording(
                             idx,
                             GhostMapPresence.TrackingStationGhostSkipActiveReFlyRelativeUpdate);
                         if (toReDefer == null) toReDefer = new List<int>();
                         toReDefer.Add(idx);
+                    }
+                    else if (stateVectorUpdateResult == GhostMapPresence.StateVectorOrbitUpdateResult.Failed)
+                    {
+                        GhostMapPresence.RemoveGhostVesselForRecording(
+                            idx,
+                            "state-vector-update-failed");
+                        lastMapOrbitByIndex.Remove(idx);
+                        if (toExitStateVector == null) toExitStateVector = new List<int>();
+                        toExitStateVector.Add(idx);
                     }
                 }
 

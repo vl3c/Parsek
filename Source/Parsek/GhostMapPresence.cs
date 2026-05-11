@@ -38,6 +38,13 @@ namespace Parsek
             StateVectorSoiGap = 4
         }
 
+        internal enum StateVectorOrbitUpdateResult
+        {
+            Updated = 0,
+            RetryLater = 1,
+            Failed = 2
+        }
+
         internal static bool IsStateVectorGhostSource(TrackingStationGhostSource source)
         {
             return source == TrackingStationGhostSource.StateVector
@@ -4835,10 +4842,17 @@ namespace Parsek
                 if (fromCheckpoint && isStateVector)
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT))
+                    StateVectorOrbitUpdateResult updateResult =
+                        UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT);
+                    if (updateResult == StateVectorOrbitUpdateResult.RetryLater)
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
+                    }
+                    else if (updateResult == StateVectorOrbitUpdateResult.Failed)
+                    {
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "tracking-station-state-vector-update-failed"));
                     }
                     continue;
                 }
@@ -4888,10 +4902,17 @@ namespace Parsek
                         }
                     }
 
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT))
+                    StateVectorOrbitUpdateResult updateResult =
+                        UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT);
+                    if (updateResult == StateVectorOrbitUpdateResult.RetryLater)
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
+                    }
+                    else if (updateResult == StateVectorOrbitUpdateResult.Failed)
+                    {
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "tracking-station-state-vector-update-failed"));
                     }
                     continue;
                 }
@@ -5696,8 +5717,11 @@ namespace Parsek
         /// Handles SOI transitions (body change + orbit renderer rebuild).
         /// Honours the originating TrackSection's <see cref="ReferenceFrame"/> — see
         /// <see cref="CreateGhostVesselFromStateVectors"/> for the contract.
+        /// Returns <see cref="StateVectorOrbitUpdateResult.Failed"/> for non-retryable
+        /// misses so callers can remove stale map vessels instead of leaving the last
+        /// successful orbit on screen.
         /// </summary>
-        internal static bool UpdateGhostOrbitFromStateVectors(
+        internal static StateVectorOrbitUpdateResult UpdateGhostOrbitFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
             TrajectoryPoint point,
             double ut,
@@ -5705,7 +5729,18 @@ namespace Parsek
             string stateVectorUpdateReason = null)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
-                return false;
+            {
+                var miss = NewDecisionFields("update-state-vector-miss");
+                miss.RecordingId = traj?.RecordingId;
+                miss.RecordingIndex = recordingIndex;
+                miss.VesselName = traj?.VesselName;
+                miss.Source = "StateVector";
+                miss.Body = point.bodyName;
+                miss.UT = ut;
+                miss.Reason = "ghost-vessel-not-found";
+                ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(miss));
+                return StateVectorOrbitUpdateResult.Failed;
+            }
 
             if (vessel.orbitDriver == null)
             {
@@ -5719,7 +5754,7 @@ namespace Parsek
                 miss.UT = ut;
                 miss.Reason = "no-orbit-driver";
                 ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
-                return false;
+                return StateVectorOrbitUpdateResult.Failed;
             }
 
             CelestialBody body = FindBodyByName(point.bodyName);
@@ -5735,7 +5770,7 @@ namespace Parsek
                 miss.UT = ut;
                 miss.Reason = "body-not-found";
                 ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
-                return false;
+                return StateVectorOrbitUpdateResult.Failed;
             }
 
             StateVectorWorldFrame resolution =
@@ -5746,6 +5781,7 @@ namespace Parsek
                     allowOrbitalCheckpointStateVector);
             if (!resolution.Resolved)
             {
+                bool retryResolutionLater = ShouldRetryStateVectorCreationAfterResolutionMiss(resolution);
                 var skip = NewDecisionFields("update-state-vector-skip");
                 skip.RecordingId = traj?.RecordingId;
                 skip.RecordingIndex = recordingIndex;
@@ -5758,9 +5794,13 @@ namespace Parsek
                 skip.StateVecAlt = point.altitude;
                 skip.StateVecSpeed = point.velocity.magnitude;
                 skip.UT = ut;
-                skip.Reason = resolution.FailureReason ?? "(null)";
+                skip.Reason = retryResolutionLater
+                    ? string.Format(ic, "{0} retryLater=true", resolution.FailureReason ?? "(null)")
+                    : (resolution.FailureReason ?? "(null)");
                 ParsekLog.Warn(Tag, BuildGhostMapDecisionLine(skip));
-                return false;
+                return retryResolutionLater
+                    ? StateVectorOrbitUpdateResult.RetryLater
+                    : StateVectorOrbitUpdateResult.Failed;
             }
 
             // Compute optional recorded-relative metadata for the structured line.
@@ -5805,7 +5845,7 @@ namespace Parsek
                     SessionSuppressionState.ActiveMarker?.SessionId ?? "<no-id>",
                     TrackingStationGhostSkipActiveReFlyRelativeUpdate);
                 ParsekLog.Info(Tag, BuildGhostMapDecisionLine(suppressed));
-                return true;
+                return StateVectorOrbitUpdateResult.RetryLater;
             }
 
             // SOI transition handling (same pattern as ApplyOrbitToVessel).
@@ -5883,7 +5923,7 @@ namespace Parsek
                 AnchorPid = resolution.AnchorPid,
                 LastUT = ut
             });
-            return false;
+            return StateVectorOrbitUpdateResult.Updated;
         }
 
         /// <summary>

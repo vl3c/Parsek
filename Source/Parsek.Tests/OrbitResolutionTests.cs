@@ -187,6 +187,27 @@ namespace Parsek.Tests
             Assert.True(clampCalled);
         }
 
+        [Theory]
+        [InlineData(100.0, false, true)]
+        [InlineData(200.0, false, false)]
+        [InlineData(200.0, true, true)]
+        public void IsSegmentActiveAtUT_UsesHalfOpenNonFinalSegments(
+            double targetUT,
+            bool isFinalSegment,
+            bool expected)
+        {
+            OrbitSegment segment = new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 200.0
+            };
+
+            Assert.Equal(expected, OrbitResolution.IsSegmentActiveAtUT(
+                segment,
+                targetUT,
+                isFinalSegment));
+        }
+
         [Fact]
         public void ShouldRejectLegacySurfaceOrbitSegment_RejectsSurfaceOnlyTrackSection()
         {
