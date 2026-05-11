@@ -8,9 +8,9 @@
 
 ## 1. The design in one paragraph
 
-Every debris sample writes **body-fixed (Absolute) world coordinates as the primary surface, always, at every distance**. When the debris is within 250 m of its parent vessel, the recorder *additionally* writes **anchor-local-to-parent offsets** as a secondary surface on the same sample. The renderer reads body-fixed coordinates by default, and reads anchor-local through the recording chain when the chain ends in a loop-anchored ancestor (so that looped recordings — e.g. a tanker approach to a station, with debris jettisoned mid-approach — replay correctly against the station's current live orbital pose at each loop iteration). Sampling cadence scales with distance to parent, mirroring Re-Fly's tiered cadence: full fidelity inside 250 m, half fidelity 250–500 m, normal adaptive beyond.
+Every debris sample writes **body-fixed (Absolute) world coordinates as the primary surface, always, at every distance**. When the debris is within **500 m** of its parent vessel, the recorder *additionally* writes **anchor-local-to-parent offsets** as a secondary surface on the same sample. The renderer reads body-fixed coordinates by default, and reads anchor-local through the recording chain when the chain ends in a loop-anchored ancestor (so that looped recordings — e.g. a tanker approach to a station, with debris jettisoned mid-approach — replay correctly against the station's current live orbital pose at each loop iteration). Sampling cadence scales with distance to parent, mirroring Re-Fly's tiered cadence: **full fidelity** inside 250 m, **half fidelity** 250–500 m (still inside the Relative window), **normal adaptive** beyond 500 m.
 
-The relative-to-parent surface is **not experimental** — it has a concrete, mandatory consumer (loop scenarios) plus a sub-metre geometric-accuracy benefit at close range. Storage cost is bounded (only inside the 250 m bubble), schema cost is zero (uses existing v7 Relative section layout), and rendering reads through the existing chain resolver path that already serves non-debris.
+The relative-to-parent surface is **not experimental** — it has a concrete, mandatory consumer (loop scenarios) plus a sub-metre geometric-accuracy benefit at close range. Storage cost is bounded (only inside the 500 m bubble, with half-rate sampling in the outer 250 m), schema cost is zero (uses existing v7 Relative section layout), and rendering reads through the existing chain resolver path that already serves non-debris.
 
 ## 2. What does NOT change
 
@@ -33,10 +33,10 @@ If a change touches a file outside the debris-specific list in §6, that's a sco
 
 | Distance to parent | Section type | `frames` contents | `absoluteFrames` contents |
 |---|---|---|---|
-| `≤ 250 m` | `Relative` (anchored on parent recording) | anchor-local-to-parent offsets (the secondary surface) | body-fixed world coordinates (the primary surface) |
-| `> 250 m` | `Absolute` | body-fixed world coordinates (the primary surface) | null |
+| `≤ 500 m` | `Relative` (anchored on parent recording) | anchor-local-to-parent offsets (the secondary surface) | body-fixed world coordinates (the primary surface) |
+| `> 500 m` | `Absolute` | body-fixed world coordinates (the primary surface) | null |
 
-Hysteresis on the frame-switching boundary: enter Relative at `≤ 250 m`, exit Relative at `> 280 m`. The 30 m hysteresis prevents flapping; playtest-tunable.
+Hysteresis on the frame-switching boundary: enter Relative at `≤ 500 m`, exit Relative at `> 550 m`. The 50 m hysteresis prevents flapping; playtest-tunable.
 
 Body-fixed coordinates are written on every sample regardless of section type — they live in `frames` when the section is Absolute, in `absoluteFrames` when the section is Relative. So the renderer always has a body-fixed surface to read.
 
@@ -55,15 +55,18 @@ internal enum DebrisProximitySamplingCadence
 }
 
 internal const double DebrisFullFidelityProximityRangeMeters = 250.0;
-internal const double DebrisHalfFidelityProximityRangeMeters = 500.0;
-internal const double DebrisRelativeSectionExitMeters = 280.0;  // hysteresis
+internal const double DebrisHalfFidelityProximityRangeMeters = 500.0;  // also: Relative section entry boundary
+internal const double DebrisRelativeSectionExitMeters = 550.0;         // hysteresis exit for Relative section
 ```
 
-| Distance | Effective `maxSampleInterval` |
-|---|---|
-| `≤ 250 m` | `configuredMin` |
-| `(250, 500] m` | `min(configuredMax, 2 × configuredMin)` |
-| `> 500 m` | falls through to `ResolveDebrisAwareMaxSampleInterval` (existing adaptive path) |
+| Distance | Section | Effective `maxSampleInterval` |
+|---|---|---|
+| `≤ 250 m` | Relative | `configuredMin` (Full) |
+| `(250, 500] m` | Relative | `min(configuredMax, 2 × configuredMin)` (Half) |
+| `(500, 550] m` (frame hysteresis exit) | Relative | falls through (None) — see note below |
+| `> 550 m` | Absolute | falls through to `ResolveDebrisAwareMaxSampleInterval` (None / adaptive) |
+
+The cadence Full→Half boundary at 250 m sits **inside** the Relative section (which extends to 500 m). The cadence Half→None boundary at 500 m **coincides with** the Relative section entry boundary. The frame hysteresis-exit zone (500–550 m) is a 50 m transit where the section is still Relative but the cadence has already dropped to None — both `frames` and `absoluteFrames` are still being written, just at the existing adaptive rate.
 
 Tier boundaries have no hysteresis — sample-interval changes are continuous (per-sample selection, no on-disk artifact at boundary crossings).
 
@@ -144,9 +147,9 @@ public string debrisProximityReason;
 
 Render dispatch by section type:
 
-**Absolute section (`> 250 m`):** standard `IGhostPositioner.InterpolateAndPosition` (`ParsekFlight.cs:16563-16634`) — body-fixed lookup via `body.GetWorldSurfacePosition`. No anchor consulted. Same path solo-flight vessels use.
+**Absolute section (`> 500 m`):** standard `IGhostPositioner.InterpolateAndPosition` (`ParsekFlight.cs:16563-16634`) — body-fixed lookup via `body.GetWorldSurfacePosition`. No anchor consulted. Same path solo-flight vessels use.
 
-**Relative section (`≤ 250 m`):** standard `RelativeAnchorResolver` chain. The chain walks:
+**Relative section (`≤ 500 m`):** standard `RelativeAnchorResolver` chain. The chain walks:
 - Debris's anchor is its parent recording. Read parent's pose at UT t.
 - If parent has its own Relative section at UT t → recurse to grandparent.
 - If parent is loop-anchored (`LoopAnchorVesselId != 0u`) → resolve parent's pose through the live-anchor path: `liveAnchor.pose(now) × parent.recordedOffset`.
@@ -159,9 +162,9 @@ The chain composes correctly for both loop and non-loop ancestors. No special-ca
 
 ### 3.3 Visibility coupling
 
-Debris in Absolute sections (`> 250 m`) renders independent of parent state. If the parent is destroyed or its recording is deleted, debris continues to render along its body-fixed path until its own recording ends.
+Debris in Absolute sections (`> 500 m`) renders independent of parent state. If the parent is destroyed or its recording is deleted, debris continues to render along its body-fixed path until its own recording ends.
 
-Debris in Relative sections (`≤ 250 m`) depends on the parent's recorded pose at playback UT. If the parent is unresolvable, the renderer falls back to the body-fixed shadow (`absoluteFrames`) inside the Relative section. The debris remains visible; it just renders at its recording-time world position rather than a chain-resolved position.
+Debris in Relative sections (`≤ 500 m`) depends on the parent's recorded pose at playback UT. If the parent is unresolvable, the renderer falls back to the body-fixed shadow (`absoluteFrames`) inside the Relative section. The debris remains visible; it just renders at its recording-time world position rather than a chain-resolved position.
 
 The existing `BackgroundRecorder.CheckDebrisTTL` (`:1300-1413`) live-recording-end conditions are preserved unchanged:
 1. Parent recording missing from tree (`:1352-1361`).
@@ -173,20 +176,20 @@ The existing `BackgroundRecorder.CheckDebrisTTL` (`:1300-1413`) live-recording-e
 A tanker T is loop-anchored to a station S (`T.LoopAnchorVesselId = S.persistentId`). T sheds a fairing F mid-approach. F is parent-anchored to T (`F.DebrisParentRecordingId = T.RecordingId`); F has no `LoopAnchorVesselId` of its own.
 
 **Recording at separation event:**
-- F is close to T (just separated) → first sample is within 250 m → F opens a Relative section anchored on T's recording.
+- F is close to T (just separated) → first sample is within 500 m → F opens a Relative section anchored on T's recording.
 - F's `frames` capture F's anchor-local-to-T offsets at each sample.
 - F's `absoluteFrames` capture F's body-fixed world coordinates at each sample.
 
 **Recording as F drifts away from T:**
-- When F crosses 280 m, the recorder closes the Relative section and opens an Absolute section.
-- F's `frames` (in the new Absolute section) capture F's body-fixed world coordinates.
-- Cadence tier drops from Full to Half (or None at > 500 m).
+- Inside 250 m of T: Full cadence (configuredMin interval).
+- 250–500 m: Half cadence (2 × configuredMin), still in the Relative section. Anchor-local offsets continue to record (the chain still composes for loop scenarios out to 500 m).
+- When F crosses 550 m (hysteresis exit), the recorder closes the Relative section and opens an Absolute section. F's `frames` (in the new Absolute section) capture F's body-fixed world coordinates.
 
 **Playback at loop iteration N:**
 - The station S is at live pose `Y_N` at the current loop UT.
 - T renders via T's loop-anchored Relative path: `T_pose_N = Y_N × T.recordedOffsetToS`.
-- For F's Relative section samples (UT t within the proximity window): the chain resolver walks `F → T`. T's pose at UT t comes from T's loop-anchored resolution, which yields `Y_N × T.recordedOffsetToS_at_t`. F's pose = `T_pose_N_at_t × F.recordedOffsetToT_at_t`. F follows T which follows S. **Correct across loop iterations.**
-- For F's Absolute section samples (UT t past the 280 m exit): F renders at its body-fixed world coordinate. At loop iteration N with a long loop period, this can be far from station S; but F at that UT was *already* far from T at recording time (out of proximity), and visual coherence with the loop anchor is weak by that distance anyway. Accepted limitation.
+- For F's Relative section samples (UT t within the 0–500 m proximity window): the chain resolver walks `F → T`. T's pose at UT t comes from T's loop-anchored resolution, which yields `Y_N × T.recordedOffsetToS_at_t`. F's pose = `T_pose_N_at_t × F.recordedOffsetToT_at_t`. F follows T which follows S. **Correct across loop iterations.** Chain math is dense in 0–250 m (Full cadence) and half-rate in 250–500 m (Half cadence), but accurate at both rates.
+- For F's Absolute section samples (UT t past the 550 m hysteresis exit): F renders at its body-fixed world coordinate. At loop iteration N with a long loop period, this can be far from station S; but F at that UT was *already* far from T at recording time, and visual coherence with the loop anchor is weak by that distance anyway. Accepted limitation.
 
 **Resolver gate relaxation.** Currently `RelativeAnchorResolver.cs:301-310` and `:450-454` reject loop-anchored recordings as anchor targets with `loop-anchor-out-of-scope`, to prevent live-PID leakage into non-loop ghost math. Under v13 we **relax this for debris**: allow Relative anchoring on a loop-anchored recording when the anchored recording is `IsDebris && DebrisParentRecordingId == loopAnchoredRecording.RecordingId`. Non-debris anchoring on loop-anchored recordings stays rejected.
 
@@ -226,10 +229,10 @@ These pieces are load-bearing under v13 and **are not deleted**:
 
 | File / symbol | Why it stays |
 |---|---|
-| `Source/Parsek/DebrisRelativePlaybackPolicy.cs` | Coverage gating still applies for Relative debris sections (0–250 m window). Update `ShouldRetireFromDiagnostic` (`:191-199`) to NOT fire on `non-relative-section` (otherwise it would retire debris in the new Absolute sections). |
-| `Source/Parsek/DebrisRelativeRecorderPolicy.cs` | Tail normalization for Relative sections still relevant inside the 0–250 m window. Audit each method (six call sites in `BackgroundRecorder` at `:1486, :2198, :2431, :2605, :4269, :6010` plus three in `RecordingFinalizationCacheApplier` at `:119, :162, :169`) for the v12 all-Relative assumption — they should iterate sections by type and treat Absolute debris sections as renderable surfaces. Rename `ShouldNormalizeParentAnchoredDebris` → `ShouldNormalizeDebrisRelativeTail` to reflect the narrower scope. |
+| `Source/Parsek/DebrisRelativePlaybackPolicy.cs` | Coverage gating still applies for Relative debris sections (0–500 m window). Update `ShouldRetireFromDiagnostic` (`:191-199`) to NOT fire on `non-relative-section` (otherwise it would retire debris in the new Absolute sections). |
+| `Source/Parsek/DebrisRelativeRecorderPolicy.cs` | Tail normalization for Relative sections still relevant inside the 0–500 m window. Audit each method (six call sites in `BackgroundRecorder` at `:1486, :2198, :2431, :2605, :4269, :6010` plus three in `RecordingFinalizationCacheApplier` at `:119, :162, :169`) for the v12 all-Relative assumption — they should iterate sections by type and treat Absolute debris sections as renderable surfaces. Rename `ShouldNormalizeParentAnchoredDebris` → `ShouldNormalizeDebrisRelativeTail` to reflect the narrower scope. |
 | `IGhostPositioner.TryPositionFromRelativeAbsoluteShadow` (interface + impl at `ParsekFlight.cs:16717-16810`) | Used as the body-fixed shadow fallback when the chain resolver fails inside a Relative debris section (§3.2). |
-| `BackgroundRecorder.UpdateBackgroundAnchorDetection` debris early-return (`:4295-4303`) and `ApplyDebrisAnchorContractToState` (`:4600-4685`) | Repurposed: now fires only when distance to parent is `≤ 250 m`. The unconditional "always Relative" shortcut is gated on the proximity check from §3.1. The third call site at `:4727` (structural-event seam in `ApplyBackgroundRelativeOffset`) keeps firing inside the proximity window. |
+| `BackgroundRecorder.UpdateBackgroundAnchorDetection` debris early-return (`:4295-4303`) and `ApplyDebrisAnchorContractToState` (`:4600-4685`) | Repurposed: now fires only when distance to parent is `≤ 500 m` (with hysteresis exit at 550 m). The unconditional "always Relative" shortcut is gated on the proximity check from §3.1. The third call site at `:4727` (structural-event seam in `ApplyBackgroundRelativeOffset`) keeps firing inside the proximity window. |
 | `Recording.ApplyDebrisAnchorContract` and `Recording.DebrisParentRecordingId` | Still set at split time. Still consumed for identification (tree hierarchy, ledger, future UI). |
 
 ### 4.2 What gets deleted
@@ -237,7 +240,7 @@ These pieces are load-bearing under v13 and **are not deleted**:
 | File / symbol | Why it goes |
 |---|---|
 | `Source/Parsek/LegacyDebrisShadowGate.cs` (entire file) | v11 retroactive fix; v11 recordings are no longer loadable under v13. |
-| `Source/Parsek/TumblingParentInterpolationGate.cs` (entire file) | Only consumer was `ShouldEvaluateAnchorRotationReliability`. With Relative debris confined to 250 m, the synced-rotation failure mode that PR #803 patched is structurally bounded (lever arm × slerp error is small at 250 m max); no per-frame tumble gate needed. |
+| `Source/Parsek/TumblingParentInterpolationGate.cs` (entire file) | Only consumer was `ShouldEvaluateAnchorRotationReliability`. With Relative debris bounded to 500 m and recorded at proximity-tier cadence (Full inside 250 m, Half 250–500 m), the synced-rotation failure mode is bounded but not eliminated for high parent rotation rates. Accepted trade-off per §9 — if playtest reveals visible artifacts in the 250–500 m + tumbling-parent regime, the gate can be reinstated as a renderer-time shadow fallback or as a recorder-side rate filter. |
 | `Source/Parsek/GhostPlaybackEngine.cs` `TryRouteAnchorRotationUnreliable` (`:2796-2909`), `TryRouteAnchorRotationToShadow` (`:2928-3006`), `AnchorRotationUnreliableRoute` enum | Router for the PR #803 always-shadow path. No longer needed: the renderer dispatches directly on section type (§3.2), and the body-fixed shadow is consulted only as a chain-failure fallback at a single call site inside the Relative-section dispatch. |
 | `Source/Parsek/ParsekFlight.cs` `ShouldEvaluateAnchorRotationReliability` (`:15131-15150`), `ShouldEvaluateAnchorRotationReliabilityForTesting` (`:15128-15129`), `TryEvaluateAnchorRotationReliability` (`:15152`+) | Tumble-gate predicate; orphaned by the router deletion. |
 | `Source/Parsek/ParsekFlight.cs` `TryUseLegacyDebrisShadowFallback` (`:22857-22905`), `TryRetireParentAnchoredDebrisOnRecordedAnchorMiss` (`:22907-22933`) | Legacy-v11-specific helpers. |
@@ -251,7 +254,7 @@ These pieces are load-bearing under v13 and **are not deleted**:
 | `Source/Parsek/BackgroundRecorder.cs:1868-1878` (Re-Fly settle suppression for debris) and `ShouldSuppressParentDebrisForReFlySettle` (`:2046-2053`) | Suppression rationale ("Relative section against a suppressed parent would leave the resolver unable to walk back to a parent pose") is gone — under v13, the body-fixed shadow is on every Relative debris sample, so resolver failure during settle falls through to shadow gracefully. The suppression now introduces unwanted sample gaps with no benefit. |
 | `RelativeAnchorResolver.cs` `AnchorRotationReliabilityDecision` plumbing (~12 method signatures at `:194, :269, :435, :668, :1045, :1398, :1534, :1898, :2028, :2126, :2138, :2342`) | The decision's only consumer was the deleted tumble gate. Trim the parameter from the signatures. |
 | Test files: `LegacyDebrisShadowGateTests.cs`, `TumblingParentInterpolationGateTests.cs` | Own the deleted code. |
-| Test file `DebrisParentAnchorContractTests.cs` | Asserts v12 always-Relative-for-lifetime contract; needs full rewrite for v13 (Relative inside 250 m, Absolute outside). |
+| Test file `DebrisParentAnchorContractTests.cs` | Asserts v12 always-Relative-for-lifetime contract; needs full rewrite for v13 (Relative inside 500 m, Absolute outside). |
 | Test cases at `RuntimeTests.cs:4278, 4390-4391, 4524, 4660` | Asserted deleted-field behaviour (`anchorRotationShadowRoutedThisFrame`); rewrite or remove. |
 
 ## 5. Format version
@@ -322,10 +325,10 @@ Add the new constant; mark v12 and earlier as no-longer-loadable. Reference `Tra
 
 | File | Lines | Change |
 |---|---|---|
-| `BackgroundRecorder.cs` | `:4295-4303` | `UpdateBackgroundAnchorDetection` early-return: gate the `ApplyDebrisAnchorContractToState` invocation on `parentDistance ≤ DebrisRelativeSectionExitMeters` (`≤ 280 m` for hysteresis-aware "stay-Relative"; `≤ 250 m` for "enter-Relative"). Outside that range, fall through to the standard non-anchor flow which will open an Absolute section. |
+| `BackgroundRecorder.cs` | `:4295-4303` | `UpdateBackgroundAnchorDetection` early-return: gate the `ApplyDebrisAnchorContractToState` invocation on `parentDistance ≤ DebrisRelativeSectionExitMeters` (`≤ 550 m` for hysteresis-aware "stay-Relative"; `≤ 500 m` for "enter-Relative"). Outside that range, fall through to the standard non-anchor flow which will open an Absolute section. |
 | `BackgroundRecorder.cs` | `:4600-4685` (`ApplyDebrisAnchorContractToState`) | Body unchanged — still anchors on parent, still seeds Relative — but invocation is now gated by §3.1 proximity. |
-| `BackgroundRecorder.cs` | `:4722-4728` (third call site in `ApplyBackgroundRelativeOffset`) | Same proximity gate as `:4295-4303`. Inside 280 m → call; outside → skip. |
-| `BackgroundRecorder.cs` | `:3338-3460` (debris seed in `InitializeLoadedState`) | Compute initial distance to parent. `≤ 250 m`: seed Relative-to-parent (existing path). `> 250 m`: seed Absolute via `CreateAbsoluteTrajectoryPointFromVessel`. |
+| `BackgroundRecorder.cs` | `:4722-4728` (third call site in `ApplyBackgroundRelativeOffset`) | Same proximity gate as `:4295-4303`. Inside 550 m → call; outside → skip. |
+| `BackgroundRecorder.cs` | `:3338-3460` (debris seed in `InitializeLoadedState`) | Compute initial distance to parent. `≤ 500 m`: seed Relative-to-parent (existing path). `> 500 m`: seed Absolute via `CreateAbsoluteTrajectoryPointFromVessel`. |
 | `BackgroundRecorder.cs` | `:1958-1967` | Wire `DebrisProximitySamplingCadence` resolution per §3.1 pseudocode. |
 | `BackgroundRecorder.cs` | new field block on `BackgroundVesselState` near `:192-200` | Add `debrisProximityCadence`, `debrisProximityDistanceMeters`, `debrisProximityReason`. |
 | `BackgroundRecorder.cs` | new methods | `ResolveDebrisProximitySamplingCadence`, `ResolveDebrisParentDistanceMeters` static helpers. |
@@ -346,12 +349,12 @@ Add the new constant; mark v12 and earlier as no-longer-loadable. Reference `Tra
 | `GhostPlaybackEngine.cs` | `:1150-1216` (`RenderInRangeGhost`), `:3297-3339` (`PositionLoopAtPlaybackUT`) | Delete the `anchorRotationRoute` branches; engine falls through to standard section-type dispatch. |
 | `GhostPlaybackEngine.cs` | `:1148, :1249, :1256, :1418, :1661, :1847, :1861, :2124, :2134, :2223, :2320, :2331, :2380, :5203, :5242` | Delete reads / writes of `state.anchorRotationShadowRoutedThisFrame`. |
 | `GhostPlaybackEngine.cs` | `:2977, :2983, :3031, :3136, :3163, :3223` | Delete reads / writes of `state.parentAnchoredDebrisCoverageRetired`. |
-| `GhostPlaybackEngine.cs` | `:2715, :2717` | Update the `ShouldRetireOutsideAuthoredRelativeCoverage` consultation — still relevant for Relative debris sections (0–250 m), but now never fires for Absolute debris sections (per the policy fix above). |
-| `GhostPlaybackEngine.cs` | `:5562, :5652, :5668` | `TryResolveInitialStructuralSeedBridgeEndUT` call sites — keep (still relevant for the seed-to-first-sample bridge inside Relative sections at the 0–250 m window). |
+| `GhostPlaybackEngine.cs` | `:2715, :2717` | Update the `ShouldRetireOutsideAuthoredRelativeCoverage` consultation — still relevant for Relative debris sections (0–500 m), but now never fires for Absolute debris sections (per the policy fix above). |
+| `GhostPlaybackEngine.cs` | `:5562, :5652, :5668` | `TryResolveInitialStructuralSeedBridgeEndUT` call sites — keep (still relevant for the seed-to-first-sample bridge inside Relative sections at the 0–500 m window). |
 | `GhostPlaybackState.cs` | `:93, :99, :152-153` | Delete `anchorRotationShadowRoutedThisFrame` field, `parentAnchoredDebrisCoverageRetired` field, and their resets. |
 | `GhostPlaybackEvents.cs` | `:89, :102` | Delete `shadowRouted` parameter from the rendered-frame event. |
 | `ParsekFlight.cs` | `:15117-15170` | Delete `ShouldEvaluateAnchorRotationReliability`, `ShouldEvaluateAnchorRotationReliabilityForTesting`, `TryEvaluateAnchorRotationReliability`. |
-| `ParsekFlight.cs` | `:16717-16810` | Keep `TryPositionFromRelativeAbsoluteShadow` impl — it's the chain-failure fallback for Relative debris sections. Update the XML doc to reflect the new role (chain-failure fallback inside 0–250 m, not the always-shadow path). |
+| `ParsekFlight.cs` | `:16717-16810` | Keep `TryPositionFromRelativeAbsoluteShadow` impl — it's the chain-failure fallback for Relative debris sections. Update the XML doc to reflect the new role (chain-failure fallback inside 0–500 m, not the always-shadow path). |
 | `ParsekFlight.cs` | `:22857-22933` | Delete `TryUseLegacyDebrisShadowFallback` and `TryRetireParentAnchoredDebrisOnRecordedAnchorMiss`. |
 | `ParsekFlight.cs` | `:22121, :22180, :22274` | Delete `LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible` call sites. |
 | `ParsekFlight.cs` | `:22947-22961` | Delete the debris-only guard inside `TryUseRelativeAbsoluteShadowFallback`. The wrapper itself stays. |
@@ -420,17 +423,17 @@ scripts/grep-audit-ers-els.ps1
 | Test | Setup | Assertion |
 |---|---|---|
 | `Debris_AtSeparation_WithinProximity_OpensRelative` | Debris created at 50 m from parent | First section is `Relative`, `anchorRecordingId == parent.RecordingId`; `absoluteFrames` populated alongside `frames` |
-| `Debris_AtSeparation_BeyondProximity_OpensAbsolute` | Debris created at 300 m from parent (rare) | First section is `Absolute`; `absoluteFrames` null |
-| `Debris_DriftsPastHysteresisExit_ClosesRelativeOpensAbsolute` | Debris drifts 240 → 290 m | At first sample where distance > 280 m: Relative closes, Absolute opens |
-| `Debris_ReentersWithin250m_ReopensRelative` | Debris at 300 m drifts back to 240 m | Absolute closes, Relative opens, anchor pinned to parent |
-| `Debris_HysteresisProtectsAgainstFlapping` | Debris hovering at 245-275 m | No section flip across the hysteresis band |
+| `Debris_AtSeparation_BeyondProximity_OpensAbsolute` | Debris created at 600 m from parent (rare) | First section is `Absolute`; `absoluteFrames` null |
+| `Debris_DriftsPastHysteresisExit_ClosesRelativeOpensAbsolute` | Debris drifts 490 → 560 m | At first sample where distance > 550 m: Relative closes, Absolute opens |
+| `Debris_ReentersWithin500m_ReopensRelative` | Debris at 600 m drifts back to 490 m | Absolute closes, Relative opens, anchor pinned to parent |
+| `Debris_HysteresisProtectsAgainstFlapping` | Debris hovering at 495-545 m | No section flip across the hysteresis band |
 | `Debris_CadenceTier_Full_AtCloseRange` | Debris at 100 m | Effective `maxSampleInterval == configuredMin` |
 | `Debris_CadenceTier_Half_AtMidRange` | Debris at 350 m | Effective `maxSampleInterval == min(configuredMax, 2 × configuredMin)` |
 | `Debris_CadenceTier_None_AtFarRange` | Debris at 1500 m | Falls through to `ResolveDebrisAwareMaxSampleInterval` |
 | `Debris_CadenceTier_ProportionalToDensity` | Debris at 100 m, Low vs High density | Sample-count ratio matches density-setting ratio |
 | `Debris_CadenceTier_HalfNotClobberedByLegacyCap` | Debris at 350 m with Low density (`configuredMin = 0.5 s`) | Half-tier interval is 1.0 s, not capped at 0.5 s |
 | `Debris_CadenceOrthogonality_Matrix` (9 combinations) | Cross-product `ReFlyTreeSamplingCadence × DebrisProximitySamplingCadence` | Priority: Re-Fly Full > Re-Fly Half > debris Full > debris Half > existing fallback |
-| `Debris_AnchorIdentityAlwaysParent_InProximity` | Debris in 0–250 m with sibling debris closer than parent | Anchor remains parent (no nearest-search) |
+| `Debris_AnchorIdentityAlwaysParent_InProximity` | Debris in 0–500 m with sibling debris closer than parent | Anchor remains parent (no nearest-search) |
 | `Debris_BothSurfacesWrittenInsideProximity` | Debris at 100 m | `frames` contains anchor-local offsets; `absoluteFrames` contains body-fixed coords; same UT, same count |
 | `Debris_DebrisParentRecordingId_StillSetOnSplit` | Standard separation | `child.DebrisParentRecordingId == parent.RecordingId` |
 | `Debris_LoopAnchorVesselId_NotInherited` | Debris from loop-anchored parent | `child.LoopAnchorVesselId == 0u` (chain composition handles loop semantics) |
@@ -439,7 +442,7 @@ scripts/grep-audit-ers-els.ps1
 | `Debris_CascadeSeparation_ParentIdIsImmediateParent` | Debris A sheds B | `B.DebrisParentRecordingId == A.RecordingId` |
 | `Debris_CascadeSeparation_DepthCapped` | Cascade depth > `MaxRecordingGeneration` | Further generations dropped (existing rule) |
 | `Debris_ReFlySettleSuppression_Removed` | Debris of a Re-Fly settle parent | Samples continue (no suppression gap) |
-| `Debris_BoundaryPointContinuity_AtFrameTransition` | Debris crosses 280 m, Relative → Absolute | Last `absoluteFrames` body-fixed position equals first new Absolute section `frames` within 0.1 m |
+| `Debris_BoundaryPointContinuity_AtFrameTransition` | Debris crosses 550 m, Relative → Absolute | Last `absoluteFrames` body-fixed position equals first new Absolute section `frames` within 0.1 m |
 
 ### 7.2 Renderer unit tests (`Source/Parsek.Tests/GhostPlaybackEngineTests.cs`)
 
@@ -471,11 +474,12 @@ scripts/grep-audit-ers-els.ps1
 | Test | Scenario | Assertion |
 |---|---|---|
 | `Debris_SeparationEvent_BothSurfacesRecorded` | Booster separation; debris within proximity | Logs show Relative section open with `frames` + `absoluteFrames` populated |
-| `Debris_SeparationEvent_DriftingAway_TransitionsToAbsolute` | Debris drifts past 280 m | Log shows `DEBRIS RELATIVE exit:` event; subsequent samples in Absolute section |
+| `Debris_SeparationEvent_DriftingAway_TransitionsToAbsolute` | Debris drifts past 550 m | Log shows `DEBRIS RELATIVE exit:` event; subsequent samples in Absolute section |
 | `Debris_LoopAnchoredAncestor_FollowsLiveAnchor` | Tanker approach to station, loop the recording, fairing jettisoned mid-approach | Across loop iterations, fairing's rendered position follows the station's live orbital position (verified by frame trace at iterations 1, 3, 5) |
-| `Debris_LongRange_TumblingParent_NoArtifact` | Parent at 200 °/s, debris > 280 m (Absolute) | Debris ghost renders smoothly (no synced-rotation channel) |
-| `Debris_CloseRange_TumblingParent_ChainResolvesThroughShadowFallback` | Parent at 200 °/s, debris < 250 m (Relative), chain math experiences large per-frame error | Either chain math holds (parent dense samples) or shadow fallback engages; ghost remains visible |
-| `Debris_PhysicsWarp_FrameBoundary_NoArtifact` | Debris crossing 280 m during 2× physics warp | Cadence transitions cleanly |
+| `Debris_LongRange_TumblingParent_NoArtifact` | Parent at 200 °/s, debris > 550 m (Absolute) | Debris ghost renders smoothly (no synced-rotation channel) |
+| `Debris_CloseRange_TumblingParent_ChainResolvesThroughShadowFallback` | Parent at 200 °/s, debris < 500 m (Relative), chain math experiences large per-frame error | Either chain math holds (parent dense samples) or shadow fallback engages; ghost remains visible |
+| `Debris_MidRange_TumblingParent_HalfCadenceArtifact_VisibleOrNot` | Parent at 200 °/s, debris 250–500 m (Relative, Half cadence) | Document the visual artifact (if any) — this is the tunable regime per §9 |
+| `Debris_PhysicsWarp_FrameBoundary_NoArtifact` | Debris crossing 550 m during 2× physics warp | Cadence transitions cleanly |
 | `Debris_CadenceProportionalToDensity` | Same scenario at Low vs High density | Sample count in 0–250 m window scales with density |
 
 In-game test files affected by field deletions (`anchorRotationShadowRoutedThisFrame`, `parentAnchoredDebrisCoverageRetired`): `RuntimeTests.cs:4278, 4390-4391, 4524, 4660` — rewrite or remove the shadow-route assertions.
@@ -496,7 +500,7 @@ In-game test files affected by field deletions (`anchorRotationShadowRoutedThisF
 | `DebrisRelativeRecorderPolicyTests.cs` | Update (file kept, mixed-section handling) |
 | `LegacyDebrisShadowGateTests.cs` | Delete (file deleted) |
 | `TumblingParentInterpolationGateTests.cs` | Delete |
-| `DebrisParentAnchorContractTests.cs` | Full rewrite for v13 (Relative-inside-250 m + Absolute-outside) |
+| `DebrisParentAnchorContractTests.cs` | Full rewrite for v13 (Relative-inside-500 m + Absolute-outside) |
 | `ResolveReFlySettleStabilityTests.cs` | Review; delete cases that asserted `ShouldSuppressParentDebrisForReFlySettle` |
 | `Bug362TerminalCrashDebrisTests.cs`, `BoosterStagingSplitTriggerTests.cs`, `BackgroundSplitTests.cs` | Review |
 | `RuntimeTests.cs` (in-game) | Rewrite assertions on deleted fields |
@@ -521,7 +525,13 @@ Pre-merge:
 
 ## 9. Out of scope (follow-ups)
 
-- **BG-parent hi-fi sampling extension**: extending `RegisterHighFidelityProximityVessel` to BG-recorded parents of in-proximity debris. Useful if playtest reveals chain-math jitter due to sparse parent samples inside the 250 m window. The body-fixed shadow on the same Relative section is a safety net regardless.
+- **BG-parent hi-fi sampling extension**: extending `RegisterHighFidelityProximityVessel` to BG-recorded parents of in-proximity debris. Useful if playtest reveals chain-math jitter due to sparse parent samples inside the 500 m window. The body-fixed shadow on the same Relative section is a safety net regardless.
+- **Tunables for the 250–500 m Half-cadence Relative window**: this regime is the most synced-rotation-prone zone (lever arm up to 500 m × parent slerp at 2 × min cadence). If playtest shows visible swing during high-rate parent rotation in this zone, options to address:
+  1. Drop the cadence in 250–500 m back to Full (uniform Full inside the whole Relative window) — doubles storage in the outer ring.
+  2. Reinstate the tumble-gate as a renderer-time shadow fallback (PR #803-style routing) but limited to high parent rates inside the Relative window.
+  3. Recorder-side rate filter: skip Relative-offset emission (keep only body-fixed shadow) when parent rate exceeds threshold inside 250–500 m.
+  4. Shrink the Relative window back to 250 m total.
+  None of these are needed if the user-visible artifact is acceptable — "we can tune later" per user direction.
 - **Visibility decoupling product validation**: under v13 debris in Absolute renders independent of parent. If playtest prefers retiring debris when parent is destroyed, a follow-up adds the check.
 - **`DebrisParentRecordingId` UI surfacing**: filter / group debris by parent in the recordings table.
 - **Recorder denser sampling for fast-debris-rotation cases**: independent concern affecting debris attitude, not position.
@@ -536,4 +546,5 @@ Six drafts on the branch arrived at this design:
 - `17cb5db` — third draft (user feedback): absolute-primary always; tiered cadence; experimental 0–250 m Relative shadow.
 - `4826ede` — fourth draft (first Opus review): drop experimental Relative; debris Absolute-only.
 - `3d9a5fe` / `bc85214` — fifth draft (second Opus review + loop-anchored debris): debris inherits `LoopAnchorVesselId` from loop-anchored parent.
-- **current** — sixth draft: user's insight that *every* debris recording within proximity should carry the relative-to-parent data; chain composition through loop-anchored ancestors handles the loop case naturally without `LoopAnchorVesselId` inheritance. No experimental framing — the relative surface has a concrete consumer (loop scenarios) and a real benefit (sub-metre geometric accuracy at close range).
+- `9662558` — sixth draft: user's insight that *every* debris recording within proximity should carry the relative-to-parent data; chain composition through loop-anchored ancestors handles the loop case naturally without `LoopAnchorVesselId` inheritance. No experimental framing — the relative surface has a concrete consumer (loop scenarios) and a real benefit (sub-metre geometric accuracy at close range). Relative window was 250 m.
+- **current** — seventh draft: Relative shadow window extended to 500 m total, with Half cadence (2 × `configuredMin`) in the outer 250–500 m ring. Frame hysteresis exit moved from 280 m → 550 m to match. Cadence tiers and the Relative section's spatial bound are now coterminous at 500 m. Accepts a tunable trade-off: synced-rotation amplitude in the 250–500 m + tumbling-parent regime grows with the longer lever arm and the Half-rate cadence; §9 enumerates remediation options if playtest shows visible artifacts.
