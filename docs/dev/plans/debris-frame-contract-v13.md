@@ -798,7 +798,35 @@ Land as a single PR or split per the project's preference:
 4. **Resolver carve-out + live-anchor callback** (commit 4). Relax `RelativeAnchorResolver` loop-anchored rejection at the single remaining site (`:301-310`) per §3.4. Add `TryResolveLiveAnchorTransform` field to `RelativeAnchorResolverContext`. Populate from `ParsekFlight` host wiring; leave null at the recorder-side context construction at `BackgroundRecorder.cs:5021`. Add the live-anchor compose step inside the resolver's `TryResolveRecordingPose` for sections with `anchorVesselId != 0u`. Add the cascade and live-anchor-callback resolver tests.
 5. **Recorder change** (commit 5). Gate `ApplyDebrisAnchorContractToState` on proximity; simplify debris seed; add cadence tier resolver, state, and wiring; raise `HighFidelityProximityRangeMeters` to 250 m; remove Re-Fly settle suppression for debris; add the shared `ProximitySamplingCadence` module and refactor `ResolveActiveReFlyTreeSamplingCadence` to use it.
 6. **Tests** (commit 6): test fixture, recorder unit tests, renderer unit tests, format-version tests, in-game test rewrites.
-7. **Docs** (commit 7): CHANGELOG; `.claude/CLAUDE.md` format-version table; close relevant `docs/dev/todo-and-known-bugs.md` entries.
+7. **Docs** (commit 7): CHANGELOG; `.claude/CLAUDE.md` (format-version table, debris-shadow notes, frame-contract paragraphs); close relevant `docs/dev/todo-and-known-bugs.md` entries; **sweep the debris-related design docs** for v12-era statements that v13 invalidates (see §8.1 below).
+
+### 8.1 Design documents to review and update
+
+The v13 contract changes the load-bearing assumptions behind several existing design docs. The implementer should audit each, mark v12-only claims as superseded, and either update inline or add a "v13 status" header noting which sections still apply:
+
+| Doc | What v13 changes |
+|---|---|
+| `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md` (PR 3b §) | The "always Relative for debris lifetime" decision is reversed. Decision §5 (Option C, "always record Relative") no longer applies; the proximity-gated contract from §3.1 supersedes. Decision §7 ("debris bound to parent visibility") is relaxed for Absolute sections per §3.3 of this plan. |
+| `docs/dev/plans/debris-always-shadow.md` (PR #803) | The "always-shadow" renderer path is deleted (§4.2). Synced-rotation rationale should be rewritten to note v13 prevents the failure mode structurally via the bounded proximity window rather than by routing through the shadow at render time. |
+| `docs/dev/plans/debris-smooth-trajectory-during-tumble.md` (PR #800) | Tumble-gate is deleted (`TumblingParentInterpolationGate.cs` gone). The "smooth trajectory during parent tumble" decision was a v12-era workaround; under v13, the issue is bounded by recorder cadence + proximity window, not by renderer-time routing. |
+| `docs/dev/plans/ghost-anchor-recording-chain-plan.md` | Debris-specific bullets need updating. Section §"Vessel symmetry" and §"Debris and other co-bubble vessels" reference the v12 always-Relative contract; rewrite to reflect v13's proximity-gated contract + anchor-pinned-to-parent. The loop-anchored chain composition (this plan's §3.4) is new and may need a paragraph in the chain plan's loop carve-out section. |
+| `docs/dev/research/recording-and-ghost-policies-audit-2026-05-07.md` | Audit findings about v12 debris policy gaps may be partly addressed and partly invalidated by v13. Mark stale items as superseded by v13. |
+| `docs/dev/research/trajectory-frame-overview-2026-05-11.md` | The trajectory-frame audit (the doc that motivated this plan). Case 2 ("Debris of regular main vessel"), Case 9/10 (Re-Fly debris cases), the case-by-case matrix, and §0.2 format version table all need updating for v13. |
+| `docs/dev/plans/fix-debris-recorder-tail-invariant.md`, `fix-debris-ghost-initial-slide.md`, `fix-debris-relative-tail-retirement.md`, `fix-watch-debris-retirement.md`, `investigate-radial-debris-origin.md` | v12-era debris fix plans. Each needs a quick review for whether the underlying issue is (a) still present under v13, (b) resolved by v13 structurally, or (c) moot because the relevant code path is deleted. |
+| Any other `docs/dev/plans/*debris*.md` or `docs/dev/research/*debris*` doc that hits via `grep -rli "debris" docs/dev/` | Same sweep; some are pre-v12 and may still apply; others are v12-specific and need v13 status. |
+
+Recommended sweep procedure:
+
+```bash
+# Find every dev doc mentioning debris or shadow framing:
+grep -rln "debris\|absoluteFrames\|absolute shadow\|always-shadow" docs/dev/
+
+# For each: open, audit for v12-only claims (always-Relative, always-shadow,
+# tumble-gate, LoopAnchorVesselId inheritance on debris, etc.), and either
+# update inline or add a top-of-doc "Superseded by v13" pointer to this plan.
+```
+
+The CLAUDE.md update is mandatory (it's the working reference for future agents and reviewers); the others are best-effort but should be done as part of the v13 PR rather than deferred to a follow-up — stale design docs are corrosive to future work on this surface.
 
 Pre-merge:
 - `dotnet test` all green
