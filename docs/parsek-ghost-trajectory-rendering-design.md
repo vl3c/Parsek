@@ -786,7 +786,7 @@ Per-stage hook locations in the existing playback path. Each hook is additive; e
 
 ### 17.3 Sidecar Layout
 
-The pipeline persists data in two distinct ways. The split is deliberate: `.prec` is a high-frequency-loaded binary file with its own version-stamped schema (`Source/Parsek/TrajectorySidecarBinary.cs`, magic `PRKB`, current version `RecordingAnchorChainFormatVersion = 11`); pipeline annotations are derivable from raw recordings and live in a separate binary sidecar so the canonical `.prec` is touched only when actually new *raw* fields are needed.
+The pipeline persists data in two distinct ways. The split is deliberate: `.prec` is a high-frequency-loaded binary file with its own version-stamped schema (`Source/Parsek/TrajectorySidecarBinary.cs`, magic `PRKB`, current version `DebrisFrameContractFormatVersion = 13`); pipeline annotations are derivable from raw recordings and live in a separate binary sidecar so the canonical `.prec` is touched only when actually new *raw* fields are needed.
 
 #### 17.3.1 New Annotation Sidecar `<id>.pann`
 

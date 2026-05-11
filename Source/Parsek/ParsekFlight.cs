@@ -16601,32 +16601,18 @@ namespace Parsek
             bracketBeforeUT = double.NaN;
             bracketAfterUT = double.NaN;
 
+            double firstBodyFixedUT;
+            double lastBodyFixedUT;
             if (state?.ghost == null
-                || target.Section.referenceFrame != ReferenceFrame.Relative
-                || target.Section.bodyFixedFrames == null
-                || target.Section.bodyFixedFrames.Count < 2)
+                || !BodyFixedPrimaryCoversPlaybackUT(
+                    target.Section,
+                    playbackUT,
+                    out firstBodyFixedUT,
+                    out lastBodyFixedUT))
             {
                 // Single-sample body-fixed primary data is rejected: InterpolateAndPosition
                 // would snap to that one point and we'd render a stale pose
                 // for the rest of the window.
-                return false;
-            }
-
-            // Reject playback UTs outside the shadow's covered range. Without
-            // this guard InterpolateAndPosition / TrajectoryMath.InterpolatePoints
-            // would clamp at the nearest endpoint and the ghost would silently
-            // freeze at a stale shadow sample for the rest of the window. The
-            // router falls back to Hidden when this returns false. Compare
-            // against the actual bodyFixedFrames endpoint UTs (NOT the section's
-            // startUT/endUT) because the recorder may have written shadow
-            // samples that don't span the full section bounds.
-            int lastAbsoluteIdx = target.Section.bodyFixedFrames.Count - 1;
-            double firstShadowUT = target.Section.bodyFixedFrames[0].ut;
-            double lastShadowUT = target.Section.bodyFixedFrames[lastAbsoluteIdx].ut;
-            const double shadowCoverageEpsilon = 1e-6;
-            if (playbackUT + shadowCoverageEpsilon < firstShadowUT
-                || playbackUT - shadowCoverageEpsilon > lastShadowUT)
-            {
                 return false;
             }
 
@@ -16682,6 +16668,33 @@ namespace Parsek
             // / Velocity. Callers do NOT need to invoke SetInterpolated separately.
             state.SetInterpolated(interpResult);
             return true;
+        }
+
+        internal static bool BodyFixedPrimaryCoversPlaybackUT(
+            TrackSection section,
+            double playbackUT,
+            out double firstBodyFixedUT,
+            out double lastBodyFixedUT)
+        {
+            firstBodyFixedUT = double.NaN;
+            lastBodyFixedUT = double.NaN;
+            if (section.referenceFrame != ReferenceFrame.Relative
+                || section.bodyFixedFrames == null
+                || section.bodyFixedFrames.Count < 2)
+            {
+                return false;
+            }
+
+            int lastIdx = section.bodyFixedFrames.Count - 1;
+            firstBodyFixedUT = section.bodyFixedFrames[0].ut;
+            lastBodyFixedUT = section.bodyFixedFrames[lastIdx].ut;
+
+            // Reject playback UTs outside the body-fixed primary's covered range.
+            // Without this guard InterpolateAndPosition / TrajectoryMath.InterpolatePoints
+            // would clamp at the nearest endpoint and silently freeze stale debris.
+            const double coverageEpsilon = 1e-6;
+            return playbackUT + coverageEpsilon >= firstBodyFixedUT
+                && playbackUT - coverageEpsilon <= lastBodyFixedUT;
         }
 
         /// <summary>
@@ -22680,15 +22693,20 @@ namespace Parsek
             RelativeAnchorResolveFailure resolverFailure = default(RelativeAnchorResolveFailure))
         {
             interpResult = InterpolationResult.Zero;
+            double firstBodyFixedUT;
+            double lastBodyFixedUT;
             if (state?.ghost == null
-                || target.Section.referenceFrame != ReferenceFrame.Relative
-                || target.Section.bodyFixedFrames == null
-                || target.Section.bodyFixedFrames.Count == 0)
+                || !BodyFixedPrimaryCoversPlaybackUT(
+                    target.Section,
+                    targetUT,
+                    out firstBodyFixedUT,
+                    out lastBodyFixedUT))
             {
                 return false;
             }
 
             int absolutePlaybackIdx = playbackIdx;
+            bool ghostWasActive = state.ghost.activeSelf;
             InterpolateAndPosition(
                 state.ghost,
                 target.Section.bodyFixedFrames,
@@ -22701,6 +22719,14 @@ namespace Parsek
                 skipOrbitSegments: true,
                 recordingId: target.RecordingId,
                 sectionIndex: target.SectionIndex);
+
+            if (!GhostPlaybackEngine.IsInterpolationResultValid(interpResult))
+            {
+                if (state.ghost != null && state.ghost.activeSelf != ghostWasActive)
+                    state.ghost.SetActive(ghostWasActive);
+                return false;
+            }
+
             playbackIdx = absolutePlaybackIdx;
 
             // PR 3c review follow-up: skip the [WARN] entirely (don't even
