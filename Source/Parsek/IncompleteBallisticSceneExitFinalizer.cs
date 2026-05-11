@@ -1087,10 +1087,13 @@ namespace Parsek
                     rawOffsetMeters = Magnitude(anchorWorld - originalWorld);
 
                 Orbit reseededOrbit = new Orbit();
-                reseededOrbit.UpdateFromStateVectors(
-                    anchorWorld,
-                    anchorVelocity,
+                OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                    reseededOrbit,
                     body,
+                    anchorPoint.latitude,
+                    anchorPoint.longitude,
+                    anchorPoint.altitude,
+                    anchorVelocity,
                     anchorPoint.ut);
 
                 reseededSegment = originalSegment;

@@ -969,6 +969,122 @@ namespace Parsek.InGameTests
                 $"lan={lan:F2} argPe={argPe:F2} periAlt={periAlt:F0} safeAlt={safeAlt:F0}");
         }
 
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Map-presence endpoint-tail seed accepts large activation-to-tail UT gaps only through historical body-relative reconstruction")]
+        public void GhostMapEndpointTail_UsesHistoricalTailSeedAcrossActivationDrift()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            const double activationUT = 135.7;
+            const double tailUT = 453.66214255408767;
+            var rec = new Recording
+            {
+                RecordingId = "ingame-endpoint-tail-map-presence",
+                VesselName = "Endpoint tail map presence",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 600.0,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 4_547_677.0,
+                TerminalOrbitEccentricity = 0.822,
+                EndpointPhase = RecordingEndpointPhase.OrbitSegment,
+                EndpointBodyName = "Kerbin",
+                Points = new System.Collections.Generic.List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = tailUT,
+                        bodyName = "Kerbin",
+                        altitude = 208_283.22164018429,
+                        velocity = new UnityEngine.Vector3(296.024567f, 3.8434844f, -2806.1167f)
+                    }
+                },
+                OrbitSegments = new System.Collections.Generic.List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Kerbin",
+                        startUT = 120.0,
+                        endUT = 150.0,
+                        semiMajorAxis = 512_941.0,
+                        eccentricity = 0.5746,
+                        inclination = 0.0977,
+                        longitudeOfAscendingNode = 75.6,
+                        argumentOfPeriapsis = 342.3,
+                        meanAnomalyAtEpoch = 1.6818,
+                        epoch = 120.0
+                    }
+                },
+                TrackSections = new System.Collections.Generic.List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        environment = SegmentEnvironment.ExoBallistic,
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 444.60214255409591,
+                        endUT = tailUT,
+                        frames = new System.Collections.Generic.List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint
+                            {
+                                ut = tailUT,
+                                latitude = -0.020555305204629719,
+                                longitude = -36.664361532582674,
+                                altitude = 208_283.22164018429,
+                                rotation = UnityEngine.Quaternion.identity,
+                                velocity = new UnityEngine.Vector3(296.024567f, 3.8434844f, -2806.1167f),
+                                bodyName = "Kerbin"
+                            }
+                        }
+                    }
+                }
+            };
+
+            bool seedOk = OrbitSeedResolver.TryDeriveTailOrbitSeed(
+                rec,
+                kerbin,
+                activationUT,
+                TailSeedUse.MapPresence,
+                out TailDerivedOrbitSeed seed);
+            InGameAssert.IsTrue(seedOk,
+                $"MapPresence tail seed should succeed via historical rotation (decline={seed.DeclineReason ?? "(none)"})");
+            InGameAssert.IsTrue(seed.UsedHistoricalBodyRotation,
+                "MapPresence tail seed must use the historical body-relative path");
+            InGameAssert.IsTrue(System.Math.Abs(seed.RotationDriftSeconds) > VesselSpawner.TailDerivedOrbitMaxRotationDriftSeconds,
+                $"Test must exercise drift above spawn guard; drift={seed.RotationDriftSeconds:F2}s");
+            InGameAssert.IsTrue(seed.Segment.semiMajorAxis > 0.0 && seed.Segment.eccentricity >= 0.0,
+                $"EndpointTail segment should be finite positive orbit data; sma={seed.Segment.semiMajorAxis:F1} ecc={seed.Segment.eccentricity:F4}");
+
+            int cached = -1;
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveMapPresenceGhostSource(
+                    rec,
+                    isSuppressed: false,
+                    alreadyMaterialized: false,
+                    currentUT: activationUT,
+                    allowTerminalOrbitFallback: true,
+                    logOperationName: "ingame-endpoint-tail-map",
+                    ref cached,
+                    out OrbitSegment resolvedSegment,
+                    out _,
+                    out string skipReason);
+            InGameAssert.AreEqual(
+                GhostMapPresence.TrackingStationGhostSource.EndpointTail,
+                source,
+                $"Map source should be EndpointTail, got {source} skip={skipReason ?? "(none)"}");
+            InGameAssert.ApproxEqual(tailUT, resolvedSegment.epoch, 1e-6);
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapEndpointTail_UsesHistoricalTailSeedAcrossActivationDrift: " +
+                $"drift={seed.RotationDriftSeconds:F2}s sma={seed.Segment.semiMajorAxis:F1} " +
+                $"ecc={seed.Segment.eccentricity:F4} source={source}");
+        }
+
         #endregion
 
         #region Parsek Settings
