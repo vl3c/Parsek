@@ -236,7 +236,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrySelectTrackingStationFocusFrames_RelativeSectionUsesAbsoluteShadowFrames()
+        public void TrySelectTrackingStationFocusFrames_RelativeSectionUsesBodyFixedPrimaryFrames()
         {
             var shadowFrames = new List<TrajectoryPoint>
             {
@@ -275,7 +275,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrySelectTrackingStationFocusFrames_RelativeSectionWithoutAbsoluteShadowFailsClosed()
+        public void TrySelectTrackingStationFocusFrames_RelativeSectionWithoutBodyFixedPrimaryFailsClosed()
         {
             var rec = new Recording
             {
@@ -308,11 +308,11 @@ namespace Parsek.Tests
 
             Assert.False(selected);
             Assert.Null(frames);
-            Assert.Equal("relative-without-body-fixed-primary", reason);
+            Assert.Equal("relative-body-fixed-primary-out-of-range", reason);
         }
 
         [Fact]
-        public void TrySelectTrackingStationFocusFrames_AfterRelativeSectionUsesAbsoluteShadowFrames()
+        public void TrySelectTrackingStationFocusFrames_AfterRelativeSectionRejectsStaleBodyFixedPrimaryFrames()
         {
             var shadowFrames = new List<TrajectoryPoint>
             {
@@ -350,9 +350,9 @@ namespace Parsek.Tests
                 out List<TrajectoryPoint> frames,
                 out string reason);
 
-            Assert.True(selected);
-            Assert.Same(shadowFrames, frames);
-            Assert.Null(reason);
+            Assert.False(selected);
+            Assert.Null(frames);
+            Assert.Equal("relative-body-fixed-primary-out-of-range", reason);
         }
 
         [Fact]
@@ -389,7 +389,7 @@ namespace Parsek.Tests
 
             Assert.False(selected);
             Assert.Null(frames);
-            Assert.Equal("relative-without-body-fixed-primary", reason);
+            Assert.Equal("relative-body-fixed-primary-out-of-range", reason);
         }
 
         [Fact]

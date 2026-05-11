@@ -1380,6 +1380,7 @@ namespace Parsek
             {
                 if (TrySelectTrackingStationFocusFramesFromSection(
                         recording.TrackSections[sectionIdx],
+                        sampleUT,
                         out frames,
                         out reason,
                         out bool blockedBySection))
@@ -1397,6 +1398,7 @@ namespace Parsek
             {
                 if (TrySelectTrackingStationFocusFramesFromSection(
                         nearestSection,
+                        sampleUT,
                         out frames,
                         out reason,
                         out bool blockedByNearestSection))
@@ -1420,6 +1422,7 @@ namespace Parsek
 
         private static bool TrySelectTrackingStationFocusFramesFromSection(
             TrackSection section,
+            double sampleUT,
             out List<TrajectoryPoint> frames,
             out string reason,
             out bool blocked)
@@ -1437,9 +1440,10 @@ namespace Parsek
 
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
-                if (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
+                if (!ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                        section, sampleUT, out _, out _))
                 {
-                    reason = "relative-without-body-fixed-primary";
+                    reason = "relative-body-fixed-primary-out-of-range";
                     blocked = true;
                     return false;
                 }

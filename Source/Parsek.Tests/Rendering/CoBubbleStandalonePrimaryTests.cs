@@ -424,7 +424,7 @@ namespace Parsek.Tests.Rendering
             // RELATIVE section), but the body-fixed-primary ends at 30 — the
             // canonical bug case where the recorder stopped capturing
             // shadow points partway through the section. Shadow walk at
-            // ut=35 hits idx==-1 (past last shadow sample), and the fix
+            // ut=35 hits idx==-1 (past last body-fixed sample), and the fix
             // must fail closed instead of clamping to shadow[0].
             var rec = new Recording
             {

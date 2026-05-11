@@ -146,7 +146,7 @@ namespace Parsek.Tests
             internal double LastLoopUT;
             internal double LastShadowUT;
             internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
-            // Test-controlled return value for the shadow positioner. When
+            // Test-controlled return value for the body-fixed positioner. When
             // false (default) the engine routes through the legacy hide path
             // exactly as it did pre-route. When true, set
             // PrimedShadowBracketBeforeUT / PrimedShadowBracketAfterUT.
@@ -824,12 +824,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_InsideRelativeSection_ReturnsFalse()
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_InsideRelativeSectionWithoutBodyFixed_ReturnsTrue()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
 
+            Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj,
+                105.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("relative-only-without-body-fixed-primary", diagnostic.Reason);
+            Assert.True(diagnostic.RelativeFramesCoverUT);
+            Assert.False(diagnostic.bodyFixedFramesCoverUT);
+        }
+
+        [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_BodyFixedPrimaryCover_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
+
             Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
-                traj, 105.0));
+                traj,
+                105.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("covered-by-body-fixed-primary", diagnostic.Reason);
+            Assert.True(diagnostic.RelativeFramesCoverUT);
+            Assert.True(diagnostic.bodyFixedFramesCoverUT);
         }
 
         [Fact]
@@ -849,7 +868,7 @@ namespace Parsek.Tests
                 traj,
                 120.0,
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
-            Assert.Equal("relative-and-shadow-frames-out-of-range", diagnostic.Reason);
+            Assert.Equal("relative-and-body-fixed-frames-out-of-range", diagnostic.Reason);
             Assert.Equal(0, diagnostic.SectionIndex);
             Assert.Equal(100.0, diagnostic.FirstRelativeFrameUT);
             Assert.Equal(110.0, diagnostic.LastRelativeFrameUT);
@@ -919,7 +938,7 @@ namespace Parsek.Tests
                 traj,
                 120.0,
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
-            Assert.Equal("relative-and-shadow-frames-out-of-range", diagnostic.Reason);
+            Assert.Equal("relative-and-body-fixed-frames-out-of-range", diagnostic.Reason);
             Assert.False(diagnostic.RelativeFramesCoverUT);
             Assert.False(diagnostic.bodyFixedFramesCoverUT);
             Assert.Equal(120.0, diagnostic.FirstbodyFixedFrameUT);
@@ -970,7 +989,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleRelativeFrameWithinSection_ReturnsFalse()
+        public void ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorSectionOutlivesFrames_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingTree tree = MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u);
+            TrackSection parentSection = tree.Recordings["parent-rec"].TrackSections[0];
+            parentSection.endUT = 140.0;
+            parentSection.frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 },
+            };
+            tree.Recordings["parent-rec"].TrackSections[0] = parentSection;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            Assert.False(GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, 120.0));
+        }
+
+        [Fact]
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleRelativeFrameWithoutBodyFixed_ReturnsTrue()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
@@ -981,26 +1018,26 @@ namespace Parsek.Tests
             };
             traj.TrackSections[0] = section;
 
-            Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                 traj,
                 120.0,
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
-            Assert.Equal("covered-by-relative-frames", diagnostic.Reason);
+            Assert.Equal("relative-only-without-body-fixed-primary", diagnostic.Reason);
         }
 
         [Fact]
-        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_ProjectedFlatPointsCover_ReturnsFalse()
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_ProjectedFlatPointsWithoutBodyFixed_ReturnsTrue()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
             section.frames = null;
             traj.TrackSections[0] = section;
 
-            Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                 traj,
                 105.0,
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
-            Assert.Equal("covered-by-relative-frames", diagnostic.Reason);
+            Assert.Equal("relative-only-without-body-fixed-primary", diagnostic.Reason);
             Assert.Equal(100.0, diagnostic.FirstRelativeFrameUT);
             Assert.Equal(110.0, diagnostic.LastRelativeFrameUT);
         }
@@ -1019,7 +1056,7 @@ namespace Parsek.Tests
                 traj,
                 105.0,
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
-            Assert.Equal("relative-and-shadow-frames-out-of-range", diagnostic.Reason);
+            Assert.Equal("relative-and-body-fixed-frames-out-of-range", diagnostic.Reason);
         }
 
         [Fact]
@@ -1057,7 +1094,7 @@ namespace Parsek.Tests
         [Fact]
         public void ResolveRecordingEndpointCoverageUT_OrbitEndpointPastRelativeCoverage_UsesOrbitEndpoint()
         {
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
             traj.EndpointPhase = RecordingEndpointPhase.OrbitSegment;
             traj.EndpointBodyName = "Kerbin";
             traj.OrbitSegments.Add(new OrbitSegment
@@ -1097,9 +1134,40 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss_EndpointInsideRelativeCoverage_ReturnsFalse()
         {
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
 
             Assert.False(GhostPlaybackEngine.ShouldCompleteParentAnchoredDebrisEndpointCoverageMiss(traj));
+        }
+
+        [Fact]
+        public void TryPositionRelativeSectionAtPlaybackUT_ParentAnchoredDebrisWithoutBodyFixed_RetiresInsteadOfRelativeFallback()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+
+            bool handled = InvokeTryPositionRelativeSectionAtPlaybackUT(
+                engine,
+                index: 3,
+                traj: traj,
+                state: state,
+                playbackUT: 105.0,
+                suppressFx: true);
+
+            Assert.True(handled);
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(0, positioner.InterpolateCalls);
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("recorded-relative-retired")
+                && l.Contains("coverageReason=relative-only-without-body-fixed-primary")
+                && l.Contains("recordingId=debris-rec"));
         }
 
         [Fact]
@@ -1169,12 +1237,12 @@ namespace Parsek.Tests
                 l.Contains("[Anchor]")
                 && l.Contains("recorded-relative-retired")
                 && l.Contains("reason=parent-anchored-debris-outside-relative-coverage")
-                && l.Contains("coverageReason=relative-and-shadow-frames-out-of-range")
+                && l.Contains("coverageReason=relative-and-body-fixed-frames-out-of-range")
                 && l.Contains("recordingId=debris-rec"));
         }
 
         [Fact]
-        public void TryPositionRelativeSectionAtPlaybackUT_ShadowCoveredAfterRelativeFrames_DoesNotRetire()
+        public void TryPositionRelativeSectionAtPlaybackUT_BodyFixedCoveredButVisualMissing_RetiresInsteadOfRelativeFallback()
         {
             var positioner = new SpawnPrimingPositioner
             {
@@ -1207,10 +1275,14 @@ namespace Parsek.Tests
                 suppressFx: true);
 
             Assert.True(handled);
-            Assert.False(state.anchorRetiredThisFrame);
+            Assert.True(state.anchorRetiredThisFrame);
             Assert.Equal(0, positioner.ShadowPositionCalls);
-            Assert.Equal(1, positioner.InterpolateCalls);
-            Assert.Empty(logLines.Where(l => l.Contains("recorded-relative-retired")));
+            Assert.Equal(0, positioner.InterpolateCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("recorded-relative-retired")
+                && l.Contains("coverageReason=body-fixed-primary-position-failed")
+                && l.Contains("recordingId=debris-rec"));
         }
 
         [Fact]
@@ -1250,7 +1322,7 @@ namespace Parsek.Tests
         {
             var positioner = new SpawnPrimingPositioner();
             var engine = new GhostPlaybackEngine(positioner);
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
             var state = new GhostPlaybackState
             {
                 vesselName = "Kerbal X Debris",
@@ -1274,7 +1346,7 @@ namespace Parsek.Tests
         [Fact]
         public void IsInterpolationResultValid_BodyNameNull_TreatsAsFailure()
         {
-            // Regression guard for the fail-closed contract on the shadow
+            // Regression guard for the fail-closed contract on the body-fixed
             // route. Reviewer P2: TryPositionFromRelativeAbsoluteShadow used
             // to return true after InterpolateAndPosition even when the
             // helper had hit body-lookup-miss / empty-points failure paths,
@@ -3292,7 +3364,7 @@ namespace Parsek.Tests
             };
             var traj = new MockTrajectory
             {
-                RecordingId = "debris-gap-shadow",
+                RecordingId = "debris-gap-body-fixed",
                 VesselName = "RelativeDebrisSpawnGhost",
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 IsDebris = true,
@@ -3332,7 +3404,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Engine]")
                 && l.Contains("RelativeDebrisSpawnGhost")
-                && l.Contains("skipping orbit precedence: authored-frame gap shadow available"));
+                && l.Contains("skipping orbit precedence: authored-frame gap body-fixed primary available"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Engine]")
                 && l.Contains("RelativeDebrisSpawnGhost")

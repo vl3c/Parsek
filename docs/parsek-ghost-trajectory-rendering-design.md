@@ -277,7 +277,7 @@ This section enumerates every situation that produces an anchor. Each entry spec
 
 - **v5 and earlier (`< RelativeLocalFrameFormatVersion`):** legacy world-space offset path, `anchorWorldPos + storedOffset`. The pipeline must not auto-reinterpret these as anchor-local data — that is one of the explicit version contract rules (`.claude/CLAUDE.md` → "Rotation / world frame").
 - **v6+ (`>= RelativeLocalFrameFormatVersion`):** anchor-local Cartesian offset stored in `TrajectoryPoint.latitude/longitude/altitude` as metres along the anchor's local axes, resolved as `anchorWorldPos + anchorWorldRot * (dx, dy, dz)` via `TrajectoryMath.ApplyRelativeLocalOffset` (`:1007`). The rotation step is mandatory; omitting it misplaces the segment whenever the anchor rotates.
-- **v7 (`>= RelativeAbsoluteShadowFormatVersion`):** v6 contract plus the parallel body-fixed primary list, now named `bodyFixedFrames` in code and text sidecars. Phase D removed the flight-scene active-Re-Fly shadow fallback selector; new playback code should route through the current resolver contracts instead of reintroducing live-anchor bypasses.
+- **v7 (`>= RelativeAbsoluteShadowFormatVersion`):** v6 contract plus the parallel body-fixed primary list, now named `bodyFixedFrames` in code and text sidecars. Phase D removed the flight-scene active-Re-Fly body-fixed fallback selector; new playback code should route through the current resolver contracts instead of reintroducing live-anchor bypasses.
 - **v11 (`>= RecordingAnchorChainFormatVersion`):** non-loop Relative sections store `TrackSection.anchorRecordingId` and resolve through recorded anchor trajectories. Loop Relative playback remains the explicit live-PID exception through `Recording.LoopAnchorVesselId`.
 - **v13 (`>= DebrisFrameContractFormatVersion`):** parent-anchored debris uses `bodyFixedFrames` as the primary playback surface; anchor-local Relative `frames` remain the secondary path for loop-anchored chains and diagnostics. Pre-v13 recordings/sidecars are rejected by the current loader policy instead of migrated.
 
@@ -1241,7 +1241,7 @@ For each stage, the table below lists the events that must produce a log line, t
 
 | Event                                        | Level   | Tag                  | Data to include                                                    |
 |----------------------------------------------|---------|----------------------|--------------------------------------------------------------------|
-| Recording loaded with pre-pipeline format    | Info    | `Pipeline-Format`    | `recordingId`, formatVersion, degraded-mode list                   |
+| Recording rejected for unsupported `.prec` format | Warn | `Pipeline-Format`    | `recordingId`, formatVersion, required baseline, rejection reason   |
 | Annotation algorithm version drift           | Info    | `Pipeline-Format`    | `recordingId`, found version, current version, action taken       |
 
 ### 19.3 Batch Counter Convention
@@ -1323,9 +1323,9 @@ Test fixtures use the existing generators (`Source/Parsek.Tests/Generators/`):
 | Co-bubble per-trace peer format-version validation      | Peer `.prec` migrated to a newer format; existing trace must be discarded                                   | same                                                   |
 | Co-bubble per-trace `peerContentSignature` mismatch     | Peer raw bytes in `[startUT, endUT]` window changed under same epoch (defence-in-depth) → trace discarded   | same                                                   |
 | Co-bubble peer-missing fallback                         | Peer recording deleted; trace must discard and consumer falls back to standalone, with HR-9 Warn log        | same                                                   |
-| `.prec` v9 / v10 schema round-trip                      | New per-point fields (`recordedGroundClearance`, `flags`) corrupt on save / load of newer recordings        | `PrecBinaryRoundTripTests.cs`                          |
-| `.prec` v8 read under v9 code                           | Older recording missing `recordedGroundClearance` reads as NaN; pipeline must fall back gracefully          | same                                                   |
-| `.prec` v9 read under pre-v9 code                       | Older Parsek build encounters newer `.prec` and refuses cleanly (`probe.Supported = false`) — no silent corruption | same                                              |
+| Current `.prec` v13 schema round-trip                    | Body-fixed primary, recorded anchors, debris parent ids, ground clearance, and point flags corrupt on save / load | `PrecBinaryRoundTripTests.cs`                          |
+| Pre-v13 `.prec` probe rejection                          | Older recording sidecar is accepted partially instead of failing closed with `probe.Supported = false`       | same                                                   |
+| Future `.prec` version probe rejection                   | Older Parsek build encounters newer `.prec` and refuses cleanly (`probe.Supported = false`) — no silent corruption | same                                              |
 | `RenderSessionState.RebuildFromMarker` deterministic    | Same marker + same recordings → different ε map between runs → HR-3 violated                                | `RenderSessionStateTests.cs`                           |
 | `RenderSessionState.Clear` invalidation                 | Anchor lookup after `Clear` returns stale value → would cause ghost to spawn at last-session position       | same                                                   |
 
@@ -1421,7 +1421,7 @@ Maps to Section 18's phase ordering. A phase is not done until every box ticks.
 
 ## 21. Backward Compatibility & Format Evolution
 
-The pipeline's only persistent additions are sidecar annotation nodes (Section 17.3). All recordings produced before the pipeline's introduction remain loadable and playable; the pipeline degrades gracefully across format generations.
+The pipeline's persistent additions are sidecar annotation nodes (Section 17.3) plus the current v13 `.prec` trajectory baseline. Pre-v13 recordings are rejected by the current loader policy; historical format notes in this section describe why the schema evolved, not a compatibility promise for new playback.
 
 ### 21.1 Format Version Chain
 
@@ -1484,23 +1484,11 @@ The flow:
 
 ### 21.4 Cross-Version Re-Fly
 
-A re-fly session can reference recordings of mixed formats (a tree built up across mod versions). The pipeline:
-
-- Treats every recording's section through its version-appropriate frame contract.
-- Builds anchors per Section 7 wherever the data exists. Older recordings missing data simply contribute fewer anchors.
-- Logs `Pipeline-Format` Info per recording listing which pipeline features are active for it.
-- Renders correctly in all combinations; older recordings just look like the pre-pipeline behaviour.
-
-This mirrors the existing rule for v5 vs v6 RELATIVE handling — version dispatch happens per-section, never globally.
+Cross-version Re-Fly is not a current compatibility target. Every loaded recording in a tree must satisfy the v13 `.prec` baseline before it contributes playback, anchors, or annotations. Older recordings are rejected at load/probe time and do not enter render paths that combine multiple trajectory baselines.
 
 ### 21.5 Save-File Compatibility
 
-The pipeline writes nothing to `.sfs` save files. `ParsekScenario.OnSave` / `OnLoad` are unchanged. Sharing a save with a player on a pre-pipeline build:
-
-- The pre-pipeline build never opens `<id>.pann` (it has no code path for it). The file is harmless on disk — it sits unread.
-- For `.prec` v9 / v10 recordings sent to a pre-Phase-7 / pre-Phase-9 build, the older `TrajectorySidecarBinary` reader fails the version check (`IsSupportedBinaryVersion` returns false). The recipient sees `probe.FailureReason = "unsupported binary trajectory version 9"` (or v10) and the recording fails to load gracefully — no silent corruption, no plausible-but-wrong data. Players should upgrade the receiving side before consuming v9 / v10 recordings.
-
-There is no migration tool. Recordings flow through versions by additive evolution; downgrades are a non-goal (consistent with the existing project policy).
+The pipeline writes no annotation payloads to `.sfs` save files. Current `.prec` trajectory sidecars must be v13; older `.prec` versions fail the probe/load gate with an explicit unsupported-version reason. There is no migration or downgrade tool, and no partial-load fallback for older trajectory formats.
 
 ### 21.6 What This Section Is Not
 
@@ -1658,8 +1646,8 @@ Sidecar files carry a version header. The format evolves additively per the exis
 
 For pipeline-related additions:
 
-- New raw fields (e.g., velocity samples if not previously recorded): additive. Old recordings remain valid; the pipeline computes velocity from position deltas where samples are missing, marked as derived.
-- New annotation types: additive. Computed lazily for older recordings.
+- New raw fields (e.g., velocity samples if not previously recorded): require a `.prec` baseline bump. Older baselines are rejected rather than partially derived.
+- New annotation types: additive. Computed lazily for accepted v13 recordings whose `.pann` sidecar is absent or stale.
 - New cache types: additive. Computed on demand if absent.
 
 Sidecar version bumps for pipeline additions follow the existing scheme.

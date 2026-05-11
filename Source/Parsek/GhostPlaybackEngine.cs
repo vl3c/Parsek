@@ -2643,10 +2643,18 @@ namespace Parsek
             out bool usedBodyFixedPrimary)
         {
             usedBodyFixedPrimary = false;
-            if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
-                    index, traj, state, playbackUT,
-                    "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT"))
+            if (ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    traj,
+                    playbackUT,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
             {
+                MarkParentAnchoredDebrisCoverageRetired(
+                    index,
+                    traj,
+                    state,
+                    playbackUT,
+                    "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT",
+                    diagnostic);
                 return true;
             }
 
@@ -2669,6 +2677,18 @@ namespace Parsek
                     "relative-section-direct"))
             {
                 usedBodyFixedPrimary = true;
+                return true;
+            }
+            if (parentAnchoredDebris && !loopAnchoredDebrisChain)
+            {
+                diagnostic.Reason = "body-fixed-primary-position-failed";
+                MarkParentAnchoredDebrisCoverageRetired(
+                    index,
+                    traj,
+                    state,
+                    playbackUT,
+                    "GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT",
+                    diagnostic);
                 return true;
             }
 
@@ -2790,6 +2810,14 @@ namespace Parsek
                 TrackSection section = anchor.TrackSections[sectionIndex];
                 if (section.referenceFrame != ReferenceFrame.Relative)
                     return false;
+                if (!DebrisRelativePlaybackPolicy.RelativeFramesCoverUT(
+                        anchor,
+                        section,
+                        playbackUT,
+                        DebrisRelativeCoverageMode.RecorderPersistable))
+                {
+                    return false;
+                }
                 if (anchor.LoopAnchorVesselId != 0u)
                     return true;
                 if (section.anchorVesselId != 0u)
@@ -5600,7 +5628,7 @@ namespace Parsek
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
                     ParsekLog.Verbose("Engine", FormattableString.Invariant(
-                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} skipping orbit precedence: authored-frame gap shadow available"));
+                        $"Pending playback interpolation: vessel='{vesselName}' UT={playbackUT:F1} skipping orbit precedence: authored-frame gap body-fixed primary available"));
                 }
 
                 if (!surfaceSkip && !authoredGapHasShadow && canUseOrbitPrecedence)

@@ -91,14 +91,14 @@ namespace Parsek
                 return true;
 
             return diagnostic.SectionIndex >= 0
-                && diagnostic.Reason != "non-relative-section"
-                && !diagnostic.RelativeFramesCoverUT;
+                && diagnostic.Reason != "non-relative-section";
         }
 
         internal static bool RelativeFramesCoverUT(
             IPlaybackTrajectory traj,
             TrackSection section,
-            double playbackUT)
+            double playbackUT,
+            DebrisRelativeCoverageMode mode = DebrisRelativeCoverageMode.PlaybackCompatible)
         {
             List<TrajectoryPoint> frames = ResolveRelativeFrames(traj, section);
             return DebrisRelativeCoveragePrimitives.RelativeFramesCoverUT(
@@ -106,7 +106,7 @@ namespace Parsek
                 section.startUT,
                 section.endUT,
                 playbackUT,
-                DebrisRelativeCoverageMode.PlaybackCompatible);
+                mode);
         }
 
         internal static bool AbsoluteShadowFramesCoverUT(
@@ -177,12 +177,12 @@ namespace Parsek
                 section.bodyFixedFrames,
                 playbackUT);
 
-            if (diagnostic.RelativeFramesCoverUT)
-                diagnostic.Reason = "covered-by-relative-frames";
-            else if (diagnostic.bodyFixedFramesCoverUT)
+            if (diagnostic.bodyFixedFramesCoverUT)
                 diagnostic.Reason = "covered-by-body-fixed-primary";
+            else if (diagnostic.RelativeFramesCoverUT)
+                diagnostic.Reason = "relative-only-without-body-fixed-primary";
             else
-                diagnostic.Reason = "relative-and-shadow-frames-out-of-range";
+                diagnostic.Reason = "relative-and-body-fixed-frames-out-of-range";
 
             return diagnostic;
         }
@@ -193,7 +193,8 @@ namespace Parsek
             return diagnostic.Reason == "parent-recording-id-empty"
                 || diagnostic.Reason == "no-track-sections"
                 || diagnostic.Reason == "no-covering-section"
-                || diagnostic.Reason == "relative-and-shadow-frames-out-of-range";
+                || diagnostic.Reason == "relative-only-without-body-fixed-primary"
+                || diagnostic.Reason == "relative-and-body-fixed-frames-out-of-range";
         }
 
         private static List<TrajectoryPoint> ResolveRelativeFrames(

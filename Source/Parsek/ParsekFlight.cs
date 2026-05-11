@@ -17944,6 +17944,20 @@ namespace Parsek
                 return TryComputeStandaloneAbsoluteFallbackWorldPosition(rec, ut, out worldPos);
             }
 
+            if (DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(rec)
+                && rec.LoopAnchorVesselId == 0u)
+            {
+                if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                        rec,
+                        ut,
+                        out _))
+                {
+                    return false;
+                }
+
+                return TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos);
+            }
+
             if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
             {
                 string reason = rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion
@@ -21998,7 +22012,7 @@ namespace Parsek
                     "InterpolateAndPositionRecordedRelative",
                     resolverReason:
                         "parent-anchored-debris-outside-relative-coverage coverageReason="
-                        + (diagnostic.Reason ?? "relative-and-shadow-frames-out-of-range"));
+                        + (diagnostic.Reason ?? "relative-and-body-fixed-frames-out-of-range"));
                 interpResult = InterpolationResult.Zero;
                 return;
             }
