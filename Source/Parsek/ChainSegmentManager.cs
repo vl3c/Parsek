@@ -772,19 +772,13 @@ namespace Parsek
                     Vessel recordedVessel = FlightRecorder.FindVesselByPid(segmentRecorder.RecordingVesselId);
                     if (recordedVessel != null && recordedVessel.mainBody != null)
                     {
-                        pending.SegmentBodyName = recordedVessel.mainBody.name;
-                        if (recordedVessel.situation == Vessel.Situations.LANDED
-                            || recordedVessel.situation == Vessel.Situations.SPLASHED
-                            || recordedVessel.situation == Vessel.Situations.PRELAUNCH)
+                        if (SegmentPhaseClassifier.TryClassify(
+                            recordedVessel,
+                            out string phase,
+                            out string bodyName))
                         {
-                            pending.SegmentPhase = "surface";
-                        }
-                        else if (recordedVessel.mainBody.atmosphere)
-                            pending.SegmentPhase = recordedVessel.altitude < recordedVessel.mainBody.atmosphereDepth ? "atmo" : "exo";
-                        else
-                        {
-                            double threshold = FlightRecorder.ComputeApproachAltitude(recordedVessel.mainBody);
-                            pending.SegmentPhase = recordedVessel.altitude < threshold ? "approach" : "exo";
+                            pending.SegmentBodyName = bodyName;
+                            pending.SegmentPhase = phase;
                         }
 
                         pending.SceneExitSituation = (int)recordedVessel.situation;
