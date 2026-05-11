@@ -673,6 +673,9 @@ namespace Parsek
         private static readonly Dictionary<int, IPlaybackTrajectory> trackingStationStateVectorOrbitTrajectories =
             new Dictionary<int, IPlaybackTrajectory>();
 
+        private static readonly HashSet<int> trackingStationSoiGapStateVectorOrbitIndices =
+            new HashSet<int>();
+
         private static readonly Dictionary<int, int> trackingStationStateVectorCachedIndices =
             new Dictionary<int, int>();
 
@@ -3106,6 +3109,7 @@ namespace Parsek
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
+            trackingStationSoiGapStateVectorOrbitIndices.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
             lastKnownByRecordingIndex.Clear();
@@ -3304,6 +3308,7 @@ namespace Parsek
             vesselsByRecordingIndex.Remove(recordingIndex);
             activeReFlyDeferredStateVectorGhostSessions.Remove(recordingIndex);
             trackingStationStateVectorOrbitTrajectories.Remove(recordingIndex);
+            trackingStationSoiGapStateVectorOrbitIndices.Remove(recordingIndex);
             trackingStationStateVectorCachedIndices.Remove(recordingIndex);
             lastKnownByRecordingIndex.Remove(recordingIndex);
             lifecycleDestroyedThisTick++;
@@ -4380,6 +4385,40 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryResolveSoiGapCheckpointStateVectorMapPoint(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            ref int cachedIndex,
+            out TrajectoryPoint point,
+            out OrbitalCheckpointStateVectorFallbackDecision decision)
+        {
+            decision = default(OrbitalCheckpointStateVectorFallbackDecision);
+            if (!TryResolveCheckpointStateVectorMapPoint(
+                    traj,
+                    currentUT,
+                    ref cachedIndex,
+                    out point,
+                    out _,
+                    out _))
+            {
+                point = default(TrajectoryPoint);
+                return false;
+            }
+
+            decision = EvaluateOrbitalCheckpointStateVectorFallback(
+                traj,
+                currentUT,
+                point,
+                segmentSourceAvailable: false,
+                allowSoiGapRecovery: true,
+                expectedSoiGapBody: null);
+            if (decision.Accepted)
+                return true;
+
+            point = default(TrajectoryPoint);
+            return false;
+        }
+
         // #583: when state-vector resolution was attempted (either because
         // there are no orbit segments OR because we're in a Relative section)
         // and produced a meaningful skip reason — relative-frame /
@@ -4725,9 +4764,18 @@ namespace Parsek
                 {
                     lifecycleCreated++;
                     if (IsStateVectorGhostSource(source))
+                    {
                         trackingStationStateVectorOrbitTrajectories[i] = rec;
+                        if (source == TrackingStationGhostSource.StateVectorSoiGap)
+                            trackingStationSoiGapStateVectorOrbitIndices.Add(i);
+                        else
+                            trackingStationSoiGapStateVectorOrbitIndices.Remove(i);
+                    }
                     else
+                    {
                         trackingStationStateVectorOrbitTrajectories.Remove(i);
+                        trackingStationSoiGapStateVectorOrbitIndices.Remove(i);
+                    }
                     // Ensure orbit renderer exists (MapView.fetch should be available by now)
                     EnsureGhostOrbitRenderers();
                     ParsekLog.Info(Tag,
@@ -4830,17 +4878,26 @@ namespace Parsek
                 bool hasOrbitBounds = ghostOrbitBounds.TryGetValue(pid, out var bounds);
                 bool isStateVector =
                     trackingStationStateVectorOrbitTrajectories.ContainsKey(idx);
+                bool isSoiGapStateVector =
+                    trackingStationSoiGapStateVectorOrbitIndices.Contains(idx);
 
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
                     ? cached
                     : -1;
-                bool fromCheckpoint = TryResolveCheckpointStateVectorMapPoint(
-                    rec,
-                    currentUT,
-                    ref cachedStateVectorIndex,
-                    out TrajectoryPoint checkpointPoint,
-                    out _,
-                    out _);
+                TrajectoryPoint checkpointPoint = default(TrajectoryPoint);
+                OrbitalCheckpointStateVectorFallbackDecision checkpointDecision =
+                    default(OrbitalCheckpointStateVectorFallbackDecision);
+                bool fromAcceptedSoiGapCheckpoint = false;
+                if (isStateVector && isSoiGapStateVector)
+                {
+                    fromAcceptedSoiGapCheckpoint =
+                        TryResolveSoiGapCheckpointStateVectorMapPoint(
+                            rec,
+                            currentUT,
+                            ref cachedStateVectorIndex,
+                            out checkpointPoint,
+                            out checkpointDecision);
+                }
 
                 string removeReason = GetTrackingStationGhostRemovalReason(
                     rec,
@@ -4856,11 +4913,17 @@ namespace Parsek
                     continue;
                 }
 
-                if (fromCheckpoint && isStateVector)
+                if (fromAcceptedSoiGapCheckpoint)
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
                     StateVectorOrbitUpdateResult updateResult =
-                        UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT);
+                        UpdateGhostOrbitFromStateVectors(
+                            idx,
+                            rec,
+                            checkpointPoint,
+                            currentUT,
+                            allowOrbitalCheckpointStateVector: true,
+                            stateVectorUpdateReason: checkpointDecision.Reason);
                     if (updateResult == StateVectorOrbitUpdateResult.RetryLater)
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
@@ -4970,6 +5033,7 @@ namespace Parsek
                 string reason = toRemove[i].reason;
                 RemoveGhostVesselForRecording(idx, reason);
                 trackingStationStateVectorOrbitTrajectories.Remove(idx);
+                trackingStationSoiGapStateVectorOrbitIndices.Remove(idx);
                 trackingStationStateVectorCachedIndices.Remove(idx);
                 ParsekLog.Info(Tag,
                     string.Format(ic,
@@ -6716,7 +6780,8 @@ namespace Parsek
                 out segment,
                 out stateVectorPoint,
                 out skipReason,
-                recordingIndex: recordingIndex);
+                recordingIndex: recordingIndex,
+                allowSoiGapStateVectorFallback: true);
 
             LogTrackingStationGhostSourceDecision(
                 context,
@@ -6860,10 +6925,15 @@ namespace Parsek
                     if (IsStateVectorGhostSource(source))
                     {
                         trackingStationStateVectorOrbitTrajectories[i] = rec;
+                        if (source == TrackingStationGhostSource.StateVectorSoiGap)
+                            trackingStationSoiGapStateVectorOrbitIndices.Add(i);
+                        else
+                            trackingStationSoiGapStateVectorOrbitIndices.Remove(i);
                     }
                     else
                     {
                         trackingStationStateVectorOrbitTrajectories.Remove(i);
+                        trackingStationSoiGapStateVectorOrbitIndices.Remove(i);
                     }
                 }
             }
@@ -7228,6 +7298,7 @@ namespace Parsek
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
+            trackingStationSoiGapStateVectorOrbitIndices.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
             ClearCachedReFlySuppressionSearchTrees();
@@ -7267,11 +7338,12 @@ namespace Parsek
             int reverseCount = vesselPidToRecordingIndex.Count;
             int reverseIdCount = vesselPidToRecordingId.Count;
             int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
+            int tsSoiGapStateVectorCount = trackingStationSoiGapStateVectorOrbitIndices.Count;
             int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
 
             int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount + orbitSegmentCount
                 + chainCount + indexCount + reverseCount + reverseIdCount
-                + tsStateVectorCount + tsStateVectorCacheCount;
+                + tsStateVectorCount + tsSoiGapStateVectorCount + tsStateVectorCacheCount;
 
             if (totalTracked == 0)
             {
@@ -7291,6 +7363,7 @@ namespace Parsek
             vesselPidToRecordingIndex.Clear();
             vesselPidToRecordingId.Clear();
             trackingStationStateVectorOrbitTrajectories.Clear();
+            trackingStationSoiGapStateVectorOrbitIndices.Clear();
             trackingStationStateVectorCachedIndices.Clear();
             activeReFlyDeferredStateVectorGhostSessions.Clear();
             lastKnownByRecordingIndex.Clear();
@@ -7301,11 +7374,11 @@ namespace Parsek
                     "ResetBetweenTestRuns: cleared bookkeeping reason={0} " +
                     "pids={1} suppressedIcons={2} orbitBounds={3} orbitSegments={4} " +
                     "chainVessels={5} indexVessels={6} reverseLookup={7} reverseIdLookup={8} " +
-                    "tsStateVectors={9} tsStateVectorCache={10}",
+                    "tsStateVectors={9} tsSoiGapStateVectors={10} tsStateVectorCache={11}",
                     reason ?? "(null)",
                     pidCount, suppressedIconCount, orbitBoundsCount,
                     orbitSegmentCount, chainCount, indexCount, reverseCount, reverseIdCount,
-                    tsStateVectorCount, tsStateVectorCacheCount));
+                    tsStateVectorCount, tsSoiGapStateVectorCount, tsStateVectorCacheCount));
         }
 
         // ------------------------------------------------------------------

@@ -60,6 +60,71 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveTrackingStationGhostSource_SoiGapCheckpointFallbackAccepted_WiresWrapperOptIn()
+        {
+            Recording rec = MakeSoiGapRecording(
+                "soi-gap-tracking-station-wrapper",
+                checkpointBody: "Mun",
+                futureSegmentBody: "Mun");
+            int cachedStateVectorIndex = -1;
+
+            GhostMapPresence.TrackingStationGhostSource source =
+                GhostMapPresence.ResolveTrackingStationGhostSource(
+                    rec,
+                    isSuppressed: false,
+                    realVesselExists: false,
+                    currentUT: 160.0,
+                    stateVectorCachedIndex: ref cachedStateVectorIndex,
+                    segment: out _,
+                    stateVectorPoint: out TrajectoryPoint point,
+                    skipReason: out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.StateVectorSoiGap, source);
+            Assert.Equal("Mun", point.bodyName);
+            Assert.Equal(GhostMapPresence.SoiGapStateVectorFallbackReason, skipReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostMap]")
+                && l.Contains("ResolveTrackingStationGhostSource")
+                && l.Contains("context=direct")
+                && l.Contains("orbitSource=soi-gap-state-vector")
+                && l.Contains("reason=" + GhostMapPresence.SoiGapStateVectorFallbackReason));
+        }
+
+        [Fact]
+        public void TryResolveSoiGapCheckpointStateVectorMapPoint_AcceptsOnlyBodyTransitionGap()
+        {
+            Recording accepted = MakeSoiGapRecording(
+                "soi-gap-update-accepted",
+                checkpointBody: "Mun",
+                futureSegmentBody: "Mun");
+            int acceptedCachedStateVectorIndex = -1;
+
+            Assert.True(GhostMapPresence.TryResolveSoiGapCheckpointStateVectorMapPoint(
+                accepted,
+                currentUT: 160.0,
+                cachedIndex: ref acceptedCachedStateVectorIndex,
+                point: out TrajectoryPoint acceptedPoint,
+                decision: out GhostMapPresence.OrbitalCheckpointStateVectorFallbackDecision acceptedDecision));
+            Assert.Equal("Mun", acceptedPoint.bodyName);
+            Assert.Equal(GhostMapPresence.SoiGapStateVectorFallbackReason, acceptedDecision.Reason);
+
+            Recording rejected = MakeSoiGapRecording(
+                "soi-gap-update-rejected",
+                checkpointBody: "Kerbin",
+                futureSegmentBody: "Kerbin");
+            int rejectedCachedStateVectorIndex = -1;
+
+            Assert.False(GhostMapPresence.TryResolveSoiGapCheckpointStateVectorMapPoint(
+                rejected,
+                currentUT: 160.0,
+                cachedIndex: ref rejectedCachedStateVectorIndex,
+                point: out TrajectoryPoint rejectedPoint,
+                decision: out GhostMapPresence.OrbitalCheckpointStateVectorFallbackDecision rejectedDecision));
+            Assert.Equal(default(TrajectoryPoint), rejectedPoint);
+            Assert.Equal(GhostMapPresence.OrbitalCheckpointStateVectorRejectNotSoiGap, rejectedDecision.Reason);
+        }
+
+        [Fact]
         public void ResolveMapPresenceGhostSource_NormalCheckpointStateVectorStillRejects()
         {
             Recording rec = MakeSoiGapRecording(

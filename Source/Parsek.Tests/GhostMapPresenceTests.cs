@@ -317,8 +317,12 @@ namespace Parsek.Tests
             var stateVectorCachedIndices = (Dictionary<int, int>)typeof(GhostMapPresence)
                 .GetField("trackingStationStateVectorCachedIndices", BindingFlags.NonPublic | BindingFlags.Static)
                 .GetValue(null);
+            var soiGapStateVectorIndices = (HashSet<int>)typeof(GhostMapPresence)
+                .GetField("trackingStationSoiGapStateVectorOrbitIndices", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
             stateVectorTrajectories[3] = new Recording { RecordingId = "state-vector-reset" };
             stateVectorCachedIndices[3] = 7;
+            soiGapStateVectorIndices.Add(3);
 
             GhostMapPresence.ResetForTesting();
             Assert.False(GhostMapPresence.IsGhostMapVessel(111));
@@ -327,6 +331,7 @@ namespace Parsek.Tests
             Assert.Empty(GhostMapPresence.ghostOrbitSegments);
             Assert.Empty(stateVectorTrajectories);
             Assert.Empty(stateVectorCachedIndices);
+            Assert.Empty(soiGapStateVectorIndices);
         }
 
         #endregion
