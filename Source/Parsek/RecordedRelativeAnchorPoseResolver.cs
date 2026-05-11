@@ -255,7 +255,7 @@ namespace Parsek
                         out CelestialBody body,
                         out _))
                 {
-                    return false;
+                    continue;
                 }
 
                 if (!OrbitResolution.TryComputeOrbitWorldPosition(
@@ -267,7 +267,7 @@ namespace Parsek
                         out OrbitPlacementResult placement,
                         out _))
                 {
-                    return false;
+                    continue;
                 }
 
                 var rotation = ParsekFlight.ComputeOrbitalRotation(

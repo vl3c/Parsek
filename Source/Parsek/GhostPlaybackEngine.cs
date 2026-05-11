@@ -2438,6 +2438,17 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Engine", $"loop-pause-suppressed-{index}",
                     $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj?.VesselName}\" loop-pause");
             }
+            // If positioning failed, do not drive pause-window effects from the
+            // stale transform. ApplyFrameVisuals tears down existing FX with
+            // suppressVisualFx=true, then leave the retire hide intact.
+            if (loopPauseRetired)
+            {
+                ApplyFrameVisuals(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), warpRate,
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
+                return;
+            }
+
             if (!state.pauseHidden)
             {
                 state.pauseHidden = true;
@@ -2450,25 +2461,6 @@ namespace Parsek
             {
                 state.lastInterpolatedVelocity = Vector3.zero;
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
-            }
-            // Bug #613 (PR #594 P1): if the loop-endpoint position landed in a
-            // relative section whose anchor pid is unresolvable, the retire
-            // branch already called SetActive(false). Skip the
-            // ActivateGhostVisualsIfNeeded + TrackGhostAppearance pair here so
-            // the same-frame reactivation race can't undo the hide.
-            //
-            // P3 (round 2): HideAllGhostParts above only calls MuteAllAudio —
-            // any previously-emitting engine plumes / RCS / reentry FX
-            // continue rendering at the (0,0,0) retired position. The other
-            // five PR #594 visibility gates already call
-            // ApplyFrameVisuals(suppressVisualFx:true) for FX teardown; do
-            // the same here so the loop-pause window matches that contract.
-            if (loopPauseRetired)
-            {
-                ApplyFrameVisuals(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), warpRate,
-                    skipPartEvents: true, suppressVisualFx: true,
-                    allowTransientEffects: false);
-                return;
             }
             ActivateGhostVisualsIfNeeded(state);
             double appearanceUT = ResolveLoopPlaybackEndpointUT(traj);

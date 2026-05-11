@@ -228,6 +228,15 @@ namespace Parsek.Tests
             traj.RecordingId = "suborbital_landing";
             traj.TerminalStateValue = TerminalState.Landed;
             traj.OrbitSegments = new List<OrbitSegment> { segment };
+            traj.Points[0] = WithAltitude(traj.Points[0], 100000.0);
+            traj.Points[1] = WithAltitude(traj.Points[1], 120000.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 140.0,
+                endUT = 160.0
+            });
 
             bool rejected = OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
                 traj,
@@ -239,6 +248,67 @@ namespace Parsek.Tests
             Assert.False(rejected);
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("legacy-surface-orbit-reject-suborbital_landing-distance"));
+        }
+
+        [Theory]
+        [InlineData(SegmentEnvironment.Atmospheric, "atmospheric-track-section")]
+        [InlineData(SegmentEnvironment.Approach, "approach-track-section")]
+        public void ShouldRejectLegacySurfaceOrbitSegment_RejectsNonKeplerianTrackSections(
+            SegmentEnvironment environment,
+            string reason)
+        {
+            OrbitSegment segment = KerbalXProbeSubOrbitalSegment();
+            var traj = new MockTrajectory().WithTimeRange(140.0, 160.0);
+            traj.RecordingId = "non_keplerian_junk";
+            traj.OrbitSegments = new List<OrbitSegment> { segment };
+            traj.TrackSections.Add(new TrackSection
+            {
+                environment = environment,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 140.0,
+                endUT = 160.0
+            });
+
+            bool rejected = OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                traj,
+                segment,
+                150.0,
+                traj.RecordingId,
+                "distance");
+
+            Assert.True(rejected);
+            Assert.Contains(logLines, l =>
+                l.Contains("legacy-surface-orbit-reject-non_keplerian_junk-distance")
+                && l.Contains("reason=" + reason));
+        }
+
+        [Fact]
+        public void ShouldRejectLegacySurfaceOrbitSegment_RejectsPrelaunchLowAltitudeLegacyPoints()
+        {
+            OrbitSegment segment = KerbalXProbeSubOrbitalSegment();
+            var rec = new Recording
+            {
+                RecordingId = "prelaunch_low_points",
+                StartSituation = "Prelaunch",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 140.0, bodyName = "Kerbin", altitude = 80.0 },
+                    new TrajectoryPoint { ut = 160.0, bodyName = "Kerbin", altitude = 120.0 }
+                },
+                OrbitSegments = new List<OrbitSegment> { segment }
+            };
+
+            bool rejected = OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                rec,
+                segment,
+                150.0,
+                rec.RecordingId,
+                "distance");
+
+            Assert.True(rejected);
+            Assert.Contains(logLines, l =>
+                l.Contains("legacy-surface-orbit-reject-prelaunch_low_points-distance")
+                && l.Contains("reason=surface-start-situation"));
         }
 
         private static CelestialBody ResolveBody(string bodyName)
@@ -263,6 +333,12 @@ namespace Parsek.Tests
                 epoch = 142.16,
                 bodyName = "Kerbin"
             };
+        }
+
+        private static TrajectoryPoint WithAltitude(TrajectoryPoint point, double altitude)
+        {
+            point.altitude = altitude;
+            return point;
         }
     }
 }

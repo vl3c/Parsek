@@ -4823,7 +4823,7 @@ namespace Parsek
                     isSuppressed,
                     alreadyMaterialized,
                     hasOrbitBounds,
-                    isStateVector || fromCheckpoint,
+                    isStateVector,
                     currentUT);
                 if (removeReason != null)
                 {
@@ -4832,7 +4832,7 @@ namespace Parsek
                     continue;
                 }
 
-                if (fromCheckpoint)
+                if (fromCheckpoint && isStateVector)
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
                     if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT))
@@ -5607,7 +5607,7 @@ namespace Parsek
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
             Orbit orbit = new Orbit();
-            orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
+            OrbitReseed.FromWorldPosAndRecordedVelocity(orbit, body, worldPos, vel, ut);
 
             string logContext = string.Format(ic,
                 "recording #{0} (state vectors alt={1:F0} spd={2:F1} frame={3})",
@@ -5830,7 +5830,12 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
-            vessel.orbitDriver.orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
+            OrbitReseed.FromWorldPosAndRecordedVelocity(
+                vessel.orbitDriver.orbit,
+                body,
+                worldPos,
+                vel,
+                ut);
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
 
@@ -7250,7 +7255,8 @@ namespace Parsek
                 if (TryGetLastMatchingEndpointSegmentForMapPresence(
                         traj,
                         endpointBody,
-                        out OrbitSegment endpointSegment))
+                        out OrbitSegment endpointSegment,
+                        out bool invalidEndpointSegment))
                 {
                     CopyOrbitSegmentSeed(
                         endpointSegment,
@@ -7268,7 +7274,9 @@ namespace Parsek
 
                 if (!hasMatchingTerminalOrbit)
                 {
-                    diagnostics.FailureReason = terminalBodyConflicts
+                    diagnostics.FailureReason = invalidEndpointSegment
+                        ? "invalid-endpoint-orbit-segment"
+                        : terminalBodyConflicts
                         ? TrackingStationGhostSkipEndpointConflict
                         : "endpoint-orbit-segment-missing";
                     return false;
@@ -7294,7 +7302,8 @@ namespace Parsek
             if (TryGetLastMatchingEndpointSegmentForMapPresence(
                     traj,
                     endpointBody,
-                    out OrbitSegment fallbackEndpointSegment))
+                    out OrbitSegment fallbackEndpointSegment,
+                    out bool invalidFallbackEndpointSegment))
             {
                 CopyOrbitSegmentSeed(
                     fallbackEndpointSegment,
@@ -7310,7 +7319,9 @@ namespace Parsek
                 return true;
             }
 
-            diagnostics.FailureReason = terminalBodyConflicts
+            diagnostics.FailureReason = invalidFallbackEndpointSegment
+                ? "invalid-endpoint-orbit-segment"
+                : terminalBodyConflicts
                 ? TrackingStationGhostSkipEndpointConflict
                 : "no-matching-orbit-seed";
             return false;
@@ -7319,9 +7330,11 @@ namespace Parsek
         private static bool TryGetLastMatchingEndpointSegmentForMapPresence(
             IPlaybackTrajectory traj,
             string endpointBody,
-            out OrbitSegment segment)
+            out OrbitSegment segment,
+            out bool invalidCandidate)
         {
             segment = default(OrbitSegment);
+            invalidCandidate = false;
             if (traj?.OrbitSegments == null)
                 return false;
 
@@ -7338,7 +7351,12 @@ namespace Parsek
                     continue;
                 }
 
-                LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
+                if (LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate))
+                {
+                    invalidCandidate = true;
+                    return false;
+                }
+
                 segment = candidate;
                 return true;
             }
@@ -7418,7 +7436,7 @@ namespace Parsek
             bodyName = traj.TerminalOrbitBody;
         }
 
-        private static void LogInvalidEndpointSeedSegmentIfNeeded(
+        private static bool LogInvalidEndpointSeedSegmentIfNeeded(
             IPlaybackTrajectory traj,
             OrbitSegment segment)
         {
@@ -7429,7 +7447,7 @@ namespace Parsek
                 reason = OrbitRejectionReason.BelowMinSma;
 
             if (reason == OrbitRejectionReason.None)
-                return;
+                return false;
 
             OrbitResolution.LogOrbitSegmentRejected(
                 segment,
@@ -7437,6 +7455,7 @@ namespace Parsek
                 "map-presence-endpoint-seed",
                 reason,
                 OrbitSegmentValidationMode.ValidateAndLog);
+            return true;
         }
 
         private static void LogSkippedEndpointSeedSegment(

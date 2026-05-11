@@ -121,5 +121,40 @@ namespace Parsek
                     body != null ? body.position.magnitude : 0.0,
                     velAlreadyZup.magnitude));
         }
+
+        /// <summary>
+        /// Build orbit elements at <paramref name="ut"/> from a world-absolute
+        /// Y-up position and recorder-frame Y-up world velocity.
+        /// </summary>
+        /// <remarks>
+        /// Use this when the position has already been resolved to world space
+        /// before this call (for example map-presence state-vector fallback), but
+        /// the velocity is still <see cref="TrajectoryPoint.velocity"/> captured
+        /// by the recorder.
+        /// </remarks>
+        internal static void FromWorldPosAndRecordedVelocity(
+            Orbit dst,
+            CelestialBody body,
+            Vector3d worldPosYup,
+            Vector3d recordedVelWorldYup,
+            double ut)
+        {
+            Vector3d bodyRelPos = worldPosYup - body.position;
+            dst.UpdateFromStateVectors(
+                bodyRelPos.xzy,
+                recordedVelWorldYup.xzy,
+                body,
+                ut);
+            ParsekLog.Verbose("OrbitReseed",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FromWorldPosAndRecordedVelocity: body={0} ut={1:F2} " +
+                    "|worldPos|={2:F1} |bodyRelPos|={3:F1} |bodyPos|={4:F1} |vel|={5:F2}",
+                    body?.name ?? "(null)",
+                    ut,
+                    worldPosYup.magnitude,
+                    bodyRelPos.magnitude,
+                    body != null ? body.position.magnitude : 0.0,
+                    recordedVelWorldYup.magnitude));
+        }
     }
 }

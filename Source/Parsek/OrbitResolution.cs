@@ -373,6 +373,8 @@ namespace Parsek
             {
                 placement.Velocity = Vector3d.zero;
             }
+            if (!IsFiniteVector3d(placement.Velocity))
+                placement.Velocity = Vector3d.zero;
 
             return true;
         }
@@ -395,6 +397,7 @@ namespace Parsek
             if (segments == null || segments.Count == 0)
                 return false;
 
+            bool sawRejectedSegment = false;
             for (int i = 0; i < segments.Count; i++)
             {
                 OrbitSegment segment = segments[i];
@@ -413,20 +416,28 @@ namespace Parsek
                         out CelestialBody body,
                         out _))
                 {
+                    sawRejectedSegment = true;
                     failureReason = OrbitWorldPositionFailureReason.SegmentRejected;
-                    return false;
+                    continue;
                 }
 
-                return TryComputeOrbitWorldPosition(
+                if (TryComputeOrbitWorldPosition(
                     orbit,
                     body,
                     targetUT,
                     Vector3d.zero,
                     clampToSurface,
                     out placement,
-                    out failureReason);
+                    out failureReason))
+                {
+                    return true;
+                }
+
+                sawRejectedSegment = true;
             }
 
+            if (sawRejectedSegment && failureReason == OrbitWorldPositionFailureReason.NoSegment)
+                failureReason = OrbitWorldPositionFailureReason.SegmentRejected;
             return false;
         }
 
@@ -464,29 +475,34 @@ namespace Parsek
             if (traj == null)
                 return false;
 
-            if (TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, targetUT))
+            if (TryGetTrackSectionEnvironmentAtUT(
+                    traj.TrackSections,
+                    targetUT,
+                    out SegmentEnvironment activeEnvironment)
+                && IsNonKeplerianLegacyOrbitEnvironment(activeEnvironment))
             {
-                reason = "surface-track-section";
+                reason = ToLegacyEnvironmentReason(activeEnvironment) + "-track-section";
                 return true;
             }
 
-            if (HasOnlySurfaceTrackSections(traj))
+            if (HasOnlyNonKeplerianTrackSections(traj))
             {
-                reason = "surface-only-track-sections";
+                reason = "non-keplerian-track-sections";
                 return true;
             }
 
             bool hasTrajectoryPoints = traj.Points != null && traj.Points.Count > 0;
-            bool hasNonSurfaceSections = HasNonSurfaceTrackSections(traj);
-            if (traj.SurfacePos.HasValue && !hasNonSurfaceSections)
+            bool hasKeplerianSections = HasKeplerianTrackSections(traj);
+            bool hasOnlyLowAltitudePoints = HasOnlyLegacySurfaceJunkAltitudePoints(traj);
+            if (traj.SurfacePos.HasValue && !hasKeplerianSections)
             {
                 reason = "surface-position";
                 return true;
             }
 
             if (IsSurfaceTerminalState(traj.TerminalStateValue)
-                && !hasTrajectoryPoints
-                && !hasNonSurfaceSections)
+                && !hasKeplerianSections
+                && (!hasTrajectoryPoints || hasOnlyLowAltitudePoints))
             {
                 reason = "surface-terminal-state";
                 return true;
@@ -494,8 +510,8 @@ namespace Parsek
 
             if (traj is Recording recording
                 && IsSurfaceStartSituation(recording.StartSituation)
-                && !hasTrajectoryPoints
-                && !hasNonSurfaceSections)
+                && !hasKeplerianSections
+                && (!hasTrajectoryPoints || hasOnlyLowAltitudePoints))
             {
                 reason = "surface-start-situation";
                 return true;
@@ -504,32 +520,84 @@ namespace Parsek
             return false;
         }
 
-        private static bool HasOnlySurfaceTrackSections(IPlaybackTrajectory traj)
+        private static bool TryGetTrackSectionEnvironmentAtUT(
+            List<TrackSection> sections,
+            double targetUT,
+            out SegmentEnvironment environment)
+        {
+            environment = default(SegmentEnvironment);
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sections, targetUT);
+            if (sectionIdx < 0)
+                return false;
+
+            environment = sections[sectionIdx].environment;
+            return true;
+        }
+
+        private static bool HasOnlyNonKeplerianTrackSections(IPlaybackTrajectory traj)
         {
             if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
                 return false;
 
             for (int i = 0; i < traj.TrackSections.Count; i++)
             {
-                if (!EnvironmentDetector.IsSurfaceEnvironment(traj.TrackSections[i].environment))
+                if (!IsNonKeplerianLegacyOrbitEnvironment(traj.TrackSections[i].environment))
                     return false;
             }
 
             return true;
         }
 
-        private static bool HasNonSurfaceTrackSections(IPlaybackTrajectory traj)
+        private static bool HasKeplerianTrackSections(IPlaybackTrajectory traj)
         {
             if (traj?.TrackSections == null)
                 return false;
 
             for (int i = 0; i < traj.TrackSections.Count; i++)
             {
-                if (!EnvironmentDetector.IsSurfaceEnvironment(traj.TrackSections[i].environment))
+                if (!IsNonKeplerianLegacyOrbitEnvironment(traj.TrackSections[i].environment))
                     return true;
             }
 
             return false;
+        }
+
+        private static bool IsNonKeplerianLegacyOrbitEnvironment(SegmentEnvironment environment)
+        {
+            return EnvironmentDetector.IsSurfaceEnvironment(environment)
+                || environment == SegmentEnvironment.Atmospheric
+                || environment == SegmentEnvironment.Approach;
+        }
+
+        private static string ToLegacyEnvironmentReason(SegmentEnvironment environment)
+        {
+            if (EnvironmentDetector.IsSurfaceEnvironment(environment))
+                return "surface";
+            if (environment == SegmentEnvironment.Atmospheric)
+                return "atmospheric";
+            if (environment == SegmentEnvironment.Approach)
+                return "approach";
+            return "non-keplerian";
+        }
+
+        private const double LegacySurfaceJunkPointAltitudeCeilingMeters = 5000.0;
+
+        private static bool HasOnlyLegacySurfaceJunkAltitudePoints(IPlaybackTrajectory traj)
+        {
+            if (traj?.Points == null || traj.Points.Count == 0)
+                return false;
+
+            for (int i = 0; i < traj.Points.Count; i++)
+            {
+                double altitude = traj.Points[i].altitude;
+                if (!IsFiniteDouble(altitude)
+                    || altitude > LegacySurfaceJunkPointAltitudeCeilingMeters)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool IsSurfaceTerminalState(TerminalState? terminalState)
