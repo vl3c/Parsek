@@ -12,6 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 probe ghost hidden by suborbital OrbitSegment radius gate
+
+- ~~Probe-stage ghost playback could reject a valid suborbital `OrbitSegment` before resolving playback distance because the old guard treated `|sma| < body.Radius * 0.9` as invalid. The retained Kerbal X Probe repro includes an ascent segment around `sma=512 941 m` on Kerbin: below the 540 km threshold, but still the correct Kepler source for playback at that UT. Once rejected, the distance resolver could fall through to flat point metadata from a RELATIVE section and interpret anchor-local metre offsets as body-fixed lat/lon/alt, producing a bogus far-away distance and zone-hiding/jumping the ghost.~~
+
+**Fix:** Orbit playback now uses a body-radius-independent usability check: orbital elements must be finite and `|sma| >= 1 m`, but suborbital conics are allowed. The flight distance resolver, orbit-tail gate, orbit positioning cache, checkpoint orbit cache, and pending-spawn interpolation share that rule, with degenerate segments falling back to point metadata rather than valid suborbital segments doing so.
+
+**Coverage:** Added xUnit coverage that pins the `sma=512 941 m` suborbital case as usable, keeps zero/non-finite SMA rejected, verifies pending-spawn interpolation prefers the active suborbital orbit segment over points, verifies the orbit-tail gate skips degenerate segments, and preserves point fallback for a degenerate orbit segment.
+
+---
+
 ## Done - v0.9.2 Re-Fly probe spawn rejected from frame-mismatch in tail-derived terminal orbit
 
 - ~~A Re-Fly fork ending in a highly-eccentric stable orbit (the `Kerbal X Probe` recording in `logs/2026-05-10_2123` — `tOrbSma=4 547 677, tOrbEcc=0.822, periAlt ≈ 208 km`) was deferred-then-permanently-rejected at spawn time. The `TryDeriveTerminalOrbitSeedFromTrajectoryTail` helper added in the previous Done item ("Re-Fly spawn refused circularized upper stage with stale on-rails OrbitSegment") found the right tail frame but reseeded the orbit from world-absolute Y-up state vectors instead of body-relative Z-up, producing `sma=567 357, periAlt=−438 222 m` (subsurface). Safety gate deferred at currentUT=455.25 because propagated alt was −98 949 m; the rotation-drift gate then forced the retry to fall back to the recording's only stored OrbitSegment — the pre-burn ascent ellipse at `epoch=142.16, sma=512 941, periAlt=−382 km` — and the safety gate rejected `CannotSpawnSafely`. Probe never materialized; the `Kerbal X` upper-stage chained successor spawned because its tail carried an authoritative `OrbitalCheckpoint`.~~ Reproduced by `logs/2026-05-10_2123` recording `rec_f1363fc127ab47a28812ce4be6515453`. Investigation report: `docs/dev/research/probe-tail-orbit-spawn-frame-mismatch.md`.

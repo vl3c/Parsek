@@ -266,63 +266,67 @@ namespace Parsek.Tests
 
     #endregion
 
-    #region Test 3 — SMA sub-surface check with hyperbolic orbits
+    #region Test 3 — Orbit segment usability accepts suborbital conics
 
-    public class SmaSubSurfaceCheckTests
+    public class OrbitSegmentUsabilityTests
     {
-        /// <summary>
-        /// The bugfix changed the check from (sma &lt; bodyRadius * 0.9) to
-        /// (Math.Abs(sma) &lt; bodyRadius * 0.9) so that hyperbolic orbits
-        /// (negative SMA) aren't incorrectly rejected.
-        /// </summary>
-        private static bool IsSubSurfaceOrbit(double sma, double bodyRadius)
+        private static bool IsUsableOrbitSegment(double sma)
         {
-            return Math.Abs(sma) < bodyRadius * 0.9;
+            return TrajectoryMath.HasUsableOrbitSegmentElements(new OrbitSegment
+            {
+                inclination = 28.5,
+                eccentricity = 0.574602,
+                semiMajorAxis = sma,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 1.23,
+                epoch = 142.16,
+                bodyName = "Kerbin"
+            });
         }
 
         [Fact]
-        public void PositiveSma_AboveRadius_NotSubSurface()
+        public void PositiveSma_AboveRadius_IsUsable()
         {
-            // Circular orbit: sma=700000, bodyRadius=600000 → valid
-            Assert.False(IsSubSurfaceOrbit(700000, 600000));
+            Assert.True(IsUsableOrbitSegment(700000));
         }
 
         [Fact]
-        public void NegativeSma_Hyperbolic_NotSubSurface()
+        public void NegativeSma_Hyperbolic_IsUsable()
         {
-            // Hyperbolic orbit: sma=-1858567, bodyRadius=600000 → Abs = 1858567 > 540000 → valid
-            Assert.False(IsSubSurfaceOrbit(-1858567, 600000));
+            Assert.True(IsUsableOrbitSegment(-1858567));
         }
 
         [Fact]
-        public void PositiveSma_BelowRadius_IsSubSurface()
+        public void PositiveSma_BelowBodyRadiusSuborbital_IsUsable()
         {
-            // Sub-surface: sma=400000, bodyRadius=600000 → 400000 < 540000 → rejected
-            Assert.True(IsSubSurfaceOrbit(400000, 600000));
+            // Kerbal X Probe stale ascent segment from the retained repro:
+            // sma is below Kerbin radius but the conic still carries a valid
+            // suborbital playback position that must beat flat RELATIVE points.
+            Assert.True(IsUsableOrbitSegment(512941));
         }
 
         [Fact]
-        public void NegativeSma_TinyHyperbolic_IsSubSurface()
+        public void ZeroSma_IsRejected()
         {
-            // Tiny hyperbolic: sma=-100, bodyRadius=600000 → Abs(100) < 540000 → rejected
-            Assert.True(IsSubSurfaceOrbit(-100, 600000));
+            Assert.False(IsUsableOrbitSegment(0));
         }
 
         [Fact]
-        public void NegativeSma_WithoutAbsFix_WouldPassIncorrectly()
+        public void NonFiniteSma_IsRejected()
         {
-            // This demonstrates the bug: without Math.Abs, negative SMA < threshold
-            // would be true (since -1858567 < 540000 is true), incorrectly rejecting
-            // valid hyperbolic orbits.
-            double sma = -1858567;
-            double bodyRadius = 600000;
-            double threshold = bodyRadius * 0.9;
+            Assert.False(IsUsableOrbitSegment(double.NaN));
+            Assert.False(IsUsableOrbitSegment(double.PositiveInfinity));
+        }
 
-            // Old buggy check (without Abs) would reject this:
-            Assert.True(sma < threshold);  // -1858567 < 540000 is TRUE (bug!)
+        [Fact]
+        public void OldBodyRadiusThreshold_WouldRejectValidSuborbitalSma()
+        {
+            double sma = 512941;
+            double oldThreshold = 600000 * 0.9;
 
-            // Fixed check with Abs correctly accepts it:
-            Assert.False(Math.Abs(sma) < threshold);  // 1858567 < 540000 is FALSE (correct)
+            Assert.True(sma < oldThreshold);
+            Assert.True(IsUsableOrbitSegment(sma));
         }
     }
 

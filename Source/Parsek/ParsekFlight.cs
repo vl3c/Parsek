@@ -17224,6 +17224,9 @@ namespace Parsek
 
             if (foundSegment)
             {
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
+                    return;
+
                 if (PlaybackOrbitDiagnostics.TryBuildPlaybackPredictedTailLog(
                     index, traj, seg, ut, out string logKey, out string logMessage))
                 {
@@ -19001,6 +19004,13 @@ namespace Parsek
         void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
             string recordingId = null, IPlaybackTrajectory traj = null)
         {
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(segment))
+            {
+                Log($"Orbit segment rejected: unusable elements, sma={segment.semiMajorAxis:F0}, " +
+                    $"UT {segment.startUT:F0}-{segment.endUT:F0}");
+                return;
+            }
+
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
             {
@@ -19011,19 +19021,45 @@ namespace Parsek
             Orbit orbit;
             if (!orbitCache.TryGetValue(cacheKey, out orbit))
             {
-                orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
+                try
+                {
+                    orbit = new Orbit(
+                        segment.inclination,
+                        segment.eccentricity,
+                        segment.semiMajorAxis,
+                        segment.longitudeOfAscendingNode,
+                        segment.argumentOfPeriapsis,
+                        segment.meanAnomalyAtEpoch,
+                        segment.epoch,
+                        body);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Orbit segment construction failed: body={segment.bodyName}, " +
+                        $"sma={segment.semiMajorAxis:F0}, error={ex.GetType().Name}");
+                    return;
+                }
                 orbitCache[cacheKey] = orbit;
             }
 
-            Vector3d rawOrbitWorldPos = orbit.getPositionAtUT(ut);
+            Vector3d rawOrbitWorldPos;
+            try
+            {
+                rawOrbitWorldPos = orbit.getPositionAtUT(ut);
+            }
+            catch (Exception ex)
+            {
+                Log($"Orbit segment propagation failed: body={segment.bodyName}, " +
+                    $"sma={segment.semiMajorAxis:F0}, error={ex.GetType().Name}");
+                return;
+            }
+            if (!IsFiniteVector3d(rawOrbitWorldPos))
+            {
+                Log($"Orbit segment propagation produced non-finite position: body={segment.bodyName}, " +
+                    $"sma={segment.semiMajorAxis:F0}");
+                return;
+            }
+
             Vector3d worldPos = rawOrbitWorldPos;
             Vector3d orbitContinuityOffset = Vector3d.zero;
             Vector3d rawOrbitContinuityOffset = Vector3d.zero;
@@ -19040,24 +19076,63 @@ namespace Parsek
                 out string orbitContinuityAnchorSource);
             if (hasOrbitContinuityOffset)
                 worldPos += orbitContinuityOffset;
+            if (!IsFiniteVector3d(worldPos))
+            {
+                Log($"Orbit segment continuity produced non-finite position: body={segment.bodyName}, " +
+                    $"sma={segment.semiMajorAxis:F0}");
+                return;
+            }
 
             // Surface clamp: if the Keplerian orbit goes underground (e.g., deorbit
             // orbit with periapsis below surface, or impact trajectory on airless body),
             // clamp to surface altitude. Prevents the ghost mesh from tunneling through
             // the planet during orbit-only recording sections where no trajectory points exist.
-            double orbitAlt = body.GetAltitude(worldPos);
+            double orbitAlt;
             bool orbitTerrainClamped = false;
-            if (orbitAlt < 0)
+            try
             {
-                double lat = body.GetLatitude(worldPos);
-                double lon = body.GetLongitude(worldPos);
-                worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
-                orbitTerrainClamped = true;
+                orbitAlt = body.GetAltitude(worldPos);
+                if (!IsFinite(orbitAlt))
+                {
+                    Log($"Orbit segment altitude was non-finite: body={segment.bodyName}, " +
+                        $"sma={segment.semiMajorAxis:F0}");
+                    return;
+                }
+
+                if (orbitAlt < 0)
+                {
+                    double lat = body.GetLatitude(worldPos);
+                    double lon = body.GetLongitude(worldPos);
+                    worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                    if (!IsFiniteVector3d(worldPos))
+                    {
+                        Log($"Orbit segment surface clamp produced non-finite position: body={segment.bodyName}, " +
+                            $"sma={segment.semiMajorAxis:F0}");
+                        return;
+                    }
+                    orbitTerrainClamped = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Orbit segment body-position API failed: body={segment.bodyName}, " +
+                    $"sma={segment.semiMajorAxis:F0}, error={ex.GetType().Name}");
+                return;
             }
 
             ghost.transform.position = worldPos;
 
-            Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+            Vector3d velocity;
+            try
+            {
+                velocity = orbit.getOrbitalVelocityAtUT(ut);
+            }
+            catch
+            {
+                velocity = Vector3d.zero;
+            }
+            if (!IsFiniteVector3d(velocity))
+                velocity = Vector3d.zero;
 
             // Orbital rotation: 3-way branch
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
@@ -19470,6 +19545,9 @@ namespace Parsek
                 var seg = rec.OrbitSegments[s];
                 if (ut >= seg.startUT && ut <= seg.endUT)
                 {
+                    if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
+                        continue;
+
                     int cacheKey = orbitCacheBase + s;
                     if (loggedOrbitSegments.Add(cacheKey))
                         Log($"Orbit-only segment activated: cache={cacheKey}, body={seg.bodyName}, " +
@@ -19948,21 +20026,33 @@ namespace Parsek
             out CelestialBody body)
         {
             orbit = null;
+            body = null;
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(segment))
+                return false;
+
             body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
                 return false;
 
             if (!orbitCache.TryGetValue(cacheKey, out orbit))
             {
-                orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
+                try
+                {
+                    orbit = new Orbit(
+                        segment.inclination,
+                        segment.eccentricity,
+                        segment.semiMajorAxis,
+                        segment.longitudeOfAscendingNode,
+                        segment.argumentOfPeriapsis,
+                        segment.meanAnomalyAtEpoch,
+                        segment.epoch,
+                        body);
+                }
+                catch
+                {
+                    orbit = null;
+                    return false;
+                }
                 orbitCache[cacheKey] = orbit;
             }
 
@@ -20897,33 +20987,50 @@ namespace Parsek
                 if (body == null)
                     return false;
 
-                double bodyRadius = body.Radius;
-                double absSma = System.Math.Abs(seg.semiMajorAxis);
-                if (absSma < bodyRadius * 0.9)
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
                     return false;
 
                 Orbit orbit;
                 int cacheKey = orbitCacheBase + i;
                 if (!orbitCache.TryGetValue(cacheKey, out orbit))
                 {
-                    orbit = new Orbit(
-                        seg.inclination,
-                        seg.eccentricity,
-                        seg.semiMajorAxis,
-                        seg.longitudeOfAscendingNode,
-                        seg.argumentOfPeriapsis,
-                        seg.meanAnomalyAtEpoch,
-                        seg.epoch,
-                        body);
+                    try
+                    {
+                        orbit = new Orbit(
+                            seg.inclination,
+                            seg.eccentricity,
+                            seg.semiMajorAxis,
+                            seg.longitudeOfAscendingNode,
+                            seg.argumentOfPeriapsis,
+                            seg.meanAnomalyAtEpoch,
+                            seg.epoch,
+                            body);
+                    }
+                    catch
+                    {
+                        return false;
+                    }
                     orbitCache[cacheKey] = orbit;
                 }
 
-                worldPos = orbit.getPositionAtUT(targetUT);
-                if (body.GetAltitude(worldPos) < 0)
+                try
                 {
-                    double lat = body.GetLatitude(worldPos);
-                    double lon = body.GetLongitude(worldPos);
-                    worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                    worldPos = orbit.getPositionAtUT(targetUT);
+                    if (!IsFiniteVector3d(worldPos))
+                        return false;
+
+                    if (body.GetAltitude(worldPos) < 0)
+                    {
+                        double lat = body.GetLatitude(worldPos);
+                        double lon = body.GetLongitude(worldPos);
+                        worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                        if (!IsFiniteVector3d(worldPos))
+                            return false;
+                    }
+                }
+                catch
+                {
+                    return false;
                 }
 
                 return true;
@@ -23383,23 +23490,16 @@ namespace Parsek
                 OrbitSegment? seg = FindOrbitSegment(segments, targetUT);
                 if (seg.HasValue)
                 {
-                    // Layer 3: SMA sanity check — reject orbit segments where the orbit
-                    // is mostly sub-surface (SMA < 90% of body radius). This catches
-                    // old recordings that have invalid orbit segments for surface vessels.
-                    // Use absolute value: hyperbolic escape orbits have negative SMA but
-                    // are valid trajectories that should be rendered.
-                    CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
-                    double bodyRadius = segBody?.Radius ?? 600000;
-                    double absSma = System.Math.Abs(seg.Value.semiMajorAxis);
-                    if (absSma < bodyRadius * 0.9)
+                    if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg.Value))
                     {
                         int smaKey = ~orbitCacheBase; // bitwise complement — guaranteed no collision with positive cache keys
                         if (loggedOrbitSegments.Add(smaKey))
-                            Log($"Orbit segment rejected (sub-surface): |sma|={absSma:F0} < " +
-                                $"bodyRadius*0.9={bodyRadius * 0.9:F0}, falling through to point interpolation");
+                            Log($"Orbit segment rejected (unusable elements): sma={seg.Value.semiMajorAxis:F0}, " +
+                                "falling through to point interpolation");
                     }
                     else
                     {
+                        CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
                         // Use segment index as cache key offset
                         int segIdx = segments.IndexOf(seg.Value);
                         int cacheKey = orbitCacheBase + segIdx;
