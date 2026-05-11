@@ -3021,7 +3021,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolvePendingPlaybackInterpolation_RelativeSection_UsesAbsoluteShadowMetadata()
+        public void TryResolvePendingPlaybackInterpolation_RelativeSection_UsesBodyFixedPrimaryMetadata()
         {
             logLines.Clear();
 
@@ -3048,7 +3048,7 @@ namespace Parsek.Tests
                     rotation = Quaternion.identity
                 }
             };
-            var absoluteShadowFrames = new List<TrajectoryPoint>
+            var bodyFixedPrimaryFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint
                 {
@@ -3079,7 +3079,7 @@ namespace Parsek.Tests
                         startUT = 100,
                         endUT = 110,
                         frames = relativeFrames,
-                        bodyFixedFrames = absoluteShadowFrames
+                        bodyFixedFrames = bodyFixedPrimaryFrames
                     }
                 }
             };
@@ -3096,6 +3096,150 @@ namespace Parsek.Tests
                 && l.Contains("RelativeSpawnGhost")
                 && l.Contains("relative body-fixed primary point interpolation")
                 && l.Contains("altitude=63000.0"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_RelativeBodyFixedSingleFrame_DoesNotClamp()
+        {
+            logLines.Clear();
+
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100,
+                    bodyName = "Kerbin",
+                    latitude = 12,
+                    longitude = -4,
+                    altitude = -0.5,
+                    velocity = new Vector3(1f, 0f, 0f),
+                    rotation = Quaternion.identity
+                },
+                new TrajectoryPoint
+                {
+                    ut = 110,
+                    bodyName = "Kerbin",
+                    latitude = 18,
+                    longitude = -7,
+                    altitude = 0.5,
+                    velocity = new Vector3(3f, 0f, 0f),
+                    rotation = Quaternion.identity
+                }
+            };
+            var traj = new MockTrajectory
+            {
+                VesselName = "RelativeSingleBodyFixedGhost",
+                Points = relativeFrames,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100,
+                        endUT = 120,
+                        frames = relativeFrames,
+                        bodyFixedFrames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint
+                            {
+                                ut = 100,
+                                bodyName = "Kerbin",
+                                altitude = 62000,
+                                velocity = new Vector3(20f, 0f, 0f),
+                                rotation = Quaternion.identity
+                            }
+                        }
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.False(resolved);
+            Assert.Equal(InterpolationResult.Zero, result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("RelativeSingleBodyFixedGhost")
+                && l.Contains("relative section active with no body-fixed primary"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("relative body-fixed primary"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_RelativeBodyFixedOutOfRange_DoesNotClamp()
+        {
+            logLines.Clear();
+
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100,
+                    bodyName = "Kerbin",
+                    latitude = 12,
+                    longitude = -4,
+                    altitude = -0.5,
+                    velocity = new Vector3(1f, 0f, 0f),
+                    rotation = Quaternion.identity
+                },
+                new TrajectoryPoint
+                {
+                    ut = 110,
+                    bodyName = "Kerbin",
+                    latitude = 18,
+                    longitude = -7,
+                    altitude = 0.5,
+                    velocity = new Vector3(3f, 0f, 0f),
+                    rotation = Quaternion.identity
+                }
+            };
+            var traj = new MockTrajectory
+            {
+                VesselName = "RelativeSparseBodyFixedGhost",
+                Points = relativeFrames,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100,
+                        endUT = 130,
+                        frames = relativeFrames,
+                        bodyFixedFrames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint
+                            {
+                                ut = 100,
+                                bodyName = "Kerbin",
+                                altitude = 62000,
+                                velocity = new Vector3(20f, 0f, 0f),
+                                rotation = Quaternion.identity
+                            },
+                            new TrajectoryPoint
+                            {
+                                ut = 110,
+                                bodyName = "Kerbin",
+                                altitude = 64000,
+                                velocity = new Vector3(40f, 0f, 0f),
+                                rotation = Quaternion.identity
+                            }
+                        }
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 120.0, out InterpolationResult result);
+
+            Assert.False(resolved);
+            Assert.Equal(InterpolationResult.Zero, result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("RelativeSparseBodyFixedGhost")
+                && l.Contains("relative section active with no body-fixed primary"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("relative body-fixed primary"));
         }
 
         [Fact]
@@ -3127,7 +3271,7 @@ namespace Parsek.Tests
                     rotation = Quaternion.identity
                 }
             };
-            var absoluteShadowFrames = new List<TrajectoryPoint>
+            var bodyFixedPrimaryFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint
                 {
@@ -3173,7 +3317,7 @@ namespace Parsek.Tests
                         endUT = 140,
                         anchorRecordingId = "parent-rec",
                         frames = relativeFrames,
-                        bodyFixedFrames = absoluteShadowFrames
+                        bodyFixedFrames = bodyFixedPrimaryFrames
                     }
                 }
             };

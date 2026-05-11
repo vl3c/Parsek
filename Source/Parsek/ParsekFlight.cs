@@ -18075,17 +18075,34 @@ namespace Parsek
         /// <summary>
         /// P1-C: standalone resolver for active-re-fly RELATIVE primaries
         /// that bypasses the live anchor by linear-interpolating
-        /// <see cref="TrackSection.bodyFixedFrames"/> (the v7+ absolute
-        /// shadow). Returns false when the section has no shadow or the
-        /// body cannot be resolved — the caller surfaces the failure as
-        /// HR-9 visible-failure.
+        /// <see cref="TrackSection.bodyFixedFrames"/>. Returns false when
+        /// the body-fixed primary has no authored coverage for the target
+        /// UT or the body cannot be resolved — the caller surfaces the
+        /// failure as HR-9 visible-failure.
         /// </summary>
         private static bool TryComputeStandaloneAbsoluteShadowWorldPosition(
             Recording rec, TrackSection section, double ut, out Vector3d worldPos)
         {
             worldPos = default;
             List<TrajectoryPoint> shadow = section.bodyFixedFrames;
-            if (shadow == null || shadow.Count == 0) return false;
+            if (!BodyFixedPrimaryCoversPlaybackUT(
+                    section, ut, out _, out _))
+            {
+                if (shadow != null
+                    && shadow.Count > 0
+                    && ut > shadow[shadow.Count - 1].ut + 1e-6)
+                {
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "primary-active-refly-shadow-past-end",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "body-fixed primary exhausted: recording={0} ut={1} lastShadowUT={2}",
+                            rec.RecordingId,
+                            ut.ToString("R", CultureInfo.InvariantCulture),
+                            shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                        5.0);
+                }
+                return false;
+            }
 
             int idx = -1;
             for (int i = 0; i < shadow.Count; i++)
@@ -18094,13 +18111,10 @@ namespace Parsek
             }
             TrajectoryPoint before, after;
             float t;
-            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
-            // from at/before-start (idx == 0). The pre-fix idx <= 0 lumped
-            // both cases into "clamp to shadow[0]" — when ut > last shadow
-            // sample, that produced a position from the FIRST sample
-            // instead of the last, jumping the primary backwards in time.
             // Past end is HR-9 visible failure: fail closed and emit a
-            // rate-limited Verbose so tuning is observable.
+            // rate-limited Verbose so tuning is observable. Normal callers
+            // are pre-gated by BodyFixedPrimaryCoversPlaybackUT, so this
+            // branch only catches malformed or unsorted frame lists.
             if (idx == -1)
             {
                 ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
@@ -19207,7 +19221,8 @@ namespace Parsek
                     TrackSection section = traj.TrackSections[sectionIdx];
                     if (section.referenceFrame == ReferenceFrame.Relative)
                     {
-                        if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                        if (BodyFixedPrimaryCoversPlaybackUT(
+                                section, anchorUT, out _, out _))
                         {
                             int absoluteCachedIndex = 0;
                             if (TryResolvePointWorldPosition(
@@ -20059,10 +20074,10 @@ namespace Parsek
                         {
                             return true;
                         }
-                        if (section.bodyFixedFrames != null
-                            && section.bodyFixedFrames.Count > 0
-                            && (!skipRecordedRelativeResolverForAuthoredFrameGap
-                                || diagnostic.bodyFixedFramesCoverUT))
+                        if ((!skipRecordedRelativeResolverForAuthoredFrameGap
+                                || diagnostic.bodyFixedFramesCoverUT)
+                            && BodyFixedPrimaryCoversPlaybackUT(
+                                section, playbackUT, out _, out _))
                         {
                             int absoluteCachedIndex = 0;
                             return TryResolvePointWorldPosition(

@@ -753,7 +753,7 @@ This pipeline is a rendering-layer addition. It does not modify any existing dat
 | Flight-scene positioner                  | `ParsekFlight : IGhostPositioner`                                       | `Source/Parsek/ParsekFlight.cs`        | Resolves world position. RELATIVE-frame entry points listed below.                   |
 | Pure trajectory math                     | `static class TrajectoryMath`                                           | `Source/Parsek/TrajectoryMath.cs:21`   | Existing helpers: `InterpolatePoints` (628), `BracketPointAtUT` (674), `FindWaypointIndex` (307), `ApplyRelativeLocalOffset` (1007), `ResolveRelativePlaybackPosition` (1049), `FindTrackSectionForUT` (1085), `IsSurfaceAtUT` (1105), `SanitizeQuaternion` (704), `PureSlerp` (898). New spline / lerp helpers added here. |
 | Re-fly session marker (live anchor)      | `class ReFlySessionMarker`                                              | `Source/Parsek/ReFlySessionMarker.cs`  | Six durable fields: `SessionId`, `TreeId`, `ActiveReFlyRecordingId`, `OriginChildRecordingId`, `RewindPointId`, `InvokedUT`, `InvokedRealTime`. |
-| Format-v7 absolute shadow data           | `ResolveAbsoluteShadowPlaybackFrames`                                | `Source/Parsek/ParsekFlight.cs`        | Format-v7 shadow data retained for resolver/compatibility paths; Phase D removed the old active-Re-Fly shadow fallback selector. |
+| Format-v7 body-fixed primary data        | `ResolveAbsoluteShadowPlaybackFrames`                                | `Source/Parsek/ParsekFlight.cs`        | `bodyFixedFrames` is the current body-fixed primary list for Relative sections; Phase D removed the old active-Re-Fly fallback selector. |
 | RELATIVE-frame world resolver            | `TryResolveRelativeWorldPosition` / `TryResolveRelativeOffsetWorldPosition` | `Source/Parsek/ParsekFlight.cs:15628`, `:15692` | Dispatches the accepted v13 Relative contract through body-fixed primary, recorded-anchor, and loop-anchor paths. Stage 4 anchor-lerp must hook here, not before — RELATIVE positions are already exact. |
 | Map / tracking-station ghosts            | `class GhostMapPresence`                                                | `Source/Parsek/GhostMapPresence.cs`    | Parallel path. Same trajectory inputs but ProtoVessel-driven; pipeline outputs feed both via `IPlaybackTrajectory`. |
 | Camera follow                            | `class WatchModeController`                                             | `Source/Parsek/WatchModeController.cs` | Reads `U_render(t)` to position camera. Out of pipeline scope.                       |
@@ -1034,7 +1034,7 @@ The first four phases together address the three naive-rendering failure modes (
 
 **New files:**
 
-- `Source/Parsek/Rendering/AnchorCandidateBuilder.cs` — commit-time scan of `TrackSection`s, `BranchPoint`s, `OrbitSegment`s, and the existing v7 absolute-shadow data. Emits `AnchorCandidate[]` per section.
+- `Source/Parsek/Rendering/AnchorCandidateBuilder.cs` — commit-time scan of `TrackSection`s, `BranchPoint`s, `OrbitSegment`s, and the v7+ body-fixed primary data. Emits `AnchorCandidate[]` per section.
 - `Source/Parsek/Rendering/AnchorPropagator.cs` — DAG walk over `RecordingTree` edges starting from each live anchor. Produces ε for downstream segments per Section 9.1.
 - `Source/Parsek.Tests/Rendering/AnchorPropagationTests.cs` — three-stage rocket re-fly (Section 9.2); cross-recording dock at chain tip (Section 9.3); suppressed predecessor (Section 9.4).
 

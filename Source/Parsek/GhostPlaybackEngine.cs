@@ -2701,16 +2701,15 @@ namespace Parsek
                 return false;
 
             // The active Relative section determines which bodyFixedFrames list
-            // we lerp through. Other reference frames have no shadow contract
+            // we lerp through. Other reference frames have no body-fixed contract
             // (Absolute sections already render world positions; Orbital
             // checkpoints are computed from orbit state).
             int sectionIndex = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, playbackUT);
             if (sectionIndex < 0)
                 return false;
             TrackSection section = traj.TrackSections[sectionIndex];
-            if (section.referenceFrame != ReferenceFrame.Relative
-                || section.bodyFixedFrames == null
-                || section.bodyFixedFrames.Count == 0)
+            if (!ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                    section, playbackUT, out _, out _))
             {
                 return false;
             }
@@ -5690,8 +5689,11 @@ namespace Parsek
             source = null;
             if (!TryFindRelativeTrackSectionAtUT(traj?.TrackSections, playbackUT, out TrackSection section))
                 return false;
-            if (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
+            if (!ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                    section, playbackUT, out _, out _))
+            {
                 return false;
+            }
 
             if (!TryResolvePendingPointInterpolation(
                     section.bodyFixedFrames, playbackUT, out result, out string pointSource))
