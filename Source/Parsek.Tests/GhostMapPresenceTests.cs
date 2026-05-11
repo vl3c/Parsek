@@ -3158,7 +3158,6 @@ namespace Parsek.Tests
                 out _,
                 out _,
                 out _,
-                out _,
                 out GhostMapPresence.GhostProtoOrbitSeedDiagnostics diagnostics));
 
             Assert.Equal("invalid-endpoint-orbit-segment", diagnostics.FailureReason);
@@ -3168,7 +3167,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveGhostProtoOrbitSeed_InvalidPositiveEndpointSegment_FallsBackToTerminalSeed()
+        public void TryResolveGhostProtoOrbitSeed_InvalidPositiveEndpointSegment_DoesNotFallBackToTerminalSeed()
         {
             var traj = new MockTrajectory
             {
@@ -3190,22 +3189,20 @@ namespace Parsek.Tests
                 }
             };
 
-            Assert.True(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
+            Assert.False(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
                 traj,
-                out double inclination,
-                out _,
-                out double semiMajorAxis,
                 out _,
                 out _,
                 out _,
                 out _,
-                out string bodyName,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
                 out GhostMapPresence.GhostProtoOrbitSeedDiagnostics diagnostics));
 
-            Assert.Equal("Kerbin", bodyName);
-            Assert.Equal(900000.0, semiMajorAxis, 10);
-            Assert.Equal(7.0, inclination, 10);
-            Assert.Equal("endpoint-terminal-orbit", diagnostics.Source);
+            Assert.Equal("invalid-endpoint-orbit-segment", diagnostics.FailureReason);
             Assert.Contains(logLines, l =>
                 l.Contains("orbit-resolver-reject-endpoint_invalid_terminal_fallback-map-presence-endpoint-seed")
                 && l.Contains("reason=below-min-sma"));

@@ -7281,6 +7281,12 @@ namespace Parsek
                         : "endpoint-orbit-segment-missing";
                     return false;
                 }
+
+                if (invalidEndpointSegment)
+                {
+                    diagnostics.FailureReason = "invalid-endpoint-orbit-segment";
+                    return false;
+                }
             }
 
             if (hasMatchingTerminalOrbit)
