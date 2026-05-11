@@ -69,7 +69,6 @@ namespace Parsek
         // buffers used below.
         private static readonly long MaxSpawnTimelineBuildTicksPerAdvance =
             (long)(Stopwatch.Frequency * (GhostPlayback.MaxSpawnBuildMillisecondsPerAdvance / 1000.0));
-        private const double DefaultPendingOrbitBodyRadiusMeters = 600000.0;
 
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
@@ -216,8 +215,6 @@ namespace Parsek
         internal event Action<CameraActionEvent> OnOverlapCameraAction;
 
         #endregion
-
-        internal static Func<string, double?> PendingOrbitBodyRadiusResolverForTesting;
 
         internal static bool HasRenderableGhostData(IPlaybackTrajectory traj)
         {
@@ -5243,6 +5240,9 @@ namespace Parsek
             for (int i = 0; i < traj.OrbitSegments.Count; i++)
             {
                 OrbitSegment candidate = traj.OrbitSegments[i];
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(candidate))
+                    continue;
+
                 bool inRange = i == traj.OrbitSegments.Count - 1
                     ? playbackUT >= candidate.startUT && playbackUT <= candidate.endUT
                     : playbackUT >= candidate.startUT && playbackUT < candidate.endUT;
@@ -5258,6 +5258,8 @@ namespace Parsek
             {
                 OrbitSegment candidate = traj.OrbitSegments[i];
                 if (!candidate.isPredicted)
+                    continue;
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(candidate))
                     continue;
                 if (candidate.startUT <= lastPointUT + 1e-6)
                     continue;
@@ -5639,7 +5641,7 @@ namespace Parsek
                 bool authoredGapHasShadow =
                     AuthoredFrameGapHasShadowCoverage(traj, playbackUT);
                 bool canUseOrbitPrecedence = TryResolvePendingOrbitSegmentInterpolation(
-                    traj, playbackUT, applySubSurfaceGuard: true, out InterpolationResult orbitSegmentResult);
+                    traj, playbackUT, out InterpolationResult orbitSegmentResult);
                 if (surfaceSkip && canUseOrbitPrecedence)
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
@@ -5697,7 +5699,7 @@ namespace Parsek
             {
                 if (ShouldPrimeSinglePointGhostFromOrbit(traj, playbackUT)
                     && TryResolvePendingOrbitSegmentInterpolation(
-                        traj, playbackUT, applySubSurfaceGuard: false, out result))
+                        traj, playbackUT, out result))
                 {
                     return LogPendingPlaybackInterpolationResolved(
                         traj, playbackUT, result, "single-point orbit segment");
@@ -5713,7 +5715,7 @@ namespace Parsek
             }
 
             if (TryResolvePendingOrbitSegmentInterpolation(
-                traj, playbackUT, applySubSurfaceGuard: false, out result))
+                traj, playbackUT, out result))
             {
                 return LogPendingPlaybackInterpolationResolved(
                     traj, playbackUT, result, "fallback orbit segment");
@@ -5858,8 +5860,7 @@ namespace Parsek
         }
 
         private static bool TryResolvePendingOrbitSegmentInterpolation(
-            IPlaybackTrajectory traj, double playbackUT, bool applySubSurfaceGuard,
-            out InterpolationResult result)
+            IPlaybackTrajectory traj, double playbackUT, out InterpolationResult result)
         {
             result = InterpolationResult.Zero;
             if (traj?.OrbitSegments == null || traj.OrbitSegments.Count == 0)
@@ -5869,42 +5870,11 @@ namespace Parsek
             if (!seg.HasValue || string.IsNullOrEmpty(seg.Value.bodyName))
                 return false;
 
-            if (applySubSurfaceGuard)
-            {
-                double bodyRadius = ResolvePendingOrbitBodyRadius(seg.Value.bodyName);
-                double absSma = System.Math.Abs(seg.Value.semiMajorAxis);
-                if (absSma < bodyRadius * 0.9)
-                    return false;
-            }
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg.Value))
+                return false;
 
             result = new InterpolationResult(Vector3.zero, seg.Value.bodyName, 0.0);
             return true;
-        }
-
-        private static double ResolvePendingOrbitBodyRadius(string bodyName)
-        {
-            Func<string, double?> resolver = PendingOrbitBodyRadiusResolverForTesting;
-            if (resolver != null)
-            {
-                double? resolved = resolver(bodyName);
-                if (resolved.HasValue && !double.IsNaN(resolved.Value) && !double.IsInfinity(resolved.Value) && resolved.Value > 0)
-                    return resolved.Value;
-            }
-
-            try
-            {
-                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
-                if (segBody != null)
-                    return segBody.Radius;
-            }
-            catch (TypeInitializationException)
-            {
-            }
-            catch (System.Security.SecurityException)
-            {
-            }
-
-            return DefaultPendingOrbitBodyRadiusMeters;
         }
 
         private void TrackGhostAppearance(

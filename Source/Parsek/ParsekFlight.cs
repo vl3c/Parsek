@@ -3155,6 +3155,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(treeRec.LaunchSiteName))
                 treeRec.LaunchSiteName = rec.LaunchSiteName;
 
+            ApplyFinalSegmentPhaseFromCapture(
+                treeRec,
+                tree.ActiveRecordingId,
+                rec.CaptureAtStop);
+
             // Set IsRecording = false to prevent dangling active state
             rec.IsRecording = false;
             rec.TransitionToBackgroundPending = false;
@@ -3162,6 +3167,104 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Flushed recorder to tree recording '{recId}': " +
                 $"{rec.Recording.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
                 $"{rec.PartEvents.Count} part events");
+        }
+
+        internal static bool ApplyFinalSegmentPhaseFromCapture(
+            Recording treeRec,
+            string activeRecordingId,
+            Recording captureAtStop)
+        {
+            if (!ShouldApplyFinalSegmentPhaseFromCapture(treeRec, activeRecordingId, captureAtStop))
+                return false;
+
+            return SetFinalSegmentPhase(
+                treeRec,
+                captureAtStop.SegmentPhase,
+                captureAtStop.SegmentBodyName,
+                "CaptureAtStop",
+                captureAtStop.RecordingId);
+        }
+
+        internal static bool ShouldApplyFinalSegmentPhaseFromCapture(
+            Recording treeRec,
+            string activeRecordingId,
+            Recording captureAtStop)
+        {
+            return treeRec != null
+                && captureAtStop != null
+                && !string.IsNullOrEmpty(captureAtStop.SegmentPhase)
+                && ShouldAllowFinalEndpointSegmentPhase(treeRec, activeRecordingId);
+        }
+
+        internal static bool ShouldAllowFinalEndpointSegmentPhase(
+            Recording rec,
+            string activeRecordingId)
+        {
+            if (rec == null)
+                return false;
+            if (string.IsNullOrEmpty(activeRecordingId)
+                || !string.Equals(activeRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                return false;
+            if (!string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return false;
+            if (HasCommittedChainSegmentOwnership(rec))
+                return false;
+
+            return string.IsNullOrEmpty(rec.ChainId)
+                || HasExplicitReFlyProvisionalIdentity(rec);
+        }
+
+        internal static bool HasCommittedChainSegmentOwnership(Recording rec)
+        {
+            return rec != null
+                && !string.IsNullOrEmpty(rec.ChainId)
+                && rec.ChainIndex >= 0;
+        }
+
+        private static bool HasExplicitReFlyProvisionalIdentity(Recording rec)
+        {
+            return rec != null
+                && (!string.IsNullOrEmpty(rec.ProvisionalForRpId)
+                    || !string.IsNullOrEmpty(rec.CreatingSessionId));
+        }
+
+        private static bool SetFinalSegmentPhase(
+            Recording rec,
+            string phase,
+            string bodyName,
+            string source,
+            string sourceRecordingId = null)
+        {
+            if (rec == null || string.IsNullOrEmpty(phase))
+                return false;
+
+            string oldPhase = rec.SegmentPhase;
+            string oldBody = rec.SegmentBodyName;
+            if (string.Equals(oldPhase, phase, StringComparison.Ordinal)
+                && string.Equals(oldBody, bodyName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            rec.SegmentPhase = phase;
+            rec.SegmentBodyName = bodyName;
+            rec.InvalidateSegmentBodyDisplayLabelCache();
+
+            ParsekLog.Verbose("Flight",
+                $"Final SegmentPhase applied from {source}: rec={rec.RecordingId ?? "<none>"} " +
+                $"old={FormatSegmentPhaseForLog(oldBody, oldPhase)} " +
+                $"new={FormatSegmentPhaseForLog(bodyName, phase)} " +
+                $"sourceRec={sourceRecordingId ?? "<none>"}");
+            return true;
+        }
+
+        private static string FormatSegmentPhaseForLog(string bodyName, string phase)
+        {
+            if (string.IsNullOrEmpty(phase))
+                return "<none>";
+            return string.IsNullOrEmpty(bodyName)
+                ? phase
+                : bodyName + " " + phase;
         }
 
         /// <summary>
@@ -3766,25 +3869,12 @@ namespace Parsek
         /// </summary>
         internal static void TagSegmentPhaseIfMissing(Recording pending, Vessel v)
         {
-            if (string.IsNullOrEmpty(pending.SegmentPhase))
+            if (pending != null
+                && string.IsNullOrEmpty(pending.SegmentPhase)
+                && SegmentPhaseClassifier.TryClassify(v, out string phase, out string bodyName))
             {
-                if (v != null && v.mainBody != null)
-                {
-                    pending.SegmentBodyName = v.mainBody.name;
-                    if (v.situation == Vessel.Situations.LANDED
-                        || v.situation == Vessel.Situations.SPLASHED
-                        || v.situation == Vessel.Situations.PRELAUNCH)
-                    {
-                        pending.SegmentPhase = "surface";
-                    }
-                    else if (v.mainBody.atmosphere)
-                        pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
-                    else
-                    {
-                        double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody);
-                        pending.SegmentPhase = v.altitude < threshold ? "approach" : "exo";
-                    }
-                }
+                pending.SegmentBodyName = bodyName;
+                pending.SegmentPhase = phase;
             }
         }
 
@@ -9839,28 +9929,17 @@ namespace Parsek
                 chainManager.ApplyChainMetadataTo(recorder.CaptureAtStop);
 
             // Tag final segment phase if untagged
-            if (recorder?.CaptureAtStop != null && string.IsNullOrEmpty(recorder.CaptureAtStop.SegmentPhase))
+            if (recorder?.CaptureAtStop != null
+                && string.IsNullOrEmpty(recorder.CaptureAtStop.SegmentPhase)
+                && SegmentPhaseClassifier.TryClassify(
+                    FlightGlobals.ActiveVessel,
+                    out string phase,
+                    out string bodyName))
             {
-                var v = FlightGlobals.ActiveVessel;
-                if (v != null && v.mainBody != null)
-                {
-                    recorder.CaptureAtStop.SegmentBodyName = v.mainBody.name;
-                    if (v.situation == Vessel.Situations.LANDED
-                        || v.situation == Vessel.Situations.SPLASHED
-                        || v.situation == Vessel.Situations.PRELAUNCH)
-                    {
-                        recorder.CaptureAtStop.SegmentPhase = "surface";
-                    }
-                    else if (v.mainBody.atmosphere)
-                        recorder.CaptureAtStop.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
-                    else
-                    {
-                        double threshold = FlightRecorder.ComputeApproachAltitude(v.mainBody);
-                        recorder.CaptureAtStop.SegmentPhase = v.altitude < threshold ? "approach" : "exo";
-                    }
-                    ParsekLog.Verbose("Flight", $"Final segment tagged (StopRecording): " +
-                        $"{recorder.CaptureAtStop.SegmentBodyName} {recorder.CaptureAtStop.SegmentPhase}");
-                }
+                recorder.CaptureAtStop.SegmentBodyName = bodyName;
+                recorder.CaptureAtStop.SegmentPhase = phase;
+                ParsekLog.Verbose("Flight", $"Final segment tagged (StopRecording): " +
+                    $"{recorder.CaptureAtStop.SegmentBodyName} {recorder.CaptureAtStop.SegmentPhase}");
             }
         }
 
@@ -11744,6 +11823,411 @@ namespace Parsek
                 tryRefreshStableTerminalSnapshot(rec, vessel, isSceneExit, logPrefix);
         }
 
+        internal static bool ApplyFinalEndpointSegmentPhase(
+            Recording rec,
+            RecordingTree treeContext,
+            bool finalizeVesselFound,
+            Vessel finalizeVessel)
+        {
+            string activeRecordingId = treeContext?.ActiveRecordingId;
+            if (!ShouldAllowFinalEndpointSegmentPhase(rec, activeRecordingId))
+                return false;
+
+            if (!TryResolveFinalEndpointSegmentPhase(
+                rec,
+                finalizeVesselFound,
+                finalizeVessel,
+                out string phase,
+                out string bodyName,
+                out string source,
+                out string skipReason))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Final SegmentPhase skipped: rec={rec?.RecordingId ?? "<none>"} " +
+                    $"reason={skipReason ?? "unresolved"}");
+                return false;
+            }
+
+            return SetFinalSegmentPhase(rec, phase, bodyName, source);
+        }
+
+        internal static bool TryResolveFinalEndpointSegmentPhase(
+            Recording rec,
+            bool finalizeVesselFound,
+            Vessel finalizeVessel,
+            out string phase,
+            out string bodyName,
+            out string source,
+            out string skipReason)
+        {
+            phase = null;
+            bodyName = null;
+            source = null;
+            skipReason = null;
+
+            if (rec == null)
+            {
+                skipReason = "recording-null";
+                return false;
+            }
+
+            if (finalizeVesselFound
+                && SegmentPhaseClassifier.TryClassify(finalizeVessel, out phase, out bodyName))
+            {
+                source = "live-vessel";
+                return true;
+            }
+
+            if (TryResolveTerminalStateSegmentPhase(rec, out phase, out bodyName, out source))
+                return true;
+
+            if (TryResolveTrackSectionEnvironmentSegmentPhase(
+                rec,
+                out phase,
+                out bodyName,
+                out source,
+                out skipReason))
+            {
+                return true;
+            }
+
+            if (TryResolveAbsoluteEndpointPointSegmentPhase(
+                rec,
+                out phase,
+                out bodyName,
+                out source,
+                out skipReason))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrEmpty(skipReason))
+                skipReason = "no-reliable-endpoint-evidence";
+            return false;
+        }
+
+        private static bool TryResolveTerminalStateSegmentPhase(
+            Recording rec,
+            out string phase,
+            out string bodyName,
+            out string source)
+        {
+            phase = null;
+            bodyName = null;
+            source = null;
+
+            if (rec == null || !rec.TerminalStateValue.HasValue)
+                return false;
+
+            TerminalState terminal = rec.TerminalStateValue.Value;
+            if ((terminal == TerminalState.Orbiting || terminal == TerminalState.Docked)
+                && !string.IsNullOrEmpty(rec.TerminalOrbitBody))
+            {
+                phase = "exo";
+                bodyName = rec.TerminalOrbitBody;
+                source = "terminal-orbit";
+                return true;
+            }
+
+            if (terminal == TerminalState.Landed || terminal == TerminalState.Splashed)
+            {
+                if (!TryGetTerminalSurfaceBodyName(rec, out bodyName))
+                {
+                    bool finalEndpointIsRelative =
+                        TryGetFinalTrackSection(rec, out TrackSection finalSection)
+                        && finalSection.referenceFrame == ReferenceFrame.Relative;
+                    if (!finalEndpointIsRelative)
+                        bodyName = GetBestEndpointBodyName(rec, includeFlatPointBody: false);
+                }
+
+                if (!string.IsNullOrEmpty(bodyName))
+                {
+                    phase = "surface";
+                    source = "terminal-surface";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveTrackSectionEnvironmentSegmentPhase(
+            Recording rec,
+            out string phase,
+            out string bodyName,
+            out string source,
+            out string skipReason)
+        {
+            phase = null;
+            bodyName = null;
+            source = null;
+            skipReason = null;
+
+            if (!TryGetFinalTrackSection(rec, out TrackSection section))
+                return false;
+
+            bool isRelative = section.referenceFrame == ReferenceFrame.Relative;
+            if (isRelative)
+            {
+                if (!TryGetReliableRelativeEndpointBodyName(rec, section, out bodyName, out source))
+                {
+                    skipReason = "relative-endpoint-unresolved-no-terminal-body-or-absolute-shadow";
+                    return false;
+                }
+            }
+            else
+            {
+                bodyName = GetBestEndpointBodyName(rec, includeFlatPointBody: true);
+            }
+
+            phase = SegmentPhaseClassifier.EnvironmentToPhase(section.environment);
+            if (string.IsNullOrEmpty(source))
+                source = "track-section-environment";
+            return true;
+        }
+
+        private static bool TryGetTerminalSurfaceBodyName(Recording rec, out string bodyName)
+        {
+            bodyName = null;
+            if (rec == null)
+                return false;
+
+            if (rec.TerminalPosition.HasValue
+                && !string.IsNullOrEmpty(rec.TerminalPosition.Value.body))
+            {
+                bodyName = rec.TerminalPosition.Value.body;
+                return true;
+            }
+
+            if (rec.SurfacePos.HasValue
+                && !string.IsNullOrEmpty(rec.SurfacePos.Value.body))
+            {
+                bodyName = rec.SurfacePos.Value.body;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetReliableRelativeEndpointBodyName(
+            Recording rec,
+            TrackSection section,
+            out string bodyName,
+            out string source)
+        {
+            bodyName = null;
+            source = null;
+
+            if (rec != null)
+            {
+                if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                {
+                    bodyName = rec.TerminalOrbitBody;
+                    source = "terminal-orbit-body-environment";
+                    return true;
+                }
+
+                if (TryGetTerminalSurfaceBodyName(rec, out bodyName))
+                {
+                    source = "terminal-position-body-environment";
+                    return true;
+                }
+            }
+
+            if (TryGetLastAbsoluteShadowPoint(section, out TrajectoryPoint absoluteShadowPoint)
+                && !string.IsNullOrEmpty(absoluteShadowPoint.bodyName))
+            {
+                bodyName = absoluteShadowPoint.bodyName;
+                source = "relative-absolute-shadow-environment";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveAbsoluteEndpointPointSegmentPhase(
+            Recording rec,
+            out string phase,
+            out string bodyName,
+            out string source,
+            out string skipReason)
+        {
+            phase = null;
+            bodyName = null;
+            source = null;
+            skipReason = null;
+
+            if (!TryGetFinalAbsoluteEndpointPoint(
+                rec,
+                out TrajectoryPoint point,
+                out source,
+                out skipReason))
+            {
+                return false;
+            }
+
+            bodyName = point.bodyName;
+            if (string.IsNullOrEmpty(bodyName))
+            {
+                skipReason = "absolute-endpoint-point-has-no-body";
+                return false;
+            }
+
+            CelestialBody body = null;
+            try
+            {
+                body = FlightGlobals.GetBodyByName(bodyName);
+            }
+            catch (Exception ex)
+            {
+                skipReason = "body-lookup-failed-" + ex.GetType().Name;
+                return false;
+            }
+
+            if (body == null)
+            {
+                skipReason = "body-lookup-returned-null";
+                return false;
+            }
+
+            double approachAltitude = FlightRecorder.ComputeApproachAltitude(body);
+            phase = SegmentPhaseClassifier.ClassifyFromValues(
+                Vessel.Situations.FLYING,
+                body.atmosphere,
+                point.altitude,
+                body.atmosphereDepth,
+                approachAltitude);
+            return true;
+        }
+
+        private static bool TryGetFinalTrackSection(Recording rec, out TrackSection section)
+        {
+            section = default(TrackSection);
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return false;
+
+            int sectionIndex = -1;
+            if (!double.IsNaN(rec.ExplicitEndUT))
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, rec.ExplicitEndUT);
+            if (sectionIndex < 0 && rec.Points != null && rec.Points.Count > 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    rec.TrackSections,
+                    rec.Points[rec.Points.Count - 1].ut);
+            if (sectionIndex < 0)
+                sectionIndex = rec.TrackSections.Count - 1;
+
+            section = rec.TrackSections[sectionIndex];
+            return true;
+        }
+
+        private static bool TryGetLastAbsoluteShadowPoint(
+            TrackSection section,
+            out TrajectoryPoint point)
+        {
+            point = default(TrajectoryPoint);
+            if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+                return false;
+
+            point = section.absoluteFrames[section.absoluteFrames.Count - 1];
+            return true;
+        }
+
+        private static bool TryGetFinalAbsoluteEndpointPoint(
+            Recording rec,
+            out TrajectoryPoint point,
+            out string source,
+            out string skipReason)
+        {
+            point = default(TrajectoryPoint);
+            source = null;
+            skipReason = null;
+
+            if (rec == null)
+            {
+                skipReason = "recording-null";
+                return false;
+            }
+
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+            {
+                if (rec.Points != null && rec.Points.Count > 0)
+                {
+                    point = rec.Points[rec.Points.Count - 1];
+                    source = "legacy-flat-point";
+                    return true;
+                }
+
+                skipReason = "no-track-sections-or-points";
+                return false;
+            }
+
+            if (!TryGetFinalTrackSection(rec, out TrackSection section))
+            {
+                skipReason = "no-final-track-section";
+                return false;
+            }
+
+            if (section.referenceFrame == ReferenceFrame.Relative)
+            {
+                if (TryGetLastAbsoluteShadowPoint(section, out point))
+                {
+                    source = "relative-absolute-shadow-point";
+                    return true;
+                }
+
+                skipReason = "relative-endpoint-unresolved-no-absolute-shadow";
+                return false;
+            }
+
+            if (section.referenceFrame != ReferenceFrame.Absolute)
+            {
+                skipReason = "unsupported-reference-frame-" + section.referenceFrame;
+                return false;
+            }
+
+            if (section.frames != null && section.frames.Count > 0)
+            {
+                point = section.frames[section.frames.Count - 1];
+                source = "absolute-section-point";
+                return true;
+            }
+
+            if (rec.Points != null && rec.Points.Count > 0)
+            {
+                point = rec.Points[rec.Points.Count - 1];
+                source = "absolute-flat-point";
+                return true;
+            }
+
+            skipReason = "absolute-section-has-no-points";
+            return false;
+        }
+
+        private static string GetBestEndpointBodyName(
+            Recording rec,
+            bool includeFlatPointBody)
+        {
+            if (rec == null)
+                return null;
+            if (!string.IsNullOrEmpty(rec.EndpointBodyName))
+                return rec.EndpointBodyName;
+            if (!string.IsNullOrEmpty(rec.TerminalOrbitBody))
+                return rec.TerminalOrbitBody;
+            if (rec.TerminalPosition.HasValue
+                && !string.IsNullOrEmpty(rec.TerminalPosition.Value.body))
+                return rec.TerminalPosition.Value.body;
+            if (rec.SurfacePos.HasValue
+                && !string.IsNullOrEmpty(rec.SurfacePos.Value.body))
+                return rec.SurfacePos.Value.body;
+            if (!string.IsNullOrEmpty(rec.SegmentBodyName))
+                return rec.SegmentBodyName;
+            if (!string.IsNullOrEmpty(rec.StartBodyName))
+                return rec.StartBodyName;
+            if (includeFlatPointBody && rec.Points != null && rec.Points.Count > 0)
+                return rec.Points[rec.Points.Count - 1].bodyName;
+            return null;
+        }
+
         internal static bool FinalizeIndividualRecording(
             Recording rec,
             double commitUT,
@@ -12080,6 +12564,11 @@ namespace Parsek
             }
 
             RecordingEndpointResolver.RefreshEndpointDecision(rec, "FinalizeIndividualRecording");
+            ApplyFinalEndpointSegmentPhase(
+                rec,
+                treeContext,
+                finalizeVesselFound,
+                finalizeVessel);
 
             // Bug #290d: backfill MaxDistanceFromLaunch if not yet computed.
             // Tree recordings reach finalization via ForceStop which skips BuildCaptureRecording
@@ -17111,6 +17600,9 @@ namespace Parsek
 
             if (foundSegment)
             {
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
+                    return;
+
                 if (PlaybackOrbitDiagnostics.TryBuildPlaybackPredictedTailLog(
                     index, traj, seg, ut, out string logKey, out string logMessage))
                 {
@@ -18920,6 +19412,13 @@ namespace Parsek
         void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
             string recordingId = null, IPlaybackTrajectory traj = null)
         {
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(segment))
+            {
+                Log($"Orbit segment rejected: unusable elements, sma={segment.semiMajorAxis:F0}, " +
+                    $"UT {segment.startUT:F0}-{segment.endUT:F0}");
+                return;
+            }
+
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
             {
@@ -18930,19 +19429,45 @@ namespace Parsek
             Orbit orbit;
             if (!orbitCache.TryGetValue(cacheKey, out orbit))
             {
-                orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
+                try
+                {
+                    orbit = new Orbit(
+                        segment.inclination,
+                        segment.eccentricity,
+                        segment.semiMajorAxis,
+                        segment.longitudeOfAscendingNode,
+                        segment.argumentOfPeriapsis,
+                        segment.meanAnomalyAtEpoch,
+                        segment.epoch,
+                        body);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Orbit segment construction failed: body={segment.bodyName}, " +
+                        $"sma={segment.semiMajorAxis:F0}, error={ex.GetType().Name}");
+                    return;
+                }
                 orbitCache[cacheKey] = orbit;
             }
 
-            Vector3d rawOrbitWorldPos = orbit.getPositionAtUT(ut);
+            Vector3d rawOrbitWorldPos;
+            try
+            {
+                rawOrbitWorldPos = orbit.getPositionAtUT(ut);
+            }
+            catch (Exception ex)
+            {
+                Log($"Orbit segment propagation failed: body={segment.bodyName}, " +
+                    $"sma={segment.semiMajorAxis:F0}, error={ex.GetType().Name}");
+                return;
+            }
+            if (!IsFiniteVector3d(rawOrbitWorldPos))
+            {
+                Log($"Orbit segment propagation produced non-finite position: body={segment.bodyName}, " +
+                    $"sma={segment.semiMajorAxis:F0}");
+                return;
+            }
+
             Vector3d worldPos = rawOrbitWorldPos;
             Vector3d orbitContinuityOffset = Vector3d.zero;
             Vector3d rawOrbitContinuityOffset = Vector3d.zero;
@@ -18959,24 +19484,63 @@ namespace Parsek
                 out string orbitContinuityAnchorSource);
             if (hasOrbitContinuityOffset)
                 worldPos += orbitContinuityOffset;
+            if (!IsFiniteVector3d(worldPos))
+            {
+                Log($"Orbit segment continuity produced non-finite position: body={segment.bodyName}, " +
+                    $"sma={segment.semiMajorAxis:F0}");
+                return;
+            }
 
             // Surface clamp: if the Keplerian orbit goes underground (e.g., deorbit
             // orbit with periapsis below surface, or impact trajectory on airless body),
             // clamp to surface altitude. Prevents the ghost mesh from tunneling through
             // the planet during orbit-only recording sections where no trajectory points exist.
-            double orbitAlt = body.GetAltitude(worldPos);
+            double orbitAlt;
             bool orbitTerrainClamped = false;
-            if (orbitAlt < 0)
+            try
             {
-                double lat = body.GetLatitude(worldPos);
-                double lon = body.GetLongitude(worldPos);
-                worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
-                orbitTerrainClamped = true;
+                orbitAlt = body.GetAltitude(worldPos);
+                if (!IsFinite(orbitAlt))
+                {
+                    Log($"Orbit segment altitude was non-finite: body={segment.bodyName}, " +
+                        $"sma={segment.semiMajorAxis:F0}");
+                    return;
+                }
+
+                if (orbitAlt < 0)
+                {
+                    double lat = body.GetLatitude(worldPos);
+                    double lon = body.GetLongitude(worldPos);
+                    worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                    if (!IsFiniteVector3d(worldPos))
+                    {
+                        Log($"Orbit segment surface clamp produced non-finite position: body={segment.bodyName}, " +
+                            $"sma={segment.semiMajorAxis:F0}");
+                        return;
+                    }
+                    orbitTerrainClamped = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Orbit segment body-position API failed: body={segment.bodyName}, " +
+                    $"sma={segment.semiMajorAxis:F0}, error={ex.GetType().Name}");
+                return;
             }
 
             ghost.transform.position = worldPos;
 
-            Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+            Vector3d velocity;
+            try
+            {
+                velocity = orbit.getOrbitalVelocityAtUT(ut);
+            }
+            catch
+            {
+                velocity = Vector3d.zero;
+            }
+            if (!IsFiniteVector3d(velocity))
+                velocity = Vector3d.zero;
 
             // Orbital rotation: 3-way branch
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
@@ -19390,6 +19954,9 @@ namespace Parsek
                 var seg = rec.OrbitSegments[s];
                 if (ut >= seg.startUT && ut <= seg.endUT)
                 {
+                    if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
+                        continue;
+
                     int cacheKey = orbitCacheBase + s;
                     if (loggedOrbitSegments.Add(cacheKey))
                         Log($"Orbit-only segment activated: cache={cacheKey}, body={seg.bodyName}, " +
@@ -19868,21 +20435,33 @@ namespace Parsek
             out CelestialBody body)
         {
             orbit = null;
+            body = null;
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(segment))
+                return false;
+
             body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
             if (body == null)
                 return false;
 
             if (!orbitCache.TryGetValue(cacheKey, out orbit))
             {
-                orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
+                try
+                {
+                    orbit = new Orbit(
+                        segment.inclination,
+                        segment.eccentricity,
+                        segment.semiMajorAxis,
+                        segment.longitudeOfAscendingNode,
+                        segment.argumentOfPeriapsis,
+                        segment.meanAnomalyAtEpoch,
+                        segment.epoch,
+                        body);
+                }
+                catch
+                {
+                    orbit = null;
+                    return false;
+                }
                 orbitCache[cacheKey] = orbit;
             }
 
@@ -20817,33 +21396,50 @@ namespace Parsek
                 if (body == null)
                     return false;
 
-                double bodyRadius = body.Radius;
-                double absSma = System.Math.Abs(seg.semiMajorAxis);
-                if (absSma < bodyRadius * 0.9)
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
                     return false;
 
                 Orbit orbit;
                 int cacheKey = orbitCacheBase + i;
                 if (!orbitCache.TryGetValue(cacheKey, out orbit))
                 {
-                    orbit = new Orbit(
-                        seg.inclination,
-                        seg.eccentricity,
-                        seg.semiMajorAxis,
-                        seg.longitudeOfAscendingNode,
-                        seg.argumentOfPeriapsis,
-                        seg.meanAnomalyAtEpoch,
-                        seg.epoch,
-                        body);
+                    try
+                    {
+                        orbit = new Orbit(
+                            seg.inclination,
+                            seg.eccentricity,
+                            seg.semiMajorAxis,
+                            seg.longitudeOfAscendingNode,
+                            seg.argumentOfPeriapsis,
+                            seg.meanAnomalyAtEpoch,
+                            seg.epoch,
+                            body);
+                    }
+                    catch
+                    {
+                        return false;
+                    }
                     orbitCache[cacheKey] = orbit;
                 }
 
-                worldPos = orbit.getPositionAtUT(targetUT);
-                if (body.GetAltitude(worldPos) < 0)
+                try
                 {
-                    double lat = body.GetLatitude(worldPos);
-                    double lon = body.GetLongitude(worldPos);
-                    worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                    worldPos = orbit.getPositionAtUT(targetUT);
+                    if (!IsFiniteVector3d(worldPos))
+                        return false;
+
+                    if (body.GetAltitude(worldPos) < 0)
+                    {
+                        double lat = body.GetLatitude(worldPos);
+                        double lon = body.GetLongitude(worldPos);
+                        worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                        if (!IsFiniteVector3d(worldPos))
+                            return false;
+                    }
+                }
+                catch
+                {
+                    return false;
                 }
 
                 return true;
@@ -23162,23 +23758,16 @@ namespace Parsek
                 OrbitSegment? seg = FindOrbitSegment(segments, targetUT);
                 if (seg.HasValue)
                 {
-                    // Layer 3: SMA sanity check — reject orbit segments where the orbit
-                    // is mostly sub-surface (SMA < 90% of body radius). This catches
-                    // old recordings that have invalid orbit segments for surface vessels.
-                    // Use absolute value: hyperbolic escape orbits have negative SMA but
-                    // are valid trajectories that should be rendered.
-                    CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
-                    double bodyRadius = segBody?.Radius ?? 600000;
-                    double absSma = System.Math.Abs(seg.Value.semiMajorAxis);
-                    if (absSma < bodyRadius * 0.9)
+                    if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg.Value))
                     {
                         int smaKey = ~orbitCacheBase; // bitwise complement — guaranteed no collision with positive cache keys
                         if (loggedOrbitSegments.Add(smaKey))
-                            Log($"Orbit segment rejected (sub-surface): |sma|={absSma:F0} < " +
-                                $"bodyRadius*0.9={bodyRadius * 0.9:F0}, falling through to point interpolation");
+                            Log($"Orbit segment rejected (unusable elements): sma={seg.Value.semiMajorAxis:F0}, " +
+                                "falling through to point interpolation");
                     }
                     else
                     {
+                        CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
                         // Use segment index as cache key offset
                         int segIdx = segments.IndexOf(seg.Value);
                         int cacheKey = orbitCacheBase + segIdx;

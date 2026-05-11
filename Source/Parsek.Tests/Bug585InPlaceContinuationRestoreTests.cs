@@ -478,6 +478,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RebuildBackgroundMap_InPlaceContinuation_ExcludesOldRecordingWithSameActivePid()
+        {
+            const uint capsulePid = 2708531065u;
+            const uint probePid = 429255699u;
+
+            var tree = new RecordingTree { Id = "tree-1", TreeName = "Kerbal X" };
+            var capsule = new Recording
+            {
+                RecordingId = "rec-capsule",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X",
+                VesselPersistentId = capsulePid,
+                TerminalStateValue = null,
+            };
+            var oldProbe = new Recording
+            {
+                RecordingId = "rec-old-probe",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = probePid,
+                TerminalStateValue = null,
+            };
+            var activeFork = new Recording
+            {
+                RecordingId = "rec-new-probe",
+                TreeId = "tree-1",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = probePid,
+                TerminalStateValue = null,
+            };
+            tree.AddOrReplaceRecording(capsule);
+            tree.AddOrReplaceRecording(oldProbe);
+            tree.AddOrReplaceRecording(activeFork);
+
+            tree.ActiveRecordingId = activeFork.RecordingId;
+            tree.RebuildBackgroundMap();
+
+            Assert.True(tree.BackgroundMap.ContainsKey(capsulePid),
+                "unrelated non-active vessel remains eligible for background tracking");
+            Assert.False(tree.BackgroundMap.ContainsKey(probePid),
+                "a pre-rewind recording with the active fork's PID must not be tracked as background");
+            Assert.False(tree.IsBackgroundMapEligible(oldProbe),
+                "same-PID old recording must be ineligible while that PID is the active recorder target");
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingTree]")
+                && l.Contains("activePidSkips=1"));
+        }
+
+        [Fact]
         public void RebuildBackgroundMap_DestroyedRecording_NotInBackgroundMap()
         {
             // IsBackgroundMapEligible additionally excludes Destroyed

@@ -302,8 +302,8 @@ namespace Parsek.Tests
                         endUT = 90.00,
                         checkpoints = new List<OrbitSegment>
                         {
-                            new OrbitSegment { startUT = 28.42, endUT = 60.00, bodyName = "Kerbin" },
-                            new OrbitSegment { startUT = 60.00, endUT = 90.00, bodyName = "Kerbin" }
+                            new OrbitSegment { startUT = 28.42, endUT = 60.00, bodyName = "Kerbin", semiMajorAxis = 700000.0 },
+                            new OrbitSegment { startUT = 60.00, endUT = 90.00, bodyName = "Kerbin", semiMajorAxis = 700000.0 }
                         }
                     }
                 }
@@ -326,7 +326,7 @@ namespace Parsek.Tests
                 },
                 OrbitSegments = new List<OrbitSegment>
                 {
-                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin", semiMajorAxis = 700000.0 }
                 }
             };
 
@@ -347,7 +347,7 @@ namespace Parsek.Tests
                 },
                 OrbitSegments = new List<OrbitSegment>
                 {
-                    new OrbitSegment { startUT = 70.04, endUT = 122.60, bodyName = "Kerbin" }
+                    new OrbitSegment { startUT = 70.04, endUT = 122.60, bodyName = "Kerbin", semiMajorAxis = 700000.0 }
                 }
             };
 
@@ -367,7 +367,7 @@ namespace Parsek.Tests
                 },
                 OrbitSegments = new List<OrbitSegment>
                 {
-                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin", semiMajorAxis = 700000.0 }
                 }
             };
 
@@ -387,7 +387,7 @@ namespace Parsek.Tests
                 },
                 OrbitSegments = new List<OrbitSegment>
                 {
-                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin", semiMajorAxis = 700000.0 }
                 }
             };
 
@@ -407,7 +407,7 @@ namespace Parsek.Tests
                 },
                 OrbitSegments = new List<OrbitSegment>
                 {
-                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin" }
+                    new OrbitSegment { startUT = 70.56, endUT = 122.60, bodyName = "Kerbin", semiMajorAxis = 700000.0 }
                 }
             };
 

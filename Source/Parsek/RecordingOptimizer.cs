@@ -886,12 +886,12 @@ namespace Parsek
             if (second.TrackSections.Count > 0)
             {
                 var env = second.TrackSections[0].environment;
-                second.SegmentPhase = EnvironmentToPhase(env);
+                second.SegmentPhase = SegmentPhaseClassifier.EnvironmentToPhase(env);
             }
             if (original.TrackSections.Count > 0)
             {
                 var env = original.TrackSections[0].environment;
-                original.SegmentPhase = EnvironmentToPhase(env);
+                original.SegmentPhase = SegmentPhaseClassifier.EnvironmentToPhase(env);
             }
 
             second.SegmentBodyName = original.SegmentBodyName;
@@ -1383,22 +1383,6 @@ namespace Parsek
                 case SegmentEnvironment.SurfaceStationary: return SurfaceSplitClass;
                 case SegmentEnvironment.Approach: return ApproachSplitClass;
                 default: return (int)env;
-            }
-        }
-
-        /// <summary>
-        /// Maps a SegmentEnvironment to a phase tag for post-split recordings.
-        /// Only used by SplitAtSection — not a general-purpose mapping.
-        /// </summary>
-        private static string EnvironmentToPhase(SegmentEnvironment env)
-        {
-            switch (env)
-            {
-                case SegmentEnvironment.Atmospheric: return "atmo";
-                case SegmentEnvironment.SurfaceMobile: return "surface";
-                case SegmentEnvironment.SurfaceStationary: return "surface";
-                case SegmentEnvironment.Approach: return "approach";
-                default: return "exo";
             }
         }
 

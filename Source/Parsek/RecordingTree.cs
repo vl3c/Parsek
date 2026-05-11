@@ -405,10 +405,17 @@ namespace Parsek
             var duplicateExamples = new List<string>();
             var orderedRecordings = new List<Recording>(Recordings.Values);
             orderedRecordings.Sort(CompareRecordingTreeOrder);
+            int activePidSkips = 0;
             foreach (var rec in orderedRecordings)
             {
                 if (rec.VesselPersistentId != 0)
                     RecordedVesselPids.Add(rec.VesselPersistentId);
+
+                if (!string.Equals(rec.RecordingId, ActiveRecordingId, StringComparison.Ordinal)
+                    && SharesVesselPidWithActiveRecording(rec))
+                {
+                    activePidSkips++;
+                }
 
                 if (IsBackgroundMapEligible(rec))
                 {
@@ -443,7 +450,7 @@ namespace Parsek
             }
 
             ParsekLog.Verbose("RecordingTree",
-                $"RebuildBackgroundMap: entries={BackgroundMap.Count} recordedPids={RecordedVesselPids.Count} totalRecordings={Recordings.Count}");
+                $"RebuildBackgroundMap: entries={BackgroundMap.Count} recordedPids={RecordedVesselPids.Count} totalRecordings={Recordings.Count} activePidSkips={activePidSkips}");
         }
 
         internal bool IsBackgroundMapEligible(Recording rec)
@@ -453,7 +460,25 @@ namespace Parsek
                 && rec.TerminalStateValue == null
                 && !HasNextChainSegment(rec)
                 && rec.ChildBranchPointId == null
-                && rec.RecordingId != ActiveRecordingId;
+                && rec.RecordingId != ActiveRecordingId
+                && !SharesVesselPidWithActiveRecording(rec);
+        }
+
+        private bool SharesVesselPidWithActiveRecording(Recording rec)
+        {
+            if (rec == null || rec.VesselPersistentId == 0)
+                return false;
+            if (string.IsNullOrEmpty(ActiveRecordingId))
+                return false;
+            if (Recordings == null
+                || !Recordings.TryGetValue(ActiveRecordingId, out Recording activeRec)
+                || activeRec == null
+                || activeRec.VesselPersistentId == 0)
+            {
+                return false;
+            }
+
+            return rec.VesselPersistentId == activeRec.VesselPersistentId;
         }
 
         private bool HasNextChainSegment(Recording rec)

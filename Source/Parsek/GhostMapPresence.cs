@@ -35,7 +35,8 @@ namespace Parsek
             Segment = 1,
             TerminalOrbit = 2,
             StateVector = 3,
-            StateVectorSoiGap = 4
+            StateVectorSoiGap = 4,
+            EndpointTail = 5
         }
 
         internal static bool IsStateVectorGhostSource(TrackingStationGhostSource source)
@@ -462,6 +463,14 @@ namespace Parsek
             return lastKnownByRecordingIndex.TryGetValue(recordingIndex, out frame);
         }
 
+        private static bool IsEndpointTailRecordingGhost(uint vesselPid, int recordingIndex)
+        {
+            return recordingIndex >= 0
+                && TryGetLastKnownFrame(recordingIndex, out LastKnownGhostFrame frame)
+                && frame.GhostPid == vesselPid
+                && string.Equals(frame.Source, "EndpointTail", StringComparison.Ordinal);
+        }
+
         internal const string TrackingStationGhostSkipSuppressed = "suppressed";
         internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
         internal const string TrackingStationGhostSkipEndpointConflict = "endpoint-conflict";
@@ -500,6 +509,7 @@ namespace Parsek
         internal const double StateVectorRemoveSpeed = 30;        // m/s
         private const double LegacyPointCoverageMaxGapSeconds = 30.0;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
+        internal static Func<string, CelestialBody> FindBodyByNameForTesting;
 
         internal struct GhostProtoOrbitSeedDiagnostics
         {
@@ -507,6 +517,15 @@ namespace Parsek
             public string EndpointBodyName;
             public string FailureReason;
             public string FallbackReason;
+            public bool TailSeedConsidered;
+            public bool TailSeedAccepted;
+            public string TailDeclineReason;
+            public double TailUT;
+            public double TailSma;
+            public double TailEcc;
+            public double LatestSegmentEndUT;
+            public double RotationDriftSeconds;
+            public string TailFrameSource;
         }
 
         internal struct OrbitalCheckpointStateVectorFallbackDecision
@@ -533,6 +552,7 @@ namespace Parsek
             private readonly Dictionary<string, string> firstDetailByKey = new Dictionary<string, string>();
             private int segmentCount;
             private int terminalCount;
+            private int endpointTailCount;
             private int stateVectorCount;
             private int skippedCount;
 
@@ -553,6 +573,8 @@ namespace Parsek
                     segmentCount++;
                 else if (source == TrackingStationGhostSource.TerminalOrbit)
                     terminalCount++;
+                else if (source == TrackingStationGhostSource.EndpointTail)
+                    endpointTailCount++;
                 else if (IsStateVectorGhostSource(source))
                     stateVectorCount++;
                 else
@@ -595,8 +617,8 @@ namespace Parsek
                     "ts-orbit-source-summary-" + context,
                     string.Format(ic,
                         "Tracking-station orbit-source summary: context={0} action={1} recordings={2} " +
-                        "created={3} alreadyTracked={4} sources(visibleSegment={5} terminalOrbit={6} stateVector={7}) " +
-                        "skipped={8} skipCounts={9}",
+                        "created={3} alreadyTracked={4} sources(visibleSegment={5} terminalOrbit={6} endpointTail={7} stateVector={8}) " +
+                        "skipped={9} skipCounts={10}",
                         context,
                         action ?? "(null)",
                         recordingCount,
@@ -604,6 +626,7 @@ namespace Parsek
                         alreadyTracked,
                         segmentCount,
                         terminalCount,
+                        endpointTailCount,
                         stateVectorCount,
                         skippedCount,
                         FormatTrackingStationGhostSourceCounts()),
@@ -1615,6 +1638,8 @@ namespace Parsek
                     return "visible-segment";
                 case TrackingStationGhostSource.TerminalOrbit:
                     return "terminal-orbit";
+                case TrackingStationGhostSource.EndpointTail:
+                    return "endpoint-tail";
                 case TrackingStationGhostSource.StateVector:
                     return "state-vector";
                 case TrackingStationGhostSource.StateVectorSoiGap:
@@ -3179,7 +3204,26 @@ namespace Parsek
         internal static Vessel CreateGhostVesselFromSegment(
             int recordingIndex, IPlaybackTrajectory traj, OrbitSegment segment)
         {
+            return CreateGhostVesselFromSegment(
+                recordingIndex,
+                traj,
+                segment,
+                TrackingStationGhostSource.Segment);
+        }
+
+        private static Vessel CreateGhostVesselFromSegment(
+            int recordingIndex,
+            IPlaybackTrajectory traj,
+            OrbitSegment segment,
+            TrackingStationGhostSource source)
+        {
             if (traj == null) return null;
+            string sourceLabel = source == TrackingStationGhostSource.EndpointTail
+                ? "EndpointTail"
+                : "Segment";
+            string protoSource = source == TrackingStationGhostSource.EndpointTail
+                ? "endpoint-tail"
+                : "visible-segment";
 
             // Phase 7 session-suppression gate (design §3.3).
             if (IsSuppressedByActiveSession(recordingIndex))
@@ -3197,15 +3241,18 @@ namespace Parsek
                 intent.RecordingId = traj.RecordingId;
                 intent.RecordingIndex = recordingIndex;
                 intent.VesselName = traj.VesselName;
-                intent.Source = "Segment";
+                intent.Source = sourceLabel;
                 intent.Branch = "(n/a)";
                 intent.Body = segment.bodyName;
                 intent.Segment = segment;
                 ParsekLog.Verbose(Tag, BuildGhostMapDecisionLine(intent));
             }
 
-            string logContext = string.Format(ic, "recording index={0} (from segment)", recordingIndex);
-            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext);
+            string logContext = string.Format(ic,
+                "recording index={0} (from {1})",
+                recordingIndex,
+                protoSource);
+            Vessel vessel = BuildAndLoadGhostProtoVessel(traj, segment, logContext, protoSource);
             if (vessel != null)
             {
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
@@ -3218,7 +3265,7 @@ namespace Parsek
                 done.RecordingId = traj.RecordingId;
                 done.RecordingIndex = recordingIndex;
                 done.VesselName = traj.VesselName;
-                done.Source = "Segment";
+                done.Source = sourceLabel;
                 done.Branch = "(n/a)";
                 done.Body = segment.bodyName;
                 done.WorldPos = worldPos;
@@ -3231,7 +3278,7 @@ namespace Parsek
                     RecordingId = traj.RecordingId,
                     VesselName = traj.VesselName,
                     GhostPid = vessel.persistentId,
-                    Source = "Segment",
+                    Source = sourceLabel,
                     Branch = "(n/a)",
                     Body = segment.bodyName,
                     WorldPos = worldPos,
@@ -3597,7 +3644,8 @@ namespace Parsek
             srf.Branch = "(n/a)";
             srf.UT = currentUT;
             srf.Reason = string.IsNullOrEmpty(reason) ? logOperationName : reason;
-            if (source == TrackingStationGhostSource.Segment)
+            if (source == TrackingStationGhostSource.Segment
+                || source == TrackingStationGhostSource.EndpointTail)
             {
                 srf.Body = resolvedSegment.bodyName;
                 srf.Segment = resolvedSegment;
@@ -3630,6 +3678,287 @@ namespace Parsek
                     source,
                     string.IsNullOrEmpty(reason) ? "none" : reason),
                 BuildGhostMapDecisionLine(srf));
+        }
+
+        internal static bool ShouldOverrideVisibleSegmentWithEndpointTail(
+            OrbitSegment selectedSegment,
+            string preferredEndpointBody,
+            string endpointSeedSource,
+            TailDerivedOrbitSeed tailSeed,
+            bool terminalMapPresenceRegion)
+        {
+            if (!terminalMapPresenceRegion)
+                return false;
+            if (!tailSeed.Accepted || !tailSeed.UsedHistoricalBodyRotation)
+                return false;
+            if (string.IsNullOrEmpty(preferredEndpointBody)
+                || !string.Equals(selectedSegment.bodyName, preferredEndpointBody, StringComparison.Ordinal)
+                || !string.Equals(tailSeed.BodyName, preferredEndpointBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (!string.Equals(endpointSeedSource, "endpoint-segment", StringComparison.Ordinal))
+                return false;
+            if (!IsFinite(tailSeed.TailUT)
+                || !IsFinite(tailSeed.LatestStoredSegmentEndUT)
+                || tailSeed.TailUT <= tailSeed.LatestStoredSegmentEndUT + OrbitSeedResolver.TailDerivedOrbitFreshnessEpsilon)
+            {
+                return false;
+            }
+            if (selectedSegment.endUT > tailSeed.LatestStoredSegmentEndUT + OrbitSeedResolver.TailDerivedOrbitFreshnessEpsilon)
+                return false;
+            if (SegmentContainsUT(selectedSegment, tailSeed.TailUT))
+                return false;
+
+            return true;
+        }
+
+        private static bool IsTerminalMapPresenceRegion(
+            IPlaybackTrajectory traj,
+            double currentUT)
+        {
+            if (traj == null)
+                return false;
+            return IsTerminalStateEligibleForTerminalOrbitMapPresence(traj.TerminalStateValue)
+                && currentUT >= PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
+        }
+
+        private static bool TryResolveEndpointTailForMapPresence(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            OrbitSegment? selectedSegment,
+            bool terminalMapPresenceRegion,
+            out OrbitSegment endpointTailSegment,
+            out TailDerivedOrbitSeed tailSeed,
+            out string detail)
+        {
+            endpointTailSegment = default(OrbitSegment);
+            tailSeed = default(TailDerivedOrbitSeed);
+            detail = null;
+
+            if (traj == null || !terminalMapPresenceRegion)
+                return false;
+
+            if (!RecordingEndpointResolver.TryGetPreferredEndpointBodyName(
+                    traj,
+                    out string preferredEndpointBody))
+            {
+                return false;
+            }
+
+            if (OrbitSeedResolver.TailSeedResolverForTesting == null
+                && !OrbitSeedResolver.TryFindLatestCoastTrajectoryFrame(
+                    traj,
+                    preferredEndpointBody,
+                    out _,
+                    out _))
+            {
+                return false;
+            }
+
+            CelestialBody body = FindBodyByName(preferredEndpointBody);
+            bool tailAccepted = OrbitSeedResolver.TryDeriveTailOrbitSeed(
+                traj,
+                body,
+                currentUT,
+                TailSeedUse.MapPresence,
+                out tailSeed);
+            if (!tailAccepted)
+            {
+                detail = FormatEndpointTailSeedDetail(tailSeed, accepted: false);
+                return false;
+            }
+
+            string endpointSeedSource = null;
+            RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+                traj,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics endpointDiagnostics);
+            endpointSeedSource = endpointDiagnostics.Source;
+
+            bool endpointSegmentFamily =
+                RecordingEndpointResolver.TryGetPersistedEndpointDecision(
+                    traj,
+                    out RecordingEndpointPhase endpointPhase,
+                    out string endpointBodyName)
+                && endpointPhase == RecordingEndpointPhase.OrbitSegment
+                && string.Equals(endpointBodyName, preferredEndpointBody, StringComparison.Ordinal);
+            if (!string.Equals(endpointSeedSource, "endpoint-segment", StringComparison.Ordinal)
+                || !endpointSegmentFamily)
+            {
+                TailDerivedOrbitSeed declinedSeed = tailSeed;
+                declinedSeed.DeclineReason =
+                    !string.Equals(endpointSeedSource, "endpoint-segment", StringComparison.Ordinal)
+                        ? "endpoint-seed-not-segment"
+                        : "endpoint-family-not-segment";
+                detail = CombineSourceDetails(
+                    FormatEndpointTailSeedDetail(declinedSeed, accepted: false),
+                    string.Format(ic,
+                        "endpointSeedSource={0} endpointPhase={1} endpointBody={2}",
+                        endpointSeedSource ?? "(null)",
+                        endpointPhase,
+                        endpointBodyName ?? "(null)"));
+                return false;
+            }
+
+            if (selectedSegment.HasValue
+                && !ShouldOverrideVisibleSegmentWithEndpointTail(
+                    selectedSegment.Value,
+                    preferredEndpointBody,
+                    endpointSeedSource,
+                    tailSeed,
+                    terminalMapPresenceRegion))
+            {
+                TailDerivedOrbitSeed declinedSeed = tailSeed;
+                declinedSeed.DeclineReason = "visible-segment-not-stale-endpoint";
+                detail = CombineSourceDetails(
+                    FormatEndpointTailSeedDetail(declinedSeed, accepted: false),
+                    string.Format(ic,
+                        "endpointSeedSource={0} endpointPhase={1} endpointBody={2}",
+                        endpointSeedSource ?? "(null)",
+                        endpointPhase,
+                        endpointBodyName ?? "(null)"));
+                return false;
+            }
+
+            endpointTailSegment = tailSeed.Segment;
+            detail = FormatEndpointTailSeedDetail(tailSeed, accepted: true);
+            return true;
+        }
+
+        private static bool SegmentContainsUT(OrbitSegment segment, double ut)
+        {
+            return IsFinite(ut)
+                && ut >= segment.startUT - OrbitSeedResolver.TailDerivedOrbitFreshnessEpsilon
+                && ut <= segment.endUT + OrbitSeedResolver.TailDerivedOrbitFreshnessEpsilon;
+        }
+
+        private static string FormatEndpointTailSeedDetail(
+            TailDerivedOrbitSeed seed,
+            bool accepted)
+        {
+            return string.Format(ic,
+                "endpointTailSeed={0} tailDecline={1} tailUT={2:F2} tailSma={3:F1} tailEcc={4:F6} latestSegmentEndUT={5:F2} drift={6:F2}s tailFrame={7} historicalRotation={8} historicalLon={9:F4}",
+                accepted ? "accept" : "decline",
+                seed.DeclineReason ?? "(none)",
+                seed.TailUT,
+                seed.Segment.semiMajorAxis,
+                seed.Segment.eccentricity,
+                seed.LatestStoredSegmentEndUT,
+                seed.RotationDriftSeconds,
+                seed.TailFrameSource ?? "(none)",
+                seed.UsedHistoricalBodyRotation,
+                seed.HistoricalLongitude);
+        }
+
+        private static string FormatEndpointTailBypassDetail(
+            string reason,
+            string endpointBodyName,
+            RecordingEndpointPhase endpointPhase,
+            string persistedEndpointBodyName)
+        {
+            return string.Format(ic,
+                "endpointTailSeed=bypass tailDecline={0} tailUT=NaN tailSma=NaN tailEcc=NaN latestSegmentEndUT=NaN drift=NaNs tailFrame=(none) historicalRotation=False endpointPhase={1} endpointBody={2} preferredEndpointBody={3}",
+                reason ?? "(none)",
+                endpointPhase,
+                persistedEndpointBodyName ?? "(null)",
+                endpointBodyName ?? "(none)");
+        }
+
+        private static string BuildEndpointTailBypassDetail(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            bool terminalMapPresenceRegion)
+        {
+            if (traj == null)
+            {
+                return FormatEndpointTailBypassDetail(
+                    "null-trajectory",
+                    null,
+                    RecordingEndpointPhase.Unknown,
+                    null);
+            }
+
+            RecordingEndpointResolver.TryGetPersistedEndpointDecision(
+                traj,
+                out RecordingEndpointPhase endpointPhase,
+                out string persistedEndpointBodyName);
+
+            if (!terminalMapPresenceRegion)
+            {
+                return FormatEndpointTailBypassDetail(
+                    "not-terminal-map-presence",
+                    null,
+                    endpointPhase,
+                    persistedEndpointBodyName);
+            }
+
+            if (!RecordingEndpointResolver.TryGetPreferredEndpointBodyName(
+                    traj,
+                    out string preferredEndpointBody))
+            {
+                return FormatEndpointTailBypassDetail(
+                    "no-endpoint-body",
+                    null,
+                    endpointPhase,
+                    persistedEndpointBodyName);
+            }
+
+            if (OrbitSeedResolver.TailSeedResolverForTesting == null
+                && !OrbitSeedResolver.TryFindLatestCoastTrajectoryFrame(
+                    traj,
+                    preferredEndpointBody,
+                    out _,
+                    out _))
+            {
+                return FormatEndpointTailBypassDetail(
+                    "no-absolute-coast-tail",
+                    preferredEndpointBody,
+                    endpointPhase,
+                    persistedEndpointBodyName);
+            }
+
+            return FormatEndpointTailBypassDetail(
+                "not-evaluated",
+                preferredEndpointBody,
+                endpointPhase,
+                persistedEndpointBodyName);
+        }
+
+        private static string BuildEndpointTailTrackingStationDetail(
+            Recording rec,
+            double currentUT,
+            TrackingStationGhostSource source,
+            OrbitSegment segment)
+        {
+            bool terminalMapPresenceRegion = IsTerminalMapPresenceRegion(rec, currentUT);
+            OrbitSegment? selectedSegment = source == TrackingStationGhostSource.EndpointTail
+                ? (OrbitSegment?)null
+                : segment;
+
+            TryResolveEndpointTailForMapPresence(
+                rec,
+                currentUT,
+                selectedSegment,
+                terminalMapPresenceRegion,
+                out _,
+                out _,
+                out string endpointTailDetail);
+
+            if (!string.IsNullOrEmpty(endpointTailDetail))
+                return endpointTailDetail;
+
+            return BuildEndpointTailBypassDetail(
+                rec,
+                currentUT,
+                terminalMapPresenceRegion);
         }
 
         internal static TrackingStationGhostSource ResolveMapPresenceGhostSource(
@@ -3758,6 +4087,9 @@ namespace Parsek
                     string.Format(ic, "terminal={0}", terminal.Value));
             }
 
+            double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
+            bool terminalMapPresenceRegion = IsTerminalMapPresenceRegion(traj, currentUT);
+
             string checkpointFallbackDetail = null;
             string checkpointFallbackRejectReason = null;
             if (traj.HasOrbitSegments)
@@ -3796,6 +4128,30 @@ namespace Parsek
                             FormatOrbitalCheckpointStateVectorFallbackDecision(checkpointDecision));
                     }
 
+                    OrbitSegment visibleSegment = segment;
+                    string endpointTailDetail = null;
+                    if (TryResolveEndpointTailForMapPresence(
+                            traj,
+                            currentUT,
+                            visibleSegment,
+                            terminalMapPresenceRegion,
+                            out OrbitSegment endpointTailSegment,
+                            out _,
+                            out endpointTailDetail))
+                    {
+                        segment = endpointTailSegment;
+                        resolvedSegment = segment;
+                        return ReturnDecision(
+                            TrackingStationGhostSource.EndpointTail,
+                            skipReason,
+                            CombineSourceDetails(string.Format(ic,
+                                "endpointTailOverride=stale-visible-segment visibleSegmentBody={0} visibleSegmentUT={1:F1}-{2:F1}",
+                                visibleSegment.bodyName ?? "(null)",
+                                visibleSegment.startUT,
+                                visibleSegment.endUT),
+                                CombineSourceDetails(endpointTailDetail, checkpointFallbackDetail)));
+                    }
+
                     return ReturnDecision(
                         TrackingStationGhostSource.Segment,
                         skipReason,
@@ -3804,7 +4160,7 @@ namespace Parsek
                             segment.bodyName ?? "(null)",
                             segment.startUT,
                             segment.endUT),
-                            checkpointFallbackDetail));
+                            CombineSourceDetails(endpointTailDetail, checkpointFallbackDetail)));
                 }
             }
 
@@ -3923,7 +4279,6 @@ namespace Parsek
                         checkpointFallbackDetail));
             }
 
-            double activationStartUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
             if (currentUT < activationStartUT)
             {
                 skipReason = checkpointFallbackRejectReason ?? "before-activation";
@@ -3950,6 +4305,23 @@ namespace Parsek
                         checkpointFallbackDetail));
             }
 
+            if (TryResolveEndpointTailForMapPresence(
+                    traj,
+                    currentUT,
+                    selectedSegment: null,
+                    terminalMapPresenceRegion: terminalMapPresenceRegion,
+                    out OrbitSegment terminalEndpointTailSegment,
+                    out _,
+                    out string terminalEndpointTailDetail))
+            {
+                segment = terminalEndpointTailSegment;
+                resolvedSegment = segment;
+                return ReturnDecision(
+                    TrackingStationGhostSource.EndpointTail,
+                    skipReason,
+                    CombineSourceDetails(terminalEndpointTailDetail, checkpointFallbackDetail));
+            }
+
             if (!TryResolveGhostProtoOrbitSeed(
                 traj,
                 out double inclination,
@@ -3962,6 +4334,7 @@ namespace Parsek
                 out string seedBodyName,
                 out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
             {
+                PopulateTailSeedDiagnostics(traj, currentUT, ref seedDiagnostics);
                 skipReason = seedDiagnostics.FailureReason == TrackingStationGhostSkipEndpointConflict
                     ? TrackingStationGhostSkipEndpointConflict
                     : TrackingStationGhostSkipUnseedableTerminalOrbit;
@@ -3969,13 +4342,15 @@ namespace Parsek
                     TrackingStationGhostSource.None,
                     skipReason,
                     CombineSourceDetails(string.Format(ic,
-                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3}",
+                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3} {4}",
                         traj.TerminalOrbitBody ?? "(null)",
                         traj.EndUT,
                         seedDiagnostics.FailureReason ?? "(none)",
-                        seedDiagnostics.EndpointBodyName ?? "(none)"),
+                        seedDiagnostics.EndpointBodyName ?? "(none)",
+                        FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)),
                         checkpointFallbackDetail));
             }
+            PopulateTailSeedDiagnostics(traj, currentUT, ref seedDiagnostics);
 
             segment = new OrbitSegment
             {
@@ -3996,13 +4371,14 @@ namespace Parsek
                 TrackingStationGhostSource.TerminalOrbit,
                 skipReason,
                 CombineSourceDetails(string.Format(ic,
-                    "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5}",
+                    "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5} {6}",
                     traj.TerminalOrbitBody ?? "(null)",
                     traj.EndUT,
                     seedBodyName ?? "(null)",
                     seedDiagnostics.Source ?? "(none)",
                     seedDiagnostics.EndpointBodyName ?? "(none)",
-                    seedDiagnostics.FallbackReason ?? "(none)"),
+                    seedDiagnostics.FallbackReason ?? "(none)",
+                    FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)),
                     checkpointFallbackDetail));
         }
 
@@ -4031,11 +4407,18 @@ namespace Parsek
             switch (source)
             {
                 case TrackingStationGhostSource.Segment:
-                    return WithStructured(string.Format(ic,
-                        "segmentBody={0} segmentUT={1:F1}-{2:F1}",
-                        segment.bodyName ?? "(null)",
-                        segment.startUT,
-                        segment.endUT));
+                case TrackingStationGhostSource.EndpointTail:
+                    return WithStructured(CombineSourceDetails(
+                        string.Format(ic,
+                            "segmentBody={0} segmentUT={1:F1}-{2:F1}",
+                            segment.bodyName ?? "(null)",
+                            segment.startUT,
+                            segment.endUT),
+                        BuildEndpointTailTrackingStationDetail(
+                            rec,
+                            currentUT,
+                            source,
+                            segment)));
 
                 case TrackingStationGhostSource.StateVector:
                 case TrackingStationGhostSource.StateVectorSoiGap:
@@ -4058,14 +4441,16 @@ namespace Parsek
                         out string seedBodyName,
                         out GhostProtoOrbitSeedDiagnostics seedDiagnostics))
                     {
+                        PopulateTailSeedDiagnostics(rec, currentUT, ref seedDiagnostics);
                         return WithStructured(string.Format(ic,
-                            "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5}",
+                            "terminalBody={0} endUT={1:F1} seedBody={2} seedSource={3} endpointBody={4} seedFallback={5} {6}",
                             rec.TerminalOrbitBody ?? "(null)",
                             rec.EndUT,
                             seedBodyName ?? "(null)",
                             seedDiagnostics.Source ?? "(none)",
                             seedDiagnostics.EndpointBodyName ?? "(none)",
-                            seedDiagnostics.FallbackReason ?? "(none)"));
+                            seedDiagnostics.FallbackReason ?? "(none)",
+                            FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)));
                     }
                     break;
             }
@@ -4096,12 +4481,14 @@ namespace Parsek
                         out _,
                         out _,
                         out GhostProtoOrbitSeedDiagnostics seedDiagnostics);
+                    PopulateTailSeedDiagnostics(rec, currentUT, ref seedDiagnostics);
                     return WithStructured(string.Format(ic,
-                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3}",
+                        "terminalBody={0} endUT={1:F1} seedFailure={2} endpointBody={3} {4}",
                         rec.TerminalOrbitBody ?? "(null)",
                         rec.EndUT,
                         seedDiagnostics.FailureReason ?? "(none)",
-                        seedDiagnostics.EndpointBodyName ?? "(none)"));
+                        seedDiagnostics.EndpointBodyName ?? "(none)",
+                        FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)));
             }
 
             if (skipReason != null && skipReason.StartsWith("terminal"))
@@ -4147,6 +4534,9 @@ namespace Parsek
 
                 case TrackingStationGhostSource.TerminalOrbit:
                     return BuildOrbitSourceStructuredDetail("TerminalOrbit", recId, currentUT, segment);
+
+                case TrackingStationGhostSource.EndpointTail:
+                    return BuildOrbitSourceStructuredDetail("EndpointTail", recId, currentUT, segment);
 
                 case TrackingStationGhostSource.StateVector:
                     return BuildStateVectorSourceStructuredDetail("StateVector", recId, stateVectorPoint);
@@ -4271,6 +4661,11 @@ namespace Parsek
         {
             return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
                 || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !(double.IsNaN(value) || double.IsInfinity(value));
         }
 
         private static string NormalizeStateVectorSkipReasonForNoOrbit(string stateVectorSkipReason)
@@ -4596,6 +4991,7 @@ namespace Parsek
             switch (source)
             {
                 case TrackingStationGhostSource.Segment:
+                case TrackingStationGhostSource.EndpointTail:
                     dispatch.Body = segment.bodyName;
                     dispatch.Segment = segment;
                     break;
@@ -4626,6 +5022,19 @@ namespace Parsek
                     if (segmentGhost != null)
                         UpdateGhostOrbitForRecording(recordingIndex, segment);
                     return segmentGhost;
+
+                case TrackingStationGhostSource.EndpointTail:
+                    Vessel endpointTailGhost = CreateGhostVesselFromSegment(
+                        recordingIndex,
+                        traj,
+                        segment,
+                        TrackingStationGhostSource.EndpointTail);
+                    if (endpointTailGhost != null)
+                        UpdateGhostOrbitForRecording(
+                            recordingIndex,
+                            segment,
+                            TrackingStationGhostSource.EndpointTail);
+                    return endpointTailGhost;
 
                 case TrackingStationGhostSource.StateVector:
                 case TrackingStationGhostSource.StateVectorSoiGap:
@@ -4877,6 +5286,18 @@ namespace Parsek
                     hasOrbitBounds,
                     isStateVector || fromCheckpoint,
                     currentUT);
+                if (string.Equals(removeReason, "tracking-station-expired", StringComparison.Ordinal)
+                    && TryResolveEndpointTailForMapPresence(
+                        rec,
+                        currentUT,
+                        selectedSegment: null,
+                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, currentUT),
+                        out _,
+                        out _,
+                        out _))
+                {
+                    removeReason = null;
+                }
                 if (removeReason != null)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
@@ -4952,6 +5373,33 @@ namespace Parsek
                     continue;
 
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
+                if (seg.HasValue
+                    && TryResolveEndpointTailForMapPresence(
+                        rec,
+                        currentUT,
+                        seg.Value,
+                        IsTerminalMapPresenceRegion(rec, currentUT),
+                        out OrbitSegment endpointTailSegment,
+                        out _,
+                        out _))
+                {
+                    seg = endpointTailSegment;
+                    orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
+                }
+                else if (!seg.HasValue
+                    && TryResolveEndpointTailForMapPresence(
+                        rec,
+                        currentUT,
+                        selectedSegment: null,
+                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, currentUT),
+                        out endpointTailSegment,
+                        out _,
+                        out _))
+                {
+                    seg = endpointTailSegment;
+                    orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
+                }
                 if (!seg.HasValue)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
@@ -4959,7 +5407,7 @@ namespace Parsek
                     continue;
                 }
                 if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
-                    UpdateGhostOrbitForRecording(idx, seg.Value);
+                    UpdateGhostOrbitForRecording(idx, seg.Value, orbitUpdateSource);
             }
 
             if (toRemove == null)
@@ -5150,7 +5598,10 @@ namespace Parsek
         /// <summary>
         /// Update orbit for a recording-index ghost when the ghost traverses orbit segments.
         /// </summary>
-        internal static void UpdateGhostOrbitForRecording(int recordingIndex, OrbitSegment segment)
+        internal static void UpdateGhostOrbitForRecording(
+            int recordingIndex,
+            OrbitSegment segment,
+            TrackingStationGhostSource source = TrackingStationGhostSource.Segment)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
@@ -5162,12 +5613,15 @@ namespace Parsek
             string vesselName = prev.VesselName;
             string updateKey = string.Format(ic, "rec-orbit-update-{0}",
                 recId ?? recordingIndex.ToString(ic));
+            string sourceLabel = source == TrackingStationGhostSource.EndpointTail
+                ? "EndpointTail"
+                : "Segment";
 
             var done = NewDecisionFields("update-segment");
             done.RecordingId = recId;
             done.RecordingIndex = recordingIndex;
             done.VesselName = vesselName;
-            done.Source = "Segment";
+            done.Source = sourceLabel;
             done.Branch = "(n/a)";
             done.Body = segment.bodyName;
             done.WorldPos = worldPos;
@@ -5181,7 +5635,7 @@ namespace Parsek
                 RecordingId = recId,
                 VesselName = vesselName,
                 GhostPid = vessel.persistentId,
-                Source = "Segment",
+                Source = sourceLabel,
                 Branch = "(n/a)",
                 Body = segment.bodyName,
                 WorldPos = worldPos,
@@ -5673,7 +6127,7 @@ namespace Parsek
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
             Orbit orbit = new Orbit();
-            orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
+            OrbitReseed.FromWorldPosAndRecordedVelocity(orbit, body, worldPos, vel, ut);
 
             string logContext = string.Format(ic,
                 "recording #{0} (state vectors alt={1:F0} spd={2:F1} frame={3})",
@@ -5897,7 +6351,12 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
-            vessel.orbitDriver.orbit.UpdateFromStateVectors(worldPos, vel, body, ut);
+            OrbitReseed.FromWorldPosAndRecordedVelocity(
+                vessel.orbitDriver.orbit,
+                body,
+                worldPos,
+                vel,
+                ut);
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
 
@@ -6476,7 +6935,7 @@ namespace Parsek
             int skippedTerminal = 0, skippedBeforeActivation = 0;
             int skippedBeforeTerminalOrbit = 0, skippedNoOrbit = 0;
             int skippedEndpointConflict = 0, skippedUnseedableTerminalOrbit = 0;
-            int sourceVisibleSegment = 0, sourceTerminalOrbit = 0, sourceStateVector = 0;
+            int sourceVisibleSegment = 0, sourceTerminalOrbit = 0, sourceEndpointTail = 0, sourceStateVector = 0;
             var sourceBatch = new TrackingStationGhostSourceBatch("tracking-station-startup");
 
             for (int i = 0; i < committed.Count; i++)
@@ -6518,6 +6977,8 @@ namespace Parsek
 
                 if (source == TrackingStationGhostSource.TerminalOrbit)
                     sourceTerminalOrbit++;
+                else if (source == TrackingStationGhostSource.EndpointTail)
+                    sourceEndpointTail++;
                 else if (source == TrackingStationGhostSource.Segment)
                     sourceVisibleSegment++;
                 else if (IsStateVectorGhostSource(source))
@@ -6548,11 +7009,11 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
-                    "sources(visibleSegment={2} terminalOrbit={3} stateVector={4}) " +
-                    "(skipped: debris={5} suppressed={6} spawned={7} terminal={8} beforeActivation={9} " +
-                    "beforeTerminalOrbit={10} noOrbit={11} endpointConflict={12} terminalUnseedable={13})",
+                    "sources(visibleSegment={2} terminalOrbit={3} endpointTail={4} stateVector={5}) " +
+                    "(skipped: debris={6} suppressed={7} spawned={8} terminal={9} beforeActivation={10} " +
+                    "beforeTerminalOrbit={11} noOrbit={12} endpointConflict={13} terminalUnseedable={14})",
                     created, committed.Count,
-                    sourceVisibleSegment, sourceTerminalOrbit, sourceStateVector,
+                    sourceVisibleSegment, sourceTerminalOrbit, sourceEndpointTail, sourceStateVector,
                     skippedDebris, skippedSuppressed, skippedSpawned, skippedTerminal,
                     skippedBeforeActivation, skippedBeforeTerminalOrbit, skippedNoOrbit,
                     skippedEndpointConflict, skippedUnseedableTerminalOrbit));
@@ -6804,6 +7265,17 @@ namespace Parsek
             endUT = 0;
 
             int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
+            if (IsEndpointTailRecordingGhost(vesselPid, recordingIndex)
+                && TryGetStoredOrbitBoundsForGhostVessel(
+                    vesselPid,
+                    currentUT,
+                    "endpoint-tail",
+                    out startUT,
+                    out endUT))
+            {
+                return true;
+            }
+
             var committed = RecordingStore.CommittedRecordings;
             if (recordingIndex >= 0
                 && committed != null
@@ -6874,20 +7346,44 @@ namespace Parsek
                         vesselPid, recordingIndex, currentUT));
             }
 
-            if (ghostOrbitBounds.TryGetValue(vesselPid, out var bounds))
+            if (TryGetStoredOrbitBoundsForGhostVessel(
+                    vesselPid,
+                    currentUT,
+                    "fallback",
+                    out startUT,
+                    out endUT))
             {
-                startUT = bounds.startUT;
-                endUT = bounds.endUT;
-                ParsekLog.VerboseOnChange(Tag,
-                    string.Format(ic, "visible-window-stored-bounds|{0}", vesselPid),
-                    string.Format(ic, "stored-bounds|{0:F3}-{1:F3}", startUT, endUT),
-                    string.Format(ic,
-                        "Map-visible orbit window pid={0} source=stored-bounds-fallback ut={1:F2} windowUT={2:F2}-{3:F2}",
-                        vesselPid, currentUT, startUT, endUT));
                 return true;
             }
 
             return false;
+        }
+
+        private static bool TryGetStoredOrbitBoundsForGhostVessel(
+            uint vesselPid,
+            double currentUT,
+            string reason,
+            out double startUT,
+            out double endUT)
+        {
+            startUT = 0;
+            endUT = 0;
+
+            if (!ghostOrbitBounds.TryGetValue(vesselPid, out var bounds))
+                return false;
+
+            startUT = bounds.startUT;
+            endUT = bounds.endUT;
+            string source = string.Equals(reason, "endpoint-tail", StringComparison.Ordinal)
+                ? "stored-bounds-endpoint-tail"
+                : "stored-bounds-fallback";
+            ParsekLog.VerboseOnChange(Tag,
+                string.Format(ic, "visible-window-stored-bounds|{0}|{1}", vesselPid, reason),
+                string.Format(ic, "stored-bounds|{0}|{1:F3}-{2:F3}", reason, startUT, endUT),
+                string.Format(ic,
+                    "Map-visible orbit window pid={0} source={1} ut={2:F2} windowUT={3:F2}-{4:F2}",
+                    vesselPid, source, currentUT, startUT, endUT));
+            return true;
         }
 
         /// <summary>
@@ -6896,6 +7392,8 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             CurrentUTNow = GetCurrentUTSafe;
+            FindBodyByNameForTesting = null;
+            OrbitSeedResolver.ResetForTesting();
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
@@ -7016,16 +7514,47 @@ namespace Parsek
                 vesselPidToRecordingId.Remove(ghostPid);
         }
 
+        internal static void TrackEndpointTailGhostBoundsForTesting(
+            uint ghostPid,
+            int recordingIndex,
+            string recordingId,
+            string bodyName,
+            double startUT,
+            double endUT)
+        {
+            TrackRecordingGhostIdentityForTesting(ghostPid, recordingIndex, recordingId);
+            ghostOrbitBounds[ghostPid] = (startUT, endUT);
+            StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
+            {
+                RecordingId = recordingId,
+                VesselName = "(test)",
+                GhostPid = ghostPid,
+                Source = "EndpointTail",
+                Branch = "(n/a)",
+                Body = bodyName,
+                WorldPos = default(Vector3d),
+                AnchorPid = 0u,
+                LastUT = startUT
+            });
+        }
+
         /// <summary>
         /// Find a CelestialBody by name without LINQ allocation.
         /// Returns null if FlightGlobals.Bodies is null or name not found.
         /// </summary>
         private static CelestialBody FindBodyByName(string bodyName)
         {
+            if (FindBodyByNameForTesting != null)
+            {
+                CelestialBody testBody = FindBodyByNameForTesting(bodyName);
+                if (!object.ReferenceEquals(testBody, null))
+                    return testBody;
+            }
+
             var bodies = FlightGlobals.Bodies;
             if (bodies == null) return null;
             for (int i = 0; i < bodies.Count; i++)
-                if (bodies[i].name == bodyName) return bodies[i];
+                if (bodies[i].name == bodyName || bodies[i].bodyName == bodyName) return bodies[i];
             return null;
         }
 
@@ -7039,7 +7568,10 @@ namespace Parsek
         /// Used for intermediate chain segments that have orbit segments but no terminal orbit.
         /// </summary>
         private static Vessel BuildAndLoadGhostProtoVessel(
-            IPlaybackTrajectory traj, OrbitSegment segment, string logContext)
+            IPlaybackTrajectory traj,
+            OrbitSegment segment,
+            string logContext,
+            string protoSource = "visible-segment")
         {
             CelestialBody body = FindBodyByName(segment.bodyName);
             if (body == null)
@@ -7066,7 +7598,7 @@ namespace Parsek
                 orbit,
                 body,
                 logContext,
-                "visible-segment",
+                string.IsNullOrEmpty(protoSource) ? "visible-segment" : protoSource,
                 string.Format(ic,
                     "segmentBody={0} segmentUT={1:F1}-{2:F1}",
                     segment.bodyName ?? "(null)",
@@ -7091,11 +7623,12 @@ namespace Parsek
                 ParsekLog.Error(Tag,
                     string.Format(ic,
                         "BuildAndLoadGhostProtoVessel: no endpoint-aligned orbit seed for {0} " +
-                        "seedFailure={1} endpointBody={2} seedFallback={3}",
+                        "seedFailure={1} endpointBody={2} seedFallback={3} {4}",
                         logContext,
                         seedDiagnostics.FailureReason ?? "(none)",
                         seedDiagnostics.EndpointBodyName ?? "(none)",
-                        seedDiagnostics.FallbackReason ?? "(none)"));
+                        seedDiagnostics.FallbackReason ?? "(none)",
+                        FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)));
                 return null;
             }
 
@@ -7126,10 +7659,11 @@ namespace Parsek
                 logContext,
                 string.IsNullOrEmpty(seedDiagnostics.Source) ? "terminal-orbit" : seedDiagnostics.Source,
                 string.Format(ic,
-                    "seedBody={0} endpointBody={1} seedFallback={2}",
+                    "seedBody={0} endpointBody={1} seedFallback={2} {3}",
                     orbitBodyName ?? "(null)",
                     seedDiagnostics.EndpointBodyName ?? "(none)",
-                    seedDiagnostics.FallbackReason ?? "(none)"));
+                    seedDiagnostics.FallbackReason ?? "(none)",
+                    FormatGhostProtoOrbitSeedDiagnostics(seedDiagnostics)));
         }
 
         internal static bool TryResolveGhostProtoOrbitSeed(
@@ -7185,8 +7719,14 @@ namespace Parsek
                     Source = endpointDiagnostics.Source,
                     EndpointBodyName = endpointDiagnostics.EndpointBodyName,
                     FailureReason = null,
-                    FallbackReason = null
+                    FallbackReason = null,
+                    TailUT = double.NaN,
+                    TailSma = double.NaN,
+                    TailEcc = double.NaN,
+                    LatestSegmentEndUT = double.NaN,
+                    RotationDriftSeconds = double.NaN
                 };
+                PopulateTailSeedDiagnostics(traj, double.NaN, ref diagnostics);
                 return true;
             }
 
@@ -7208,7 +7748,12 @@ namespace Parsek
                 FailureReason = fallbackResolved
                     ? null
                     : (endpointDiagnostics.FailureReason ?? TrackingStationGhostSkipUnseedableTerminalOrbit),
-                FallbackReason = endpointDiagnostics.FailureReason
+                FallbackReason = endpointDiagnostics.FailureReason,
+                TailUT = double.NaN,
+                TailSma = double.NaN,
+                TailEcc = double.NaN,
+                LatestSegmentEndUT = double.NaN,
+                RotationDriftSeconds = double.NaN
             };
 
             if (fallbackResolved && string.IsNullOrEmpty(diagnostics.EndpointBodyName)
@@ -7217,7 +7762,77 @@ namespace Parsek
                 diagnostics.EndpointBodyName = preferredEndpointBody;
             }
 
+            PopulateTailSeedDiagnostics(traj, double.NaN, ref diagnostics);
             return fallbackResolved;
+        }
+
+        private static void PopulateTailSeedDiagnostics(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            ref GhostProtoOrbitSeedDiagnostics diagnostics)
+        {
+            diagnostics.TailSeedConsidered = false;
+            diagnostics.TailSeedAccepted = false;
+            diagnostics.TailDeclineReason = null;
+            diagnostics.TailFrameSource = null;
+
+            if (!RecordingEndpointResolver.TryGetPreferredEndpointBodyName(
+                    traj,
+                    out string preferredEndpointBody))
+            {
+                return;
+            }
+
+            diagnostics.EndpointBodyName = diagnostics.EndpointBodyName ?? preferredEndpointBody;
+            diagnostics.TailSeedConsidered = true;
+            if (OrbitSeedResolver.TailSeedResolverForTesting == null
+                && !OrbitSeedResolver.TryFindLatestCoastTrajectoryFrame(
+                    traj,
+                    preferredEndpointBody,
+                    out _,
+                    out _))
+            {
+                diagnostics.TailDeclineReason = "no-absolute-coast-tail";
+                return;
+            }
+
+            CelestialBody body = FindBodyByName(preferredEndpointBody);
+            if (body == null)
+            {
+                diagnostics.TailDeclineReason = "body-not-found";
+                return;
+            }
+
+            bool accepted = OrbitSeedResolver.TryDeriveTailOrbitSeed(
+                traj,
+                body,
+                currentUT,
+                TailSeedUse.MapPresence,
+                out TailDerivedOrbitSeed seed);
+            diagnostics.TailSeedAccepted = accepted;
+            diagnostics.TailDeclineReason = seed.DeclineReason;
+            diagnostics.TailUT = seed.TailUT;
+            diagnostics.TailSma = seed.Segment.semiMajorAxis;
+            diagnostics.TailEcc = seed.Segment.eccentricity;
+            diagnostics.LatestSegmentEndUT = seed.LatestStoredSegmentEndUT;
+            diagnostics.RotationDriftSeconds = seed.RotationDriftSeconds;
+            diagnostics.TailFrameSource = seed.TailFrameSource;
+        }
+
+        private static string FormatGhostProtoOrbitSeedDiagnostics(
+            GhostProtoOrbitSeedDiagnostics diagnostics)
+        {
+            return string.Format(ic,
+                "tailConsidered={0} tailAccepted={1} tailDecline={2} tailUT={3:F2} tailSma={4:F1} tailEcc={5:F6} latestSegmentEndUT={6:F2} drift={7:F2}s tailFrame={8}",
+                diagnostics.TailSeedConsidered,
+                diagnostics.TailSeedAccepted,
+                diagnostics.TailDeclineReason ?? "(none)",
+                diagnostics.TailUT,
+                diagnostics.TailSma,
+                diagnostics.TailEcc,
+                diagnostics.LatestSegmentEndUT,
+                diagnostics.RotationDriftSeconds,
+                diagnostics.TailFrameSource ?? "(none)");
         }
 
         private static bool TryResolveTerminalOrbitGhostSeed(
