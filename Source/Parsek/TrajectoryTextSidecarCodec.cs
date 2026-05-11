@@ -1608,9 +1608,12 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(track.anchorRecordingId))
                     tsNode.AddValue("anchorRecordingId", track.anchorRecordingId);
 
-                if (recordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion
+                if ((recordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion
+                        || recordingFormatVersion >= RecordingStore.DebrisFrameContractFormatVersion)
                     && track.anchorVesselId != 0)
+                {
                     tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
+                }
 
                 // Producer-C boundary seam flag: sparse — only write when set. Forward-tolerant
                 // for legacy text loaders (unknown key is silently ignored). See

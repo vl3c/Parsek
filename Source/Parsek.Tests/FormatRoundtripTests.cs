@@ -76,7 +76,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TextV11_TrackSection_WritesAnchorRecordingIdWithoutAnchorPid()
+        public void TextV13_TrackSection_RoundTripsAnchorRecordingIdAndLivePid()
         {
             Recording original = BuildV11RelativeAnchorFixture();
             var node = new ConfigNode("PARSEK_RECORDING");
@@ -86,14 +86,14 @@ namespace Parsek.Tests
             ConfigNode[] sectionNodes = node.GetNodes("TRACK_SECTION");
             Assert.Single(sectionNodes);
             Assert.Equal("anchor-recording-a", sectionNodes[0].GetValue("anchorRecordingId"));
-            Assert.Null(sectionNodes[0].GetValue("anchorPid"));
+            Assert.Equal("3314061462", sectionNodes[0].GetValue("anchorPid"));
 
             var restored = new Recording();
             TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, restored);
 
             Assert.Single(restored.TrackSections);
             Assert.Equal("anchor-recording-a", restored.TrackSections[0].anchorRecordingId);
-            Assert.Equal(0u, restored.TrackSections[0].anchorVesselId);
+            Assert.Equal(3314061462u, restored.TrackSections[0].anchorVesselId);
         }
 
         private static Recording BuildV11RelativeAnchorFixture()

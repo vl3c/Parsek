@@ -283,6 +283,44 @@ namespace Parsek.Tests
             Assert.Equal(0u, loaded[0].anchorVesselId);
         }
 
+        [Fact]
+        public void RoundTrip_CurrentRelativeFrame_WithAnchorRecordingIdAndAnchorVesselId()
+        {
+            var original = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoPropulsive,
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 17500.0,
+                endUT = 17600.0,
+                sampleRateHz = 5.0f,
+                anchorRecordingId = "anchor-rec-1",
+                anchorVesselId = 42u,
+                frames = new List<TrajectoryPoint>
+                {
+                    MakePoint(17500.0, 0.0, 0.0, 100, velX: 1f, velY: 2f, velZ: 3f),
+                    MakePoint(17600.0, 0.2, 0.2, 300, velX: 7f, velY: 8f, velZ: 9f),
+                },
+                checkpoints = new List<OrbitSegment>()
+            };
+
+            var parent = new ConfigNode("TEST");
+            RecordingStore.SerializeTrackSections(
+                parent,
+                new List<TrackSection> { original },
+                RecordingStore.CurrentRecordingFormatVersion);
+
+            ConfigNode tsNode = parent.GetNode("TRACK_SECTION");
+            Assert.Equal("anchor-rec-1", tsNode.GetValue("anchorRecordingId"));
+            Assert.Equal("42", tsNode.GetValue("anchorPid"));
+
+            var loaded = new List<TrackSection>();
+            RecordingStore.DeserializeTrackSections(parent, loaded);
+
+            Assert.Single(loaded);
+            Assert.Equal("anchor-rec-1", loaded[0].anchorRecordingId);
+            Assert.Equal(42u, loaded[0].anchorVesselId);
+        }
+
         #endregion
 
         #region Test 4: Multiple sections in sequence
