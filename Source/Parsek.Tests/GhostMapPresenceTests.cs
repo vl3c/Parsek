@@ -851,7 +851,7 @@ namespace Parsek.Tests
         #region Orbit segment tracking on GhostChain
 
         /// <summary>
-        /// GhostChain LastMapOrbitBodyName/Sma start as null/0 (no segment tracked yet).
+        /// GhostChain map orbit cache starts empty (no segment tracked yet).
         /// </summary>
         [Fact]
         public void GhostChain_OrbitTracking_InitiallyNull()
@@ -859,6 +859,8 @@ namespace Parsek.Tests
             var chain = new GhostChain();
             Assert.Null(chain.LastMapOrbitBodyName);
             Assert.Equal(0.0, chain.LastMapOrbitSma);
+            Assert.Equal(0.0, chain.LastMapOrbitInclination);
+            Assert.Equal(0.0, chain.LastMapOrbitMeanAnomalyAtEpoch);
         }
 
         /// <summary>
@@ -868,30 +870,32 @@ namespace Parsek.Tests
         [Fact]
         public void GhostChain_OrbitTracking_RetainsValues()
         {
-            var chain = new GhostChain
-            {
-                LastMapOrbitBodyName = "Kerbin",
-                LastMapOrbitSma = 700000
-            };
+            var chain = new GhostChain();
+            OrbitSegment segment = ChainMapSegment();
+
+            ParsekFlight.StoreChainMapOrbit(chain, segment);
+
             Assert.Equal("Kerbin", chain.LastMapOrbitBodyName);
             Assert.Equal(700000, chain.LastMapOrbitSma);
+            Assert.Equal(0.01, chain.LastMapOrbitEcc);
+            Assert.Equal(5.0, chain.LastMapOrbitInclination);
+            Assert.Equal(10.0, chain.LastMapOrbitLan);
+            Assert.Equal(15.0, chain.LastMapOrbitArgumentOfPeriapsis);
+            Assert.Equal(0.1, chain.LastMapOrbitMeanAnomalyAtEpoch);
+            Assert.Equal(100.0, chain.LastMapOrbitEpoch);
         }
 
         /// <summary>
-        /// Segment change detection: same body+SMA means no change.
+        /// Segment change detection: identical applied orbit means no change.
         /// </summary>
         [Fact]
         public void GhostChain_OrbitTracking_SameValues_NoChange()
         {
-            var chain = new GhostChain
-            {
-                LastMapOrbitBodyName = "Kerbin",
-                LastMapOrbitSma = 700000
-            };
-            // Simulating the check in UpdateChainGhostOrbitIfNeeded
-            bool changed = (chain.LastMapOrbitBodyName != "Kerbin"
-                || chain.LastMapOrbitSma != 700000);
-            Assert.False(changed);
+            var chain = new GhostChain();
+            OrbitSegment segment = ChainMapSegment();
+            ParsekFlight.StoreChainMapOrbit(chain, segment);
+
+            Assert.True(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
         }
 
         /// <summary>
@@ -900,14 +904,41 @@ namespace Parsek.Tests
         [Fact]
         public void GhostChain_OrbitTracking_BodyChange_DetectedAsSOITransition()
         {
-            var chain = new GhostChain
-            {
-                LastMapOrbitBodyName = "Kerbin",
-                LastMapOrbitSma = 700000
-            };
-            bool changed = (chain.LastMapOrbitBodyName != "Mun"
-                || chain.LastMapOrbitSma != 200000);
-            Assert.True(changed);
+            var chain = new GhostChain();
+            OrbitSegment segment = ChainMapSegment();
+            ParsekFlight.StoreChainMapOrbit(chain, segment);
+            segment.bodyName = "Mun";
+            segment.semiMajorAxis = 200000;
+
+            Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+        }
+
+        [Fact]
+        public void GhostChain_OrbitTracking_OrientationChange_Detected()
+        {
+            var chain = new GhostChain();
+            OrbitSegment segment = ChainMapSegment();
+            ParsekFlight.StoreChainMapOrbit(chain, segment);
+            segment.inclination = 6.0;
+
+            Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+        }
+
+        [Fact]
+        public void GhostChain_OrbitTracking_EpochOrAnomalyChange_Detected()
+        {
+            var chain = new GhostChain();
+            OrbitSegment segment = ChainMapSegment();
+            ParsekFlight.StoreChainMapOrbit(chain, segment);
+            segment.meanAnomalyAtEpoch = 0.2;
+
+            Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+
+            ParsekFlight.StoreChainMapOrbit(chain, ChainMapSegment());
+            segment = ChainMapSegment();
+            segment.epoch = 180.0;
+
+            Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
         }
 
         #endregion
@@ -3577,6 +3608,23 @@ namespace Parsek.Tests
                 longitudeOfAscendingNode = 2.0,
                 argumentOfPeriapsis = 3.0,
                 meanAnomalyAtEpoch = 0.4,
+                epoch = 100.0
+            };
+        }
+
+        private static OrbitSegment ChainMapSegment()
+        {
+            return new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 200.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.01,
+                inclination = 5.0,
+                longitudeOfAscendingNode = 10.0,
+                argumentOfPeriapsis = 15.0,
+                meanAnomalyAtEpoch = 0.1,
                 epoch = 100.0
             };
         }

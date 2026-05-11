@@ -14415,26 +14415,64 @@ namespace Parsek
             OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(segments, currentUT);
             if (!seg.HasValue) return;
 
-            // Detect change: body, SMA, or eccentricity shifted (covers SOI transitions,
-            // orbit changes, and inclination maneuvers at constant altitude).
-            // Exact equality is intentional: segment values are stored doubles that don't drift.
-            // A change means a different OrbitSegment was found, not floating-point accumulation.
-            if (seg.Value.bodyName == chain.LastMapOrbitBodyName
-                && seg.Value.semiMajorAxis == chain.LastMapOrbitSma
-                && seg.Value.eccentricity == chain.LastMapOrbitEcc)
+            if (IsChainMapOrbitUnchanged(chain, seg.Value))
                 return;
 
             if (!GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value))
             {
-                chain.LastMapOrbitBodyName = null;
-                chain.LastMapOrbitSma = 0.0;
-                chain.LastMapOrbitEcc = 0.0;
+                ClearChainMapOrbit(chain);
                 return;
             }
 
-            chain.LastMapOrbitBodyName = seg.Value.bodyName;
-            chain.LastMapOrbitSma = seg.Value.semiMajorAxis;
-            chain.LastMapOrbitEcc = seg.Value.eccentricity;
+            StoreChainMapOrbit(chain, seg.Value);
+        }
+
+        internal static bool IsChainMapOrbitUnchanged(GhostChain chain, OrbitSegment segment)
+        {
+            if (chain == null)
+                return false;
+
+            // Exact equality is intentional: segment values are stored doubles
+            // that do not drift. Any element change means a different applied
+            // OrbitSegment, not floating-point accumulation.
+            return string.Equals(segment.bodyName, chain.LastMapOrbitBodyName, StringComparison.Ordinal)
+                && segment.semiMajorAxis == chain.LastMapOrbitSma
+                && segment.eccentricity == chain.LastMapOrbitEcc
+                && segment.inclination == chain.LastMapOrbitInclination
+                && segment.longitudeOfAscendingNode == chain.LastMapOrbitLan
+                && segment.argumentOfPeriapsis == chain.LastMapOrbitArgumentOfPeriapsis
+                && segment.meanAnomalyAtEpoch == chain.LastMapOrbitMeanAnomalyAtEpoch
+                && segment.epoch == chain.LastMapOrbitEpoch;
+        }
+
+        internal static void StoreChainMapOrbit(GhostChain chain, OrbitSegment segment)
+        {
+            if (chain == null)
+                return;
+
+            chain.LastMapOrbitBodyName = segment.bodyName;
+            chain.LastMapOrbitSma = segment.semiMajorAxis;
+            chain.LastMapOrbitEcc = segment.eccentricity;
+            chain.LastMapOrbitInclination = segment.inclination;
+            chain.LastMapOrbitLan = segment.longitudeOfAscendingNode;
+            chain.LastMapOrbitArgumentOfPeriapsis = segment.argumentOfPeriapsis;
+            chain.LastMapOrbitMeanAnomalyAtEpoch = segment.meanAnomalyAtEpoch;
+            chain.LastMapOrbitEpoch = segment.epoch;
+        }
+
+        internal static void ClearChainMapOrbit(GhostChain chain)
+        {
+            if (chain == null)
+                return;
+
+            chain.LastMapOrbitBodyName = null;
+            chain.LastMapOrbitSma = 0.0;
+            chain.LastMapOrbitEcc = 0.0;
+            chain.LastMapOrbitInclination = 0.0;
+            chain.LastMapOrbitLan = 0.0;
+            chain.LastMapOrbitArgumentOfPeriapsis = 0.0;
+            chain.LastMapOrbitMeanAnomalyAtEpoch = 0.0;
+            chain.LastMapOrbitEpoch = 0.0;
         }
 
         /// <summary>
