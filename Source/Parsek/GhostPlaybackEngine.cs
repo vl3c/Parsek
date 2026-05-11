@@ -2895,6 +2895,9 @@ namespace Parsek
             double playbackUT,
             string callsite)
         {
+            if (ShouldUseLoopAnchoredDebrisChain(traj, playbackUT))
+                return false;
+
             if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     traj,
                     playbackUT,
@@ -2920,6 +2923,9 @@ namespace Parsek
             out bool ghostActive)
         {
             ghostActive = HasLoadedGhostVisuals(state);
+            if (ShouldUseLoopAnchoredDebrisChain(traj, playbackUT))
+                return false;
+
             if (!ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     traj,
                     playbackUT,

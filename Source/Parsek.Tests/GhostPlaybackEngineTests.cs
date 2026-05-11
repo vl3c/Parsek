@@ -132,6 +132,40 @@ namespace Parsek.Tests
                 });
         }
 
+        private static bool InvokeTryHandleParentAnchoredDebrisCoverageRetired(
+            GhostPlaybackEngine engine,
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            double currentUT,
+            float warpRate,
+            string callsite,
+            bool emitExitWatch,
+            out bool ghostActive)
+        {
+            MethodInfo method = typeof(GhostPlaybackEngine).GetMethod(
+                "TryHandleParentAnchoredDebrisCoverageRetired",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            object[] args =
+            {
+                index,
+                traj,
+                state,
+                playbackUT,
+                currentUT,
+                warpRate,
+                callsite,
+                emitExitWatch,
+                false
+            };
+            object result = method.Invoke(engine, args);
+            ghostActive = Assert.IsType<bool>(args[8]);
+            return Assert.IsType<bool>(result);
+        }
+
         private sealed class SpawnPrimingPositioner : IGhostPositioner
         {
             internal int InterpolateCalls;
@@ -1311,6 +1345,40 @@ namespace Parsek.Tests
             Assert.False(state.anchorRetiredThisFrame);
             Assert.Equal(1, positioner.InterpolateCalls);
             Assert.Equal(0, positioner.ShadowPositionCalls);
+        }
+
+        [Fact]
+        public void TryHandleCoverageRetired_LoopAnchoredDebrisChainWithoutBodyFixed_DoesNotRetireBeforePositioning()
+        {
+            var engine = new GhostPlaybackEngine(new SpawnPrimingPositioner());
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u));
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+
+            bool handled = InvokeTryHandleParentAnchoredDebrisCoverageRetired(
+                engine,
+                index: 3,
+                traj: traj,
+                state: state,
+                playbackUT: 105.0,
+                currentUT: 105.0,
+                warpRate: 1f,
+                callsite: "test-pre-spawn",
+                emitExitWatch: false,
+                out bool ghostActive);
+
+            Assert.False(handled);
+            Assert.False(ghostActive);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("recorded-relative-retired")
+                && l.Contains("callsite=test-pre-spawn"));
         }
 
         [Fact]
