@@ -1324,83 +1324,45 @@ namespace Parsek
                         Orbit orbit;
                         if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
                         {
-                            // Keep the raw orbit position for rotation math
-                            // (orbital frame derives radialOut from
-                            // pos - orbitBody.position; if pos carries the
-                            // tree offset the radial vector is shifted and the
-                            // ghost's orbit-frame attitude rolls/pitches
-                            // incorrectly). Orbit-tail continuity is also a
-                            // rigid render translation from the last authored
-                            // point into the predicted tail. Both corrections
-                            // are applied to transform.position, not to the
-                            // orbital rotation inputs.
-                            Vector3d rawOrbitPos = orbit.getPositionAtUT(e.orbitUT);
                             Vector3d orbitContinuityOffset = ResolveOrbitContinuityOffset(e, e.orbitUT);
-                            Vector3d targetPos = rawOrbitPos + orbitContinuityOffset;
+                            if (!OrbitResolution.TryComputeOrbitWorldPosition(
+                                    orbit,
+                                    e.orbitBody,
+                                    e.orbitUT,
+                                    orbitContinuityOffset,
+                                    clampToSurface: true,
+                                    out OrbitPlacementResult placement,
+                                    out OrbitWorldPositionFailureReason failureReason))
+                            {
+                                LogLateOrbitPositionRejected(e.orbitCacheKey, failureReason);
+                                break;
+                            }
+
+                            // Keep the raw orbit position for rotation math.
+                            // Orbit-tail continuity is a render translation
+                            // only; applying it to radialOut shifts orbital
+                            // frame attitude.
                             Quaternion targetRot = e.ghost.transform.rotation;
-
-                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
-
-                            if (e.isSpinning)
+                            OrbitSegment segment = new OrbitSegment
                             {
-                                // Spin-forward: recompute boundary world rotation (positions may have shifted by FloatingOrigin)
-                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
-                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
-
-                                if (e.orbitBody != null)
-                                {
-                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrameAtStart;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
-                                    else
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
-
-                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
-                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
-                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
-                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
-                                    targetRot = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
-                                }
-                                else
-                                {
-                                    // Body null fallback
-                                    if (vel.sqrMagnitude > 0.001)
-                                        targetRot = Quaternion.LookRotation(vel);
-                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
-                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
-                                }
-                            }
-                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
-                            {
-                                // Orbital-frame-relative path
-                                if (e.orbitBody != null)
-                                {
-                                    // Use rawOrbitPos for radialOut so the
-                                    // tree offset doesn't alter orbital-frame
-                                    // attitude.
-                                    Vector3d radialOut = (rawOrbitPos - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrame;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
-                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
-                                    else
-                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
-
-                                    targetRot = orbFrame * e.orbitFrameRot;
-                                }
-                                else
-                                {
-                                    targetRot = Quaternion.LookRotation(vel);
-                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
-                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
-                                }
-                            }
-                            else if (vel.sqrMagnitude > 0.001)
-                            {
-                                // Prograde fallback (old recordings)
-                                targetRot = Quaternion.LookRotation(vel);
-                            }
-                            ApplyGhostReapplyTransform(e, targetPos, targetRot, phase);
+                                startUT = e.orbitSegmentStartUT,
+                                orbitalFrameRotation = e.orbitFrameRot,
+                                angularVelocity = e.orbitAngularVelocity,
+                            };
+                            TryComputeOrbitalRotation(
+                                segment,
+                                orbit,
+                                e.orbitUT,
+                                placement.Velocity,
+                                placement.RawWorldPosition,
+                                e.orbitBody.position,
+                                e.ghost.transform.rotation,
+                                e.orbitCacheKey,
+                                e.hasOrbitFrameRot,
+                                e.isSpinning,
+                                out targetRot,
+                                out _);
+                            ApplyGhostReapplyTransform(e, placement.WorldPosition, targetRot, phase);
                         }
                         break;
                     }
@@ -1432,55 +1394,40 @@ namespace Parsek
                         Orbit orbit;
                         if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
                         {
-                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
-
-                            if (e.isSpinning)
+                            Vector3d vel;
+                            try
                             {
-                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
-                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
-
-                                if (e.orbitBody != null)
-                                {
-                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrameAtStart;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
-                                    else
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
-
-                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
-                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
-                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
-                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
-                                    targetRot = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
-                                }
-                                else if (vel.sqrMagnitude > 0.001)
-                                {
-                                    targetRot = Quaternion.LookRotation(vel);
-                                }
+                                vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
                             }
-                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
+                            catch
                             {
-                                if (e.orbitBody != null)
-                                {
-                                    // Use rawCheckpointPos for radialOut so the
-                                    // tree offset doesn't alter orbital-frame
-                                    // attitude.
-                                    Vector3d radialOut = (rawCheckpointPos - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrame;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
-                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
-                                    else
-                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
-
-                                    targetRot = orbFrame * e.orbitFrameRot;
-                                }
-                                else
-                                {
-                                    targetRot = Quaternion.LookRotation(vel);
-                                }
+                                vel = Vector3d.zero;
+                                LogOrbitalRotationRejected(e.orbitCacheKey, "checkpoint-velocity-api");
                             }
-                            else if (vel.sqrMagnitude > 0.001)
+
+                            if (e.orbitBody != null)
+                            {
+                                OrbitSegment segment = new OrbitSegment
+                                {
+                                    startUT = e.orbitSegmentStartUT,
+                                    orbitalFrameRotation = e.orbitFrameRot,
+                                    angularVelocity = e.orbitAngularVelocity,
+                                };
+                                TryComputeOrbitalRotation(
+                                    segment,
+                                    orbit,
+                                    e.orbitUT,
+                                    vel,
+                                    rawCheckpointPos,
+                                    e.orbitBody.position,
+                                    e.ghost.transform.rotation,
+                                    e.orbitCacheKey,
+                                    e.hasOrbitFrameRot,
+                                    e.isSpinning,
+                                    out targetRot,
+                                    out _);
+                            }
+                            else if (OrbitResolution.IsFiniteVector3d(vel) && vel.sqrMagnitude > 0.001)
                             {
                                 targetRot = Quaternion.LookRotation(vel);
                             }
@@ -13869,7 +13816,8 @@ namespace Parsek
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
                 ref lastPlaybackIndex, recordingTime, 10000, out interpResult,
                 skipOrbitSegments: surfaceSkip,
-                recordingId: previewRecording?.RecordingId);
+                recordingId: previewRecording?.RecordingId,
+                trajectory: previewRecording);
 
             if (previewGhostState != null && previewRecording != null)
             {
@@ -14273,8 +14221,20 @@ namespace Parsek
                 if (!HasOrbitCoverageAtUT(rec, currentUT))
                     return false;
 
-                PositionGhostFromOrbitOnly(ghostGO, rec, currentUT,
-                    (int)(chain.OriginalVesselPid * 10000), allowActivation: true);
+                if (!PositionGhostFromOrbitOnly(
+                        ghostGO,
+                        rec,
+                        currentUT,
+                        (int)(chain.OriginalVesselPid * 10000),
+                        allowActivation: true))
+                {
+                    ParsekLog.VerboseRateLimited("Flight",
+                        "chain-ghost-orbit-failed-" + chain.OriginalVesselPid,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Chain ghost orbit positioning failed: pid={0} rec={1} tree={2} UT={3:F1}",
+                            chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
+                    return false;
+                }
                 UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
                 ParsekLog.VerboseRateLimited("Flight",
                     "chain-ghost-orbit-" + chain.OriginalVesselPid,
@@ -14398,7 +14358,8 @@ namespace Parsek
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref chain.CachedTrajectoryIndex, currentUT, (int)(chain.OriginalVesselPid * 10000),
                         out _, skipOrbitSegments: surfaceSkip,
-                        recordingId: bgRec.RecordingId);
+                        recordingId: bgRec.RecordingId,
+                        trajectory: bgRec);
 
                     // Update ghost map ProtoVessel orbit if segment changed
                     UpdateChainGhostOrbitIfNeeded(chain, bgRec.OrbitSegments, currentUT);
@@ -14463,11 +14424,17 @@ namespace Parsek
                 && seg.Value.eccentricity == chain.LastMapOrbitEcc)
                 return;
 
+            if (!GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value))
+            {
+                chain.LastMapOrbitBodyName = null;
+                chain.LastMapOrbitSma = 0.0;
+                chain.LastMapOrbitEcc = 0.0;
+                return;
+            }
+
             chain.LastMapOrbitBodyName = seg.Value.bodyName;
             chain.LastMapOrbitSma = seg.Value.semiMajorAxis;
             chain.LastMapOrbitEcc = seg.Value.eccentricity;
-
-            GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value);
         }
 
         /// <summary>
@@ -15525,27 +15492,37 @@ namespace Parsek
                 if (ut < segment.startUT || ut > segment.endUT)
                     continue;
 
-                CelestialBody body = FindBodyForAnchorResolver(segment.bodyName);
-                if (body == null)
+                if (!OrbitResolution.TryCreateOrbitFromSegment(
+                        segment,
+                        FindBodyForAnchorResolver,
+                        OrbitSegmentValidationMode.ValidateAndLog,
+                        recording?.RecordingId,
+                        "flight-anchor",
+                        out Orbit orbit,
+                        out CelestialBody body,
+                        out _))
+                {
                     return false;
+                }
 
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                Vector3d worldPos = orbit.getPositionAtUT(ut);
-                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+                if (!OrbitResolution.TryComputeOrbitWorldPosition(
+                        orbit,
+                        body,
+                        ut,
+                        Vector3d.zero,
+                        clampToSurface: true,
+                        out OrbitPlacementResult placement,
+                        out _))
+                {
+                    return false;
+                }
+
                 var rotation = ComputeOrbitalRotation(
                     segment,
                     orbit,
                     ut,
-                    velocity,
-                    worldPos,
+                    placement.Velocity,
+                    placement.RawWorldPosition,
                     body.position,
                     Quaternion.identity,
                     sectionIndex,
@@ -15553,7 +15530,7 @@ namespace Parsek
                     TrajectoryMath.IsSpinning(segment));
 
                 pose = new AnchorPose(
-                    worldPos,
+                    placement.WorldPosition,
                     rotation.ghostRot,
                     sectionIndex,
                     recording?.RecordingId);
@@ -16628,7 +16605,8 @@ namespace Parsek
                 ref playbackIdx, ut, index * 10000, out interpResult,
                 allowActivation: ShouldAutoActivateGhost(state), skipOrbitSegments: surfaceSkip,
                 recordingId: traj.RecordingId, sectionIndex: splineSectionIdx,
-                pointFrameSource: "flat-points");
+                pointFrameSource: "flat-points",
+                trajectory: traj);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
         }
@@ -17198,10 +17176,10 @@ namespace Parsek
                 positioned.altitude));
         }
 
-        void IGhostPositioner.PositionFromOrbit(int index, IPlaybackTrajectory traj,
+        bool IGhostPositioner.TryPositionFromOrbit(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut)
         {
-            if (state?.ghost == null || traj?.OrbitSegments == null) return;
+            if (state?.ghost == null || traj?.OrbitSegments == null) return false;
             bool foundSegment = GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
                 traj, ut, out OrbitSegment seg, out int segmentIndex);
             if (!foundSegment)
@@ -17224,26 +17202,39 @@ namespace Parsek
 
             if (foundSegment)
             {
+                if (OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                        traj,
+                        seg,
+                        ut,
+                        traj.RecordingId,
+                        "tail-position"))
+                {
+                    return false;
+                }
+
                 if (PlaybackOrbitDiagnostics.TryBuildPlaybackPredictedTailLog(
                     index, traj, seg, ut, out string logKey, out string logMessage))
                 {
                     ParsekLog.VerboseRateLimited("Playback", logKey, logMessage, 1.0);
                 }
 
-                PositionGhostFromOrbit(
+                return TryPositionGhostFromOrbit(
                     state.ghost,
                     seg,
                     ut,
                     index * 10000 + Math.Max(0, segmentIndex),
                     traj.RecordingId,
-                    traj);
+                    traj,
+                    out _);
             }
+
+            return false;
         }
 
-        void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
+        bool IGhostPositioner.TryPositionLoop(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut, bool suppressFx)
         {
-            if (state?.ghost == null || traj == null) return;
+            if (state?.ghost == null || traj == null) return false;
             int playbackIdx = state.playbackIndex;
             bool useAnchor = GhostPlaybackLogic.ShouldUseLoopAnchor(traj);
             InterpolationResult interpResult;
@@ -17251,11 +17242,14 @@ namespace Parsek
             // retirement branch can set state.anchorRetiredThisFrame for
             // the loop-playback path. Same rationale as in
             // IGhostPositioner.InterpolateAndPositionRelative above.
-            PositionLoopGhost(state.ghost, traj, ref playbackIdx, ut,
+            bool positioned = PositionLoopGhost(state.ghost, traj, ref playbackIdx, ut,
                 index, index * 10000, useAnchor, state,
                 ShouldAutoActivateGhost(state), out interpResult);
+            if (!positioned)
+                return false;
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
+            return true;
         }
 
         ZoneRenderingResult IGhostPositioner.ApplyZoneRendering(int index, GhostPlaybackState state,
@@ -18998,33 +18992,25 @@ namespace Parsek
             predictedOrbitTailContinuityCache?.Clear();
         }
 
-        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
-            string recordingId = null, IPlaybackTrajectory traj = null)
+        bool TryPositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
+            string recordingId, IPlaybackTrajectory traj, out OrbitPlacementResult placement)
         {
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
-            if (body == null)
+            placement = default;
+            if (ghost == null)
+                return false;
+
+            if (!TryGetOrbitForSegment(
+                    segment,
+                    cacheKey,
+                    out Orbit orbit,
+                    out CelestialBody body,
+                    recordingId,
+                    "position"))
             {
-                Log($"Could not find body '{segment.bodyName}' for orbit playback");
-                return;
+                Log($"Could not resolve orbit segment for body '{segment.bodyName}' during orbit playback");
+                return false;
             }
 
-            Orbit orbit;
-            if (!orbitCache.TryGetValue(cacheKey, out orbit))
-            {
-                orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                orbitCache[cacheKey] = orbit;
-            }
-
-            Vector3d rawOrbitWorldPos = orbit.getPositionAtUT(ut);
-            Vector3d worldPos = rawOrbitWorldPos;
             Vector3d orbitContinuityOffset = Vector3d.zero;
             Vector3d rawOrbitContinuityOffset = Vector3d.zero;
             bool hasOrbitContinuityOffset = TryResolvePredictedOrbitTailContinuityOffset(
@@ -19038,34 +19024,56 @@ namespace Parsek
                 out double orbitContinuityAnchorUT,
                 out double orbitContinuityBlendSeconds,
                 out string orbitContinuityAnchorSource);
-            if (hasOrbitContinuityOffset)
-                worldPos += orbitContinuityOffset;
 
-            // Surface clamp: if the Keplerian orbit goes underground (e.g., deorbit
-            // orbit with periapsis below surface, or impact trajectory on airless body),
-            // clamp to surface altitude. Prevents the ghost mesh from tunneling through
-            // the planet during orbit-only recording sections where no trajectory points exist.
-            double orbitAlt = body.GetAltitude(worldPos);
-            bool orbitTerrainClamped = false;
-            if (orbitAlt < 0)
+            if (!OrbitResolution.TryComputeOrbitWorldPosition(
+                    orbit,
+                    body,
+                    ut,
+                    hasOrbitContinuityOffset ? orbitContinuityOffset : Vector3d.zero,
+                    clampToSurface: true,
+                    out placement,
+                    out OrbitWorldPositionFailureReason failureReason))
             {
-                double lat = body.GetLatitude(worldPos);
-                double lon = body.GetLongitude(worldPos);
-                worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
-                orbitTerrainClamped = true;
+                ParsekLog.VerboseRateLimited(
+                    "Playback",
+                    "orbit-position-reject-" + (recordingId ?? "<none>") + "-" + cacheKey.ToString(CultureInfo.InvariantCulture),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Orbit position rejected: rec={0} cache={1} body={2} ut={3:F3} reason={4}",
+                        recordingId ?? "<none>",
+                        cacheKey,
+                        segment.bodyName ?? "(null)",
+                        ut,
+                        failureReason),
+                    5.0);
+                return false;
             }
 
-            ghost.transform.position = worldPos;
+            ghost.transform.position = placement.WorldPosition;
 
-            Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+            Vector3d velocity = placement.Velocity;
 
             // Orbital rotation: 3-way branch
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
 
-            var (ghostRot, boundaryWorldRot) = ComputeOrbitalRotation(
-                segment, orbit, ut, velocity, worldPos, body.position,
-                ghost.transform.rotation, cacheKey, hasOfr, spinning);
+            if (!TryComputeOrbitalRotation(
+                    segment,
+                    orbit,
+                    ut,
+                    velocity,
+                    placement.RawWorldPosition,
+                    body.position,
+                    ghost.transform.rotation,
+                    cacheKey,
+                    hasOfr,
+                    spinning,
+                    out Quaternion ghostRot,
+                    out Quaternion boundaryWorldRot))
+            {
+                ghostRot = ghost.transform.rotation;
+                boundaryWorldRot = Quaternion.identity;
+            }
 
             ghost.transform.rotation = ghostRot;
             double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : ut;
@@ -19081,7 +19089,7 @@ namespace Parsek
                     + " body=" + (segment.bodyName ?? "<none>")
                     + " segmentUT=[" + segment.startUT.ToString("F3", CultureInfo.InvariantCulture)
                     + "," + segment.endUT.ToString("F3", CultureInfo.InvariantCulture) + "]"
-                    + " rawWorld=" + GhostRenderTrace.FormatVector3d(rawOrbitWorldPos)
+                    + " rawWorld=" + GhostRenderTrace.FormatVector3d(placement.RawWorldPosition)
                     + " continuityHit=" + (hasOrbitContinuityOffset ? "true" : "false")
                     + " continuityAnchorUT=" + FormatFiniteOrNa(orbitContinuityAnchorUT, "F3")
                     + " continuityBlendSeconds=" + FormatFiniteOrNa(orbitContinuityBlendSeconds, "F3")
@@ -19089,8 +19097,8 @@ namespace Parsek
                     + " continuityAnchorSource=" + (orbitContinuityAnchorSource ?? "<none>")
                     + " continuityRawOffset=" + GhostRenderTrace.FormatVector3d(rawOrbitContinuityOffset)
                     + " continuityOffset=" + GhostRenderTrace.FormatVector3d(orbitContinuityOffset)
-                    + " terrainClamp=" + (orbitTerrainClamped ? "true" : "false")
-                    + " orbitAlt=" + orbitAlt.ToString("F2", CultureInfo.InvariantCulture)
+                    + " terrainClamp=" + (placement.TerrainClamped ? "true" : "false")
+                    + " orbitAlt=" + placement.Altitude.ToString("F2", CultureInfo.InvariantCulture)
                     + " final=" + GhostRenderTrace.FormatVector3d(ghost.transform.position)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation)
                     + " rotationMode=" + (spinning ? "spin-forward" : hasOfr ? "orbital-frame" : "prograde"));
@@ -19128,6 +19136,7 @@ namespace Parsek
                 orbitContinuityAnchorUT = orbitContinuityAnchorUT,
                 orbitContinuityBlendSeconds = orbitContinuityBlendSeconds,
             });
+            return true;
         }
 
         private static Vector3d ResolveOrbitContinuityOffset(GhostPosEntry entry, double playbackUT)
@@ -19206,7 +19215,19 @@ namespace Parsek
                     cacheKey = BuildPredictedOrbitTailContinuityCacheKey(traj, segment, anchorUT);
                 }
 
-                Vector3d orbitAtAnchor = orbit.getPositionAtUT(anchorUT);
+                Vector3d orbitAtAnchor;
+                try
+                {
+                    orbitAtAnchor = orbit.getPositionAtUT(anchorUT);
+                }
+                catch
+                {
+                    return false;
+                }
+
+                if (!IsFiniteVector3d(orbitAtAnchor))
+                    return false;
+
                 rawOffset = anchorWorld - orbitAtAnchor;
                 if (!IsFiniteVector3d(rawOffset))
                     return false;
@@ -19399,43 +19420,149 @@ namespace Parsek
             OrbitSegment segment, Orbit orbit, double ut, Vector3d velocity, Vector3d worldPos,
             Vector3d bodyPosition, Quaternion currentRotation, long cacheKey, bool hasOfr, bool spinning)
         {
-            Quaternion ghostRot = currentRotation; // preserve current if no update
-            Quaternion boundaryWorldRot = Quaternion.identity;
+            return TryComputeOrbitalRotation(
+                segment,
+                orbit,
+                ut,
+                velocity,
+                worldPos,
+                bodyPosition,
+                currentRotation,
+                cacheKey,
+                hasOfr,
+                spinning,
+                out Quaternion ghostRot,
+                out Quaternion boundaryWorldRot)
+                ? (ghostRot, boundaryWorldRot)
+                : (currentRotation, Quaternion.identity);
+        }
+
+        internal static bool TryComputeOrbitalRotation(
+            OrbitSegment segment, Orbit orbit, double ut, Vector3d velocity, Vector3d worldPos,
+            Vector3d bodyPosition, Quaternion currentRotation, long cacheKey, bool hasOfr, bool spinning,
+            out Quaternion ghostRot, out Quaternion boundaryWorldRot)
+        {
+            ghostRot = currentRotation;
+            boundaryWorldRot = Quaternion.identity;
+            if (orbit == null || !OrbitResolution.IsFiniteQuaternion(currentRotation))
+                return false;
 
             if (spinning)
             {
-                // Spin-forward path: reconstruct boundary world rotation from orbit at startUT
-                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(segment.startUT);
-                Vector3d posAtStart = orbit.getPositionAtUT(segment.startUT);
-                Vector3d radialAtStart = (posAtStart - bodyPosition).normalized;
+                Vector3d velAtStart;
+                Vector3d posAtStart;
+                try
+                {
+                    velAtStart = orbit.getOrbitalVelocityAtUT(segment.startUT);
+                    posAtStart = orbit.getPositionAtUT(segment.startUT);
+                }
+                catch
+                {
+                    LogOrbitalRotationRejected(cacheKey, "spin-start-orbit-api");
+                    return false;
+                }
+
+                if (!OrbitResolution.IsFiniteVector3d(velAtStart)
+                    || !OrbitResolution.IsFiniteVector3d(posAtStart))
+                {
+                    LogOrbitalRotationRejected(cacheKey, "spin-start-non-finite");
+                    return false;
+                }
+
+                Vector3d radialAtStart = posAtStart - bodyPosition;
+                if (!OrbitResolution.IsFiniteVector3d(radialAtStart) || radialAtStart.sqrMagnitude <= 1e-9)
+                {
+                    LogOrbitalRotationRejected(cacheKey, "spin-radial-invalid");
+                    return false;
+                }
 
                 Quaternion orbFrameAtStart = SafeOrbitalLookRotation(
-                    velAtStart, radialAtStart, cacheKey, "start");
+                    velAtStart, radialAtStart.normalized, cacheKey, "start");
+                if (!OrbitResolution.IsFiniteQuaternion(orbFrameAtStart)
+                    || !OrbitResolution.IsFiniteQuaternion(segment.orbitalFrameRotation))
+                {
+                    LogOrbitalRotationRejected(cacheKey, "spin-frame-invalid");
+                    return false;
+                }
 
                 boundaryWorldRot = orbFrameAtStart * segment.orbitalFrameRotation;
-
                 double dt = ut - segment.startUT;
                 Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;
                 float angle = (float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                if (!OrbitResolution.IsFiniteVector3(worldAxis)
+                    || worldAxis.sqrMagnitude <= 1e-9f
+                    || float.IsNaN(angle)
+                    || float.IsInfinity(angle))
+                {
+                    LogOrbitalRotationRejected(cacheKey, "spin-axis-invalid");
+                    return false;
+                }
+
                 ghostRot = Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot;
             }
-            else if (hasOfr && velocity.sqrMagnitude > 0.001)
+            else if (hasOfr)
             {
-                // Orbital-frame-relative path
-                Vector3d radialOut = (worldPos - bodyPosition).normalized;
+                if (!OrbitResolution.IsFiniteVector3d(velocity) || velocity.sqrMagnitude <= 0.001)
+                    return true;
+
+                Vector3d radialOut = worldPos - bodyPosition;
+                if (!OrbitResolution.IsFiniteVector3d(radialOut) || radialOut.sqrMagnitude <= 1e-9)
+                {
+                    LogOrbitalRotationRejected(cacheKey, "orbital-frame-radial-invalid");
+                    return false;
+                }
 
                 Quaternion orbFrame = SafeOrbitalLookRotation(
-                    velocity, radialOut, cacheKey, null);
+                    velocity, radialOut.normalized, cacheKey, null);
+                if (!OrbitResolution.IsFiniteQuaternion(orbFrame)
+                    || !OrbitResolution.IsFiniteQuaternion(segment.orbitalFrameRotation))
+                {
+                    LogOrbitalRotationRejected(cacheKey, "orbital-frame-invalid");
+                    return false;
+                }
 
                 ghostRot = orbFrame * segment.orbitalFrameRotation;
             }
-            else if (velocity.sqrMagnitude > 0.001)
+            else
             {
-                // Prograde fallback (old recordings)
+                if (!OrbitResolution.IsFiniteVector3d(velocity) || velocity.sqrMagnitude <= 0.001)
+                    return true;
+
                 ghostRot = Quaternion.LookRotation(velocity);
             }
 
-            return (ghostRot, boundaryWorldRot);
+            if (!OrbitResolution.IsFiniteQuaternion(ghostRot)
+                || !OrbitResolution.IsFiniteQuaternion(boundaryWorldRot))
+            {
+                LogOrbitalRotationRejected(cacheKey, "result-non-finite");
+                ghostRot = currentRotation;
+                boundaryWorldRot = Quaternion.identity;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void LogOrbitalRotationRejected(long cacheKey, string reason)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                "orbit-rotation-reject-" + cacheKey.ToString(CultureInfo.InvariantCulture),
+                "Orbit rotation rejected: cache=" + cacheKey.ToString(CultureInfo.InvariantCulture)
+                + " reason=" + reason,
+                5.0);
+        }
+
+        private static void LogLateOrbitPositionRejected(
+            long cacheKey,
+            OrbitWorldPositionFailureReason reason)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Playback",
+                "orbit-late-position-reject-" + cacheKey.ToString(CultureInfo.InvariantCulture),
+                "Orbit LateUpdate position rejected: cache=" + cacheKey.ToString(CultureInfo.InvariantCulture)
+                + " reason=" + reason,
+                5.0);
         }
 
         /// <summary>
@@ -19462,7 +19589,7 @@ namespace Parsek
         /// Positions a ghost using only orbit segments (no trajectory points).
         /// Used for background-only recordings (vessels that stayed on rails).
         /// </summary>
-        void PositionGhostFromOrbitOnly(GameObject ghost, Recording rec, double ut, int orbitCacheBase,
+        bool PositionGhostFromOrbitOnly(GameObject ghost, Recording rec, double ut, int orbitCacheBase,
             bool allowActivation)
         {
             for (int s = 0; s < rec.OrbitSegments.Count; s++)
@@ -19474,14 +19601,27 @@ namespace Parsek
                     if (loggedOrbitSegments.Add(cacheKey))
                         Log($"Orbit-only segment activated: cache={cacheKey}, body={seg.bodyName}, " +
                             $"sma={seg.semiMajorAxis:F0}, UT {seg.startUT:F0}-{seg.endUT:F0}");
-                    PositionGhostFromOrbit(ghost, seg, ut, cacheKey, rec?.RecordingId, rec);
+                    if (!TryPositionGhostFromOrbit(
+                            ghost,
+                            seg,
+                            ut,
+                            cacheKey,
+                            rec?.RecordingId,
+                            rec,
+                            out _))
+                    {
+                        if (ghost.activeSelf)
+                            ghost.SetActive(false);
+                        return false;
+                    }
                     if (allowActivation)
                         ghost.SetActive(true);
-                    return;
+                    return true;
                 }
             }
             // UT falls in a gap between orbit segments — hide ghost
             ghost.SetActive(false);
+            return false;
         }
 
         /// <summary>
@@ -19759,8 +19899,16 @@ namespace Parsek
                 return false;
 
             long cacheKey = BuildCheckpointOrbitCacheKey(recordingIndex, sectionIdx, checkpointIdx);
-            if (!TryGetOrbitForSegment(segment, cacheKey, out Orbit orbit, out CelestialBody orbitBody))
+            if (!TryGetOrbitForSegment(
+                    segment,
+                    cacheKey,
+                    out Orbit orbit,
+                    out CelestialBody orbitBody,
+                    recordingId,
+                    "checkpoint"))
+            {
                 return false;
+            }
 
             bool hasCheckpointFrames = section.frames != null && section.frames.Count > 0;
             if (!hasCheckpointFrames)
@@ -19768,15 +19916,24 @@ namespace Parsek
                 if (allowActivation && !ghost.activeSelf)
                     ghost.SetActive(true);
 
-                PositionGhostFromOrbit(ghost, segment, playbackUT, cacheKey, recordingId);
+                if (!TryPositionGhostFromOrbit(
+                        ghost,
+                        segment,
+                        playbackUT,
+                        cacheKey,
+                        recordingId,
+                        null,
+                        out OrbitPlacementResult placement))
+                {
+                    if (allowActivation && ghost.activeSelf)
+                        ghost.SetActive(false);
+                    return false;
+                }
 
-                Vector3d orbitWorldPos = orbit.getPositionAtUT(playbackUT);
-                Vector3d orbitVelocity = orbit.getOrbitalVelocityAtUT(playbackUT);
-                double orbitAltitude = orbitBody.GetAltitude(orbitWorldPos);
                 interpResult = new InterpolationResult(
-                    (Vector3)orbitVelocity,
+                    (Vector3)placement.Velocity,
                     segment.bodyName,
-                    orbitAltitude);
+                    placement.Altitude);
 
                 string recId = string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId;
                 ParsekLog.VerboseRateLimited(
@@ -19798,8 +19955,8 @@ namespace Parsek
                         checkpointIdx,
                         segment.startUT,
                         segment.endUT,
-                        GhostRenderTrace.FormatVector3d(orbitWorldPos),
-                        orbitAltitude),
+                        GhostRenderTrace.FormatVector3d(placement.WorldPosition),
+                        placement.Altitude),
                     5.0);
                 return true;
             }
@@ -19858,10 +20015,26 @@ namespace Parsek
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
-            Vector3d velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
+            Vector3d velocity;
+            try
+            {
+                velocity = orbit.getOrbitalVelocityAtUT(playbackUT);
+            }
+            catch
+            {
+                velocity = Vector3d.zero;
+                LogOrbitalRotationRejected(cacheKey, "checkpoint-update-velocity-api");
+            }
+
+            if (!OrbitResolution.IsFiniteVector3d(velocity))
+            {
+                velocity = Vector3d.zero;
+                LogOrbitalRotationRejected(cacheKey, "checkpoint-update-velocity-non-finite");
+            }
+
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
-            var (ghostRot, _) = ComputeOrbitalRotation(
+            TryComputeOrbitalRotation(
                 segment,
                 orbit,
                 playbackUT,
@@ -19871,7 +20044,9 @@ namespace Parsek
                 ghost.transform.rotation,
                 cacheKey,
                 hasOfr,
-                spinning);
+                spinning,
+                out Quaternion ghostRot,
+                out _);
 
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = ghostRot;
@@ -19945,28 +20120,35 @@ namespace Parsek
             OrbitSegment segment,
             long cacheKey,
             out Orbit orbit,
-            out CelestialBody body)
+            out CelestialBody body,
+            string recordingId = null,
+            string context = "playback")
         {
-            orbit = null;
-            body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
-            if (body == null)
-                return false;
+            return OrbitResolution.TryResolveOrbitFromSegment(
+                segment,
+                cacheKey,
+                orbitCache,
+                ResolveFlightBody,
+                OrbitSegmentValidationMode.ValidateAndLog,
+                recordingId,
+                context,
+                out orbit,
+                out body,
+                out _);
+        }
 
-            if (!orbitCache.TryGetValue(cacheKey, out orbit))
+        private static CelestialBody ResolveFlightBody(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return null;
+            try
             {
-                orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                orbitCache[cacheKey] = orbit;
+                return FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
             }
-
-            return true;
+            catch (TypeInitializationException)
+            {
+                return null;
+            }
         }
 
         private static bool TryFindCheckpointOrbitSegment(
@@ -20224,7 +20406,7 @@ namespace Parsek
 
             bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(traj.TrackSections, playbackUT);
             if (TryResolveInterpolatedWorldPosition(
-                    traj.Points, traj.OrbitSegments, ref cachedIndex,
+                    traj, traj.Points, traj.OrbitSegments, ref cachedIndex,
                     playbackUT, index * 10000, surfaceSkip, out worldPos))
             {
                 return true;
@@ -20237,6 +20419,7 @@ namespace Parsek
         }
 
         bool TryResolveInterpolatedWorldPosition(
+            IPlaybackTrajectory traj,
             List<TrajectoryPoint> points,
             List<OrbitSegment> segments,
             ref int cachedIndex,
@@ -20246,7 +20429,7 @@ namespace Parsek
             out Vector3d worldPos)
         {
             if (!skipOrbitSegments
-                && TryResolveOrbitWorldPosition(segments, targetUT, orbitCacheBase, out worldPos))
+                && TryResolveOrbitWorldPosition(traj, segments, targetUT, orbitCacheBase, out worldPos))
             {
                 return true;
             }
@@ -20267,38 +20450,58 @@ namespace Parsek
                 return false;
             }
 
-            long cacheKey = orbitCacheBase + Math.Max(0, segmentIndex);
-            if (!TryGetOrbitForSegment(segment, cacheKey, out Orbit orbit, out CelestialBody body))
+            if (OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                    traj,
+                    segment,
+                    targetUT,
+                    traj?.RecordingId,
+                    "tail-position"))
+            {
                 return false;
+            }
 
-            worldPos = orbit.getPositionAtUT(targetUT);
+            long cacheKey = orbitCacheBase + Math.Max(0, segmentIndex);
+            if (!TryGetOrbitForSegment(
+                    segment,
+                    cacheKey,
+                    out Orbit orbit,
+                    out CelestialBody body,
+                    traj?.RecordingId,
+                    "tail-position"))
+            {
+                return false;
+            }
+
+            Vector3d continuityOffset = Vector3d.zero;
             if (TryResolvePredictedOrbitTailContinuityOffset(
                     traj,
                     segment,
                     orbit,
                     targetUT,
-                    out Vector3d continuityOffset,
+                    out continuityOffset,
                     out _,
                     out _,
                     out _,
                     out _,
                     out _))
             {
-                worldPos += continuityOffset;
+                // Applied below through the shared finite/clamp helper.
             }
 
-            if (!IsFiniteVector3d(worldPos))
-                return false;
-
-            double orbitAlt = body.GetAltitude(worldPos);
-            if (orbitAlt < 0)
+            if (!OrbitResolution.TryComputeOrbitWorldPosition(
+                    orbit,
+                    body,
+                    targetUT,
+                    continuityOffset,
+                    clampToSurface: true,
+                    out OrbitPlacementResult placement,
+                    out _))
             {
-                double lat = body.GetLatitude(worldPos);
-                double lon = body.GetLongitude(worldPos);
-                worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
+                return false;
             }
 
-            return IsFiniteVector3d(worldPos);
+            worldPos = placement.WorldPosition;
+            return true;
         }
 
         internal static bool TryGetAbsoluteSectionPlaybackFrames(
@@ -20881,55 +21084,40 @@ namespace Parsek
         }
 
         bool TryResolveOrbitWorldPosition(
+            IPlaybackTrajectory traj,
             List<OrbitSegment> segments, double targetUT, int orbitCacheBase, out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
-            if (segments == null || segments.Count == 0)
-                return false;
-
-            for (int i = 0; i < segments.Count; i++)
+            OrbitSegment? activeSegment = TrajectoryMath.FindOrbitSegment(segments, targetUT);
+            if (activeSegment.HasValue
+                && OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                    traj,
+                    activeSegment.Value,
+                    targetUT,
+                    traj?.RecordingId,
+                    "distance"))
             {
-                OrbitSegment seg = segments[i];
-                if (targetUT < seg.startUT || targetUT > seg.endUT)
-                    continue;
-
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == seg.bodyName);
-                if (body == null)
-                    return false;
-
-                double bodyRadius = body.Radius;
-                double absSma = System.Math.Abs(seg.semiMajorAxis);
-                if (absSma < bodyRadius * 0.9)
-                    return false;
-
-                Orbit orbit;
-                int cacheKey = orbitCacheBase + i;
-                if (!orbitCache.TryGetValue(cacheKey, out orbit))
-                {
-                    orbit = new Orbit(
-                        seg.inclination,
-                        seg.eccentricity,
-                        seg.semiMajorAxis,
-                        seg.longitudeOfAscendingNode,
-                        seg.argumentOfPeriapsis,
-                        seg.meanAnomalyAtEpoch,
-                        seg.epoch,
-                        body);
-                    orbitCache[cacheKey] = orbit;
-                }
-
-                worldPos = orbit.getPositionAtUT(targetUT);
-                if (body.GetAltitude(worldPos) < 0)
-                {
-                    double lat = body.GetLatitude(worldPos);
-                    double lon = body.GetLongitude(worldPos);
-                    worldPos = body.GetWorldSurfacePosition(lat, lon, 0);
-                }
-
-                return true;
+                return false;
             }
 
-            return false;
+            if (!OrbitResolution.TryResolveOrbitWorldPosition(
+                    segments,
+                    targetUT,
+                    orbitCacheBase,
+                    orbitCache,
+                    ResolveFlightBody,
+                    OrbitSegmentValidationMode.ValidateAndLog,
+                    traj?.RecordingId,
+                    "distance",
+                    clampToSurface: true,
+                    out OrbitPlacementResult placement,
+                    out _))
+            {
+                return false;
+            }
+
+            worldPos = placement.WorldPosition;
+            return true;
         }
 
         bool TryResolveRelativeWorldPosition(
@@ -21963,7 +22151,7 @@ namespace Parsek
         /// (InterpolateAndPositionRelative) and absolute (InterpolateAndPosition) based
         /// on the useAnchor flag and the TrackSection at the given loopUT.
         /// </summary>
-        void PositionLoopGhost(
+        bool PositionLoopGhost(
             GameObject ghost,
             IPlaybackTrajectory rec,
             ref int playbackIdx,
@@ -21984,7 +22172,7 @@ namespace Parsek
                 allowActivation,
                 out interpResult))
             {
-                return;
+                return true;
             }
 
             int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT);
@@ -22012,7 +22200,7 @@ namespace Parsek
                         anchorVesselId, rec.RecordingFormatVersion,
                         recIdx, rec.RecordingId, rec.VesselName, retireSignalState,
                         allowActivation, out interpResult);
-                    return;
+                    return true;
                 }
 
                 if (ghost.activeSelf) ghost.SetActive(false);
@@ -22027,7 +22215,7 @@ namespace Parsek
                             anchorVesselId,
                             "PositionLoopGhost"));
                 interpResult = InterpolationResult.Zero;
-                return;
+                return true;
             }
 
             if (sectionIdx >= 0
@@ -22049,7 +22237,7 @@ namespace Parsek
                     skipOrbitSegments: true,
                     recordingId: rec.RecordingId,
                     sectionIndex: sectionIdx);
-                return;
+                return GhostPlaybackEngine.IsInterpolationResultValid(interpResult);
             }
 
             // Absolute positioning fallback
@@ -22060,7 +22248,9 @@ namespace Parsek
             InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
                 ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
                 allowActivation: allowActivation,
-                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx);
+                recordingId: rec.RecordingId, sectionIndex: splineSectionIdx,
+                trajectory: rec);
+            return GhostPlaybackEngine.IsInterpolationResultValid(interpResult);
         }
 
         /// <summary>
@@ -23375,7 +23565,8 @@ namespace Parsek
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
             out InterpolationResult interpResult, bool allowActivation = true, bool skipOrbitSegments = false,
             string recordingId = null, int sectionIndex = -1,
-            string pointFrameSource = "input")
+            string pointFrameSource = "input",
+            IPlaybackTrajectory trajectory = null)
         {
             // Check orbit segments first (unless suppressed for surface vehicles)
             if (!skipOrbitSegments && segments != null && segments.Count > 0)
@@ -23383,22 +23574,29 @@ namespace Parsek
                 OrbitSegment? seg = FindOrbitSegment(segments, targetUT);
                 if (seg.HasValue)
                 {
-                    // Layer 3: SMA sanity check — reject orbit segments where the orbit
-                    // is mostly sub-surface (SMA < 90% of body radius). This catches
-                    // old recordings that have invalid orbit segments for surface vessels.
-                    // Use absolute value: hyperbolic escape orbits have negative SMA but
-                    // are valid trajectories that should be rendered.
-                    CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
-                    double bodyRadius = segBody?.Radius ?? 600000;
-                    double absSma = System.Math.Abs(seg.Value.semiMajorAxis);
-                    if (absSma < bodyRadius * 0.9)
+                    if (OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                            trajectory,
+                            seg.Value,
+                            targetUT,
+                            recordingId,
+                            "legacy-position"))
                     {
-                        int smaKey = ~orbitCacheBase; // bitwise complement — guaranteed no collision with positive cache keys
-                        if (loggedOrbitSegments.Add(smaKey))
-                            Log($"Orbit segment rejected (sub-surface): |sma|={absSma:F0} < " +
-                                $"bodyRadius*0.9={bodyRadius * 0.9:F0}, falling through to point interpolation");
+                        InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, allowActivation, out interpResult,
+                            recordingId, sectionIndex, pointFrameSource);
+                        return;
                     }
-                    else
+
+                    // Layer 3: shared orbit validation. Valid sub-orbital exo
+                    // segments are playable; only degenerate/non-finite/bodyless
+                    // segments fall through to point interpolation.
+                    if (OrbitResolution.TryValidateOrbitSegment(
+                            seg.Value,
+                            ResolveFlightBody,
+                            OrbitSegmentValidationMode.ValidateAndLog,
+                            recordingId,
+                            "legacy-position",
+                            out CelestialBody segBody,
+                            out _))
                     {
                         // Use segment index as cache key offset
                         int segIdx = segments.IndexOf(seg.Value);
@@ -23406,14 +23604,28 @@ namespace Parsek
                         if (loggedOrbitSegments.Add(cacheKey))
                             Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
                                 $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
-                        PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey, recordingId);
-                        Vector3 vel = Vector3.zero;
-                        Orbit orbit;
-                        if (orbitCache.TryGetValue(cacheKey, out orbit))
-                            vel = orbit.getOrbitalVelocityAtUT(targetUT);
-                        double segAlt = segBody != null ? segBody.GetAltitude(ghost.transform.position) : 0;
-                        interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
-                        return;
+                        if (!TryPositionGhostFromOrbit(
+                                ghost,
+                                seg.Value,
+                                targetUT,
+                                cacheKey,
+                                recordingId,
+                                null,
+                                out OrbitPlacementResult placement))
+                        {
+                            Log($"Orbit segment positioning failed: cache={cacheKey}, falling through to point interpolation");
+                        }
+                        else
+                        {
+                            Vector3 vel = OrbitResolution.IsFiniteVector3d(placement.Velocity)
+                                ? (Vector3)placement.Velocity
+                                : Vector3.zero;
+                            double segAlt = OrbitResolution.IsFiniteDouble(placement.Altitude)
+                                ? placement.Altitude
+                                : (segBody != null ? segBody.GetAltitude(ghost.transform.position) : 0);
+                            interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
+                            return;
+                        }
                     }
                 }
             }

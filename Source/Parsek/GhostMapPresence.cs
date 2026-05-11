@@ -1697,8 +1697,14 @@ namespace Parsek
         private static bool HasTerminalOrbitData(IPlaybackTrajectory traj)
         {
             return traj != null
-                && !string.IsNullOrEmpty(traj.TerminalOrbitBody)
-                && traj.TerminalOrbitSemiMajorAxis > 0;
+                && !string.IsNullOrEmpty(traj.TerminalOrbitBody);
+        }
+
+        private static bool HasTerminalOrbitData(Recording rec)
+        {
+            return rec != null
+                && !string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                && rec.TerminalOrbitSemiMajorAxis > 0.0;
         }
 
         // ------------------------------------------------------------------
@@ -1747,8 +1753,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: does this trajectory have orbital data suitable for map presence?
-        /// Overload accepting IPlaybackTrajectory for engine-side use.
+        /// Pure: does this trajectory have terminal-orbit data for map presence.
+        /// Overload accepting IPlaybackTrajectory for engine-side use; validation
+        /// happens when constructing the orbit seed so invalid SMA values still log.
         /// </summary>
         /// <remarks>
         /// Per-frame map-view callers (<see cref="ParsekPlaybackPolicy"/> + the
@@ -1960,15 +1967,19 @@ namespace Parsek
         /// Update orbit when ghost traverses an OrbitSegment boundary.
         /// Changes the ProtoVessel's orbit and reference body if needed.
         /// </summary>
-        internal static void UpdateGhostOrbit(uint chainPid, OrbitSegment segment)
+        internal static bool UpdateGhostOrbit(uint chainPid, OrbitSegment segment)
         {
             if (!vesselsByChainPid.TryGetValue(chainPid, out Vessel vessel))
             {
                 ParsekLog.Verbose(Tag,
                     string.Format(ic, "UpdateGhostOrbit: no ghost vessel for chain pid={0}", chainPid));
-                return;
+                return false;
             }
-            ApplyOrbitToVessel(vessel, segment, string.Format(ic, "chain pid={0}", chainPid));
+            if (!TryApplyOrbitToVessel(vessel, segment, string.Format(ic, "chain pid={0}", chainPid), null))
+            {
+                RemoveGhostVessel(chainPid, "orbit update rejected");
+                return false;
+            }
             lifecycleUpdatedThisTick++;
 
             Vector3d worldPos = vessel.GetWorldPos3D();
@@ -1992,6 +2003,7 @@ namespace Parsek
                 prev.LastUT = segment.startUT;
                 lastKnownByChainPid[chainPid] = prev;
             }
+            return true;
         }
 
         /// <summary>
@@ -4210,20 +4222,32 @@ namespace Parsek
             worldPos = Vector3d.zero;
             try
             {
-                CelestialBody body = FindBodyByName(segment.bodyName);
-                if (body == null)
+                if (!OrbitResolution.TryCreateOrbitFromSegment(
+                        segment,
+                        FindBodyByName,
+                        OrbitSegmentValidationMode.ValidateAndLog,
+                        null,
+                        "map-presence-position",
+                        out Orbit orbit,
+                        out CelestialBody body,
+                        out _))
+                {
                     return false;
+                }
 
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                worldPos = orbit.getPositionAtUT(currentUT);
+                if (!OrbitResolution.TryComputeOrbitWorldPosition(
+                        orbit,
+                        body,
+                        currentUT,
+                        Vector3d.zero,
+                        clampToSurface: false,
+                        out OrbitPlacementResult placement,
+                        out _))
+                {
+                    return false;
+                }
+
+                worldPos = placement.WorldPosition;
                 return IsFinite(worldPos);
             }
             catch (Exception)
@@ -4544,8 +4568,11 @@ namespace Parsek
 
                 case TrackingStationGhostSource.Segment:
                     Vessel segmentGhost = CreateGhostVesselFromSegment(recordingIndex, traj, segment);
-                    if (segmentGhost != null)
-                        UpdateGhostOrbitForRecording(recordingIndex, segment);
+                    if (segmentGhost != null
+                        && !UpdateGhostOrbitForRecording(recordingIndex, segment))
+                    {
+                        return null;
+                    }
                     return segmentGhost;
 
                 case TrackingStationGhostSource.StateVector:
@@ -4880,7 +4907,13 @@ namespace Parsek
                     continue;
                 }
                 if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
-                    UpdateGhostOrbitForRecording(idx, seg.Value);
+                {
+                    if (!UpdateGhostOrbitForRecording(idx, seg.Value, removeOnFailure: false))
+                    {
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "orbit update rejected"));
+                    }
+                }
             }
 
             if (toRemove == null)
@@ -5071,15 +5104,29 @@ namespace Parsek
         /// <summary>
         /// Update orbit for a recording-index ghost when the ghost traverses orbit segments.
         /// </summary>
-        internal static void UpdateGhostOrbitForRecording(int recordingIndex, OrbitSegment segment)
+        internal static bool UpdateGhostOrbitForRecording(
+            int recordingIndex,
+            OrbitSegment segment,
+            bool removeOnFailure = true)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
-                return;
-            ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex));
+                return false;
+            string recId = TryGetLastKnownFrame(recordingIndex, out var prev)
+                ? prev.RecordingId
+                : null;
+            if (!TryApplyOrbitToVessel(
+                    vessel,
+                    segment,
+                    string.Format(ic, "recording #{0}", recordingIndex),
+                    recId))
+            {
+                if (removeOnFailure)
+                    RemoveGhostVesselForRecording(recordingIndex, "orbit update rejected");
+                return false;
+            }
             lifecycleUpdatedThisTick++;
 
             Vector3d worldPos = vessel.GetWorldPos3D();
-            string recId = TryGetLastKnownFrame(recordingIndex, out var prev) ? prev.RecordingId : null;
             string vesselName = prev.VesselName;
             string updateKey = string.Format(ic, "rec-orbit-update-{0}",
                 recId ?? recordingIndex.ToString(ic));
@@ -5109,6 +5156,7 @@ namespace Parsek
                 AnchorPid = 0u,
                 LastUT = segment.startUT
             });
+            return true;
         }
 
         /// <summary>
@@ -5837,22 +5885,32 @@ namespace Parsek
         /// Shared: apply an OrbitSegment's Keplerian elements to a ghost vessel's OrbitDriver.
         /// Handles body resolution, orbit construction, SOI transitions, and logging.
         /// </summary>
-        private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext)
+        private static bool TryApplyOrbitToVessel(
+            Vessel vessel,
+            OrbitSegment segment,
+            string logContext,
+            string recordingId)
         {
-            if (vessel.orbitDriver == null)
+            if (vessel == null || vessel.orbitDriver == null)
             {
                 ParsekLog.Error(Tag,
-                    string.Format(ic, "ApplyOrbitToVessel: no OrbitDriver for {0}", logContext));
-                return;
+                    string.Format(ic, "TryApplyOrbitToVessel: no OrbitDriver for {0}", logContext));
+                return false;
             }
 
-            CelestialBody body = FindBodyByName(segment.bodyName);
-            if (body == null)
+            if (!OrbitResolution.TryValidateOrbitSegment(
+                    segment,
+                    FindBodyByName,
+                    OrbitSegmentValidationMode.ValidateAndLog,
+                    recordingId,
+                    "map-presence-proto",
+                    out CelestialBody body,
+                    out _))
             {
                 ParsekLog.Error(Tag,
-                    string.Format(ic, "ApplyOrbitToVessel: body '{0}' not found for {1}",
+                    string.Format(ic, "TryApplyOrbitToVessel: orbit segment rejected body='{0}' for {1}",
                         segment.bodyName, logContext));
-                return;
+                return false;
             }
 
             // SOI transition: compare the Orbit reference body. OrbitDriver.celestialBody
@@ -5868,18 +5926,35 @@ namespace Parsek
             // Direct element assignment via SetOrbit — bypasses the lossy
             // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
             Orbit orb = vessel.orbitDriver.orbit;
-            orb.SetOrbit(
-                segment.inclination,
-                segment.eccentricity,
-                segment.semiMajorAxis,
-                segment.longitudeOfAscendingNode,
-                segment.argumentOfPeriapsis,
-                segment.meanAnomalyAtEpoch,
-                segment.epoch,
-                body);
+            if (orb == null)
+            {
+                ParsekLog.Error(Tag,
+                    string.Format(ic, "TryApplyOrbitToVessel: no Orbit for {0}", logContext));
+                return false;
+            }
 
-            vessel.orbitDriver.updateFromParameters();
-            NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
+            try
+            {
+                orb.SetOrbit(
+                    segment.inclination,
+                    segment.eccentricity,
+                    segment.semiMajorAxis,
+                    segment.longitudeOfAscendingNode,
+                    segment.argumentOfPeriapsis,
+                    segment.meanAnomalyAtEpoch,
+                    segment.epoch,
+                    body);
+
+                vessel.orbitDriver.updateFromParameters();
+                NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag,
+                    string.Format(ic, "TryApplyOrbitToVessel: orbit apply failed for {0}: {1}",
+                        logContext, ex.Message));
+                return false;
+            }
 
             // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch)
             ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
@@ -5889,9 +5964,19 @@ namespace Parsek
             // DrawOrbit is protected, so toggle the renderer off/on to force a full rebuild.
             if (soiChanged && vessel.orbitRenderer != null)
             {
-                vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
-                vessel.orbitRenderer.enabled = false;
-                vessel.orbitRenderer.enabled = true;
+                try
+                {
+                    vessel.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
+                    vessel.orbitRenderer.enabled = false;
+                    vessel.orbitRenderer.enabled = true;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(Tag,
+                        string.Format(ic, "TryApplyOrbitToVessel: orbit renderer refresh failed for {0}: {1}",
+                            logContext, ex.Message));
+                    return false;
+                }
                 ParsekLog.Verbose(Tag,
                     string.Format(ic, "Forced orbit renderer redraw for {0} after SOI change", logContext));
             }
@@ -5916,6 +6001,7 @@ namespace Parsek
                     logContext, body.name, segment.semiMajorAxis,
                     drv.eccentricity, periapsis, semiMinorAxis, maxE, farDist,
                     vessel.orbitRenderer?.enabled, vessel.orbitRenderer?.drawMode));
+            return true;
         }
 
         /// <summary>
@@ -6926,25 +7012,22 @@ namespace Parsek
         private static Vessel BuildAndLoadGhostProtoVessel(
             IPlaybackTrajectory traj, OrbitSegment segment, string logContext)
         {
-            CelestialBody body = FindBodyByName(segment.bodyName);
-            if (body == null)
+            if (!OrbitResolution.TryCreateOrbitFromSegment(
+                    segment,
+                    FindBodyByName,
+                    OrbitSegmentValidationMode.ValidateAndLog,
+                    traj?.RecordingId,
+                    "map-presence-proto",
+                    out Orbit orbit,
+                    out CelestialBody body,
+                    out _))
             {
                 ParsekLog.Error(Tag,
                     string.Format(ic,
-                        "BuildAndLoadGhostProtoVessel(segment): body '{0}' not found for {1}",
+                        "BuildAndLoadGhostProtoVessel(segment): orbit segment rejected body='{0}' for {1}",
                         segment.bodyName, logContext));
                 return null;
             }
-
-            Orbit orbit = new Orbit(
-                segment.inclination,
-                segment.eccentricity,
-                segment.semiMajorAxis,
-                segment.longitudeOfAscendingNode,
-                segment.argumentOfPeriapsis,
-                segment.meanAnomalyAtEpoch,
-                segment.epoch,
-                body);
 
             return BuildAndLoadGhostProtoVesselCore(
                 traj,
@@ -6984,25 +7067,36 @@ namespace Parsek
                 return null;
             }
 
-            CelestialBody body = FindBodyByName(orbitBodyName);
-            if (body == null)
+            OrbitSegment seedSegment = new OrbitSegment
+            {
+                startUT = epoch,
+                endUT = traj?.EndUT ?? epoch,
+                inclination = inclination,
+                eccentricity = eccentricity,
+                semiMajorAxis = semiMajorAxis,
+                longitudeOfAscendingNode = lan,
+                argumentOfPeriapsis = argumentOfPeriapsis,
+                meanAnomalyAtEpoch = meanAnomalyAtEpoch,
+                epoch = epoch,
+                bodyName = orbitBodyName
+            };
+
+            if (!OrbitResolution.TryCreateOrbitFromSegment(
+                    seedSegment,
+                    FindBodyByName,
+                    OrbitSegmentValidationMode.ValidateAndLog,
+                    traj?.RecordingId,
+                    "map-presence-proto",
+                    out Orbit orbit,
+                    out CelestialBody body,
+                    out _))
             {
                 ParsekLog.Error(Tag,
                     string.Format(ic,
-                        "BuildAndLoadGhostProtoVessel: body '{0}' not found for {1}",
+                        "BuildAndLoadGhostProtoVessel: orbit seed rejected body='{0}' for {1}",
                         orbitBodyName, logContext));
                 return null;
             }
-
-            Orbit orbit = new Orbit(
-                inclination,
-                eccentricity,
-                semiMajorAxis,
-                lan,
-                argumentOfPeriapsis,
-                meanAnomalyAtEpoch,
-                epoch,
-                body);
 
             return BuildAndLoadGhostProtoVesselCore(
                 traj,
@@ -7053,7 +7147,7 @@ namespace Parsek
             out string bodyName,
             out GhostProtoOrbitSeedDiagnostics diagnostics)
         {
-            if (RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+            if (TryGetEndpointAlignedOrbitSeedForMapPresence(
                 traj,
                 out inclination,
                 out eccentricity,
@@ -7105,6 +7199,269 @@ namespace Parsek
             return fallbackResolved;
         }
 
+        private static bool TryGetEndpointAlignedOrbitSeedForMapPresence(
+            IPlaybackTrajectory traj,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName,
+            out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics diagnostics)
+        {
+            inclination = 0.0;
+            eccentricity = 0.0;
+            semiMajorAxis = 0.0;
+            lan = 0.0;
+            argumentOfPeriapsis = 0.0;
+            meanAnomalyAtEpoch = 0.0;
+            epoch = 0.0;
+            bodyName = null;
+            diagnostics = new RecordingEndpointResolver.EndpointOrbitSeedDiagnostics
+            {
+                Source = "none",
+                EndpointBodyName = null,
+                FailureReason = null
+            };
+
+            if (traj == null)
+            {
+                diagnostics.FailureReason = "null-trajectory";
+                return false;
+            }
+
+            if (!RecordingEndpointResolver.TryGetPreferredEndpointBodyName(traj, out string endpointBody))
+            {
+                diagnostics.FailureReason = "no-endpoint-body";
+                return false;
+            }
+
+            diagnostics.EndpointBodyName = endpointBody;
+            bool endpointUsesOrbitSegment = RecordingEndpointResolver.ShouldUseOrbitEndpoint(traj);
+            bool terminalBodyConflicts = HasTerminalOrbitBodyForMapPresence(traj)
+                && !string.IsNullOrEmpty(endpointBody)
+                && !string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal);
+
+            bool hasMatchingTerminalOrbit = CanUseTerminalOrbitSeedForMapPresence(traj, endpointBody);
+            if (endpointUsesOrbitSegment)
+            {
+                if (TryGetLastMatchingEndpointSegmentForMapPresence(
+                        traj,
+                        endpointBody,
+                        out OrbitSegment endpointSegment))
+                {
+                    CopyOrbitSegmentSeed(
+                        endpointSegment,
+                        out inclination,
+                        out eccentricity,
+                        out semiMajorAxis,
+                        out lan,
+                        out argumentOfPeriapsis,
+                        out meanAnomalyAtEpoch,
+                        out epoch,
+                        out bodyName);
+                    diagnostics.Source = "endpoint-segment";
+                    return true;
+                }
+
+                if (!hasMatchingTerminalOrbit)
+                {
+                    diagnostics.FailureReason = terminalBodyConflicts
+                        ? TrackingStationGhostSkipEndpointConflict
+                        : "endpoint-orbit-segment-missing";
+                    return false;
+                }
+            }
+
+            if (hasMatchingTerminalOrbit)
+            {
+                CopyTerminalOrbitSeed(
+                    traj,
+                    out inclination,
+                    out eccentricity,
+                    out semiMajorAxis,
+                    out lan,
+                    out argumentOfPeriapsis,
+                    out meanAnomalyAtEpoch,
+                    out epoch,
+                    out bodyName);
+                diagnostics.Source = "endpoint-terminal-orbit";
+                return true;
+            }
+
+            if (TryGetLastMatchingEndpointSegmentForMapPresence(
+                    traj,
+                    endpointBody,
+                    out OrbitSegment fallbackEndpointSegment))
+            {
+                CopyOrbitSegmentSeed(
+                    fallbackEndpointSegment,
+                    out inclination,
+                    out eccentricity,
+                    out semiMajorAxis,
+                    out lan,
+                    out argumentOfPeriapsis,
+                    out meanAnomalyAtEpoch,
+                    out epoch,
+                    out bodyName);
+                diagnostics.Source = "endpoint-segment";
+                return true;
+            }
+
+            diagnostics.FailureReason = terminalBodyConflicts
+                ? TrackingStationGhostSkipEndpointConflict
+                : "no-matching-orbit-seed";
+            return false;
+        }
+
+        private static bool TryGetLastMatchingEndpointSegmentForMapPresence(
+            IPlaybackTrajectory traj,
+            string endpointBody,
+            out OrbitSegment segment)
+        {
+            segment = default(OrbitSegment);
+            if (traj?.OrbitSegments == null)
+                return false;
+
+            for (int i = traj.OrbitSegments.Count - 1; i >= 0; i--)
+            {
+                OrbitSegment candidate = traj.OrbitSegments[i];
+                if (!string.Equals(candidate.bodyName, endpointBody, StringComparison.Ordinal))
+                    continue;
+
+                if (candidate.semiMajorAxis <= 0.0)
+                {
+                    LogSkippedEndpointSeedSegment(traj, candidate, "non-positive-sma");
+                    LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
+                    continue;
+                }
+
+                LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
+                segment = candidate;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasTerminalOrbitBodyForMapPresence(IPlaybackTrajectory traj)
+        {
+            return traj != null && !string.IsNullOrEmpty(traj.TerminalOrbitBody);
+        }
+
+        private static bool CanUseTerminalOrbitSeedForMapPresence(
+            IPlaybackTrajectory traj,
+            string endpointBody)
+        {
+            if (!HasTerminalOrbitBodyForMapPresence(traj)
+                || string.IsNullOrEmpty(endpointBody)
+                || !string.Equals(traj.TerminalOrbitBody, endpointBody, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!traj.TerminalStateValue.HasValue)
+                return true;
+
+            switch (traj.TerminalStateValue.Value)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.SubOrbital:
+                case TerminalState.Docked:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static void CopyOrbitSegmentSeed(
+            OrbitSegment segment,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            inclination = segment.inclination;
+            eccentricity = segment.eccentricity;
+            semiMajorAxis = segment.semiMajorAxis;
+            lan = segment.longitudeOfAscendingNode;
+            argumentOfPeriapsis = segment.argumentOfPeriapsis;
+            meanAnomalyAtEpoch = segment.meanAnomalyAtEpoch;
+            epoch = segment.epoch;
+            bodyName = segment.bodyName;
+        }
+
+        private static void CopyTerminalOrbitSeed(
+            IPlaybackTrajectory traj,
+            out double inclination,
+            out double eccentricity,
+            out double semiMajorAxis,
+            out double lan,
+            out double argumentOfPeriapsis,
+            out double meanAnomalyAtEpoch,
+            out double epoch,
+            out string bodyName)
+        {
+            inclination = traj.TerminalOrbitInclination;
+            eccentricity = traj.TerminalOrbitEccentricity;
+            semiMajorAxis = traj.TerminalOrbitSemiMajorAxis;
+            lan = traj.TerminalOrbitLAN;
+            argumentOfPeriapsis = traj.TerminalOrbitArgumentOfPeriapsis;
+            meanAnomalyAtEpoch = traj.TerminalOrbitMeanAnomalyAtEpoch;
+            epoch = traj.TerminalOrbitEpoch;
+            bodyName = traj.TerminalOrbitBody;
+        }
+
+        private static void LogInvalidEndpointSeedSegmentIfNeeded(
+            IPlaybackTrajectory traj,
+            OrbitSegment segment)
+        {
+            OrbitRejectionReason reason = OrbitRejectionReason.None;
+            if (!OrbitResolution.IsFiniteOrbitSegment(segment))
+                reason = OrbitRejectionReason.NonFiniteElements;
+            else if (Math.Abs(segment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
+                reason = OrbitRejectionReason.BelowMinSma;
+
+            if (reason == OrbitRejectionReason.None)
+                return;
+
+            OrbitResolution.LogOrbitSegmentRejected(
+                segment,
+                traj?.RecordingId,
+                "map-presence-endpoint-seed",
+                reason,
+                OrbitSegmentValidationMode.ValidateAndLog);
+        }
+
+        private static void LogSkippedEndpointSeedSegment(
+            IPlaybackTrajectory traj,
+            OrbitSegment segment,
+            string reason)
+        {
+            string safeRecordingId = string.IsNullOrEmpty(traj?.RecordingId)
+                ? "<none>"
+                : traj.RecordingId;
+            ParsekLog.VerboseRateLimited(
+                Tag,
+                "endpoint-seed-segment-skip-" + safeRecordingId,
+                string.Format(
+                    ic,
+                    "Endpoint orbit seed segment skipped: rec={0} reason={1} body={2} sma={3:R} segmentUT={4:F1}-{5:F1}",
+                    safeRecordingId,
+                    reason ?? "(none)",
+                    segment.bodyName ?? "(null)",
+                    segment.semiMajorAxis,
+                    segment.startUT,
+                    segment.endUT),
+                5.0);
+        }
+
         private static bool TryResolveTerminalOrbitGhostSeed(
             IPlaybackTrajectory traj,
             out double inclination,
@@ -7126,8 +7483,7 @@ namespace Parsek
             bodyName = null;
 
             if (traj == null
-                || string.IsNullOrEmpty(traj.TerminalOrbitBody)
-                || traj.TerminalOrbitSemiMajorAxis <= 0.0)
+                || string.IsNullOrEmpty(traj.TerminalOrbitBody))
             {
                 return false;
             }

@@ -1299,9 +1299,16 @@ namespace Parsek
                         stateVectorCachedIndices[idx] = cachedStateVectorIndex;
                         if (fallbackChanged)
                         {
-                            GhostMapPresence.UpdateGhostOrbitForRecording(idx, fallbackSegment);
-                            if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
-                            orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, fallbackKey));
+                            if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, fallbackSegment))
+                            {
+                                if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                                orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, fallbackKey));
+                            }
+                            else
+                            {
+                                if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
+                                toRemoveFromMap.Add(idx);
+                            }
                         }
                         continue;
                     }
@@ -1366,10 +1373,17 @@ namespace Parsek
                     && seg.Value.eccentricity == kvp.Value.ecc)
                     continue;
 
-                GhostMapPresence.UpdateGhostOrbitForRecording(idx, seg.Value);
-                if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
-                orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
-                    idx, (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity)));
+                if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, seg.Value))
+                {
+                    if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                    orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
+                        idx, (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity)));
+                }
+                else
+                {
+                    if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
+                    toRemoveFromMap.Add(idx);
+                }
             }
 
             if (orbitUpdates != null)
@@ -1459,12 +1473,16 @@ namespace Parsek
                         if (source == TrackingStationGhostSource.Segment
                             || source == TrackingStationGhostSource.TerminalOrbit)
                         {
-                            GhostMapPresence.UpdateGhostOrbitForRecording(idx, segment);
-                            if (TryGetMapOrbitKey(source, segment, out var segmentKey))
+                            if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, segment)
+                                && TryGetMapOrbitKey(source, segment, out var segmentKey))
                             {
                                 if (stateVectorSegmentUpdates == null)
                                     stateVectorSegmentUpdates = new List<KeyValuePair<int, (string, double, double)>>();
                                 stateVectorSegmentUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, segmentKey));
+                            }
+                            else
+                            {
+                                lastMapOrbitByIndex.Remove(idx);
                             }
 
                             if (toExitStateVector == null) toExitStateVector = new List<int>();

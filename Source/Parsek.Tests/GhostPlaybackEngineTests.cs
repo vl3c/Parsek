@@ -177,6 +177,8 @@ namespace Parsek.Tests
             internal double LastLoopUT;
             internal double LastShadowUT;
             internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
+            internal bool OrbitPositionShouldSucceed = true;
+            internal bool LoopPositionShouldSucceed = true;
             // Test-controlled return value for the shadow positioner. When
             // false (default) the engine routes through the legacy hide path
             // exactly as it did pre-route. When true, set
@@ -225,19 +227,23 @@ namespace Parsek.Tests
             {
             }
 
-            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromOrbit(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut)
             {
                 PositionFromOrbitCalls++;
                 LastOrbitUT = ut;
+                return OrbitPositionShouldSucceed;
             }
 
-            public void PositionLoop(int index, IPlaybackTrajectory traj,
+            public bool TryPositionLoop(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
             {
                 PositionLoopCalls++;
                 LastLoopUT = ut;
+                if (!LoopPositionShouldSucceed)
+                    return false;
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
+                return true;
             }
 
             public bool TryResolveExplosionAnchorPosition(int index,
@@ -1382,6 +1388,42 @@ namespace Parsek.Tests
             Assert.False(state.anchorRetiredThisFrame);
             Assert.Equal(1, positioner.PositionLoopCalls);
             Assert.Equal(105.0, positioner.LastLoopUT);
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_PositionerOrbitFailure_RetiresAndLogs()
+        {
+            logLines.Clear();
+            var positioner = new SpawnPrimingPositioner
+            {
+                LoopPositionShouldSucceed = false,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeAutoTrajectory("orbit-fail-rec", 100.0, 200.0);
+            traj.VesselName = "Orbit Fail Vessel";
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Orbit Fail Vessel",
+                ghost = null,
+            };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 7,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop-orbit-fail");
+
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(1, positioner.PositionLoopCalls);
+            Assert.Equal(0, positioner.InterpolateCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("Orbit placement failed")
+                && l.Contains("recordingId=orbit-fail-rec")
+                && l.Contains("callsite=test-loop-orbit-fail"));
         }
 
         [Fact]
@@ -3543,6 +3585,8 @@ namespace Parsek.Tests
         [Fact]
         public void TryResolvePendingPlaybackInterpolation_OrbitOnlyTrajectory_UsesSegmentBody()
         {
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
             var traj = new MockTrajectory
             {
                 OrbitSegments = new List<OrbitSegment>
@@ -3615,7 +3659,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolvePendingPlaybackInterpolation_SubSurfaceMixedOrbitSegment_FallsBackToPoints()
+        public void TryResolvePendingPlaybackInterpolation_SubSurfaceMixedOrbitSegment_UsesActiveOrbitSegment()
         {
             GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
 
@@ -3656,9 +3700,63 @@ namespace Parsek.Tests
                 traj, playbackUT: 105.0, out InterpolationResult result);
 
             Assert.True(resolved);
+            Assert.Equal("Mun", result.bodyName);
+            Assert.Equal(0.0, result.altitude);
+            Assert.Equal(Vector3.zero, result.velocity);
+            Assert.DoesNotContain(logLines, l => l.Contains("orbit-resolver-reject"));
+        }
+
+        [Fact]
+        public void TryResolvePendingPlaybackInterpolation_DegenerateMixedOrbitSegment_FallsBackToPointsAndLogs()
+        {
+            logLines.Clear();
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
+            var traj = new MockTrajectory
+            {
+                RecordingId = "degenerate-orbit-rec",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 0.0,
+                        startUT = 100,
+                        endUT = 200
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
             Assert.Equal("Kerbin", result.bodyName);
             Assert.Equal(1500.0, result.altitude);
             Assert.Equal(new Vector3(10f, 0f, 0f), result.velocity);
+            Assert.Contains(logLines, l =>
+                l.Contains("Orbit segment rejected by resolver")
+                && l.Contains("context=pending-metadata")
+                && l.Contains("reason=below-min-sma"));
         }
 
         [Fact]

@@ -266,18 +266,17 @@ namespace Parsek.Tests
 
     #endregion
 
-    #region Test 3 — SMA sub-surface check with hyperbolic orbits
+    #region Test 3 — orbit-segment minimum SMA validation
 
     public class SmaSubSurfaceCheckTests
     {
         /// <summary>
-        /// The bugfix changed the check from (sma &lt; bodyRadius * 0.9) to
-        /// (Math.Abs(sma) &lt; bodyRadius * 0.9) so that hyperbolic orbits
-        /// (negative SMA) aren't incorrectly rejected.
+        /// Sub-orbital ballistic arcs are valid playback data; only degenerate
+        /// near-zero SMA is rejected by the shared resolver.
         /// </summary>
         private static bool IsSubSurfaceOrbit(double sma, double bodyRadius)
         {
-            return Math.Abs(sma) < bodyRadius * 0.9;
+            return Math.Abs(sma) < OrbitResolution.MinValidSmaMeters;
         }
 
         [Fact]
@@ -297,32 +296,28 @@ namespace Parsek.Tests
         [Fact]
         public void PositiveSma_BelowRadius_IsSubSurface()
         {
-            // Sub-surface: sma=400000, bodyRadius=600000 → 400000 < 540000 → rejected
-            Assert.True(IsSubSurfaceOrbit(400000, 600000));
+            // Sub-orbital but non-degenerate: valid playback data.
+            Assert.False(IsSubSurfaceOrbit(400000, 600000));
         }
 
         [Fact]
         public void NegativeSma_TinyHyperbolic_IsSubSurface()
         {
-            // Tiny hyperbolic: sma=-100, bodyRadius=600000 → Abs(100) < 540000 → rejected
-            Assert.True(IsSubSurfaceOrbit(-100, 600000));
+            // Non-degenerate negative SMA stays valid.
+            Assert.False(IsSubSurfaceOrbit(-100, 600000));
         }
 
         [Fact]
-        public void NegativeSma_WithoutAbsFix_WouldPassIncorrectly()
+        public void ZeroSma_IsDegenerate()
         {
-            // This demonstrates the bug: without Math.Abs, negative SMA < threshold
-            // would be true (since -1858567 < 540000 is true), incorrectly rejecting
-            // valid hyperbolic orbits.
+            Assert.True(IsSubSurfaceOrbit(0, 600000));
+        }
+
+        [Fact]
+        public void NegativeSma_UsesAbsoluteMagnitudeForDegenerateCheck()
+        {
             double sma = -1858567;
-            double bodyRadius = 600000;
-            double threshold = bodyRadius * 0.9;
-
-            // Old buggy check (without Abs) would reject this:
-            Assert.True(sma < threshold);  // -1858567 < 540000 is TRUE (bug!)
-
-            // Fixed check with Abs correctly accepts it:
-            Assert.False(Math.Abs(sma) < threshold);  // 1858567 < 540000 is FALSE (correct)
+            Assert.False(Math.Abs(sma) < OrbitResolution.MinValidSmaMeters);
         }
     }
 

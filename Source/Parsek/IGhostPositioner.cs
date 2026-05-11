@@ -85,10 +85,10 @@ namespace Parsek
         void PositionAtSurface(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state);
 
-        void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+        bool TryPositionFromOrbit(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut);
 
-        void PositionLoop(int index, IPlaybackTrajectory traj,
+        bool TryPositionLoop(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut, bool suppressFx);
 
         bool TryResolveExplosionAnchorPosition(int index, IPlaybackTrajectory traj,

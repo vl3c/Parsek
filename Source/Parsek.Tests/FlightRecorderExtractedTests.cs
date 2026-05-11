@@ -768,6 +768,27 @@ namespace Parsek.Tests
             Assert.False(FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(true, 70000, 70000));
         }
 
+        [Theory]
+        [InlineData(Vessel.Situations.LANDED)]
+        [InlineData(Vessel.Situations.SPLASHED)]
+        [InlineData(Vessel.Situations.PRELAUNCH)]
+        public void ShouldSkipOrbitSegmentForSurfaceSituation_SurfaceStates_ReturnsTrue(
+            Vessel.Situations situation)
+        {
+            Assert.True(FlightRecorder.ShouldSkipOrbitSegmentForSurfaceSituation(situation));
+        }
+
+        [Theory]
+        [InlineData(Vessel.Situations.FLYING)]
+        [InlineData(Vessel.Situations.SUB_ORBITAL)]
+        [InlineData(Vessel.Situations.ORBITING)]
+        [InlineData(Vessel.Situations.ESCAPING)]
+        public void ShouldSkipOrbitSegmentForSurfaceSituation_OrbitalOrFlightStates_ReturnsFalse(
+            Vessel.Situations situation)
+        {
+            Assert.False(FlightRecorder.ShouldSkipOrbitSegmentForSurfaceSituation(situation));
+        }
+
         #endregion
 
         #region TrimRecordingToUT — time regression guard

@@ -2316,8 +2316,13 @@ namespace Parsek
                     CloseOrbitSegment(state, ut);
                 }
 
+                bool skipForSurface = FlightRecorder.ShouldSkipOrbitSegmentForSurfaceSituation(v.situation);
+                bool skipForAtmosphere = v.mainBody != null
+                    && FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(
+                        v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth);
+
                 // Open a new orbit segment with the new body's orbit
-                if (v.orbit != null)
+                if (v.orbit != null && !skipForSurface && !skipForAtmosphere)
                 {
                     state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
                     TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
@@ -2327,6 +2332,13 @@ namespace Parsek
                         ref state.currentOrbitSegment,
                         "soi-change");
                     state.hasOpenOrbitSegment = true;
+                }
+                else if (skipForSurface || skipForAtmosphere)
+                {
+                    state.hasOpenOrbitSegment = false;
+                    ParsekLog.Info("BgRecorder",
+                        $"SOI change for background vessel skipped orbit reopen: pid={pid} " +
+                        $"sit={v.situation} alt={v.altitude:F0} atmoDepth={v.mainBody?.atmosphereDepth ?? 0:F0}");
                 }
                 RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundOnRails,
                     "background_soi_change", force: true);
@@ -3057,6 +3069,20 @@ namespace Parsek
                     continue;
                 }
 
+                bool skipForSurface = FlightRecorder.ShouldSkipOrbitSegmentForSurfaceSituation(v.situation);
+                bool skipForAtmosphere = v.mainBody != null
+                    && FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(
+                        v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth);
+                if (skipForSurface || skipForAtmosphere)
+                {
+                    skippedNotOrbital++;
+                    state.hasOpenOrbitSegment = false;
+                    ParsekLog.Info("BgRecorder",
+                        $"CheckpointAllVessels: skipped orbit reopen for pid={vesselPid} " +
+                        $"sit={v.situation} alt={v.altitude:F0} atmoDepth={v.mainBody?.atmosphereDepth ?? 0:F0}");
+                    continue;
+                }
+
                 // Open a fresh orbit segment with current orbital elements
                 state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
                 TryCanonicalizeBackgroundReFlyRecordingOrbitSegment(
@@ -3137,9 +3163,7 @@ namespace Parsek
 
         private static bool WillInitializeOnRailsWithPlayablePayload(Vessel v)
         {
-            bool isLanded = v.situation == Vessel.Situations.LANDED ||
-                            v.situation == Vessel.Situations.SPLASHED;
-            if (isLanded || v.situation == Vessel.Situations.PRELAUNCH)
+            if (FlightRecorder.ShouldSkipOrbitSegmentForSurfaceSituation(v.situation))
                 return false;
 
             if (v.mainBody != null &&
@@ -3186,10 +3210,10 @@ namespace Parsek
                 lastExplicitEndUpdate = ut
             };
 
-            bool isLanded = v.situation == Vessel.Situations.LANDED ||
-                            v.situation == Vessel.Situations.SPLASHED;
+            bool isSurfaceOrPrelaunch =
+                FlightRecorder.ShouldSkipOrbitSegmentForSurfaceSituation(v.situation);
 
-            if (isLanded)
+            if (isSurfaceOrPrelaunch)
             {
                 state.isLanded = true;
                 state.hasOpenOrbitSegment = false;
@@ -3212,7 +3236,7 @@ namespace Parsek
                     treeRec.ExplicitEndUT = ut;
                 }
 
-                ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (landed): pid={vesselPid} " +
+                ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (surface/prelaunch): pid={vesselPid} " +
                     $"body={v.mainBody?.name} sit={v.situation}");
             }
             else if (v.mainBody != null &&
@@ -5089,34 +5113,44 @@ namespace Parsek
                 if (ut < segment.startUT || ut > segment.endUT)
                     continue;
 
-                CelestialBody body = FindBackgroundBody(segment.bodyName);
-                if (body == null)
+                if (!OrbitResolution.TryCreateOrbitFromSegment(
+                        segment,
+                        FindBackgroundBody,
+                        OrbitSegmentValidationMode.ValidateAndLog,
+                        recording?.RecordingId,
+                        "background-anchor",
+                        out Orbit orbit,
+                        out CelestialBody body,
+                        out _))
+                {
                     return false;
+                }
 
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                Vector3d worldPos = orbit.getPositionAtUT(ut);
-                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+                if (!OrbitResolution.TryComputeOrbitWorldPosition(
+                        orbit,
+                        body,
+                        ut,
+                        Vector3d.zero,
+                        clampToSurface: true,
+                        out OrbitPlacementResult placement,
+                        out _))
+                {
+                    return false;
+                }
+
                 var rotation = ParsekFlight.ComputeOrbitalRotation(
                     segment,
                     orbit,
                     ut,
-                    velocity,
-                    worldPos,
+                    placement.Velocity,
+                    placement.RawWorldPosition,
                     body.position,
                     Quaternion.identity,
                     sectionIndex,
                     TrajectoryMath.HasOrbitalFrameRotation(segment),
                     TrajectoryMath.IsSpinning(segment));
 
-                pose = new AnchorPose(worldPos, rotation.ghostRot, sectionIndex, recording?.RecordingId);
+                pose = new AnchorPose(placement.WorldPosition, rotation.ghostRot, sectionIndex, recording?.RecordingId);
                 return true;
             }
 

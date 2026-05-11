@@ -69,7 +69,6 @@ namespace Parsek
         // buffers used below.
         private static readonly long MaxSpawnTimelineBuildTicksPerAdvance =
             (long)(Stopwatch.Frequency * (GhostPlayback.MaxSpawnBuildMillisecondsPerAdvance / 1000.0));
-        private const double DefaultPendingOrbitBodyRadiusMeters = 600000.0;
 
         // Per-frame batch counters (avoid per-ghost log spam)
         private int frameSpawnCount;
@@ -983,6 +982,34 @@ namespace Parsek
                 state.positionedThisFrame = true;
         }
 
+        private static void MarkOrbitPlacementFailed(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            string callsite)
+        {
+            if (state == null)
+                return;
+
+            state.anchorRetiredThisFrame = true;
+            if (state.ghost != null && state.ghost.activeSelf)
+                state.ghost.SetActive(false);
+            ResetGhostAppearanceTracking(state);
+            ParsekLog.VerboseRateLimited(
+                "Engine",
+                "orbit-placement-failed-" + (traj?.RecordingId ?? index.ToString(CultureInfo.InvariantCulture)) + "-" + callsite,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Orbit placement failed: recordingId={0} index={1} vessel=\"{2}\" ut={3:F3} callsite={4}",
+                    traj?.RecordingId ?? "<none>",
+                    index,
+                    traj?.VesselName ?? "?",
+                    playbackUT,
+                    callsite),
+                5.0);
+        }
+
         /// <summary>
         /// Handles in-range ghost rendering: spawn if needed, position, apply visual events.
         /// Returns true if the ghost was processed (caller should continue to next iteration).
@@ -1181,7 +1208,8 @@ namespace Parsek
                 {
                     if (orbitTailPlayback)
                     {
-                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                        if (!positioner.TryPositionFromOrbit(i, traj, state, visiblePlaybackUT))
+                            MarkOrbitPlacementFailed(i, traj, state, visiblePlaybackUT, "RenderInRangeGhost-tail-points");
                     }
                     else if (!TryPositionRelativeSectionAtPlaybackUT(
                                  i, traj, state, visiblePlaybackUT, suppressVisualFx))
@@ -1196,7 +1224,8 @@ namespace Parsek
                     // PositionAtPoint for them.
                     if (orbitTailPlayback)
                     {
-                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                        if (!positioner.TryPositionFromOrbit(i, traj, state, visiblePlaybackUT))
+                            MarkOrbitPlacementFailed(i, traj, state, visiblePlaybackUT, "RenderInRangeGhost-tail-single");
                     }
                     else if (!TryPositionRelativeSectionAtPlaybackUT(
                                  i, traj, state, visiblePlaybackUT, suppressVisualFx))
@@ -1210,7 +1239,8 @@ namespace Parsek
                 }
                 else if (hasOrbitData)
                 {
-                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                    if (!positioner.TryPositionFromOrbit(i, traj, state, visiblePlaybackUT))
+                        MarkOrbitPlacementFailed(i, traj, state, visiblePlaybackUT, "RenderInRangeGhost-orbit");
                 }
             }
 
@@ -2477,7 +2507,11 @@ namespace Parsek
 
             if (RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT))
             {
-                positioner.PositionFromOrbit(index, traj, state, orbitEndpointUT);
+                if (!positioner.TryPositionFromOrbit(index, traj, state, orbitEndpointUT))
+                {
+                    MarkOrbitPlacementFailed(index, traj, state, orbitEndpointUT, "PositionGhostAtRecordingEndpoint-orbit");
+                    return;
+                }
                 if (RecordingEndpointResolver.TryGetOrbitEndpointCoordinates(
                     traj, out string bodyName, out _, out _, out double altitude))
                 {
@@ -2503,7 +2537,8 @@ namespace Parsek
                         checkpointSectionIndex,
                         checkpointOrbitEndpointUT),
                     5.0);
-                positioner.PositionFromOrbit(index, traj, state, checkpointOrbitEndpointUT);
+                if (!positioner.TryPositionFromOrbit(index, traj, state, checkpointOrbitEndpointUT))
+                    MarkOrbitPlacementFailed(index, traj, state, checkpointOrbitEndpointUT, "PositionGhostAtRecordingEndpoint-checkpoint-orbit");
                 return;
             }
 
@@ -2524,7 +2559,11 @@ namespace Parsek
             }
 
             if (traj.HasOrbitSegments)
-                positioner.PositionFromOrbit(index, traj, state, traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT);
+            {
+                double orbitEndUT = traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT;
+                if (!positioner.TryPositionFromOrbit(index, traj, state, orbitEndUT))
+                    MarkOrbitPlacementFailed(index, traj, state, orbitEndUT, "PositionGhostAtRecordingEndpoint-last-orbit");
+            }
         }
 
         /// <summary>
@@ -3334,7 +3373,8 @@ namespace Parsek
                     index, traj, state, loopUT, callsite))
                 return AnchorRotationUnreliableRoute.Hidden;
 
-            positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
+            if (!positioner.TryPositionLoop(index, traj, state, loopUT, suppressFx))
+                MarkOrbitPlacementFailed(index, traj, state, loopUT, callsite);
             return route;
         }
 
@@ -5348,7 +5388,8 @@ namespace Parsek
 
             if (!authoredGapHasShadow && ShouldUseOrbitTailPlayback(traj, playbackUT))
             {
-                positioner.PositionFromOrbit(index, traj, state, playbackUT);
+                if (!positioner.TryPositionFromOrbit(index, traj, state, playbackUT))
+                    MarkOrbitPlacementFailed(index, traj, state, playbackUT, "PositionLoadedGhostAtPlaybackUT-tail");
                 return;
             }
 
@@ -5381,7 +5422,10 @@ namespace Parsek
             }
 
             if (hasOrbitData)
-                positioner.PositionFromOrbit(index, traj, state, playbackUT);
+            {
+                if (!positioner.TryPositionFromOrbit(index, traj, state, playbackUT))
+                    MarkOrbitPlacementFailed(index, traj, state, playbackUT, "PositionLoadedGhostAtPlaybackUT-orbit");
+            }
         }
 
         internal static bool ShouldPrimeSinglePointGhostFromOrbit(
@@ -6098,33 +6142,79 @@ namespace Parsek
             if (!seg.HasValue || string.IsNullOrEmpty(seg.Value.bodyName))
                 return false;
 
-            if (applySubSurfaceGuard)
+            if (OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                    traj,
+                    seg.Value,
+                    playbackUT,
+                    traj?.RecordingId,
+                    "pending-metadata"))
             {
-                double bodyRadius = ResolvePendingOrbitBodyRadius(seg.Value.bodyName);
-                double absSma = System.Math.Abs(seg.Value.semiMajorAxis);
-                if (absSma < bodyRadius * 0.9)
-                    return false;
+                return false;
+            }
+
+            if (!TryValidatePendingOrbitSegment(
+                    seg.Value,
+                    traj?.RecordingId,
+                    "pending-metadata"))
+            {
+                return false;
             }
 
             result = new InterpolationResult(Vector3.zero, seg.Value.bodyName, 0.0);
             return true;
         }
 
-        private static double ResolvePendingOrbitBodyRadius(string bodyName)
+        private static bool TryValidatePendingOrbitSegment(
+            OrbitSegment segment,
+            string recordingId,
+            string context)
         {
-            Func<string, double?> resolver = PendingOrbitBodyRadiusResolverForTesting;
-            if (resolver != null)
+            if (!OrbitResolution.IsFiniteOrbitSegment(segment))
             {
-                double? resolved = resolver(bodyName);
-                if (resolved.HasValue && !double.IsNaN(resolved.Value) && !double.IsInfinity(resolved.Value) && resolved.Value > 0)
-                    return resolved.Value;
+                OrbitResolution.LogOrbitSegmentRejected(
+                    segment,
+                    recordingId,
+                    context,
+                    OrbitRejectionReason.NonFiniteElements,
+                    OrbitSegmentValidationMode.ValidateAndLog);
+                return false;
             }
 
+            double absSma = Math.Abs(segment.semiMajorAxis);
+            if (!OrbitResolution.IsFiniteDouble(absSma)
+                || absSma < OrbitResolution.MinValidSmaMeters)
+            {
+                OrbitResolution.LogOrbitSegmentRejected(
+                    segment,
+                    recordingId,
+                    context,
+                    OrbitRejectionReason.BelowMinSma,
+                    OrbitSegmentValidationMode.ValidateAndLog);
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(segment.bodyName)
+                || !CanResolvePendingOrbitBody(segment.bodyName))
+            {
+                OrbitResolution.LogOrbitSegmentRejected(
+                    segment,
+                    recordingId,
+                    context,
+                    OrbitRejectionReason.MissingBody,
+                    OrbitSegmentValidationMode.ValidateAndLog);
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool CanResolvePendingOrbitBody(string bodyName)
+        {
             try
             {
-                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
                 if (segBody != null)
-                    return segBody.Radius;
+                    return true;
             }
             catch (TypeInitializationException)
             {
@@ -6133,7 +6223,11 @@ namespace Parsek
             {
             }
 
-            return DefaultPendingOrbitBodyRadiusMeters;
+            double? radius = PendingOrbitBodyRadiusResolverForTesting?.Invoke(bodyName);
+            return radius.HasValue
+                && !double.IsNaN(radius.Value)
+                && !double.IsInfinity(radius.Value)
+                && radius.Value > 0.0;
         }
 
         private void TrackGhostAppearance(

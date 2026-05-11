@@ -245,27 +245,37 @@ namespace Parsek
                 if (ut < segment.startUT || ut > segment.endUT)
                     continue;
 
-                CelestialBody body = ResolveBody(segment.bodyName);
-                if (body == null)
+                if (!OrbitResolution.TryCreateOrbitFromSegment(
+                        segment,
+                        ResolveBody,
+                        OrbitSegmentValidationMode.ValidateAndLog,
+                        recording?.RecordingId,
+                        "recorded-anchor",
+                        out Orbit orbit,
+                        out CelestialBody body,
+                        out _))
+                {
                     return false;
+                }
 
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                Vector3d worldPos = orbit.getPositionAtUT(ut);
-                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+                if (!OrbitResolution.TryComputeOrbitWorldPosition(
+                        orbit,
+                        body,
+                        ut,
+                        Vector3d.zero,
+                        clampToSurface: true,
+                        out OrbitPlacementResult placement,
+                        out _))
+                {
+                    return false;
+                }
+
                 var rotation = ParsekFlight.ComputeOrbitalRotation(
                     segment,
                     orbit,
                     ut,
-                    velocity,
-                    worldPos,
+                    placement.Velocity,
+                    placement.RawWorldPosition,
                     body.position,
                     Quaternion.identity,
                     sectionIndex,
@@ -273,7 +283,7 @@ namespace Parsek
                     TrajectoryMath.IsSpinning(segment));
 
                 pose = new AnchorPose(
-                    worldPos,
+                    placement.WorldPosition,
                     rotation.ghostRot,
                     sectionIndex,
                     recording?.RecordingId);

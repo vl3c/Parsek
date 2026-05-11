@@ -185,24 +185,29 @@ namespace Parsek
             }
             OrbitSegment seg = maybeSeg.Value;
 
-            CelestialBody body = bodyResolver(seg.bodyName);
-            if (object.ReferenceEquals(body, null)) return null;
-
-            try
-            {
-                Orbit orbit = new Orbit(
-                    seg.inclination, seg.eccentricity, seg.semiMajorAxis,
-                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
-                    seg.meanAnomalyAtEpoch, seg.epoch, body);
-                Vector3d pos = orbit.getPositionAtUT(ut);
-                if (double.IsNaN(pos.x) || double.IsNaN(pos.y) || double.IsNaN(pos.z))
-                    return null;
-                return pos;
-            }
-            catch
+            if (!OrbitResolution.TryCreateOrbitFromSegment(
+                    seg,
+                    bodyResolver,
+                    OrbitSegmentValidationMode.ValidateAndLog,
+                    null,
+                    "checkpoint-evaluate",
+                    out Orbit orbit,
+                    out CelestialBody body,
+                    out _))
             {
                 return null;
             }
+
+            return OrbitResolution.TryComputeOrbitWorldPosition(
+                orbit,
+                body,
+                ut,
+                Vector3d.zero,
+                clampToSurface: true,
+                out OrbitPlacementResult placement,
+                out _)
+                ? (Vector3d?)placement.WorldPosition
+                : null;
         }
 
         /// <summary>

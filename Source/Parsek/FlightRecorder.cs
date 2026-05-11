@@ -4477,6 +4477,13 @@ namespace Parsek
             return bodyHasAtmosphere && altitude < atmosphereDepth;
         }
 
+        internal static bool ShouldSkipOrbitSegmentForSurfaceSituation(Vessel.Situations situation)
+        {
+            return situation == Vessel.Situations.LANDED
+                || situation == Vessel.Situations.SPLASHED
+                || situation == Vessel.Situations.PRELAUNCH;
+        }
+
         /// <summary>
         /// Pure testable function: determines whether a recording should split at the atmosphere boundary.
         /// Requires both sustained time (hysteresisSeconds) AND distance beyond boundary (hysteresisMeters).
@@ -5727,8 +5734,13 @@ namespace Parsek
                     SamplePosition(v);
                 }
 
+                if (ShouldSkipOrbitSegmentForSurfaceSituation(v.situation))
+                {
+                    ParsekLog.Info("Recorder",
+                        $"Recording started on rails at surface (sit={v.situation}) — skipping orbit segment");
+                }
                 // Skip orbit segment if below atmosphere — Keplerian orbit ignores drag
-                if (ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
+                else if (ShouldSkipOrbitSegmentForAtmosphere(v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
                 {
                     ParsekLog.Info("Recorder",
                         $"Recording started on rails in atmosphere — skipping orbit segment " +
@@ -6721,14 +6733,31 @@ namespace Parsek
             // section-authoritative sidecar truncates playback at the false-alarm boundary.
             double resumeUT = Planetarium.GetUniversalTime();
             OrbitSegment? resumeOrbitSegment = null;
+            TrajectoryPoint? forcedAbsoluteBoundaryPoint = null;
             if (TryGetFalseAlarmResumeTrackSection(out var resumeSection)
                 && resumeSection.referenceFrame == ReferenceFrame.OrbitalCheckpoint
                 && v.packed)
             {
-                resumeOrbitSegment = CreateOrbitSegmentWithRotation(v, resumeUT);
+                bool suppressResumeOrbit = ShouldSkipOrbitSegmentForSurfaceSituation(v.situation)
+                    || ShouldSkipOrbitSegmentForAtmosphere(
+                        v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth);
+                if (suppressResumeOrbit)
+                {
+                    Vector3 resumeVelocity = SampleCurrentVelocity(v);
+                    TrajectoryPoint point = BuildTrajectoryPoint(v, resumeVelocity, resumeUT);
+                    TryCanonicalizeActiveReFlyRecordingPoint(ref point, "false-alarm-resume-boundary");
+                    forcedAbsoluteBoundaryPoint = point;
+                    ParsekLog.Info("Recorder",
+                        $"ResumeAfterFalseAlarm: suppressed OrbitalCheckpoint resume orbit " +
+                        $"(sit={v.situation}, alt={v.altitude:F0}, atmoDepth={v.mainBody.atmosphereDepth:F0})");
+                }
+                else
+                {
+                    resumeOrbitSegment = CreateOrbitSegmentWithRotation(v, resumeUT);
+                }
             }
 
-            RestoreTrackSectionAfterFalseAlarm(resumeUT, resumeOrbitSegment);
+            RestoreTrackSectionAfterFalseAlarm(resumeUT, resumeOrbitSegment, forcedAbsoluteBoundaryPoint);
 
             ParsekLog.Info("Recorder", $"Recording resumed after false alarm ({Recording.Count} points preserved)");
         }
@@ -6745,6 +6774,14 @@ namespace Parsek
         }
 
         internal void RestoreTrackSectionAfterFalseAlarm(double ut, OrbitSegment? resumeOrbitSegment)
+        {
+            RestoreTrackSectionAfterFalseAlarm(ut, resumeOrbitSegment, null);
+        }
+
+        internal void RestoreTrackSectionAfterFalseAlarm(
+            double ut,
+            OrbitSegment? resumeOrbitSegment,
+            TrajectoryPoint? forcedAbsoluteBoundaryPoint)
         {
             if (trackSectionActive)
                 return;
@@ -6764,6 +6801,18 @@ namespace Parsek
             TrackSectionSource resumeSource = resumeSection.HasValue
                 ? resumeSection.Value.source
                 : TrackSectionSource.Active;
+
+            bool downgradedOrbitalCheckpointToAbsolute =
+                resumeRef == ReferenceFrame.OrbitalCheckpoint && !resumeOrbitSegment.HasValue;
+            if (downgradedOrbitalCheckpointToAbsolute)
+            {
+                ParsekLog.Info("Recorder",
+                    $"ResumeAfterFalseAlarm: downgrading suppressed OrbitalCheckpoint resume to Absolute at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                resumeRef = ReferenceFrame.Absolute;
+                resumeEnv = environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric;
+            }
 
             string resumeAnchorRecordingId = null;
             uint resumeAnchorDiagnosticPid = 0u;
@@ -6826,6 +6875,21 @@ namespace Parsek
             TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
                 ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
+
+            if (forcedAbsoluteBoundaryPoint.HasValue)
+            {
+                boundaryPoint = forcedAbsoluteBoundaryPoint;
+                absoluteBoundaryPoint = null;
+                ParsekLog.Verbose("Recorder",
+                    $"ResumeAfterFalseAlarm: using live absolute boundary seed at UT={forcedAbsoluteBoundaryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
+            else if (downgradedOrbitalCheckpointToAbsolute)
+            {
+                boundaryPoint = null;
+                absoluteBoundaryPoint = null;
+                ParsekLog.Warn("Recorder",
+                    $"ResumeAfterFalseAlarm: deferred Absolute boundary seed after suppressed OrbitalCheckpoint resume at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+            }
 
             // Frame-mismatch repair when resume-anchor validation downgraded a
             // RELATIVE resume to ABSOLUTE: `boundaryPoint` is the prior
@@ -7678,29 +7742,39 @@ namespace Parsek
                 if (ut < segment.startUT || ut > segment.endUT)
                     continue;
 
-                CelestialBody body = FindBodyByNameForRecorder(segment.bodyName);
-                if (body == null)
+                if (!OrbitResolution.TryCreateOrbitFromSegment(
+                        segment,
+                        FindBodyByNameForRecorder,
+                        OrbitSegmentValidationMode.ValidateAndLog,
+                        recording?.RecordingId,
+                        "recorder-anchor",
+                        out Orbit orbit,
+                        out CelestialBody body,
+                        out _))
+                {
                     return false;
+                }
 
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                Vector3d worldPos = orbit.getPositionAtUT(ut);
-                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+                if (!OrbitResolution.TryComputeOrbitWorldPosition(
+                        orbit,
+                        body,
+                        ut,
+                        Vector3d.zero,
+                        clampToSurface: true,
+                        out OrbitPlacementResult placement,
+                        out _))
+                {
+                    return false;
+                }
+
                 bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
                 bool spinning = TrajectoryMath.IsSpinning(segment);
                 var rotation = ParsekFlight.ComputeOrbitalRotation(
                     segment,
                     orbit,
                     ut,
-                    velocity,
-                    worldPos,
+                    placement.Velocity,
+                    placement.RawWorldPosition,
                     body.position,
                     Quaternion.identity,
                     sectionIndex,
@@ -7708,7 +7782,7 @@ namespace Parsek
                     spinning);
 
                 pose = new AnchorPose(
-                    worldPos,
+                    placement.WorldPosition,
                     rotation.ghostRot,
                     sectionIndex,
                     recording?.RecordingId);
@@ -9033,9 +9107,7 @@ namespace Parsek
             // Layer 1: Surface vessels (LANDED/SPLASHED/PRELAUNCH) stay in place on rails —
             // their Keplerian orbit is a sub-surface path through the planet, not a valid trajectory.
             // Skip orbit segment creation and keep the current Absolute track section.
-            if (v.situation == Vessel.Situations.LANDED ||
-                v.situation == Vessel.Situations.SPLASHED ||
-                v.situation == Vessel.Situations.PRELAUNCH)
+            if (ShouldSkipOrbitSegmentForSurfaceSituation(v.situation))
             {
                 ParsekLog.Info("Recorder",
                     $"Vessel went on rails (surface, sit={v.situation}) — skipping orbit segment, position unchanged");
@@ -9397,10 +9469,14 @@ namespace Parsek
             // Start a new orbit segment for the background phase.
             // Layer 1: Skip for surface vessels — their Keplerian orbit is sub-surface.
             bool isSurfaceVessel = v != null &&
-                (v.situation == Vessel.Situations.LANDED ||
-                 v.situation == Vessel.Situations.SPLASHED ||
-                 v.situation == Vessel.Situations.PRELAUNCH);
-            if (v != null && v.orbit != null && !isSurfaceVessel)
+                ShouldSkipOrbitSegmentForSurfaceSituation(v.situation);
+            bool isAtmosphericVessel = v != null
+                && v.mainBody != null
+                && ShouldSkipOrbitSegmentForAtmosphere(
+                    v.mainBody.atmosphere,
+                    v.altitude,
+                    v.mainBody.atmosphereDepth);
+            if (v != null && v.orbit != null && !isSurfaceVessel && !isAtmosphericVessel)
             {
                 double backgroundUT = Planetarium.GetUniversalTime();
                 currentOrbitSegment = CreateOrbitSegmentFromVessel(v, backgroundUT);
@@ -9415,6 +9491,11 @@ namespace Parsek
             {
                 ParsekLog.Info("Recorder",
                     $"Background transition: surface vessel (sit={v.situation}), skipping orbit segment");
+            }
+            else if (isAtmosphericVessel)
+            {
+                ParsekLog.Info("Recorder",
+                    $"Background transition: atmospheric vessel (alt={v.altitude:F0}, atmoDepth={v.mainBody.atmosphereDepth:F0}), skipping orbit segment");
             }
 
             if (v != null)

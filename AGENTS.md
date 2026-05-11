@@ -134,6 +134,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `RecordingStore.cs` - static recording storage surviving scene changes; delegates group orchestration to RecordingGroupStore
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
+- `OrbitResolution.cs` - shared stored-`OrbitSegment` validation, KSP `Orbit` construction, and finite/clamped world-position helpers for playback/map/anchor paths
 - `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities, resource manifest extraction (`ExtractResourceManifest`)
 - `ResourceManifest.cs` - `ResourceAmount` struct and `ComputeResourceDelta` for per-resource change computation (Phase 11)
 - `MergeDialog.cs` - post-revert tree merge dialog (standalone/chain dialogs removed in T56)
