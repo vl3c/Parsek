@@ -1379,6 +1379,7 @@ namespace Parsek
                 && sectionIdx < recording.TrackSections.Count)
             {
                 if (TrySelectTrackingStationFocusFramesFromSection(
+                        recording,
                         recording.TrackSections[sectionIdx],
                         sampleUT,
                         out frames,
@@ -1397,6 +1398,7 @@ namespace Parsek
                 out TrackSection nearestSection))
             {
                 if (TrySelectTrackingStationFocusFramesFromSection(
+                        recording,
                         nearestSection,
                         sampleUT,
                         out frames,
@@ -1421,6 +1423,7 @@ namespace Parsek
         }
 
         private static bool TrySelectTrackingStationFocusFramesFromSection(
+            Recording recording,
             TrackSection section,
             double sampleUT,
             out List<TrajectoryPoint> frames,
@@ -1440,6 +1443,16 @@ namespace Parsek
 
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
+                bool useLoopAnchoredDebrisChain =
+                    GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(recording, sampleUT);
+                if (useLoopAnchoredDebrisChain
+                    && section.frames != null
+                    && section.frames.Count > 0)
+                {
+                    frames = section.frames;
+                    return true;
+                }
+
                 if (!ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
                         section, sampleUT, out _, out _))
                 {
@@ -1449,6 +1462,8 @@ namespace Parsek
                 }
 
                 frames = section.bodyFixedFrames;
+                if (useLoopAnchoredDebrisChain)
+                    reason = "relative-fallback-body-fixed-primary";
                 return true;
             }
 

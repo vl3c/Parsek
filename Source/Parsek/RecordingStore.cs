@@ -158,17 +158,12 @@ namespace Parsek
         //     bump because the per-point layout is positional; legacy v9 readers stop short of
         //     the new byte (their stream alignment ends at recordedGroundClearance), and new
         //     readers default flags=0 on `v < 10`. Bits 1-7 reserved.
-        // v11: TrackSection.anchorRecordingId for non-loop Relative sections. This is a
-        //     private-development format break: v11 correctness is recording-id anchored,
-        //     while legacy pid-only Relative sections are fenced by playback follow-up phases.
-        // v12: top-level Recording.DebrisParentRecordingId — set on debris recordings to
-        //     the parent recording's id, null on non-debris and on legacy v11 debris.
-        //     ConfigNode codec only; the binary `.prec` codec is unaffected (it stores
-        //     trajectory data, not top-level Recording fields). Sparse on disk: only
-        //     written when non-null, so non-debris recordings stay byte-identical across
-        //     the upgrade. Legacy v11 saves load with the field defaulted to null and
-        //     dispatch through the PR 3c playback gate. See
-        //     docs/dev/plans/recording-and-ghost-policies-refactor-plan.md.
+        // v11: TrackSection.anchorRecordingId for non-loop Relative sections.
+        // v12: top-level Recording.DebrisParentRecordingId for parent-owned debris.
+        // v13: debris frame contract break. Parent-anchored debris records
+        //     bodyFixedFrames as the primary render surface, keeps proximity-limited
+        //     anchor-local Relative frames as the secondary loop-chain surface, and
+        //     rejects non-v13 recordings/sidecars instead of migrating v11/v12 data.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {

@@ -21756,8 +21756,12 @@ namespace Parsek
             // the recorder fix removed, but inverted at playback time. Use
             // anchor.transform explicitly (not GetTransform(), which follows
             // ReferenceTransform / "Control From Here").
-            Vector3d anchorWorld = anchor.transform != null
-                ? (Vector3d)anchor.transform.position
+            Transform anchorTransform = anchor.transform;
+            Quaternion anchorRotation = anchorTransform != null
+                ? anchorTransform.rotation
+                : Quaternion.identity;
+            Vector3d anchorWorld = anchorTransform != null
+                ? (Vector3d)anchorTransform.position
                 : anchor.GetWorldPos3D();
             if (!IsFiniteVector3d(anchorWorld))
             {
@@ -21773,14 +21777,14 @@ namespace Parsek
                     success: false,
                     fromRecordedTrajectory: false,
                     anchorPosition: anchorWorld,
-                    anchorRotation: anchor.transform.rotation,
+                    anchorRotation: anchorRotation,
                     localOffset: Vector3d.zero,
                     outputPosition: Vector3d.zero);
                 return false;
             }
 
             pose.worldPos = anchorWorld;
-            pose.worldRotation = anchor.transform.rotation;
+            pose.worldRotation = anchorRotation;
             pose.fromRecordedTrajectory = false;
             GhostRenderTrace.EmitRelativeResolver(
                 victimRecordingId,

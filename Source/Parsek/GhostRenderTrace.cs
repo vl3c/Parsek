@@ -945,7 +945,7 @@ namespace Parsek
                 + " env=" + Token(section.HasSection ? section.Environment.ToString() : "none")
                 + " source=" + Token(section.HasSection ? section.Source.ToString() : "none")
                 + " frames=" + section.FrameCount.ToString(CultureInfo.InvariantCulture)
-                + " absFrames=" + section.bodyFixedFrameCount.ToString(CultureInfo.InvariantCulture)
+                + " bodyFixedFrames=" + section.bodyFixedFrameCount.ToString(CultureInfo.InvariantCulture)
                 + " checkpoints=" + section.CheckpointCount.ToString(CultureInfo.InvariantCulture)
                 + " anchorRec=" + ShortId(section.AnchorRecordingId)
                 + " boundaryDM=" + section.BoundaryDiscontinuityMeters.ToString("F2", CultureInfo.InvariantCulture)

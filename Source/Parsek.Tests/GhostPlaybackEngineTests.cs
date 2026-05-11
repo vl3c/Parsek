@@ -1082,6 +1082,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldUseLoopAnchoredDebrisChain_NonLoopParentWithLivePidRelativeSection_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingTree tree = MakeDebrisChainTree(
+                ReferenceFrame.Relative,
+                parentLoopAnchorVesselId: 0u);
+            TrackSection parentSection = tree.Recordings["parent-rec"].TrackSections[0];
+            parentSection.anchorVesselId = 77u;
+            tree.Recordings["parent-rec"].TrackSections[0] = parentSection;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            Assert.False(GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, 105.0));
+        }
+
+        [Fact]
         public void ParentAnchoredCoveragePolicy_InheritedLoopAnchoredDebrisChain_DoesNotApplyOrdinaryRetirement()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();

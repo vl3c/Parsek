@@ -85,7 +85,7 @@ namespace Parsek
                 ? $" anchorRec={anchorRecordingId}" : "";
             string seam = isBoundarySeam ? " seam=1" : "";
             return $"TrackSection env={environment} ref={referenceFrame} " +
-                   $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} absFrames={bodyFixedFrameCount} " +
+                   $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} bodyFixedFrames={bodyFixedFrameCount} " +
                    $"checkpoints={checkpointCount} " +
                    $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}{altRange}{anchorRec}{seam}";
         }

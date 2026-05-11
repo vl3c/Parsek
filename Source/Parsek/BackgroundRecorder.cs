@@ -3360,6 +3360,14 @@ namespace Parsek
                     DebrisFullFidelityProximityRangeMeters,
                     DebrisHalfFidelityProximityRangeMeters,
                     out state.debrisProximityReason);
+                LogDebrisProximityTierTransition(
+                    state.vesselPid,
+                    treeRecForDebris,
+                    ProximitySamplingTier.None,
+                    state.debrisProximityTier,
+                    seedParentDistance,
+                    state.debrisProximityReason,
+                    "InitializeLoadedState");
                 if (parentRec == null
                     || parentVessel == null
                     || !parentVessel.loaded
@@ -4301,10 +4309,11 @@ namespace Parsek
             if (state == null || bgVessel == null || treeRec == null)
                 return;
 
-            // PR 3b (Decision §5, Option C): when the recording carries the debris
-            // parent-anchor contract, bypass the candidate-list / nearest-search
-            // entirely and pin the anchor to the parent recording. The recorder
-            // unconditionally writes Relative for the debris's lifetime.
+            // When the recording carries the debris parent-anchor contract,
+            // bypass the generic candidate-list / nearest-search entirely and
+            // pin the anchor to the parent recording. v13 still decides
+            // Absolute-vs-Relative sections by parent proximity; the parent id is
+            // ownership, not a generic live-anchor candidate.
             if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId))
             {
                 ApplyDebrisAnchorContractToState(state, treeRec, bgVessel, ut);
@@ -5337,21 +5346,43 @@ namespace Parsek
 
             if (previousTier != tier)
             {
-                ParsekLog.VerboseRateLimited(
-                    "Anchor",
-                    "debris-proximity-tier-" + state.vesselPid.ToString(CultureInfo.InvariantCulture),
-                    $"debris-proximity-tier-transition: pid={state.vesselPid.ToString(CultureInfo.InvariantCulture)} " +
-                    $"recId={treeRec?.RecordingId ?? "(none)"} " +
-                    $"parentRecId={treeRec?.DebrisParentRecordingId ?? "(none)"} " +
-                    $"old={previousTier} new={tier} " +
-                    $"distance={(IsFinite(distance) ? distance.ToString("F1", CultureInfo.InvariantCulture) : "NaN")}m " +
-                    $"reason={reason ?? "ineligible"}");
+                LogDebrisProximityTierTransition(
+                    state.vesselPid,
+                    treeRec,
+                    previousTier,
+                    tier,
+                    distance,
+                    reason,
+                    "UpdateDebrisProximityState");
             }
 
             state.debrisProximityTier = tier;
             state.debrisProximityDistanceMeters = distance;
             state.debrisProximityReason = reason;
             return tier;
+        }
+
+        private static void LogDebrisProximityTierTransition(
+            uint vesselPid,
+            Recording treeRec,
+            ProximitySamplingTier previousTier,
+            ProximitySamplingTier newTier,
+            double distance,
+            string reason,
+            string site)
+        {
+            if (previousTier == newTier)
+                return;
+
+            ParsekLog.Info(
+                "Anchor",
+                $"debris-proximity-tier-transition: site={site ?? "(unknown)"} " +
+                $"pid={vesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                $"recId={treeRec?.RecordingId ?? "(none)"} " +
+                $"parentRecId={treeRec?.DebrisParentRecordingId ?? "(none)"} " +
+                $"old={previousTier} new={newTier} " +
+                $"distance={(IsFinite(distance) ? distance.ToString("F1", CultureInfo.InvariantCulture) : "NaN")}m " +
+                $"reason={reason ?? "ineligible"}");
         }
 
         private static bool ShouldUseDebrisRelativeSection(BackgroundVesselState state)

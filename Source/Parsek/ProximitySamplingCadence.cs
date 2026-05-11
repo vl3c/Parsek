@@ -23,6 +23,12 @@ namespace Parsek
                 return ProximitySamplingTier.None;
             }
 
+            if (distanceMeters < 0.0)
+            {
+                reason = "distance-invalid";
+                return ProximitySamplingTier.None;
+            }
+
             if (distanceMeters <= fullFidelityMaxMeters)
             {
                 reason = "full";

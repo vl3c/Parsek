@@ -14595,6 +14595,315 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris: first visible parent-anchored frame uses body-fixed primary and stays visible")]
+        public void V13Debris_NoVisibleSlideAtInit_UsesBodyFixedPrimary()
+        {
+            var scenario = RunV13DebrisFrameScenario(
+                loopAnchoredParent: false,
+                includeBodyFixedPrimary: true,
+                currentUT: 2.5);
+
+            InGameAssert.AreEqual(1, scenario.positioner.BodyFixedCalls,
+                "ordinary parent-anchored debris must position through body-fixed primary");
+            InGameAssert.AreEqual(0, scenario.positioner.RelativeCalls,
+                "ordinary parent-anchored debris must not use recorded Relative frames when body-fixed primary covers the frame");
+            InGameAssert.IsTrue(scenario.state.ghost.activeSelf,
+                "body-fixed-primary frame must stay visible");
+            InGameAssert.ApproxEqual(25.0f, scenario.state.ghost.transform.position.x, 0.01f,
+                "body-fixed primary interpolation should place the ghost at the body-fixed path, not at the local Relative offset");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris: missing body-fixed primary fails closed instead of replaying local Relative offsets")]
+        public void V13Debris_BodyFixedPrimaryMissing_FailsClosedInactive()
+        {
+            var scenario = RunV13DebrisFrameScenario(
+                loopAnchoredParent: false,
+                includeBodyFixedPrimary: false,
+                currentUT: 2.5);
+
+            InGameAssert.AreEqual(0, scenario.positioner.BodyFixedCalls,
+                "body-fixed positioner should not be called when the section lacks covering body-fixed samples");
+            InGameAssert.AreEqual(0, scenario.positioner.RelativeCalls,
+                "ordinary parent-anchored debris must not fall back to local Relative offsets after a body-fixed miss");
+            InGameAssert.IsTrue(scenario.state.anchorRetiredThisFrame,
+                "body-fixed miss must set the frame-local retire flag");
+            InGameAssert.IsFalse(scenario.state.ghost.activeSelf,
+                "body-fixed miss must leave the real ghost inactive");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris: loop-anchored ancestor routes through Relative composition instead of body-fixed primary")]
+        public void V13Debris_LoopAnchoredAncestor_FollowsRelativeRoute()
+        {
+            var scenario = RunV13DebrisFrameScenario(
+                loopAnchoredParent: true,
+                includeBodyFixedPrimary: true,
+                currentUT: 2.5);
+
+            InGameAssert.AreEqual(0, scenario.positioner.BodyFixedCalls,
+                "loop-anchored debris chains should not force ordinary body-fixed-primary routing while the chain is covered");
+            InGameAssert.AreEqual(1, scenario.positioner.RelativeCalls,
+                "loop-anchored debris chains should use the Relative route so the live loop anchor can be composed");
+            InGameAssert.IsTrue(scenario.state.ghost.activeSelf,
+                "covered loop-chain Relative frame must stay visible");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris: Relative-to-Absolute boundary keeps the ghost position continuous")]
+        public void V13Debris_BoundaryPointContinuity_AtFrameTransition()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13BoundaryContinuity");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Boundary Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: "v13-boundary-debris",
+                parentRecordingId: "v13-boundary-parent",
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: true,
+                includeAbsoluteTail: true);
+
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.49);
+            Vector3 before = ghost.transform.position;
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.51);
+            Vector3 after = ghost.transform.position;
+
+            InGameAssert.IsTrue(Vector3.Distance(before, after) < 1.0f,
+                $"boundary handoff should be visually continuous; before={before} after={after}");
+            InGameAssert.IsTrue(positioner.BodyFixedCalls >= 1,
+                "pre-boundary Relative section should use body-fixed primary");
+            InGameAssert.IsTrue(positioner.AbsoluteCalls >= 1,
+                "post-boundary Absolute section should use absolute positioning");
+        }
+
+        private (GhostPlaybackState state, V13DebrisRuntimePositioner positioner)
+            RunV13DebrisFrameScenario(
+                bool loopAnchoredParent,
+                bool includeBodyFixedPrimary,
+                double currentUT)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject(loopAnchoredParent
+                ? "ParsekTestGhost_V13LoopDebris"
+                : "ParsekTestGhost_V13Debris");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = loopAnchoredParent ? "V13 Loop Debris" : "V13 Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            string parentId = loopAnchoredParent
+                ? "v13-loop-parent"
+                : "v13-parent";
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: loopAnchoredParent ? "v13-loop-debris" : "v13-debris",
+                parentRecordingId: parentId,
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: includeBodyFixedPrimary,
+                includeAbsoluteTail: false);
+            RecordingTree tree = null;
+            if (loopAnchoredParent)
+            {
+                tree = MakeV13LoopAnchoredRuntimeTree(rec, parentId);
+                RecordingStore.AddCommittedTreeForTesting(tree);
+            }
+
+            try
+            {
+                RunV13DebrisUpdate(engine, rec, currentUT);
+            }
+            finally
+            {
+                if (tree != null)
+                    RecordingStore.RemoveCommittedTreeById(tree.Id, "v13-runtime-test-cleanup");
+            }
+
+            return (state, positioner);
+        }
+
+        private static void RunV13DebrisUpdate(
+            GhostPlaybackEngine engine,
+            Recording rec,
+            double currentUT)
+        {
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = rec.EndUT,
+                    recordingId = rec.RecordingId,
+                    segmentLabel = rec.VesselName,
+                },
+            };
+            var ctx = new FrameContext
+            {
+                currentUT = currentUT,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 10.0,
+            };
+            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+        }
+
+        private static Recording MakeV13DebrisRuntimeRecording(
+            string recordingId,
+            string parentRecordingId,
+            string bodyName,
+            bool includeBodyFixedPrimary,
+            bool includeAbsoluteTail)
+        {
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                MakeV13RuntimePoint(0.0, bodyName, 1.0),
+                MakeV13RuntimePoint(5.0, bodyName, 2.0),
+            };
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0.0,
+                endUT = includeAbsoluteTail ? 2.5 : 5.0,
+                anchorRecordingId = parentRecordingId,
+                frames = relativeFrames,
+                bodyFixedFrames = includeBodyFixedPrimary
+                    ? new List<TrajectoryPoint>
+                    {
+                        MakeV13RuntimePoint(0.0, bodyName, 0.0),
+                        MakeV13RuntimePoint(includeAbsoluteTail ? 2.5 : 5.0, bodyName, 50.0),
+                    }
+                    : new List<TrajectoryPoint>(),
+            };
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = recordingId,
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = parentRecordingId,
+                Points = new List<TrajectoryPoint>(relativeFrames),
+                TrackSections = new List<TrackSection> { section },
+            };
+            if (includeAbsoluteTail)
+            {
+                var absoluteSection = new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 2.5,
+                    endUT = 5.0,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        MakeV13RuntimePoint(2.5, bodyName, 50.0),
+                        MakeV13RuntimePoint(5.0, bodyName, 60.0),
+                    },
+                };
+                rec.TrackSections.Add(absoluteSection);
+                rec.Points.AddRange(absoluteSection.frames);
+            }
+            return rec;
+        }
+
+        private static RecordingTree MakeV13LoopAnchoredRuntimeTree(
+            Recording child,
+            string parentRecordingId)
+        {
+            uint loopAnchorPid = 77u;
+            var parent = new Recording
+            {
+                RecordingId = parentRecordingId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                TreeId = "v13-runtime-loop-tree",
+                VesselName = parentRecordingId,
+                LoopPlayback = true,
+                LoopAnchorVesselId = loopAnchorPid,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 0.0,
+                        endUT = 5.0,
+                        anchorVesselId = loopAnchorPid,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            MakeV13RuntimePoint(0.0, child.Points[0].bodyName, 100.0),
+                            MakeV13RuntimePoint(5.0, child.Points[0].bodyName, 110.0),
+                        },
+                    },
+                },
+            };
+            child.TreeId = parent.TreeId;
+            var tree = new RecordingTree
+            {
+                Id = parent.TreeId,
+                TreeName = "v13 runtime loop tree",
+                RootRecordingId = parent.RecordingId,
+                ActiveRecordingId = child.RecordingId,
+            };
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+            return tree;
+        }
+
+        private static TrajectoryPoint MakeV13RuntimePoint(
+            double ut,
+            string bodyName,
+            double x)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                bodyName = bodyName,
+                latitude = x,
+                longitude = 0.0,
+                altitude = 0.0,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
             Description = "#613 finalize-spawn retire gate: fresh LoopEnter and OverlapPrimaryEnter spawns into an unresolved relative section must not emit RetargetToNewGhost from the hidden origin-positioned pivot")]
         public void Bug613_FreshSpawnIntoUnresolvedRelativeSection_NoRetargetAtOrigin()
         {
@@ -14929,6 +15238,138 @@ namespace Parsek.InGameTests
             runner.TrackForCleanup(state.ghost);
 
             return (engine, state, positioner, loopEvents, overlapEvents, createdEvents, localLog);
+        }
+
+        private sealed class V13DebrisRuntimePositioner : IGhostPositioner
+        {
+            internal int BodyFixedCalls;
+            internal int RelativeCalls;
+            internal int AbsoluteCalls;
+
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                AbsoluteCalls++;
+                int sectionIndex = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+                List<TrajectoryPoint> frames = sectionIndex >= 0
+                    ? traj.TrackSections[sectionIndex].frames
+                    : traj.Points;
+                TryPositionFromFrames(frames, ut, state, out _, out _);
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
+            {
+                RelativeCalls++;
+                TryPositionFromFrames(target.Section.frames, ut, state, out _, out _);
+            }
+
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                BodyFixedCalls++;
+                return TryPositionFromFrames(
+                    target.Section.bodyFixedFrames,
+                    playbackUT,
+                    state,
+                    out bracketBeforeUT,
+                    out bracketAfterUT);
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point)
+            {
+                ApplyPoint(state, point);
+            }
+
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state)
+            {
+            }
+
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut)
+            {
+            }
+
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                AbsoluteCalls++;
+                TryPositionFromFrames(traj.Points, ut, state, out _, out _);
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = state != null && state.ghost != null
+                    ? state.ghost.transform.position
+                    : Vector3.zero;
+                return state != null && state.ghost != null;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache()
+            {
+            }
+
+            private static bool TryPositionFromFrames(
+                List<TrajectoryPoint> frames,
+                double ut,
+                GhostPlaybackState state,
+                out double bracketBeforeUT,
+                out double bracketAfterUT)
+            {
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                if (frames == null || frames.Count == 0 || state?.ghost == null)
+                    return false;
+
+                TrajectoryPoint before = frames[0];
+                TrajectoryPoint after = frames[frames.Count - 1];
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    if (frames[i].ut <= ut)
+                        before = frames[i];
+                    if (frames[i].ut >= ut)
+                    {
+                        after = frames[i];
+                        break;
+                    }
+                }
+
+                bracketBeforeUT = before.ut;
+                bracketAfterUT = after.ut;
+                double span = after.ut - before.ut;
+                float t = span > 0.0 ? (float)((ut - before.ut) / span) : 0f;
+                var pos = Vector3.Lerp(
+                    new Vector3((float)before.latitude, (float)before.longitude, (float)before.altitude),
+                    new Vector3((float)after.latitude, (float)after.longitude, (float)after.altitude),
+                    t);
+                state.ghost.transform.position = pos;
+                if (!state.ghost.activeSelf)
+                    state.ghost.SetActive(true);
+                state.SetInterpolated(new InterpolationResult(Vector3.zero, before.bodyName, before.altitude));
+                return true;
+            }
+
+            private static void ApplyPoint(GhostPlaybackState state, TrajectoryPoint point)
+            {
+                if (state?.ghost == null)
+                    return;
+                state.ghost.transform.position = new Vector3(
+                    (float)point.latitude,
+                    (float)point.longitude,
+                    (float)point.altitude);
+                state.SetInterpolated(new InterpolationResult(Vector3.zero, point.bodyName, point.altitude));
+            }
         }
 
         // Mock positioner that mimics ParsekFlight's relative-frame retire

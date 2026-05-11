@@ -211,15 +211,14 @@ namespace Parsek
             if (candidateRecording.LoopAnchorVesselId != 0u)
                 return false;
 
-            // PR 3b regression-fix (2026-05-07): debris recordings are not eligible
-            // as anchor candidates for OTHER recordings. Pre-PR-3b debris was
-            // robust as an anchor (often Absolute by hysteresis, lifetime tied
-            // only to the debris vessel). Post-PR-3b debris is always-Relative-
-            // to-parent (Decision §5 Option C) and is ended by `CheckDebrisTTL`
-            // when its own parent recording becomes closed/superseded
-            // (Decision §10) — so any non-debris recording that picked a debris
-            // as a live anchor would lose resolvability the moment the debris's
-            // parent gets superseded by a Re-Fly. Observed in
+            // Debris recordings are not eligible as anchor candidates for OTHER
+            // recordings. v13 records a debris-owned body-fixed primary surface
+            // and a proximity-limited parent-relative secondary surface, but the
+            // debris lifetime is still owned by its parent recording and may end
+            // when that parent is closed/superseded. Any non-debris recording
+            // that picked debris as a generic live anchor would lose
+            // resolvability when the debris parent is superseded by a Re-Fly.
+            // Observed in
             // `logs/2026-05-07_2157_refly-debris-regression`: a controlled
             // child probe recording was anchored to a sibling debris at 8m,
             // then after the upper-stage Re-Fly the debris was TTL-ended, the

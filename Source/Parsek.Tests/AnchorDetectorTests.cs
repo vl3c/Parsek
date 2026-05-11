@@ -804,7 +804,8 @@ namespace Parsek.Tests
         // PR 3b regression-fix tests (2026-05-07): debris recordings cannot be
         // anchor candidates for non-debris focuses. Pre-PR-3b debris was a
         // robust anchor (often Absolute by hysteresis, lifetime tied only to
-        // the debris vessel). Post-PR-3b debris is always-Relative-to-parent
+        // the debris vessel). v13 debris is parent-owned and only uses
+        // Relative frames while inside the parent proximity band
         // (Decision §5 Option C) and ended by `CheckDebrisTTL` when its parent
         // recording becomes closed/superseded (Decision §10) — so any
         // non-debris recording that picked debris as a live anchor would

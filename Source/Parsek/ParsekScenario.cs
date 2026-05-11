@@ -5872,6 +5872,9 @@ namespace Parsek
         /// <summary>
         /// Loads versioned recording metadata and ghost-geometry metadata.
         /// Missing fields are treated as old-format recordings.
+        /// Production recording-tree load paths must use RecordingTree.LoadRecordingFrom,
+        /// which enforces the current format gate before hydrating metadata. This
+        /// helper remains as a legacy metadata seam for focused unit tests.
         /// Extracted for testability.
         /// </summary>
         internal static void LoadRecordingMetadata(ConfigNode recNode, Recording rec)

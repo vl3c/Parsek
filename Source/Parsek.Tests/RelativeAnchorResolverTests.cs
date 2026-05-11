@@ -1335,6 +1335,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_DebrisCascadeFocusAllowsLoopAnchoredAncestorLeaf()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording loopRoot = MakeRelativeRecording(
+                "loop-root",
+                tree.Id,
+                localOffset: new Vector3d(5, 0, 0),
+                legacyAnchorPid: 42u);
+            loopRoot.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            loopRoot.LoopPlayback = true;
+            loopRoot.LoopAnchorVesselId = 42u;
+            Recording firstDebris = MakeRelativeRecording(
+                "first-debris",
+                tree.Id,
+                localOffset: new Vector3d(2, 3, 0),
+                anchorRecordingId: loopRoot.RecordingId);
+            firstDebris.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            firstDebris.IsDebris = true;
+            firstDebris.DebrisParentRecordingId = loopRoot.RecordingId;
+            Recording secondDebris = MakeRelativeRecording(
+                "second-debris",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 4),
+                anchorRecordingId: firstDebris.RecordingId);
+            secondDebris.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            secondDebris.IsDebris = true;
+            secondDebris.DebrisParentRecordingId = firstDebris.RecordingId;
+            tree.AddOrReplaceRecording(loopRoot);
+            tree.AddOrReplaceRecording(firstDebris);
+            tree.AddOrReplaceRecording(secondDebris);
+
+            bool callbackInvoked = false;
+            var context = MakeContext(
+                tree,
+                focusRecordingId: secondDebris.RecordingId,
+                liveAnchorTransformResolver: (pid, victimRecordingId, ut) =>
+                {
+                    callbackInvoked = true;
+                    Assert.Equal(42u, pid);
+                    Assert.Equal(loopRoot.RecordingId, victimRecordingId);
+                    Assert.Equal(5.0, ut);
+                    return (new Vector3d(100, 0, 0), Quaternion.identity);
+                });
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                secondDebris.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.True(resolved, failure.Reason);
+            Assert.True(callbackInvoked);
+            Assert.Equal(108.0, pose.WorldPos.x, 6);
+            Assert.Equal(3.0, pose.WorldPos.y, 6);
+            Assert.Equal(4.0, pose.WorldPos.z, 6);
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_DebrisFocusLiveAnchorLeafNull_ReturnsLoopLiveAnchorUnresolved()
         {
             var tree = new RecordingTree { Id = "tree" };

@@ -707,6 +707,24 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(double.NaN, "distance-missing")]
+        [InlineData(double.PositiveInfinity, "distance-missing")]
+        [InlineData(-1.0, "distance-invalid")]
+        public void ProximitySamplingCadence_InvalidDistance_ReturnsNone(
+            double distanceMeters,
+            string expectedReason)
+        {
+            Assert.Equal(
+                ProximitySamplingTier.None,
+                ProximitySamplingCadence.Resolve(
+                    distanceMeters,
+                    BackgroundRecorder.DebrisFullFidelityProximityRangeMeters,
+                    BackgroundRecorder.DebrisHalfFidelityProximityRangeMeters,
+                    out string reason));
+            Assert.Equal(expectedReason, reason);
+        }
+
+        [Theory]
         [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.None, 3.0f)]
         [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.Full, 0.2f)]
         [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.Half, 0.4f)]
@@ -732,8 +750,10 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(499.0, false, true)]
         [InlineData(500.0, false, true)]
         [InlineData(500.1, false, false)]
+        [InlineData(549.0, true, true)]
         [InlineData(550.0, true, true)]
         [InlineData(550.1, true, false)]
         public void DebrisRelativeSectionRange_UsesEnterAndRetainBoundaries(

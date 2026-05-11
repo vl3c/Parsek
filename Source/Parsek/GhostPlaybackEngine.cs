@@ -2849,9 +2849,8 @@ namespace Parsek
                     return false;
                 }
                 if (anchor.LoopAnchorVesselId != 0u)
-                    return true;
-                if (section.anchorVesselId != 0u)
-                    return true;
+                    return section.anchorVesselId == anchor.LoopAnchorVesselId
+                        || section.anchorVesselId == 0u;
                 if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
                     return false;
 
