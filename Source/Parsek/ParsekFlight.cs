@@ -18284,8 +18284,14 @@ namespace Parsek
             if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     rec,
                     ut,
-                    out _))
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic retireDiagnostic))
             {
+                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
+                    rec,
+                    ut,
+                    "TryComputeStandaloneWorldPositionForRecording",
+                    "body-fixed-primary-unavailable",
+                    retireDiagnostic);
                 return false;
             }
 
@@ -18419,7 +18425,9 @@ namespace Parsek
         /// <c>longitude</c>/<c>altitude</c>; reading them as lat/lon/alt
         /// would land deep inside the planet. v11 sections resolve through
         /// <see cref="RelativeAnchorResolver"/> by <c>anchorRecordingId</c>,
-        /// with caller-owned body-fixed-primary fallback on resolver miss.
+        /// except ordinary parent-anchored debris, where v13 makes
+        /// <c>bodyFixedFrames</c> the primary render surface and a primary miss
+        /// fails closed instead of falling through to recorded Relative replay.
         /// v5-and-older recordings keep their older lat/lon/alt contract.
         /// </summary>
         private static bool TryComputeStandaloneRelativeWorldPosition(
@@ -18440,15 +18448,21 @@ namespace Parsek
                 GhostPlaybackEngine.ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(rec, ut);
             if (ordinaryParentAnchoredDebris)
             {
-                if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
-                        rec,
-                        ut,
-                        out _))
-                {
-                    return false;
-                }
+                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    rec,
+                    ut,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic coverageDiagnostic);
 
-                return TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos);
+                if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                    return true;
+
+                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
+                    rec,
+                    ut,
+                    "TryComputeStandaloneRelativeWorldPosition",
+                    "body-fixed-primary-position-failed",
+                    coverageDiagnostic);
+                return false;
             }
 
             if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
@@ -18477,8 +18491,21 @@ namespace Parsek
                     out diagnostic);
             if (skipRecordedRelativeResolver)
             {
-                return diagnostic.bodyFixedFramesCoverUT
-                    && TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos);
+                if (diagnostic.bodyFixedFramesCoverUT
+                    && TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                {
+                    return true;
+                }
+
+                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
+                    rec,
+                    ut,
+                    "TryComputeStandaloneRelativeWorldPosition",
+                    diagnostic.bodyFixedFramesCoverUT
+                        ? "body-fixed-primary-position-failed"
+                        : "body-fixed-primary-unavailable",
+                    diagnostic);
+                return false;
             }
 
             RelativeAnchorResolveFailure failure = default;
@@ -18514,6 +18541,76 @@ namespace Parsek
                     failureReason),
                 5.0);
             return false;
+        }
+
+        private static void LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
+            Recording rec,
+            double ut,
+            string callsite,
+            string routeReason,
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            string recordingId = rec?.RecordingId ?? "(none)";
+            string key = "standalone-parent-debris-body-fixed-failed-closed|"
+                + recordingId + "|" + (callsite ?? "(unknown)");
+            ParsekLog.WarnRateLimited(
+                "Pipeline-CoBubble",
+                key,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: body-fixed primary failed closed for parent-anchored debris; recorded-relative fallback suppressed recording={1} ut={2} routeReason={3} coverageReason={4} sectionIndex={5} sectionUT={6} relativeFrames={7} bodyFixedFrames={8} anchorRec={9}",
+                    callsite ?? "(unknown)",
+                    recordingId,
+                    ut.ToString("R", CultureInfo.InvariantCulture),
+                    routeReason ?? "(unknown)",
+                    diagnostic.Reason ?? "(unknown)",
+                    diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture),
+                    FormatStandaloneCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstbodyFixedFrameUT, diagnostic.LastbodyFixedFrameUT),
+                    diagnostic.AnchorRecordingId ?? "(none)"),
+                5.0);
+        }
+
+        private static string FormatStandaloneCoverageRange(double startUT, double endUT)
+        {
+            if (double.IsNaN(startUT) || double.IsNaN(endUT))
+                return "(none)";
+            return "[" + startUT.ToString("R", CultureInfo.InvariantCulture)
+                + "," + endUT.ToString("R", CultureInfo.InvariantCulture) + "]";
+        }
+
+        private static void LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed(
+            IPlaybackTrajectory traj,
+            int recordingIndex,
+            double playbackUT,
+            string callsite,
+            string routeReason,
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            string recordingId = traj?.RecordingId ?? "(none)";
+            string key = "playback-world-parent-debris-body-fixed-failed-closed|"
+                + recordingId + "|" + recordingIndex.ToString(CultureInfo.InvariantCulture)
+                + "|" + (callsite ?? "(unknown)");
+            ParsekLog.WarnRateLimited(
+                "Playback",
+                key,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: body-fixed primary failed closed for parent-anchored debris; recorded-relative fallback suppressed recording=#{1} recordingId={2} vessel=\"{3}\" playbackUT={4} routeReason={5} coverageReason={6} sectionIndex={7} sectionUT={8} relativeFrames={9} bodyFixedFrames={10} anchorRec={11}",
+                    callsite ?? "(unknown)",
+                    recordingIndex.ToString(CultureInfo.InvariantCulture),
+                    recordingId,
+                    traj?.VesselName ?? "(unknown)",
+                    playbackUT.ToString("R", CultureInfo.InvariantCulture),
+                    routeReason ?? "(unknown)",
+                    diagnostic.Reason ?? "(unknown)",
+                    diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture),
+                    FormatStandaloneCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstbodyFixedFrameUT, diagnostic.LastbodyFixedFrameUT),
+                    diagnostic.AnchorRecordingId ?? "(none)"),
+                5.0);
         }
 
         /// <summary>
@@ -20618,8 +20715,15 @@ namespace Parsek
             if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     traj,
                     playbackUT,
-                    out _))
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic retireDiagnostic))
             {
+                LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed(
+                    traj,
+                    index,
+                    playbackUT,
+                    "TryResolvePlaybackWorldPosition",
+                    "body-fixed-primary-unavailable",
+                    retireDiagnostic);
                 return false;
             }
 
@@ -20667,11 +20771,34 @@ namespace Parsek
                                 section, playbackUT, out _, out _))
                         {
                             int absoluteCachedIndex = 0;
-                            return TryResolvePointWorldPosition(
+                            bool bodyFixedResolved = TryResolvePointWorldPosition(
                                 section.bodyFixedFrames,
                                 ref absoluteCachedIndex,
                                 playbackUT,
                                 out worldPos);
+                            if (!bodyFixedResolved && skipRecordedRelativeResolverForAuthoredFrameGap)
+                            {
+                                LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed(
+                                    traj,
+                                    index,
+                                    playbackUT,
+                                    "TryResolvePlaybackWorldPosition",
+                                    "body-fixed-primary-position-failed",
+                                    diagnostic);
+                            }
+                            return bodyFixedResolved;
+                        }
+                        if (skipRecordedRelativeResolverForAuthoredFrameGap)
+                        {
+                            LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed(
+                                traj,
+                                index,
+                                playbackUT,
+                                "TryResolvePlaybackWorldPosition",
+                                diagnostic.bodyFixedFramesCoverUT
+                                    ? "body-fixed-primary-position-failed"
+                                    : "body-fixed-primary-unavailable",
+                                diagnostic);
                         }
                         // Relative sections store metre offsets in the
                         // lat/lon/alt fields. If their anchor cannot resolve,
@@ -22603,6 +22730,25 @@ namespace Parsek
                     resolverReason:
                         "parent-anchored-debris-outside-relative-coverage coverageReason="
                         + (diagnostic.Reason ?? "relative-and-body-fixed-frames-out-of-range"));
+                interpResult = InterpolationResult.Zero;
+                return;
+            }
+
+            if (GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    targetUT,
+                    out diagnostic))
+            {
+                RetireUnresolvedRecordedRelative(
+                    ghost,
+                    recordingIndex,
+                    recordingVesselName,
+                    target,
+                    retireSignalState,
+                    "InterpolateAndPositionRecordedRelative",
+                    resolverReason:
+                        "body-fixed-primary-required; recorded-relative fallback suppressed coverageReason="
+                        + (diagnostic.Reason ?? "covered-by-body-fixed-primary"));
                 interpResult = InterpolationResult.Zero;
                 return;
             }

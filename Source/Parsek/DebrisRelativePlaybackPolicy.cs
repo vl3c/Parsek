@@ -75,6 +75,13 @@ namespace Parsek
             return ShouldRetireFromDiagnostic(diagnostic);
         }
 
+        /// <summary>
+        /// Ordinary parent-anchored debris must not route through recorded
+        /// Relative playback once v13 body-fixed primary data is the authored
+        /// render surface. A true result means callers should skip the
+        /// recorded-relative resolver and either use body-fixed primary or
+        /// fail closed.
+        /// </summary>
         internal static bool ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
             IPlaybackTrajectory traj,
             double playbackUT,

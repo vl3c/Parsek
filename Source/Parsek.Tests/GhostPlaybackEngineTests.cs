@@ -919,6 +919,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSkipRecordedRelativeResolverForAuthoredFrameGap_BodyFixedPrimaryCover_ReturnsTrue()
+        {
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
+
+            Assert.True(GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                traj,
+                105.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
+            Assert.Equal("covered-by-body-fixed-primary", diagnostic.Reason);
+            Assert.True(diagnostic.RelativeFramesCoverUT);
+            Assert.True(diagnostic.bodyFixedFramesCoverUT);
+        }
+
+        [Fact]
         public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_InsideSectionAfterAuthoredFrames_ReturnsTrue()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
