@@ -39,6 +39,86 @@ namespace Parsek
     /// </summary>
     internal static class OrbitReseed
     {
+        internal struct StateVectorInputs
+        {
+            internal readonly Vector3d PositionForUpdate;
+            internal readonly Vector3d VelocityForUpdate;
+
+            internal StateVectorInputs(Vector3d positionForUpdate, Vector3d velocityForUpdate)
+            {
+                PositionForUpdate = positionForUpdate;
+                VelocityForUpdate = velocityForUpdate;
+            }
+        }
+
+        internal static StateVectorInputs ComputeRecordedVelocityInputs(
+            Vector3d worldPosYup,
+            Vector3d bodyPositionYup,
+            Vector3d recordedVelWorldYup)
+        {
+            Vector3d bodyRelPos = worldPosYup - bodyPositionYup;
+            return new StateVectorInputs(bodyRelPos.xzy, recordedVelWorldYup.xzy);
+        }
+
+        internal static StateVectorInputs ComputeZupVelocityInputs(
+            Vector3d worldPosYup,
+            Vector3d bodyPositionYup,
+            Vector3d velAlreadyZup)
+        {
+            Vector3d bodyRelPos = worldPosYup - bodyPositionYup;
+            return new StateVectorInputs(bodyRelPos.xzy, velAlreadyZup);
+        }
+
+        internal static bool TryComputeHistoricalSurfaceInputs(
+            double lat,
+            double lon,
+            double alt,
+            Vector3d recordedVelWorldYup,
+            double recordedUT,
+            double rotationPeriod,
+            double initialRotationDeg,
+            System.Func<double, double, double, Vector3d> getBodyRelativeSurfacePositionYup,
+            out StateVectorInputs inputs,
+            out double inertialLongitude,
+            out string failureReason)
+        {
+            inputs = default(StateVectorInputs);
+            inertialLongitude = double.NaN;
+            failureReason = null;
+
+            if (!IsFinite(rotationPeriod) || System.Math.Abs(rotationPeriod) <= double.Epsilon)
+            {
+                failureReason = "historical-rotation-unavailable";
+                return false;
+            }
+            if (!IsFinite(recordedUT)
+                || !IsFinite(lat)
+                || !IsFinite(lon)
+                || !IsFinite(alt)
+                || !IsFinite(recordedVelWorldYup))
+            {
+                failureReason = "non-finite-state-vector";
+                return false;
+            }
+            if (getBodyRelativeSurfacePositionYup == null)
+            {
+                failureReason = "historical-surface-position-unavailable";
+                return false;
+            }
+
+            double phaseDeg = initialRotationDeg + (recordedUT * 360.0) / rotationPeriod;
+            inertialLongitude = WrapLongitudeDegrees(lon + phaseDeg);
+            Vector3d bodyRelHistoricalYup = getBodyRelativeSurfacePositionYup(lat, inertialLongitude, alt);
+            if (!IsFinite(bodyRelHistoricalYup))
+            {
+                failureReason = "historical-surface-position-non-finite";
+                return false;
+            }
+
+            inputs = new StateVectorInputs(bodyRelHistoricalYup.xzy, recordedVelWorldYup.xzy);
+            return true;
+        }
+
         /// <summary>
         /// Build orbit elements at <paramref name="ut"/> from a body-fixed
         /// lat/lon/alt position and a recorder-frame Y-up world velocity.
@@ -60,9 +140,13 @@ namespace Parsek
         {
             Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
             Vector3d bodyRelPos = worldPos - body.position;
+            StateVectorInputs inputs = ComputeRecordedVelocityInputs(
+                worldPos,
+                body.position,
+                recordedVelWorldYup);
             dst.UpdateFromStateVectors(
-                bodyRelPos.xzy,
-                recordedVelWorldYup.xzy,
+                inputs.PositionForUpdate,
+                inputs.VelocityForUpdate,
                 body,
                 ut);
             // Magnitudes captured here are the diagnostic that would have made the
@@ -105,9 +189,13 @@ namespace Parsek
             double ut)
         {
             Vector3d bodyRelPos = worldPosYup - body.position;
+            StateVectorInputs inputs = ComputeZupVelocityInputs(
+                worldPosYup,
+                body.position,
+                velAlreadyZup);
             dst.UpdateFromStateVectors(
-                bodyRelPos.xzy,
-                velAlreadyZup,
+                inputs.PositionForUpdate,
+                inputs.VelocityForUpdate,
                 body,
                 ut);
             ParsekLog.Verbose("OrbitReseed",
@@ -140,9 +228,13 @@ namespace Parsek
             double ut)
         {
             Vector3d bodyRelPos = worldPosYup - body.position;
+            StateVectorInputs inputs = ComputeRecordedVelocityInputs(
+                worldPosYup,
+                body.position,
+                recordedVelWorldYup);
             dst.UpdateFromStateVectors(
-                bodyRelPos.xzy,
-                recordedVelWorldYup.xzy,
+                inputs.PositionForUpdate,
+                inputs.VelocityForUpdate,
                 body,
                 ut);
             ParsekLog.Verbose("OrbitReseed",
@@ -155,6 +247,91 @@ namespace Parsek
                     bodyRelPos.magnitude,
                     body != null ? body.position.magnitude : 0.0,
                     recordedVelWorldYup.magnitude));
+        }
+
+        /// <summary>
+        /// Build orbit elements from a historical body-relative surface
+        /// position reconstructed at <paramref name="ut"/> and a recorder-frame
+        /// Y-up world velocity.
+        /// </summary>
+        internal static bool TryFromHistoricalLatLonAltAndRecordedVelocity(
+            Orbit dst,
+            CelestialBody body,
+            double lat,
+            double lon,
+            double alt,
+            Vector3d recordedVelWorldYup,
+            double ut,
+            double rotationPeriod,
+            double initialRotationDeg,
+            out double inertialLongitude,
+            out string failureReason)
+        {
+            if (dst == null || body == null)
+            {
+                inertialLongitude = double.NaN;
+                failureReason = "null-input";
+                return false;
+            }
+
+            if (!TryComputeHistoricalSurfaceInputs(
+                    lat,
+                    lon,
+                    alt,
+                    recordedVelWorldYup,
+                    ut,
+                    rotationPeriod,
+                    initialRotationDeg,
+                    (historicalLat, historicalLon, historicalAlt) =>
+                        body.GetRelSurfacePosition(historicalLat, historicalLon, historicalAlt),
+                    out StateVectorInputs inputs,
+                    out inertialLongitude,
+                    out failureReason))
+            {
+                return false;
+            }
+
+            dst.UpdateFromStateVectors(
+                inputs.PositionForUpdate,
+                inputs.VelocityForUpdate,
+                body,
+                ut);
+            ParsekLog.Verbose("OrbitReseed",
+                string.Format(CultureInfo.InvariantCulture,
+                    "TryFromHistoricalLatLonAltAndRecordedVelocity: body={0} ut={1:F2} " +
+                    "lat={2:F4} lon={3:F4} inertialLon={4:F4} alt={5:F1} |vel|={6:F2}",
+                    body?.name ?? "(null)",
+                    ut,
+                    lat,
+                    lon,
+                    inertialLongitude,
+                    alt,
+                    recordedVelWorldYup.magnitude));
+            return true;
+        }
+
+        internal static double WrapLongitudeDegrees(double longitude)
+        {
+            if (!IsFinite(longitude))
+                return longitude;
+
+            longitude %= 360.0;
+            if (longitude <= -180.0)
+                longitude += 360.0;
+            if (longitude > 180.0)
+                longitude -= 360.0;
+            return longitude;
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !(double.IsNaN(value) || double.IsInfinity(value));
+        }
+
+        private static bool IsFinite(Vector3d value)
+        {
+            return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
+                || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
         }
     }
 }
