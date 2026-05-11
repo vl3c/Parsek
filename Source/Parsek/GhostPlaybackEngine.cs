@@ -3133,7 +3133,16 @@ namespace Parsek
                 return false;
             }
 
-            positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
+            if (loopAnchoredDebrisChain
+                && TryGetRelativeSectionAtUT(traj, loopUT, out RelativeSectionPlaybackTarget target))
+            {
+                positioner.InterpolateAndPositionRelative(
+                    index, traj, state, loopUT, suppressFx, target);
+            }
+            else
+            {
+                positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
+            }
             if (parentAnchoredDebris
                 && loopAnchoredDebrisChain
                 && state != null

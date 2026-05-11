@@ -205,6 +205,7 @@ namespace Parsek.Tests
             internal double LastPointUT;
             internal double LastOrbitUT;
             internal double LastLoopUT;
+            internal double LastRelativeUT;
             internal double LastShadowUT;
             internal Vector3 PrimedPosition = new Vector3(12f, 34f, 56f);
             // Test-controlled return value for the body-fixed positioner. When
@@ -227,6 +228,7 @@ namespace Parsek.Tests
                 GhostPlaybackState state, double ut, bool suppressFx,
                 RelativeSectionPlaybackTarget target)
             {
+                LastRelativeUT = ut;
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
 
@@ -1589,7 +1591,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PositionLoopAtPlaybackUT_LoopAnchoredDebrisChainWithoutBodyFixed_UsesLoopPositioner()
+        public void PositionLoopAtPlaybackUT_LoopAnchoredDebrisChainWithoutBodyFixed_UsesRecordedRelativePositioner()
         {
             var positioner = new SpawnPrimingPositioner();
             var engine = new GhostPlaybackEngine(positioner);
@@ -1612,8 +1614,9 @@ namespace Parsek.Tests
                 callsite: "test-loop");
 
             Assert.False(state.anchorRetiredThisFrame);
-            Assert.Equal(1, positioner.PositionLoopCalls);
-            Assert.Equal(105.0, positioner.LastLoopUT);
+            Assert.Equal(0, positioner.PositionLoopCalls);
+            Assert.Equal(1, positioner.InterpolateCalls);
+            Assert.Equal(105.0, positioner.LastRelativeUT);
         }
 
         [Fact]
