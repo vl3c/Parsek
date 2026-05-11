@@ -28,7 +28,6 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = null;
         }
 
         private static EngineGhostInfo BuildEngineGhostInfo(int particleSystemCount)
@@ -617,6 +616,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldUseOrbitTailPlayback_DegenerateInRangeSegment_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 158.971);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 158.971,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 0.0,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 161.482));
+        }
+
+        [Fact]
         public void ShouldUseOrbitTailPlayback_BeforeNearPredictedSegmentStart_BridgesGap()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
@@ -631,6 +647,23 @@ namespace Parsek.Tests
             });
 
             Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 497.98));
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_DegeneratePredictedBridgeSegment_ReturnsFalse()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
+            traj.EndUTOverride = 1971.0;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 498.168,
+                endUT = 1971.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = double.NaN,
+                isPredicted = true,
+            });
+
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 497.98));
         }
 
         [Fact]
@@ -933,6 +966,7 @@ namespace Parsek.Tests
                 startUT = 111.0,
                 endUT = 140.0,
                 bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
             });
 
             Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 120.0));
@@ -3649,8 +3683,6 @@ namespace Parsek.Tests
         [Fact]
         public void TryResolvePendingPlaybackInterpolation_MixedPointAndOrbitData_PrefersActiveOrbitSegment()
         {
-            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
-
             var traj = new MockTrajectory
             {
                 Points = new List<TrajectoryPoint>
@@ -3876,7 +3908,6 @@ namespace Parsek.Tests
         public void TryResolvePendingPlaybackInterpolation_AuthoredFrameGapWithShadow_SkipsOrbitPrecedence()
         {
             logLines.Clear();
-            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
 
             var relativeFrames = new List<TrajectoryPoint>
             {
@@ -3978,7 +4009,6 @@ namespace Parsek.Tests
         public void TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_SkipsOrbitSegmentPrecedence()
         {
             logLines.Clear();
-            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
 
             var traj = new MockTrajectory
             {

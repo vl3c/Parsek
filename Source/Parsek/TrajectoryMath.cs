@@ -22,6 +22,8 @@ namespace Parsek
     /// </summary>
     public static class TrajectoryMath
     {
+        internal const double MinUsableOrbitSemiMajorAxisMeters = 1.0;
+
         /// <summary>
         /// Decides whether to record a trajectory point based on velocity changes,
         /// a min-interval floor, and a max-interval backstop. Pure function for testability.
@@ -132,6 +134,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true when a stored Kepler segment has enough finite data to construct
+        /// and propagate a KSP Orbit. Suborbital ellipses can have semi-major axes below
+        /// the body's radius, so validity is intentionally independent of body radius.
+        /// </summary>
+        internal static bool HasUsableOrbitSegmentElements(OrbitSegment segment)
+        {
+            return IsFinite(segment.inclination)
+                && IsFinite(segment.eccentricity)
+                && IsFinite(segment.semiMajorAxis)
+                && System.Math.Abs(segment.semiMajorAxis) >= MinUsableOrbitSemiMajorAxisMeters
+                && IsFinite(segment.longitudeOfAscendingNode)
+                && IsFinite(segment.argumentOfPeriapsis)
+                && IsFinite(segment.meanAnomalyAtEpoch)
+                && IsFinite(segment.epoch);
+        }
+
+        /// <summary>
         /// Phase 6 §7.5 / §7.7 shared helper. Evaluates a body-relative
         /// world position from an OrbitSegment list at the supplied UT.
         /// When <paramref name="ut"/> falls within a segment, propagates
@@ -184,6 +203,8 @@ namespace Parsek
                     maybeSeg = checkpoints[checkpoints.Count - 1];
             }
             OrbitSegment seg = maybeSeg.Value;
+            if (!HasUsableOrbitSegmentElements(seg))
+                return null;
 
             if (!OrbitResolution.TryCreateOrbitFromSegment(
                     seg,
@@ -248,6 +269,11 @@ namespace Parsek
         {
             double delta = System.Math.Abs(a - b) % 360.0;
             return delta > 180.0 ? 360.0 - delta : delta;
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         private static bool IsFinite(Vector3d value)

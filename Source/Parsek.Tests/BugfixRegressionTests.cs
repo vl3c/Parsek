@@ -266,58 +266,67 @@ namespace Parsek.Tests
 
     #endregion
 
-    #region Test 3 — orbit-segment minimum SMA validation
+    #region Test 3 — Orbit segment usability accepts suborbital conics
 
-    public class SmaSubSurfaceCheckTests
+    public class OrbitSegmentUsabilityTests
     {
-        /// <summary>
-        /// Sub-orbital ballistic arcs are valid playback data; only degenerate
-        /// near-zero SMA is rejected by the shared resolver.
-        /// </summary>
-        private static bool IsSubSurfaceOrbit(double sma, double bodyRadius)
+        private static bool IsUsableOrbitSegment(double sma)
         {
-            return Math.Abs(sma) < OrbitResolution.MinValidSmaMeters;
+            return TrajectoryMath.HasUsableOrbitSegmentElements(new OrbitSegment
+            {
+                inclination = 28.5,
+                eccentricity = 0.574602,
+                semiMajorAxis = sma,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 1.23,
+                epoch = 142.16,
+                bodyName = "Kerbin"
+            });
         }
 
         [Fact]
-        public void PositiveSma_AboveRadius_NotSubSurface()
+        public void PositiveSma_AboveRadius_IsUsable()
         {
-            // Circular orbit: sma=700000, bodyRadius=600000 → valid
-            Assert.False(IsSubSurfaceOrbit(700000, 600000));
+            Assert.True(IsUsableOrbitSegment(700000));
         }
 
         [Fact]
-        public void NegativeSma_Hyperbolic_NotSubSurface()
+        public void NegativeSma_Hyperbolic_IsUsable()
         {
-            // Hyperbolic orbit: sma=-1858567, bodyRadius=600000 → Abs = 1858567 > 540000 → valid
-            Assert.False(IsSubSurfaceOrbit(-1858567, 600000));
+            Assert.True(IsUsableOrbitSegment(-1858567));
         }
 
         [Fact]
-        public void PositiveSma_BelowRadius_IsSubSurface()
+        public void PositiveSma_BelowBodyRadiusSuborbital_IsUsable()
         {
-            // Sub-orbital but non-degenerate: valid playback data.
-            Assert.False(IsSubSurfaceOrbit(400000, 600000));
+            // Kerbal X Probe stale ascent segment from the retained repro:
+            // sma is below Kerbin radius but the conic still carries a valid
+            // suborbital playback position that must beat flat RELATIVE points.
+            Assert.True(IsUsableOrbitSegment(512941));
         }
 
         [Fact]
-        public void NegativeSma_TinyHyperbolic_IsSubSurface()
+        public void ZeroSma_IsRejected()
         {
-            // Non-degenerate negative SMA stays valid.
-            Assert.False(IsSubSurfaceOrbit(-100, 600000));
+            Assert.False(IsUsableOrbitSegment(0));
         }
 
         [Fact]
-        public void ZeroSma_IsDegenerate()
+        public void NonFiniteSma_IsRejected()
         {
-            Assert.True(IsSubSurfaceOrbit(0, 600000));
+            Assert.False(IsUsableOrbitSegment(double.NaN));
+            Assert.False(IsUsableOrbitSegment(double.PositiveInfinity));
         }
 
         [Fact]
-        public void NegativeSma_UsesAbsoluteMagnitudeForDegenerateCheck()
+        public void OldBodyRadiusThreshold_WouldRejectValidSuborbitalSma()
         {
-            double sma = -1858567;
-            Assert.False(Math.Abs(sma) < OrbitResolution.MinValidSmaMeters);
+            double sma = 512941;
+            double oldThreshold = 600000 * 0.9;
+
+            Assert.True(sma < oldThreshold);
+            Assert.True(IsUsableOrbitSegment(sma));
         }
     }
 

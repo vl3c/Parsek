@@ -5571,6 +5571,9 @@ namespace Parsek
             for (int i = 0; i < traj.OrbitSegments.Count; i++)
             {
                 OrbitSegment candidate = traj.OrbitSegments[i];
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(candidate))
+                    continue;
+
                 bool inRange = i == traj.OrbitSegments.Count - 1
                     ? playbackUT >= candidate.startUT && playbackUT <= candidate.endUT
                     : playbackUT >= candidate.startUT && playbackUT < candidate.endUT;
@@ -5586,6 +5589,8 @@ namespace Parsek
             {
                 OrbitSegment candidate = traj.OrbitSegments[i];
                 if (!candidate.isPredicted)
+                    continue;
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(candidate))
                     continue;
                 if (candidate.startUT <= lastPointUT + 1e-6)
                     continue;
@@ -5969,7 +5974,7 @@ namespace Parsek
                 bool authoredGapHasShadow =
                     AuthoredFrameGapHasShadowCoverage(traj, playbackUT);
                 bool canUseOrbitPrecedence = TryResolvePendingOrbitSegmentInterpolation(
-                    traj, playbackUT, applySubSurfaceGuard: true, out InterpolationResult orbitSegmentResult);
+                    traj, playbackUT, out InterpolationResult orbitSegmentResult);
                 if (surfaceSkip && canUseOrbitPrecedence)
                 {
                     string vesselName = traj.VesselName ?? "Unknown";
@@ -6027,7 +6032,7 @@ namespace Parsek
             {
                 if (ShouldPrimeSinglePointGhostFromOrbit(traj, playbackUT)
                     && TryResolvePendingOrbitSegmentInterpolation(
-                        traj, playbackUT, applySubSurfaceGuard: false, out result))
+                        traj, playbackUT, out result))
                 {
                     return LogPendingPlaybackInterpolationResolved(
                         traj, playbackUT, result, "single-point orbit segment");
@@ -6043,7 +6048,7 @@ namespace Parsek
             }
 
             if (TryResolvePendingOrbitSegmentInterpolation(
-                traj, playbackUT, applySubSurfaceGuard: false, out result))
+                traj, playbackUT, out result))
             {
                 return LogPendingPlaybackInterpolationResolved(
                     traj, playbackUT, result, "fallback orbit segment");
@@ -6185,8 +6190,7 @@ namespace Parsek
         }
 
         private static bool TryResolvePendingOrbitSegmentInterpolation(
-            IPlaybackTrajectory traj, double playbackUT, bool applySubSurfaceGuard,
-            out InterpolationResult result)
+            IPlaybackTrajectory traj, double playbackUT, out InterpolationResult result)
         {
             result = InterpolationResult.Zero;
             if (traj?.OrbitSegments == null || traj.OrbitSegments.Count == 0)
