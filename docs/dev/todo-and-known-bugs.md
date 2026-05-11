@@ -12,6 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly probe ghost duplicated after on-rails transition
+
+- ~~In Watch mode after a probe Re-Fly reached space and vessels packed/on-rails, the probe booster ghost could appear doubled and the Recordings window could show two `Kerbal X Probe` exo/orbiting rows. In the retained repro (`logs/2026-05-11_1919_doubled-probe-ghost`), restore swapped the active recorder to the Re-Fly fork for PID `429255699`, but `RecordingTree.RebuildBackgroundMap()` left another non-active recording with the same PID eligible for background tracking. The background recorder kept flushing the old `51e41e...` recording while the active recorder wrote `rec_78ecd...`; optimization later split the stale old row into its own exo/orbiting segment, so both paths rendered and one duplicate path spawned a terminal orbital vessel.~~
+
+**Fix:** Background-map eligibility now rejects any non-active recording whose `VesselPersistentId` matches the active recording's PID, even when the recording IDs differ. This keeps the active recorder as the only owner of the live vessel after in-place Re-Fly restore and logs `activePidSkips` during rebuild for future diagnosis.
+
+**Coverage:** Added xUnit coverage for an in-place continuation tree containing an old probe recording and a new active fork with the same PID. The test verifies the old same-PID row is excluded from `BackgroundMap`, unrelated background vessels remain eligible, and the skip count is logged.
+
+---
+
 ## Done - v0.9.2 probe ghost hidden by suborbital OrbitSegment radius gate
 
 - ~~Probe-stage ghost playback could reject a valid suborbital `OrbitSegment` before resolving playback distance because the old guard treated `|sma| < body.Radius * 0.9` as invalid. The retained Kerbal X Probe repro includes an ascent segment around `sma=512 941 m` on Kerbin: below the 540 km threshold, but still the correct Kepler source for playback at that UT. Once rejected, the distance resolver could fall through to flat point metadata from a RELATIVE section and interpret anchor-local metre offsets as body-fixed lat/lon/alt, producing a bogus far-away distance and zone-hiding/jumping the ghost.~~
