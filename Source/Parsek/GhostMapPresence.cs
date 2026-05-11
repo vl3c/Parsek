@@ -4903,6 +4903,77 @@ namespace Parsek
                 && !GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
         }
 
+        internal static uint ResolveBodyFixedPrimaryAnchorPid(
+            IPlaybackTrajectory traj,
+            TrackSection section)
+        {
+            string anchorRecordingId = !string.IsNullOrWhiteSpace(section.anchorRecordingId)
+                ? section.anchorRecordingId.Trim()
+                : traj?.DebrisParentRecordingId;
+            if (string.IsNullOrWhiteSpace(anchorRecordingId))
+                return 0u;
+
+            if (TryFindRecordingByIdForBodyFixedAnchorPid(
+                    anchorRecordingId,
+                    out Recording anchorRecording))
+            {
+                return anchorRecording?.VesselPersistentId ?? 0u;
+            }
+
+            return 0u;
+        }
+
+        private static bool TryFindRecordingByIdForBodyFixedAnchorPid(
+            string recordingId,
+            out Recording recording)
+        {
+            recording = null;
+            if (string.IsNullOrWhiteSpace(recordingId))
+                return false;
+
+            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    RecordingTree tree = committedTrees[i];
+                    if (tree?.Recordings != null
+                        && tree.Recordings.TryGetValue(recordingId, out recording)
+                        && recording != null)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            RecordingTree pending = RecordingStore.HasPendingTree
+                ? RecordingStore.PendingTree
+                : null;
+            if (pending?.Recordings != null
+                && pending.Recordings.TryGetValue(recordingId, out recording)
+                && recording != null)
+            {
+                return true;
+            }
+
+            IReadOnlyList<Recording> committedRecordings = RecordingStore.CommittedRecordings;
+            if (committedRecordings != null)
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    Recording candidate = committedRecordings[i];
+                    if (candidate != null
+                        && string.Equals(candidate.RecordingId, recordingId, StringComparison.Ordinal))
+                    {
+                        recording = candidate;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         private static bool TrySelectBodyFixedPrimaryStateVectorPoint(
             IPlaybackTrajectory traj,
             TrackSection section,
@@ -5833,6 +5904,7 @@ namespace Parsek
                     section.Value,
                     point.ut))
             {
+                uint bodyFixedAnchorPid = ResolveBodyFixedPrimaryAnchorPid(traj, section.Value);
                 if (!TrySelectBodyFixedPrimaryStateVectorPoint(
                         traj,
                         section.Value,
@@ -5846,7 +5918,7 @@ namespace Parsek
                         WorldPos = default(Vector3d),
                         Branch = "body-fixed-primary",
                         FailureReason = bodyFixedSkipReason,
-                        AnchorPid = 0u
+                        AnchorPid = bodyFixedAnchorPid
                     };
                 }
 
@@ -5858,7 +5930,7 @@ namespace Parsek
                     anchorFound: false,
                     anchorWorldPos: default(Vector3d),
                     anchorWorldRot: Quaternion.identity,
-                    anchorVesselId: 0u,
+                    anchorVesselId: bodyFixedAnchorPid,
                     allowOrbitalCheckpointStateVector: allowOrbitalCheckpointStateVector,
                     absoluteShadowPoint: bodyFixedPoint);
             }

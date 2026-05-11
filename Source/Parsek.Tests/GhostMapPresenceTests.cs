@@ -2498,6 +2498,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveBodyFixedPrimaryAnchorPid_ParentAnchoredDebris_ReturnsParentRecordingPid()
+        {
+            var child = BuildParentAnchoredRelativeFrameRecording(includeBodyFixedPrimary: true);
+            child.TreeId = "body-fixed-anchor-pid-tree";
+            var parent = new Recording
+            {
+                RecordingId = "parent-rec",
+                TreeId = child.TreeId,
+                VesselPersistentId = 424242u,
+            };
+            var tree = new RecordingTree
+            {
+                Id = child.TreeId,
+                TreeName = "Body fixed anchor pid tree",
+                RootRecordingId = parent.RecordingId,
+                ActiveRecordingId = child.RecordingId,
+            };
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            uint anchorPid = GhostMapPresence.ResolveBodyFixedPrimaryAnchorPid(
+                child,
+                child.TrackSections[0]);
+
+            Assert.Equal(424242u, anchorPid);
+        }
+
+        [Fact]
         public void TryResolveStateVectorMapPointPure_ParentAnchoredRelativeFrame_MissingBodyFixedPrimarySkips()
         {
             var rec = BuildParentAnchoredRelativeFrameRecording(includeBodyFixedPrimary: false);

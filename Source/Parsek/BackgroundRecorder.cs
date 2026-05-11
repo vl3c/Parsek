@@ -1926,8 +1926,10 @@ namespace Parsek
             }
 
             // Skip trajectory sampling if out of range
-            if (proximityInterval >= ProximityRateSelector.OutOfRangeInterval
-                && !highFidelityActive)
+            if (ShouldSkipTrajectorySamplingForProximity(
+                    proximityInterval,
+                    highFidelityActive,
+                    debrisTier))
             {
                 return;
             }
@@ -5418,9 +5420,9 @@ namespace Parsek
         // during high-velocity breakup falls into the FarRange tier (2.0 s gap),
         // producing visibly choppy trajectory rendering.
         //
-        // Out-of-range tier (vessel exited the physics bubble) is preserved as-is
-        // — the early-return at the OutOfRangeInterval check is the correct path
-        // when the BG vessel is no longer loaded. Legacy v11 debris (no
+        // Out-of-range tier is preserved as-is; the later proximity skip is
+        // bypassed only when the parent-proximity debris tier is active. Legacy
+        // v11 debris (no
         // DebrisParentRecordingId) and non-debris BG vessels keep the unaltered
         // tier table.
         internal static double ResolveDebrisAwareSampleInterval(
@@ -5430,6 +5432,16 @@ namespace Parsek
             if (!IsDebrisAwareSampleCapEligible(treeRec)) return tierInterval;
             if (tierInterval >= ProximityRateSelector.OutOfRangeInterval) return tierInterval;
             return Math.Min(tierInterval, ProximityRateSelector.MidInterval);
+        }
+
+        internal static bool ShouldSkipTrajectorySamplingForProximity(
+            double proximityInterval,
+            bool highFidelityActive,
+            ProximitySamplingTier debrisTier)
+        {
+            return proximityInterval >= ProximityRateSelector.OutOfRangeInterval
+                && !highFidelityActive
+                && debrisTier == ProximitySamplingTier.None;
         }
 
         // Companion to ResolveDebrisAwareSampleInterval that bounds the adaptive
