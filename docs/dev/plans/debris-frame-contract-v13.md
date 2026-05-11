@@ -214,15 +214,18 @@ The "focus is debris" predicate handles cascade correctly: in `T → F → G` (G
 
 **Context struct extension** (`RelativeAnchorResolver.cs:35-92` — the context is `internal readonly struct` with `public readonly` fields, a parameterized constructor at `:49-75`, and a clone helper `WithDebrisLocalOffsetSquaredMeters` at `:77-91`):
 
+The callback signature must mirror `TryResolveLoopLiveAnchorPose` (`ParsekFlight.cs:21062-21066`): `bool TryResolveLoopLiveAnchorPose(uint anchorVesselId, string victimRecordingId, double targetUT, out RelativeAnchorPose pose)`. The host needs the `victimRecordingId` for diagnostic-trace context; pass it through the callback signature.
+
 ```csharp
 // Add to RelativeAnchorResolverContext struct:
-public readonly Func<uint, double, (Vector3d pos, Quaternion rot)?> TryResolveLiveAnchorTransform;
+public readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> TryResolveLiveAnchorTransform;
+// ^ (anchorVesselId, victimRecordingId, ut) → (worldPos, worldRotation) or null
 
 // Add to the constructor at :49-75:
 public RelativeAnchorResolverContext(
     // ... existing parameters ...
     double debrisLocalOffsetSquaredMeters = 0.0,
-    Func<uint, double, (Vector3d pos, Quaternion rot)?> tryResolveLiveAnchorTransform = null)
+    Func<uint, string, double, (Vector3d pos, Quaternion rot)?> tryResolveLiveAnchorTransform = null)
 {
     // ... existing assignments ...
     TryResolveLiveAnchorTransform = tryResolveLiveAnchorTransform;
@@ -253,7 +256,8 @@ if (!TryResolveSectionAnchorRecordingId(context, recording, section, sectionInde
         && focus != null
         && focus.IsDebris)
     {
-        var liveAnchor = context.TryResolveLiveAnchorTransform(section.anchorVesselId, ut);
+        var liveAnchor = context.TryResolveLiveAnchorTransform(
+            section.anchorVesselId, recording.RecordingId, ut);
         if (liveAnchor.HasValue)
         {
             // T's pose at ut = live anchor pose × T's recorded offset to S at ut
@@ -287,25 +291,62 @@ if (!TryResolveSectionAnchorRecordingId(context, recording, section, sectionInde
 
 **Carve-out at `:301-310` is still required.** Without the carve-out relaxation, the resolver bails out at T's recording-level rejection (before walking T's TrackSections). The carve-out allows recursion to reach `TryResolveRelativeSectionPose` on T's section; the new hook above is what actually returns a live-anchor-resolved pose. Both pieces are necessary.
 
-**Host wiring decision.** `BuildRelativeAnchorResolverContext` at `ParsekFlight.cs:15479-15492` is currently `static`. `TryResolveLoopLiveAnchorPose` at `ParsekFlight.cs:21062-21160` is instance-scoped (it reads instance fields). Two options:
-
-1. **Make `BuildRelativeAnchorResolverContext` an instance method.** Callers pass `this`; the body captures it for the callback lambda.
-2. **Pass a delegate parameter to the static method.** Callers construct the delegate themselves; the method threads it through.
-
-Pick **option 1** — narrower surface, no caller-side bookkeeping. Update the ~3 call sites that invoke `BuildRelativeAnchorResolverContext` to call it through a `ParsekFlight` instance reference.
-
-`TryResolveLoopLiveAnchorPose` returns a private `ParsekFlight.RelativeAnchorPose` struct (`:307`); the callback signature uses `(Vector3d, Quaternion)?`. Add a one-line adapter in the lambda:
+**New `TryGetFocusRecording` helper** (referenced by both the `:301-310` carve-out predicate and the `:1945` hook above). Resolution order:
 
 ```csharp
-TryResolveLiveAnchorTransform: (vesselPid, ut) =>
+private static bool TryGetFocusRecording(
+    RelativeAnchorResolverContext context, out Recording focus)
 {
-    if (!TryResolveLoopLiveAnchorPose(vesselPid, ut, out RelativeAnchorPose pose))
-        return null;
-    return (pose.worldPosition, pose.worldRotation);
+    focus = null;
+    if (string.IsNullOrEmpty(context.FocusRecordingId)) return false;
+
+    // Prefer ProvisionalRecordings (in-flight overlay) over committed tree.
+    // PendingTree is consulted last; it carries pre-merge transient state.
+    if (context.ProvisionalRecordings != null
+        && context.ProvisionalRecordings.TryGetValue(context.FocusRecordingId, out focus)
+        && focus != null)
+        return true;
+    if (context.FocusTree?.Recordings != null
+        && context.FocusTree.Recordings.TryGetValue(context.FocusRecordingId, out focus)
+        && focus != null)
+        return true;
+    if (context.PendingTree?.Recordings != null
+        && context.PendingTree.Recordings.TryGetValue(context.FocusRecordingId, out focus)
+        && focus != null)
+        return true;
+
+    focus = null;
+    return false;
 }
 ```
 
-Recorder-side context construction at `BackgroundRecorder.cs:5021` leaves the callback default-null. The recorder never walks a chain across the live-anchor boundary at sample time (it uses parent's live pose directly via `ResolveDebrisParentDistanceMeters`), so the null callback is correct behaviour — the existing `legacy-anchor-recording-id-missing` path continues to fire if the chain somehow reaches this leaf during a recorder-side resolution.
+This contract matches the existing `RelativeAnchorResolver` precedent for resolving anchor recording ids (which also walks Provisional → Focus → Pending). Null `FocusRecordingId` returns false → carve-out doesn't fire → existing rejection holds.
+
+**Host wiring decision.** The method is named `BuildFlightRelativeAnchorResolverContext` at `ParsekFlight.cs:15478-15492` (citation correction — prior drafts cited `BuildRelativeAnchorResolverContext`). It is currently `static`. `TryResolveLoopLiveAnchorPose` at `ParsekFlight.cs:21062-21160` is instance-scoped. Make `BuildFlightRelativeAnchorResolverContext` an **instance method**; the body captures `this` for the callback lambda. Four flight-scene call sites need updating to call through an instance reference: `ParsekFlight.cs:15170, :15399, :22717, :22802`.
+
+`TryResolveLoopLiveAnchorPose` returns a private `ParsekFlight.RelativeAnchorPose` struct (`:307-310`); the callback signature uses `(Vector3d pos, Quaternion rot)?`. Add an adapter lambda:
+
+```csharp
+TryResolveLiveAnchorTransform: (vesselPid, victimRecordingId, ut) =>
+{
+    if (!TryResolveLoopLiveAnchorPose(vesselPid, victimRecordingId, ut, out RelativeAnchorPose pose))
+        return null;
+    return (pose.worldPos, pose.worldRotation);  // struct fields are worldPos and worldRotation (ParsekFlight.cs:309-310), NOT worldPosition
+}
+```
+
+**All `RelativeAnchorResolverContext` construction sites** (verified by `grep -rn "new RelativeAnchorResolverContext"` — six total, plus the `WithDebrisLocalOffsetSquaredMeters` clone helper itself):
+
+| Site | Disposition |
+|---|---|
+| `ParsekFlight.cs:15483` (inside `BuildFlightRelativeAnchorResolverContext`) | **Populate callback.** Helper becomes instance method per host-wiring decision above. Adapter lambda forwards to `TryResolveLoopLiveAnchorPose`. |
+| `Source/Parsek/Rendering/ProductionAnchorWorldFrameResolver.cs:471` (`TryBuildRelativeAnchorResolverContext`) | **Populate callback.** This site is on the rendering hot path; without the callback, debris-on-loop-anchored renders through Production would silently mis-render. Either (a) thread a `ParsekFlight` reference through the static `TryBuildRelativeAnchorResolverContext` parameter list, or (b) expose a static `ParsekFlight.GetLiveAnchorTransformCallback()` that both `BuildFlightRelativeAnchorResolverContext` and `ProductionAnchorWorldFrameResolver.TryBuildRelativeAnchorResolverContext` consume. Pick (b) — smaller blast radius. |
+| `BackgroundRecorder.cs:5019` | **Leave callback null.** Recorder-side context never walks chains across the live-anchor boundary; uses parent's live pose directly via `ResolveDebrisParentDistanceMeters`. Null callback is correct. |
+| `FlightRecorder.cs:7637` | **Leave callback null.** Same rationale — recorder-side. |
+| `RecordedRelativeAnchorPoseResolver.cs:106` | **Leave callback null.** Map / KSC-scene resolver path; loop playback is flight-scene-only (the `LoopAnchorVesselId` carve-out at `:301-310` rejection is fine in non-flight contexts because no live vessel exists to resolve against — the chain would correctly stop). Document this explicitly in the source comment. |
+| `RelativeAnchorResolver.cs:79` (`WithDebrisLocalOffsetSquaredMeters` clone helper) | **Preserve callback through clone** per the snippet above. |
+
+Test-side construction (if any in `Source/Parsek.Tests/`): pass `null` for the callback where live-anchor isn't exercised; use a deterministic test stub for the dedicated callback tests.
 
 **Recorder-side `FocusRecordingId == null` handling.** `BackgroundRecorder.cs:5021` constructs the context with `focusRecordingId: null`. With focus null, `TryGetFocusRecording` returns false, and the carve-out predicate `focus.IsDebris` is false — the existing rejection fires unchanged. The recorder doesn't need the carve-out because it uses live parent pose directly (the chain math isn't on the recording path). Documented here so a reader doesn't expect the carve-out to fire universally.
 
@@ -483,6 +524,8 @@ The Re-Fly guard wrapper post-translates the shared-module reason to the Re-Fly-
 
 The Re-Fly-specific early-exit reasons (`"active-recording-id-missing"`, `"active-tree-id-missing"`, `"marker-missing"`, `"marker-session-missing"`, `"marker-tree-missing"`, `"marker-active-recording-missing"`, `"ut-non-finite"`, `"tree-mismatch"`) all fire **before** the shared-module call inside the Re-Fly guard chain, so they pass through unchanged.
 
+**Guard ordering must match the existing implementation.** The existing `ResolveActiveReFlyTreeSamplingCadence` (`FlightRecorder.cs:752-819`) emits its early-exit reasons in a specific order, and `proximity-missing` (`!IsFinite(proximityDistanceMeters)`) fires AFTER `tree-mismatch` but BEFORE the distance buckets. The Re-Fly wrapper must preserve this exact order so existing tests in `AdaptiveSamplingTests.cs` (the 5 cases there) continue to pass byte-identically. The §7.1 regression test `ReFlyResolver_RefactorEqualsOldBehaviour` covers any drift across the full input matrix.
+
 Regression test (§7.1): assert byte-identical reason strings between the pre-refactor `ResolveActiveReFlyTreeSamplingCadence` and the post-refactor wrapper across the full input matrix (all early-exit branches + the three tier outcomes).
 
 **Naming note.** The existing `ReFlyTreeSamplingCadence` enum (`FlightRecorder.cs:29`) is renamed to the shared `ProximitySamplingTier`. Mechanical search-and-replace across the codebase; estimated 20–40 references including method signatures (`ResolveEffectiveMaxSampleInterval` takes the enum), per-state fields, log lines, test setups. The diff is large but every change is name-only.
@@ -569,14 +612,16 @@ internal const int CurrentBinaryVersion = DebrisFrameContractBinaryVersion;  // 
 
 ### 5.2 Binary codec rejection
 
-`TrajectorySidecarBinary.IsSupportedBinaryVersion` at `:403-416` is currently a hard-coded allowlist accepting `LegacyBinaryVersion` through `DebrisParentRecordingBinaryVersion`. Replace with a min-version check:
+`TrajectorySidecarBinary.IsSupportedBinaryVersion` at `:403-416` is currently a hard-coded allowlist accepting `LegacyBinaryVersion` through `DebrisParentRecordingBinaryVersion`. Replace with a single-version allowlist:
 
 ```csharp
 private static bool IsSupportedBinaryVersion(int version)
 {
-    return version >= DebrisFrameContractBinaryVersion;
+    return version == DebrisFrameContractBinaryVersion;
 }
 ```
+
+Single-version allowlist, NOT `>=`. The codec's per-version conditional reads (seam flag, ground clearance, etc.) only know how to interpret known stamps; a `>=` check would accept future stamps (v14+) that this reader can't actually parse. Future versions must be added to the allowlist explicitly when their layout is understood.
 
 The version-selection ladder at `:170-189` becomes unconditional v13:
 
@@ -680,10 +725,11 @@ Add the new constant; mark v12 and earlier as no-longer-loadable. Reference `Tra
 | `GhostPlaybackEngine.cs` | `:2796-3006` | Delete `TryRouteAnchorRotationUnreliable`, `TryRouteAnchorRotationToShadow`. |
 | `GhostPlaybackEvents.cs` | `:94+` (`AnchorRotationUnreliableRoute` enum) | Delete enum. Citation fix — prior draft cited `GhostPlaybackEngine.cs`; the enum actually lives in events. |
 | `GhostPlaybackEngine.cs` | `:1150-1216` (`RenderInRangeGhost`), `:3297-3339` (`PositionLoopAtPlaybackUT`) | Delete the `anchorRotationRoute` branches; engine falls through to standard section-type dispatch. |
-| `GhostPlaybackEngine.cs` | `:3297` (`PositionLoopAtPlaybackUT` return type) | Change return type from `AnchorRotationUnreliableRoute` to either `void` or `bool retired`. Three call sites consume the return value: `:1852, :2127, :2324`. Update each call site to either ignore the void return or read the new `bool retired` flag. |
-| `GhostPlaybackEngine.cs` | `:3348-3357` (`ResolveRenderSurface(AnchorRotationUnreliableRoute route, bool retired)`) | Delete or refactor. The enum parameter is gone; surface enum (`RenderSurface`) currently has `Legacy / Shadow / Hidden` cases. Under v13 only `Legacy / Hidden` remain meaningful (Shadow path is gone). Either fold the helper inline at the four post-position trace sites (`:1226 / 1231, :1838, :2109, :2304`) or rewrite it to take `bool retired` directly. |
-| `GhostRenderTrace.cs` `RenderSurface` enum | (location varies) | Delete the `Shadow` enum value; downstream `EmitPostUpdate` overloads + the four trace call sites pass `Legacy / Hidden` only. |
-| `IGhostPositioner.cs` | `:71` (XML doc reference to `AnchorRotationUnreliableRoute.Hidden`) | Delete the XML-doc cross-reference (the doc rewrite at `:78-80` per §3.7 already covers the `TryPositionFromRelativeAbsoluteShadow` semantic re-explanation, but the enum cross-ref needs a separate removal). |
+| `GhostPlaybackEngine.cs` | `:3297` (`PositionLoopAtPlaybackUT` return type) | Change return type from `AnchorRotationUnreliableRoute` to either `void` or `bool retired`. **Four** call sites consume the return value: `:1852, :2127, :2324, :2459` (`:2459` is in `PositionGhostAtLoopEndpoint` and already discards the return value, so it adapts trivially; the other three need explicit update). Update each call site to either ignore the void return or read the new `bool retired` flag. |
+| `GhostPlaybackEngine.cs` | `:3348-3357` (`ResolveRenderSurface(AnchorRotationUnreliableRoute route, bool retired)`) | Delete or refactor. The enum parameter is gone. Under v13 only `Legacy / Hidden` remain meaningful (Shadow path is gone). Either fold the helper inline at the four post-position trace sites (`:1226 / 1231, :1838, :2109, :2304`) or rewrite it to take `bool retired` directly. |
+| `GhostPlaybackEngine.cs` | `:4860-4862` (`ResolveRenderSurfaceForTesting`) | The test seam wraps `ResolveRenderSurface`. Delete or refactor in lockstep with `ResolveRenderSurface`. Affects any test file calling `ResolveRenderSurfaceForTesting`. |
+| `GhostRenderTrace.cs` `RenderSurface` enum at `:63+` | Delete the `Shadow` enum value. The enum has **four** values today: `Unknown / Legacy / Shadow / Hidden`. `Unknown` stays (default / unspecified). Downstream `EmitPostUpdate` overloads + the four trace call sites pass `Legacy / Hidden / Unknown` only. |
+| `IGhostPositioner.cs` | `:65-77` (entire XML doc block on `TryPositionFromRelativeAbsoluteShadow`) | **Rewrite the entire doc block.** The current text is heavily entangled with deleted concepts ("tumbling-parent gate has classified [...] unreliable", "Phase D: recorded-data-only, never a substitute for live anchors", "reached only after the gate has positively classified the parent chain as visually unreliable", cross-ref to `AnchorRotationUnreliableRoute.Hidden`). Replace with a v13-accurate description: the method is the chain-failure fallback for Relative debris sections inside the 0–500 m proximity window. The signature at `:78-80` is unchanged. |
 | `GhostPlaybackEngine.cs` | `:1148, :1249, :1256, :1418, :1661, :1847, :1861, :2124, :2134, :2223, :2320, :2331, :2380, :5203, :5242` | Delete reads / writes of `state.anchorRotationShadowRoutedThisFrame`. |
 | `GhostPlaybackEngine.cs` | `:2977, :2983, :3031, :3136, :3163, :3223` | Delete reads / writes of `state.parentAnchoredDebrisCoverageRetired`. |
 | `GhostPlaybackEngine.cs` | `:2715, :2717` | Update the `ShouldRetireOutsideAuthoredRelativeCoverage` consultation — still relevant for Relative debris sections (0–500 m), but now never fires for Absolute debris sections (per the policy fix above). |
@@ -712,7 +758,7 @@ Add the new constant; mark v12 and earlier as no-longer-loadable. Reference `Tra
 |---|---|---|
 | `TrajectorySidecarBinary.cs` | `:31, :71-72` | Add `DebrisFrameContractBinaryVersion`; update `CurrentBinaryVersion`. |
 | `TrajectorySidecarBinary.cs` | `:170-189` | Replace version-selection ladder with unconditional v13 stamp. |
-| `TrajectorySidecarBinary.cs` | `:403-416` (`IsSupportedBinaryVersion`) | Replace with `version >= DebrisFrameContractBinaryVersion`. |
+| `TrajectorySidecarBinary.cs` | `:403-416` (`IsSupportedBinaryVersion`) | Replace with `version == DebrisFrameContractBinaryVersion` (single-version allowlist, NOT `>=`). |
 | `RecordingTreeRecordCodec.cs` | inside `LoadRecordingFrom` after `:443-449` | Add the `< DebrisFrameContractFormatVersion` rejection per §5.3. |
 | `RecordingTree.cs` | `:199` (single call site of `LoadRecordingFrom`) | After return, check `rec.RecordingFormatVersion == 0`; if so, skip `tree.AddOrReplaceRecording(rec)` and surface a user-visible "unsupported format" message. (Prior-draft `RecordingSidecarStore.cs:234, :543, :751, :1234` citation was wrong — `grep -n "LoadRecordingFrom" RecordingSidecarStore.cs` returns zero hits.) |
 
@@ -875,6 +921,19 @@ In-game test files affected by field deletions (`anchorRotationShadowRoutedThisF
 | `DebrisParentSamplingCeilingTests.cs` | Rewrite. Asserts current cadence composition (uses `ResolveDebrisAwareMaxSampleInterval`, `MidInterval`, `HighFidelityProximityRangeMeters`); the new v13 composition rule (proximity tier supersedes legacy cap when non-None) changes most assertions. |
 | `DebrisRelativeCoveragePrimitivesTests.cs` | Review for v13 mixed-section debris. |
 | `RuntimeTests.cs` (in-game) | Rewrite assertions on deleted fields. |
+| `LegacyMigrationTests.cs` | **Delete** or **gut to compile-only stubs**. The entire file is about migrating from old versions; under v13 the load gate rejects v12 and earlier, so legacy-migration test coverage is moot. If the file tests v13→v13 round-trip behaviour, retain those cases under a renamed file. |
+| `LoopAnchorTests.cs` | **Update**. All test fixtures need `recordingFormatVersion = 13` stamps. The §3.4 carve-out introduces new pass cases (debris focus succeeds on loop-anchored target); some existing "rejected" assertions may flip — audit each. |
+| `AdaptiveSamplingTests.cs` | **Update**. The existing assertions track Re-Fly cadence behaviour; the shared-module refactor preserves output (reason strings via the §3.7 mapping table), so the harness keeps working but reason-string assertions need an explicit "old vs new are equal" check. |
+
+**Test-fixture sweep for v13 format stamps.** §5.3 rejects recordings with `RecordingFormatVersion < 13`. Many test files construct ConfigNode fixtures without an explicit `recordingFormatVersion` (defaults to 0) or with v11/v12 layouts. All such fixtures need v13 stamps in setup. Affected files include (non-exhaustive — implementer greps `Source/Parsek.Tests/` for `LoadRecordingFrom` call sites and `recordingFormatVersion` fixture values):
+
+- `LegacyMigrationTests.cs`, `LoopAnchorTests.cs`, `RecordingFieldExtensionTests.cs`
+- `Bug270SidecarEpochTests.cs`, `Bug156Tests.cs`, `Bug362TerminalCrashDebrisTests.cs`
+- `TerrainCorrectorTests.cs`, `TreeCommitTests.cs`, `KerbalEndStateTests.cs`
+- `RewindSpawnSuppressionTests.cs`, `BackgroundSplitTests.cs`, `GhostOnlyRecordingTests.cs`
+- Test fixture builders in `Source/Parsek.Tests/Generators/`
+
+For each: either bump the stamp to 13 or route the fixture through a "test only" load path that bypasses the v13 gate. The latter is a one-line addition to `RecordingTreeRecordCodec` (an internal `LoadRecordingFromForTesting` that skips the gate); use this for tests that specifically exercise v11/v12-layout edge cases (rare; mostly `LegacyMigrationTests` if any cases survive).
 
 ## 8. Rollout
 
@@ -882,7 +941,7 @@ Land as a single PR or split per the project's preference:
 
 1. **Format version bump + codec rejection** (commit 1). Constants + `IsSupportedBinaryVersion` prune + `LoadRecordingFrom` early-exit + `RecordingTree.cs:199` consumer surface. After this commit, v12/v11 saves are rejected at load.
 2. **Renderer cleanup** (commit 2). Delete the always-shadow router, the tumble-gate predicates and helpers, `LegacyDebrisShadowGate`, `TumblingParentInterpolationGate`, the `WithReliability` parallel resolver tree, the two state fields and their read/write sites, the `anchorRotationHysteresis` field + `.Clear()` calls, the `TryEvaluateAnchorRotationReliability` delegate, the `AnchorRotationUnreliableRoute` enum, and the `TrajectoryPlaybackFlags.tryEvaluateAnchorRotationReliability` field. Compile clean; some debris-related tests fail (rewritten in commit 5).
-3. **Field rename + comment rebranding** (commit 3). Rename `TrackSection.absoluteFrames` → `TrackSection.bodyFixedFrames` per §3.7. Replace "absolute shadow" / "shadow track" / "shadow payload" / etc wording with v13-correct framing across every site identified in §3.7's site table plus any additional hits from `grep -rn "absoluteFrames\|absolute shadow" Source/Parsek/`. This is a pure rename + comment update; behaviour unchanged. ConfigNode codec value key renamed at the write site (`RecordingTreeRecordCodec.cs:215`) and the corresponding read site.
+3. **Field rename + comment rebranding** (commit 3). Rename `TrackSection.absoluteFrames` → `TrackSection.bodyFixedFrames` per §3.7. Replace "absolute shadow" / "shadow track" / "shadow payload" / etc wording with v13-correct framing across every site in §3.7's site table plus any additional hits from `grep -rn "absoluteFrames\|absolute shadow\|ABSOLUTE_POINT" Source/Parsek/`. This is a pure rename + comment update; behaviour unchanged. ConfigNode on-disk node name `ABSOLUTE_POINT` → `BODY_FIXED_POINT` at `TrajectoryTextSidecarCodec.cs:644, :1167, :1635-1643, :1785-1810` (NOT `RecordingTreeRecordCodec.cs:215`, which writes the unrelated `isDebris` flag).
 4. **Resolver carve-out + live-anchor callback** (commit 4). Relax `RelativeAnchorResolver` loop-anchored rejection at the single remaining site (`:301-310`) per §3.4. Add `TryResolveLiveAnchorTransform` field to `RelativeAnchorResolverContext`. Populate from `ParsekFlight` host wiring; leave null at the recorder-side context construction at `BackgroundRecorder.cs:5021`. Add the live-anchor compose step inside the resolver's `TryResolveRecordingPose` for sections with `anchorVesselId != 0u`. Add the cascade and live-anchor-callback resolver tests.
 5. **Recorder change** (commit 5). Gate `ApplyDebrisAnchorContractToState` on proximity; simplify debris seed; add cadence tier resolver, state, and wiring; raise `HighFidelityProximityRangeMeters` to 250 m; remove Re-Fly settle suppression for debris; add the shared `ProximitySamplingCadence` module and refactor `ResolveActiveReFlyTreeSamplingCadence` to use it.
 6. **Tests** (commit 6): test fixture, recorder unit tests, renderer unit tests, format-version tests, in-game test rewrites.
@@ -940,7 +999,7 @@ Pre-merge:
 
 ## 10. Plan evolution
 
-Eleven drafts on the branch arrived at this design:
+Twelve drafts on the branch arrived at this design:
 
 - `4b9a9bd` — first draft: proximity-gated 2300/2500 m, revert PR #803.
 - `257ff31` — second draft (first review): keep PR #803 inside bounded Relative window.
@@ -952,7 +1011,7 @@ Eleven drafts on the branch arrived at this design:
 - `a995001` — eighth draft: proximity-cadence mechanism extracted as a shared `ProximitySamplingCadence` module (per user direction: "we should extract this proximity cadence mechanism as a module that can be used by any recorder"). The old `FlightRecorder.ReFlyTreeSamplingCadence` enum and resolver are refactored to delegate tier resolution to the shared module (behaviour-preserving; same thresholds, same tier semantics). Debris uses the same module with its own thresholds. Adds one Re-Fly touch — the cadence resolver — but observable behaviour is preserved by construction (regression test included).
 - `75c810f` — ninth draft: second Opus review applied. Resolver carve-out cascade-correct predicate (focus-is-debris); cadence composition with legacy `ResolveDebrisAwareMaxSampleInterval` made explicit; WithReliability resolver tree (9 methods, ~500 lines) explicitly enumerated for deletion plus named test methods; user-visible communication for v11/v12 rejection documented; packed-parent description fixed; 250–500 m Half-cadence regression cost acknowledged; multiple citation fixes.
 - `2c4d4e3` — tenth draft: third Opus review applied. Added live-anchor callback (initial design); field rename `absoluteFrames` → `bodyFixedFrames` and "absolute is primary, relative is shadow" comment rebranding; added missing compile-breaking deletion rows; fixed `RecordingTree.cs:199` citation; added §8.1 design-doc sweep.
-- **current** — eleventh draft: fourth Opus review applied. Two P0s and several P1s:
+- `46e4c2a` — eleventh draft: fourth Opus review applied. Two P0s and several P1s:
   - **P0-1 (architectural)**: the previous draft's live-anchor-compose pseudocode hooked the wrong field. `TryResolveRecordingPose` dispatches by `section.referenceFrame`; the chain walk does NOT iterate `section.anchorVesselId` at that level. The correct hook is inside `TryResolveRelativeSectionPose` (`RelativeAnchorResolver.cs:1926-2018`) at the `legacy-anchor-recording-id-missing` leaf at `:1945-1955`: when `TryResolveSectionAnchorRecordingId` returns false AND `section.anchorVesselId != 0u` AND focus is debris AND the callback is populated, compose live-anchor pose × section's anchor-local offset. The §3.4 pseudocode is now grounded in the actual call graph.
   - **P0-2 (compile error)**: `RelativeAnchorResolverContext` is `internal readonly struct`. The previous draft showed a mutable field, which won't compile. Rewrote as `public readonly Func<...>` + new constructor parameter + line in `WithDebrisLocalOffsetSquaredMeters` clone helper. Also decided host wiring: `BuildRelativeAnchorResolverContext` becomes an instance method on `ParsekFlight`, callable callback is a lambda that adapts the private `RelativeAnchorPose` struct to the `(Vector3d, Quaternion)?` callback signature.
   - **P1 (Re-Fly reasons)**: shared module returns generic reason strings (`"full"`, `"half"`, etc); existing Re-Fly tooling expects `"active-refly-tree-full"`, `"active-refly-tree-half"`, etc. Re-Fly guard wrapper post-translates per a 4-row mapping table.
@@ -962,3 +1021,14 @@ Eleven drafts on the branch arrived at this design:
   - **P2 (lingering `RecordingSidecarStore.cs` references)**: §5.3 already corrected the citation to `RecordingTree.cs:199`, but §5.4 and §6.3 still cited the wrong file. Fixed.
   - **P3 (host-wiring test)**: added `ParsekFlight_BuildRelativeAnchorResolverContext_PopulatesLiveAnchorCallback` to §7.2 — without this test the implementer could correctly wire the resolver-side carve-out and still ship a null callback in the production context.
   - **Various citation drifts** (`:5246-5275` → `:5269-5275`, `:21070-21160` → `:21062-21160`, `:22121, :22180, :22274` → `:22122, :22181, :22275`).
+- **current** — twelfth draft: fifth Opus review applied. Three P0/P1 corrections that would have caused compile errors or silent mis-renders:
+  - **P0-1 (compile error)**: the live-anchor callback signature was `(uint, double)`, but `TryResolveLoopLiveAnchorPose` actually takes `(uint anchorVesselId, string victimRecordingId, double targetUT)` — three input params plus the out parameter. The adapter lambda as previously written wouldn't compile, and would have stripped the victim-recording-id from the diagnostic trace context even if it did. Also fixed: the adapter read `pose.worldPosition` / `pose.worldRotation`; the actual struct fields are `worldPos` / `worldRotation` at `ParsekFlight.cs:309-310`. Callback signature updated to `Func<uint, string, double, (Vector3d pos, Quaternion rot)?>`; hook updated to pass `recording.RecordingId` as the victim id; adapter reads `pose.worldPos`.
+  - **P0-2 (silent mis-render)**: there is a second `RelativeAnchorResolverContext` construction site at `Source/Parsek/Rendering/ProductionAnchorWorldFrameResolver.cs:471` (the `TryBuildRelativeAnchorResolverContext` static helper), reached on the rendering hot path. The previous draft only inventoried the ParsekFlight sites. Without populating the callback at the Production site, debris-on-loop-anchored renders through Production would silently fall through to the shadow fallback. Added a complete site table to §3.4 enumerating all six `new RelativeAnchorResolverContext` sites and their dispositions (populate vs leave null). The method on ParsekFlight is also named `BuildFlightRelativeAnchorResolverContext`, not `BuildRelativeAnchorResolverContext` as previously cited.
+  - **P0-3 (enumeration completeness)**: `PositionLoopAtPlaybackUT` has FOUR callers (`:1852, :2127, :2324, :2459`), not three. The fourth at `:2459` discards the return value today so it adapts trivially, but the plan's enumeration was off and would have confused an implementer. Also: `ResolveRenderSurfaceForTesting` at `GhostPlaybackEngine.cs:4860-4862` is a fifth caller of `ResolveRenderSurface` (a test seam) that the plan didn't enumerate — added explicit deletion row.
+  - **P1 (TryGetFocusRecording contract)**: pseudocode in §3.4 called `TryGetFocusRecording` without defining its signature or resolution order. An implementer would have had to invent the contract. Added a concrete pseudocode block specifying lookup order: `ProvisionalRecordings` → `FocusTree.Recordings` → `PendingTree?.Recordings`, with null `FocusRecordingId` returning false.
+  - **P1 (test fixture sweep)**: `LoadRecordingFrom` is called from 40+ test sites across `LegacyMigrationTests.cs`, `LoopAnchorTests.cs`, `AdaptiveSamplingTests.cs`, and many others. Under §5.3 each fixture without an explicit `recordingFormatVersion = 13` would silently fail. Added an explicit test-fixture-sweep paragraph in §7.6 enumerating affected files and recommending a `LoadRecordingFromForTesting` internal seam for the rare v11/v12-edge-case tests that need to bypass the gate. Also added explicit dispositions for `LegacyMigrationTests.cs` (delete or gut), `LoopAnchorTests.cs` (update fixtures + audit assertions that may flip), `AdaptiveSamplingTests.cs` (update + verify reason-string parity).
+  - **P1 (`IsSupportedBinaryVersion`)**: tightened from `>=` to `==` (single-version allowlist). Future versions need explicit allowlist entries when their layout is understood; `>=` would let unknown future stamps through.
+  - **P1 (IGhostPositioner doc rewrite)**: previously cited `:78-80` line range; the actual stale doc block runs `:65-77` and is heavily entangled with deleted concepts (tumbling-parent gate, Phase D, AnchorRotationUnreliableRoute cross-ref). Expanded the scope to "rewrite the entire doc block at `:65-77`."
+  - **P1 (Re-Fly guard ordering)**: added an explicit note in §3.7 that the existing `ResolveActiveReFlyTreeSamplingCadence` guard order must be preserved (the Re-Fly wrapper emits `proximity-missing` BEFORE the tier dispatch, after `tree-mismatch`). The §7.1 regression test covers any drift.
+  - **P2 (commit-3 citation drift)**: §8 commit 3 still cited `RecordingTreeRecordCodec.cs:215` for the codec rename despite §3.7 correcting it to `TrajectoryTextSidecarCodec.cs`. Fixed.
+  - **P3 (RenderSurface enum values)**: previously said "currently has `Legacy / Shadow / Hidden`"; actual enum has FOUR values (`Unknown / Legacy / Shadow / Hidden`). Updated the deletion row to clarify `Unknown` stays.
