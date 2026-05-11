@@ -1335,6 +1335,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_DebrisFocusUsesRecordingLoopAnchorWhenSectionPidEmpty()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording loopRoot = MakeRelativeRecording(
+                "loop-root",
+                tree.Id,
+                localOffset: new Vector3d(5, 0, 0));
+            loopRoot.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            loopRoot.LoopPlayback = true;
+            loopRoot.LoopAnchorVesselId = 42u;
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 2, 3),
+                anchorRecordingId: loopRoot.RecordingId);
+            child.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            child.IsDebris = true;
+            child.DebrisParentRecordingId = loopRoot.RecordingId;
+            tree.AddOrReplaceRecording(loopRoot);
+            tree.AddOrReplaceRecording(child);
+
+            bool callbackInvoked = false;
+            var context = MakeContext(
+                tree,
+                focusRecordingId: child.RecordingId,
+                liveAnchorTransformResolver: (pid, victimRecordingId, ut) =>
+                {
+                    callbackInvoked = true;
+                    Assert.Equal(42u, pid);
+                    Assert.Equal(loopRoot.RecordingId, victimRecordingId);
+                    Assert.Equal(5.0, ut);
+                    return (new Vector3d(100, 0, 0), Quaternion.identity);
+                });
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                child.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.True(resolved, failure.Reason);
+            Assert.True(callbackInvoked);
+            Assert.Equal(106.0, pose.WorldPos.x, 6);
+            Assert.Equal(2.0, pose.WorldPos.y, 6);
+            Assert.Equal(3.0, pose.WorldPos.z, 6);
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_DebrisCascadeFocusAllowsLoopAnchoredAncestorLeaf()
         {
             var tree = new RecordingTree { Id = "tree" };

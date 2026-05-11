@@ -1383,13 +1383,16 @@ namespace Parsek
                     sectionIndex,
                     out string anchorRecordingId))
             {
-                if (section.anchorVesselId != 0u
+                uint liveAnchorVesselId = section.anchorVesselId != 0u
+                    ? section.anchorVesselId
+                    : recording.LoopAnchorVesselId;
+                if (liveAnchorVesselId != 0u
                     && IsDebrisFocusRecording(context)
                     && context.TryResolveLiveAnchorTransform != null)
                 {
                     (Vector3d pos, Quaternion rot)? livePose =
                         context.TryResolveLiveAnchorTransform(
-                            section.anchorVesselId,
+                            liveAnchorVesselId,
                             recording.RecordingId,
                             ut);
                     if (livePose.HasValue)
