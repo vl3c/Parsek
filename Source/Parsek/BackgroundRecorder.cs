@@ -4697,13 +4697,10 @@ namespace Parsek
                 || !string.Equals(previousAnchorRecordingId, parentRecId, StringComparison.Ordinal);
             if (needsSectionFlip || anchorChanged)
             {
-                if (state.trackSectionActive)
-                    CloseBackgroundTrackSection(state, ut);
                 SegmentEnvironment env = state.environmentHysteresis != null
                     ? state.environmentHysteresis.CurrentEnvironment
                     : SegmentEnvironment.Atmospheric;
-                StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
-                ApplyBackgroundCurrentAnchorToTrackSection(state);
+                StartDebrisParentRelativeTrackSection(state, env, ut);
                 if (anchorChanged)
                 {
                     string transition = previousAnchorRecordingId == null ? "entered" : "switched";
@@ -4722,6 +4719,42 @@ namespace Parsek
             {
                 ApplyBackgroundCurrentAnchorToTrackSection(state);
             }
+        }
+
+        private void StartDebrisParentRelativeTrackSection(
+            BackgroundVesselState state,
+            SegmentEnvironment env,
+            double ut)
+        {
+            if (state.trackSectionActive)
+                CloseBackgroundTrackSection(state, ut);
+            StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
+            ApplyBackgroundCurrentAnchorToTrackSection(state);
+            ForceNextBackgroundTrajectorySample(
+                state,
+                ut,
+                "debris-parent-relative-enter");
+        }
+
+        private static void ForceNextBackgroundTrajectorySample(
+            BackgroundVesselState state,
+            double ut,
+            string reason)
+        {
+            if (state == null)
+                return;
+
+            // TrajectoryMath.ShouldRecordPoint treats negative lastRecordedUT as
+            // the first-sample case, bypassing min/max interval gates.
+            state.lastRecordedUT = -1.0;
+            state.hasLastWorldRotation = false;
+            ActivateBackgroundHighFidelitySampling(
+                state,
+                ut,
+                reason ?? "force-immediate-sample");
+            ParsekLog.Info("BgRecorder",
+                $"Immediate background trajectory sample forced: pid={state.vesselPid} " +
+                $"reason={reason ?? "unknown"} ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         private static void ClearBackgroundCurrentAnchor(BackgroundVesselState state)
@@ -7809,6 +7842,24 @@ namespace Parsek
 
             StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
             ApplyBackgroundCurrentAnchorToTrackSection(state);
+            loadedStates[vesselPid] = state;
+        }
+
+        internal void StartDebrisParentRelativeTrackSectionForTesting(
+            uint vesselPid,
+            string parentRecordingId,
+            SegmentEnvironment env,
+            double ut)
+        {
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state))
+                return;
+
+            state.isRelativeMode = true;
+            state.currentAnchorRecordingId = parentRecordingId;
+            state.currentAnchorCandidate = default;
+            state.hasCurrentAnchorCandidate = false;
+            StartDebrisParentRelativeTrackSection(state, env, ut);
             loadedStates[vesselPid] = state;
         }
 

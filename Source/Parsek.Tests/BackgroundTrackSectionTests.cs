@@ -1229,6 +1229,52 @@ namespace Parsek.Tests
             Assert.NotNull(relative.bodyFixedFrames);
         }
 
+        [Fact]
+        public void ParentDebrisRelativeEntry_ForcesImmediateSampleAtSectionStart()
+        {
+            uint pid = 962;
+            string recId = "rec_debris_relative_entry";
+            string parentId = "rec_debris_parent";
+            var tree = MakeTree(pid, recId);
+            Recording debris = tree.Recordings[recId];
+            debris.IsDebris = true;
+            debris.DebrisParentRecordingId = parentId;
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid,
+                recId,
+                SegmentEnvironment.Atmospheric,
+                1000.0,
+                initialPoint: Point(1000.0));
+
+            bgRecorder.StartDebrisParentRelativeTrackSectionForTesting(
+                pid,
+                parentId,
+                SegmentEnvironment.Atmospheric,
+                ut: 1000.1);
+
+            TrackSection? current = bgRecorder.GetCurrentTrackSectionForTesting(pid);
+            Assert.NotNull(current);
+            Assert.Equal(ReferenceFrame.Relative, current.Value.referenceFrame);
+            Assert.Equal(parentId, current.Value.anchorRecordingId);
+            Assert.Equal(1000.1, current.Value.startUT);
+            Assert.Equal(-1.0, bgRecorder.GetLastRecordedUTForTesting(pid));
+            Assert.True(TrajectoryMath.ShouldRecordPoint(
+                Vector3.zero,
+                Vector3.zero,
+                current.Value.startUT,
+                bgRecorder.GetLastRecordedUTForTesting(pid),
+                minInterval: 999.0f,
+                maxInterval: 999.0f,
+                velDirThreshold: 999.0f,
+                speedThreshold: 999.0f));
+            Assert.Contains(logLines, l =>
+                l.Contains("[BgRecorder]")
+                && l.Contains("Immediate background trajectory sample forced")
+                && l.Contains("reason=debris-parent-relative-enter"));
+        }
+
         #endregion
 
         private static TrajectoryPoint Point(double ut)
