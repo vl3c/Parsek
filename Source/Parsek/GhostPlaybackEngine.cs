@@ -5154,6 +5154,7 @@ namespace Parsek
 
                 if (HasLoadedGhostVisuals(state))
                 {
+                    ResetHiddenPrewarmPositioningFlags(state);
                     PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
                     if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                             state.anchorRetiredThisFrame))
@@ -5267,6 +5268,18 @@ namespace Parsek
             HiddenPrimeVisualPolicy()
         {
             return (false, true, false);
+        }
+
+        internal static void ResetHiddenPrewarmPositioningFlagsForTesting(GhostPlaybackState state)
+            => ResetHiddenPrewarmPositioningFlags(state);
+
+        private static void ResetHiddenPrewarmPositioningFlags(GhostPlaybackState state)
+        {
+            if (state == null)
+                return;
+
+            state.anchorRetiredThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
         }
 
         private void SynchronizeLoadedGhostForWatch(

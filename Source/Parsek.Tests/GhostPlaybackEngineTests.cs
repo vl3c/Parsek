@@ -1427,6 +1427,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResetHiddenPrewarmPositioningFlags_ClearsStaleRetireLatch()
+        {
+            var state = new GhostPlaybackState
+            {
+                anchorRetiredThisFrame = true,
+                anchorRotationShadowRoutedThisFrame = true
+            };
+
+            GhostPlaybackEngine.ResetHiddenPrewarmPositioningFlagsForTesting(state);
+
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.False(state.anchorRotationShadowRoutedThisFrame);
+        }
+
+        [Fact]
         public void PositionLoopAtPlaybackUT_AnchorRotationUnreliable_HidesBeforeLoopPositioner()
         {
             var positioner = new SpawnPrimingPositioner();
