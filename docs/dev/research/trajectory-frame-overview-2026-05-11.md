@@ -8,6 +8,201 @@ This is an audit, not a plan. All claims carry `file:line` citations.
 
 ---
 
+## Case-by-case — per vessel role, what's recorded and how it renders
+
+This is the practical view. Each row is a distinct *role a vessel can play*. "Live" means the player or KSP is simulating it directly — there is no ghost render. "Ghost" means a recording is being played back as a mesh.
+
+A vessel can pass through several roles over its lifetime (focused → background → on rails; loop anchor; debris). It does not change "frame mid-section"; instead, when the role changes, the current `TrackSection` is closed and a new one opens with the new frame. So the recording for any single vessel is a *sequence* of sections, each in its own frame.
+
+### Case 1 — Regular main vessel (focused, controllable, has a probe core or pod)
+
+Role: the vessel the player is flying, with focus, in the loaded bubble.
+
+**Recording (foreground, `FlightRecorder`):**
+- Opens **Absolute** at `StartRecording` (`FlightRecorder.cs:6091`).
+- Stays Absolute as long as it's "solo" — no eligible nearby anchor recording, not on rails, not landed-with-anchor-loss.
+- Switches to **Relative** when it comes into proximity of another eligible **recording** (docking neighbour, formation peer, sibling debris's parent in the bubble, etc.). Anchor is stored as `anchorRecordingId` (string). On every Relative sample a parallel `absoluteFrames` shadow point is also written.
+- Switches to **OrbitalCheckpoint** when KSP packs it on rails (`FlightRecorder.cs:9067`).
+- Closes Relative → opens Absolute on landing (`:5540`) or on anchor proximity loss (`:5645`).
+
+**Render (when this recording later plays back as a ghost):**
+- Absolute section → `InterpolateAndPosition` → `body.GetWorldSurfacePosition(lat, lon, alt)`.
+- Relative section → `RelativeAnchorResolver` recursively walks the anchor recording's DAG (the anchor's own pose is itself recorded data). Fall back to absolute shadow → retire if both miss.
+- OrbitalCheckpoint section → `PositionFromOrbit` (Kepler propagation).
+
+### Case 2 — Debris of the regular main vessel
+
+Role: a chunk that separated from the focused vessel and has no controller (no pod, no probe core). Could be a spent stage, a fairing, jettisoned booster.
+
+**Recording (background, `BackgroundRecorder`):**
+- Created at the split event. `IsDebris = !hasController` (`BackgroundRecorder.cs:1129`).
+- **v12+: `DebrisParentRecordingId` stamped immediately** to the parent's RecordingId (`:1130`, `Recording.cs:891-903`).
+- Recorded **Relative-to-parent unconditionally** for the entire debris lifetime (`BackgroundRecorder.cs:4299-4302`). Proximity-anchor detection is bypassed.
+- v7+ writes the `absoluteFrames` shadow on every Relative sample.
+- If the debris leaves the bubble → on rails → switches to OrbitSegment-only mode (no TrackSection at all). If it re-enters the loaded bubble far from parent, the next loaded section opens **Absolute** (it's no longer within parent proximity in the recorder's eyes, but the contract is still in place — see edge cases).
+- If parent is destroyed mid-debris-recording: the recording invariant still holds (parent's *recorded* trajectory remains; live state is irrelevant to playback).
+
+**Render (debris always plays as a ghost):**
+- **v12+ debris (the current population): absolute shadow unconditionally** whenever `section.absoluteFrames` covers the playback UT. The legacy `anchor.rot * offset + anchor.pos` reconstruction is bypassed. Routed via `TryPositionFromRelativeAbsoluteShadow` (`ParsekFlight.cs:16717-16810`), dispatched by `TryRouteAnchorRotationUnreliable` (`GhostPlaybackEngine.cs:2796-2909`) returning `ShadowPositioned`.
+- v11 legacy debris (no `DebrisParentRecordingId`): `LegacyDebrisShadowGate` retroactively bypasses the resolver and uses shadow when available (`ParsekFlight.cs:22121-22130, 22180-22189, 22274-22283`). Without shadow, falls back to resolver.
+- Pre-v6 legacy debris (no shadow at all): legacy resolver only.
+- **Tumbling-parent gate** (PR #793 angular-rate classifier) still evaluates each frame, but post-PR #803 drives only **FX suppression**, not render-vs-hide. Log line tag `mode=gated|always` distinguishes real tumble from steady-state always-shadow.
+- If neither frames nor shadow covers the UT: `DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage` → ghost is destroyed for this section. May reappear when a later section opens.
+
+### Case 3 — Background controllable vessel inside the loaded bubble (not debris)
+
+Role: another controllable craft physically loaded near the focused vessel — a co-flying probe, an approaching tanker, a station the player is approaching. Has a controller part, so it is NOT classified as debris.
+
+**Recording (background, `BackgroundRecorder` loaded path):**
+- Same frame logic as the foreground recorder. Absolute by default; switches to **Relative** when in proximity of an eligible peer recording (foreground vessel, sibling background vessel, sibling debris's parent, etc.).
+- Anchor stored as `anchorRecordingId`. v7+ absoluteFrames shadow written on Relative sections.
+- Goes on rails when it leaves the bubble → see Case 4.
+
+**Render (when ghosted):**
+- Same as Case 1. Absolute → direct body lookup. Relative → recorded-anchor resolver chain (DAG). OrbitalCheckpoint → orbit propagation.
+
+### Case 3a — Same controllable vessel immediately after separation from main
+
+The two halves of a separation event:
+- The half with a controller part is treated as Case 3 (a now-independent controllable BG vessel).
+- The half without a controller is Case 2 (debris).
+- The previously-single recording forks: the parent recording's TrackSection closes at the split, and **two new child recordings** are created, each with its own RecordingId and starting frame.
+- The controllable child's first section opens by the standard proximity logic: if the *other* child (or the focused vessel) is in proximity, it can open **Relative**; otherwise **Absolute**. The debris child opens **Relative-to-parent** (Case 2 contract).
+
+### Case 4 — Background controllable vessel on rails (out of bubble)
+
+Role: anything the game has packed — distant tracked vessel, an asteroid in another orbit, an idle station nowhere near focus.
+
+**Recording (`BackgroundRecorder` on-rails path, `BackgroundOnRailsState`):**
+- **No TrackSections written at all.** The state object explicitly omits `currentTrackSection` / `trackSections` / `environmentHysteresis` (`BackgroundRecorder.cs:192-200`).
+- Orbiting → writes `Recording.OrbitSegments` (patched-conic Keplerian, with `bodyName`) (`:3233-3254`).
+- Landed → writes `Recording.SurfacePos` (body-fixed lat/lon/alt + rotation) (`:3189-3217`).
+- In atmosphere → no orbit segment, just `ExplicitEndUT` updates.
+- Transition back to loaded bubble → `FlushLoadedStateForOnRailsTransition` emits a boundary seam (Absolute, `isBoundarySeam=true`) so the foreground/loaded TrackSection chain can resume cleanly (`:4210-4272`).
+
+**Render:**
+- Orbiting → `PositionFromOrbit` (Kepler propagation from `OrbitSegments`).
+- Landed → `PositionAtSurface` using `SurfacePos`.
+- These are effectively "absolute" in their respective frames; no anchor is consulted.
+
+### Case 5 — Pre-existing scene vessel (station, third-party craft, unrelated mission)
+
+Role: a vessel that was already in the universe at scene load, independent of the player's current mission tree.
+
+**Recording:**
+- Background-recorded from scene-load. Same recorder rules as Case 3 / Case 4 depending on whether it's in the bubble or on rails.
+- Lives in its own (or a different) `RecordingTree`. v1 has a cross-tree anchor limitation: even if a nearby controllable vessel from a different tree would otherwise be an eligible anchor, the recorder skips cross-tree candidates and writes Absolute. (See `ghost-anchor-recording-chain-plan.md` §"Cross-tree caveat".)
+
+**Render:** standard ghost playback paths, same as Case 3/4.
+
+### Case 6 — Loop-anchored recording (formation-flying carve-out)
+
+Role: a recording flagged with `Recording.LoopAnchorVesselId != 0u`. Used when the user wants a ghost to formation-fly around a designated **live** vessel (e.g. a station that exists in every loop iteration), so the loop math is relative to that live anchor.
+
+**Recording:**
+- Relative TrackSections, but the anchor pose comes from the **live vessel's `Transform.position/rotation`** at sample time (the only non-debris recorder path that uses live vessel pose).
+
+**Render:**
+- `TryResolveLiveLoopAnchorPose` (`ParsekFlight.cs:21070-21160`) — reads `Vessel.transform.position/rotation` of the PID found via `FlightRecorder.FindVesselByPid`.
+- **`RelativeAnchorResolver` explicitly rejects loop-anchored recordings as chain targets** with `AnchorOutOfScope` ("loop-anchor-out-of-scope") (`RelativeAnchorResolver.cs:301-310`) — preventing live-PID resolution from leaking into other ghosts.
+- The v12+ always-shadow path for debris also excludes loop-anchored recordings (`debris-always-shadow.md` §"What this preserves").
+
+### Case 7 — Main instantiated Re-Fly real vessel (the NEW live craft)
+
+Role: the live vessel the player is flying during an active Re-Fly session — `ActiveReFlyRecordingId` in the marker. **It is live, not a ghost.** The player sees it as a normal KSP vessel.
+
+**Recording (foreground, fresh recording made in real time):**
+- `FlightRecorder` records it like any other focused vessel. Same Absolute/Relative-by-proximity decision logic — no Re-Fly-specific frame rule.
+- The provisional recording's **frame is determined at runtime by proximity**, exactly as in Case 1.
+- It **can** anchor on already-existing ghost recordings (the recorder treats ghosts as valid anchor candidates by their RecordingId). From `ghost-anchor-recording-chain-plan.md` §1.4 walk-through: *"When L2 is in proximity to R(U)'s rendered ghost (the same separation event as the original), the recorder writes Relative sections for R(L2) with anchorRecordingId = R(U).id."*
+- Metadata: `MergeState = NotCommitted`, `SupersedeTargetId` set to the recording it will replace.
+- If "in-place continuation" (same physical vessel forked), it inherits `IsDebris` / `DebrisParentRecordingId` / `VesselPersistentId` / `Generation` from the parent (`RewindInvoker.cs:235-268`).
+- **Mid-Re-Fly debris caveat (v1):** debris created from this live vessel during the Re-Fly session cannot anchor on this still-being-appended provisional (active provisionals aren't valid anchor targets yet). Such debris records **Absolute** until it has another eligible same-scope anchor.
+
+**Render:** not rendered as a ghost — the player sees it directly as a live KSP vessel.
+
+### Case 8 — Re-Fly (during) ghost — the OLD recording being re-flown (`OriginChildRecordingId`)
+
+Role: the recording the player elected to re-fly. **Read-only data; rendered as a ghost during the session.**
+
+**Recording:** unchanged. Its TrackSections are exactly what they were when originally recorded — a mix of Absolute / Relative / OrbitalCheckpoint sections. No frame rewrite happens at any point in the Re-Fly flow.
+
+**Render (during Re-Fly session):**
+- Same `IGhostPositioner` paths as any other ghost. Absolute → direct, Relative → resolver, OrbitalCheckpoint → orbit propagation. v12+ debris (if this recording is debris) uses the always-shadow path.
+- **Phase D removed the historical "follow the live re-fly vessel" display offset.** Ghosts now render at their original recorded coordinates regardless of where the player flies the live re-fly vessel. A divergent re-fly visibly separates the player's live vessel from the ghost reference frame (`ghost-anchor-recording-chain-plan.md:14-15`).
+
+### Case 9 — Re-Fly (during) ghost — other unrelated recordings in the tree
+
+Role: all the *other* recordings in the active tree that aren't being re-flown. The "rest of the mission" — orbital probes, background landers, debris from prior events.
+
+**Recording:** unchanged (just like Case 8, read-only).
+
+**Render (during Re-Fly session):**
+- Each plays back exactly per its own frame contract: Cases 1-6 apply per recording.
+- Debris of the re-flown vessel: still renders as Case 2 (relative-to-parent recording-anchor, shadow path for v12+). The parent recording's *recorded* pose is used; the new live re-fly vessel is not consulted.
+- Critical invariant: a divergent live re-fly does **not** perturb any ghost. Every ghost's pose comes from recorded data only.
+
+### Case 10 — Post-Re-Fly pure ghosts (after `SupersedeCommit` merges the session)
+
+Role: everything once the merge journal completes (`SupersedeCommit.FlipMergeStateAndClearTransient`, `MergeJournalOrchestrator.cs:216`).
+
+**Recording side state after merge:**
+- The OLD (superseded) recording is excluded from ERS via `RecordingSupersedeRelation` rows (`SupersedeCommit.cs:202`). Its TrackSections remain on disk — they're still used as **anchor reference data** for any recording that depends on them (e.g. sibling debris that anchored on it).
+- The NEW provisional has its `MergeState` flipped: `CommittedProvisional` for safe-retry slots, `Immutable` for closed/world-changing outcomes (`SupersedeCommit.cs:12-26`).
+- The Re-Fly marker is cleared (`MergeJournalOrchestrator.cs:241`).
+
+**Render side:**
+- The OLD recording **stops rendering** in flight playback (excluded by supersede relations).
+- The NEW recording renders like any normal recording — frame paths from Cases 1-6 apply per its sections.
+- All other tree recordings continue unchanged.
+- The OLD recording's data remains on disk and continues to participate in anchor-chain resolution for any recording anchored on it. If you reload the save, those anchors still resolve correctly because anchor resolution reads recorded data regardless of render-suppression state (`ghost-anchor-recording-chain-plan.md:88-94`).
+
+### Case 11 — Vessel about to leave the scene (ballistic tail at scene exit)
+
+Role: a vessel whose recording is being finalized as the scene exits — incomplete ballistic / atmospheric tail that the recorder extrapolates to a terminal endpoint.
+
+**Recording (`IncompleteBallisticSceneExitFinalizer`, `BallisticExtrapolator`, `PatchedConicSnapshot`):**
+- Extrapolated tail is always written in **Absolute** (or OrbitalCheckpoint where applicable). **Never Relative.** Per the v12 recorder invariant: a Relative `TrackSection.endUT` must not outlive recorder-persistable authored coverage.
+- For debris specifically: the extrapolated tail is Absolute even though the rest of the recording is Relative-to-parent. The Relative section closes at the last persistable sample; a new Absolute section carries the extrapolated tail.
+
+**Render:** Absolute → direct body lookup. OrbitalCheckpoint → orbit propagation. No special path.
+
+### Case 12 — Edge: vessel under physics warp / partial pack
+
+Role: vessel that flips between loaded and on-rails as the user warps.
+
+**Recording:**
+- Loaded ↔ on-rails transitions emit a **boundary seam** TrackSection (`isBoundarySeam=true`) so the recorder bookkeeping doesn't create a fake "split" in the recorded environment classification (`BackgroundRecorder.FlushLoadedStateForOnRailsTransition`, `optimizer-persistence-split.md`).
+- Inside loaded windows: standard TrackSection emission per Case 1/3.
+- Inside on-rails windows: `OrbitSegments`/`SurfacePos` only (Case 4).
+
+**Render:** the appropriate path per section. The seam itself is not user-visible — it's a recorder-bookkeeping artifact that the optimizer treats as an always-keep-cohesive override.
+
+### Quick lookup table (the same matrix as a single grid)
+
+| Vessel role | Recorder | Recorded frame | Anchored to | Render path |
+|---|---|---|---|---|
+| 1. Main focused vessel (solo) | FlightRecorder | Absolute (default), OrbitalCheckpoint on rails | n/a | Body lookup / Kepler |
+| 1. Main focused vessel (in proximity) | FlightRecorder | Relative section | Another `Recording` (`anchorRecordingId`) | `RelativeAnchorResolver` chain |
+| 2. Debris of main vessel (v12+) | BackgroundRecorder | Relative permanently (+ shadow) | Parent `Recording` (`DebrisParentRecordingId`) | **Shadow unconditionally** when covers |
+| 2. Debris (legacy v11) | BackgroundRecorder | Relative (+ shadow) | `anchorRecordingId` (may not be parent) | `LegacyDebrisShadowGate` → shadow; else resolver |
+| 2. Debris (pre-v6 legacy) | BackgroundRecorder | Relative (no shadow) | `anchorVesselId` (legacy) | Legacy resolver only |
+| 3. BG controllable in bubble | BackgroundRecorder | Same as Case 1 | Another `Recording` | Same as Case 1 |
+| 3a. BG controllable just after separation | BackgroundRecorder | Per proximity (Abs or Rel) | If Rel: sibling/parent `Recording` | Same as Case 1 |
+| 4. BG vessel on rails | BackgroundRecorder | **No TrackSection** — `OrbitSegments`/`SurfacePos` | n/a | Kepler / surface placement |
+| 5. Pre-existing scene vessel | BackgroundRecorder | Same as Case 3/4 | Same-tree `Recording` only (cross-tree skip) | Same as Case 3/4 |
+| 6. Loop-anchored recording | FlightRecorder | Relative | Live vessel PID (`LoopAnchorVesselId`) | Live `Vessel.transform`; excluded from DAG |
+| 7. Re-Fly NEW live vessel | FlightRecorder (live) | Per proximity (Abs or Rel); inherits debris contract on in-place continuation | If Rel: any same-scope ghost or live recording; debris contract inherits parent | **Not rendered as ghost — it's live** |
+| 8. Re-Fly OLD ghost (during session) | n/a (read-only) | Whatever it was at original recording time | Whatever it was | Standard paths per section type. No live-anchor offset. |
+| 9. Other ghosts during Re-Fly | n/a (read-only) | Per their own contract | Per their own | Standard paths. Unperturbed by live re-fly. |
+| 10. All ghosts post Re-Fly merge | n/a (read-only) | Unchanged | Unchanged | OLD excluded by supersede; NEW renders normally; rest unchanged |
+| 11. Ballistic tail at scene exit | Finalizer / extrapolator | **Absolute** (or OrbitalCheckpoint) — never Relative | n/a | Body lookup / Kepler |
+| 12. Pack/unpack transitions | Both recorders | Boundary seam TrackSection (Absolute, `isBoundarySeam=true`) | n/a | n/a (recorder bookkeeping only) |
+
+The deeper "how" — section dispatch, the unreliable-anchor router, format gates — follows below.
+
+---
+
 ## 0. Quick reference
 
 ### 0.1 `ReferenceFrame` enum — `TrackSection.cs:34-39`
