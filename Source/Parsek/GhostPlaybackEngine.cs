@@ -3136,6 +3136,33 @@ namespace Parsek
             if (loopAnchoredDebrisChain
                 && TryGetRelativeSectionAtUT(traj, loopUT, out RelativeSectionPlaybackTarget target))
             {
+                if (!DebrisRelativePlaybackPolicy.RelativeFramesCoverUT(
+                        traj,
+                        target.Section,
+                        loopUT,
+                        DebrisRelativeCoverageMode.RecorderPersistable))
+                {
+                    if (TryPositionBodyFixedPrimary(
+                            index,
+                            traj,
+                            state,
+                            loopUT,
+                            callsite + ".loop-chain-relative-uncovered"))
+                    {
+                        return true;
+                    }
+
+                    MarkParentAnchoredDebrisCoverageRetired(
+                        index,
+                        traj,
+                        state,
+                        loopUT,
+                        callsite,
+                        DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic.Create(
+                            "loop-chain-relative-frames-unavailable"));
+                    return false;
+                }
+
                 positioner.InterpolateAndPositionRelative(
                     index, traj, state, loopUT, suppressFx, target);
             }

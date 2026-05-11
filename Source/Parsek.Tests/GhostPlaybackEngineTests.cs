@@ -105,7 +105,7 @@ namespace Parsek.Tests
             return Assert.IsType<bool>(result);
         }
 
-        private static void InvokePositionLoopAtPlaybackUT(
+        private static bool InvokePositionLoopAtPlaybackUT(
             GhostPlaybackEngine engine,
             int index,
             IPlaybackTrajectory traj,
@@ -119,7 +119,7 @@ namespace Parsek.Tests
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(method);
 
-            method.Invoke(
+            object result = method.Invoke(
                 engine,
                 new object[]
                 {
@@ -130,6 +130,7 @@ namespace Parsek.Tests
                     suppressFx,
                     callsite
                 });
+            return Assert.IsType<bool>(result);
         }
 
         private static void InvokePositionLoadedGhostAtPlaybackUT(
@@ -1617,6 +1618,91 @@ namespace Parsek.Tests
             Assert.Equal(0, positioner.PositionLoopCalls);
             Assert.Equal(1, positioner.InterpolateCalls);
             Assert.Equal(105.0, positioner.LastRelativeUT);
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_LoopAnchoredDebrisChainChildRelativeGap_UsesBodyFixedPrimary()
+        {
+            var positioner = new SpawnPrimingPositioner
+            {
+                ShadowPositionShouldSucceed = true,
+                PrimedShadowBracketBeforeUT = 100.0,
+                PrimedShadowBracketAfterUT = 110.0,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithShadowFrames();
+            TrackSection section = traj.TrackSections[0];
+            section.frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 101.0 },
+            };
+            traj.TrackSections[0] = section;
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u));
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = MakeLoadedGhostForRoutingTest(),
+            };
+
+            bool usedBodyFixed = InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 4,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.True(usedBodyFixed);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.Equal(0, positioner.PositionLoopCalls);
+            Assert.Equal(0, positioner.InterpolateCalls);
+            Assert.Equal(1, positioner.ShadowPositionCalls);
+            Assert.Equal(105.0, positioner.LastShadowUT);
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_LoopAnchoredDebrisChainChildRelativeGapWithoutBodyFixed_Retires()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 101.0 },
+            };
+            traj.TrackSections[0] = section;
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u));
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+
+            bool usedBodyFixed = InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 4,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.False(usedBodyFixed);
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(0, positioner.PositionLoopCalls);
+            Assert.Equal(0, positioner.InterpolateCalls);
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("recorded-relative-retired")
+                && l.Contains("coverageReason=loop-chain-relative-frames-unavailable")
+                && l.Contains("callsite=test-loop"));
         }
 
         [Fact]
