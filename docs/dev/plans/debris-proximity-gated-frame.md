@@ -1,35 +1,37 @@
 # Proximity-gated frame contract for debris
 
-**Status:** draft for review
-**Scope:** debris recordings only. No changes to Re-Fly merge/supersede flow, no changes to non-debris recorder/renderer dispatch, no changes to the `RelativeAnchorResolver` chain.
-**Backwards compatibility:** none. Existing v12 recordings with permanent-Relative debris sections may render with synced-rotation artifacts after this change; users re-record under the new contract. (Per project policy: "private development, fresh and correct.")
+**Status:** revised draft (post-review)
+**Scope:** debris recordings only. No changes to Re-Fly merge/supersede flow, no changes to non-debris recorder/renderer dispatch, no changes to the `RelativeAnchorResolver` chain, no changes to the loop-anchor live-PID carve-out, no changes to `LegacyDebrisShadowGate`.
+**Backwards compatibility:** existing v12 recordings continue to render correctly because the renderer's always-shadow path inside Relative sections is preserved (see §3.2). Recordings produced after this change have shorter Relative sections and Absolute tails, but no on-disk schema change.
 
 ---
 
 ## 1. Why
 
-Non-debris recordings already use the right rule for trajectory frame: open Relative when within proximity of an eligible anchor recording (entry 2300 m, exit 2500 m hysteresis — `ParsekConfig.cs:42-47`), close back to Absolute when out of proximity. This rule produces sub-metre geometric accuracy in the close-formation window (where it matters visually) and avoids the lever-arm-amplified slerp errors at long range.
+Non-debris recordings already use the right rule for trajectory frame: open Relative when within proximity of an eligible anchor recording (entry 2300 m, exit 2500 m hysteresis — `Source/Parsek/ParsekConfig.cs:42-46`), close back to Absolute when out of proximity. This rule keeps Relative sections short and bounded, which is what makes the resolver chain robust for non-debris vessels.
 
-Debris is the one exception. The v12 contract (PR 3b, `BackgroundRecorder.cs:4299-4302`) bypasses the proximity gate and writes Relative-to-parent for the **entire debris lifetime**, even when the debris drifts kilometres from parent. That created a degenerate input case (long lever arm × shared parent rotation slerp = synchronised-debris swing across all anchored pieces), which PR #803 then patched at the renderer by routing v12 debris through the absolute shadow unconditionally — bypassing the recorded Relative offsets entirely whenever shadow data covered the playback UT.
+Debris is the one exception. The v12 contract (PR 3b, `Source/Parsek/BackgroundRecorder.cs:4286-4303`) bypasses the proximity gate and writes Relative-to-parent for the **entire debris lifetime**, even when the debris drifts kilometres from parent. That created a degenerate input shape (long lever arm × shared parent rotation slerp = synchronised-debris swing across all anchored pieces of a separation event), which PR #803 then patched at the renderer by routing v12 debris through the absolute shadow unconditionally whenever shadow data covered the playback UT — bypassing the recorded Relative offsets entirely.
 
-The renderer-side patch was correct for the failure mode it was fixing. But it gave away the geometric-accuracy win that Relative is *supposed* to produce inside the close-formation window — and it did so for every parent-anchored debris frame, not just the ones at long range. Re-Fly ghost chains do not have this problem because they use the standard proximity-gated contract: Relative only when close, Absolute when drifted. Debris should follow the same rule.
+The renderer-side patch was the right fix for the failure mode it targeted. It is *not* the right place to fix the underlying problem: the recorder is producing data the renderer can't safely reconstruct from. A bounded recorder contract removes the failure-mode-producing data shape at the source. With short Relative sections, the lever arm is bounded, the parent is in proximity (so its samples are dense via the existing `highFidelityProximityVesselPids` mechanism), and the synced-rotation pathology is structurally prevented. Beyond the bubble, the debris records Absolute and renders independently — same contract non-debris already uses.
 
-The PR #803 absolute-shadow render path is doing two jobs at once: (a) covering the long-range synced-swing bug that the always-Relative contract creates, and (b) covering the parent-tumble bug that PR #800 originally targeted. After this change, (a) goes away by construction (Relative is no longer written at long range), so the always-shadow path can be retired in favour of standard dispatch. The parent-tumble fallback (b) stays in scope as a render-side safety net inside the proximity window — see §5.
+This plan also relaxes the v12 §7 "debris bound to parent visibility" rule for the long-range Absolute case: drifted debris continues to render along its body-fixed path even if the parent is destroyed / finalized / loop-anchored. A booster contrail 5 km from the rocket is visually meaningful regardless of whether the rocket subsequently exploded.
 
-This plan ports debris onto the same recorder + renderer rules that already work for non-debris, with one debris-specific carve-out preserved: when debris is in Relative, the anchor identity is *pinned to the parent recording* (no nearest-eligible search). That preserves the v12 "no wrong-anchor" property that PR 3b/3c shipped to fix.
+The plan keeps PR #803's renderer behaviour **inside** the Relative window unchanged. Inside the bubble, debris still routes through the absolute-shadow lerp via `TryRouteAnchorRotationToShadow`. The reasoning: even at 2500 m lever arm, BG-recorded parents can have moderate rotation rates (5–30 °/s steady drift) below the tumbling-parent gate threshold (150 °/s) but still above what slerp can faithfully reproduce against typical BG cadence. The geometric-accuracy gain Relative is supposed to deliver inside proximity windows depends on dense parent samples on both sides — which is reliable for FG-recorded non-debris peers but *not* reliable for BG-recorded debris-parent pairs. Keeping always-shadow inside Relative for debris pays the renderer cost we already pay today, and pays it only inside the proximity window.
+
+What changes: the Relative section is now bounded. What stays: the renderer surface used inside that section.
 
 ## 2. What does NOT change
 
-This plan is debris-scoped. The following stay as-is:
-
-- `AnchorDetector.ShouldUseRelativeFrame` and `RelativeFrameRangeLimit` — non-debris proximity gate.
-- `ParsekConfig.RelativeFrame.EntryMeters` / `ExitMeters` — 2300 / 2500 m thresholds.
-- `RelativeAnchorResolver` — the recorded-anchor DAG resolver.
-- All Re-Fly machinery: `RewindInvoker`, `SupersedeCommit`, `MergeJournalOrchestrator`, `ReFlySessionMarker`, the merge journal phases, ERS/ELS, `RecordingSupersedeRelation`.
-- `LegacyDebrisShadowGate` — v11 retroactive shadow-only fix for legacy broken saves stays untouched.
+- `Source/Parsek/AnchorDetector.cs` — `ShouldUseRelativeFrame`, `RelativeFrameRangeLimit`, `IsRecordingAnchorEligible`. The `candidateRecording.IsDebris → false` exclusion at `:240` stays — v13 debris remains ineligible as an anchor for non-debris vessels.
+- `Source/Parsek/ParsekConfig.cs:42-46` — `RelativeFrame.EntryMeters` / `ExitMeters` (2300 / 2500 m).
+- `Source/Parsek/RelativeAnchorResolver.cs` — the recorded-anchor DAG resolver.
+- All Re-Fly machinery: `RewindInvoker`, `SupersedeCommit`, `MergeJournalOrchestrator`, `ReFlySessionMarker`, the merge journal phases, ERS/ELS, `RecordingSupersedeRelation`. (`RewindInvoker.CopyInheritedIdentityForFork` at `:247` keeps propagating `DebrisParentRecordingId` to provisionals.)
+- `Source/Parsek/LegacyDebrisShadowGate.cs` — v11 retroactive shadow-only fix for legacy broken saves.
 - `Recording.LoopAnchorVesselId` — loop-anchor live-PID carve-out unchanged.
 - Hi-fi sampling thresholds (200 / 250 / 500 m) for non-debris stay as documented in `pr708-playtest-followup-plan.md`.
-- Format-v7 absolute-shadow recorder writes (`FlightRecorder.cs:8200-8205` and BG equivalent). New debris Relative sections still write `absoluteFrames` alongside `frames`; the shadow remains a defensive fallback.
+- Format-v7 absolute-shadow recorder writes (`FlightRecorder.cs:8200-8205` and BG equivalent). New debris Relative sections still write `absoluteFrames` alongside `frames`; the shadow remains the rendering surface inside the Relative window per §3.2.
+- `TryPositionFromRelativeAbsoluteShadow` (`ParsekFlight.cs:16717-16810`) — still used by the always-shadow path inside Relative.
+- `TryRouteAnchorRotationToShadow` (`GhostPlaybackEngine.cs:2928-3006`) — still the shadow router.
 
 If a change touches a file outside the debris-specific list in §6, that's a scope violation; revisit the design.
 
@@ -37,101 +39,92 @@ If a change touches a file outside the debris-specific list in §6, that's a sco
 
 ### 3.1 Recorder side
 
-**Old contract (v12 / PR 3b):** debris with `Recording.DebrisParentRecordingId != null` writes Relative-to-parent unconditionally for the entire recording lifetime. Proximity is not consulted. Section closes only on debris destruction, parent on-rails, parent destruction, scene exit, or going on rails.
+**Old contract (v12 / PR 3b):** debris with `Recording.DebrisParentRecordingId != null` writes Relative-to-parent unconditionally for the entire recording lifetime. Proximity is not consulted. Section closes only on debris destruction, parent on-rails, parent destruction, scene exit, or going on rails (existing `CheckDebrisTTL` at `BackgroundRecorder.cs:1390-1404`).
 
-**New contract (v13 / this plan):** debris with `Recording.DebrisParentRecordingId != null` writes Relative-to-parent **only while within proximity of the parent vessel**, using the same entry / exit hysteresis as non-debris (2300 m enter, 2500 m exit). When the debris drifts beyond the exit threshold, the recorder closes the Relative section and opens an Absolute section. If the debris re-enters proximity later (rare but possible — gravity slingshot, etc.), the Relative section reopens, again pinned to the parent.
+**New contract:** debris with `Recording.DebrisParentRecordingId != null` writes Relative-to-parent **only while within proximity of the parent vessel**, using the same entry / exit hysteresis as non-debris (`AnchorDetector.ShouldUseRelativeFrame` reused as-is: 2300 m enter, 2500 m exit). When the debris drifts beyond the exit threshold, the recorder closes the Relative section and opens an Absolute section. If the debris later re-enters proximity (gravity slingshot, etc.), the Relative section reopens, again pinned to the parent.
 
-Two debris-specific carve-outs preserved from v12:
+One debris-specific carve-out preserved from v12:
 
-1. **Anchor identity is pinned to the parent.** The `AnchorDetector.FindNearestRecordingAnchor` candidate-list / nearest-search is still bypassed for debris. When the proximity gate says "Relative," the anchor is unconditionally `treeRec.DebrisParentRecordingId`. This preserves the "no wrong-anchor" property: debris cannot accidentally pick a sibling debris piece or unrelated nearby vessel as its anchor.
+**Anchor identity is pinned to the parent.** When the proximity gate says "Relative," the anchor is unconditionally `treeRec.DebrisParentRecordingId`. The `AnchorDetector.FindNearestRecordingAnchor` candidate-list / nearest-search remains bypassed for debris. This preserves the "no wrong-anchor" property: debris cannot accidentally pick a sibling debris piece or unrelated nearby vessel as its anchor. Because debris is excluded from `IsRecordingAnchorEligible`, sibling debris would not be picked anyway, but the pinning makes the contract explicit and avoids depending on the exclusion as a load-bearing rule.
 
-2. **Distance source.** Distance is computed against the **parent vessel** specifically, not against the nearest eligible anchor. Two cases:
-   - **Parent is loaded** (`FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId) != null && .loaded`): use the parent's live world position.
-   - **Parent is not loaded** (parent went on-rails, or scene-loaded but not in the bubble): fall back to the parent's most recent recorded pose (resolved via the existing recorded-anchor lookup helper). If the recorded pose is stale (parent recording finalized before debris's UT), the recorder treats the parent as out-of-proximity and writes Absolute.
+**Distance source.** Distance is computed against the **parent vessel** specifically. When parent is loaded (`FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId) != null && .loaded`), use parent's live world position. When parent is not loaded, the existing `CheckDebrisTTL` hook (`BackgroundRecorder.cs:1390-1404`) ends the debris recording within one tick — there is no cross-tick "use last known recorded pose" fallback to design. (See §4.1 row.)
 
 ### 3.2 Renderer side
 
-**Old dispatch (v12 + PR #803):** v12+ debris (`IsDebris && DebrisParentRecordingId != null`) renders via `absoluteFrames` shadow lerp unconditionally whenever the shadow covers the playback UT (`GhostPlaybackEngine.cs:2849-2854`, `TryRouteAnchorRotationToShadow` at `:2928-3006`). The recorded Relative offsets in `frames` are bypassed. Tumbling-parent gate evaluates per frame for FX-suppression but not for rendering.
+**Inside a Relative section: unchanged from today.** v12+ parent-anchored debris (`IsDebris && DebrisParentRecordingId != null && LoopAnchorVesselId == 0u`) continues to render via `TryRouteAnchorRotationToShadow` whenever shadow covers the playback UT. PR #803's "always-shadow inside Relative" path stays. The tumbling-parent gate (`ShouldEvaluateAnchorRotationReliability`) continues to drive FX suppression. The shadow positioner returns `ShadowPositioned`; legacy resolver path runs only when shadow doesn't cover; `Hidden` is the third-tier fallback.
 
-**New dispatch (v13 / this plan):** debris uses standard playback dispatch — same path the engine already uses for non-debris.
+**Inside an Absolute section: standard non-debris dispatch.** The renderer dispatches v13 debris in Absolute through `InterpolateAndPosition` (body-fixed lookup). No anchor consulted. No tumbling-parent gate. Same path non-debris Absolute already uses.
 
-- **Absolute section** → standard `InterpolateAndPosition` (body-fixed lookup). No anchor consulted. (Same as today's non-debris Absolute.)
-- **Relative section** → standard `InterpolateAndPositionRelative` → `RelativeAnchorResolver` chain (recorded-data only, never live except in loop carve-out). (Same as today's non-debris Relative.)
-- **Shadow fallback (PR #800-style)**: if the parent-tumble gate fires *and* the section is Relative *and* the shadow covers the UT, route through `TryPositionFromRelativeAbsoluteShadow`. This is the PR #800 design — shadow used only inside the gate window, not unconditionally. Outside the gate the Relative resolver runs.
-- **Hide fallback**: if the gate fires AND shadow does not cover, `Hidden` route. Existing behaviour.
-- **Coverage retirement** (`DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage`) stays — applies in either Absolute or Relative when neither `frames` nor `absoluteFrames` covers the playback UT.
+The change at the renderer is therefore *not* a revert of PR #803. It is two narrow guards added so that the existing PR #803 path doesn't fire for the **new** Absolute sections that v13 debris recordings now contain:
 
-This is conceptually a partial revert of PR #803 (drop the unconditional always-shadow path) while keeping PR #800's tumble-window shadow fallback. The tumbling-parent gate's per-frame evaluation continues to drive FX-suppression as today.
+1. **`DebrisRelativePlaybackPolicy.ShouldRetireFromDiagnostic` must not fire on `non-relative-section`.** Today (`Source/Parsek/DebrisRelativePlaybackPolicy.cs:194-198`), `non-relative-section` is one of four reasons that retire a parent-anchored debris ghost. Under v13 the predicate fires on every Absolute debris section and would silently hide the ghost. Drop `"non-relative-section"` from the retire list. The remaining three reasons (`parent-recording-id-empty`, `no-track-sections`, `no-covering-section`, `relative-and-shadow-frames-out-of-range`) keep their current semantics. Add an explicit unit test that exercises a v13 debris recording in an Absolute section with `frames.Count > 0` and asserts no retire fires.
+
+2. **`ShouldEvaluateAnchorRotationReliability` must early-out for Absolute sections.** Today (`Source/Parsek/ParsekFlight.cs:15131-15150`) the predicate is recording-level (not section-level): it fires for every v12+ parent-anchored debris frame. Under v13, when the active section is Absolute, the predicate would still fire, the shadow positioner would fail (`TryRouteAnchorRotationToShadow` requires `section.referenceFrame == Relative`, `:2949-2954`), `fxSuppress` from a tumbling parent would push the route to `Hidden`, and the Absolute debris ghost would disappear purely because of the (now-irrelevant) parent's rotation. Make the predicate section-aware: extend `TryEvaluateAnchorRotationReliability` (`:15152`) to receive `playbackUT` and look up the active section via `TrajectoryMath.FindTrackSectionForUT`; return false (no evaluation) when the section is not Relative. Add explicit unit test `Debris_AbsoluteSection_ParentTumbling_StillRenders`.
+
+Both changes are surgical conditionals on already-existing predicate functions. They do not touch the shadow positioner, the router, or the legacy v11 gate.
 
 ### 3.3 Visibility coupling
 
-The v12 §7 contract said: *"Debris is bound to parent visibility — if parent recorded data is unresolvable at the requested UT (parent destroyed, parent finalized, parent rejected as loop anchor), the debris doesn't render."*
+The v12 §7 contract said: *"Debris is bound to parent visibility — if parent recorded data is unresolvable at the requested UT, the debris doesn't render."*
 
 After this change the rule splits:
 
-- **Inside the proximity window (Relative section)**: visibility coupling preserved. If the parent is unresolvable at playback UT, the Relative resolver returns false → debris ghost is hidden / retired by the existing path. (Identical to today's non-debris Relative behaviour.)
-- **Outside the proximity window (Absolute section)**: visibility coupling no longer applies. Debris in Absolute renders directly from body-fixed data; parent presence is irrelevant. Debris that's drifted >2500 m from a parent that's since been destroyed / finalized / loop-anchored will continue to render along its recorded ballistic path.
+- **Inside the proximity window (Relative section)**: visibility coupling preserved. If the parent is unresolvable at playback UT, the existing always-shadow path already handles the failure cases (shadow covers → render from body-fixed shadow data; shadow doesn't cover → coverage retirement / Hidden). User-visible behaviour identical to today.
+- **Outside the proximity window (Absolute section)**: visibility coupling no longer applies. Debris in Absolute renders directly from body-fixed data; parent presence is irrelevant.
 
-Rationale: the original "bound to parent visibility" rule was a heuristic for the always-Relative contract, where debris was *meaningless* without parent context (it existed as part of the parent's visual narrative). Once debris drifts beyond the bubble, it's a piece of falling/orbiting hardware in its own right — a kilometres-away booster contrail is visually meaningful regardless of whether the parent is still around.
+This is a **deliberate user-visible product change**, called out in the CHANGELOG: drifted debris continues to render along its recorded ballistic path even after parent destruction / finalization / loop-anchoring.
 
 ### 3.4 Format version
 
-Bump to v13: `DebrisProximityGatedFrameFormatVersion = 13` in `RecordingStore.cs:105-114`. Replaces v12 as `CurrentRecordingFormatVersion`. Binary stamp follows the same convention (a no-op alias if no on-disk layout change is needed; a real alias if `TrackSection.endUT` semantics change for debris).
+**No format version bump.** On-disk schema is unchanged. The renderer treats v12 and post-change recordings identically:
 
-The format bump is for diagnostics and future-proofing — it does **not** drive a render-time conditional branch. Both v12 and v13 debris recordings dispatch through the same new playback path. Old v12 data with long-range Relative sections may render with synced-rotation artifacts; this is accepted (per "fresh, correct versions" policy).
+- v12 recordings: only contain Relative debris sections (some long-range, possibly with synced-rotation latent in the data). Renderer's always-shadow path inside Relative continues to mask the latent issue exactly as it does today. **No regression on existing saves.**
+- Post-change recordings: contain shorter Relative debris sections (proximity-bounded) plus Absolute tails. Renderer's always-shadow path handles Relative; new Absolute path handles tails.
+
+The format-version table (`Source/Parsek/RecordingStore.cs:105-114`) is not touched. Save-game compatibility is preserved without explicit branching.
 
 ## 4. Frame transitions
 
-The recorder transitions between Relative and Absolute on the proximity-gate edge. Existing infrastructure handles this for non-debris; the same paths apply.
+Existing transition infrastructure handles Relative ↔ Absolute for non-debris; the same paths apply for debris.
 
 ### 4.1 Transition cases
 
-| Trigger | Old (v12) behaviour | New (v13) behaviour |
-|---|---|---|
-| Debris created, parent in bubble (typical separation) | Open Relative-to-parent immediately | Compute distance to parent. If `< 2300 m` (almost always true at separation): open Relative-to-parent. Else open Absolute. |
-| Debris drifts past 2500 m from parent | Stay in Relative forever | Close Relative, open Absolute (`AnchorDetector.ShouldUseRelativeFrame` returns false on hysteresis exit). |
-| Debris re-enters within 2300 m of parent | Stay in Relative (no transition) | Close Absolute, open Relative-to-parent. |
-| Parent goes on-rails | End debris recording (existing `EndDebrisRecording` from `CheckDebrisTTL`) | Same — end debris recording. (Unchanged.) |
-| Parent destroyed mid-recording | Continue Relative writes; resolver fallback at playback | If currently Relative: close Relative on next sample (parent unresolvable as proximity reference), open Absolute. If currently Absolute: continue Absolute. |
-| Debris goes on-rails | `BackgroundOnRailsState`, no TrackSection (existing) | Same — no TrackSection while on rails. (Unchanged.) |
-| Debris destroyed | End debris recording | Same. (Unchanged.) |
-| Scene exit | Ballistic tail extrapolation writes Absolute (existing invariant) | Same — extrapolated tail is always Absolute, never Relative. (Unchanged.) |
+| Trigger | Behaviour |
+|---|---|
+| Debris created, parent in bubble (typical separation) | Compute distance to parent. If `< 2300 m`: open Relative-to-parent. Else open Absolute. (Most separations open Relative because debris is born adjacent to parent.) |
+| Debris drifts past 2500 m from parent | Close Relative, open Absolute. (`AnchorDetector.ShouldUseRelativeFrame` returns false on hysteresis exit.) |
+| Debris re-enters within 2300 m of parent | Close Absolute, open Relative-to-parent. |
+| Parent goes on-rails | End debris recording (existing `CheckDebrisTTL` at `BackgroundRecorder.cs:1390-1404`, unchanged). The proximity gate's "parent not loaded" case never executes for more than one tick before TTL fires. |
+| Parent destroyed mid-recording | If currently Relative: next sample's proximity check fails (parent vessel is null) → close Relative, open Absolute. The recording continues in Absolute until debris itself is destroyed / on-rails / scene-exit. (CheckDebrisTTL also ends the recording shortly after parent destruction — debris sees one or two Absolute samples before the recording ends. Acceptable.) |
+| Debris goes on-rails | `BackgroundOnRailsState`, no TrackSection (existing). |
+| Debris destroyed | End debris recording (existing). |
+| Scene exit | Ballistic tail extrapolation writes Absolute (existing invariant). Unchanged. |
 
 ### 4.2 Boundary discontinuity
 
-Frame transitions emit a boundary point at the section close + section open. The recorder already handles this for non-debris (`SeedBoundaryPoint`, `CloseBackgroundTrackSection`, `StartBackgroundTrackSection`). Debris transitions reuse the same machinery; no new boundary code.
+Frame transitions emit a boundary point at the section close + section open. The recorder already handles this for non-debris (`SeedBoundaryPoint`, `CloseBackgroundTrackSection`, `StartBackgroundTrackSection`). Debris transitions reuse the same machinery. No new boundary code.
 
-For the playback side, transitions between Absolute and Relative in non-debris are already smooth (no visible pop). Debris transitions inherit this.
+For the playback side: at the Relative→Absolute boundary, the last shadow-rendered position should equal the first body-fixed-rendered position (within floating-point noise) because the shadow point at section-close and the absolute boundary point are both authored from the same world position at the same UT. Verify with a unit test that compares frame N (Relative + shadow render) and frame N+1 (Absolute, direct body lookup) within 0.1 m.
 
 ### 4.3 Hysteresis / flapping protection
 
 The 2300 / 2500 m hysteresis (`AnchorDetector.RelativeFrameRangeLimit`) prevents flapping when debris hovers near the threshold. Same predicate used for non-debris; reuse without modification.
 
-## 5. The PR #800 fallback inside the proximity window
+## 5. Why we keep PR #803's always-shadow inside Relative for debris
 
-When debris is inside the proximity window (Relative section), the parent's reconstructed pose drives the rendered debris position. Fast parent rotation between samples = slerp can't reproduce the actual rotation curve = synced-rotation error scaled by lever arm.
+The original draft of this plan proposed reverting PR #803 entirely (use the standard `RelativeAnchorResolver` chain inside debris Relative sections). Review surfaced that this would re-expose a moderate-rotation BG-parent failure mode the proximity-gating doesn't fully prevent:
 
-At ≤ 2500 m lever arm and dense sampling (parent FG at full physics rate, BG with hi-fi proximity activation), the slerp error stays sub-degree and visual swing stays sub-metre. But playtest data showed parent-tumble events (>150°/s) where slerp is intrinsically wrong regardless of cadence. PR #800 covered this by routing through the shadow only when the angular-rate gate fired.
+- Pre-engage drift (`debris-always-shadow.md` §"Symptom recap") was caused by sparse-parent samples at section close combining with parent rotation under the wide bracket span. Under proximity-gated v13, section close happens at the 2500 m hysteresis exit — typically when debris is far from focus and BG cadence is at its widest (3-8 s per sample on Medium/Low density settings). The thin-tail-at-section-end pattern is **at least as likely** under v13 as it was under v12.
+- The tumble-gate threshold is 150 °/s — high enough that steady drift rotation (5-30 °/s) is below the gate but still above what slerp reproduces faithfully against 3-8 s parent brackets. PR #800 alone did not cover this; PR #803 did.
+- Multiple debris pieces from a single separation event share the same parent rotation channel. The synced-error signature is visually obvious with as few as 3-4 pieces.
 
-This plan keeps PR #800's tumble-gate shadow fallback. The renderer dispatch becomes:
+Keeping PR #803's always-shadow inside Relative for debris specifically pays the renderer cost we already pay today, and pays it only within ≤2500 m windows. The recorder-side proximity gate does the load-bearing fix (no long-range Relative sections to produce the data-shape pathology in the first place). The renderer keeps the safety net inside the bubble where parent BG cadence cannot be assumed dense.
 
-```
-if section is Relative AND tumble gate fires AND shadow covers UT:
-    shadow positioner (PR #800 design)
-elif section is Relative:
-    relative resolver (standard non-debris dispatch)
-elif section is Absolute:
-    absolute positioner (standard non-debris dispatch)
-elif gate fires AND no shadow:
-    Hidden
-```
+For non-debris vessels in proximity (docking, formation flying), the standard `RelativeAnchorResolver` chain still runs as today. Two reasons it works there but not for debris:
+1. Non-debris in proximity is typically FG-recorded (the player is on it or a peer is) — dense samples on both sides, no cadence pathology.
+2. Non-debris in proximity is typically 1-2 vessels at a time (docking, hard-attached craft) at very short range (< 50 m) — synced-error magnitude is small, and there isn't a multi-piece "swing pattern" signature to amplify visibility.
 
-Concretely in `GhostPlaybackEngine.cs:TryRouteAnchorRotationUnreliable` (`:2796-2909`):
-- Tier 1 (`ShadowPositioned`): change condition. Today the tier fires whenever shadow covers (PR #803 unconditional). After the change: fires only when gate fires AND shadow covers. (PR #800 conditional.)
-- Tier 2 (`None`): unchanged — fall through to standard dispatch.
-- Tier 3 (`Hidden`): unchanged — gate fires AND no shadow.
-
-The change is a single conditional flip in the router. The shadow positioner method (`TryPositionFromRelativeAbsoluteShadow` in `ParsekFlight.cs:16717-16810`) stays unchanged.
+Debris uniquely combines BG cadence + multi-piece anchored to one parent + lever arms up to 2500 m. The asymmetric renderer choice (always-shadow only for debris, only inside Relative) reflects this asymmetric input shape.
 
 ## 6. Concrete touchpoints
 
@@ -139,37 +132,39 @@ The change is a single conditional flip in the router. The shadow positioner met
 
 | File | Lines | Change |
 |---|---|---|
-| `Source/Parsek/BackgroundRecorder.cs` | `:4286-4303` (`UpdateBackgroundAnchorDetection`) | Replace the `if (DebrisParentRecordingId != null) → ApplyDebrisAnchorContractToState; return;` shortcut with a debris-aware branch that runs the proximity gate against the parent vessel. |
-| `Source/Parsek/BackgroundRecorder.cs` | `:4600-4685` (`ApplyDebrisAnchorContractToState`) | Repurpose as `ApplyDebrisProximityRelativeMode` — only opens / maintains a Relative section anchored on parent. New sibling helper `ExitDebrisRelativeMode` closes Relative and opens Absolute on hysteresis exit. |
-| `Source/Parsek/BackgroundRecorder.cs` | `:3338-3444` (debris seed at `InitializeLoadedState`) | Compute initial distance to parent. If within entry threshold → seed Relative-to-parent (existing path). Else → seed Absolute. |
-| `Source/Parsek/FlightRecorder.cs` | `CreateBreakupChildRecording` callers | Verify FG-spawned debris also runs through the new gate. (Most debris is BG-recorded; FG path is the rarer case.) |
-| `Source/Parsek/RecordingStore.cs` | `:105-114` | Add `internal const int DebrisProximityGatedFrameFormatVersion = 13;` and bump `CurrentRecordingFormatVersion` to it. |
-| `Source/Parsek/RecordingStore.cs` | binary version constants | Add matching `DebrisProximityGatedFrameBinaryVersion = 13` no-op alias if no on-disk layout change. |
+| `Source/Parsek/BackgroundRecorder.cs` | `:4286-4303` (`UpdateBackgroundAnchorDetection`) | Replace the `if (DebrisParentRecordingId != null) → ApplyDebrisAnchorContractToState; return;` shortcut with a debris-aware proximity branch: compute distance to parent vessel, run `AnchorDetector.ShouldUseRelativeFrame(distance, isCurrentlyRelative)`, then either call the Relative-anchored helper or `ExitBackgroundRelativeMode` (existing) to flip to Absolute. |
+| `Source/Parsek/BackgroundRecorder.cs` | `:4600-4685` (`ApplyDebrisAnchorContractToState`) | Repurpose to `ApplyDebrisProximityRelativeMode` — opens / maintains a Relative section anchored on parent (existing behaviour minus the unconditional invocation). The method's behaviour is unchanged when invoked; the change is the **caller-side gate** in `UpdateBackgroundAnchorDetection`. |
+| `Source/Parsek/BackgroundRecorder.cs` | `:3338-3460` (debris seed at `InitializeLoadedState`) | Compute initial distance to parent. If `< 2300 m`: seed Relative-to-parent (existing path). Else: seed Absolute. |
+| `Source/Parsek/DebrisRelativeRecorderPolicy.cs` | full file | The policy currently assumes a v12 parent-anchored debris recording is **all-Relative**. Under the new contract debris recordings are mixed Absolute+Relative. Audit each method for the assumption and update: <br>• `NormalizeRelativeTrackSections` (`:86-139`) — already iterates Relative sections only, fine. <br>• `TryGetLatestRenderableUT` (`:141-216`) — already walks both Relative coverage and non-Relative section frames, mostly fine; verify the fallback path treats Absolute sections as renderable surfaces. <br>• `TrimFlatPointsPastRenderableTail` (`:218-245`) — verify works correctly when latest renderable UT is in an Absolute tail (not just Relative). <br>• `ClampExplicitEndUT` (`:247-267`) — same verification. <br>• Rename `ShouldNormalizeParentAnchoredDebris` to `ShouldNormalizeDebrisRecordingTail` to reflect the broadened scope (the rename is optional but makes the call sites self-documenting). <br>Add unit tests for each method exercising a debris recording with an Absolute tail. |
+| `Source/Parsek/RecordingFinalizationCacheApplier.cs` | `:119-180` | `TryGetLastAuthoredUT` for v12+ debris currently early-returns after looking only at Relative sections (`:157-180`). Update to consider Absolute sections too; `recording.Points` and `OrbitSegments` if applicable. |
+| `Source/Parsek/FlightRecorder.cs` | `highFidelityProximityVesselPids` mechanism (`:93`, `:917`) | No change needed — split-child PIDs are already registered as hi-fi proximity targets, which keeps FG-parent samples dense whenever its child debris is close. Verify in playtest. |
+| `Source/Parsek/RecordingStore.cs` | `:105-114` | No format version bump (per §3.4). |
 
 ### 6.2 Renderer
 
 | File | Lines | Change |
 |---|---|---|
-| `Source/Parsek/GhostPlaybackEngine.cs` | `:2796-2909` (`TryRouteAnchorRotationUnreliable`) | Tier 1 (`ShadowPositioned`) condition change: fire only when tumble gate fires AND shadow covers. Drop unconditional always-shadow for v12+ debris. |
-| `Source/Parsek/GhostPlaybackEngine.cs` | `:2928-3006` (`TryRouteAnchorRotationToShadow`) | No behavioural change to the helper itself; just called only on gate-fire now. |
-| `Source/Parsek/DebrisRelativePlaybackPolicy.cs` | `:79-97` (`ShouldSkipRecordedRelativeResolverForAuthoredFrameGap`) | Re-evaluate: under the new contract debris Relative sections shouldn't have authored frame gaps that need shadow bridging (parent is in proximity throughout the section's UT range by construction). Keep as a defensive fallback but expect it to fire rarely. |
-| `Source/Parsek/DebrisRelativePlaybackPolicy.cs` | `:65-77` (`ShouldRetireOutsideAuthoredRelativeCoverage`) | Unchanged. Retire-on-coverage-gap rule still applies for both Absolute and Relative. |
-| `Source/Parsek/IGhostPositioner.cs` + impl | `TryPositionFromRelativeAbsoluteShadow` | Unchanged. Still used by the gated shadow path. |
-| `Source/Parsek/LegacyDebrisShadowGate.cs` | full file | Unchanged. v11 legacy retroactive fix stays. |
+| `Source/Parsek/DebrisRelativePlaybackPolicy.cs` | `:191-199` (`ShouldRetireFromDiagnostic`) | Drop `"non-relative-section"` from the retire reasons. Add inline comment: "v13 debris in Absolute sections is not a coverage failure; the standard absolute renderer handles it." |
+| `Source/Parsek/ParsekFlight.cs` | `:15131-15150` (`ShouldEvaluateAnchorRotationReliability`) | Make section-aware: the predicate must return false for any section whose `referenceFrame != Relative`. This requires extending the predicate signature (or adding an inner sibling) to take `playbackUT` and look up the active section via `TrajectoryMath.FindTrackSectionForUT`. The PR #803 always-shadow gate then no longer fires for v13 debris in Absolute sections. |
+| `Source/Parsek/ParsekFlight.cs` | `:15152` (`TryEvaluateAnchorRotationReliability`) | Plumb `playbackUT` into the section-aware predicate call. |
+| `Source/Parsek/GhostPlaybackEngine.cs` | `:2796-2909` (`TryRouteAnchorRotationUnreliable`) | No semantic change. With the predicate fix above, this router naturally returns `None` for v13 debris in Absolute (because `flags.tryEvaluateAnchorRotationReliability` returns false), and the engine falls through to the standard absolute dispatch. No router-level conditional needed. |
+| `Source/Parsek/IGhostPositioner.cs` + `ParsekFlight.cs:16717-16810` (`TryPositionFromRelativeAbsoluteShadow`) | Unchanged. Still used by the always-shadow path inside Relative. |
+| `Source/Parsek/LegacyDebrisShadowGate.cs` | full file | Unchanged. |
+| `Source/Parsek/DebrisRelativePlaybackPolicy.cs` other call sites (`ParsekFlight.cs:17905, 18078, 20129, 22085`; `GhostPlaybackEngine.cs:2717, 3133, 3160`) | No code change at the call sites themselves; the §6.2 row 1 fix to `ShouldRetireFromDiagnostic` propagates automatically. Add inline comments at each call site noting the v13-aware retirement semantics. |
 
 ### 6.3 Settings / config
 
 | File | Change |
 |---|---|
-| `Source/Parsek/ParsekConfig.cs` | No changes — debris reuses `RelativeFrame.EntryMeters` / `ExitMeters` (2300 / 2500 m). |
-| `Source/Parsek/AnchorDetector.cs` | No changes — `ShouldUseRelativeFrame` reused as-is. |
+| `Source/Parsek/ParsekConfig.cs` | No changes — debris reuses `RelativeFrame.EntryMeters` / `ExitMeters`. |
+| `Source/Parsek/AnchorDetector.cs` | No changes to `ShouldUseRelativeFrame`. The `IsRecordingAnchorEligible` debris exclusion at `:240` stays (per §2). |
 
 ### 6.4 Format codec
 
 | File | Change |
 |---|---|
-| `Source/Parsek/RecordingTreeRecordCodec.cs` | Bump version stamp. Sparse-write any new fields if added (none currently planned). |
-| `Source/Parsek/RecordingPrecBinaryCodec.cs` | Same — version stamp only if no layout change. |
+| `Source/Parsek/RecordingTreeRecordCodec.cs` | No change. No new fields, no schema change. |
+| `Source/Parsek/RecordingPrecBinaryCodec.cs` | No change. |
 
 ## 7. Tests
 
@@ -181,43 +176,50 @@ The change is a single conditional flip in the router. The shadow positioner met
 | `Debris_DriftsPastExitThreshold_ClosesRelativeOpensAbsolute` | Debris recorded at incrementing distances 2400 → 2600 m | At first sample where distance > 2500 m: Relative section closes, Absolute section opens |
 | `Debris_ReentersWithin2300m_ReopensRelative` | Debris at 2700 m drifts back to 2200 m | Absolute section closes, Relative section opens, anchor pinned to parent |
 | `Debris_HysteresisProtectsAgainstFlapping` | Debris hovering at 2350-2450 m | No section flip across the hysteresis band |
-| `Debris_ParentNotLoaded_FallsBackToRecordedPose` | Parent on-rails, debris loaded | Distance computed against parent's recorded pose; Relative if within threshold |
 | `Debris_ParentRecordingFinalized_TransitionsToAbsolute` | Parent recording finalized before debris UT | Debris recorder treats as out-of-proximity, writes Absolute |
 | `Debris_AnchorIdentityAlwaysParent` | Debris in bubble with sibling debris closer than parent | Anchor remains parent (no nearest-search) |
-| `Debris_OnRails_NoTrackSection` | Debris transitions to packed | `BackgroundOnRailsState`, no TrackSection (existing behaviour) |
+| `Debris_OnRails_NoTrackSection` | Debris transitions to packed | `BackgroundOnRailsState`, no TrackSection (existing behaviour preserved) |
 | `Debris_ParentDestroyedMidRelative_NextSampleClosesRelative` | Parent destroyed while debris is in Relative section | Next sample after destruction: close Relative, open Absolute |
+| `Debris_BoundaryPointContinuity` | Debris transitions Relative→Absolute | Last shadow-rendered position equals first body-fixed-rendered position within 0.1 m |
+| `DebrisRelativeRecorderPolicy_AbsoluteTail_LatestRenderableUTCorrect` | v13 debris with mixed Relative+Absolute sections | `TryGetLatestRenderableUT` returns the Absolute section's last frame UT |
+| `RecordingFinalizationCacheApplier_AbsoluteOnlyDebris_LastAuthoredUTNonNaN` | v13 debris with Absolute-only tail (parent destroyed early) | `TryGetLastAuthoredUT` returns the Absolute section's last frame UT, not NaN |
 
 ### 7.2 Renderer unit tests (`Source/Parsek.Tests/GhostPlaybackEngineTests.cs`)
 
 | Test | Scenario | Assertion |
 |---|---|---|
-| `Debris_RelativeSection_NoGate_UsesResolverChain` | v13 debris in Relative, tumble gate inactive, parent dense samples | `RelativeAnchorResolver` invoked; shadow positioner NOT invoked; `route == None` |
-| `Debris_RelativeSection_GateFires_ShadowCoverage_RoutesShadow` | v13 debris in Relative, tumble gate fires, shadow covers UT | Shadow positioner invoked; `route == ShadowPositioned`; FX suppression flag set |
+| `Debris_RelativeSection_NoGate_UsesShadowPath` | v13 debris in Relative, tumble gate inactive, shadow covers UT | Shadow positioner invoked (PR #803 path); legacy resolver NOT invoked; `route == ShadowPositioned` (mode=always) |
+| `Debris_RelativeSection_GateFires_UsesShadowPath` | v13 debris in Relative, tumble gate fires, shadow covers UT | Shadow positioner invoked; `route == ShadowPositioned` (mode=gated); FX suppression flag set |
 | `Debris_RelativeSection_GateFires_NoShadow_RoutesHidden` | v13 debris in Relative, gate fires, no `absoluteFrames` | `route == Hidden`; mesh hidden |
-| `Debris_AbsoluteSection_StandardDispatch` | v13 debris in Absolute (drifted past 2500 m) | `InterpolateAndPosition` invoked directly; no anchor lookup |
+| `Debris_AbsoluteSection_StandardDispatch` | v13 debris in Absolute (drifted past 2500 m) | `InterpolateAndPosition` invoked directly; no anchor lookup; gate predicate not evaluated |
+| `Debris_AbsoluteSection_ParentTumbling_StillRenders` | v13 debris in Absolute, parent rotating at 200°/s | Section-aware predicate returns false; route = `None`; standard absolute path runs; debris remains visible |
 | `Debris_AbsoluteSection_ParentDestroyed_StillRenders` | v13 debris in Absolute, parent recording absent | Renders normally; visibility coupling does not apply outside proximity |
-| `Debris_RelativeSection_ParentUnresolvable_Retires` | v13 debris in Relative, parent unresolvable | Resolver returns false; debris retired this frame |
-| `LegacyV11Debris_StillUsesShadowGate` | v11 debris (no `DebrisParentRecordingId`) | `LegacyDebrisShadowGate` fires; route through shadow |
+| `Debris_AbsoluteSection_NotRetiredByCoverageGate` | v13 debris in Absolute with `frames.Count > 0` | `ShouldRetireOutsideAuthoredRelativeCoverage` does NOT fire (regression test for §6.2 row 1) |
+| `Debris_RelativeSection_ParentUnresolvable_ShadowFallback` | v13 debris in Relative, parent unresolvable, shadow covers | Shadow path renders; not retired |
+| `LegacyV11Debris_StillUsesShadowGate` | v11 debris (no `DebrisParentRecordingId`) | `LegacyDebrisShadowGate` fires; route through shadow (regression test for §2) |
+| `LegacyV12Debris_LongRangeRelative_StillUsesShadowPath` | v12 debris with long-range Relative section (legacy data) | Shadow path renders (no degradation on existing saves) |
 
 ### 7.3 Regression test for synced-debris bug
 
 | Test | Scenario | Assertion |
 |---|---|---|
-| `Debris_LongRange_Absolute_NoSyncedSwing` | Multiple v13 debris pieces all anchored to same parent, all >2500 m from parent (so all in Absolute) | Per-frame position deltas of each piece are independent of `parent.rot(t)` slerp. No coordinated swing across pieces. |
-| `Debris_CloseRange_Relative_NoSyncedSwing_DenseSamples` | Multiple v13 debris pieces within 250 m of parent, parent FG-recorded (dense samples) | Slerp error sub-degree → lever arm × error sub-metre → no visible synced swing. Position deltas match `expectedDM` ± floating-point noise. |
-| `Debris_CloseRange_TumbleGate_RoutesShadow` | Multiple v13 debris pieces close to parent that's tumbling at 200°/s | Gate fires; all debris route through shadow; positions match `absoluteFrames` lerp; no synced swing. |
+| `Debris_LongRange_Absolute_NoSyncedSwing` | Multiple v13 debris pieces all anchored to same parent, all >2500 m from parent (so all in Absolute) | Per-frame position deltas are independent of `parent.rot(t)`. No coordinated swing across pieces. |
+| `Debris_CloseRange_Relative_ShadowPath_NoSyncedSwing` | Multiple v13 debris pieces within 250 m of parent, parent FG-recorded | Shadow path renders all pieces from `absoluteFrames`. No shared parent-rotation channel. |
+| `Debris_CloseRange_TumbleGate_ShadowPath` | Multiple v13 debris pieces close to parent that's tumbling at 200°/s | Gate fires; shadow path engages (mode=gated); positions match `absoluteFrames` lerp; no synced swing. |
 
 ### 7.4 In-game tests (`Source/Parsek/InGameTests/RuntimeTests.cs`)
 
 | Test | Scenario | Assertion |
 |---|---|---|
-| `Debris_SeparationEvent_RelativeWindow_LooksAttached` | In-flight separation; debris pieces stay in Relative for first ~5 s while in proximity | Visual: pixel-accurate spacing during co-flight; no synced swing |
-| `Debris_SeparationEvent_DriftingAway_TransitionsToAbsolute` | Debris drift beyond 2500 m | `[Recorder]` log shows `RELATIVE exit: dist=...` event; subsequent samples in Absolute section |
-| `Debris_TumblingParent_ShadowFallback_RemainsVisible` | Parent rotating at >150°/s with debris in close proximity | Gate fires; shadow path engages (mode=gated); debris remains visible and smooth |
+| `Debris_SeparationEvent_DriftingAway_TransitionsToAbsolute` | Debris drift beyond 2500 m | `[Recorder]` log shows `RELATIVE exit:` event; subsequent samples in Absolute section |
+| `Debris_TumblingParent_ShadowPath_RemainsVisible` | Parent rotating at >150°/s with debris in close proximity | Gate fires; shadow path engages; debris remains visible and smooth |
+| `Debris_ParentOnRails_DuringProximity_TtlEndsRecording` | Debris within 1000 m of parent; parent transitions to packed | `CheckDebrisTTL` fires within one tick; debris recording ends with `ParentOnRailsOrDestroyed` reason; no zombie Relative section |
+| `Debris_PhysicsWarp_BubbleEdge_GateBehavesCorrectly` | Debris hovering at 2400 m during 2× physics warp | No flapping; section transitions occur cleanly across warp tick boundary |
+| `Debris_AbsoluteSection_ParentSuperseded_ContinuesRendering` | v13 debris in Absolute; parent re-flown (superseded) | Debris ghost continues to render through original Absolute section; supersede chain doesn't affect Absolute debris |
 
 ### 7.5 Test fixture
 
-Add a synthetic recording fixture in `Source/Parsek.Tests/Generators/` reproducing the canonical scenario: parent recording with documented attitude curve (slow drift + tumble window) + multiple debris pieces at varying offsets + a drift-past-threshold transition. Used by the regression tests in §7.3.
+Add a synthetic recording fixture in `Source/Parsek.Tests/Generators/` reproducing the canonical scenarios: parent recording with multiple debris pieces, drift past hysteresis exit, parent tumble window, parent on-rails. Used by the regression tests in §7.3 and the v13-shape tests in §7.1/§7.2.
 
 ## 8. Logging additions
 
@@ -227,81 +229,101 @@ Add a synthetic recording fixture in `Source/Parsek.Tests/Generators/` reproduci
 | `DEBRIS RELATIVE exit: dist=...m >= 2500m parent=...` | `BgRecorder` / `Recorder` | Debris transitions to Absolute |
 | `DEBRIS proximity hold: dist=...m parent=...` (rate-limited) | `BgRecorder` | Per-section heartbeat for diagnostics |
 
-`GhostRenderTrace.cs` already emits `mode=gated|always` on the shadow-route line. After this change, `mode=always` should never appear for v13 debris (only `mode=gated`). This is checkable in playtest logs as a rollout sanity gate.
+`GhostRenderTrace.cs` already emits `mode=gated|always` on the shadow-route line. Under the new contract:
+- v13 debris in Relative section → `mode=always` (steady-state) or `mode=gated` (tumble window) — same as today's v12 behaviour
+- v13 debris in Absolute section → no shadow-route line at all (gate predicate returns false)
+
+A CI-runnable invariant test on a synthetic recording asserts these patterns directly, replacing the brittle "grep playtest log for `mode=always`" approach.
 
 ## 9. Risks and decisions
 
-### 9.1 Risk: parent BG cadence is not dense enough → synced-swing returns inside proximity window
+### 9.1 Risk: parent BG cadence is sparse → shadow lerp is the safety net
 
-**Scenario**: parent is BG-recorded (player-focus moved to a different vessel), parent BG cadence is the standard ~0.22 s. Debris is in Relative at 2000 m. Even small parent rotation (5°/s) over a 0.22 s bracket = 1.1° slerp error × 2000 m = 38 m position swing per debris piece, synchronised across all pieces.
+**Scenario**: parent is BG-recorded, parent BG cadence at moderate distance is ~3-8 s. Debris is in Relative at 2000 m. Parent rotation at 5°/s.
 
-**Mitigation**: extend the existing `highFidelityProximityVesselPids` mechanism (currently FG-only at `FlightRecorder.cs:93`) to BG. When a debris recording is active and in Relative-to-parent, register the parent's PID for hi-fi BG sampling. This would force parent BG cadence dense whenever a debris child is in proximity. Implementation: a small companion HashSet on `BackgroundRecorder` and a check in `IsBackgroundHighFidelitySamplingActive`.
+**Mitigation**: the always-shadow path inside Relative (preserved from PR #803) renders from the recorder-authored `absoluteFrames`, which are sampled at the same cadence as the parent samples but contain the **debris's** body-fixed world position — not a parent-multiplied reconstruction. Chord error in the shadow lerp is bounded by the debris's own sample-to-sample motion, not by the parent's rotation × lever arm. **The parent BG cadence concern that existed for the standard `RelativeAnchorResolver` path does not apply to the shadow path.** This is a load-bearing reason for keeping PR #803's shadow path inside Relative.
 
-**Decision**: ship the proximity-gated contract first without this mitigation. The PR #800 tumble-gate shadow fallback covers high-rotation cases. If playtest shows visible synced-swing in the moderate-rotation BG-parent case, add the BG-side hi-fi mechanism as a follow-up. The contract change is reversible only with care, but the BG-cadence extension is a pure additive optimisation.
+### 9.2 Risk: existing v12 saves degrade after the change
 
-### 9.2 Risk: existing v12 saves render badly after the change
+**Scenario**: a player has v12 recordings on disk where debris stayed Relative for its entire lifetime, including at long range.
 
-**Scenario**: a player has v12 recordings on disk where debris stayed Relative for its entire lifetime, including at long range. After this change those Relative sections render through the standard resolver chain (no more unconditional shadow), and the synced-swing artifact resurfaces.
+**Mitigation**: the renderer's always-shadow path inside Relative is unchanged. v12 recordings (which contain only Relative debris sections) continue to render via shadow exactly as they do today. **No regression on existing saves.** New post-change recordings will have Absolute tails that didn't exist in v12 data; existing saves don't have those sections, so the new Absolute renderer path is never invoked for v12 data.
 
-**Decision**: accepted. Per project policy ("private development, fresh and correct versions") existing recordings are disposable. Players re-record under v13. The plan explicitly does not include a migration path or a v12-conditional render branch.
+### 9.3 Risk: `DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap` becomes nearly unreachable
 
-### 9.3 Risk: debris in Absolute outside proximity → visibility decoupled from parent → visual confusion
+**Scenario**: under the new contract, debris Relative sections are short and parent stays in proximity throughout, so authored frame gaps within Relative sections are rare.
 
-**Scenario**: debris drifted >2500 m from parent. Parent is then destroyed. Debris continues to render along its recorded ballistic path, even though "the parent it came from" is gone.
+**Decision**: keep the policy as a defensive fallback. Cost is one if-check per frame; benefit is robustness against unexpected coverage gaps. Add a metric to playtest logs: "X firings per N debris frames" as a rollout-success criterion. If post-rollout telemetry shows zero hits over ≥10 hours of playtest, remove in a follow-up cleanup.
 
-**Decision**: this is fine and arguably better than v12 behaviour. A booster contrail that's already 5 km away from the rocket is visually meaningful regardless of whether the rocket subsequently exploded. The original "bound to parent visibility" rule was a correctness heuristic for the always-Relative contract, not a product requirement.
+### 9.4 Risk: `DebrisRelativeRecorderPolicy` semantic shift introduces subtle bugs
 
-### 9.4 Risk: `DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap` becomes unreachable
+**Scenario**: the policy was written assuming all-Relative debris. The §6.1 audit may miss an assumption.
 
-**Scenario**: under the new contract, debris Relative sections are short (only span proximity windows), so authored frame gaps within Relative sections are rare. The policy might never fire.
+**Mitigation**: the policy methods are pure-static, fully unit-testable. Add tests for each method exercising:
+- v12 all-Relative debris (regression — current behaviour preserved)
+- v13 mixed Absolute+Relative debris (new case)
+- v13 Absolute-only debris (parent destroyed early)
 
-**Decision**: keep the policy as a defensive fallback. Cost is one if-check per frame; benefit is robustness against unexpected coverage gaps. If post-rollout telemetry shows zero hits over a long playtest period, remove in a follow-up cleanup.
+Run the existing v12 regression suite plus the new v13 suite before merge.
 
-### 9.5 Risk: removing PR #803 always-shadow re-exposes a failure mode
+### 9.5 Risk: scope creep into Re-Fly
 
-**Scenario**: PR #803 fixed three issues (pre-engage drift, engage discontinuity, release discontinuity) by routing all v12 debris through shadow. After this change, only the tumble-window cases route through shadow.
+**Mitigation**: every touchpoint listed in §6 is debris-specific. Pre-merge audit:
+1. Run `scripts/grep-audit-non-loop-live-pid.ps1` and `scripts/grep-audit-ers-els.ps1` (existing CI gates).
+2. Grep the codebase for `IsDebris && ... DebrisParentRecordingId` and `DebrisParentRecordingId != null`. Currently 33 hits in `Source/Parsek`. Each hit must be reviewed for whether it assumes the v12 always-Relative invariant; mark each reviewed hit with a comment.
+3. Run all Re-Fly in-game tests and confirm pass.
 
-**Re-analysis**:
-- Pre-engage drift was caused by *thin-tail debris brackets at section ends* with parent rotating underneath. Under v13: Relative sections are now short (proximity-window-bounded), so section tails are not thin-tail-recorded — they're triggered by hysteresis exit, with normal cadence on both sides. The thin-tail failure mode should not re-emerge.
-- Engage discontinuity was caused by gate firing between two debris-recording frames. Under v13: if the gate fires inside the proximity window, the renderer routes to shadow (PR #800 path) for the duration of the gate window. Same behaviour as PR #800 — engage discontinuity was already addressed there.
-- Release discontinuity: same as engage, PR #800 path covers it.
+### 9.6 Risk: visibility decoupling for Absolute debris (§3.3) is a product change
 
-**Decision**: the failure modes PR #803 enumerated were all consequences of the always-Relative contract producing data the renderer couldn't reconstruct cleanly. Under the proximity-gated contract, the input data shape is different — Relative sections are short, anchors are in proximity, optimiser has less room to thin out section tails. The PR #800 fallback covers the residual gate-window cases.
+**Scenario**: under v12, debris vanished when parent recording became unresolvable. Under the new contract, debris in Absolute keeps rendering.
 
-### 9.6 Risk: scope creep into Re-Fly
+**Decision**: this is the intended product change. CHANGELOG entry will explicitly state: *"Debris that has drifted out of parent-bubble proximity continues to render along its recorded ballistic path even after the parent recording is destroyed, finalized, or loop-anchored. Previously, all parent-anchored debris would vanish in this case."*
 
-**Mitigation**: every touchpoint listed in §6 is debris-specific. The grep-audit gate (`scripts/grep-audit-non-loop-live-pid.ps1`) and the existing in-game Re-Fly tests will catch unintended Re-Fly regressions. Run both before merge.
+If the user dislikes the new behaviour, a one-line revert (re-add a visibility-coupling check in the new Absolute dispatch path) is straightforward — the change is reversible.
 
 ## 10. Rollout
 
-1. Land the recorder change first (§6.1) on a feature branch. Verify with new unit tests (§7.1).
-2. Land the renderer change (§6.2) on the same branch. Verify with new unit tests (§7.2) and the regression suite (§7.3).
-3. Bump format version (§6.4). Verify codec round-trip.
-4. Run full xUnit suite. Run Re-Fly in-game tests as the gate against scope creep.
-5. Playtest with the canonical scenarios:
+1. Land the renderer guards (§6.2 rows 1-2) on a feature branch as the **first** commit. These two surgical changes prevent the §3.2 regressions but, by themselves, don't change v12 behaviour because v12 debris recordings contain no Absolute sections — the new Absolute path is unreachable. This commit can be reviewed in isolation.
+2. Land the `DebrisRelativeRecorderPolicy` and `RecordingFinalizationCacheApplier` updates (§6.1) as the **second** commit. Same as above: doesn't activate until the recorder produces mixed sections.
+3. Land the recorder change (§6.1 first three rows) as the **third** commit. This is the moment new recordings start producing Absolute debris tails; the renderer guards from step 1 catch them correctly.
+4. Run full xUnit suite. Confirm all Re-Fly in-game tests pass.
+5. Run the §9.5 grep audit. Document the audit results in the PR description.
+6. Playtest with the canonical scenarios:
    - Stage separation with multiple debris pieces, fly out to >2500 m, observe transition.
    - Tumbling parent (intentional gimbal-stuck booster) with debris in proximity.
    - Long ballistic debris arc into the next SOI (debris in Absolute well past parent destruction).
-6. Validate post-playtest: zero `mode=always` shadow-route lines for v13 debris in the log; expected `RELATIVE exit:` and `RELATIVE entry:` lines at threshold crossings.
-7. Update `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`, `.claude/CLAUDE.md` (the format-version paragraph and the Phase D / debris-shadow notes).
+   - 4× physics warp during debris-near-bubble-edge.
+7. Validate post-playtest: zero coverage-gate retire events on Absolute debris sections; expected `RELATIVE exit:` and `RELATIVE entry:` lines at threshold crossings; shadow-route lines only on Relative sections.
+8. Update `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md`, `.claude/CLAUDE.md` (the format-version paragraph and the Phase D / debris-shadow notes) — all updates limited to debris contract behaviour.
 
 ## 11. Out of scope
 
-- Migration of existing v12 recordings (per §9.2).
-- Extending `highFidelityProximityVesselPids` to BG parents of in-proximity debris (per §9.1) — follow-up if needed.
+- Any change to non-debris recorder or renderer dispatch.
+- Format-version bump (per §3.4).
 - Changing the loop-anchor live-PID carve-out for any vessel kind.
-- Changing non-debris recorder or renderer dispatch.
-- Changing the LegacyDebrisShadowGate (v11 retroactive fix).
+- Changing the `LegacyDebrisShadowGate` (v11 retroactive fix).
 - Recorder-side denser sampling for fast-debris-rotation cases (separate concern; affects attitude not position).
 - Hermite rotation interpolation for debris.
+- Migrating existing v12 recordings (no migration needed — they continue to render correctly via the preserved always-shadow path).
+- Restoring v12's "debris bound to parent visibility" rule for the new Absolute case (deliberate change per §3.3 / §9.6).
 
 ## 12. Appendix: predecessor PR chain
 
 | PR | Branch | Did | Status under this plan |
 |---|---|---|---|
-| #793 | `fix-tumbling-parent-rot-interp` | Added angular-rate gate. Hide on tumble. | Gate retained. Hide only when shadow unavailable. |
-| #800 | `investigate-debris-smooth-trajectory` | Replaced hide with shadow lerp during tumble window. | Retained as the in-proximity tumble fallback. |
-| #803 | `debris-always-shadow` | Made shadow unconditional for v12 debris. | Reverted: shadow only on gate-fire (back to PR #800 design). |
-| 3a | `Recording.DebrisParentRecordingId` schema (v12) | Field for parent identification. | Retained. Field still set; semantics unchanged. |
-| 3b | `BackgroundRecorder` permanent-Relative debris contract | Always-Relative-to-parent for debris lifetime. | Replaced by proximity-gated contract. |
+| #793 | `fix-tumbling-parent-rot-interp` | Added angular-rate gate. Hide on tumble. | Gate retained. Section-aware predicate (`ShouldEvaluateAnchorRotationReliability`) extension fires gate only inside Relative sections. |
+| #800 | `investigate-debris-smooth-trajectory` | Replaced hide with shadow lerp during tumble window. | Retained as the in-Relative path. |
+| #803 | `debris-always-shadow` | Made shadow unconditional for v12 debris inside Relative. | **Retained inside Relative.** The "unconditional" property now applies inside the (much shorter) bounded Relative window only. New Absolute debris sections use standard dispatch. |
+| 3a | `Recording.DebrisParentRecordingId` schema | Field for parent identification. | Retained. Field still set; semantics unchanged. |
+| 3b | `BackgroundRecorder` permanent-Relative debris contract | Always-Relative-to-parent for debris lifetime. | **Replaced** by proximity-gated contract. The "anchor pinned to parent" property is preserved per §3.1. |
 | 3c | `LegacyDebrisShadowGate` for v11 retroactive fix | Reads `absoluteFrames` for v11 broken saves. | Untouched. |
+
+## 13. Review history
+
+The original draft of this plan proposed reverting PR #803 entirely and using the standard `RelativeAnchorResolver` chain inside the new bounded Relative debris window. Critical review (`30e97c0..4b9a9bd`) surfaced three load-bearing issues that motivated the revised shape:
+
+- **P0**: `DebrisRelativePlaybackPolicy.ShouldRetireFromDiagnostic` retires any non-Relative debris section. Under the original design v13 Absolute debris would silently disappear. Fixed in §6.2 row 1.
+- **P0**: `ShouldEvaluateAnchorRotationReliability` is recording-level. Under the original design, a tumbling parent would push v13 Absolute debris to `Hidden` because the gate predicate fired regardless of section type. Fixed in §6.2 row 2 by making the predicate section-aware.
+- **P0**: `DebrisRelativeRecorderPolicy` and `RecordingFinalizationCacheApplier` encode the v12 "all-Relative" invariant. The original draft missed both files entirely. Added in §6.1.
+
+The cross-cutting insight from review was that reverting PR #803 reintroduces the moderate-rotation BG-parent failure mode the proximity-gating doesn't fully prevent (parent BG cadence at section close is wide; lever arm up to 2500 m; gate threshold 150 °/s misses 5-30 °/s drift). Keeping PR #803's shadow path inside the (now-bounded) Relative window pays the renderer cost we already pay today, eliminates the need for §9.1-style hi-fi-parent extensions, and preserves bit-identical rendering of existing v12 saves. This shape — **bounded recorder + unchanged renderer inside the bound** — is the load-bearing change of this plan.
