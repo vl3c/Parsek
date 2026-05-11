@@ -310,12 +310,8 @@ namespace Parsek.Tests
         [Fact]
         public void ResolveLatestStoredOrbitSegmentEndUT_SkipsDegenerateSegments()
         {
-            // Mirror the predicate used by the existing seed picker
-            // (RecordingEndpointResolver.TryGetLastMatchingSegment): segments with
-            // sma <= 0 or non-finite sma are not real orbits and the resolver skips
-            // them. Tail-derive must skip them too — otherwise we would defer to a
-            // "newer" segment the existing path immediately rejects, leaving the
-            // spawn with no seed at all.
+            // Only degenerate/non-finite SMA is skipped. Valid suborbital and
+            // hyperbolic arcs can have |sma| below the body radius.
             var rec = new Recording { RecordingId = "r-degen" };
             // Real segment ending at UT 200.
             rec.OrbitSegments.Add(new OrbitSegment
@@ -330,11 +326,11 @@ namespace Parsek.Tests
                 bodyName = "Kerbin",
                 startUT = 200, endUT = 9999, semiMajorAxis = 0.0
             });
-            // Degenerate negative-sma "segment" — must NOT be picked.
+            // Tiny positive sma — must NOT be picked.
             rec.OrbitSegments.Add(new OrbitSegment
             {
                 bodyName = "Kerbin",
-                startUT = 200, endUT = 8888, semiMajorAxis = -700000
+                startUT = 200, endUT = 8888, semiMajorAxis = 0.5
             });
             // Non-finite sma — must NOT be picked.
             rec.OrbitSegments.Add(new OrbitSegment
@@ -346,6 +342,26 @@ namespace Parsek.Tests
             double endUT = VesselSpawner.ResolveLatestStoredOrbitSegmentEndUT(rec, "Kerbin");
 
             Assert.Equal(200, endUT);
+        }
+
+        [Fact]
+        public void ResolveLatestStoredOrbitSegmentEndUT_NegativeSmaSegment_IsUsable()
+        {
+            var rec = new Recording { RecordingId = "r-negative" };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 100, endUT = 200, semiMajorAxis = 700000
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 200, endUT = 8888, semiMajorAxis = -700000
+            });
+
+            double endUT = VesselSpawner.ResolveLatestStoredOrbitSegmentEndUT(rec, "Kerbin");
+
+            Assert.Equal(8888, endUT);
         }
 
         // ---------- TryDeriveTerminalOrbitSeedFromTrajectoryTail (negative cases) ----------
