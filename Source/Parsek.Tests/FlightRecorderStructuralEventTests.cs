@@ -155,7 +155,7 @@ namespace Parsek.Tests
                 TrajectorySidecarBinary.Write(tempPath, rec, sidecarEpoch: 1);
 
                 Assert.True(TrajectorySidecarBinary.TryProbe(tempPath, out TrajectorySidecarProbe probe));
-                Assert.Equal(RecordingStore.StructuralEventFlagFormatVersion, probe.FormatVersion);
+                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
                 var restored = new Recording();
                 TrajectorySidecarBinary.Read(tempPath, restored, probe);

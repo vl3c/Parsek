@@ -815,7 +815,7 @@ namespace Parsek.Tests
         // controlled child probe recording was anchored to a sibling debris
         // at 8m, then after the upper-stage Re-Fly the debris was
         // TTL-ended, the probe's Relative section past the debris's end UT
-        // became unresolvable, and playback fell back to absolute shadow
+        // became unresolvable, and playback fell back to body-fixed primary
         // with a visibly unstable ghost. These tests pin the AnchorDetector
         // exclusion that prevents creating those fragile cross-recording
         // anchors at recording time.

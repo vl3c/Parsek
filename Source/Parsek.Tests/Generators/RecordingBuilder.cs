@@ -512,7 +512,7 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
-        /// Sets the v12+ debris parent-anchor contract: <see cref="Recording.DebrisParentRecordingId"/>
+        /// Sets the v13 debris parent-anchor contract: <see cref="Recording.DebrisParentRecordingId"/>
         /// is stamped to <paramref name="parentRecordingId"/> on serialization. The caller
         /// must also call <see cref="AsDebris"/> — the field is sparsely written and only
         /// emitted to the ConfigNode when <c>isDebris == true &amp;&amp; parentRecordingId != null</c>,
@@ -927,7 +927,7 @@ namespace Parsek.Tests.Generators
         /// <summary>Returns whether this recording is debris.</summary>
         public bool GetIsDebris() => isDebris;
 
-        /// <summary>Returns the v12+ debris parent-anchor recording id (may be null).</summary>
+        /// <summary>Returns the v13 debris parent-anchor recording id (may be null).</summary>
         public string GetDebrisParentRecordingId() => debrisParentRecordingId;
     }
 }

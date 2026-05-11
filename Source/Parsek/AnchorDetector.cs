@@ -224,7 +224,7 @@ namespace Parsek
             // child probe recording was anchored to a sibling debris at 8m,
             // then after the upper-stage Re-Fly the debris was TTL-ended, the
             // probe's Relative section past the debris's end UT became
-            // unresolvable, and playback fell back to absolute shadow with a
+            // unresolvable, and playback fell back to body-fixed primary with a
             // visibly unstable ghost. Excluding debris from candidacy avoids
             // creating these fragile cross-recording anchors at recording time.
             //

@@ -505,7 +505,7 @@ namespace Parsek.Tests
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
             Assert.Equal(RecordingStore.PredictedOrbitSegmentFormatVersion, legacy.RecordingFormatVersion);
-            Assert.Equal(RecordingStore.PredictedOrbitSegmentFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
                 l.Contains("[RecordingStore]") &&
@@ -838,34 +838,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MixedFormatTrajectorySidecars_LoadInSameProcess()
+        public void CurrentFormatTrajectorySidecars_LoadInSameProcess()
         {
-            var legacy = RecordingStorageFixtures.MaterializeTrajectory(
-                RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
-            legacy.RecordingId = "mixed-v0";
-            legacy.RecordingFormatVersion = 0;
-
-            var sectionedText = RecordingStorageFixtures.MaterializeTrajectory(
-                RecordingStorageFixtures.OrbitalCheckpointTransition().Builder);
-            sectionedText.RecordingId = "mixed-v1";
-            sectionedText.RecordingFormatVersion = 1;
-
             var binary = RecordingStorageFixtures.MaterializeTrajectory(
                 RecordingStorageFixtures.MixedActiveBackground().Builder);
-            binary.RecordingId = "mixed-v2";
-            binary.RecordingFormatVersion = 2;
+            binary.RecordingId = "mixed-current-a";
+            binary.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
 
             var sparseBinary = RecordingStorageFixtures.MaterializeTrajectory(
                 RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
-            sparseBinary.RecordingId = "mixed-v3";
-            sparseBinary.RecordingFormatVersion = 3;
+            sparseBinary.RecordingId = "mixed-current-b";
+            sparseBinary.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
 
             var cases = new[]
             {
-                new { Original = legacy, Path = Path.Combine(tempDir, "mixed-v0.prec"), ExpectedEncoding = TrajectorySidecarEncoding.TextConfigNode },
-                new { Original = sectionedText, Path = Path.Combine(tempDir, "mixed-v1.prec"), ExpectedEncoding = TrajectorySidecarEncoding.TextConfigNode },
-                new { Original = binary, Path = Path.Combine(tempDir, "mixed-v2.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV2 },
-                new { Original = sparseBinary, Path = Path.Combine(tempDir, "mixed-v3.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV3 }
+                new { Original = binary, Path = Path.Combine(tempDir, "mixed-current-a.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV3 },
+                new { Original = sparseBinary, Path = Path.Combine(tempDir, "mixed-current-b.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV3 }
             };
 
             for (int i = 0; i < cases.Length; i++)
@@ -1717,29 +1705,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SparseBinaryTrajectorySidecar_IsSmallerThanLegacyBinaryForStableFields()
+        public void CurrentBinaryTrajectorySidecar_UsesSparseBinaryEncoding()
         {
-            Recording legacyBinary = RecordingStorageFixtures.MaterializeTrajectory(
+            Recording rec = RecordingStorageFixtures.MaterializeTrajectory(
                 RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
-            legacyBinary.RecordingId = "size-v2";
-            legacyBinary.RecordingFormatVersion = 2;
+            rec.RecordingId = "current-binary";
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
 
-            Recording sparseBinary = RecordingStorageFixtures.MaterializeTrajectory(
-                RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
-            sparseBinary.RecordingId = "size-v3";
-            sparseBinary.RecordingFormatVersion = 3;
+            string path = Path.Combine(tempDir, "current-binary.prec");
 
-            string legacyPath = Path.Combine(tempDir, "size-v2.prec");
-            string sparsePath = Path.Combine(tempDir, "size-v3.prec");
+            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 1);
 
-            RecordingStore.WriteTrajectorySidecar(legacyPath, legacyBinary, sidecarEpoch: 1);
-            RecordingStore.WriteTrajectorySidecar(sparsePath, sparseBinary, sidecarEpoch: 1);
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
 
-            long legacyBytes = new FileInfo(legacyPath).Length;
-            long sparseBytes = new FileInfo(sparsePath).Length;
-
-            Assert.True(sparseBytes < legacyBytes,
-                $"Expected sparse binary sidecar ({sparseBytes} bytes) to be smaller than legacy binary ({legacyBytes} bytes)");
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.True(new FileInfo(path).Length > 0);
         }
 
         [Fact]
@@ -2243,8 +2225,8 @@ namespace Parsek.Tests
             {
                 // Magic
                 writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
-                // formatVersion = 3 (SparsePointBinaryVersion, supported)
-                writer.Write(3);
+                // formatVersion = current v13 (supported)
+                writer.Write(RecordingStore.CurrentRecordingFormatVersion);
                 // sidecarEpoch
                 writer.Write(1);
                 // recordingId (BinaryWriter.Write(string) writes length-prefixed UTF8)
@@ -2281,7 +2263,7 @@ namespace Parsek.Tests
             using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
             {
                 writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
-                writer.Write(3); // formatVersion = 3
+                writer.Write(RecordingStore.CurrentRecordingFormatVersion);
                 writer.Write(1); // sidecarEpoch
                 writer.Write("truncated-sparse-test");
                 writer.Write((byte)0); // flags
@@ -2508,10 +2490,6 @@ namespace Parsek.Tests
         // -----------------------------------------------------------------------
 
         [Theory]
-        [InlineData("v0Flat")]
-        [InlineData("v1FlatSectionsDuplicated")]
-        [InlineData("v1SectionAuthoritative")]
-        [InlineData("v2Binary")]
         [InlineData("v3Sparse")]
         [InlineData("aliasSnapshot")]
         public void CodecRoundTripMatrix_EveryFormatPreservesSemanticsAndBoundaryPairs(string caseName)
@@ -2568,14 +2546,14 @@ namespace Parsek.Tests
 
                 case "v3Sparse":
                     writeRec = fixture;
-                    writeRec.RecordingFormatVersion = 3;
+                    writeRec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
                     expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
                     expectSectionAuthoritative = true;
                     break;
 
                 case "aliasSnapshot":
                     writeRec = fixture;
-                    writeRec.RecordingFormatVersion = 3;
+                    writeRec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
                     // Set alias snapshot mode: GhostVisualSnapshot == VesselSnapshot
                     writeRec.VesselSnapshot = BuildSnapshot("CodecMatrix Vessel", pid: 9901u);
                     writeRec.GhostVisualSnapshot = writeRec.VesselSnapshot;

@@ -4814,7 +4814,7 @@ namespace Parsek.Tests
                     PointAt(30),
                     PointAt(40),
                 },
-                absoluteFrames = new List<TrajectoryPoint>
+                bodyFixedFrames = new List<TrajectoryPoint>
                 {
                     PointAt(10, 100),
                     PointAt(20, 200),
@@ -4832,7 +4832,7 @@ namespace Parsek.Tests
 
             Assert.True(trimmed);
             Assert.Equal(new[] { 10.0, 20.0 }, section.frames.Select(p => p.ut).ToArray());
-            Assert.Equal(new[] { 10.0, 20.0 }, section.absoluteFrames.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 10.0, 20.0 }, section.bodyFixedFrames.Select(p => p.ut).ToArray());
             Assert.Equal(20, section.endUT);
         }
 
@@ -4865,7 +4865,7 @@ namespace Parsek.Tests
                         PointAt(21),
                         PointAt(30),
                     },
-                    absoluteFrames = new List<TrajectoryPoint>
+                    bodyFixedFrames = new List<TrajectoryPoint>
                     {
                         PointAt(15, 150),
                         PointAt(21, 210),
@@ -4880,7 +4880,7 @@ namespace Parsek.Tests
             method.Invoke(null, new object[] { sections });
 
             Assert.Equal(new[] { 21.0, 30.0 }, sections[1].frames.Select(p => p.ut).ToArray());
-            Assert.Equal(new[] { 21.0, 30.0 }, sections[1].absoluteFrames.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 21.0, 30.0 }, sections[1].bodyFixedFrames.Select(p => p.ut).ToArray());
             Assert.Equal(21, sections[1].startUT);
             Assert.Equal(30, sections[1].endUT);
         }

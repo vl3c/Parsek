@@ -1378,7 +1378,7 @@ namespace Parsek.Tests
             recNode.AddValue("recordingId", "rec_fwd");
             recNode.AddValue("vesselName", "Future Ship");
             recNode.AddValue("vesselPersistentId", "999");
-            recNode.AddValue("recordingFormatVersion", "0");
+            recNode.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
             recNode.AddValue("loopPlayback", "False");
             recNode.AddValue("loopIntervalSeconds", "10");
             recNode.AddValue("lastResIdx", "-1");

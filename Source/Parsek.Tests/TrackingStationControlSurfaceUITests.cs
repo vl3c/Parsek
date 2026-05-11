@@ -258,7 +258,7 @@ namespace Parsek.Tests
                             Point(100.0, 500.0, 600.0, 700.0),
                             Point(110.0, 510.0, 610.0, 710.0)
                         },
-                        absoluteFrames = shadowFrames
+                        bodyFixedFrames = shadowFrames
                     }
                 }
             };
@@ -308,7 +308,7 @@ namespace Parsek.Tests
 
             Assert.False(selected);
             Assert.Null(frames);
-            Assert.Equal("relative-without-absolute-shadow", reason);
+            Assert.Equal("relative-without-body-fixed-primary", reason);
         }
 
         [Fact]
@@ -339,7 +339,7 @@ namespace Parsek.Tests
                             Point(100.0, 500.0, 600.0, 700.0),
                             Point(110.0, 510.0, 610.0, 710.0)
                         },
-                        absoluteFrames = shadowFrames
+                        bodyFixedFrames = shadowFrames
                     }
                 }
             };
@@ -389,7 +389,7 @@ namespace Parsek.Tests
 
             Assert.False(selected);
             Assert.Null(frames);
-            Assert.Equal("relative-without-absolute-shadow", reason);
+            Assert.Equal("relative-without-body-fixed-primary", reason);
         }
 
         [Fact]

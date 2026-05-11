@@ -1173,7 +1173,7 @@ namespace Parsek.Tests
             Assert.Equal(ReferenceFrame.Relative, relative.referenceFrame);
             Assert.Equal(anchorId, relative.anchorRecordingId);
             Assert.Equal(0u, relative.anchorVesselId);
-            Assert.NotNull(relative.absoluteFrames);
+            Assert.NotNull(relative.bodyFixedFrames);
         }
 
         #endregion

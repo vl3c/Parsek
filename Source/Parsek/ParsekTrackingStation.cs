@@ -1437,14 +1437,14 @@ namespace Parsek
 
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
-                if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+                if (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
                 {
-                    reason = "relative-without-absolute-shadow";
+                    reason = "relative-without-body-fixed-primary";
                     blocked = true;
                     return false;
                 }
 
-                frames = section.absoluteFrames;
+                frames = section.bodyFixedFrames;
                 return true;
             }
 

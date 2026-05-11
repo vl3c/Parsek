@@ -45,16 +45,17 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(2, (int)TrajectorySidecarEncoding.BinaryV2, true)]
-        [InlineData(3, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(4, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(5, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(6, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(7, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(8, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(9, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(10, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(11, (int)TrajectorySidecarEncoding.BinaryV3, true)]
+        [InlineData(2, (int)TrajectorySidecarEncoding.BinaryV2, false)]
+        [InlineData(3, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(4, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(5, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(6, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(7, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(8, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(9, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(10, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(11, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(13, (int)TrajectorySidecarEncoding.BinaryV3, true)]
         [InlineData(99, (int)TrajectorySidecarEncoding.BinaryV3, false)]
         public void TryProbe_MapsVersionToEncodingAndSupport(
             int version,
@@ -83,12 +84,8 @@ namespace Parsek.Tests
         [Fact]
         public void CurrentBinaryVersion_TracksCurrentRecordingFormatVersion()
         {
-            // PR 3a (format v12): the binary `.prec` LAYOUT is unchanged at v12 — the
-            // anchor-chain layout introduced at v11 covers both. The constants for
-            // layout boundaries (`RecordingAnchorChainFormatVersion` /
-            // `RecordingAnchorChainBinaryVersion`) stay pinned at 11. The current-version
-            // stamps advance to 12 so freshly-written sidecars match the recording's
-            // RecordingFormatVersion by equality.
+            // v13 sidecars are accepted only at the current binary version; older
+            // layout-boundary constants remain pinned for writer/read-gate code.
             Assert.Equal(
                 RecordingStore.RecordingAnchorChainFormatVersion,
                 TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
@@ -109,7 +106,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
-            Assert.Equal(3, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording
             {
@@ -159,20 +156,20 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
-            Assert.Equal(RecordingStore.RelativeAbsoluteShadowFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
 
             AssertTrajectoryPayloadEqual(original, restored);
             Assert.Single(restored.TrackSections);
-            Assert.Equal(2, restored.TrackSections[0].absoluteFrames.Count);
-            AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.TrackSections[0].absoluteFrames[0]);
-            AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.TrackSections[0].absoluteFrames[1]);
+            Assert.Equal(2, restored.TrackSections[0].bodyFixedFrames.Count);
+            AssertPointEqual(original.TrackSections[0].bodyFixedFrames[0], restored.TrackSections[0].bodyFixedFrames[0]);
+            AssertPointEqual(original.TrackSections[0].bodyFixedFrames[1], restored.TrackSections[0].bodyFixedFrames[1]);
         }
 
         [Fact]
-        public void WriteRead_RelativeSection_PreservesAnchorRecordingId()
+        public void WriteRead_RelativeSection_PreservesAnchorRecordingIdAndLivePid()
         {
             Recording original = BuildAnchorRecordingIdFixture();
 
@@ -181,14 +178,14 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
-            Assert.Equal(RecordingStore.RecordingAnchorChainFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
 
             Assert.Single(restored.TrackSections);
             Assert.Equal("anchor-rec-1", restored.TrackSections[0].anchorRecordingId);
-            Assert.Equal(0u, restored.TrackSections[0].anchorVesselId);
+            Assert.Equal(3314061462u, restored.TrackSections[0].anchorVesselId);
             Assert.Equal(2, restored.TrackSections[0].frames.Count);
         }
 
@@ -229,8 +226,8 @@ namespace Parsek.Tests
             TrajectorySidecarBinary.Read(path, restored, probe);
 
             Assert.Equal(4, restored.Points.Count);
-            AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.Points[0]);
-            AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.Points[1]);
+            AssertPointEqual(original.TrackSections[0].bodyFixedFrames[0], restored.Points[0]);
+            AssertPointEqual(original.TrackSections[0].bodyFixedFrames[1], restored.Points[1]);
             AssertPointEqual(original.TrackSections[1].frames[1], restored.Points[2]);
             AssertPointEqual(original.Points[4], restored.Points[3]);
             Assert.NotEqual(original.TrackSections[0].frames[0].altitude, restored.Points[0].altitude);
@@ -238,8 +235,8 @@ namespace Parsek.Tests
             Assert.Equal(2, restored.TrackSections.Count);
             AssertPointEqual(original.TrackSections[0].frames[0], restored.TrackSections[0].frames[0]);
             AssertPointEqual(original.TrackSections[0].frames[1], restored.TrackSections[0].frames[1]);
-            AssertPointEqual(original.TrackSections[0].absoluteFrames[0], restored.TrackSections[0].absoluteFrames[0]);
-            AssertPointEqual(original.TrackSections[0].absoluteFrames[1], restored.TrackSections[0].absoluteFrames[1]);
+            AssertPointEqual(original.TrackSections[0].bodyFixedFrames[0], restored.TrackSections[0].bodyFixedFrames[0]);
+            AssertPointEqual(original.TrackSections[0].bodyFixedFrames[1], restored.TrackSections[0].bodyFixedFrames[1]);
 
             Assert.Single(restored.OrbitSegments);
             AssertOrbitSegmentEqual(original.OrbitSegments[0], restored.OrbitSegments[0]);
@@ -484,7 +481,7 @@ namespace Parsek.Tests
                 minAltitude = 3f,
                 maxAltitude = 6f,
                 frames = new List<TrajectoryPoint> { relativeA, relativeB },
-                absoluteFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
+                bodyFixedFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
                 checkpoints = new List<OrbitSegment>()
             });
 
@@ -518,7 +515,7 @@ namespace Parsek.Tests
                 minAltitude = 3f,
                 maxAltitude = 6f,
                 frames = new List<TrajectoryPoint> { relativeA, relativeB },
-                absoluteFrames = new List<TrajectoryPoint>(),
+                bodyFixedFrames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment>()
             });
 
@@ -559,7 +556,7 @@ namespace Parsek.Tests
                 anchorRecordingId = "upper-stage",
                 sampleRateHz = 2f,
                 frames = new List<TrajectoryPoint> { relativeA, relativeB },
-                absoluteFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
+                bodyFixedFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
                 checkpoints = new List<OrbitSegment>()
             });
             rec.TrackSections.Add(new TrackSection
@@ -700,13 +697,13 @@ namespace Parsek.Tests
             for (int i = 0; i < expected.frames.Count; i++)
                 AssertPointEqual(expected.frames[i], actual.frames[i]);
 
-            List<TrajectoryPoint> expectedAbsoluteFrames =
-                expected.absoluteFrames ?? new List<TrajectoryPoint>();
-            List<TrajectoryPoint> actualAbsoluteFrames =
-                actual.absoluteFrames ?? new List<TrajectoryPoint>();
-            Assert.Equal(expectedAbsoluteFrames.Count, actualAbsoluteFrames.Count);
-            for (int i = 0; i < expectedAbsoluteFrames.Count; i++)
-                AssertPointEqual(expectedAbsoluteFrames[i], actualAbsoluteFrames[i]);
+            List<TrajectoryPoint> expectedbodyFixedFrames =
+                expected.bodyFixedFrames ?? new List<TrajectoryPoint>();
+            List<TrajectoryPoint> actualbodyFixedFrames =
+                actual.bodyFixedFrames ?? new List<TrajectoryPoint>();
+            Assert.Equal(expectedbodyFixedFrames.Count, actualbodyFixedFrames.Count);
+            for (int i = 0; i < expectedbodyFixedFrames.Count; i++)
+                AssertPointEqual(expectedbodyFixedFrames[i], actualbodyFixedFrames[i]);
 
             Assert.Equal(expected.checkpoints.Count, actual.checkpoints.Count);
             for (int i = 0; i < expected.checkpoints.Count; i++)
@@ -767,7 +764,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
-            Assert.Equal(RecordingStore.BoundarySeamFlagFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
@@ -784,7 +781,7 @@ namespace Parsek.Tests
         // file fed to a v8 reader desynchronizes positionally on the next field — the test
         // would fail with mangled frame data, not just a wrong seam flag.
         [Fact]
-        public void TrackSection_BoundarySeamFlag_DefaultsFalseOnLegacyBinaryLoad()
+        public void TrackSection_BoundarySeamFlag_PreservesCurrentBinaryValue()
         {
             const double t0 = 31000.0;
             var legacyPoint = new TrajectoryPoint
@@ -803,12 +800,8 @@ namespace Parsek.Tests
 
             var rec = new Recording
             {
-                RecordingId = "boundary-seam-legacy-binary",
-                // Pin the writer to v7 (RelativeAbsoluteShadowFormatVersion). The codec's
-                // version-selection ladder picks the highest tier that the in-memory format
-                // version permits, so v7 produces a v7 binary file — exactly the layout a
-                // pre-PR save on disk has.
-                RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion
+                RecordingId = "boundary-seam-current-binary",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.TrackSections.Add(new TrackSection
             {
@@ -821,30 +814,23 @@ namespace Parsek.Tests
                 frames = new List<TrajectoryPoint> { legacyPoint },
                 checkpoints = new List<OrbitSegment>(),
                 anchorVesselId = 0u,
-                // Setting the flag here is meaningless — the v7 writer will not emit the byte.
-                // The test's contract is "v7 readers see false regardless of in-memory state."
                 isBoundarySeam = true
             });
 
-            string path = Path.Combine(tempDir, "seam-legacy-binary.prec");
+            string path = Path.Combine(tempDir, "seam-current-binary.prec");
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out probe));
-            Assert.Equal(RecordingStore.RelativeAbsoluteShadowFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
 
             Assert.Single(restored.TrackSections);
             var section = restored.TrackSections[0];
-            Assert.False(section.isBoundarySeam,
-                "v7 binary file loaded under v8 reader produced isBoundarySeam=true — version gating broken.");
+            Assert.True(section.isBoundarySeam);
 
-            // Positional sanity: if the seam byte read had desynchronised the stream, the
-            // frames list would deserialize as garbage (wrong count, wrong field values, or
-            // an exception). Verify the frame round-trips intact — this is the real catch
-            // for a positional desync regression.
             Assert.Single(section.frames);
             AssertPointEqual(legacyPoint, section.frames[0]);
         }

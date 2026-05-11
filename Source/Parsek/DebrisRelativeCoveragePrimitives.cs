@@ -56,7 +56,7 @@ namespace Parsek
             double targetUT)
         {
             // The shadow renderer interpolates between two samples; unlike a
-            // single Relative frame, one absolute shadow point cannot cover a
+            // single Relative frame, one body-fixed primary point cannot cover a
             // full section span. See TryPositionFromRelativeAbsoluteShadow.
             if (frames == null || frames.Count < 2)
                 return false;
@@ -133,7 +133,7 @@ namespace Parsek
 
         internal static bool TryGetRenderableCoverageEndUT(
             IList<TrajectoryPoint> relativeFrames,
-            IList<TrajectoryPoint> absoluteFrames,
+            IList<TrajectoryPoint> bodyFixedFrames,
             IList<OrbitSegment> checkpoints,
             double sectionStartUT,
             double sectionEndUT,
@@ -155,9 +155,9 @@ namespace Parsek
                 ConsiderCoverage(relativeEndUT, "relative-frames", ref coverageEndUT, ref coverageReason, ref found);
             }
 
-            if (TryGetAbsoluteShadowCoverageEndUT(absoluteFrames, out double shadowEndUT))
+            if (TryGetAbsoluteShadowCoverageEndUT(bodyFixedFrames, out double shadowEndUT))
             {
-                ConsiderCoverage(shadowEndUT, "absolute-shadow", ref coverageEndUT, ref coverageReason, ref found);
+                ConsiderCoverage(shadowEndUT, "body-fixed-primary", ref coverageEndUT, ref coverageReason, ref found);
             }
 
             if (TryGetCheckpointCoverageEndUT(checkpoints, out double checkpointEndUT))

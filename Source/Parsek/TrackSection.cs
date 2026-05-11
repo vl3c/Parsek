@@ -43,7 +43,7 @@ namespace Parsek
     /// Replaces the flat list of trajectory points with environment-tagged sections
     /// that carry their own reference frame and sampling metadata.
     ///
-    /// IMPORTANT: This is a struct. The 'frames', 'absoluteFrames', and 'checkpoints' lists default to null.
+    /// IMPORTANT: This is a struct. The 'frames', 'bodyFixedFrames', and 'checkpoints' lists default to null.
     /// Always initialize them via StartNewTrackSection (recording) or DeserializeTrackSections
     /// (loading). Do not create TrackSection manually without initializing the lists.
     /// </summary>
@@ -56,7 +56,7 @@ namespace Parsek
         public uint anchorVesselId;             // For Relative frame only (0 = not set)
         public string anchorRecordingId;        // For v11 Relative frame only (null = not set)
         public List<TrajectoryPoint> frames;    // For Absolute/Relative (null until initialized)
-        public List<TrajectoryPoint> absoluteFrames; // For Relative only: planet-relative shadow payload
+        public List<TrajectoryPoint> bodyFixedFrames; // For Relative only: body-fixed world-coordinate primary surface
         public List<OrbitSegment> checkpoints;  // For OrbitalCheckpoint (null until initialized)
         public float sampleRateHz;              // Actual recording sample rate
         public TrackSectionSource source;       // Data provenance (for diagnostics)
@@ -77,7 +77,7 @@ namespace Parsek
         {
             var ic = CultureInfo.InvariantCulture;
             int frameCount = frames?.Count ?? 0;
-            int absoluteFrameCount = absoluteFrames?.Count ?? 0;
+            int bodyFixedFrameCount = bodyFixedFrames?.Count ?? 0;
             int checkpointCount = checkpoints?.Count ?? 0;
             string altRange = !float.IsNaN(minAltitude) && !float.IsNaN(maxAltitude)
                 ? $" alt=[{minAltitude.ToString("F0", ic)},{maxAltitude.ToString("F0", ic)}]" : "";
@@ -85,7 +85,7 @@ namespace Parsek
                 ? $" anchorRec={anchorRecordingId}" : "";
             string seam = isBoundarySeam ? " seam=1" : "";
             return $"TrackSection env={environment} ref={referenceFrame} " +
-                   $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} absFrames={absoluteFrameCount} " +
+                   $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} absFrames={bodyFixedFrameCount} " +
                    $"checkpoints={checkpointCount} " +
                    $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}{altRange}{anchorRec}{seam}";
         }

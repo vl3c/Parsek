@@ -38,35 +38,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingAnchorChainVersion_PinnedAt11_AndCurrentVersionsTrackV12()
+        public void RecordingAnchorChainVersion_PinnedAt11_AndCurrentVersionsTrackV13()
         {
-            // PR 3a (format v12) bumped CurrentRecordingFormatVersion to 12
-            // (`DebrisParentRecordingFormatVersion`). The anchor-chain layout was
-            // introduced at v11 and is unchanged at v12 — `RecordingAnchorChainFormatVersion`
-            // / `RecordingAnchorChainBinaryVersion` stay pinned at 11 to identify the
-            // anchor-chain boundary, while the current-version constants advance to 12.
+            // v13 keeps the anchor-chain boundary pinned at v11 while the current
+            // recording and binary versions advance to the debris frame contract.
             Assert.Equal(11, RecordingStore.RecordingAnchorChainFormatVersion);
             Assert.Equal(
                 RecordingStore.RecordingAnchorChainFormatVersion,
                 TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
-            Assert.Equal(12, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(13, RecordingStore.CurrentRecordingFormatVersion);
             Assert.Equal(
                 RecordingStore.CurrentRecordingFormatVersion,
                 TrajectorySidecarBinary.CurrentBinaryVersion);
         }
 
         [Fact]
-        public void BinaryV11_RelativeTrackSection_RoundTripsAnchorRecordingIdWithoutLegacyPid()
+        public void BinaryV13_RelativeTrackSection_RoundTripsAnchorRecordingIdAndLivePid()
         {
             Recording original = BuildV11RelativeAnchorFixture();
-            string path = Path.Combine(tempDir, "v11-anchor-recording.prec");
+            string path = Path.Combine(tempDir, "v13-anchor-recording.prec");
 
             TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            // Fresh writes stamp the recording's format version (post-PR-3a v12); the
-            // anchor-chain layout introduced at v11 is unchanged at v12 so the probe
-            // and recording version match by equality.
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.True(probe.Supported);
 
@@ -76,9 +70,9 @@ namespace Parsek.Tests
             Assert.Single(restored.TrackSections);
             TrackSection section = restored.TrackSections[0];
             Assert.Equal("anchor-recording-a", section.anchorRecordingId);
-            Assert.Equal(0u, section.anchorVesselId);
+            Assert.Equal(3314061462u, section.anchorVesselId);
             Assert.Equal(2, section.frames.Count);
-            Assert.Equal(2, section.absoluteFrames.Count);
+            Assert.Equal(2, section.bodyFixedFrames.Count);
         }
 
         [Fact]
@@ -132,7 +126,7 @@ namespace Parsek.Tests
                 minAltitude = 3f,
                 maxAltitude = 6f,
                 frames = new List<TrajectoryPoint> { relativeA, relativeB },
-                absoluteFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
+                bodyFixedFrames = new List<TrajectoryPoint> { absoluteA, absoluteB },
                 checkpoints = new List<OrbitSegment>()
             });
 

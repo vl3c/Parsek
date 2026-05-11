@@ -3,7 +3,7 @@ using System;
 namespace Parsek
 {
     /// <summary>
-    /// Pure predicate that decides whether a v12+ debris recording's parent
+    /// Pure predicate that decides whether a parent-anchored debris recording's parent
     /// recording is "closed/superseded" — i.e. no longer accepting new
     /// trajectory samples — so the debris recording should be ended by the
     /// TTL hook (`BackgroundRecorder.CheckDebrisTTL`).
@@ -13,7 +13,7 @@ namespace Parsek
     /// as the "finalized" signal. That's a real bug — active background
     /// recordings update <c>ExplicitEndUT</c> only at sample boundaries, so
     /// it lags the current frame by the sample interval. Treating that lag
-    /// as "finalized" would end every v12 debris on the next TTL tick.
+    /// as "finalized" would end every debris child on the next TTL tick.
     ///
     /// The natural-looking replacement was "<c>ChildBranchPointId</c> set
     /// means closed." That's wrong too — focused-vessel breakups

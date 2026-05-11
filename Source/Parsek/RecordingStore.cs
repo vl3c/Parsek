@@ -111,7 +111,8 @@ namespace Parsek
         public const int StructuralEventFlagFormatVersion = 10;
         public const int RecordingAnchorChainFormatVersion = 11;
         public const int DebrisParentRecordingFormatVersion = 12;
-        public const int CurrentRecordingFormatVersion = DebrisParentRecordingFormatVersion;
+        public const int DebrisFrameContractFormatVersion = 13;
+        public const int CurrentRecordingFormatVersion = DebrisFrameContractFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -2874,9 +2875,9 @@ namespace Parsek
                 {
                     AppendBodyTransitions(bodies, section.frames);
                 }
-                else if (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                else if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
                 {
-                    AppendBodyTransitions(bodies, section.absoluteFrames);
+                    AppendBodyTransitions(bodies, section.bodyFixedFrames);
                 }
                 else if (section.checkpoints != null)
                 {
@@ -6496,7 +6497,7 @@ namespace Parsek
         /// <see cref="NormalizeRecordingFormatVersionAfterLegacyLoopMigration"/>).
         /// Every other lag is rejected: v5 added serialized
         /// <c>OrbitSegment.isPredicted</c>, v6 changed RELATIVE TrackSection point
-        /// semantics, and v7 added RELATIVE absolute shadow points, so a v3 sidecar
+        /// semantics, and v7 added RELATIVE body-fixed primary points, so a v3 sidecar
         /// paired with a v5+ recording indicates stale or incomplete trajectory data
         /// on disk that the runtime test must catch.
         /// </summary>

@@ -26,13 +26,6 @@ namespace Parsek
             PromoteFromBackground     // background recording -> active (resume physics sampling)
         }
 
-        internal enum ReFlyTreeSamplingCadence
-        {
-            None,
-            Full,
-            Half
-        }
-
         internal struct ReFlyPostLoadSettleDecision
         {
             public bool Hold;
@@ -749,7 +742,7 @@ namespace Parsek
                 || IsHighFidelityProximityActive(proximityDistanceMeters);
         }
 
-        internal static ReFlyTreeSamplingCadence ResolveActiveReFlyTreeSamplingCadence(
+        internal static ProximitySamplingTier ResolveActiveReFlyTreeSamplingCadence(
             string activeRecordingId,
             string activeTreeId,
             ReFlySessionMarker marker,
@@ -761,61 +754,65 @@ namespace Parsek
             if (string.IsNullOrEmpty(activeRecordingId))
             {
                 reason = "active-recording-id-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (string.IsNullOrEmpty(activeTreeId))
             {
                 reason = "active-tree-id-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (marker == null)
             {
                 reason = "marker-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (string.IsNullOrEmpty(marker.SessionId))
             {
                 reason = "marker-session-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (string.IsNullOrEmpty(marker.TreeId))
             {
                 reason = "marker-tree-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
             {
                 reason = "marker-active-recording-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (!IsFinite(currentUT))
             {
                 reason = "ut-non-finite";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (!string.Equals(activeTreeId, marker.TreeId, StringComparison.Ordinal))
             {
                 reason = "tree-mismatch";
-                return ReFlyTreeSamplingCadence.None;
-            }
-            if (!IsFinite(proximityDistanceMeters))
-            {
-                reason = "proximity-missing";
-                return ReFlyTreeSamplingCadence.None;
-            }
-            if (proximityDistanceMeters <= ReFlyTreeFullFidelityProximityRangeMeters)
-            {
-                reason = "active-refly-tree-full";
-                return ReFlyTreeSamplingCadence.Full;
-            }
-            if (proximityDistanceMeters <= ReFlyTreeHalfFidelityProximityRangeMeters)
-            {
-                reason = "active-refly-tree-half";
-                return ReFlyTreeSamplingCadence.Half;
+                return ProximitySamplingTier.None;
             }
 
-            reason = "proximity-out-of-range";
-            return ReFlyTreeSamplingCadence.None;
+            ProximitySamplingTier tier = ProximitySamplingCadence.Resolve(
+                proximityDistanceMeters,
+                ReFlyTreeFullFidelityProximityRangeMeters,
+                ReFlyTreeHalfFidelityProximityRangeMeters,
+                out string proximityReason);
+            switch (proximityReason)
+            {
+                case "full":
+                    reason = "active-refly-tree-full";
+                    break;
+                case "half":
+                    reason = "active-refly-tree-half";
+                    break;
+                case "distance-missing":
+                    reason = "proximity-missing";
+                    break;
+                default:
+                    reason = "proximity-out-of-range";
+                    break;
+            }
+            return tier;
         }
 
         internal static float ResolveEffectiveMinSampleInterval(bool highFidelityActive, float configuredMin)
@@ -824,16 +821,22 @@ namespace Parsek
         }
 
         internal static float ResolveEffectiveMinSampleInterval(
-            ReFlyTreeSamplingCadence reFlyTreeCadence,
+            ProximitySamplingTier reFlyTreeTier,
+            ProximitySamplingTier debrisTier,
             bool highFidelityActive,
             float configuredMin,
             float configuredMax)
         {
-            if (reFlyTreeCadence != ReFlyTreeSamplingCadence.None)
-                return ResolveReFlyTreeCadenceSampleInterval(
-                    reFlyTreeCadence,
-                    configuredMax,
-                    configuredMin);
+            if (reFlyTreeTier != ProximitySamplingTier.None)
+                return ProximitySamplingCadence.ResolveSampleInterval(
+                    reFlyTreeTier,
+                    configuredMin,
+                    configuredMax);
+            if (debrisTier != ProximitySamplingTier.None)
+                return ProximitySamplingCadence.ResolveSampleInterval(
+                    debrisTier,
+                    configuredMin,
+                    configuredMax);
             return ResolveEffectiveMinSampleInterval(highFidelityActive, configuredMin);
         }
 
@@ -848,31 +851,26 @@ namespace Parsek
         }
 
         internal static float ResolveEffectiveMaxSampleInterval(
-            ReFlyTreeSamplingCadence reFlyTreeCadence,
+            ProximitySamplingTier reFlyTreeTier,
+            ProximitySamplingTier debrisTier,
             bool highFidelityActive,
             float configuredMax,
             float configuredMin)
         {
-            if (reFlyTreeCadence != ReFlyTreeSamplingCadence.None)
-                return ResolveReFlyTreeCadenceSampleInterval(
-                    reFlyTreeCadence,
-                    configuredMax,
-                    configuredMin);
+            if (reFlyTreeTier != ProximitySamplingTier.None)
+                return ProximitySamplingCadence.ResolveSampleInterval(
+                    reFlyTreeTier,
+                    configuredMin,
+                    configuredMax);
+            if (debrisTier != ProximitySamplingTier.None)
+                return ProximitySamplingCadence.ResolveSampleInterval(
+                    debrisTier,
+                    configuredMin,
+                    configuredMax);
             return ResolveEffectiveMaxSampleInterval(
                 highFidelityActive,
                 configuredMax,
                 configuredMin);
-        }
-
-        private static float ResolveReFlyTreeCadenceSampleInterval(
-            ReFlyTreeSamplingCadence reFlyTreeCadence,
-            float configuredMax,
-            float configuredMin)
-        {
-            float configuredMinClamped = Math.Max(0f, configuredMin);
-            if (reFlyTreeCadence == ReFlyTreeSamplingCadence.Half)
-                configuredMinClamped *= 2f;
-            return Math.Min(configuredMax, configuredMinClamped);
         }
 
         internal static double ResolveHighFidelitySamplingWindowSeconds(float configuredMax)
@@ -932,7 +930,7 @@ namespace Parsek
             RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT;
         private const float snapshotPerfLogThresholdMs = 25.0f;
         private const float attitudeSampleThresholdDegrees = 1.0f;
-        internal const double HighFidelityProximityRangeMeters = 200.0;
+        internal const double HighFidelityProximityRangeMeters = 250.0;
         internal const double ReFlyTreeFullFidelityProximityRangeMeters = 250.0;
         internal const double ReFlyTreeHalfFidelityProximityRangeMeters = 500.0;
         internal const double SparseSectionGapWarningThresholdSeconds = 0.50;
@@ -4878,7 +4876,7 @@ namespace Parsek
                 startUT = ut,
                 source = source,
                 frames = new List<TrajectoryPoint>(),
-                absoluteFrames = refFrame == ReferenceFrame.Relative ? new List<TrajectoryPoint>() : null,
+                bodyFixedFrames = refFrame == ReferenceFrame.Relative ? new List<TrajectoryPoint>() : null,
                 checkpoints = new List<OrbitSegment>(),
                 minAltitude = float.NaN,
                 maxAltitude = float.NaN
@@ -5039,7 +5037,7 @@ namespace Parsek
             uint currentAnchor = currentTrackSection.anchorVesselId;
             string currentAnchorRec = currentTrackSection.anchorRecordingId;
             TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
-            TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionAbsoluteFrame();
+            TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionbodyFixedFrame();
 
             CloseCurrentTrackSection(ut);
             StartNewTrackSection(currentEnv, currentRef, ut, currentSource);
@@ -6824,7 +6822,7 @@ namespace Parsek
                 ? GetLastFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
             TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
-                ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
+                ? GetLastbodyFixedFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
 
             // Frame-mismatch repair when resume-anchor validation downgraded a
@@ -6834,11 +6832,11 @@ namespace Parsek
             // Seeding it into a freshly-opened ABSOLUTE section would write
             // a meaningless metre-scale "lat/lon/alt" sample at the seam,
             // re-introducing the corrupted-trajectory class this PR closes.
-            // The parallel v7 absolute shadow already carries the focused
+            // The parallel v7 body-fixed primary already carries the focused
             // vessel's true body-fixed position at the same UT — swap
             // boundaryPoint to that shadow value so the new ABSOLUTE
             // section's first sample matches its declared contract. Legacy
-            // recordings without an absolute shadow (v5 and earlier
+            // recordings without an body-fixed primary (v5 and earlier
             // RELATIVE) fall through with no boundary seed; the next normal
             // sample seeds the ABSOLUTE section cleanly.
             bool downgradedRelativeToAbsolute = resumeSection.HasValue
@@ -6849,7 +6847,7 @@ namespace Parsek
                 if (absoluteBoundaryPoint.HasValue)
                 {
                     ParsekLog.Verbose("Anchor",
-                        $"RELATIVE->ABSOLUTE resume: substituting absolute-shadow boundary point " +
+                        $"RELATIVE->ABSOLUTE resume: substituting body-fixed-primary boundary point " +
                         $"at ut={absoluteBoundaryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
                         $"in place of relative-frame boundary point");
                     boundaryPoint = absoluteBoundaryPoint;
@@ -6857,7 +6855,7 @@ namespace Parsek
                 else
                 {
                     ParsekLog.Verbose("Anchor",
-                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no absolute-shadow " +
+                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no body-fixed-primary " +
                         $"(legacy v5/v6); skipping boundary seed to avoid mis-framed sample");
                     boundaryPoint = null;
                 }
@@ -6914,7 +6912,7 @@ namespace Parsek
         {
             // Prefer the recorder's most recently closed section snapshot only when it
             // carries a payload we can seed or resume from. Relative v7+ sections may
-            // carry only absolute-shadow frames, which are still valid resume payload.
+            // carry only body-fixed-primary frames, which are still valid resume payload.
             // A discarded zero-frame section has metadata but no coverage, so using it
             // would reopen at the later resume UT and leave the prior persisted
             // section's boundary uncovered.
@@ -6937,7 +6935,7 @@ namespace Parsek
         private static bool TrackSectionHasResumePayload(TrackSection section)
         {
             return (section.frames != null && section.frames.Count > 0)
-                || (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                || (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
                 || (section.checkpoints != null && section.checkpoints.Count > 0);
         }
 
@@ -7102,7 +7100,7 @@ namespace Parsek
                 currentUT,
                 highFidelitySamplingUntilUT,
                 highFidelityProximityMeters);
-            ReFlyTreeSamplingCadence reFlyTreeSamplingCadence =
+            ProximitySamplingTier reFlyTreeSamplingCadence =
                 ResolveActiveReFlyTreeSamplingCadence(
                     ActiveTree?.ActiveRecordingId,
                     ActiveTree?.Id,
@@ -7111,7 +7109,7 @@ namespace Parsek
                     reFlyTreeSamplingProximityMeters,
                     out string reFlyRecordingSamplingReason);
             bool reFlyRecordingSamplingActive =
-                reFlyTreeSamplingCadence != ReFlyTreeSamplingCadence.None;
+                reFlyTreeSamplingCadence != ProximitySamplingTier.None;
             if (reFlyRecordingSamplingActive)
             {
                 var ic = CultureInfo.InvariantCulture;
@@ -7136,11 +7134,13 @@ namespace Parsek
                     : highFidelitySamplingReason;
             float effectiveMinSampleInterval = ResolveEffectiveMinSampleInterval(
                 reFlyTreeSamplingCadence,
+                ProximitySamplingTier.None,
                 highFidelityActive,
                 minSampleInterval,
                 maxSampleInterval);
             float effectiveMaxSampleInterval = ResolveEffectiveMaxSampleInterval(
                 reFlyTreeSamplingCadence,
+                ProximitySamplingTier.None,
                 highFidelityActive,
                 maxSampleInterval,
                 minSampleInterval);
@@ -7307,7 +7307,7 @@ namespace Parsek
                     // Capture boundary point to seed the new section (#283).
                     // Same reference frame on both sides, so the point is directly reusable.
                     TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
-                    TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionAbsoluteFrame();
+                    TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionbodyFixedFrame();
 
                     var currentRef = isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute;
                     CloseCurrentTrackSection(currentUT);
@@ -8200,9 +8200,9 @@ namespace Parsek
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                     && absoluteShadowPoint.HasValue)
                 {
-                    if (currentTrackSection.absoluteFrames == null)
-                        currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
-                    currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+                    if (currentTrackSection.bodyFixedFrames == null)
+                        currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
+                    currentTrackSection.bodyFixedFrames.Add(absoluteShadowPoint.Value);
                 }
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
@@ -8264,9 +8264,9 @@ namespace Parsek
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                     && absoluteShadowPoint.HasValue)
                 {
-                    if (currentTrackSection.absoluteFrames == null)
-                        currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
-                    currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+                    if (currentTrackSection.bodyFixedFrames == null)
+                        currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
+                    currentTrackSection.bodyFixedFrames.Add(absoluteShadowPoint.Value);
                 }
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
@@ -8358,20 +8358,20 @@ namespace Parsek
                     currentTrackSection.frames.RemoveRange(frameTrimIdx,
                         currentTrackSection.frames.Count - frameTrimIdx);
             }
-            if (trackSectionActive && currentTrackSection.absoluteFrames != null)
+            if (trackSectionActive && currentTrackSection.bodyFixedFrames != null)
             {
-                int shadowTrimIdx = currentTrackSection.absoluteFrames.Count;
-                for (int i = 0; i < currentTrackSection.absoluteFrames.Count; i++)
+                int shadowTrimIdx = currentTrackSection.bodyFixedFrames.Count;
+                for (int i = 0; i < currentTrackSection.bodyFixedFrames.Count; i++)
                 {
-                    if (currentTrackSection.absoluteFrames[i].ut >= newUT)
+                    if (currentTrackSection.bodyFixedFrames[i].ut >= newUT)
                     {
                         shadowTrimIdx = i;
                         break;
                     }
                 }
-                if (shadowTrimIdx < currentTrackSection.absoluteFrames.Count)
-                    currentTrackSection.absoluteFrames.RemoveRange(shadowTrimIdx,
-                        currentTrackSection.absoluteFrames.Count - shadowTrimIdx);
+                if (shadowTrimIdx < currentTrackSection.bodyFixedFrames.Count)
+                    currentTrackSection.bodyFixedFrames.RemoveRange(shadowTrimIdx,
+                        currentTrackSection.bodyFixedFrames.Count - shadowTrimIdx);
             }
 
             // Locale-safe formatting (comma-locale machines would otherwise write "27 266,0"
@@ -8903,10 +8903,10 @@ namespace Parsek
                 return;
 
             // Upgrading an already-open v6 recording does not synthesize
-            // absoluteFrames for relative samples captured before this point.
+            // bodyFixedFrames for relative samples captured before this point.
             // Those legacy sections deliberately fall back to the pre-ReFly
             // frozen anchor trajectory path; only new v7 samples append
-            // absolute shadow frames.
+            // body-fixed primary frames.
             int previousVersion = activeRec.RecordingFormatVersion;
             activeRec.RecordingFormatVersion = targetFormatVersion;
             ParsekLog.Info("Recorder",
@@ -8941,11 +8941,11 @@ namespace Parsek
             return null;
         }
 
-        private TrajectoryPoint? GetLastTrackSectionAbsoluteFrame()
+        private TrajectoryPoint? GetLastTrackSectionbodyFixedFrame()
         {
-            if (trackSectionActive && currentTrackSection.absoluteFrames != null
-                && currentTrackSection.absoluteFrames.Count > 0)
-                return currentTrackSection.absoluteFrames[currentTrackSection.absoluteFrames.Count - 1];
+            if (trackSectionActive && currentTrackSection.bodyFixedFrames != null
+                && currentTrackSection.bodyFixedFrames.Count > 0)
+                return currentTrackSection.bodyFixedFrames[currentTrackSection.bodyFixedFrames.Count - 1];
             return null;
         }
 
@@ -8960,10 +8960,10 @@ namespace Parsek
             return null;
         }
 
-        private static TrajectoryPoint? GetLastAbsoluteFrameFromTrackSection(TrackSection section)
+        private static TrajectoryPoint? GetLastbodyFixedFrameFromTrackSection(TrackSection section)
         {
-            if (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
-                return section.absoluteFrames[section.absoluteFrames.Count - 1];
+            if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                return section.bodyFixedFrames[section.bodyFixedFrames.Count - 1];
             return null;
         }
 
@@ -8984,9 +8984,9 @@ namespace Parsek
             if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && absoluteShadowPoint.HasValue)
             {
-                if (currentTrackSection.absoluteFrames == null)
-                    currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
-                currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+                if (currentTrackSection.bodyFixedFrames == null)
+                    currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
+                currentTrackSection.bodyFixedFrames.Add(absoluteShadowPoint.Value);
             }
             UpdateTrackSectionAltitude((float)point.Value.altitude);
             ParsekLog.Verbose("Recorder",

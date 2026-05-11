@@ -322,7 +322,7 @@ namespace Parsek.Tests
                 new TrajectoryPoint { ut = 150, latitude = 2, longitude = 0, altitude = 0, bodyName = "Kerbin" },
                 new TrajectoryPoint { ut = 200, latitude = 3, longitude = 0, altitude = 0, bodyName = "Kerbin" }
             };
-            background.absoluteFrames = new List<TrajectoryPoint>
+            background.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 0, latitude = -0.1, longitude = -74.6, altitude = 70000, bodyName = "Kerbin" },
                 new TrajectoryPoint { ut = 50, latitude = -0.2, longitude = -74.5, altitude = 71000, bodyName = "Kerbin" },
@@ -339,8 +339,8 @@ namespace Parsek.Tests
             var result = SessionMerger.ResolveOverlaps(sections);
 
             Assert.Equal(3, result.Count);
-            Assert.Equal(new[] { 0.0, 50.0 }, result[0].absoluteFrames.Select(p => p.ut).ToArray());
-            Assert.Equal(new[] { 150.0, 200.0 }, result[2].absoluteFrames.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 0.0, 50.0 }, result[0].bodyFixedFrames.Select(p => p.ut).ToArray());
+            Assert.Equal(new[] { 150.0, 200.0 }, result[2].bodyFixedFrames.Select(p => p.ut).ToArray());
         }
 
         #endregion
@@ -541,7 +541,7 @@ namespace Parsek.Tests
         public void ResolveOverlaps_CrossReferenceFrameBoundary_ZeroDiscontinuity()
         {
             // ABSOLUTE section followed by RELATIVE section — discontinuity should be 0
-            // without an aligned absoluteFrames shadow because raw Relative fields are
+            // without an aligned bodyFixedFrames shadow because raw Relative fields are
             // anchor-local metres, not body-fixed lat/lon/alt.
             var sections = new List<TrackSection>
             {
@@ -570,7 +570,7 @@ namespace Parsek.Tests
                 lat: 144.77, lon: 0.0, alt: 0.0,
                 referenceFrame: ReferenceFrame.Relative);
             next.anchorRecordingId = "anchor-rec";
-            next.absoluteFrames = new List<TrajectoryPoint>
+            next.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(100.0, 0.0, 0.0, 244.77)
             };
@@ -591,7 +591,7 @@ namespace Parsek.Tests
             prev.startUT = 0.0;
             prev.endUT = 100.0;
             prev.anchorRecordingId = "anchor-rec";
-            prev.absoluteFrames = new List<TrajectoryPoint>
+            prev.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(100.0, 0.0, 0.0, 244.77)
             };
@@ -613,7 +613,7 @@ namespace Parsek.Tests
                 velocity: Vector3.zero,
                 referenceFrame: ReferenceFrame.Relative);
             prev.anchorRecordingId = "anchor-a";
-            prev.absoluteFrames = new List<TrajectoryPoint>
+            prev.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(10.0, 0.0, 0.0, 100.0)
             };
@@ -622,7 +622,7 @@ namespace Parsek.Tests
                 velocity: Vector3.zero,
                 referenceFrame: ReferenceFrame.Relative);
             next.anchorRecordingId = "anchor-b";
-            next.absoluteFrames = new List<TrajectoryPoint>
+            next.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(15.0, 0.0, 0.0, 130.0)
             };
@@ -643,7 +643,7 @@ namespace Parsek.Tests
             prev.startUT = 0.0;
             prev.endUT = 100.0;
             prev.anchorRecordingId = "anchor-rec";
-            prev.absoluteFrames = new List<TrajectoryPoint>
+            prev.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(99.9, 0.0, 0.0, 244.77)
             };
@@ -705,7 +705,7 @@ namespace Parsek.Tests
                 velocity: Vector3.zero,
                 referenceFrame: ReferenceFrame.Relative);
             prev.anchorRecordingId = "anchor-rec";
-            prev.absoluteFrames = new List<TrajectoryPoint>
+            prev.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(10.0, 0.0, 0.0, 100.0)
             };
@@ -714,7 +714,7 @@ namespace Parsek.Tests
                 velocity: Vector3.zero,
                 referenceFrame: ReferenceFrame.Relative);
             next.anchorRecordingId = "anchor-rec";
-            next.absoluteFrames = new List<TrajectoryPoint>
+            next.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(15.0, 0.0, 0.0, 130.0)
             };
@@ -2382,7 +2382,7 @@ namespace Parsek.Tests
             background.startUT = 0.0;
             background.endUT = boundaryUT;
             background.anchorRecordingId = "anchor-rec";
-            background.absoluteFrames = new List<TrajectoryPoint>
+            background.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(boundaryUT, 0.0, 0.0, 100.0)
             };
@@ -2395,7 +2395,7 @@ namespace Parsek.Tests
             active.startUT = boundaryUT;
             active.endUT = 3.0;
             active.anchorRecordingId = "anchor-rec";
-            active.absoluteFrames = new List<TrajectoryPoint>
+            active.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 MakePoint(2.0, 0.0, 0.0, 150.0)
             };

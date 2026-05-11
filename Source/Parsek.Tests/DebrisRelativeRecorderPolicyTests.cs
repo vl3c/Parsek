@@ -86,7 +86,7 @@ namespace Parsek.Tests
                 endUT = 140.0,
                 anchorRecordingId = "parent-rec",
                 frames = new List<TrajectoryPoint>(),
-                absoluteFrames = new List<TrajectoryPoint>(),
+                bodyFixedFrames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment>()
             });
 
@@ -119,7 +119,7 @@ namespace Parsek.Tests
                 endUT = 140.0,
                 anchorRecordingId = "parent-rec",
                 frames = new List<TrajectoryPoint>(),
-                absoluteFrames = new List<TrajectoryPoint>(),
+                bodyFixedFrames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment>
                 {
                     new OrbitSegment
@@ -253,7 +253,7 @@ namespace Parsek.Tests
                 endUT = endUT,
                 anchorRecordingId = "parent-rec",
                 frames = frames,
-                absoluteFrames = frameUTs.Select(Point).ToList(),
+                bodyFixedFrames = frameUTs.Select(Point).ToList(),
                 checkpoints = new List<OrbitSegment>()
             };
         }

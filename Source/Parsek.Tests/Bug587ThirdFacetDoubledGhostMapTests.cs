@@ -1255,9 +1255,9 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------
-        // PR #613 review P2: the v7 absolute-shadow branch is the same
+        // PR #613 review P2: the v7 body-fixed-primary branch is the same
         // RELATIVE section's sibling positioning source. Suppression must
-        // fire on both "relative" and "absolute-shadow"; treating only
+        // fire on both "relative" and "body-fixed-primary"; treating only
         // "relative" leaks parent-chain v7 doubled ProtoVessels into the
         // scene during active Re-Fly.
         // -----------------------------------------------------------------
@@ -1266,7 +1266,7 @@ namespace Parsek.Tests
         public void Suppresses_WhenBranchIsAbsoluteShadow_ParentChainVictim()
         {
             // Same scenario as the canonical positive test, but the caller
-            // reports the retained v7 absolute-shadow compatibility branch for
+            // reports the retained v7 body-fixed-primary compatibility branch for
             // the same RELATIVE section. The suppression decision must STILL
             // fire for this label; Phase D no longer reaches this branch via a
             // create-time live-PID anchor scan.
@@ -1281,7 +1281,7 @@ namespace Parsek.Tests
 
             bool suppressed = GhostMapPresence.ShouldSuppressStateVectorProtoVesselForActiveReFly(
                 marker,
-                resolutionBranch: "absolute-shadow",
+                resolutionBranch: "body-fixed-primary",
                 resolutionAnchorPid: boosterPid,
                 victimRecordingId: "rec-capsule",
                 committedRecordings: committed,
@@ -1297,7 +1297,7 @@ namespace Parsek.Tests
         {
             // Negative pin: a true Absolute (non-shadow) section must NOT be
             // suppressed. The "absolute" string is the regular Absolute
-            // branch label; only "absolute-shadow" piggy-backs on the
+            // branch label; only "body-fixed-primary" piggy-backs on the
             // RELATIVE-section suppression rule.
             const uint boosterPid = 2676381515u;
             var marker = InPlaceMarker("rec-booster");

@@ -390,12 +390,8 @@ namespace Parsek
 
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
         {
-            if (probeFormatVersion == recordingFormatVersion)
-                return true;
-
-            int metadataOnlyProbeVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion - 1;
-            return probeFormatVersion == metadataOnlyProbeVersion
-                && recordingFormatVersion == RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
+            return probeFormatVersion == recordingFormatVersion
+                && recordingFormatVersion == RecordingStore.CurrentRecordingFormatVersion;
         }
 
         /// <summary>

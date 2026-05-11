@@ -269,7 +269,7 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void RelativeBoundary_ShadowResolverUsesAbsoluteFrames()
+        public void RelativeBoundary_ShadowResolverUsesbodyFixedFrames()
         {
             var rec = new Recording
             {
@@ -281,7 +281,7 @@ namespace Parsek.Tests.Rendering
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 0,
                 endUT = 10,
-                absoluteFrames = new List<TrajectoryPoint>
+                bodyFixedFrames = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint
                     {

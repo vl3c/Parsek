@@ -42,9 +42,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is12()
+        public void CurrentRecordingFormatVersion_Is13()
         {
-            Assert.Equal(12, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(13, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
@@ -54,10 +54,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CurrentRecordingFormatVersion_TracksDebrisParentRecordingFormatVersion()
+        public void DebrisFrameContractFormatVersion_Is13()
+        {
+            Assert.Equal(13, RecordingStore.DebrisFrameContractFormatVersion);
+        }
+
+        [Fact]
+        public void CurrentRecordingFormatVersion_TracksDebrisFrameContractFormatVersion()
         {
             Assert.Equal(
-                RecordingStore.DebrisParentRecordingFormatVersion,
+                RecordingStore.DebrisFrameContractFormatVersion,
                 RecordingStore.CurrentRecordingFormatVersion);
         }
 

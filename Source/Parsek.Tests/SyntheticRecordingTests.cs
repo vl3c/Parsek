@@ -239,7 +239,7 @@ namespace Parsek.Tests
             return b;
         }
 
-        // Booster Drop pair (parent + v12+ debris) — exercises the
+        // Booster Drop pair (parent + v13 debris) — exercises the
         // PR 3b debris parent-anchor contract end-to-end through the
         // injector → save → load → render pipeline. Returns 2 builders
         // sharing one tree:
@@ -6074,7 +6074,7 @@ namespace Parsek.Tests
                 munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic");
             writer.AddRecordingsAsTree(munTransferSegments);
 
-            // Booster Drop debris pair — exercises the v12+ debris parent-anchor
+            // Booster Drop debris pair — exercises the v13 debris parent-anchor
             // contract end-to-end. Parent + Relative-anchored debris share a tree.
             var boosterDropSegments = BoosterDropDebrisPair(baseUT);
             for (int i = 0; i < boosterDropSegments.Length; i++)

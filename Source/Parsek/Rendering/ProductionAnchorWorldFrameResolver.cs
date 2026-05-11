@@ -17,7 +17,7 @@ namespace Parsek.Rendering
     /// <para>
     /// The resolver never throws on missing data: each TryResolve* returns
     /// <c>false</c> + an empty position when its inputs are unavailable
-    /// (no live vessel, no checkpoint, no absolute shadow). The propagator
+    /// (no live vessel, no checkpoint, no body-fixed primary). The propagator
     /// then logs the failure and leaves ε = 0 for that slot.
     /// </para>
     /// </summary>
@@ -45,10 +45,10 @@ namespace Parsek.Rendering
             {
                 RelativeAnchorResolveFailure chainFailure = default;
                 bool boundaryHasAbsoluteShadow =
-                    relSection.absoluteFrames != null && relSection.absoluteFrames.Count > 0;
+                    relSection.bodyFixedFrames != null && relSection.bodyFixedFrames.Count > 0;
                 // V11 path: resolve the anchor-local boundary through the
                 // recorded anchor chain. If the chain misses, fall back to the
-                // v7+ absolute shadow below instead of failing outright.
+                // v7+ body-fixed primary below instead of failing outright.
                 if (relSection.frames == null || relSection.frames.Count == 0)
                 {
                     chainFailure = RelativeAnchorResolveFailure.Create(
@@ -173,7 +173,7 @@ namespace Parsek.Rendering
                 return false;
             }
 
-            // V7-v10 compatibility fence: only the absolute shadow can safely
+            // V7-v10 compatibility fence: only the body-fixed primary can safely
             // represent the focused vessel boundary without v11 anchor ids.
             return TryResolveRelativeBoundaryShadowWorldPos(
                 rec,
@@ -371,11 +371,11 @@ namespace Parsek.Rendering
                 return false;
             if (rec.RecordingFormatVersion < RecordingStore.RelativeAbsoluteShadowFormatVersion)
                 return false;
-            if (relSection.absoluteFrames == null || relSection.absoluteFrames.Count == 0)
+            if (relSection.bodyFixedFrames == null || relSection.bodyFixedFrames.Count == 0)
                 return false;
             if (absoluteWorldPositionResolver == null)
                 return false;
-            if (!TryFindBoundaryShadowSample(relSection.absoluteFrames, boundaryUT, side, out TrajectoryPoint shadow))
+            if (!TryFindBoundaryShadowSample(relSection.bodyFixedFrames, boundaryUT, side, out TrajectoryPoint shadow))
                 return false;
 
             try
@@ -476,8 +476,41 @@ namespace Parsek.Rendering
                 pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
                 bodyWorldRotationResolver: ResolveBodyWorldRotation,
-                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose);
+                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose,
+                tryResolveLiveAnchorTransform: TryResolveLiveAnchorTransform);
             return true;
+        }
+
+        private static (Vector3d pos, Quaternion rot)? TryResolveLiveAnchorTransform(
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT)
+        {
+            _ = victimRecordingId;
+            _ = targetUT;
+            if (anchorVesselId == 0u)
+                return null;
+
+            Vessel anchor = TryFindVesselByPid(anchorVesselId);
+            if (anchor == null)
+                return null;
+
+            try
+            {
+                Vector3d pos = anchor.transform != null
+                    ? (Vector3d)anchor.transform.position
+                    : anchor.GetWorldPos3D();
+                Quaternion rot = anchor.transform != null
+                    ? anchor.transform.rotation
+                    : Quaternion.identity;
+                if (!IsFinite(pos))
+                    return null;
+                return (pos, rot);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static bool TryFindFocusTree(Recording rec, out RecordingTree focusTree)

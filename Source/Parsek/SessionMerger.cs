@@ -145,7 +145,7 @@ namespace Parsek
                 if (srcRec.Controllers != null)
                     merged.Controllers = new List<ControllerInfo>(srcRec.Controllers);
                 merged.IsDebris = srcRec.IsDebris;
-                // PR 3b: propagate the v12+ debris parent-anchor contract through merges.
+                // PR 3b: propagate the v13 debris parent-anchor contract through merges.
                 merged.DebrisParentRecordingId = srcRec.DebrisParentRecordingId;
 
                 // Location context (Phase 10)
@@ -800,7 +800,7 @@ namespace Parsek
                             TrackSection before = existing;
                             before.endUT = current.startUT;
                             before.frames = TrimFrames(existing.frames, existing.startUT, current.startUT);
-                            before.absoluteFrames = TrimFrames(existing.absoluteFrames, existing.startUT, current.startUT);
+                            before.bodyFixedFrames = TrimFrames(existing.bodyFixedFrames, existing.startUT, current.startUT);
                             before.checkpoints = TrimCheckpoints(existing.checkpoints, existing.startUT, current.startUT);
                             newOutput.Add(before);
                         }
@@ -811,7 +811,7 @@ namespace Parsek
                             TrackSection after = existing;
                             after.startUT = current.endUT;
                             after.frames = TrimFrames(existing.frames, current.endUT, existing.endUT);
-                            after.absoluteFrames = TrimFrames(existing.absoluteFrames, current.endUT, existing.endUT);
+                            after.bodyFixedFrames = TrimFrames(existing.bodyFixedFrames, current.endUT, existing.endUT);
                             after.checkpoints = TrimCheckpoints(existing.checkpoints, current.endUT, existing.endUT);
                             newOutput.Add(after);
                         }
@@ -833,7 +833,7 @@ namespace Parsek
                             TrackSection before = current;
                             before.endUT = existing.startUT;
                             before.frames = TrimFrames(current.frames, current.startUT, existing.startUT);
-                            before.absoluteFrames = TrimFrames(current.absoluteFrames, current.startUT, existing.startUT);
+                            before.bodyFixedFrames = TrimFrames(current.bodyFixedFrames, current.startUT, existing.startUT);
                             before.checkpoints = TrimCheckpoints(current.checkpoints, current.startUT, existing.startUT);
                             if (before.endUT > before.startUT)
                                 newOutput.Add(before);
@@ -845,7 +845,7 @@ namespace Parsek
                             TrackSection remainder = current;
                             remainder.startUT = existing.endUT;
                             remainder.frames = TrimFrames(current.frames, existing.endUT, current.endUT);
-                            remainder.absoluteFrames = TrimFrames(current.absoluteFrames, existing.endUT, current.endUT);
+                            remainder.bodyFixedFrames = TrimFrames(current.bodyFixedFrames, existing.endUT, current.endUT);
                             remainder.checkpoints = TrimCheckpoints(current.checkpoints, existing.endUT, current.endUT);
                             current = remainder;
                         }
@@ -1049,7 +1049,7 @@ namespace Parsek
 
             string branch = prev.referenceFrame == ReferenceFrame.Relative
                 || next.referenceFrame == ReferenceFrame.Relative
-                    ? "absolute-shadow"
+                    ? "body-fixed-primary"
                     : "absolute";
             return MeasureBodyFixedBoundary(
                 prevBodyFixed, nextBodyFixed, dtSeconds, branch, string.Empty,
@@ -1194,7 +1194,7 @@ namespace Parsek
                 reason = "relative-no-frames";
                 return false;
             }
-            if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+            if (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
             {
                 reason = "relative-shadow-missing";
                 return false;
@@ -1209,16 +1209,16 @@ namespace Parsek
                 return false;
             }
 
-            int start = useLast ? section.absoluteFrames.Count - 1 : 0;
+            int start = useLast ? section.bodyFixedFrames.Count - 1 : 0;
             int step = useLast ? -1 : 1;
-            for (int i = start; i >= 0 && i < section.absoluteFrames.Count; i += step)
+            for (int i = start; i >= 0 && i < section.bodyFixedFrames.Count; i += step)
             {
-                TrajectoryPoint candidate = section.absoluteFrames[i];
+                TrajectoryPoint candidate = section.bodyFixedFrames[i];
                 if (IsFinite(candidate.ut)
                     && Math.Abs(candidate.ut - ordinary.ut) <= BoundaryPointUtTolerance)
                 {
                     point = candidate;
-                    source = useLast ? "absoluteFrames.match-last" : "absoluteFrames.match-first";
+                    source = useLast ? "bodyFixedFrames.match-last" : "bodyFixedFrames.match-first";
                     return true;
                 }
             }
@@ -1436,8 +1436,8 @@ namespace Parsek
                 TrackSection clone = sections[i];
                 if (clone.frames != null)
                     clone.frames = new List<TrajectoryPoint>(clone.frames);
-                if (clone.absoluteFrames != null)
-                    clone.absoluteFrames = new List<TrajectoryPoint>(clone.absoluteFrames);
+                if (clone.bodyFixedFrames != null)
+                    clone.bodyFixedFrames = new List<TrajectoryPoint>(clone.bodyFixedFrames);
                 if (clone.checkpoints != null)
                     clone.checkpoints = new List<OrbitSegment>(clone.checkpoints);
                 clones.Add(clone);

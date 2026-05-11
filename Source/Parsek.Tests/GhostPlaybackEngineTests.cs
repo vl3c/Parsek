@@ -101,7 +101,7 @@ namespace Parsek.Tests
 
             object result = method.Invoke(
                 engine,
-                new object[] { index, traj, state, playbackUT, suppressFx });
+                new object[] { index, traj, state, playbackUT, suppressFx, false });
             return Assert.IsType<bool>(result);
         }
 
@@ -114,33 +114,6 @@ namespace Parsek.Tests
             bool suppressFx,
             string callsite)
         {
-            InvokePositionLoopAtPlaybackUT(
-                engine,
-                index,
-                traj,
-                state,
-                loopUT,
-                suppressFx,
-                callsite,
-                default(TrajectoryPlaybackFlags),
-                loopUT,
-                1f,
-                emitExitWatch: false);
-        }
-
-        private static void InvokePositionLoopAtPlaybackUT(
-            GhostPlaybackEngine engine,
-            int index,
-            IPlaybackTrajectory traj,
-            GhostPlaybackState state,
-            double loopUT,
-            bool suppressFx,
-            string callsite,
-            TrajectoryPlaybackFlags flags,
-            double frameUT,
-            float warpRate,
-            bool emitExitWatch)
-        {
             MethodInfo method = typeof(GhostPlaybackEngine).GetMethod(
                 "PositionLoopAtPlaybackUT",
                 BindingFlags.Instance | BindingFlags.NonPublic);
@@ -152,13 +125,9 @@ namespace Parsek.Tests
                 {
                     index,
                     traj,
-                    flags,
                     state,
                     loopUT,
-                    frameUT,
-                    warpRate,
                     suppressFx,
-                    emitExitWatch,
                     callsite
                 });
         }
@@ -869,7 +838,7 @@ namespace Parsek.Tests
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
             section.endUT = 140.0;
-            section.absoluteFrames = new List<TrajectoryPoint>
+            section.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100.0 },
                 new TrajectoryPoint { ut = 110.0 },
@@ -884,8 +853,8 @@ namespace Parsek.Tests
             Assert.Equal(0, diagnostic.SectionIndex);
             Assert.Equal(100.0, diagnostic.FirstRelativeFrameUT);
             Assert.Equal(110.0, diagnostic.LastRelativeFrameUT);
-            Assert.Equal(100.0, diagnostic.FirstAbsoluteFrameUT);
-            Assert.Equal(110.0, diagnostic.LastAbsoluteFrameUT);
+            Assert.Equal(100.0, diagnostic.FirstbodyFixedFrameUT);
+            Assert.Equal(110.0, diagnostic.LastbodyFixedFrameUT);
         }
 
         [Fact]
@@ -894,7 +863,7 @@ namespace Parsek.Tests
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
             section.endUT = 140.0;
-            section.absoluteFrames = new List<TrajectoryPoint>
+            section.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100.0 },
                 new TrajectoryPoint { ut = 130.0 },
@@ -905,9 +874,9 @@ namespace Parsek.Tests
                 traj,
                 120.0,
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
-            Assert.Equal("covered-by-absolute-shadow", diagnostic.Reason);
+            Assert.Equal("covered-by-body-fixed-primary", diagnostic.Reason);
             Assert.False(diagnostic.RelativeFramesCoverUT);
-            Assert.True(diagnostic.AbsoluteFramesCoverUT);
+            Assert.True(diagnostic.bodyFixedFramesCoverUT);
         }
 
         [Fact]
@@ -916,7 +885,7 @@ namespace Parsek.Tests
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
             section.endUT = 140.0;
-            section.absoluteFrames = new List<TrajectoryPoint>
+            section.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100.0 },
                 new TrajectoryPoint { ut = 130.0 },
@@ -940,7 +909,7 @@ namespace Parsek.Tests
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
             section.endUT = 140.0;
-            section.absoluteFrames = new List<TrajectoryPoint>
+            section.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 120.0 },
             };
@@ -952,9 +921,9 @@ namespace Parsek.Tests
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
             Assert.Equal("relative-and-shadow-frames-out-of-range", diagnostic.Reason);
             Assert.False(diagnostic.RelativeFramesCoverUT);
-            Assert.False(diagnostic.AbsoluteFramesCoverUT);
-            Assert.Equal(120.0, diagnostic.FirstAbsoluteFrameUT);
-            Assert.Equal(120.0, diagnostic.LastAbsoluteFrameUT);
+            Assert.False(diagnostic.bodyFixedFramesCoverUT);
+            Assert.Equal(120.0, diagnostic.FirstbodyFixedFrameUT);
+            Assert.Equal(120.0, diagnostic.LastbodyFixedFrameUT);
         }
 
         [Fact]
@@ -1013,7 +982,7 @@ namespace Parsek.Tests
             traj.Points.Clear();
             TrackSection section = traj.TrackSections[0];
             section.frames = new List<TrajectoryPoint>();
-            section.absoluteFrames = new List<TrajectoryPoint>();
+            section.bodyFixedFrames = new List<TrajectoryPoint>();
             traj.TrackSections[0] = section;
 
             Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
@@ -1024,14 +993,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_AbsoluteSection_ReturnsTrue()
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_AbsoluteSection_ReturnsFalse()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
             section.referenceFrame = ReferenceFrame.Absolute;
             traj.TrackSections[0] = section;
 
-            Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                 traj, 105.0));
         }
 
@@ -1143,7 +1112,7 @@ namespace Parsek.Tests
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
             section.endUT = 140.0;
-            section.absoluteFrames = new List<TrajectoryPoint>
+            section.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100.0 },
                 new TrajectoryPoint { ut = 110.0 },
@@ -1187,7 +1156,7 @@ namespace Parsek.Tests
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
             section.endUT = 140.0;
-            section.absoluteFrames = new List<TrajectoryPoint>
+            section.bodyFixedFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100.0 },
                 new TrajectoryPoint { ut = 130.0 },
@@ -1247,118 +1216,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PositionLoopAtPlaybackUT_ParentAnchoredDebrisAfterAuthoredFrames_DoesNotEvaluateResolverGate()
-        {
-            var positioner = new SpawnPrimingPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            TrackSection section = traj.TrackSections[0];
-            section.endUT = 140.0;
-            section.absoluteFrames = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 110.0 },
-            };
-            traj.TrackSections[0] = section;
-            var state = new GhostPlaybackState
-            {
-                vesselName = "Kerbal X Debris",
-                ghost = null,
-            };
-            bool evaluatorCalled = false;
-            var flags = new TrajectoryPlaybackFlags
-            {
-                tryEvaluateAnchorRotationReliability =
-                    (int idx, IPlaybackTrajectory observedTraj, double playbackUT,
-                        string playbackScope,
-                        out AnchorRotationReliabilityDecision decision) =>
-                    {
-                        evaluatorCalled = true;
-                        decision = default;
-                        return false;
-                    }
-            };
-
-            InvokePositionLoopAtPlaybackUT(
-                engine,
-                index: 4,
-                traj: traj,
-                state: state,
-                loopUT: 120.0,
-                suppressFx: true,
-                callsite: "test-loop",
-                flags: flags,
-                frameUT: 120.0,
-                warpRate: 1f,
-                emitExitWatch: false);
-
-            Assert.False(evaluatorCalled);
-            Assert.True(state.anchorRetiredThisFrame);
-            Assert.Equal(0, positioner.PositionLoopCalls);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Anchor]")
-                && l.Contains("recorded-relative-retired")
-                && l.Contains("coverageReason=relative-and-shadow-frames-out-of-range"));
-        }
-
-        [Fact]
-        public void PositionLoopAtPlaybackUT_ShadowCoveredAfterRelativeFrames_SkipsResolverGateWithoutRetiring()
-        {
-            var positioner = new SpawnPrimingPositioner
-            {
-                ShadowPositionShouldSucceed = true,
-                PrimedShadowBracketBeforeUT = 100.0,
-                PrimedShadowBracketAfterUT = 130.0,
-            };
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            TrackSection section = traj.TrackSections[0];
-            section.endUT = 140.0;
-            section.absoluteFrames = new List<TrajectoryPoint>
-            {
-                new TrajectoryPoint { ut = 100.0 },
-                new TrajectoryPoint { ut = 130.0 },
-            };
-            traj.TrackSections[0] = section;
-            var state = new GhostPlaybackState
-            {
-                vesselName = "Kerbal X Debris",
-                ghost = null,
-            };
-            bool evaluatorCalled = false;
-            var flags = new TrajectoryPlaybackFlags
-            {
-                tryEvaluateAnchorRotationReliability =
-                    (int idx, IPlaybackTrajectory observedTraj, double playbackUT,
-                        string playbackScope,
-                        out AnchorRotationReliabilityDecision decision) =>
-                    {
-                        evaluatorCalled = true;
-                        decision = default;
-                        return false;
-                    }
-            };
-
-            InvokePositionLoopAtPlaybackUT(
-                engine,
-                index: 4,
-                traj: traj,
-                state: state,
-                loopUT: 120.0,
-                suppressFx: true,
-                callsite: "test-loop",
-                flags: flags,
-                frameUT: 120.0,
-                warpRate: 1f,
-                emitExitWatch: false);
-
-            Assert.False(evaluatorCalled);
-            Assert.False(state.anchorRetiredThisFrame);
-            Assert.Equal(0, positioner.ShadowPositionCalls);
-            Assert.Equal(1, positioner.PositionLoopCalls);
-        }
-
-        [Fact]
         public void PositionLoopAtPlaybackUT_ParentAnchoredDebrisInsideCoverage_PositionsLoop()
         {
             var positioner = new SpawnPrimingPositioner();
@@ -1383,402 +1240,6 @@ namespace Parsek.Tests
             Assert.Equal(1, positioner.PositionLoopCalls);
             Assert.Equal(105.0, positioner.LastLoopUT);
         }
-
-        [Fact]
-        public void PositionLoopAtPlaybackUT_AnchorRotationUnreliable_HidesBeforeLoopPositioner()
-        {
-            var positioner = new SpawnPrimingPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            GhostPlaybackState state = null;
-            var cameraEvents = new List<CameraActionEvent>();
-            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
-            double observedPlaybackUT = double.NaN;
-            string observedScope = null;
-            var flags = new TrajectoryPlaybackFlags
-            {
-                tryEvaluateAnchorRotationReliability =
-                    (int idx, IPlaybackTrajectory observedTraj, double playbackUT,
-                        string playbackScope,
-                        out AnchorRotationReliabilityDecision decision) =>
-                    {
-                        Assert.Equal(4, idx);
-                        Assert.Same(traj, observedTraj);
-                        observedPlaybackUT = playbackUT;
-                        observedScope = playbackScope;
-                        decision = new AnchorRotationReliabilityDecision(
-                            unreliable: true,
-                            anchorRecordingId: "parent-rec",
-                            bracketDegrees: 24.0,
-                            rateDegreesPerSecond: 240.0,
-                            offsetMeters: 1500.0);
-                        return true;
-                    }
-            };
-
-            InvokePositionLoopAtPlaybackUT(
-                engine,
-                index: 4,
-                traj: traj,
-                state: state,
-                loopUT: 105.0,
-                suppressFx: true,
-                callsite: "test-loop",
-                flags: flags,
-                frameUT: 222.0,
-                warpRate: 2f,
-                emitExitWatch: true);
-
-            Assert.Equal(0, positioner.PositionLoopCalls);
-            Assert.Equal(105.0, observedPlaybackUT);
-            Assert.Equal("test-loop", observedScope);
-
-            var evt = Assert.Single(cameraEvents);
-            Assert.Equal(CameraActionType.ExitWatch, evt.Action);
-            Assert.Equal(4, evt.Index);
-            Assert.Same(traj, evt.Trajectory);
-            Assert.NotNull(evt.Flags.tryEvaluateAnchorRotationReliability);
-            Assert.Contains(logLines, l =>
-                l.Contains("anchor-rotation-unreliable")
-                && l.Contains("playbackUT=105"));
-        }
-
-        // ===================================================================
-        // Always-shadow router (PR #803) — fallthrough ladder cases
-        // -------------------------------------------------------------------
-        // Pre-PR-#803 the shadow render only fired when the tumbling-parent
-        // gate also fired. Post-PR-#803 the shadow render fires whenever shadow
-        // data covers the playback UT, regardless of gate state, with the gate
-        // demoted to FX-suppression authority. Hide remains the third tier
-        // when shadow is unavailable AND the gate is firing.
-        //
-        // The success-path tests live in RuntimeTests.cs because exercising
-        // the shadow positioner requires a real Unity GameObject (the engine's
-        // <c>state?.ghost == null</c> short-circuit invokes Unity's overloaded
-        // == on real ghosts). xUnit can only create literal-null
-        // <c>state.ghost</c> values, which trips the short-circuit and bypasses
-        // the shadow path entirely. The four cases below cover the legacy-
-        // and hide-fallthrough branches that work fine with a null ghost.
-        // ===================================================================
-
-        private static TrajectoryPlaybackFlags BuildAnchorRotationFlags(
-            bool unreliable,
-            string anchorRecordingId = "parent-rec",
-            double bracketDegrees = 24.0,
-            double rateDegreesPerSecond = 240.0,
-            double offsetMeters = 1500.0)
-        {
-            return new TrajectoryPlaybackFlags
-            {
-                tryEvaluateAnchorRotationReliability =
-                    (int idx, IPlaybackTrajectory traj, double playbackUT,
-                        string playbackScope,
-                        out AnchorRotationReliabilityDecision decision) =>
-                    {
-                        decision = new AnchorRotationReliabilityDecision(
-                            unreliable: unreliable,
-                            anchorRecordingId: anchorRecordingId,
-                            bracketDegrees: bracketDegrees,
-                            rateDegreesPerSecond: rateDegreesPerSecond,
-                            offsetMeters: offsetMeters);
-                        return true;
-                    }
-            };
-        }
-
-        [Fact]
-        public void AlwaysShadow_GateInactive_NoShadowData_FallsThroughToLegacy()
-        {
-            // Tier 2: older recording without v7+ absoluteFrames (or shadow
-            // filtered out at runtime). Gate doesn't fire. Router must NOT
-            // call the shadow positioner; legacy PositionLoop runs as today.
-            // No FX suppression.
-            var positioner = new SpawnPrimingPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            // MakeParentAnchoredDebrisWithRelativeSection has Relative section
-            // with frames but absoluteFrames is null.
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            var state = new GhostPlaybackState { vesselName = "Kerbal X Debris", ghost = null };
-
-            InvokePositionLoopAtPlaybackUT(
-                engine, index: 4, traj: traj, state: state,
-                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
-                flags: BuildAnchorRotationFlags(unreliable: false),
-                frameUT: 222.0, warpRate: 1f, emitExitWatch: false);
-
-            Assert.Equal(0, positioner.ShadowPositionCalls);
-            Assert.Equal(1, positioner.PositionLoopCalls);
-            Assert.Equal(105.0, positioner.LastLoopUT);
-            Assert.False(state.anchorRetiredThisFrame);
-            Assert.False(state.anchorRotationShadowRoutedThisFrame);
-        }
-
-        [Fact]
-        public void AlwaysShadow_GateActive_NoShadowData_FallsThroughToHide()
-        {
-            // Tier 3: no shadow available AND gate fires. Hide is the
-            // third-tier fallback: legacy reconstruction would be visible
-            // chaos for the current frame, so retire the mesh
-            // (anchorRetiredThisFrame=true) and emit the exit-watch event.
-            // This is the same behaviour PR #800 had when it fell through
-            // from shadow-attempt to hide; the ladder shape is unchanged
-            // for this case.
-            var positioner = new SpawnPrimingPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            GhostPlaybackState state = null;
-            var cameraEvents = new List<CameraActionEvent>();
-            engine.OnLoopCameraAction += evt => cameraEvents.Add(evt);
-
-            InvokePositionLoopAtPlaybackUT(
-                engine, index: 4, traj: traj, state: state,
-                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
-                flags: BuildAnchorRotationFlags(unreliable: true),
-                frameUT: 222.0, warpRate: 1f, emitExitWatch: true);
-
-            Assert.Equal(0, positioner.ShadowPositionCalls);
-            Assert.Equal(0, positioner.PositionLoopCalls);
-            var evt = Assert.Single(cameraEvents);
-            Assert.Equal(CameraActionType.ExitWatch, evt.Action);
-            // The hide tier emits two log lines: the engine-level exit-watch
-            // (always at Verbose) and a GhostRenderTrace GuardSkip ("hidden"
-            // suffix, gated on verbose+detailed-window). xUnit only captures
-            // the exit-watch line, which the existing legacy hide-path test
-            // also asserts on.
-            Assert.Contains(logLines, l =>
-                l.Contains("anchor-rotation-unreliable")
-                && l.Contains("playbackUT=105"));
-        }
-
-        [Fact]
-        public void AlwaysShadow_NullGhostShortCircuit_GateInactive_FallsThroughToLegacy()
-        {
-            // Defensive guard inside TryRouteAnchorRotationToShadow: when
-            // state?.ghost is null the shadow positioner is never invoked
-            // (pre-flight bail) regardless of whether shadow data covers.
-            // With gate inactive, the router falls through to legacy as
-            // today. This pins the null-ghost short-circuit so a future
-            // refactor that loosens the check has to update the test.
-            var positioner = new SpawnPrimingPositioner
-            {
-                ShadowPositionShouldSucceed = true,
-            };
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = MakeParentAnchoredDebrisWithShadowFrames();
-            var state = new GhostPlaybackState { vesselName = "Kerbal X Debris", ghost = null };
-
-            InvokePositionLoopAtPlaybackUT(
-                engine, index: 4, traj: traj, state: state,
-                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
-                flags: BuildAnchorRotationFlags(unreliable: false),
-                frameUT: 222.0, warpRate: 1f, emitExitWatch: false);
-
-            Assert.Equal(0, positioner.ShadowPositionCalls);
-            Assert.Equal(1, positioner.PositionLoopCalls);
-            Assert.False(state.anchorRetiredThisFrame);
-            Assert.False(state.anchorRotationShadowRoutedThisFrame);
-        }
-
-        [Fact]
-        public void AlwaysShadow_LiveAnchorRecording_ExcludedByPredicate()
-        {
-            // Reviewer P1 regression: a recording with v12+ parent linkage AND
-            // a live-anchor loop assignment must NOT route through the
-            // always-shadow path. Pre-PR-#803 the resolver short-circuited at
-            // `LoopAnchorVesselId != 0` ("loop-anchor-out-of-scope") so the
-            // gate evaluator returned false; the router treated the result as
-            // None and legacy ran. PR #803's always-shadow path bypasses the
-            // resolver, so the same predicate alone (IsDebris &&
-            // DebrisParentRecordingId != null) would happily route the live-
-            // anchor recording's debris through the recorded shadow track,
-            // breaking the live-anchor contract.
-            //
-            // Fix: include `LoopAnchorVesselId == 0u` in the host predicate
-            // ShouldEvaluateAnchorRotationReliability so the
-            // `tryEvaluateAnchorRotationReliability` callback is null for
-            // live-anchor recordings, the router returns None, and the legacy
-            // resolver chain runs as today.
-            var live = new Recording
-            {
-                IsDebris = true,
-                DebrisParentRecordingId = "parent-rec",
-                LoopAnchorVesselId = 12345u,
-            };
-            Assert.False(
-                ParsekFlight.ShouldEvaluateAnchorRotationReliabilityForTesting(live),
-                "live-anchor (LoopAnchorVesselId != 0) recordings must be excluded from the always-shadow predicate even when the v12+ parent linkage is set");
-
-            // And the symmetric positive case: same fields but no live-anchor
-            // assignment should still qualify (PR #800 + #803 path is intact).
-            var noLive = new Recording
-            {
-                IsDebris = true,
-                DebrisParentRecordingId = "parent-rec",
-                LoopAnchorVesselId = 0u,
-            };
-            Assert.True(
-                ParsekFlight.ShouldEvaluateAnchorRotationReliabilityForTesting(noLive),
-                "v12+ parent-anchored debris without a live-anchor assignment must still qualify for the always-shadow path");
-        }
-
-        [Fact]
-        public void AlwaysShadow_EvaluatorReturnsFalse_StillTriesShadow()
-        {
-            // Reviewer P2 (round 2): a runtime evaluator miss (no focus tree,
-            // resolver-side issue) must NOT block the shadow render. The PR
-            // #803 contract says shadow renders for every covered frame for
-            // v12+ parent-anchored debris with shadow data, regardless of
-            // whether the gate evaluator's runtime call succeeded.
-            //
-            // The host predicate ShouldEvaluateAnchorRotationReliability has
-            // already filtered the recording in scope at flag-build time --
-            // a runtime evaluator miss is purely a diagnostic-data gap (the
-            // shadow-route log line will carry default bracket/rate/offset
-            // fields and mode=always, since fxSuppress can't be true without
-            // a real evaluation), not a signal to skip the shadow render.
-            //
-            // The earlier fix that gated the shadow attempt on `gateEvaluated`
-            // contradicted the PR contract -- this test pins the corrected
-            // behaviour.
-            //
-            // The success path (shadow positioner actually called and writes
-            // ghost.transform) requires a real Unity GameObject and is in
-            // RuntimeTests.cs. This xUnit test verifies the router does NOT
-            // skip the shadow attempt -- with `ghost = null` the positioner
-            // is bypassed at the engine's null-ghost short-circuit, then we
-            // fall through to legacy. The key thing pinned: the router does
-            // not return early ON THE EVALUATOR-MISS BIT ALONE.
-            //
-            // To pin "the router does not gate on gateEvaluated" without a
-            // real GameObject, we use the symmetry: when the predicate is
-            // null (recording out of scope), legacy runs; when the predicate
-            // is present-but-returns-false, the same legacy fallthrough
-            // happens via the null-ghost short-circuit. Both produce
-            // ShadowPositionCalls=0 in xUnit. The behavioural difference
-            // (success path) lives in RuntimeTests.cs.
-            var positioner = new SpawnPrimingPositioner
-            {
-                ShadowPositionShouldSucceed = true,
-            };
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = MakeParentAnchoredDebrisWithShadowFrames();
-            // Predicate present (non-null) but returns false -- mirrors the
-            // host's "no focus tree" / "resolver miss" cases.
-            var flags = new TrajectoryPlaybackFlags
-            {
-                tryEvaluateAnchorRotationReliability =
-                    (int idx, IPlaybackTrajectory trajArg, double playbackUT,
-                        string playbackScope,
-                        out AnchorRotationReliabilityDecision decision) =>
-                    {
-                        decision = default;
-                        return false;
-                    }
-            };
-            var state = new GhostPlaybackState { vesselName = "Kerbal X Debris", ghost = null };
-
-            InvokePositionLoopAtPlaybackUT(
-                engine, index: 4, traj: traj, state: state,
-                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
-                flags: flags,
-                frameUT: 222.0, warpRate: 1f, emitExitWatch: false);
-
-            // Null ghost short-circuit: shadow positioner not called even
-            // though the router DID try shadow first. Legacy runs because
-            // !fxSuppress (evaluator returned false) and shadow returned
-            // false (null ghost).
-            Assert.Equal(0, positioner.ShadowPositionCalls);
-            Assert.Equal(1, positioner.PositionLoopCalls);
-            Assert.False(state.anchorRetiredThisFrame);
-            Assert.False(state.anchorRotationShadowRoutedThisFrame);
-        }
-
-        [Fact]
-        public void AlwaysShadow_NotV12Debris_NoPredicate_FallsThroughToLegacy()
-        {
-            // Predicate gate: TrajectoryPlaybackFlags.tryEvaluateAnchorRotationReliability
-            // is null for non-v12 debris (host-side ShouldEvaluateAnchorRotationReliability
-            // returns false when IsDebris==false OR DebrisParentRecordingId is
-            // null). The router must early-return None and let legacy
-            // positioning run, even if the recording does carry absoluteFrames.
-            // This protects the live-anchor and non-debris cases from being
-            // unintentionally re-routed.
-            var positioner = new SpawnPrimingPositioner
-            {
-                ShadowPositionShouldSucceed = true,
-            };
-            var engine = new GhostPlaybackEngine(positioner);
-            var traj = MakeParentAnchoredDebrisWithShadowFrames();
-            // Flags with no anchor-rotation predicate -- mirrors the host side
-            // for non-v12 / live-anchor recordings.
-            var flags = new TrajectoryPlaybackFlags();
-            var state = new GhostPlaybackState { vesselName = "Kerbal X Debris", ghost = null };
-
-            InvokePositionLoopAtPlaybackUT(
-                engine, index: 4, traj: traj, state: state,
-                loopUT: 105.0, suppressFx: false, callsite: "test-loop",
-                flags: flags,
-                frameUT: 222.0, warpRate: 1f, emitExitWatch: false);
-
-            Assert.Equal(0, positioner.ShadowPositionCalls);
-            Assert.Equal(1, positioner.PositionLoopCalls);
-            Assert.False(state.anchorRetiredThisFrame);
-            Assert.False(state.anchorRotationShadowRoutedThisFrame);
-        }
-
-        [Fact]
-        public void ResolveRenderSurface_RouteShadow_ReturnsShadow()
-        {
-            // Trace surface resolver: pure helper. Shadow route always
-            // resolves to Shadow regardless of retired (the route enum was
-            // ShadowPositioned, so the engine wrote a real position before
-            // any retire signal could fire on the same frame).
-            Assert.Equal(GhostRenderTrace.RenderSurface.Shadow,
-                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
-                    AnchorRotationUnreliableRoute.ShadowPositioned, retired: false));
-            Assert.Equal(GhostRenderTrace.RenderSurface.Shadow,
-                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
-                    AnchorRotationUnreliableRoute.ShadowPositioned, retired: true));
-        }
-
-        [Fact]
-        public void ResolveRenderSurface_RouteHidden_ReturnsHidden()
-        {
-            Assert.Equal(GhostRenderTrace.RenderSurface.Hidden,
-                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
-                    AnchorRotationUnreliableRoute.Hidden, retired: false));
-            Assert.Equal(GhostRenderTrace.RenderSurface.Hidden,
-                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
-                    AnchorRotationUnreliableRoute.Hidden, retired: true));
-        }
-
-        [Fact]
-        public void ResolveRenderSurface_RouteNoneAndRetired_ReturnsHidden()
-        {
-            // Legacy rendering path BUT downstream retire mechanism (e.g. the
-            // recorded-relative coverage gate) marked the ghost retired this
-            // frame. Surface attribution should be Hidden because the mesh is
-            // not visible.
-            Assert.Equal(GhostRenderTrace.RenderSurface.Hidden,
-                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
-                    AnchorRotationUnreliableRoute.None, retired: true));
-        }
-
-        [Fact]
-        public void ResolveRenderSurface_RouteNoneAndNotRetired_ReturnsLegacy()
-        {
-            Assert.Equal(GhostRenderTrace.RenderSurface.Legacy,
-                GhostPlaybackEngine.ResolveRenderSurfaceForTesting(
-                    AnchorRotationUnreliableRoute.None, retired: false));
-        }
-
-        // ===================================================================
-        // Shadow-route FX-flag helpers — pure-static OR pattern + primary-loop
-        // branch decision. The bug class these test pin: clear-without-read
-        // leaks of FX state through the shadow-route window. A reviewer caught
-        // two P1 instances of this in the original engine wiring; the helpers
-        // were extracted afterwards so the OR pattern has one source of truth.
-        // ===================================================================
 
         [Fact]
         public void IsInterpolationResultValid_BodyNameNull_TreatsAsFailure()
@@ -1812,117 +1273,7 @@ namespace Parsek.Tests
             Assert.True(GhostPlaybackEngine.IsInterpolationResultValid(minimal));
         }
 
-        [Fact]
-        public void AdjustFxFlagsForShadowRoute_NotShadowRouted_PassesBaseFlagsThrough()
-        {
-            // (baseSkip, baseSuppress, shadowRouted=false) -> (baseSkip, baseSuppress)
-            var (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
-                baseSkipPartEvents: false,
-                baseSuppressVisualFx: false,
-                shadowRouted: false);
-            Assert.False(skip);
-            Assert.False(suppress);
-
-            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
-                baseSkipPartEvents: true,
-                baseSuppressVisualFx: false,
-                shadowRouted: false);
-            Assert.True(skip);
-            Assert.False(suppress);
-
-            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
-                baseSkipPartEvents: false,
-                baseSuppressVisualFx: true,
-                shadowRouted: false);
-            Assert.False(skip);
-            Assert.True(suppress);
-
-            (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
-                baseSkipPartEvents: true,
-                baseSuppressVisualFx: true,
-                shadowRouted: false);
-            Assert.True(skip);
-            Assert.True(suppress);
-        }
-
-        [Fact]
-        public void AdjustFxFlagsForShadowRoute_ShadowRouted_ForcesBothFlagsTrue()
-        {
-            // Regression guard: when shadowRouted=true, BOTH outputs must be
-            // true regardless of the base inputs. This is the OR pattern that
-            // a clear-without-read reviewer finding (P1) had broken at three
-            // sites in the original wiring; centralising it here makes future
-            // bypass attempts visible at code-review time.
-            foreach (bool baseSkip in new[] { false, true })
-            foreach (bool baseSuppress in new[] { false, true })
-            {
-                var (skip, suppress) = GhostPlaybackEngine.AdjustFxFlagsForShadowRoute(
-                    baseSkipPartEvents: baseSkip,
-                    baseSuppressVisualFx: baseSuppress,
-                    shadowRouted: true);
-                Assert.True(skip,
-                    $"shadowRouted=true must force skipPartEvents=true (was baseSkip={baseSkip}, baseSuppress={baseSuppress})");
-                Assert.True(suppress,
-                    $"shadowRouted=true must force suppressVisualFx=true (was baseSkip={baseSkip}, baseSuppress={baseSuppress})");
-            }
-        }
-
-        [Fact]
-        public void ResolveLoopShadowFxBranch_ShadowRouted_AlwaysReturnsForcedTeardown()
-        {
-            // Regression guard for primary-loop P1: when the previous logic
-            // OR'd shadowRouted into skipLoopPartEvents and gated the entire
-            // ApplyFrameVisuals call on !skipLoopPartEvents, shadow-routed
-            // frames silently skipped FX teardown -- letting stale plumes /
-            // RCS / reentry / audio continue running through the route.
-            // Forced teardown must fire regardless of the legacy LOD flag.
-            Assert.Equal(
-                GhostPlaybackEngine.LoopShadowFxBranch.ForcedShadowTeardown,
-                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
-                    shadowRouted: true,
-                    skipLoopPartEvents: false));
-            Assert.Equal(
-                GhostPlaybackEngine.LoopShadowFxBranch.ForcedShadowTeardown,
-                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
-                    shadowRouted: true,
-                    skipLoopPartEvents: true));
-        }
-
-        [Fact]
-        public void ResolveLoopShadowFxBranch_NotShadowRouted_RespectsLegacySkipFlag()
-        {
-            Assert.Equal(
-                GhostPlaybackEngine.LoopShadowFxBranch.Normal,
-                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
-                    shadowRouted: false,
-                    skipLoopPartEvents: false));
-            Assert.Equal(
-                GhostPlaybackEngine.LoopShadowFxBranch.Skipped,
-                GhostPlaybackEngine.ResolveLoopShadowFxBranch(
-                    shadowRouted: false,
-                    skipLoopPartEvents: true));
-        }
-
-        [Fact]
-        public void GhostPlaybackState_ClearLoadedVisualReferences_ClearsShadowRoutedFlag()
-        {
-            // Lifecycle clear: the ClearLoadedVisualReferences path (called on
-            // ghost destroy / engine reset / scene cleanup) must reset the new
-            // flag alongside anchorRetiredThisFrame so a future state reuse
-            // does not inherit a stale shadow-route signal. Reviewer P2.
-            var state = new GhostPlaybackState
-            {
-                anchorRetiredThisFrame = true,
-                anchorRotationShadowRoutedThisFrame = true,
-            };
-
-            state.ClearLoadedVisualReferences();
-
-            Assert.False(state.anchorRetiredThisFrame);
-            Assert.False(state.anchorRotationShadowRoutedThisFrame);
-        }
-
-        [Fact]
+                                                [Fact]
         public void CoverageRetiredHelper_StateNull_DoesNotReserveSpawnOrLoadVisuals()
         {
             var positioner = new SpawnPrimingPositioner();
@@ -1952,34 +1303,7 @@ namespace Parsek.Tests
                 && l.Contains("callsite=test"));
         }
 
-        [Fact]
-        public void CoverageRetiredHelper_CoveredPlaybackUTClearsRuntimeFlag()
-        {
-            var engine = new GhostPlaybackEngine(positioner: null);
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            var state = new GhostPlaybackState
-            {
-                parentAnchoredDebrisCoverageRetired = true,
-                anchorRetiredThisFrame = true,
-            };
-
-            bool handled = engine.TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
-                index: 3,
-                traj: traj,
-                state: state,
-                playbackUT: 105.0,
-                currentUT: 105.0,
-                warpRate: 1f,
-                emitExitWatch: false,
-                out bool ghostActive);
-
-            Assert.False(handled);
-            Assert.False(ghostActive);
-            Assert.False(state.parentAnchoredDebrisCoverageRetired);
-            Assert.True(state.anchorRetiredThisFrame);
-        }
-
-        [Fact]
+                [Fact]
         public void CoverageRetiredHelper_DirectWatch_EmitsExitWatch()
         {
             var engine = new GhostPlaybackEngine(positioner: null);
@@ -2104,48 +1428,7 @@ namespace Parsek.Tests
             Assert.False(exitWatch);
         }
 
-        [Fact]
-        public void ClearLoadedVisualReferences_DoesNotClearCoverageRetiredFlag()
-        {
-            var state = new GhostPlaybackState
-            {
-                parentAnchoredDebrisCoverageRetired = true,
-                anchorRetiredThisFrame = true,
-                deferVisibilityUntilPlaybackSync = true,
-            };
-
-            state.ClearLoadedVisualReferences();
-
-            Assert.True(state.parentAnchoredDebrisCoverageRetired);
-            Assert.False(state.anchorRetiredThisFrame);
-            Assert.False(state.deferVisibilityUntilPlaybackSync);
-        }
-
-        [Fact]
-        public void EnsureGhostVisualsLoadedForWatch_ParentAnchoredDebrisOutsideCoverage_DoesNotLoad()
-        {
-            var engine = new GhostPlaybackEngine(positioner: null);
-            var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            var state = new GhostPlaybackState
-            {
-                vesselName = "Kerbal X Debris",
-            };
-            engine.ghostStates[3] = state;
-
-            bool loaded = engine.EnsureGhostVisualsLoadedForWatch(
-                index: 3,
-                traj: traj,
-                playbackUT: 111.0,
-                currentUT: 111.0,
-                forceRebuildLoadedVisuals: true);
-
-            Assert.False(loaded);
-            Assert.True(state.parentAnchoredDebrisCoverageRetired);
-            Assert.True(state.anchorRetiredThisFrame);
-            Assert.Equal(0, engine.VisualLoadAttemptCountForTesting);
-        }
-
-        [Fact]
+                        [Fact]
         public void InterpolateAndPositionRelativeContract_UsesRelativeSectionPlaybackTarget()
         {
             MethodInfo method = typeof(IGhostPositioner).GetMethod(
@@ -2181,8 +1464,8 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Variant with a populated `absoluteFrames` shadow on the Relative
-        /// section -- exercises the new tumbling-quality shadow route.
+        /// Variant with a populated `bodyFixedFrames` primary surface on the
+        /// Relative section.
         /// </summary>
         private static MockTrajectory MakeParentAnchoredDebrisWithShadowFrames()
         {
@@ -2203,7 +1486,7 @@ namespace Parsek.Tests
                     new TrajectoryPoint { ut = 100.0 },
                     new TrajectoryPoint { ut = 110.0 },
                 },
-                absoluteFrames = new List<TrajectoryPoint>
+                bodyFixedFrames = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint
                     {
@@ -3720,7 +3003,7 @@ namespace Parsek.Tests
                         startUT = 100,
                         endUT = 110,
                         frames = relativeFrames,
-                        absoluteFrames = absoluteShadowFrames
+                        bodyFixedFrames = absoluteShadowFrames
                     }
                 }
             };
@@ -3735,7 +3018,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Engine]")
                 && l.Contains("RelativeSpawnGhost")
-                && l.Contains("relative absolute shadow point interpolation")
+                && l.Contains("relative body-fixed primary point interpolation")
                 && l.Contains("altitude=63000.0"));
         }
 
@@ -3814,7 +3097,7 @@ namespace Parsek.Tests
                         endUT = 140,
                         anchorRecordingId = "parent-rec",
                         frames = relativeFrames,
-                        absoluteFrames = absoluteShadowFrames
+                        bodyFixedFrames = absoluteShadowFrames
                     }
                 }
             };
@@ -3833,7 +3116,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Engine]")
                 && l.Contains("RelativeDebrisSpawnGhost")
-                && l.Contains("relative absolute shadow point interpolation")
+                && l.Contains("relative body-fixed primary point interpolation")
                 && l.Contains("altitude=66000.0"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("active orbit segment")

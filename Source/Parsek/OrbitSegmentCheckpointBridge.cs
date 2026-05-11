@@ -367,7 +367,7 @@ namespace Parsek
                 && section.referenceFrame != ReferenceFrame.OrbitalCheckpoint
                 && section.endUT > section.startUT + UtTolerance
                 && ((section.frames != null && section.frames.Count > 0)
-                    || (section.absoluteFrames != null && section.absoluteFrames.Count > 0));
+                    || (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0));
         }
 
         private static void SubtractRange(

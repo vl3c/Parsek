@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Parsek.Tests
 {
-    // Unit tests for the v12+ debris parent-anchored sampling caps added in
+    // Unit tests for the v13 debris parent-anchored sampling caps added in
     // BackgroundRecorder. The cap is gated on
     // (Recording.IsDebris && DebrisParentRecordingId != null) and bounds BOTH
     // adaptive-sampler thresholds:

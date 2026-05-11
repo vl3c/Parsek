@@ -474,8 +474,8 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------
-        // ABSOLUTE-SHADOW branch — v7+ Relative section with a parallel
-        // absoluteFrames entry passed in by the caller (KSP-side wrapper
+        // body-fixed-primary branch — v7+ Relative section with a parallel
+        // bodyFixedFrames entry passed in by the caller (KSP-side wrapper
         // detects "anchor PID == active Re-Fly target PID" and supplies the
         // shadow entry). Pure helper must use the SHADOW point's surface
         // lat/lon/alt, NOT the relative offsets in the original point — this
@@ -529,7 +529,7 @@ namespace Parsek.Tests
                 absoluteShadowPoint: shadowPoint);
 
             Assert.True(result.Resolved);
-            Assert.Equal("absolute-shadow", result.Branch);
+            Assert.Equal("body-fixed-primary", result.Branch);
             // Vector3d uses Unity's approximate == operator; assert components
             // individually so a 1ulp drift doesn't fail an otherwise correct
             // test.

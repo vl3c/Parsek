@@ -641,7 +641,7 @@ namespace Parsek
 
                     case ReferenceFrame.Relative:
                         sawRelativeSection = true;
-                        sectionPoints = section.absoluteFrames;
+                        sectionPoints = section.bodyFixedFrames;
                         break;
 
                     case ReferenceFrame.OrbitalCheckpoint:
@@ -1632,13 +1632,13 @@ namespace Parsek
                     if (track.referenceFrame == ReferenceFrame.Relative
                         && recordingFormatVersion >= RecordingStore.RelativeAbsoluteShadowFormatVersion)
                     {
-                        var absoluteFrames = track.absoluteFrames;
-                        if (absoluteFrames != null)
+                        var bodyFixedFrames = track.bodyFixedFrames;
+                        if (bodyFixedFrames != null)
                         {
-                            for (int i = 0; i < absoluteFrames.Count; i++)
+                            for (int i = 0; i < bodyFixedFrames.Count; i++)
                             {
-                                ConfigNode ptNode = tsNode.AddNode("ABSOLUTE_POINT");
-                                SerializePointValues(ptNode, absoluteFrames[i], ic);
+                                ConfigNode ptNode = tsNode.AddNode("BODY_FIXED_POINT");
+                                SerializePointValues(ptNode, bodyFixedFrames[i], ic);
                             }
                         }
                     }
@@ -1782,10 +1782,10 @@ namespace Parsek
 
                     if (section.referenceFrame == ReferenceFrame.Relative)
                     {
-                        section.absoluteFrames = new List<TrajectoryPoint>();
-                        ConfigNode[] absPtNodes = tsNode.GetNodes("ABSOLUTE_POINT");
+                        section.bodyFixedFrames = new List<TrajectoryPoint>();
+                        ConfigNode[] absPtNodes = tsNode.GetNodes("BODY_FIXED_POINT");
                         for (int i = 0; i < absPtNodes.Length; i++)
-                            section.absoluteFrames.Add(DeserializePoint(absPtNodes[i], ns, ic));
+                            section.bodyFixedFrames.Add(DeserializePoint(absPtNodes[i], ns, ic));
                     }
                 }
                 else if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
@@ -1806,8 +1806,8 @@ namespace Parsek
                     section.frames = new List<TrajectoryPoint>();
                 if (section.checkpoints == null)
                     section.checkpoints = new List<OrbitSegment>();
-                if (section.referenceFrame == ReferenceFrame.Relative && section.absoluteFrames == null)
-                    section.absoluteFrames = new List<TrajectoryPoint>();
+                if (section.referenceFrame == ReferenceFrame.Relative && section.bodyFixedFrames == null)
+                    section.bodyFixedFrames = new List<TrajectoryPoint>();
 
                 tracks.Add(section);
             }

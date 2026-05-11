@@ -88,7 +88,7 @@ namespace Parsek.Tests.Rendering
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.StructuralEventFlagFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.True(probe.Supported);
 
             var restored = new Recording();
@@ -136,7 +136,7 @@ namespace Parsek.Tests.Rendering
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.StructuralEventFlagFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
@@ -148,7 +148,7 @@ namespace Parsek.Tests.Rendering
         // ----- v9 legacy load defaults flags=0, preserves positional layout -----
 
         [Fact]
-        public void V9LegacyRead_DefaultsFlagsToZero_AndPreservesEveryOtherField()
+        public void CurrentBinaryRead_PreservesFlags_AndEveryOtherField()
         {
             const double t0 = 51000.0;
             var legacyPoint = new TrajectoryPoint
@@ -164,26 +164,21 @@ namespace Parsek.Tests.Rendering
                 science = 4.5f,
                 reputation = 0.25f,
                 recordedGroundClearance = 1.5,
-                // The v9 writer ignores this — but the in-memory value would
-                // otherwise round-trip via the v10 reader if the gate were broken.
                 flags = (byte)TrajectoryPointFlags.StructuralEventSnapshot,
             };
 
             var rec = new Recording
             {
-                RecordingId = "phase9-v9-legacy",
-                // Pin the writer to v9 (TerrainGroundClearanceFormatVersion). The
-                // version-selection ladder picks v9 — exactly the layout a Phase 7
-                // save on disk has.
-                RecordingFormatVersion = RecordingStore.TerrainGroundClearanceFormatVersion,
+                RecordingId = "phase9-current",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             rec.Points.Add(legacyPoint);
 
-            string path = Path.Combine(tempDir, "v9-legacy.prec");
+            string path = Path.Combine(tempDir, "flags-current.prec");
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.TerrainGroundClearanceFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
@@ -191,8 +186,7 @@ namespace Parsek.Tests.Rendering
             Assert.Single(restored.Points);
             var restoredPoint = restored.Points[0];
 
-            // Phase 9 contract: legacy v9 readers default flags=0.
-            Assert.Equal((byte)0, restoredPoint.flags);
+            Assert.Equal((byte)TrajectoryPointFlags.StructuralEventSnapshot, restoredPoint.flags);
 
             // Positional sanity: every other field round-trips intact. A
             // desync would mangle these.
@@ -247,7 +241,7 @@ namespace Parsek.Tests.Rendering
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.StructuralEventFlagFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);

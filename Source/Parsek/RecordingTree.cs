@@ -197,6 +197,13 @@ namespace Parsek
             {
                 var rec = new Recording();
                 LoadRecordingFrom(recNodes[i], rec);
+                if (rec.RecordingFormatVersion == -1)
+                {
+                    ParsekLog.Warn("Codec",
+                        $"RecordingTree.LoadFrom: skipped unsupported recording " +
+                        $"id={rec.RecordingId ?? "<no-id>"} tree={tree.Id ?? "<no-tree>"}");
+                    continue;
+                }
                 tree.AddOrReplaceRecording(rec);
             }
 

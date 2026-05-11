@@ -255,7 +255,7 @@ namespace Parsek.Tests
                     new TrajectoryPoint { ut = 101.0 },
                     new TrajectoryPoint { ut = 105.0 },
                 },
-                absoluteFrames = new List<TrajectoryPoint>
+                bodyFixedFrames = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 101.0, latitude = 3.0 },
                     new TrajectoryPoint { ut = 105.0, latitude = 4.0 },
@@ -282,7 +282,7 @@ namespace Parsek.Tests
                 startUT = 100.0,
                 endUT = 100.5,
                 anchorVesselId = 42u,
-                absoluteFrames = new List<TrajectoryPoint>
+                bodyFixedFrames = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 100.0, latitude = 1.0 },
                 }
@@ -306,7 +306,7 @@ namespace Parsek.Tests
             List<TrajectoryPoint> resolved =
                 ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(rec, relativeSection, 100.4);
 
-            Assert.Same(relativeSection.absoluteFrames, resolved);
+            Assert.Same(relativeSection.bodyFixedFrames, resolved);
             Assert.Single(resolved);
             Assert.Equal(100.0, resolved[0].ut);
         }

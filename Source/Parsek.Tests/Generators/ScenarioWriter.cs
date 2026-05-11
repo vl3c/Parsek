@@ -581,7 +581,7 @@ namespace Parsek.Tests.Generators
             if (controllers != null)
                 rec.Controllers = new List<ControllerInfo>(controllers);
             rec.IsDebris = builder.GetIsDebris();
-            // v12+ debris parent-anchor contract: stamp adjacent to IsDebris
+            // v13 debris parent-anchor contract: stamp adjacent to IsDebris
             // so cloned/merged/serialized synthetic debris recordings carry the
             // contract through every code path the recorder writes for live debris.
             // Recording.ApplyDebrisAnchorContract no-ops on non-debris, so this

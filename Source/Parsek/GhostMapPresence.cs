@@ -773,8 +773,8 @@ namespace Parsek
         /// <param name="marker">Live re-fly marker, or null.</param>
         /// <param name="resolutionBranch">Branch label from
         /// <see cref="StateVectorWorldFrame.Branch"/>: <c>"relative"</c> AND
-        /// <c>"absolute-shadow"</c> both suppress, because both describe a
-        /// RELATIVE track section. The absolute-shadow branch is a retained
+        /// <c>"body-fixed-primary"</c> both suppress, because both describe a
+        /// RELATIVE track section. The body-fixed-primary branch is a retained
         /// v7 compatibility branch for callers that already selected the
         /// recorded shadow point; create-time lookahead no longer performs a
         /// live-PID anchor scan. Suppressing both labels preserves the
@@ -846,13 +846,13 @@ namespace Parsek
                 return false;
             }
 
-            // Accept both "relative" and "absolute-shadow" for legacy
+            // Accept both "relative" and "body-fixed-primary" for legacy
             // suppression decisions. Phase D keeps this helper for caller
             // compatibility, but create-time lookahead no longer performs a
             // live-PID anchor scan.
             bool branchSuppresses =
                 string.Equals(resolutionBranch, "relative", StringComparison.Ordinal)
-                || string.Equals(resolutionBranch, "absolute-shadow", StringComparison.Ordinal);
+                || string.Equals(resolutionBranch, "body-fixed-primary", StringComparison.Ordinal);
             if (!branchSuppresses)
             {
                 suppressReason = "not-suppressed-not-relative-frame";
@@ -5156,13 +5156,13 @@ namespace Parsek
             bool allowOrbitalCheckpointStateVector = false,
             TrajectoryPoint? absoluteShadowPoint = null)
         {
-            // v7+ Relative sections store an `absoluteFrames` shadow alongside
+            // v7+ Relative sections store an `bodyFixedFrames` shadow alongside
             // the anchor-local `frames`. The state-vector path currently passes
             // this as null, but the compatibility branch remains available for
-            // callers that already selected the recorded absolute shadow point.
+            // callers that already selected the recorded body-fixed primary point.
             // Resolved through the standard body-fixed surface lookup it yields
             // the recorded world position directly. Returns
-            // Branch="absolute-shadow" so call-site logs and tests can
+            // Branch="body-fixed-primary" so call-site logs and tests can
             // distinguish this fallback from the regular Absolute path.
             if (absoluteShadowPoint.HasValue)
             {
@@ -5172,7 +5172,7 @@ namespace Parsek
                 {
                     Resolved = true,
                     WorldPos = pos,
-                    Branch = "absolute-shadow",
+                    Branch = "body-fixed-primary",
                     FailureReason = null,
                     AnchorPid = anchorVesselId,
                 };
