@@ -124,6 +124,58 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryValidateOrbitElements_RejectsTinySelectedSeed()
+        {
+            bool ok = OrbitResolution.TryValidateOrbitElements(
+                inclination: 0.1,
+                eccentricity: 0.01,
+                semiMajorAxis: 0.5,
+                longitudeOfAscendingNode: 0.2,
+                argumentOfPeriapsis: 0.3,
+                meanAnomalyAtEpoch: 0.4,
+                epoch: 100.0,
+                bodyName: "Kerbin",
+                bodyResolver: ResolveBody,
+                mode: OrbitSegmentValidationMode.ValidateAndLog,
+                recordingId: "rec_seed_tiny",
+                context: "spawn-terminal-orbit",
+                body: out _,
+                reason: out OrbitRejectionReason reason);
+
+            Assert.False(ok);
+            Assert.Equal(OrbitRejectionReason.BelowMinSma, reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("orbit-resolver-reject-rec_seed_tiny-spawn-terminal-orbit")
+                && l.Contains("reason=below-min-sma"));
+        }
+
+        [Fact]
+        public void TryValidateOrbitElements_RejectsNonFiniteSelectedSeed()
+        {
+            bool ok = OrbitResolution.TryValidateOrbitElements(
+                inclination: 0.1,
+                eccentricity: double.NaN,
+                semiMajorAxis: 700000.0,
+                longitudeOfAscendingNode: 0.2,
+                argumentOfPeriapsis: 0.3,
+                meanAnomalyAtEpoch: 0.4,
+                epoch: 100.0,
+                bodyName: "Kerbin",
+                bodyResolver: ResolveBody,
+                mode: OrbitSegmentValidationMode.ValidateAndLog,
+                recordingId: "rec_seed_nan",
+                context: "map-presence-state-vector",
+                body: out _,
+                reason: out OrbitRejectionReason reason);
+
+            Assert.False(ok);
+            Assert.Equal(OrbitRejectionReason.NonFiniteElements, reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("orbit-resolver-reject-rec_seed_nan-map-presence-state-vector")
+                && l.Contains("reason=non-finite-elements"));
+        }
+
+        [Fact]
         public void TryResolveOrbitFromSegment_RebuildsCacheWhenTupleChanges()
         {
             var cache = new Dictionary<long, Orbit>();

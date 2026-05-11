@@ -140,6 +140,44 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryValidateOrbitElements(
+            double inclination,
+            double eccentricity,
+            double semiMajorAxis,
+            double longitudeOfAscendingNode,
+            double argumentOfPeriapsis,
+            double meanAnomalyAtEpoch,
+            double epoch,
+            string bodyName,
+            Func<string, CelestialBody> bodyResolver,
+            OrbitSegmentValidationMode mode,
+            string recordingId,
+            string context,
+            out CelestialBody body,
+            out OrbitRejectionReason reason)
+        {
+            var segment = new OrbitSegment
+            {
+                inclination = inclination,
+                eccentricity = eccentricity,
+                semiMajorAxis = semiMajorAxis,
+                longitudeOfAscendingNode = longitudeOfAscendingNode,
+                argumentOfPeriapsis = argumentOfPeriapsis,
+                meanAnomalyAtEpoch = meanAnomalyAtEpoch,
+                epoch = epoch,
+                bodyName = bodyName
+            };
+
+            return TryValidateOrbitSegment(
+                segment,
+                bodyResolver,
+                mode,
+                recordingId,
+                context,
+                out body,
+                out reason);
+        }
+
         internal static bool TryCreateOrbitFromSegment(
             OrbitSegment segment,
             Func<string, CelestialBody> bodyResolver,

@@ -1670,6 +1670,60 @@ namespace Parsek.Tests
             Assert.Equal(0.5, meanAnomalyAtEpoch, 10);
         }
 
+        [Theory]
+        [InlineData(0.5, "below-min-sma")]
+        [InlineData(double.NaN, "non-finite-elements")]
+        public void TryBuildRecordedTerminalOrbitForSpawn_InvalidSelectedEndpointSegmentRejectsBeforeOrbitConstruction(
+            double segmentSma,
+            string expectedReason)
+        {
+            CelestialBody body = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            var rec = new Recording
+            {
+                RecordingId = "spawn_invalid_endpoint",
+                EndpointPhase = RecordingEndpointPhase.OrbitSegment,
+                EndpointBodyName = "Kerbin",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitInclination = 3.0,
+                TerminalOrbitEccentricity = 0.02,
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                TerminalOrbitLAN = 10.0,
+                TerminalOrbitArgumentOfPeriapsis = 20.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.5,
+                TerminalOrbitEpoch = 400.0,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 250.0, bodyName = "Kerbin" }
+                }
+            };
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 250.0,
+                endUT = 450.0,
+                inclination = 4.0,
+                eccentricity = 0.01,
+                semiMajorAxis = segmentSma,
+                longitudeOfAscendingNode = 11.0,
+                argumentOfPeriapsis = 22.0,
+                meanAnomalyAtEpoch = 0.7,
+                epoch = 350.0,
+                bodyName = "Kerbin"
+            });
+
+            Assert.False(VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(
+                rec,
+                body,
+                500.0,
+                out Orbit orbit));
+
+            Assert.Null(orbit);
+            Assert.Contains(logLines, l =>
+                l.Contains("TryBuildRecordedTerminalOrbitForSpawn: rejected orbit seed")
+                && l.Contains("rec=spawn_invalid_endpoint")
+                && l.Contains("reason=" + expectedReason));
+        }
+
         [Fact]
         public void TryGetEndpointAlignedRecordedOrbitSeedForSpawn_UsesLastSegmentMatchingEndpointBody()
         {

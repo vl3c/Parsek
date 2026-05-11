@@ -5684,8 +5684,48 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
+            if (!TryValidateStateVectorReseedInputs(worldPos, vel, body, out string reseedInputFailure))
+            {
+                LogStateVectorCreateFailure(
+                    traj,
+                    recordingIndex,
+                    point,
+                    ut,
+                    reseedInputFailure);
+                return null;
+            }
+
             Orbit orbit = new Orbit();
-            OrbitReseed.FromWorldPosAndRecordedVelocity(orbit, body, worldPos, vel, ut);
+            try
+            {
+                OrbitReseed.FromWorldPosAndRecordedVelocity(orbit, body, worldPos, vel, ut);
+            }
+            catch (Exception ex)
+            {
+                LogStateVectorCreateFailure(
+                    traj,
+                    recordingIndex,
+                    point,
+                    ut,
+                    "orbit-reseed-failed:" + ex.GetType().Name);
+                return null;
+            }
+
+            if (!TryValidateStateVectorReseededOrbit(
+                    orbit,
+                    body,
+                    traj?.RecordingId,
+                    "map-presence-state-vector",
+                    out string reseedOrbitFailure))
+            {
+                LogStateVectorCreateFailure(
+                    traj,
+                    recordingIndex,
+                    point,
+                    ut,
+                    reseedOrbitFailure);
+                return null;
+            }
 
             string logContext = string.Format(ic,
                 "recording #{0} (state vectors alt={1:F0} spd={2:F1} frame={3})",
@@ -5997,13 +6037,9 @@ namespace Parsek
             {
                 failureReason = "no-orbit";
             }
-            else if (!IsFinite(worldPos))
+            else
             {
-                failureReason = "non-finite-world-position";
-            }
-            else if (!IsFinite(vel))
-            {
-                failureReason = "non-finite-velocity";
+                TryValidateStateVectorReseedInputs(worldPos, vel, body, out failureReason);
             }
 
             if (failureReason != null)
@@ -6026,6 +6062,23 @@ namespace Parsek
                     worldPos,
                     vel,
                     ut);
+                if (!TryValidateStateVectorReseededOrbit(
+                        vessel.orbitDriver.orbit,
+                        body,
+                        traj?.RecordingId,
+                        "map-presence-state-vector",
+                        out string reseedOrbitFailure))
+                {
+                    LogStateVectorUpdateFailure(
+                        traj,
+                        recordingIndex,
+                        point,
+                        vessel,
+                        ut,
+                        reseedOrbitFailure);
+                    return false;
+                }
+
                 vessel.orbitDriver.updateFromParameters();
                 NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
                 if (soiChanged && vessel.orbitRenderer != null)
@@ -6049,6 +6102,94 @@ namespace Parsek
             }
         }
 
+        internal static bool TryValidateStateVectorReseedInputs(
+            Vector3d worldPos,
+            Vector3d vel,
+            CelestialBody body,
+            out string failureReason)
+        {
+            bool hasBody = !object.ReferenceEquals(body, null);
+            return TryValidateStateVectorReseedInputs(
+                worldPos,
+                vel,
+                hasBody,
+                hasBody ? body.position : Vector3d.zero,
+                out failureReason);
+        }
+
+        internal static bool TryValidateStateVectorReseedInputs(
+            Vector3d worldPos,
+            Vector3d vel,
+            bool hasBody,
+            Vector3d bodyPosition,
+            out string failureReason)
+        {
+            failureReason = null;
+            if (!hasBody)
+            {
+                failureReason = "body-not-found";
+                return false;
+            }
+
+            if (!IsFinite(worldPos))
+            {
+                failureReason = "non-finite-world-position";
+                return false;
+            }
+
+            if (!IsFinite(vel))
+            {
+                failureReason = "non-finite-velocity";
+                return false;
+            }
+
+            if (!IsFinite(bodyPosition))
+            {
+                failureReason = "non-finite-body-position";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryValidateStateVectorReseededOrbit(
+            Orbit orbit,
+            CelestialBody body,
+            string recordingId,
+            string context,
+            out string failureReason)
+        {
+            failureReason = null;
+            if (orbit == null)
+            {
+                failureReason = "no-orbit";
+                return false;
+            }
+
+            string bodyName = body?.bodyName ?? body?.name;
+            if (!OrbitResolution.TryValidateOrbitElements(
+                    orbit.inclination,
+                    orbit.eccentricity,
+                    orbit.semiMajorAxis,
+                    orbit.LAN,
+                    orbit.argumentOfPeriapsis,
+                    orbit.meanAnomalyAtEpoch,
+                    orbit.epoch,
+                    bodyName,
+                    name => string.Equals(name, bodyName, StringComparison.Ordinal) ? body : null,
+                    OrbitSegmentValidationMode.ValidateAndLog,
+                    recordingId,
+                    context,
+                    out _,
+                    out OrbitRejectionReason reason))
+            {
+                failureReason = "invalid-reseed-orbit:" + OrbitResolution.ToLogToken(reason);
+                return false;
+            }
+
+            return true;
+        }
+
         private static void LogStateVectorUpdateFailure(
             IPlaybackTrajectory traj,
             int recordingIndex,
@@ -6064,6 +6205,26 @@ namespace Parsek
             miss.Source = "StateVector";
             miss.Body = point.bodyName;
             miss.GhostPid = vessel?.persistentId ?? 0u;
+            miss.StateVecAlt = point.altitude;
+            miss.StateVecSpeed = point.velocity.magnitude;
+            miss.UT = ut;
+            miss.Reason = reason;
+            ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
+        }
+
+        private static void LogStateVectorCreateFailure(
+            IPlaybackTrajectory traj,
+            int recordingIndex,
+            TrajectoryPoint point,
+            double ut,
+            string reason)
+        {
+            var miss = NewDecisionFields("create-state-vector-miss");
+            miss.RecordingId = traj?.RecordingId;
+            miss.RecordingIndex = recordingIndex;
+            miss.VesselName = traj?.VesselName;
+            miss.Source = "StateVector";
+            miss.Body = point.bodyName;
             miss.StateVecAlt = point.altitude;
             miss.StateVecSpeed = point.velocity.magnitude;
             miss.UT = ut;

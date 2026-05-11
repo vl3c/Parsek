@@ -1990,6 +1990,44 @@ namespace Parsek.Tests
                 + "the ghost (state-vector subsurface drift case).");
         }
 
+        [Theory]
+        [InlineData(false, 0.0, "body-not-found")]
+        [InlineData(true, double.NaN, "non-finite-body-position")]
+        public void TryValidateStateVectorReseedInputs_RejectsMissingOrUninitializedBody(
+            bool hasBody,
+            double bodyX,
+            string expectedReason)
+        {
+            bool ok = GhostMapPresence.TryValidateStateVectorReseedInputs(
+                worldPos: new Vector3d(1.0, 2.0, 3.0),
+                vel: new Vector3d(4.0, 5.0, 6.0),
+                hasBody: hasBody,
+                bodyPosition: new Vector3d(bodyX, 0.0, 0.0),
+                failureReason: out string reason);
+
+            Assert.False(ok);
+            Assert.Equal(expectedReason, reason);
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 2.0, "non-finite-world-position")]
+        [InlineData(1.0, double.NaN, "non-finite-velocity")]
+        public void TryValidateStateVectorReseedInputs_RejectsNonFiniteStateVectors(
+            double worldX,
+            double velocityX,
+            string expectedReason)
+        {
+            bool ok = GhostMapPresence.TryValidateStateVectorReseedInputs(
+                worldPos: new Vector3d(worldX, 2.0, 3.0),
+                vel: new Vector3d(velocityX, 5.0, 6.0),
+                hasBody: true,
+                bodyPosition: Vector3d.zero,
+                failureReason: out string reason);
+
+            Assert.False(ok);
+            Assert.Equal(expectedReason, reason);
+        }
+
         [Fact]
         public void ShouldRefreshTrackingStationSegmentOrbit_OrientationOnlyChange_ReturnsTrue()
         {
