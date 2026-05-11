@@ -142,6 +142,7 @@ namespace Parsek
         {
             return IsFinite(segment.inclination)
                 && IsFinite(segment.eccentricity)
+                && segment.eccentricity >= 0.0
                 && IsFinite(segment.semiMajorAxis)
                 && System.Math.Abs(segment.semiMajorAxis) >= MinUsableOrbitSemiMajorAxisMeters
                 && IsFinite(segment.longitudeOfAscendingNode)

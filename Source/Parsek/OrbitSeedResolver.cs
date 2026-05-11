@@ -287,8 +287,7 @@ namespace Parsek
                 OrbitSegment seg = traj.OrbitSegments[i];
                 if (!string.Equals(seg.bodyName, bodyName, StringComparison.Ordinal))
                     continue;
-                if (!IsFinite(seg.semiMajorAxis)
-                    || Math.Abs(seg.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
                     continue;
                 if (!IsFinite(seg.endUT))
                     continue;

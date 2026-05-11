@@ -3358,11 +3358,13 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(0.0, "below-min-sma")]
-        [InlineData(0.5, "below-min-sma")]
-        [InlineData(double.NaN, "non-finite-elements")]
+        [InlineData(0.0, 0.01, "below-min-sma")]
+        [InlineData(0.5, 0.01, "below-min-sma")]
+        [InlineData(double.NaN, 0.01, "non-finite-elements")]
+        [InlineData(900000.0, -0.1, "invalid-eccentricity")]
         public void TryResolveGhostProtoOrbitSeed_InvalidTerminalOrbitOnly_FailsClosedAndLogs(
             double sma,
+            double eccentricity,
             string reason)
         {
             var traj = new MockTrajectory
@@ -3370,7 +3372,7 @@ namespace Parsek.Tests
                 RecordingId = "invalid_terminal_only",
                 TerminalOrbitBody = "Kerbin",
                 TerminalOrbitSemiMajorAxis = sma,
-                TerminalOrbitEccentricity = 0.01,
+                TerminalOrbitEccentricity = eccentricity,
                 TerminalOrbitInclination = 3.0,
                 TerminalOrbitLAN = 4.0,
                 TerminalOrbitArgumentOfPeriapsis = 5.0,
@@ -3503,6 +3505,37 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("orbit-resolver-reject-endpoint_invalid_positive-map-presence-endpoint-seed")
                 && l.Contains("reason=" + reason));
+        }
+
+        [Fact]
+        public void TryResolveGhostProtoOrbitSeed_NegativeEccentricityEndpointSegment_FailsClosedAndLogs()
+        {
+            OrbitSegment segment = EndpointSeedSegment("Kerbin", 900000.0);
+            segment.eccentricity = -0.1;
+            var traj = new MockTrajectory
+            {
+                RecordingId = "endpoint_invalid_ecc",
+                EndpointPhase = RecordingEndpointPhase.OrbitSegment,
+                EndpointBodyName = "Kerbin",
+                OrbitSegments = new List<OrbitSegment> { segment }
+            };
+
+            Assert.False(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
+                traj,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out GhostMapPresence.GhostProtoOrbitSeedDiagnostics diagnostics));
+
+            Assert.Equal("invalid-endpoint-orbit-segment", diagnostics.FailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("orbit-resolver-reject-endpoint_invalid_ecc-map-presence-endpoint-seed")
+                && l.Contains("reason=invalid-eccentricity"));
         }
 
         [Fact]

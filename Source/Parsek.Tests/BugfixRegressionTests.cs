@@ -270,12 +270,12 @@ namespace Parsek.Tests
 
     public class OrbitSegmentUsabilityTests
     {
-        private static bool IsUsableOrbitSegment(double sma)
+        private static bool IsUsableOrbitSegment(double sma, double eccentricity = 0.574602)
         {
             return TrajectoryMath.HasUsableOrbitSegmentElements(new OrbitSegment
             {
                 inclination = 28.5,
-                eccentricity = 0.574602,
+                eccentricity = eccentricity,
                 semiMajorAxis = sma,
                 longitudeOfAscendingNode = 90.0,
                 argumentOfPeriapsis = 45.0,
@@ -317,6 +317,12 @@ namespace Parsek.Tests
         {
             Assert.False(IsUsableOrbitSegment(double.NaN));
             Assert.False(IsUsableOrbitSegment(double.PositiveInfinity));
+        }
+
+        [Fact]
+        public void NegativeEccentricity_IsRejected()
+        {
+            Assert.False(IsUsableOrbitSegment(700000, -0.1));
         }
 
         [Fact]

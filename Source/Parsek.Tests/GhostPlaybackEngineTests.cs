@@ -25,6 +25,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
@@ -3683,6 +3684,8 @@ namespace Parsek.Tests
         [Fact]
         public void TryResolvePendingPlaybackInterpolation_MixedPointAndOrbitData_PrefersActiveOrbitSegment()
         {
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
             var traj = new MockTrajectory
             {
                 Points = new List<TrajectoryPoint>
@@ -3827,6 +3830,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolvePendingPlaybackInterpolation_NegativeEccentricityOrbitSegment_FallsBackToPointsAndLogs()
+        {
+            logLines.Clear();
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
+
+            var traj = new MockTrajectory
+            {
+                RecordingId = "negative-ecc-orbit-rec",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        bodyName = "Kerbin",
+                        altitude = 1000,
+                        velocity = new Vector3(5f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        bodyName = "Kerbin",
+                        altitude = 2000,
+                        velocity = new Vector3(15f, 0f, 0f),
+                        rotation = Quaternion.identity
+                    }
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Mun",
+                        semiMajorAxis = 700000.0,
+                        eccentricity = -0.1,
+                        startUT = 100,
+                        endUT = 200
+                    }
+                }
+            };
+
+            bool resolved = GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(
+                traj, playbackUT: 105.0, out InterpolationResult result);
+
+            Assert.True(resolved);
+            Assert.Equal("Kerbin", result.bodyName);
+            Assert.Equal(1500.0, result.altitude);
+            Assert.Equal(new Vector3(10f, 0f, 0f), result.velocity);
+            Assert.Contains(logLines, l =>
+                l.Contains("Orbit segment rejected by resolver")
+                && l.Contains("context=pending-metadata")
+                && l.Contains("reason=invalid-eccentricity"));
+        }
+
+        [Fact]
         public void TryResolvePendingPlaybackInterpolation_RelativeSection_UsesAbsoluteShadowMetadata()
         {
             logLines.Clear();
@@ -3908,6 +3965,7 @@ namespace Parsek.Tests
         public void TryResolvePendingPlaybackInterpolation_AuthoredFrameGapWithShadow_SkipsOrbitPrecedence()
         {
             logLines.Clear();
+            GhostPlaybackEngine.PendingOrbitBodyRadiusResolverForTesting = _ => 600000;
 
             var relativeFrames = new List<TrajectoryPoint>
             {

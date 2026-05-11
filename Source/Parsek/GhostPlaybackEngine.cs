@@ -6238,6 +6238,17 @@ namespace Parsek
                 return false;
             }
 
+            if (segment.eccentricity < 0.0)
+            {
+                OrbitResolution.LogOrbitSegmentRejected(
+                    segment,
+                    recordingId,
+                    context,
+                    OrbitRejectionReason.InvalidEccentricity,
+                    OrbitSegmentValidationMode.ValidateAndLog);
+                return false;
+            }
+
             double absSma = Math.Abs(segment.semiMajorAxis);
             if (!OrbitResolution.IsFiniteDouble(absSma)
                 || absSma < OrbitResolution.MinValidSmaMeters)

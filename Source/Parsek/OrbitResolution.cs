@@ -15,6 +15,7 @@ namespace Parsek
     {
         None,
         NonFiniteElements,
+        InvalidEccentricity,
         BelowMinSma,
         MissingBody,
         OrbitConstructionFailed
@@ -102,6 +103,13 @@ namespace Parsek
             if (!IsFiniteOrbitSegment(segment))
             {
                 reason = OrbitRejectionReason.NonFiniteElements;
+                LogOrbitSegmentRejected(segment, recordingId, context, reason, mode);
+                return false;
+            }
+
+            if (segment.eccentricity < 0.0)
+            {
+                reason = OrbitRejectionReason.InvalidEccentricity;
                 LogOrbitSegmentRejected(segment, recordingId, context, reason, mode);
                 return false;
             }
@@ -753,6 +761,8 @@ namespace Parsek
             {
                 case OrbitRejectionReason.NonFiniteElements:
                     return "non-finite-elements";
+                case OrbitRejectionReason.InvalidEccentricity:
+                    return "invalid-eccentricity";
                 case OrbitRejectionReason.BelowMinSma:
                     return "below-min-sma";
                 case OrbitRejectionReason.MissingBody:

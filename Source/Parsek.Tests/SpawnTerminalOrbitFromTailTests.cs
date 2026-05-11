@@ -338,6 +338,12 @@ namespace Parsek.Tests
                 bodyName = "Kerbin",
                 startUT = 200, endUT = 7777, semiMajorAxis = double.NaN
             });
+            // Negative eccentricity is non-physical and must not be picked.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 200, endUT = 6666, semiMajorAxis = 700000, eccentricity = -0.1
+            });
 
             double endUT = VesselSpawner.ResolveLatestStoredOrbitSegmentEndUT(rec, "Kerbin");
 

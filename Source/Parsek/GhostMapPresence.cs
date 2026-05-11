@@ -8305,6 +8305,8 @@ namespace Parsek
             OrbitRejectionReason reason = OrbitRejectionReason.None;
             if (!OrbitResolution.IsFiniteOrbitSegment(segment))
                 reason = OrbitRejectionReason.NonFiniteElements;
+            else if (segment.eccentricity < 0.0)
+                reason = OrbitRejectionReason.InvalidEccentricity;
             else if (Math.Abs(segment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
                 reason = OrbitRejectionReason.BelowMinSma;
 
@@ -8352,6 +8354,8 @@ namespace Parsek
             OrbitRejectionReason reason = OrbitRejectionReason.None;
             if (!OrbitResolution.IsFiniteOrbitSegment(segment))
                 reason = OrbitRejectionReason.NonFiniteElements;
+            else if (segment.eccentricity < 0.0)
+                reason = OrbitRejectionReason.InvalidEccentricity;
             else if (Math.Abs(segment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
                 reason = OrbitRejectionReason.BelowMinSma;
 
@@ -8527,6 +8531,8 @@ namespace Parsek
             OrbitRejectionReason reason = OrbitRejectionReason.None;
             if (!OrbitResolution.IsFiniteOrbitSegment(terminalSegment))
                 reason = OrbitRejectionReason.NonFiniteElements;
+            else if (terminalSegment.eccentricity < 0.0)
+                reason = OrbitRejectionReason.InvalidEccentricity;
             else if (Math.Abs(terminalSegment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
                 reason = OrbitRejectionReason.BelowMinSma;
 

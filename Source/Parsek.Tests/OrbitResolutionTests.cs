@@ -102,6 +102,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryValidateOrbitSegment_RejectsNegativeEccentricity()
+        {
+            OrbitSegment segment = KerbalXProbeSubOrbitalSegment();
+            segment.eccentricity = -0.1;
+
+            bool ok = OrbitResolution.TryValidateOrbitSegment(
+                segment,
+                ResolveBody,
+                OrbitSegmentValidationMode.ValidateAndLog,
+                "rec_negative_ecc",
+                "distance",
+                out _,
+                out OrbitRejectionReason reason);
+
+            Assert.False(ok);
+            Assert.Equal(OrbitRejectionReason.InvalidEccentricity, reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("orbit-resolver-reject-rec_negative_ecc-distance")
+                && l.Contains("reason=invalid-eccentricity"));
+        }
+
+        [Fact]
         public void TryValidateOrbitSegment_RejectsMissingBody()
         {
             OrbitSegment segment = KerbalXProbeSubOrbitalSegment();
@@ -424,6 +446,37 @@ namespace Parsek.Tests
                 && l.Contains("reason=surface-start-situation"));
         }
 
+        [Fact]
+        public void ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit_RejectsSurfaceTrackSection()
+        {
+            var rec = ChainFallbackRecording(SegmentEnvironment.SurfaceStationary);
+            rec.RecordingId = "chain_surface_junk";
+
+            bool suppressed = ParsekFlight.ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit(
+                rec,
+                currentUT: 150.0);
+
+            Assert.True(suppressed);
+            Assert.Contains(logLines, l =>
+                l.Contains("legacy-surface-orbit-reject-chain_surface_junk-chain-fallback")
+                && l.Contains("reason=surface-track-section"));
+        }
+
+        [Fact]
+        public void ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit_AllowsExoBallisticTrackSection()
+        {
+            var rec = ChainFallbackRecording(SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "chain_exo_ballistic";
+
+            bool suppressed = ParsekFlight.ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit(
+                rec,
+                currentUT: 150.0);
+
+            Assert.False(suppressed);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("legacy-surface-orbit-reject-chain_exo_ballistic-chain-fallback"));
+        }
+
         private static CelestialBody ResolveBody(string bodyName)
         {
             return TestBodyRegistry.ResolveBodyByName(bodyName, out CelestialBody body)
@@ -452,6 +505,34 @@ namespace Parsek.Tests
         {
             point.altitude = altitude;
             return point;
+        }
+
+        private static Recording ChainFallbackRecording(SegmentEnvironment environment)
+        {
+            return new Recording
+            {
+                RecordingId = "chain_fallback",
+                ExplicitStartUT = 140.0,
+                ExplicitEndUT = 160.0,
+                SurfacePos = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 0.0
+                },
+                OrbitSegments = new List<OrbitSegment> { KerbalXProbeSubOrbitalSegment() },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        environment = environment,
+                        referenceFrame = ReferenceFrame.Absolute,
+                        startUT = 140.0,
+                        endUT = 160.0
+                    }
+                }
+            };
         }
     }
 }

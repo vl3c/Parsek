@@ -14705,7 +14705,9 @@ namespace Parsek
             if (ghostGO == null || chain == null || rec == null)
                 return false;
 
-            if (rec.HasOrbitSegments)
+            bool suppressOrbitFallback =
+                ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit(rec, currentUT);
+            if (rec.HasOrbitSegments && !suppressOrbitFallback)
             {
                 if (!HasOrbitCoverageAtUT(rec, currentUT))
                     return false;
@@ -14747,6 +14749,25 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        internal static bool ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit(
+            Recording rec,
+            double currentUT)
+        {
+            if (rec == null || !rec.HasOrbitSegments)
+                return false;
+
+            OrbitSegment? activeSegment = FindOrbitSegment(rec.OrbitSegments, currentUT);
+            if (!activeSegment.HasValue)
+                return false;
+
+            return OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                rec,
+                activeSegment.Value,
+                currentUT,
+                rec.RecordingId,
+                "chain-fallback");
         }
 
         private static bool RecordingHasUsablePlaybackDataAtUT(Recording rec, double currentUT)
