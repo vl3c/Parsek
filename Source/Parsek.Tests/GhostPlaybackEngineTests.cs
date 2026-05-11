@@ -1286,6 +1286,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryPositionRelativeSectionAtPlaybackUT_LoopAnchoredDebrisChainWithoutBodyFixed_UsesRelativePositioner()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u));
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+
+            bool handled = InvokeTryPositionRelativeSectionAtPlaybackUT(
+                engine,
+                index: 3,
+                traj: traj,
+                state: state,
+                playbackUT: 105.0,
+                suppressFx: true);
+
+            Assert.True(handled);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.Equal(1, positioner.InterpolateCalls);
+            Assert.Equal(0, positioner.ShadowPositionCalls);
+        }
+
+        [Fact]
         public void PositionLoopAtPlaybackUT_ParentAnchoredDebrisOutsideCoverage_RetiresBeforeLoopPositioner()
         {
             var positioner = new SpawnPrimingPositioner();
@@ -1318,11 +1346,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PositionLoopAtPlaybackUT_ParentAnchoredDebrisInsideCoverage_PositionsLoop()
+        public void PositionLoopAtPlaybackUT_ParentAnchoredDebrisInsideCoverage_BodyFixedVisualMissing_Retires()
         {
             var positioner = new SpawnPrimingPositioner();
             var engine = new GhostPlaybackEngine(positioner);
             var traj = MakeParentAnchoredDebrisWithShadowFrames();
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = null,
+            };
+
+            InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 4,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(0, positioner.PositionLoopCalls);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("recorded-relative-retired")
+                && l.Contains("coverageReason=body-fixed-primary-position-failed")
+                && l.Contains("callsite=test-loop"));
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_LoopAnchoredDebrisChainWithoutBodyFixed_UsesLoopPositioner()
+        {
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u));
             var state = new GhostPlaybackState
             {
                 vesselName = "Kerbal X Debris",

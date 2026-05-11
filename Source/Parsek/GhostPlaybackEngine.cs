@@ -2643,10 +2643,17 @@ namespace Parsek
             out bool usedBodyFixedPrimary)
         {
             usedBodyFixedPrimary = false;
-            if (ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+            bool parentAnchoredDebris = traj != null
+                && traj.IsDebris
+                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
+            bool loopAnchoredDebrisChain = parentAnchoredDebris
+                && ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
+            if (!loopAnchoredDebrisChain
+                && ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     traj,
                     playbackUT,
-                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
+                    out diagnostic))
             {
                 MarkParentAnchoredDebrisCoverageRetired(
                     index,
@@ -2660,12 +2667,6 @@ namespace Parsek
 
             if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
                 return false;
-
-            bool parentAnchoredDebris = traj != null
-                && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
-            bool loopAnchoredDebrisChain = parentAnchoredDebris
-                && ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
 
             if (parentAnchoredDebris
                 && !loopAnchoredDebrisChain
@@ -3064,21 +3065,37 @@ namespace Parsek
             bool suppressFx,
             string callsite)
         {
-            if (TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
-                    index, traj, state, loopUT, callsite))
-                return false;
-
             bool parentAnchoredDebris = traj != null
                 && traj.IsDebris
                 && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
             bool loopAnchoredDebrisChain = parentAnchoredDebris
                 && ShouldUseLoopAnchoredDebrisChain(traj, loopUT);
+            if (!loopAnchoredDebrisChain
+                && TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                    index, traj, state, loopUT, callsite))
+            {
+                return false;
+            }
 
             if (parentAnchoredDebris
                 && !loopAnchoredDebrisChain
                 && TryPositionBodyFixedPrimary(index, traj, state, loopUT, callsite))
             {
                 return true;
+            }
+            if (parentAnchoredDebris && !loopAnchoredDebrisChain)
+            {
+                var diagnostic =
+                    DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic.Create(
+                        "body-fixed-primary-position-failed");
+                MarkParentAnchoredDebrisCoverageRetired(
+                    index,
+                    traj,
+                    state,
+                    loopUT,
+                    callsite,
+                    diagnostic);
+                return false;
             }
 
             positioner.PositionLoop(index, traj, state, loopUT, suppressFx);

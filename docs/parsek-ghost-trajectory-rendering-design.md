@@ -39,7 +39,7 @@ It covers:
 - Implementation phasing: nine ordered phases naming files to create, types to add, hooks to wire, and per-phase done conditions
 - Diagnostic logging: per-stage subsystem tags, log lines, levels, and batch counters that make every pipeline decision observable in `KSP.log`
 - Test plan: unit tests, log-assertion tests, in-game tests, synthetic recording fixtures, and a per-phase test-done checklist
-- Backward compatibility: how recordings of every supported prior format version play through the pipeline; lazy-compute path; cross-version re-fly
+- Loader policy: v13 is the accepted `.prec` baseline; `.pann` annotations may lazy-compute, but older trajectory sidecars are rejected instead of compatibility-routed
 - Data lifecycle: storage classes for raw samples, annotations, derived caches, and session state
 - Post-commit optimization opportunities for pure-ghost playback (no live vessel)
 - Hard rules and risk surface across the recorder-to-renderer pipeline
@@ -933,7 +933,7 @@ It does not produce or consume:
 - Game state (no resource, science, contract, kerbal effects).
 - Recording on-disk data outside the additive sidecar nodes listed in 17.3.
 
-The recorder change required for Section 12 (sample-time alignment at structural events) is the only modification outside the rendering pipeline. It is additive — recordings predating it remain playable at slightly degraded anchor fidelity (Section 15.17). The sidecar additions above are also additive per the existing format-evolution rule. Older sidecars without these fields trigger lazy on-load computation gated by the new format-version constant.
+The recorder change required for Section 12 (sample-time alignment at structural events) is the only modification outside the rendering pipeline. Current playback assumes the accepted v13 `.prec` baseline; recordings predating that baseline are rejected rather than rendered through a degraded compatibility route. The annotation sidecar additions above remain additive: missing or stale `.pann` data is lazy-computed from an accepted v13 source recording.
 
 ---
 

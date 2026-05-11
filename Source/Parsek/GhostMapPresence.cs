@@ -468,6 +468,7 @@ namespace Parsek
         internal const string TrackingStationGhostSkipUnseedableTerminalOrbit = "terminal-orbit-unseedable";
         internal const string TrackingStationGhostSkipStateVectorThreshold = "state-vector-threshold";
         internal const string TrackingStationGhostSkipRelativeFrame = "relative-frame";
+        internal const string TrackingStationGhostSkipBodyFixedPrimaryUnavailable = "body-fixed-primary-unavailable";
         // #583: Relative-frame state-vector ghost CREATION reaches the resolver
         // when the first map-visible UT lies inside a Relative section. Creation
         // flows through the existing StateVector source kind when the section's
@@ -4424,6 +4425,35 @@ namespace Parsek
 
             if (inRelative)
             {
+                if (ShouldUseBodyFixedPrimaryForParentAnchoredDebris(
+                        traj,
+                        currentSection.Value,
+                        currentUT))
+                {
+                    if (!TrySelectBodyFixedPrimaryStateVectorPoint(
+                            traj,
+                            currentSection.Value,
+                            currentUT,
+                            out TrajectoryPoint bodyFixedPoint,
+                            out skipReason))
+                    {
+                        return false;
+                    }
+
+                    double bodyFixedAtmosphereDepth = GetAtmosphereDepth(bodyFixedPoint.bodyName);
+                    if (!ShouldCreateStateVectorOrbit(
+                            bodyFixedPoint.altitude,
+                            bodyFixedPoint.velocity.magnitude,
+                            bodyFixedAtmosphereDepth))
+                    {
+                        skipReason = TrackingStationGhostSkipStateVectorThreshold;
+                        return false;
+                    }
+
+                    point = bodyFixedPoint;
+                    return true;
+                }
+
                 if (string.IsNullOrWhiteSpace(currentSection.Value.anchorRecordingId))
                 {
                     skipReason = TrackingStationGhostSkipRelativeAnchorUnresolved;
@@ -4465,6 +4495,55 @@ namespace Parsek
             }
 
             point = pt.Value;
+            return true;
+        }
+
+        private static bool ShouldUseBodyFixedPrimaryForParentAnchoredDebris(
+            IPlaybackTrajectory traj,
+            TrackSection section,
+            double playbackUT)
+        {
+            return section.referenceFrame == ReferenceFrame.Relative
+                && DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj)
+                && !GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
+        }
+
+        private static bool TrySelectBodyFixedPrimaryStateVectorPoint(
+            IPlaybackTrajectory traj,
+            TrackSection section,
+            double playbackUT,
+            out TrajectoryPoint point,
+            out string skipReason)
+        {
+            point = default(TrajectoryPoint);
+            skipReason = TrackingStationGhostSkipBodyFixedPrimaryUnavailable;
+            if (!ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                    section,
+                    playbackUT,
+                    out _,
+                    out _))
+            {
+                if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                        traj,
+                        playbackUT,
+                        out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+                    && !string.IsNullOrWhiteSpace(diagnostic.Reason))
+                {
+                    skipReason = diagnostic.Reason;
+                }
+                return false;
+            }
+
+            int bodyFixedIndex = 0;
+            TrajectoryPoint? bodyFixedPoint = TrajectoryMath.BracketPointAtUT(
+                section.bodyFixedFrames,
+                playbackUT,
+                ref bodyFixedIndex);
+            if (!bodyFixedPoint.HasValue)
+                return false;
+
+            point = bodyFixedPoint.Value;
+            skipReason = null;
             return true;
         }
 
@@ -5156,14 +5235,12 @@ namespace Parsek
             bool allowOrbitalCheckpointStateVector = false,
             TrajectoryPoint? absoluteShadowPoint = null)
         {
-            // v7+ Relative sections store an `bodyFixedFrames` shadow alongside
-            // the anchor-local `frames`. The state-vector path currently passes
-            // this as null, but the compatibility branch remains available for
-            // callers that already selected the recorded body-fixed primary point.
-            // Resolved through the standard body-fixed surface lookup it yields
-            // the recorded world position directly. Returns
-            // Branch="body-fixed-primary" so call-site logs and tests can
-            // distinguish this fallback from the regular Absolute path.
+            // v13 parent-anchored debris uses `bodyFixedFrames` as the primary
+            // surface for ordinary debris. Callers pass the selected body-fixed
+            // point here after deciding the recording is not a loop-anchored
+            // chain. Resolved through the standard surface lookup it yields the
+            // recorded world position directly. Returns Branch="body-fixed-primary"
+            // so call-site logs and tests can distinguish it from Absolute.
             if (absoluteShadowPoint.HasValue)
             {
                 TrajectoryPoint shadow = absoluteShadowPoint.Value;
@@ -5295,6 +5372,43 @@ namespace Parsek
             Vector3d anchorPos = default(Vector3d);
             Quaternion anchorRot = Quaternion.identity;
             uint anchorPid = 0u;
+            if (section.HasValue
+                && section.Value.referenceFrame == ReferenceFrame.Relative
+                && ShouldUseBodyFixedPrimaryForParentAnchoredDebris(
+                    traj,
+                    section.Value,
+                    point.ut))
+            {
+                if (!TrySelectBodyFixedPrimaryStateVectorPoint(
+                        traj,
+                        section.Value,
+                        point.ut,
+                        out TrajectoryPoint bodyFixedPoint,
+                        out string bodyFixedSkipReason))
+                {
+                    return new StateVectorWorldFrame
+                    {
+                        Resolved = false,
+                        WorldPos = default(Vector3d),
+                        Branch = "body-fixed-primary",
+                        FailureReason = bodyFixedSkipReason,
+                        AnchorPid = 0u
+                    };
+                }
+
+                return ResolveStateVectorWorldPositionPure(
+                    point,
+                    section,
+                    traj?.RecordingFormatVersion ?? 0,
+                    (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt),
+                    anchorFound: false,
+                    anchorWorldPos: default(Vector3d),
+                    anchorWorldRot: Quaternion.identity,
+                    anchorVesselId: 0u,
+                    allowOrbitalCheckpointStateVector: allowOrbitalCheckpointStateVector,
+                    absoluteShadowPoint: bodyFixedPoint);
+            }
+
             if (section.HasValue
                 && section.Value.referenceFrame == ReferenceFrame.Relative
                 && RecordedRelativeAnchorPoseResolver.TryFindFocusRecording(traj, out Recording focusRecording)
@@ -5636,6 +5750,7 @@ namespace Parsek
             {
                 case "absolute": return "Absolute";
                 case "relative": return "Relative";
+                case "body-fixed-primary": return "BodyFixedPrimary";
                 case "orbital-checkpoint": return "OrbitalCheckpoint";
                 case "no-section": return "no-section";
                 default: return resolutionBranch ?? "(n/a)";

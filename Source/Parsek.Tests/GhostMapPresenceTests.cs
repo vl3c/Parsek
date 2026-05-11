@@ -2478,6 +2478,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveStateVectorMapPointPure_ParentAnchoredRelativeFrame_UsesBodyFixedPrimaryPoint()
+        {
+            var rec = BuildParentAnchoredRelativeFrameRecording(includeBodyFixedPrimary: true);
+
+            int mapCached = -1;
+            bool resolved = GhostMapPresence.TryResolveStateVectorMapPointPure(
+                rec,
+                200,
+                ref mapCached,
+                out TrajectoryPoint statePoint,
+                out string skipReason);
+
+            Assert.True(resolved);
+            Assert.Null(skipReason);
+            Assert.Equal(3000.0, statePoint.altitude);
+            Assert.Equal(100f, statePoint.velocity.magnitude);
+            Assert.Equal("Mun", statePoint.bodyName);
+        }
+
+        [Fact]
+        public void TryResolveStateVectorMapPointPure_ParentAnchoredRelativeFrame_MissingBodyFixedPrimarySkips()
+        {
+            var rec = BuildParentAnchoredRelativeFrameRecording(includeBodyFixedPrimary: false);
+
+            int mapCached = -1;
+            bool resolved = GhostMapPresence.TryResolveStateVectorMapPointPure(
+                rec,
+                200,
+                ref mapCached,
+                out _,
+                out string skipReason);
+
+            Assert.False(resolved);
+            Assert.Equal("relative-only-without-body-fixed-primary", skipReason);
+        }
+
+        [Fact]
         public void ResolveMapPresenceGhostSource_RelativeFrame_WithOrbitSegmentsElsewhere_StillReachesStateVectorBranch()
         {
             // Pre-#583: a recording with OrbitSegments anywhere short-circuited
@@ -2560,6 +2597,68 @@ namespace Parsek.Tests
                         anchorRecordingId = anchorRecordingId
                     }
                 }
+            };
+        }
+
+        private static Recording BuildParentAnchoredRelativeFrameRecording(
+            bool includeBodyFixedPrimary)
+        {
+            var relativeStart = new TrajectoryPoint
+            {
+                ut = 100,
+                bodyName = "Mun",
+                latitude = 0.1,
+                longitude = 0.2,
+                altitude = 0.5,
+                velocity = new UnityEngine.Vector3(0, 0.2f, 0)
+            };
+            var relativeEnd = relativeStart;
+            relativeEnd.ut = 300;
+            relativeEnd.latitude = 0.3;
+            relativeEnd.longitude = 0.4;
+
+            var section = new TrackSection
+            {
+                startUT = 100,
+                endUT = 300,
+                referenceFrame = ReferenceFrame.Relative,
+                anchorRecordingId = "parent-rec",
+                frames = new List<TrajectoryPoint> { relativeStart, relativeEnd }
+            };
+            if (includeBodyFixedPrimary)
+            {
+                section.bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 200,
+                        bodyName = "Mun",
+                        latitude = 1.0,
+                        longitude = 2.0,
+                        altitude = 3000,
+                        velocity = new UnityEngine.Vector3(0, 100f, 0)
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 300,
+                        bodyName = "Mun",
+                        latitude = 3.0,
+                        longitude = 4.0,
+                        altitude = 3500,
+                        velocity = new UnityEngine.Vector3(0, 120f, 0)
+                    }
+                };
+            }
+
+            return new Recording
+            {
+                RecordingId = "parent-anchored-state-vector",
+                TerminalStateValue = TerminalState.SubOrbital,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec",
+                Points = new List<TrajectoryPoint> { relativeStart, relativeEnd },
+                TrackSections = new List<TrackSection> { section }
             };
         }
 

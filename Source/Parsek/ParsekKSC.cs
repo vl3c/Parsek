@@ -1314,13 +1314,23 @@ namespace Parsek
             int targetSectionIndex = FindKscTrackSectionIndex(rec, targetUT);
             TrackSection? targetSection = GetKscTrackSection(rec, targetSectionIndex);
             bool usingSectionFrames;
+            string frameSelectionFailureReason;
             List<TrajectoryPoint> frames = SelectKscInterpolationFrames(
-                rec, targetSection, out usingSectionFrames);
+                rec,
+                targetSection,
+                targetUT,
+                out usingSectionFrames,
+                out frameSelectionFailureReason);
             if (frames == null || frames.Count == 0)
             {
+                string branch = targetSection.HasValue
+                    ? ShouldUseKscBodyFixedPrimary(rec, targetSection.Value, targetUT)
+                        ? "body-fixed-primary"
+                        : targetSection.Value.referenceFrame.ToString()
+                    : "no-section";
                 pose = KscPoseResolution.Failure(
-                    targetSection.HasValue ? targetSection.Value.referenceFrame.ToString() : "no-section",
-                    "no-points",
+                    branch,
+                    frameSelectionFailureReason ?? "no-points",
                     targetSection.HasValue ? NormalizeKscAnchorRecordingId(targetSection.Value) : null);
                 ParsekLog.Verbose("KSCGhost",
                     $"KSC pose interpolation skipped: no points recording={rec.DebugName} " +
@@ -1389,9 +1399,40 @@ namespace Parsek
         private static List<TrajectoryPoint> SelectKscInterpolationFrames(
             Recording rec,
             TrackSection? targetSection,
-            out bool usingSectionFrames)
+            double targetUT,
+            out bool usingSectionFrames,
+            out string failureReason)
         {
             usingSectionFrames = false;
+            failureReason = null;
+            if (targetSection.HasValue
+                && ShouldUseKscBodyFixedPrimary(rec, targetSection.Value, targetUT))
+            {
+                if (!ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                        targetSection.Value,
+                        targetUT,
+                        out _,
+                        out _))
+                {
+                    if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                            rec,
+                            targetUT,
+                            out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+                        && !string.IsNullOrWhiteSpace(diagnostic.Reason))
+                    {
+                        failureReason = diagnostic.Reason;
+                    }
+                    else
+                    {
+                        failureReason = "body-fixed-primary-unavailable";
+                    }
+                    return null;
+                }
+
+                usingSectionFrames = true;
+                return targetSection.Value.bodyFixedFrames;
+            }
+
             if (targetSection.HasValue
                 && targetSection.Value.frames != null
                 && targetSection.Value.frames.Count > 0)
@@ -1401,6 +1442,16 @@ namespace Parsek
             }
 
             return rec?.Points;
+        }
+
+        private static bool ShouldUseKscBodyFixedPrimary(
+            Recording rec,
+            TrackSection section,
+            double targetUT)
+        {
+            return section.referenceFrame == ReferenceFrame.Relative
+                && DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(rec)
+                && !GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(rec, targetUT);
         }
 
         private static TrackSection? FindKscTrackSection(Recording rec, double targetUT)
@@ -1436,10 +1487,15 @@ namespace Parsek
             KscRecordedAnchorLookup anchorLookup,
             out KscPoseResolution pose)
         {
+            ReferenceFrame frame = section.HasValue
+                ? section.Value.referenceFrame
+                : ReferenceFrame.Absolute;
+            bool useBodyFixedPrimary = section.HasValue
+                && ShouldUseKscBodyFixedPrimary(rec, section.Value, point.ut);
             if (point.bodyName != "Kerbin")
             {
                 pose = KscPoseResolution.Failure(
-                    DescribeKscBranch(section),
+                    DescribeKscBranch(section, useBodyFixedPrimary),
                     "non-kerbin",
                     section.HasValue ? NormalizeKscAnchorRecordingId(section.Value) : null);
                 ParsekLog.VerboseRateLimited("KSCGhost", "ksc-point-non-kerbin",
@@ -1447,10 +1503,7 @@ namespace Parsek
                 return false;
             }
 
-            ReferenceFrame frame = section.HasValue
-                ? section.Value.referenceFrame
-                : ReferenceFrame.Absolute;
-            if (frame == ReferenceFrame.Relative)
+            if (frame == ReferenceFrame.Relative && !useBodyFixedPrimary)
             {
                 Quaternion storedRot = TrajectoryMath.SanitizeQuaternion(point.rotation);
                 return TryResolveKscRelativePose(
@@ -1485,7 +1538,11 @@ namespace Parsek
             Quaternion worldRot = TrajectoryMath.PureMultiply(
                 bodyWorldRot,
                 TrajectoryMath.SanitizeQuaternion(point.rotation));
-            pose = KscPoseResolution.Success(worldPos, worldRot, DescribeKscBranch(section), null);
+            pose = KscPoseResolution.Success(
+                worldPos,
+                worldRot,
+                DescribeKscBranch(section, useBodyFixedPrimary),
+                null);
             ParsekLog.VerboseRateLimited("KSCGhost", "ksc-surface-position",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
                 $"ut={point.ut:F2} body={point.bodyName} branch={pose.Branch}",
@@ -1503,22 +1560,25 @@ namespace Parsek
             KscRecordedAnchorLookup anchorLookup,
             out KscPoseResolution pose)
         {
+            double targetUT = before.ut + (after.ut - before.ut) * t;
+            ReferenceFrame frame = section.HasValue
+                ? section.Value.referenceFrame
+                : ReferenceFrame.Absolute;
+            bool useBodyFixedPrimary = section.HasValue
+                && ShouldUseKscBodyFixedPrimary(rec, section.Value, targetUT);
             if (before.bodyName != "Kerbin" || after.bodyName != "Kerbin")
             {
                 pose = KscPoseResolution.Failure(
-                    DescribeKscBranch(section),
+                    DescribeKscBranch(section, useBodyFixedPrimary),
                     "non-kerbin",
                     section.HasValue ? NormalizeKscAnchorRecordingId(section.Value) : null);
                 ParsekLog.VerboseRateLimited("KSCGhost", "ksc-segment-non-kerbin",
                     $"KSC segment skipped: beforeBody={before.bodyName ?? "null"} " +
-                    $"afterBody={after.bodyName ?? "null"} targetUT={before.ut + (after.ut - before.ut) * t:F2}");
+                    $"afterBody={after.bodyName ?? "null"} targetUT={targetUT:F2}");
                 return false;
             }
 
-            ReferenceFrame frame = section.HasValue
-                ? section.Value.referenceFrame
-                : ReferenceFrame.Absolute;
-            if (frame == ReferenceFrame.Relative)
+            if (frame == ReferenceFrame.Relative && !useBodyFixedPrimary)
             {
                 double dx = before.latitude + (after.latitude - before.latitude) * t;
                 double dy = before.longitude + (after.longitude - before.longitude) * t;
@@ -1531,8 +1591,8 @@ namespace Parsek
                     dz,
                     storedRot,
                     section.Value,
-                    FindKscTrackSectionIndex(rec, before.ut + (after.ut - before.ut) * t),
-                    before.ut + (after.ut - before.ut) * t,
+                    FindKscTrackSectionIndex(rec, targetUT),
+                    targetUT,
                     anchorLookup,
                     out pose);
             }
@@ -1579,11 +1639,11 @@ namespace Parsek
             pose = KscPoseResolution.Success(
                 interpolatedPos,
                 worldRot,
-                DescribeKscBranch(section),
+                DescribeKscBranch(section, useBodyFixedPrimary),
                 null);
             ParsekLog.VerboseRateLimited("KSCGhost", "ksc-surface-position",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
-                $"targetUT={before.ut + (after.ut - before.ut) * t:F2} branch={pose.Branch}",
+                $"targetUT={targetUT:F2} branch={pose.Branch}",
                 2.0);
             return true;
         }
@@ -1661,8 +1721,12 @@ namespace Parsek
                 : section.anchorRecordingId.Trim();
         }
 
-        private static string DescribeKscBranch(TrackSection? section)
+        private static string DescribeKscBranch(
+            TrackSection? section,
+            bool useBodyFixedPrimary = false)
         {
+            if (useBodyFixedPrimary)
+                return "body-fixed-primary";
             if (!section.HasValue)
                 return "no-section";
             return section.Value.referenceFrame == ReferenceFrame.Absolute

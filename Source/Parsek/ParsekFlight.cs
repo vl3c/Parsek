@@ -17944,8 +17944,9 @@ namespace Parsek
                 return TryComputeStandaloneAbsoluteFallbackWorldPosition(rec, ut, out worldPos);
             }
 
+            bool loopAnchoredDebrisChain = GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(rec, ut);
             if (DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(rec)
-                && rec.LoopAnchorVesselId == 0u)
+                && !loopAnchoredDebrisChain)
             {
                 if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
                         rec,
@@ -17976,7 +17977,8 @@ namespace Parsek
                 return false;
             }
 
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+            if (!loopAnchoredDebrisChain
+                && DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
                     rec,
                     ut,
                     out _))
@@ -17984,11 +17986,13 @@ namespace Parsek
                 return false;
             }
 
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
             bool skipRecordedRelativeResolver =
-                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                !loopAnchoredDebrisChain
+                && DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
                     rec,
                     ut,
-                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
+                    out diagnostic);
             if (skipRecordedRelativeResolver)
             {
                 return diagnostic.bodyFixedFramesCoverUT
