@@ -1,7 +1,7 @@
 # Debris frame contract — v13
 
-**Status:** clean rewrite (replaces all prior drafts), plus shared-module extraction in §3.6.
-**Scope:** debris recording and rendering. No changes to non-debris recorder/renderer dispatch, Re-Fly merge/supersede flow, or the loop-anchor live-PID carve-out for non-debris. **One Re-Fly touch** (behaviour-preserving): the Re-Fly cadence resolver is refactored to use the shared `ProximitySamplingCadence` module — same thresholds, same tier semantics, same observable behaviour, just lifted into a reusable module so debris can use it too. See §3.6.
+**Status:** clean rewrite (replaces all prior drafts), plus shared-module extraction in §3.7.
+**Scope:** debris recording and rendering. No changes to non-debris recorder/renderer dispatch, Re-Fly merge/supersede flow, or the loop-anchor live-PID carve-out for non-debris. **One Re-Fly touch** (behaviour-preserving): the Re-Fly cadence resolver is refactored to use the shared `ProximitySamplingCadence` module — same thresholds, same tier semantics, same observable behaviour, just lifted into a reusable module so debris can use it too. See §3.7.
 **Compatibility:** none. v11 / v12 recordings are rejected at load.
 
 ---
@@ -19,7 +19,7 @@ The relative-to-parent surface is **not experimental** — it has a concrete, ma
 - All Re-Fly machinery: `RewindInvoker`, `SupersedeCommit`, `MergeJournalOrchestrator`, `ReFlySessionMarker`, the merge journal, ERS/ELS, `RecordingSupersedeRelation`.
 - `Recording.LoopAnchorVesselId` — loop-anchor live-PID carve-out unchanged for non-debris. **Debris recordings always have `LoopAnchorVesselId == 0u`** (the v12 invariant is preserved under v13). Loop semantics for debris come from chaining through a loop-anchored ancestor's recording, not from inheriting the field. See §3.4.
 - Non-debris recorder frame decisions and the v7 `absoluteFrames` field on `TrackSection`. Non-debris Relative sections continue to write the shadow per the existing v7 contract.
-- Re-Fly tree sampling tier *thresholds* (`ReFlyTreeFullFidelityProximityRangeMeters`, `ReFlyTreeHalfFidelityProximityRangeMeters`) for non-debris. They stay at `250.0` / `500.0` (`FlightRecorder.cs:936-937`). The *resolver* that consumes them is refactored to delegate to the shared module per §3.6 — behaviour preserved.
+- Re-Fly tree sampling tier *thresholds* (`ReFlyTreeFullFidelityProximityRangeMeters`, `ReFlyTreeHalfFidelityProximityRangeMeters`) for non-debris. They stay at `250.0` / `500.0` (`FlightRecorder.cs:936-937`). The *resolver* that consumes them is refactored to delegate to the shared module per §3.7 — behaviour preserved.
 - `IPlaybackTrajectory.DebrisParentRecordingId` interface property — still exposed for identification / ledger / map UI / diagnostics.
 - `SessionMerger.cs` `DebrisParentRecordingId` and `absoluteFrames` handling — operates per-section, correct under the new contract.
 
@@ -54,7 +54,7 @@ return Vector3d.Distance(parent.GetWorldPos3D(), debrisVessel.GetWorldPos3D());
 
 NaN return → `ProximitySamplingCadence.Resolve` returns `None` → cadence falls through to the legacy adaptive cap, but the recording is ended by `CheckDebrisTTL` on the same or next tick anyway.
 
-**Cadence tiers (proximity-driven):** uses the shared `ProximitySamplingCadence` module described in §3.6 (single tier enum across recorders). Debris supplies its own thresholds:
+**Cadence tiers (proximity-driven):** uses the shared `ProximitySamplingCadence` module described in §3.7 (single tier enum across recorders). Debris supplies its own thresholds:
 
 ```csharp
 internal const double DebrisFullFidelityProximityRangeMeters = 250.0;
@@ -62,7 +62,7 @@ internal const double DebrisHalfFidelityProximityRangeMeters = 500.0;  // also: 
 internal const double DebrisRelativeSectionExitMeters = 550.0;         // hysteresis exit for Relative section
 ```
 
-The debris-side guards (`IsDebris && !string.IsNullOrEmpty(DebrisParentRecordingId)`) are applied before calling the shared `ProximitySamplingCadence.Resolve`. See §3.6 for the resolver shape and the wiring pseudocode.
+The debris-side guards (`IsDebris && !string.IsNullOrEmpty(DebrisParentRecordingId)`) are applied before calling the shared `ProximitySamplingCadence.Resolve`. See §3.7 for the resolver shape and the wiring pseudocode.
 
 | Distance | Section | Effective `maxSampleInterval` |
 |---|---|---|
@@ -134,7 +134,7 @@ public double debrisProximityDistanceMeters = double.NaN;
 public string debrisProximityReason;
 ```
 
-**Sample-time wiring** in `OnBackgroundPhysicsFrame` (around `:1958-1967`): compute parent distance, resolve cadence tier via the shared `ProximitySamplingCadence.Resolve` (see §3.6), feed into the extended `ResolveEffectiveMaxSampleInterval`.
+**Sample-time wiring** in `OnBackgroundPhysicsFrame` (around `:1958-1967`): compute parent distance, resolve cadence tier via the shared `ProximitySamplingCadence.Resolve` (see §3.7), feed into the extended `ResolveEffectiveMaxSampleInterval`.
 
 **Recorder-side `HighFidelityProximityRangeMeters` raise:** `FlightRecorder.cs:935` from `200.0` → `250.0`, aligning the parent-side density rule (parent's recorder keeps dense samples while split children are within range) with the debris-side full-fidelity tier. Both halves of the proximity pair sample at `configuredMin` simultaneously.
 
@@ -186,12 +186,13 @@ A tanker T is loop-anchored to a station S (`T.LoopAnchorVesselId = S.persistent
 - For F's Relative section samples (UT t within the 0–500 m proximity window): the chain resolver walks `F → T`. T's pose at UT t comes from T's loop-anchored resolution, which yields `Y_N × T.recordedOffsetToS_at_t`. F's pose = `T_pose_N_at_t × F.recordedOffsetToT_at_t`. F follows T which follows S. **Correct across loop iterations.** Chain math is dense in 0–250 m (Full cadence) and half-rate in 250–500 m (Half cadence), but accurate at both rates.
 - For F's Absolute section samples (UT t past the 550 m hysteresis exit): F renders at its body-fixed world coordinate. At loop iteration N with a long loop period, this can be far from station S; but F at that UT was *already* far from T at recording time, and visual coherence with the loop anchor is weak by that distance anyway. Accepted limitation.
 
-**Resolver gate relaxation.** Currently `RelativeAnchorResolver.cs:301-310` and `:450-459` reject loop-anchored recordings as anchor targets with `loop-anchor-out-of-scope`, to prevent live-PID leakage into non-loop ghost math. Under v13 we **relax this for debris**: allow Relative anchoring on a loop-anchored recording when **the focus recording (the one being rendered) is debris**.
+**Resolver gate relaxation AND live-anchor callback.** Currently `RelativeAnchorResolver.cs:301-310` rejects loop-anchored recordings as anchor targets with `loop-anchor-out-of-scope`. The previous draft of this plan claimed "the chain composes through the loop-anchored ancestor's own live-anchor path" — but no such path exists *inside* the resolver. Live-PID resolution lives in `ParsekFlight` parallel to the resolver, not inside it. The carve-out by itself is necessary but not sufficient: after the rejection is relaxed, the resolver continues walking T's TrackSections and either finds an Absolute section (returns T's recording-time body-fixed pose, losing the loop) or finds a Relative section anchored on a live-PID `anchorVesselId` (fails to compose because S is a live vessel, not a recording in the DAG).
 
-The predicate is `context.FocusRecordingId` resolves to an `IsDebris` recording. This is the form that handles cascade correctly: in `T → F → G` (G is debris-of-debris, F is debris, T is loop-anchored), the resolver walks each anchor independently, but the *focus* recording G is debris all the way down — so the carve-out fires uniformly on every chain hop that reaches a loop-anchored recording. The narrower "immediate parent" predicate `anchoredRecording.DebrisParentRecordingId == anchorRecording.RecordingId` would fail in cascade (G's parent is F, not T; T's rejection would still fire when walking F's anchor).
+Under v13 we need **two coordinated changes**:
+
+**(a) Carve-out predicate** at the existing rejection site `RelativeAnchorResolver.cs:301-310` — debris-focus is allowed to chain through loop-anchored ancestors:
 
 ```csharp
-// In RelativeAnchorResolver, at both rejection sites (:301-310 and :450-459):
 if (anchorRecording.LoopAnchorVesselId != 0u)
 {
     bool focusIsDebris = TryGetFocusRecording(context, out Recording focus)
@@ -201,17 +202,62 @@ if (anchorRecording.LoopAnchorVesselId != 0u)
     {
         return /* existing loop-anchor-out-of-scope rejection */;
     }
-    // Carve-out: debris focus is allowed to chain through a loop-anchored
-    // ancestor. The chain composes correctly because the loop-anchored
-    // ancestor's pose is resolved through its own live-anchor path
-    // (TryResolveLiveLoopAnchorPose). The live-PID reaches the renderer
-    // only via that ancestor's pose, not via the debris's own data.
+    // Allow chain walk to continue into T's TrackSections.
 }
 ```
 
-`TryGetFocusRecording` is a small new helper that reads `context.FocusRecordingId` (already on `RelativeAnchorResolverContext`) and looks it up in `context.FocusTree.Recordings`. Returns false if absent. Non-debris focus continues to hit the rejection.
+(Note: the `:450-459` site is inside the `WithReliability` parallel resolver tree being deleted whole, see §6.2. After deletion there is only the one rejection site to relax.) `TryGetFocusRecording` reads `context.FocusRecordingId` and looks it up in `context.FocusTree.Recordings`.
 
-Why "focus is debris" is safe for non-loop call sites: when a non-debris focus walks the chain, the carve-out predicate is false and the existing rejection fires — no behaviour change for non-debris focus recordings. The non-loop-live-PID grep audit at `scripts/grep-audit-non-loop-live-pid.ps1` continues to gate the wider invariant.
+The "focus is debris" predicate handles cascade correctly: in `T → F → G` (G is debris-of-debris, F is debris, T is loop-anchored), focus G is debris all the way down, so the carve-out fires uniformly on every chain hop. The narrower "immediate parent" predicate (`anchoredRecording.DebrisParentRecordingId == anchorRecording.RecordingId`) would fail in cascade because G's parent is F (not T).
+
+**(b) Live-anchor callback on `RelativeAnchorResolverContext`** — once the carve-out fires and the resolver enters T's `TrackSections`, it needs to know how to resolve T's pose against the live anchor S. We extend the context with a host-provided callback:
+
+```csharp
+internal sealed class RelativeAnchorResolverContext
+{
+    // ... existing fields ...
+    public string FocusRecordingId;
+    public RecordingTree FocusTree;
+    public Func<uint, double, (Vector3d pos, Quaternion rot)?> TryResolveLiveAnchorTransform;
+    // ^ NEW under v13. Host (ParsekFlight) populates from its existing
+    // live-vessel-lookup infrastructure (the same mechanism the loop-
+    // anchored playback path uses today at ParsekFlight.cs:21070-21160).
+    // Null when no host is wired (e.g. recorder-side context construction
+    // at BackgroundRecorder.cs:5021); the resolver falls through to the
+    // existing rejection.
+}
+```
+
+Resolver behaviour when walking T's TrackSections after the carve-out fires:
+
+```csharp
+// Inside TryResolveRecordingPose, when section.referenceFrame == Relative
+// AND section.anchorVesselId != 0u (a live-PID anchor):
+if (section.anchorVesselId != 0u
+    && context.TryResolveLiveAnchorTransform != null
+    && context.TryResolveLiveAnchorTransform(section.anchorVesselId, ut) is var liveAnchor
+    && liveAnchor.HasValue)
+{
+    // Compose: live anchor's current pose × T's recorded offset to S at ut
+    Vector3d worldPos = liveAnchor.Value.pos
+        + liveAnchor.Value.rot * section.frames[idx].LocalOffset(ut);
+    Quaternion worldRot = liveAnchor.Value.rot * section.frames[idx].LocalRot(ut);
+    return new ResolvedPose(worldPos, worldRot);
+}
+// Otherwise: existing not-a-recording rejection (the live anchor cannot
+// be resolved as a recording in the DAG).
+```
+
+Host wiring: `ParsekFlight` populates the callback when constructing the resolver context for flight-scene playback. The callback reads from the same live-vessel-PID lookup machinery already used by `PositionLoopGhostRelativeAt` and friends. Recorder-side context construction (`BackgroundRecorder.cs:5021`) leaves the callback null — the recorder never walks a chain across the live-anchor boundary at sample time (it uses parent's live pose directly via `ResolveDebrisParentDistanceMeters`).
+
+**Recorder-side `FocusRecordingId == null` handling.** `BackgroundRecorder.cs:5021` constructs the context with `focusRecordingId: null`. With focus null, `TryGetFocusRecording` returns false, and the carve-out predicate `focus.IsDebris` is false — the existing rejection fires unchanged. This is the right behaviour: recorder-side resolver invocations don't need the carve-out because the recorder uses live parent pose directly (the chain math isn't on the recording path). Documented here so a reader doesn't expect the carve-out to fire universally.
+
+**Why this design choice over alternatives:**
+
+- **Engine-path dispatch** (route debris-on-loop-anchored chains through a separate engine path): doubles the dispatch logic. Resolver-internal hook is narrower and keeps the §3.2 "dispatch by section type" promise.
+- **Body-fixed-shadow only** (drop the chain claim): the body-fixed shadow stores recording-time positions; at loop iteration N the station has moved but the shadow renders debris at the original position. The very failure mode this plan was created to fix.
+
+**Non-debris focus safety:** the carve-out predicate is false for non-debris focus; the existing rejection fires unchanged. `scripts/grep-audit-non-loop-live-pid.ps1` continues to gate the wider invariant.
 
 **Cascade:** T → F (debris) → G (debris-of-debris). G is parent-anchored to F. The chain G → F → T → live-anchor-of-T (S) composes naturally at each level. G doesn't need any special handling; whatever loop semantics exist at T propagate transparently through F to G.
 
@@ -223,7 +269,60 @@ Standard chain: when debris piece A sheds debris piece B, B's `DebrisParentRecor
 
 `MaxRecordingGeneration` at `BackgroundRecorder.cs:1629` caps cascade depth (existing rule). Beyond the cap, further debris-of-debris is silently dropped.
 
-### 3.6 Shared proximity-cadence module
+### 3.6 Renaming: `absoluteFrames` → `bodyFixedFrames`; "absolute is primary, relative is shadow"
+
+The v12 schema named the body-fixed parallel list `TrackSection.absoluteFrames` and described it pervasively as the *shadow* (e.g. `TrackSection.cs:59` field comment "*planet-relative shadow payload*"; `DebrisRelativePlaybackPolicy.cs:50` *"v7 absolute shadow is not [the primary]..."*; ~20+ comment/log/XML-doc sites across `FlightRecorder.cs`, `BackgroundRecorder.cs`, `ParsekFlight.cs`, `GhostPlaybackEngine.cs`, `GhostMapPresence.cs`, etc.). Under v13 the architectural roles are inverted: body-fixed is the **primary** rendering surface (always available, used for default render), anchor-local-to-parent in `frames` is the **secondary** "shadow" surface (used only for chain composition through loop-anchored ancestors, see §3.4).
+
+The plan **renames the field and rebrands every comment / log / doc** to match v13 semantics. This is a mechanical change but touches every site listed below; v13 will not feel right to a future reader if the field is named `absoluteFrames` and the comments still call it "the shadow."
+
+**Field rename:**
+
+```csharp
+// TrackSection.cs:59 — before:
+public List<TrajectoryPoint> absoluteFrames; // For Relative only: planet-relative shadow payload
+
+// after:
+public List<TrajectoryPoint> bodyFixedFrames; // For Relative only: body-fixed world-coordinate primary surface (the v13 primary inside Relative sections; v12 named this "absolute shadow")
+```
+
+Field name (`absoluteFrames` → `bodyFixedFrames`) is content-based and neutral. The v12 "shadow" wording was role-based and is now inverted.
+
+**Comment / log / doc rebranding rule:** any text using "absolute shadow" / "shadow track" / "shadow payload" / "shadow point" / "shadow lerp" in a context referring to `absoluteFrames` (now `bodyFixedFrames`) gets rewritten:
+
+- v12 phrasing: *"falls back to absolute shadow"* → v13 phrasing: *"falls back to body-fixed primary inside the Relative section"*
+- v12 phrasing: *"v7 absolute shadow is not a primary substitute"* → v13 phrasing: *"under v13 body-fixed is the primary; the anchor-local `frames` is the secondary surface used only for chain composition through loop-anchored ancestors"*
+
+The v12 role of "absoluteFrames as shadow" used the field as a defensive fallback when the resolver couldn't resolve the anchor. Under v13 the field is consulted **first** for default render (so the renderer no longer needs to walk the chain for non-loop debris); the resolver chain is only invoked when the chain composes through a loop-anchored ancestor (§3.4).
+
+**Sites to update** (non-exhaustive — implementer uses `grep -rn "absoluteFrames\|absolute shadow" Source/Parsek/` to find every site):
+
+| File | Lines | Site type |
+|---|---|---|
+| `Source/Parsek/TrackSection.cs` | `:46, :59, :80` | Field declaration + struct doc + ToString format |
+| `Source/Parsek/FlightRecorder.cs` | `:4881, :6837-6841, :6852, :6860, :6917, :6940, :8200-8205, :8267-8269, :8361-8373, :8909` | Field writes + variable names (`absoluteShadowPoint` → `bodyFixedPoint`) + log lines + comments |
+| `Source/Parsek/AnchorDetector.cs` | `:227` | Comment about playback fallback |
+| `Source/Parsek/DebrisRelativeCoveragePrimitives.cs` | `:59` | Comment about coverage |
+| `Source/Parsek/DebrisRelativePlaybackPolicy.cs` | `:50` and other v12-shadow-as-non-primary doc | Comment / doc rewrite |
+| `Source/Parsek/GhostMapPresence.cs` | `:5162` | Comment about callers |
+| `Source/Parsek/GhostPlaybackEngine.cs` | `:2787, :2833, :5916, :5984` | Comments + log strings (`"relative absolute shadow"` → `"body-fixed primary"`) |
+| `Source/Parsek/ParsekFlight.cs` | `:15141, :16687, :18222, :21193, :22115, :22178, :22268, :22850` | XML docs + comments + log strings |
+| `Source/Parsek/IGhostPositioner.cs` | `:78-80` XML doc on `TryPositionFromRelativeAbsoluteShadow` | Doc rewrite; method name stays (kept as chain-failure fallback per §4.1) |
+| Test files in `Source/Parsek.Tests/` | various | xUnit assertions, fixture builder names, log assertion strings |
+
+**What this rename does NOT change:**
+
+- The on-disk binary layout of `.prec` files. The field is renamed in code only; the binary codec at `TrajectorySidecarBinary.cs` writes / reads by position, not by C# field name.
+- The ConfigNode codec's value keys (still `absoluteFrames` on-disk for codec backward read of v12 if anyone wants to write a one-off conversion tool; for v13 fresh writes the codec writes `bodyFixedFrames`). Codec column rename happens at `RecordingTreeRecordCodec.cs:215` (write) and the corresponding read site.
+- The semantics of v7's parallel-list invariant ("populated only when section is Relative").
+
+**What the rename DOES enable:**
+
+- A future reader of the renderer's default path sees `traj.bodyFixedFrames` (in a Relative section) or `traj.frames` (in an Absolute section) and immediately knows that *body-fixed is the surface being rendered*. The v12 "shadow" mental model is gone.
+- Future v13 documentation / tests can speak of "the relative-to-parent shadow" inside Relative sections and mean `frames` (the anchor-local data, used only for chain composition). Naming is now content-correct, not role-historical.
+
+This rename is a separate logical commit in §8 rollout — sequenced AFTER the renderer cleanup (commit 2) and BEFORE the recorder change (commit 3) so that the renamed field is in place before the new recorder writes start producing v13 sections.
+
+### 3.7 Shared proximity-cadence module
 
 The Full/Half/None cadence tier resolver in §3.1 is the same shape the Re-Fly recorder already uses today (`FlightRecorder.ReFlyTreeSamplingCadence` at `:29`, `ResolveActiveReFlyTreeSamplingCadence` at `:752-819`, `ResolveReFlyTreeCadenceSampleInterval` at `:867-876`). Rather than duplicate this on the debris side and on every future recorder that needs proximity-tiered cadence, **extract it as a standalone module**.
 
@@ -446,7 +545,10 @@ internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
 }
 ```
 
-Caller-side check at the `RecordingSidecarStore.cs` consumers around `:234, :543, :751, :1234`: if `rec.RecordingFormatVersion == 0` after `LoadRecordingFrom`, surface a user-visible "unsupported format" message rather than silently dropping the recording.
+Caller-side check at the actual ConfigNode-codec consumer: **`RecordingTree.LoadFrom` at `RecordingTree.cs:199`** (citation correction from the prior draft, which incorrectly cited `RecordingSidecarStore.cs` — `grep -n "LoadRecordingFrom" RecordingSidecarStore.cs` returns zero hits; the actual call is from `RecordingTree`). After `LoadRecordingFrom` returns with `rec.RecordingFormatVersion == 0`:
+
+1. **Skip `AddOrReplaceRecording`.** The recording's identity fields (`RecordingId`, `VesselName`, `TreeId`, `ExplicitStartUT`, etc. parsed at `:333-416`) are already populated but no playback/linkage/resource data exists. Adding a partial stub to the tree would leave an incoherent state. The caller must check `rec.RecordingFormatVersion == 0` and skip `tree.AddOrReplaceRecording(rec)`.
+2. **Surface the rejection.** A user-visible "unsupported format" message goes through the same UI surface that reports load errors today (depends on the call site context; implementer picks the right channel). The skip in step 1 is the safe behaviour; the message is in ADDITION, not instead of, the skip.
 
 ### 5.4 User-visible communication
 
@@ -476,12 +578,13 @@ Add the new constant; mark v12 and earlier as no-longer-loadable. Reference `Tra
 | `BackgroundRecorder.cs` | new method | `ResolveDebrisParentDistanceMeters` static helper (debris-side guards + parent vessel lookup; cadence tier resolution itself delegates to the shared `ProximitySamplingCadence.Resolve`). |
 | `BackgroundRecorder.cs` | `:1868-1878` and `:2046-2053` | Delete Re-Fly settle suppression for debris + `ShouldSuppressParentDebrisForReFlySettle` helper. |
 | `BackgroundRecorder.cs` | `:4122-4128` (`ShouldPreferRootPartSurfacePoseForBackgroundSample`) | Keep; update comment to reference the v13 contract (root-part pose continuity still applies). |
-| **New file:** `Source/Parsek/ProximitySamplingCadence.cs` | (new) | Shared module per §3.6. Holds `ProximitySamplingTier` enum and `ProximitySamplingCadence.Resolve` / `ProximitySamplingCadence.ResolveSampleInterval` static methods. |
+| **New file:** `Source/Parsek/ProximitySamplingCadence.cs` | (new) | Shared module per §3.7. Holds `ProximitySamplingTier` enum and `ProximitySamplingCadence.Resolve` / `ProximitySamplingCadence.ResolveSampleInterval` static methods. |
 | `FlightRecorder.cs` | `:29` (`ReFlyTreeSamplingCadence` enum) | Delete; replace all references with the shared `ProximitySamplingTier`. Mechanical rename across ~20-40 sites. |
 | `FlightRecorder.cs` | `:752-819` (`ResolveActiveReFlyTreeSamplingCadence`) | Refactor: keep the Re-Fly-specific guards (marker / session / tree-id / ut-finite checks), then delegate tier resolution to `ProximitySamplingCadence.Resolve(proximityDistanceMeters, ReFlyTreeFullFidelityProximityRangeMeters, ReFlyTreeHalfFidelityProximityRangeMeters, out reason)`. Behaviour-preserving. |
 | `FlightRecorder.cs` | `:867-876` (`ResolveReFlyTreeCadenceSampleInterval`) | Delete; replace call sites with `ProximitySamplingCadence.ResolveSampleInterval`. |
 | `FlightRecorder.cs` | `:935` | `HighFidelityProximityRangeMeters = 250.0` (was `200.0`). |
 | `FlightRecorder.cs` | `:821-865` | Update the cadence-aware `ResolveEffectiveMaxSampleInterval` and `ResolveEffectiveMinSampleInterval` overloads to take two `ProximitySamplingTier` parameters (one for Re-Fly, one for debris). Re-Fly wins over debris when both non-None. |
+| `FlightRecorder.cs` | `:7106` (FG caller of the cadence-aware overload) | Update the call to pass `ProximitySamplingTier.None` for the debris slot (FG is not the debris recorder). Verify no other FG production callers of the cadence-aware overload exist via grep on `ResolveEffectiveMaxSampleInterval` / `ResolveEffectiveMinSampleInterval`; update each found. |
 | `RecordingStore.cs` | `:105-114` | Add `DebrisFrameContractFormatVersion = 13`; bump `CurrentRecordingFormatVersion`. |
 
 ### 6.2 Renderer
@@ -489,17 +592,25 @@ Add the new constant; mark v12 and earlier as no-longer-loadable. Reference `Tra
 | File | Lines | Change |
 |---|---|---|
 | `DebrisRelativePlaybackPolicy.cs` | `:191-199` (`ShouldRetireFromDiagnostic`) | Drop `"non-relative-section"` from the retire reasons. Under v13, debris in Absolute sections is the new majority case; coverage gate should NOT retire them. |
-| `RelativeAnchorResolver.cs` | `:301-310` and `:450-454` | Relax loop-anchored rejection per §3.4: allow Relative anchoring on a loop-anchored recording when the anchored recording is `IsDebris && DebrisParentRecordingId == anchorRecording.RecordingId`. |
-| `RelativeAnchorResolver.cs` | `:194, :269, :435, :668, :1045, :1398, :1534, :1898, :2028, :2126, :2138, :2342` | Trim `AnchorRotationReliabilityDecision` parameter from these signatures (the tumble gate's parameter, now orphaned by gate deletion). |
-| `GhostPlaybackEngine.cs` | `:2796-3006` | Delete `TryRouteAnchorRotationUnreliable`, `TryRouteAnchorRotationToShadow`, `AnchorRotationUnreliableRoute` enum. |
+| `RelativeAnchorResolver.cs` | `:301-310` (single rejection site after WithReliability deletion — `:450-459` is inside the deleted tree) | (a) Relax loop-anchored rejection per §3.4: allow chain walk when `context.FocusRecordingId` resolves to an `IsDebris` recording. (b) On chain hops into a section with `anchorVesselId != 0u`, consult the new `context.TryResolveLiveAnchorTransform` callback and compose the live-anchor pose with the recorded offset. |
+| `RelativeAnchorResolver.cs` | `RelativeAnchorResolverContext` definition | Add `Func<uint, double, (Vector3d pos, Quaternion rot)?> TryResolveLiveAnchorTransform` field. Populated by `ParsekFlight` at construction for flight-scene playback; left null at recorder-side construction (`BackgroundRecorder.cs:5021` — the recorder never walks a chain across the live-anchor boundary at sample time). |
+| `RelativeAnchorResolver.cs` | (n/a — entirely covered by the `WithReliability` deletion row in §4.2 above) | Do NOT trim parameters from the `WithReliability` signatures listed at `:194, :269, :435, :668, :1045, :1398, :1534, :1898, :2028, :2126, :2138, :2342`. Those methods are deleted whole, not trimmed. |
+| `GhostPlaybackEngine.cs` | `:2796-3006` | Delete `TryRouteAnchorRotationUnreliable`, `TryRouteAnchorRotationToShadow`. The `AnchorRotationUnreliableRoute` enum is in `GhostPlaybackEvents.cs:94+` (not `GhostPlaybackEngine.cs` — citation fix from prior draft); delete the enum at its actual location. |
 | `GhostPlaybackEngine.cs` | `:1150-1216` (`RenderInRangeGhost`), `:3297-3339` (`PositionLoopAtPlaybackUT`) | Delete the `anchorRotationRoute` branches; engine falls through to standard section-type dispatch. |
 | `GhostPlaybackEngine.cs` | `:1148, :1249, :1256, :1418, :1661, :1847, :1861, :2124, :2134, :2223, :2320, :2331, :2380, :5203, :5242` | Delete reads / writes of `state.anchorRotationShadowRoutedThisFrame`. |
 | `GhostPlaybackEngine.cs` | `:2977, :2983, :3031, :3136, :3163, :3223` | Delete reads / writes of `state.parentAnchoredDebrisCoverageRetired`. |
 | `GhostPlaybackEngine.cs` | `:2715, :2717` | Update the `ShouldRetireOutsideAuthoredRelativeCoverage` consultation — still relevant for Relative debris sections (0–500 m), but now never fires for Absolute debris sections (per the policy fix above). |
 | `GhostPlaybackEngine.cs` | `:5562, :5652, :5668` | `TryResolveInitialStructuralSeedBridgeEndUT` call sites — keep (still relevant for the seed-to-first-sample bridge inside Relative sections at the 0–500 m window). |
-| `GhostPlaybackState.cs` | `:93, :99, :152-153` | Delete `anchorRotationShadowRoutedThisFrame` field, `parentAnchoredDebrisCoverageRetired` field, and their resets. |
+| `GhostPlaybackState.cs` | `:93, :99, :152` | Delete `anchorRotationShadowRoutedThisFrame` field (`:93`), `parentAnchoredDebrisCoverageRetired` field (`:99`), and the reset of `anchorRotationShadowRoutedThisFrame` at `:152`. The `parentAnchoredDebrisCoverageRetired` field is deliberately NOT reset in `ResetGhostState` (the comment at `:153-156` explains why) — the deletion is the field itself, no other reset to update. |
+| `GhostPlaybackEngine.cs` `shadowRouted` parameter sites at helpers around `:1256, :1879, :2156, :2352, :3084, :3113+` | Delete the parameter. (Prior-draft citation `GhostPlaybackEvents.cs:89, :102` was an XML-doc reference inside the deleted-enum docstring, not the engine-side parameter sites — citation fix.) |
 | `GhostPlaybackEvents.cs` | `:89, :102` | Delete `shadowRouted` parameter from the rendered-frame event. |
-| `ParsekFlight.cs` | `:15117-15170` | Delete `ShouldEvaluateAnchorRotationReliability`, `ShouldEvaluateAnchorRotationReliabilityForTesting`, `TryEvaluateAnchorRotationReliability`. |
+| `ParsekFlight.cs` | `:15117-15246` (full range — citation in prior drafts was off; the function actually runs to `:15246`) | Delete `ShouldEvaluateAnchorRotationReliability`, `ShouldEvaluateAnchorRotationReliabilityForTesting`, `TryEvaluateAnchorRotationReliability`. |
+| `ParsekFlight.cs` | `:832-834` (`anchorRotationHysteresis` field of type `Dictionary<AnchorRotationHysteresisKey, AnchorRotationHysteresisState>`) | Delete. The types live in `TumblingParentInterpolationGate.cs` being deleted whole; the field becomes a dangling reference. |
+| `ParsekFlight.cs` | `:2038, :2087, :15761` | Delete the `anchorRotationHysteresis?.Clear()` calls. |
+| `ParsekFlight.cs` | `:15117-15122` (the `tryEvaluateAnchorRotationReliability` delegate assignment inside `ComputePlaybackFlags`) | Delete. The delegate type is also being deleted (next row). |
+| `GhostPlaybackEvents.cs` | `:77-82` (`TryEvaluateAnchorRotationReliability` delegate definition) | Delete. Single production caller in `ParsekFlight.ComputePlaybackFlags` is also deleted. |
+| `GhostPlaybackEvents.cs` | `:94+` (`AnchorRotationUnreliableRoute` enum — citation fix; this enum lives in events, not engine as the prior draft cited) | Delete. |
+| `GhostPlaybackEvents.cs` or wherever the delegate field lives | `TrajectoryPlaybackFlags.tryEvaluateAnchorRotationReliability` field | Delete. The field's value site (`ParsekFlight.cs:15117-15122`) is also being deleted in this commit; the field itself becomes unreferenced. |
 | `ParsekFlight.cs` | `:16717-16810` | Keep `TryPositionFromRelativeAbsoluteShadow` impl — it's the chain-failure fallback for Relative debris sections. Update the XML doc to reflect the new role (chain-failure fallback inside 0–500 m, not the always-shadow path). |
 | `ParsekFlight.cs` | `:22857-22933` | Delete `TryUseLegacyDebrisShadowFallback` and `TryRetireParentAnchoredDebrisOnRecordedAnchorMiss`. |
 | `ParsekFlight.cs` | `:22121, :22180, :22274` | Delete `LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible` call sites. |
@@ -606,6 +717,9 @@ scripts/grep-audit-ers-els.ps1
 | `Debris_CascadeSeparation_ParentIdIsImmediateParent` | Debris A sheds B | `B.DebrisParentRecordingId == A.RecordingId` |
 | `Debris_CascadeSeparation_DepthCapped` | Cascade depth > `MaxRecordingGeneration` | Further generations dropped (existing rule) |
 | `Debris_ReFlySettleSuppression_Removed` | Debris of a Re-Fly settle parent | Samples continue (no suppression gap) |
+| `Debris_NoParentRecordingId_FallsThrough` | Debris recording with `IsDebris == true && DebrisParentRecordingId == null` (orphan / corrupt state) | Cadence guard returns None; falls through to legacy `ResolveDebrisAwareMaxSampleInterval` cap |
+| `Debris_OrphanParent_MissingFromTree` | Debris with `DebrisParentRecordingId` pointing to a missing recording | `ResolveDebrisParentDistanceMeters` returns NaN; cadence falls through to None; samples use existing adaptive rule |
+| `Debris_HysteresisExitZone_LowDensity_FallsThroughToLegacyCap` | Debris at 520 m on Low density (in the 500–550 m hysteresis transit, frame is still Relative but tier is None per §3.1) | Effective `maxSampleInterval` is the legacy 0.5 s cap (None tier triggers the legacy fallthrough), NOT 8 s `configuredMax` |
 | `Debris_BoundaryPointContinuity_AtFrameTransition` | Debris crosses 550 m, Relative → Absolute | Last `absoluteFrames` body-fixed position equals first new Absolute section `frames` within 0.1 m |
 
 ### 7.2 Renderer unit tests (`Source/Parsek.Tests/GhostPlaybackEngineTests.cs`)
@@ -622,6 +736,9 @@ scripts/grep-audit-ers-els.ps1
 | `Debris_NotRetiredByCoverageGate_AbsoluteSection` | Debris in Absolute with `frames.Count > 0` | `ShouldRetireOutsideAuthoredRelativeCoverage` does NOT fire |
 | `Debris_LongRange_NoSyncedSwing` | Multiple debris pieces all in Absolute, parent rotating | Per-frame position deltas independent of shared rotation channel |
 | `RelativeAnchorResolver_DebrisChild_AnchoredOnLoopAnchoredParent_Allowed` | F (debris) anchored on T (loop-anchored) | Resolver returns success (carve-out per §3.4); non-debris anchored on loop-anchored still rejected (regression test) |
+| `RelativeAnchorResolver_CascadeDebris_AnchoredOnLoopAnchoredGrandparent_Allowed` | G (debris focus, parent F) anchored on F (debris, parent T) anchored on T (loop-anchored to S) | Carve-out fires at the T rejection during chain walk. Resolver composes G's position via T's live-anchor callback. Cascade-correctness regression test for the focus-is-debris predicate. |
+| `RelativeAnchorResolver_LiveAnchorCallback_ReturnsCorrectPose` | F debris on T loop-anchored to S; `TryResolveLiveAnchorTransform` populated, S at known live pose | Resolver invokes callback for T's section anchored on S; composes T_pose = `S.liveTransform × T.recordedOffsetToS`; F_pose = `T_pose × F.recordedOffsetToT`. Assert against expected world position. |
+| `RelativeAnchorResolver_LiveAnchorCallbackNull_FallsThrough` | Same setup but callback null (recorder-side context) | Carve-out fires but live-anchor resolution returns null; falls through to existing rejection. |
 
 ### 7.3 Format-version unit tests
 
@@ -667,18 +784,21 @@ In-game test files affected by field deletions (`anchorRotationShadowRoutedThisF
 | `DebrisParentAnchorContractTests.cs` | Full rewrite for v13 (Relative-inside-500 m + Absolute-outside) |
 | `ResolveReFlySettleStabilityTests.cs` | Review; delete cases that asserted `ShouldSuppressParentDebrisForReFlySettle` |
 | `Bug362TerminalCrashDebrisTests.cs`, `BoosterStagingSplitTriggerTests.cs`, `BackgroundSplitTests.cs` | Review |
-| `RuntimeTests.cs` (in-game) | Rewrite assertions on deleted fields |
+| `DebrisParentSamplingCeilingTests.cs` | Rewrite. Asserts current cadence composition (uses `ResolveDebrisAwareMaxSampleInterval`, `MidInterval`, `HighFidelityProximityRangeMeters`); the new v13 composition rule (proximity tier supersedes legacy cap when non-None) changes most assertions. |
+| `DebrisRelativeCoveragePrimitivesTests.cs` | Review for v13 mixed-section debris. |
+| `RuntimeTests.cs` (in-game) | Rewrite assertions on deleted fields. |
 
 ## 8. Rollout
 
 Land as a single PR or split per the project's preference:
 
-1. **Format version bump + codec rejection** (commit 1). Constants + `IsSupportedBinaryVersion` prune + `LoadRecordingFrom` early-exit + `RecordingSidecarStore` consumer surface. After this commit, v12/v11 saves are rejected at load.
-2. **Renderer cleanup** (commit 2). Delete the always-shadow router, the tumble-gate predicates and helpers, `LegacyDebrisShadowGate`, `TumblingParentInterpolationGate`, the two state fields and their 23 read/write sites. Trim `RelativeAnchorResolver` signatures. Compile clean; some debris-related tests fail (rewritten in commit 4).
-3. **Resolver carve-out** (commit 3). Relax `RelativeAnchorResolver` loop-anchored rejection for debris-parent-anchored case (§3.4). Add the targeted regression test.
-4. **Recorder change** (commit 4). Gate `ApplyDebrisAnchorContractToState` on proximity; simplify debris seed; add cadence tier resolver, state, and wiring; raise `HighFidelityProximityRangeMeters` to 250 m; remove Re-Fly settle suppression for debris.
-5. **Tests** (commit 5): test fixture, recorder unit tests, renderer unit tests, format-version tests, in-game test rewrites.
-6. **Docs** (commit 6): CHANGELOG; `.claude/CLAUDE.md` format-version table; close relevant `docs/dev/todo-and-known-bugs.md` entries.
+1. **Format version bump + codec rejection** (commit 1). Constants + `IsSupportedBinaryVersion` prune + `LoadRecordingFrom` early-exit + `RecordingTree.cs:199` consumer surface. After this commit, v12/v11 saves are rejected at load.
+2. **Renderer cleanup** (commit 2). Delete the always-shadow router, the tumble-gate predicates and helpers, `LegacyDebrisShadowGate`, `TumblingParentInterpolationGate`, the `WithReliability` parallel resolver tree, the two state fields and their read/write sites, the `anchorRotationHysteresis` field + `.Clear()` calls, the `TryEvaluateAnchorRotationReliability` delegate, the `AnchorRotationUnreliableRoute` enum, and the `TrajectoryPlaybackFlags.tryEvaluateAnchorRotationReliability` field. Compile clean; some debris-related tests fail (rewritten in commit 5).
+3. **Field rename + comment rebranding** (commit 3). Rename `TrackSection.absoluteFrames` → `TrackSection.bodyFixedFrames` per §3.7. Replace "absolute shadow" / "shadow track" / "shadow payload" / etc wording with v13-correct framing across every site identified in §3.7's site table plus any additional hits from `grep -rn "absoluteFrames\|absolute shadow" Source/Parsek/`. This is a pure rename + comment update; behaviour unchanged. ConfigNode codec value key renamed at the write site (`RecordingTreeRecordCodec.cs:215`) and the corresponding read site.
+4. **Resolver carve-out + live-anchor callback** (commit 4). Relax `RelativeAnchorResolver` loop-anchored rejection at the single remaining site (`:301-310`) per §3.4. Add `TryResolveLiveAnchorTransform` field to `RelativeAnchorResolverContext`. Populate from `ParsekFlight` host wiring; leave null at the recorder-side context construction at `BackgroundRecorder.cs:5021`. Add the live-anchor compose step inside the resolver's `TryResolveRecordingPose` for sections with `anchorVesselId != 0u`. Add the cascade and live-anchor-callback resolver tests.
+5. **Recorder change** (commit 5). Gate `ApplyDebrisAnchorContractToState` on proximity; simplify debris seed; add cadence tier resolver, state, and wiring; raise `HighFidelityProximityRangeMeters` to 250 m; remove Re-Fly settle suppression for debris; add the shared `ProximitySamplingCadence` module and refactor `ResolveActiveReFlyTreeSamplingCadence` to use it.
+6. **Tests** (commit 6): test fixture, recorder unit tests, renderer unit tests, format-version tests, in-game test rewrites.
+7. **Docs** (commit 7): CHANGELOG; `.claude/CLAUDE.md` format-version table; close relevant `docs/dev/todo-and-known-bugs.md` entries.
 
 Pre-merge:
 - `dotnet test` all green
@@ -689,7 +809,7 @@ Pre-merge:
 
 ## 9. Out of scope (follow-ups)
 
-- **Future recorders using the shared cadence module.** The `ProximitySamplingCadence` module (§3.6) is reusable. Candidate future consumers: a co-bubble formation-flying recorder, an approach-corridor recorder near a station, a science-rover proximity recorder. Each supplies its own thresholds and guards. Not in scope for this PR but the module's API is designed for it.
+- **Future recorders using the shared cadence module.** The `ProximitySamplingCadence` module (§3.7) is reusable. Candidate future consumers: a co-bubble formation-flying recorder, an approach-corridor recorder near a station, a science-rover proximity recorder. Each supplies its own thresholds and guards. Not in scope for this PR but the module's API is designed for it.
 - **BG-parent hi-fi sampling extension**: extending `RegisterHighFidelityProximityVessel` to BG-recorded parents of in-proximity debris. Useful if playtest reveals chain-math jitter due to sparse parent samples inside the 500 m window. The body-fixed shadow on the same Relative section is a safety net regardless.
 - **Tunables for the 250–500 m Half-cadence Relative window**: this regime is the most synced-rotation-prone zone (lever arm up to 500 m × parent slerp at 2 × min cadence). **Explicit cost acknowledgment:** the 250–500 m Half-cadence Relative window is a deliberate net-storage and net-render-cost increase relative to the earlier 250 m-only design for non-loop debris. The earlier design would have written Absolute frames in 250–500 m (no chain math, no synced-rotation amplitude); v13 forces chain math at Half cadence in that zone. The benefit applies to loop-anchored debris (a smaller fraction of recordings overall — only when the parent's recording is intentionally loop-anchored). For non-loop debris this zone is a strict cost. The user has accepted this trade-off explicitly ("we can always tune later"). If playtest shows the cost is visible in the non-loop case, options to address:
   1. Drop the cadence in 250–500 m back to Full (uniform Full inside the whole Relative window) — doubles storage in the outer ring.
@@ -704,7 +824,7 @@ Pre-merge:
 
 ## 10. Plan evolution
 
-Eight drafts on the branch arrived at this design:
+Ten drafts on the branch arrived at this design:
 
 - `4b9a9bd` — first draft: proximity-gated 2300/2500 m, revert PR #803.
 - `257ff31` — second draft (first review): keep PR #803 inside bounded Relative window.
@@ -714,4 +834,5 @@ Eight drafts on the branch arrived at this design:
 - `9662558` — sixth draft: user's insight that *every* debris recording within proximity should carry the relative-to-parent data; chain composition through loop-anchored ancestors handles the loop case naturally without `LoopAnchorVesselId` inheritance. No experimental framing — the relative surface has a concrete consumer (loop scenarios) and a real benefit (sub-metre geometric accuracy at close range). Relative window was 250 m.
 - `ede8620` — seventh draft: Relative shadow window extended to 500 m total, with Half cadence in 250–500 m. Frame hysteresis exit moved 280 m → 550 m. §9 enumerates remediation options if playtest shows artifacts in the 250–500 m + tumbling-parent regime.
 - `a995001` — eighth draft: proximity-cadence mechanism extracted as a shared `ProximitySamplingCadence` module (per user direction: "we should extract this proximity cadence mechanism as a module that can be used by any recorder"). The old `FlightRecorder.ReFlyTreeSamplingCadence` enum and resolver are refactored to delegate tier resolution to the shared module (behaviour-preserving; same thresholds, same tier semantics). Debris uses the same module with its own thresholds. Adds one Re-Fly touch — the cadence resolver — but observable behaviour is preserved by construction (regression test included).
-- **current** — ninth draft: second Opus review applied. Resolver carve-out cascade-correct predicate (focus-is-debris, fixes P0-1 cascade bug); cadence composition with legacy `ResolveDebrisAwareMaxSampleInterval` made explicit (P0-2); `WithReliability` resolver tree (9 methods, ~500 lines) explicitly enumerated for deletion plus 7 named test methods (P1-1); user-visible communication for v11/v12 rejection documented in §5.4 (P1-2); packed-parent description fixed to align with `CheckDebrisTTL` (P1-3); 250–500 m Half-cadence regression cost explicitly acknowledged in §9 (P1-4); `BackgroundVesselState` citation corrected from `:192-200` to `:202` (P2-3); `LoadRecordingFrom` early-exit moved out of helper to top-level (P2-2); `AnchorDetector` comment scope clarified (P2-4); hysteresis-exit Low-density cost note added (P2-5); carve-out grep audit added (P2-6); orthogonality matrix density-row tests added (P3-4).
+- `75c810f` — ninth draft: second Opus review applied. Resolver carve-out cascade-correct predicate (focus-is-debris); cadence composition with legacy `ResolveDebrisAwareMaxSampleInterval` made explicit; WithReliability resolver tree (9 methods, ~500 lines) explicitly enumerated for deletion plus named test methods; user-visible communication for v11/v12 rejection documented; packed-parent description fixed; 250–500 m Half-cadence regression cost acknowledged; multiple citation fixes.
+- **current** — tenth draft: third Opus review applied. The big additions are (a) the live-anchor callback (`RelativeAnchorResolverContext.TryResolveLiveAnchorTransform`) — without it, the carve-out alone doesn't actually make the loop-anchored chain compose (P0-1); the resolver needs a host-injected callback that returns the live anchor's current pose so chain math can compose `liveAnchor.pose × T.recordedOffsetToS × F.recordedOffsetToT`. (b) The `absoluteFrames` → `bodyFixedFrames` field rename plus full "absolute is primary, relative is shadow" comment / log / doc rebranding (Option A). The v12 framing where `absoluteFrames` was named "the shadow" is gone — the field is now content-named (body-fixed coordinates) and the comments describe its v13 role as the primary rendering surface inside Relative sections. Also: dropped the `:450-459` carve-out reference (the line is inside the deleted WithReliability tree); added the missing compile-breaking deletion rows (`anchorRotationHysteresis` field at `:832-834`, the three `.Clear()` calls, the delegate definition and assignment, the `AnchorRotationUnreliableRoute` enum at its actual `GhostPlaybackEvents.cs:94+` location, the citation correction `:15117-15170` → `:15117-15246`); fixed `RecordingSidecarStore.cs` → `RecordingTree.cs:199` citation; added the partial-stub-recording skip rule after `LoadRecordingFrom` rejection; documented `focusRecordingId == null` at recorder-side context construction; enumerated FG callers of the changed `ResolveEffectiveMaxSampleInterval` signature; added `DebrisParentSamplingCeilingTests.cs` and `DebrisRelativeCoveragePrimitivesTests.cs` to the test-file disposition table; added cascade carve-out tests and the live-anchor-callback resolver tests; added orphan-parent and hysteresis-exit Low-density tests.
