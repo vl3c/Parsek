@@ -1037,6 +1037,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ParentAnchoredCoveragePolicy_InheritedLoopAnchoredDebrisChain_DoesNotApplyOrdinaryRetirement()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u));
+
+            Assert.True(GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, 105.0));
+            Assert.False(GhostPlaybackEngine.ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(
+                traj, 105.0));
+            Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
+                traj,
+                105.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic retireDiagnostic));
+            Assert.False(GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                traj,
+                105.0,
+                out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic gapDiagnostic));
+            Assert.Equal(
+                default(DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic),
+                retireDiagnostic);
+            Assert.Equal(
+                default(DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic),
+                gapDiagnostic);
+        }
+
+        [Fact]
         public void ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorWithAbsoluteSection_ReturnsFalse()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();

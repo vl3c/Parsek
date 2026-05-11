@@ -216,6 +216,100 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void StandaloneWorldPosition_InheritedLoopAnchoredDebrisWithoutBodyFixed_ReachesRecordedRelativeResolver()
+        {
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100.0, latitude = 12.5, longitude = 7.0, altitude = 3.0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 110.0, latitude = 13.0, longitude = 7.5, altitude = 3.2,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                },
+            };
+            var rec = new Recording
+            {
+                RecordingId = "loop-chain-debris",
+                VesselName = "Loop Chain Debris",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                IsDebris = true,
+                DebrisParentRecordingId = "loop-chain-parent",
+                Points = relativeFrames,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        source = TrackSectionSource.Active,
+                        anchorRecordingId = "loop-chain-parent",
+                        sampleRateHz = 4.0f,
+                        frames = relativeFrames,
+                    }
+                }
+            };
+            var parent = new Recording
+            {
+                RecordingId = "loop-chain-parent",
+                VesselName = "Loop Chain Parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                LoopAnchorVesselId = 77u,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        source = TrackSectionSource.Active,
+                        anchorVesselId = 77u,
+                        sampleRateHz = 4.0f,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                            new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                        },
+                    }
+                }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "loop-chain-tree",
+                TreeName = "Loop Chain Tree",
+                RootRecordingId = parent.RecordingId,
+                ActiveRecordingId = rec.RecordingId,
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+            tree.Recordings[parent.RecordingId] = parent;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddCommittedInternal(rec);
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                rec.RecordingId, 105.0, fallbackBody: null, out Vector3d worldPos);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, worldPos.x);
+            Assert.Equal(0.0, worldPos.y);
+            Assert.Equal(0.0, worldPos.z);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("TryComputeStandaloneRelativeWorldPosition: chain resolver failed")
+                && l.Contains(rec.RecordingId));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("relative-only-without-body-fixed-primary")
+                && l.Contains(rec.RecordingId));
+        }
+
+        [Fact]
         public void StandaloneWorldPosition_RecordingMissing_ReturnsFalse()
         {
             // No-op guard: an unknown recording id returns false silently

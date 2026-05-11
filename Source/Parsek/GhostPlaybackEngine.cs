@@ -2627,8 +2627,40 @@ namespace Parsek
             double playbackUT,
             out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
         {
+            if (!ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(traj, playbackUT))
+            {
+                diagnostic = default;
+                return false;
+            }
+
             return DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
                 traj, playbackUT, out diagnostic);
+        }
+
+        internal static bool ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(
+            IPlaybackTrajectory traj,
+            double playbackUT)
+        {
+            return DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj)
+                && traj.LoopAnchorVesselId == 0u
+                && !ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
+        }
+
+        internal static bool ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            if (!ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(traj, playbackUT))
+            {
+                diagnostic = default;
+                return false;
+            }
+
+            return DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                traj,
+                playbackUT,
+                out diagnostic);
         }
 
         private bool TryPositionRelativeSectionAtPlaybackUT(
@@ -5168,7 +5200,7 @@ namespace Parsek
         internal static bool AuthoredFrameGapHasShadowCoverage(
             IPlaybackTrajectory traj, double playbackUT)
         {
-            return DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+            return ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
                     traj,
                     playbackUT,
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)

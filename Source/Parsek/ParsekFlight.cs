@@ -12125,10 +12125,10 @@ namespace Parsek
             out TrajectoryPoint point)
         {
             point = default(TrajectoryPoint);
-            if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+            if (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
                 return false;
 
-            point = section.absoluteFrames[section.absoluteFrames.Count - 1];
+            point = section.bodyFixedFrames[section.bodyFixedFrames.Count - 1];
             return true;
         }
 
@@ -18281,7 +18281,7 @@ namespace Parsek
             Recording rec = ResolveRecordingById(recordingId);
             if (rec == null) return false;
             if (rec.Points == null || rec.Points.Count == 0) return false;
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+            if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     rec,
                     ut,
                     out _))
@@ -18436,11 +18436,11 @@ namespace Parsek
                 return TryComputeStandaloneAbsoluteFallbackWorldPosition(rec, ut, out worldPos);
             }
 
-            bool loopAnchoredDebrisChain = GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(rec, ut);
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(rec)
-                && !loopAnchoredDebrisChain)
+            bool ordinaryParentAnchoredDebris =
+                GhostPlaybackEngine.ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(rec, ut);
+            if (ordinaryParentAnchoredDebris)
             {
-                if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+                if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                         rec,
                         ut,
                         out _))
@@ -18469,19 +18469,9 @@ namespace Parsek
                 return false;
             }
 
-            if (!loopAnchoredDebrisChain
-                && DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
-                    rec,
-                    ut,
-                    out _))
-            {
-                return false;
-            }
-
             DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
             bool skipRecordedRelativeResolver =
-                !loopAnchoredDebrisChain
-                && DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
                     rec,
                     ut,
                     out diagnostic);
@@ -20625,7 +20615,7 @@ namespace Parsek
                 return false;
 
             int cachedIndex = state != null ? state.playbackIndex : 0;
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+            if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     traj,
                     playbackUT,
                     out _))
@@ -20634,7 +20624,7 @@ namespace Parsek
             }
 
             bool skipRecordedRelativeResolverForAuthoredFrameGap =
-                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
                     traj,
                     playbackUT,
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
@@ -22598,7 +22588,7 @@ namespace Parsek
             bool allowActivation,
             out InterpolationResult interpResult)
         {
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+            if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     traj,
                     targetUT,
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
