@@ -13,7 +13,7 @@ Body-fixed (Absolute) world coordinates are the natural representation for debri
 **The new contract for debris:**
 
 - **Default (the overwhelmingly common case): every debris TrackSection is `ReferenceFrame.Absolute`.** No Relative debris sections exist. No `absoluteFrames` shadow. No anchor identity on the section.
-- **Carve-out for loop-anchored parents** (§3.5): when a debris's parent recording is loop-anchored (`LoopAnchorVesselId != 0u`), the debris inherits the loop anchor and records via the existing loop-anchored Relative path. This is rare (debris of a recording the player intentionally marked for loop playback) but mandatory for correctness: looped recordings replay against a live anchor whose orbital position advances between iterations, so debris in body-fixed coordinates would diverge from the loop anchor.
+- **Carve-out for loop-anchored parents** (§3.5): when a debris's parent recording is loop-anchored (`LoopAnchorVesselId != 0u`), the debris inherits the parent's `LoopAnchorVesselId` and records via the existing loop-anchored Relative path. The parent (`DebrisParentRecordingId`) and the loop anchor (the live vessel referenced by `LoopAnchorVesselId`) are typically *different* vessels — a canonical case is a tanker (the parent) approaching a station (the loop anchor) and shedding a fairing en route. This carve-out is rare (debris of a recording the player intentionally marked for loop playback) but mandatory for correctness: looped recordings replay against a live anchor whose orbital position advances between iterations, so debris in body-fixed coordinates would diverge from the loop anchor.
 - **`Recording.DebrisParentRecordingId` retained for identification only** — tree hierarchy, ledger, diagnostics, future UI. Not consulted by recorder or renderer for frame or pose decisions.
 - **Sampling cadence scales with distance to parent**, mirroring `ReFlyTreeSamplingCadence`:
   - 0–250 m → full fidelity (`configuredMin` interval)
@@ -217,7 +217,14 @@ This is encoded in the extended helper at `FlightRecorder.cs:840-865`. Tests in 
 
 ### 3.5 Carve-out: loop-anchored debris
 
-If a debris piece is created from a parent whose recording has `LoopAnchorVesselId != 0u`, the debris inherits the loop anchor:
+**Terminology — two orthogonal references.** In this section, "parent" and "loop anchor" refer to two different things and must not be conflated:
+
+- **Parent** = the recording pointed to by `DebrisParentRecordingId`. The vessel the debris was *separated from*. Identification only.
+- **Loop anchor** = the live vessel pointed to by `LoopAnchorVesselId`. The vessel a loop-anchored recording is *positioned relative to* at playback. Rendering.
+
+These are typically different vessels. A canonical example: a tanker craft (the parent) approaches a station (the loop anchor) intending to dock. The player loops this approach recording. During the approach, the tanker jettisons a fairing — that fairing's `DebrisParentRecordingId` is the tanker's recording, but the relevant loop anchor for visual continuity across loop iterations is the *station*, because that's what the tanker's recording loops around. The station's live orbital position advances between iterations; both the tanker and the jettisoned fairing must follow it.
+
+**The inheritance rule.** If a debris piece is created from a parent whose recording has `LoopAnchorVesselId != 0u`, the debris inherits the parent's `LoopAnchorVesselId` (not the parent's identity — the live PID that the parent's recording was anchored to):
 
 ```csharp
 // At BackgroundRecorder.RegisterChildRecordingsFromSplit (around :1130, :1263)
@@ -228,17 +235,23 @@ if (parentRecording != null && parentRecording.LoopAnchorVesselId != 0u)
 }
 ```
 
-The recorder then writes the debris through the **existing loop-anchored Relative path** (the same path non-debris loop-anchored recordings use today): per-sample `anchorPose` is resolved via `FlightGlobals.FindVesselById(LoopAnchorVesselId)` live pose, debris's offset is computed relative to that live anchor, the section is emitted as `ReferenceFrame.Relative` with `anchorVesselId = LoopAnchorVesselId`. The v7 `absoluteFrames` shadow is written per the existing v7 contract (the shadow exists for live-anchor sections too).
+The recorder then writes the debris through the **existing loop-anchored Relative path** — the same path non-debris loop-anchored recordings use today. Per-sample:
+- The live anchor's pose is resolved via `FlightGlobals.FindVesselById(LoopAnchorVesselId)` — the station, in the canonical example.
+- The debris's offset is computed relative to *that* live anchor's pose at sample time. **NOT relative to the parent** (the tanker, in the canonical example). The debris's `frames` will contain station-local offsets.
+- The section is emitted as `ReferenceFrame.Relative` with `anchorVesselId = LoopAnchorVesselId`.
+- The v7 `absoluteFrames` shadow is written per the existing v7 contract.
+
+This means: at playback iteration N, both the tanker and the fairing render relative to the station's *current* (iteration-N) pose — `tanker.worldPos = station.livePose × tanker.recordedOffset` and `fairing.worldPos = station.livePose × fairing.recordedOffset`. The fairing's offset is its own — independently sampled against the station — not chained through the tanker.
 
 Renderer dispatch for loop-anchored debris:
-- Engine sees `LoopAnchorVesselId != 0u` → routes to `TryResolveLiveLoopAnchorPose` (`ParsekFlight.cs:21070-21160`)
-- Live anchor pose × recorded offset → world position
-- No `DebrisParentRecordingId` consulted at render time (the field is still set on the recording but unused for placement)
+- Engine sees `LoopAnchorVesselId != 0u` → routes to `TryResolveLiveLoopAnchorPose` (`ParsekFlight.cs:21070-21160`).
+- Live anchor pose × recorded offset → world position. Live anchor = the station (or whatever live vessel the parent was originally loop-anchored to). Recorded offset = the debris's own station-relative offset.
+- **`DebrisParentRecordingId` is not consulted at render time** — it's still set on the recording (for identification, ledger, UI) but plays no role in placement. The renderer's only positional inputs are the live anchor's pose and the debris's own recorded offsets.
 - The deleted `ShouldEvaluateAnchorRotationReliability` predicate excluded loop-anchored recordings anyway (`LoopAnchorVesselId == 0u` was a required condition), so its removal does not affect this path
 
 **The cadence tier from §3.1 does NOT apply to loop-anchored debris.** The proximity computation is against the parent's recording-id, which has limited meaning for loop-anchored playback (the parent is itself loop-anchored to the same live vessel; "distance to parent" is dominated by their shared live-anchor motion). Loop-anchored debris uses the same cadence rules as the loop-anchored parent.
 
-Cascade case: debris-of-debris under a loop-anchored ancestor propagates transparently. A is loop-anchored → A sheds B, B inherits A's `LoopAnchorVesselId` → B sheds C, C inherits the same. All resolve to the same live anchor.
+Cascade case: debris-of-debris under a loop-anchored ancestor propagates transparently. Tanker T is loop-anchored to station S → T sheds fairing F, F inherits T's `LoopAnchorVesselId == S.persistentId` → F sheds shard X, X inherits the same. All three (T, F, X) are positioned relative to S's live pose at each loop iteration; the chain of separations (T → F → X) is identification metadata only and never enters the placement math.
 
 ### 3.6 Cascade separations (debris-of-debris)
 
