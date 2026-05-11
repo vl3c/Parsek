@@ -520,40 +520,8 @@ namespace Parsek.Rendering
                 absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
                 bodyWorldRotationResolver: ResolveBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose,
-                tryResolveLiveAnchorTransform: TryResolveLiveAnchorTransform);
+                tryResolveLiveAnchorTransform: ParsekFlight.TryGetLiveAnchorTransformDelegate());
             return true;
-        }
-
-        private static (Vector3d pos, Quaternion rot)? TryResolveLiveAnchorTransform(
-            uint anchorVesselId,
-            string victimRecordingId,
-            double targetUT)
-        {
-            _ = victimRecordingId;
-            _ = targetUT;
-            if (anchorVesselId == 0u)
-                return null;
-
-            Vessel anchor = TryFindVesselByPid(anchorVesselId);
-            if (anchor == null)
-                return null;
-
-            try
-            {
-                Vector3d pos = anchor.transform != null
-                    ? (Vector3d)anchor.transform.position
-                    : anchor.GetWorldPos3D();
-                Quaternion rot = anchor.transform != null
-                    ? anchor.transform.rotation
-                    : Quaternion.identity;
-                if (!IsFinite(pos))
-                    return null;
-                return (pos, rot);
-            }
-            catch
-            {
-                return null;
-            }
         }
 
         private static bool TryFindFocusTree(Recording rec, out RecordingTree focusTree)

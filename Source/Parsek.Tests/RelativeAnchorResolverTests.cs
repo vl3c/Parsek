@@ -1283,6 +1283,101 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveAnchorPose_DebrisFocusAllowsLiveAnchorLeaf()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording loopRoot = MakeRelativeRecording(
+                "loop-root",
+                tree.Id,
+                localOffset: new Vector3d(5, 0, 0),
+                legacyAnchorPid: 42u);
+            loopRoot.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            loopRoot.LoopPlayback = true;
+            loopRoot.LoopAnchorVesselId = 42u;
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 2, 3),
+                anchorRecordingId: loopRoot.RecordingId);
+            child.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            child.IsDebris = true;
+            child.DebrisParentRecordingId = loopRoot.RecordingId;
+            tree.AddOrReplaceRecording(loopRoot);
+            tree.AddOrReplaceRecording(child);
+
+            bool callbackInvoked = false;
+            var context = MakeContext(
+                tree,
+                focusRecordingId: child.RecordingId,
+                liveAnchorTransformResolver: (pid, victimRecordingId, ut) =>
+                {
+                    callbackInvoked = true;
+                    Assert.Equal(42u, pid);
+                    Assert.Equal(loopRoot.RecordingId, victimRecordingId);
+                    Assert.Equal(5.0, ut);
+                    return (new Vector3d(100, 0, 0), Quaternion.identity);
+                });
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                child.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out AnchorPose pose,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.True(resolved, failure.Reason);
+            Assert.True(callbackInvoked);
+            Assert.Equal(106.0, pose.WorldPos.x, 6);
+            Assert.Equal(2.0, pose.WorldPos.y, 6);
+            Assert.Equal(3.0, pose.WorldPos.z, 6);
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_NonDebrisFocusRejectsLiveAnchorLeaf()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording livePidRelative = MakeRelativeRecording(
+                "live-pid-relative",
+                tree.Id,
+                localOffset: new Vector3d(5, 0, 0),
+                legacyAnchorPid: 42u);
+            livePidRelative.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 2, 3),
+                anchorRecordingId: livePidRelative.RecordingId);
+            child.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            child.IsDebris = false;
+            tree.AddOrReplaceRecording(livePidRelative);
+            tree.AddOrReplaceRecording(child);
+
+            bool callbackInvoked = false;
+            var context = MakeContext(
+                tree,
+                focusRecordingId: child.RecordingId,
+                liveAnchorTransformResolver: (pid, victimRecordingId, ut) =>
+                {
+                    callbackInvoked = true;
+                    return (new Vector3d(100, 0, 0), Quaternion.identity);
+                });
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                child.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.False(callbackInvoked);
+            Assert.Equal(RelativeAnchorResolveOutcome.Other, failure.Outcome);
+            Assert.Equal("anchor-recording-id-missing", failure.Reason);
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_PendingTreeOutsideFocusScope_ReturnsFalse()
         {
             var focusTree = new RecordingTree { Id = "focus-tree" };
@@ -1731,7 +1826,8 @@ namespace Parsek.Tests
             ReFlySessionMarker marker = null,
             Func<TrajectoryPoint, Vector3d> absoluteWorldPositionResolver = null,
             string focusRecordingId = null,
-            IReadOnlyDictionary<string, Recording> provisionalRecordings = null)
+            IReadOnlyDictionary<string, Recording> provisionalRecordings = null,
+            Func<uint, string, double, (Vector3d pos, Quaternion rot)?> liveAnchorTransformResolver = null)
         {
             return new RelativeAnchorResolverContext(
                 tree,
@@ -1743,7 +1839,8 @@ namespace Parsek.Tests
                 sectionAnchorRecordingIdResolver: anchorRecordingIdResolver,
                 absoluteWorldPositionResolver: absoluteWorldPositionResolver
                     ?? (p => new Vector3d(p.latitude, p.longitude, p.altitude)),
-                bodyWorldRotationResolver: p => Quaternion.identity);
+                bodyWorldRotationResolver: p => Quaternion.identity,
+                tryResolveLiveAnchorTransform: liveAnchorTransformResolver);
         }
 
         private static Recording MakeAbsoluteRecording(

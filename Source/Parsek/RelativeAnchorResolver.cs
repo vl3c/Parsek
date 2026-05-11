@@ -1373,6 +1373,7 @@ namespace Parsek
                     out string anchorRecordingId))
             {
                 if (section.anchorVesselId != 0u
+                    && IsDebrisFocusRecording(context)
                     && context.TryResolveLiveAnchorTransform != null)
                 {
                     (Vector3d pos, Quaternion rot)? livePose =
