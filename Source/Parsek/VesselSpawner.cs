@@ -4889,7 +4889,7 @@ namespace Parsek
         {
             orbit = null;
 
-            if (body == null)
+            if (object.ReferenceEquals(body, null))
                 return false;
 
             double inclination;
@@ -4950,11 +4950,28 @@ namespace Parsek
                 return false;
             }
 
-            if (!string.Equals(body.name, orbitBodyName, StringComparison.Ordinal))
+            string resolvedBodyName = OrbitSeedResolver.ResolveBodyName(body);
+            if (!string.Equals(resolvedBodyName, orbitBodyName, StringComparison.Ordinal))
             {
                 ParsekLog.Warn("Spawner",
                     $"TryBuildRecordedTerminalOrbitForSpawn: body mismatch " +
-                    $"(body={body.name}, terminalBody={orbitBodyName}, source={seedSource})");
+                    $"(body={resolvedBodyName ?? "(null)"}, terminalBody={orbitBodyName}, source={seedSource})");
+                return false;
+            }
+
+            if (!TryValidateRecordedTerminalOrbitSeedForSpawn(
+                    rec,
+                    seedSource,
+                    body,
+                    orbitBodyName,
+                    inclination,
+                    eccentricity,
+                    semiMajorAxis,
+                    lan,
+                    argumentOfPeriapsis,
+                    meanAnomalyAtEpoch,
+                    epoch))
+            {
                 return false;
             }
 
@@ -5005,6 +5022,50 @@ namespace Parsek
                     $"TryBuildRecordedTerminalOrbitForSpawn failed: {ex.Message}");
                 return false;
             }
+        }
+
+        private static bool TryValidateRecordedTerminalOrbitSeedForSpawn(
+            Recording rec,
+            string seedSource,
+            CelestialBody body,
+            string orbitBodyName,
+            double inclination,
+            double eccentricity,
+            double semiMajorAxis,
+            double lan,
+            double argumentOfPeriapsis,
+            double meanAnomalyAtEpoch,
+            double epoch)
+        {
+            if (!OrbitResolution.TryValidateOrbitElements(
+                    inclination,
+                    eccentricity,
+                    semiMajorAxis,
+                    lan,
+                    argumentOfPeriapsis,
+                    meanAnomalyAtEpoch,
+                    epoch,
+                    orbitBodyName,
+                    name => string.Equals(name, orbitBodyName, StringComparison.Ordinal) ? body : null,
+                    OrbitSegmentValidationMode.ValidateAndLog,
+                    rec?.RecordingId,
+                    "spawn-terminal-orbit",
+                    out _,
+                    out OrbitRejectionReason reason))
+            {
+                ParsekLog.Warn("Spawner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TryBuildRecordedTerminalOrbitForSpawn: rejected orbit seed rec={0} source={1} body={2} reason={3} sma={4:R} ecc={5:R}",
+                        rec?.RecordingId ?? "(null)",
+                        seedSource ?? "(none)",
+                        orbitBodyName ?? "(null)",
+                        OrbitResolution.ToLogToken(reason),
+                        semiMajorAxis,
+                        eccentricity));
+                return false;
+            }
+
+            return true;
         }
 
         // Tail UT must exceed the latest stored OrbitSegment endUT by at least this

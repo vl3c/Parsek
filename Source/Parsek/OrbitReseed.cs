@@ -211,9 +211,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Build orbit elements from a world-absolute Y-up position and a
-        /// recorder-frame Y-up world velocity.
+        /// Build orbit elements at <paramref name="ut"/> from a world-absolute
+        /// Y-up position and recorder-frame Y-up world velocity.
         /// </summary>
+        /// <remarks>
+        /// Use this when the position has already been resolved to world space
+        /// before this call (for example map-presence state-vector fallback), but
+        /// the velocity is still <see cref="TrajectoryPoint.velocity"/> captured
+        /// by the recorder.
+        /// </remarks>
         internal static void FromWorldPosAndRecordedVelocity(
             Orbit dst,
             CelestialBody body,

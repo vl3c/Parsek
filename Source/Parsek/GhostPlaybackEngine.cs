@@ -216,6 +216,8 @@ namespace Parsek
 
         #endregion
 
+        internal static Func<string, double?> PendingOrbitBodyRadiusResolverForTesting;
+
         internal static bool HasRenderableGhostData(IPlaybackTrajectory traj)
         {
             return traj != null
@@ -980,6 +982,35 @@ namespace Parsek
                 state.positionedThisFrame = true;
         }
 
+        private static void MarkOrbitPlacementFailed(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT,
+            string callsite)
+        {
+            if (state == null)
+                return;
+
+            state.anchorRetiredThisFrame = true;
+            state.orbitPlacementFailedThisFrame = true;
+            if (!ReferenceEquals(state.ghost, null))
+                GhostPlaybackLogic.HideGhostForRetire(state.ghost);
+            ResetGhostAppearanceTracking(state);
+            ParsekLog.VerboseRateLimited(
+                "Engine",
+                "orbit-placement-failed-" + (traj?.RecordingId ?? index.ToString(CultureInfo.InvariantCulture)) + "-" + callsite,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Orbit placement failed: recordingId={0} index={1} vessel=\"{2}\" ut={3:F3} callsite={4}",
+                    traj?.RecordingId ?? "<none>",
+                    index,
+                    traj?.VesselName ?? "?",
+                    playbackUT,
+                    callsite),
+                5.0);
+        }
+
         /// <summary>
         /// Handles in-range ghost rendering: spawn if needed, position, apply visual events.
         /// Returns true if the ghost was processed (caller should continue to next iteration).
@@ -1142,6 +1173,7 @@ namespace Parsek
             // relative positioner sets it back to true if the recorded anchor
             // is unresolvable.
             state.anchorRetiredThisFrame = false;
+            state.orbitPlacementFailedThisFrame = false;
             state.anchorRotationShadowRoutedThisFrame = false;
 
             AnchorRotationUnreliableRoute anchorRotationRoute = TryRouteAnchorRotationUnreliable(
@@ -1178,7 +1210,8 @@ namespace Parsek
                 {
                     if (orbitTailPlayback)
                     {
-                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                        if (!positioner.TryPositionFromOrbit(i, traj, state, visiblePlaybackUT))
+                            MarkOrbitPlacementFailed(i, traj, state, visiblePlaybackUT, "RenderInRangeGhost-tail-points");
                     }
                     else if (!TryPositionRelativeSectionAtPlaybackUT(
                                  i, traj, state, visiblePlaybackUT, suppressVisualFx))
@@ -1193,7 +1226,8 @@ namespace Parsek
                     // PositionAtPoint for them.
                     if (orbitTailPlayback)
                     {
-                        positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                        if (!positioner.TryPositionFromOrbit(i, traj, state, visiblePlaybackUT))
+                            MarkOrbitPlacementFailed(i, traj, state, visiblePlaybackUT, "RenderInRangeGhost-tail-single");
                     }
                     else if (!TryPositionRelativeSectionAtPlaybackUT(
                                  i, traj, state, visiblePlaybackUT, suppressVisualFx))
@@ -1207,7 +1241,8 @@ namespace Parsek
                 }
                 else if (hasOrbitData)
                 {
-                    positioner.PositionFromOrbit(i, traj, state, visiblePlaybackUT);
+                    if (!positioner.TryPositionFromOrbit(i, traj, state, visiblePlaybackUT))
+                        MarkOrbitPlacementFailed(i, traj, state, visiblePlaybackUT, "RenderInRangeGhost-orbit");
                 }
             }
 
@@ -1412,6 +1447,7 @@ namespace Parsek
                 // deterministic; that branch completes below after suppressing
                 // stale endpoint side effects.
                 state.anchorRetiredThisFrame = false;
+                state.orbitPlacementFailedThisFrame = false;
                 state.anchorRotationShadowRoutedThisFrame = false;
 
                 // Position ghost at the true recording endpoint.
@@ -1419,6 +1455,7 @@ namespace Parsek
 
                 bool endpointRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                     state.anchorRetiredThisFrame);
+                bool endpointOrbitPlacementFailed = state.orbitPlacementFailedThisFrame;
                 if (endpointRetired)
                 {
                     double endpointCoverageUT = ResolveRecordingEndpointCoverageUT(traj);
@@ -1450,13 +1487,26 @@ namespace Parsek
                         return;
                     }
 
-                    ParsekLog.VerboseRateLimited("Engine", $"past-end-suppressed-{i}",
-                        $"past-end completion suppressed: anchor retired ghost #{i} \"{traj?.VesselName}\"");
-                    return;
+                    if (ShouldSuppressPastEndCompletionForEndpointRetire(
+                            endpointRetired,
+                            endpointOrbitPlacementFailed,
+                            parentAnchoredDebrisCoverageCompleted: false))
+                    {
+                        ParsekLog.VerboseRateLimited("Engine", $"past-end-suppressed-{i}",
+                            $"past-end completion suppressed: anchor retired ghost #{i} \"{traj?.VesselName}\"");
+                        return;
+                    }
+
+                    ParsekLog.VerboseRateLimited("Engine", $"past-end-orbit-placement-failed-{i}",
+                        $"past-end completion finalized after endpoint orbit placement failure: ghost #{i} \"{traj?.VesselName}\"");
+                }
+                else
+                {
+                    // Trigger explosion if destroyed
+                    TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
                 }
 
-                // Trigger explosion if destroyed
-                TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
+                ghostActive = ghostActive && !endpointOrbitPlacementFailed;
             }
 
             completedEventFired.Add(i);
@@ -1475,6 +1525,16 @@ namespace Parsek
                 LastPoint = hasPointData ? traj.Points[traj.Points.Count - 1] : default,
                 CurrentUT = ctx.currentUT
             });
+        }
+
+        internal static bool ShouldSuppressPastEndCompletionForEndpointRetire(
+            bool endpointRetired,
+            bool endpointOrbitPlacementFailed,
+            bool parentAnchoredDebrisCoverageCompleted)
+        {
+            return endpointRetired
+                && !endpointOrbitPlacementFailed
+                && !parentAnchoredDebrisCoverageCompleted;
         }
 
         /// <summary>
@@ -1655,6 +1715,7 @@ namespace Parsek
                     // stale (0,0,0) transform when the LoopAnchor pid is
                     // unresolvable post-rewind.
                     state.anchorRetiredThisFrame = false;
+                    state.orbitPlacementFailedThisFrame = false;
                     state.anchorRotationShadowRoutedThisFrame = false;
                     PositionGhostAtLoopEndpoint(
                         index, traj, flags, state, ctx.currentUT, ctx.warpRate);
@@ -1841,6 +1902,7 @@ namespace Parsek
             // positioning. The relative loop positioner sets it back to true
             // if the recorded anchor is unresolvable.
             state.anchorRetiredThisFrame = false;
+            state.orbitPlacementFailedThisFrame = false;
             state.anchorRotationShadowRoutedThisFrame = false;
             GhostRenderTrace.BeginFrame(
                 traj, index, ctx.currentUT, loopUT, "loop-primary");
@@ -2118,6 +2180,7 @@ namespace Parsek
                         // positioning; gate visuals/activation/appearance on
                         // it after.
                         primaryState.anchorRetiredThisFrame = false;
+                        primaryState.orbitPlacementFailedThisFrame = false;
                         primaryState.anchorRotationShadowRoutedThisFrame = false;
                         GhostRenderTrace.BeginFrame(
                             traj, index, ctx.currentUT, primaryLoopUT, "overlap-primary");
@@ -2217,6 +2280,7 @@ namespace Parsek
                     if (ovState.ghost != null)
                     {
                         ovState.anchorRetiredThisFrame = false;
+                        ovState.orbitPlacementFailedThisFrame = false;
                         ovState.anchorRotationShadowRoutedThisFrame = false;
                         PositionGhostAtLoopEndpoint(
                             index, traj, flags, ovState, ctx.currentUT, ctx.warpRate);
@@ -2314,6 +2378,7 @@ namespace Parsek
                 // Bug #613 (PR #594 P1): clear retire signal before
                 // positioning; gate visuals/activation/appearance on it after.
                 ovState.anchorRetiredThisFrame = false;
+                ovState.orbitPlacementFailedThisFrame = false;
                 ovState.anchorRotationShadowRoutedThisFrame = false;
                 GhostRenderTrace.BeginFrame(
                     traj, index, ctx.currentUT, loopUT,
@@ -2374,6 +2439,7 @@ namespace Parsek
             // traj.LoopAnchorVesselId is unresolvable (same Re-Fly rewind
             // failure mode covered by the per-frame gate above).
             state.anchorRetiredThisFrame = false;
+            state.orbitPlacementFailedThisFrame = false;
             state.anchorRotationShadowRoutedThisFrame = false;
             PositionGhostAtLoopEndpoint(index, traj, flags, state, frameUT, warpRate);
             bool loopPauseRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
@@ -2405,6 +2471,17 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Engine", $"loop-pause-suppressed-{index}",
                     $"loop endpoint side effects suppressed: anchor retired ghost #{index} \"{traj?.VesselName}\" loop-pause");
             }
+            // If positioning failed, do not drive pause-window effects from the
+            // stale transform. ApplyFrameVisuals tears down existing FX with
+            // suppressVisualFx=true, then leave the retire hide intact.
+            if (loopPauseRetired)
+            {
+                ApplyFrameVisuals(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), warpRate,
+                    skipPartEvents: true, suppressVisualFx: true,
+                    allowTransientEffects: false);
+                return;
+            }
+
             if (!state.pauseHidden)
             {
                 state.pauseHidden = true;
@@ -2417,25 +2494,6 @@ namespace Parsek
             {
                 state.lastInterpolatedVelocity = Vector3.zero;
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
-            }
-            // Bug #613 (PR #594 P1): if the loop-endpoint position landed in a
-            // relative section whose anchor pid is unresolvable, the retire
-            // branch already called SetActive(false). Skip the
-            // ActivateGhostVisualsIfNeeded + TrackGhostAppearance pair here so
-            // the same-frame reactivation race can't undo the hide.
-            //
-            // P3 (round 2): HideAllGhostParts above only calls MuteAllAudio —
-            // any previously-emitting engine plumes / RCS / reentry FX
-            // continue rendering at the (0,0,0) retired position. The other
-            // five PR #594 visibility gates already call
-            // ApplyFrameVisuals(suppressVisualFx:true) for FX teardown; do
-            // the same here so the loop-pause window matches that contract.
-            if (loopPauseRetired)
-            {
-                ApplyFrameVisuals(index, traj, state, ResolveLoopPlaybackEndpointUT(traj), warpRate,
-                    skipPartEvents: true, suppressVisualFx: true,
-                    allowTransientEffects: false);
-                return;
             }
             ActivateGhostVisualsIfNeeded(state);
             double appearanceUT = ResolveLoopPlaybackEndpointUT(traj);
@@ -2474,7 +2532,11 @@ namespace Parsek
 
             if (RecordingEndpointResolver.TryGetOrbitEndpointUT(traj, out double orbitEndpointUT))
             {
-                positioner.PositionFromOrbit(index, traj, state, orbitEndpointUT);
+                if (!positioner.TryPositionFromOrbit(index, traj, state, orbitEndpointUT))
+                {
+                    MarkOrbitPlacementFailed(index, traj, state, orbitEndpointUT, "PositionGhostAtRecordingEndpoint-orbit");
+                    return;
+                }
                 if (RecordingEndpointResolver.TryGetOrbitEndpointCoordinates(
                     traj, out string bodyName, out _, out _, out double altitude))
                 {
@@ -2500,7 +2562,8 @@ namespace Parsek
                         checkpointSectionIndex,
                         checkpointOrbitEndpointUT),
                     5.0);
-                positioner.PositionFromOrbit(index, traj, state, checkpointOrbitEndpointUT);
+                if (!positioner.TryPositionFromOrbit(index, traj, state, checkpointOrbitEndpointUT))
+                    MarkOrbitPlacementFailed(index, traj, state, checkpointOrbitEndpointUT, "PositionGhostAtRecordingEndpoint-checkpoint-orbit");
                 return;
             }
 
@@ -2521,7 +2584,11 @@ namespace Parsek
             }
 
             if (traj.HasOrbitSegments)
-                positioner.PositionFromOrbit(index, traj, state, traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT);
+            {
+                double orbitEndUT = traj.OrbitSegments[traj.OrbitSegments.Count - 1].endUT;
+                if (!positioner.TryPositionFromOrbit(index, traj, state, orbitEndUT))
+                    MarkOrbitPlacementFailed(index, traj, state, orbitEndUT, "PositionGhostAtRecordingEndpoint-last-orbit");
+            }
         }
 
         /// <summary>
@@ -2973,6 +3040,7 @@ namespace Parsek
             // recorded-relative coverage state.
             state.parentAnchoredDebrisCoverageRetired = false;
             state.anchorRetiredThisFrame = false;
+            state.orbitPlacementFailedThisFrame = false;
             // FX suppression: only when gate is also firing this frame. Steady
             // state always-shadow leaves this false so plumes / RCS / audio
             // play normally during the rest of the recording (the rotation
@@ -3331,7 +3399,8 @@ namespace Parsek
                     index, traj, state, loopUT, callsite))
                 return AnchorRotationUnreliableRoute.Hidden;
 
-            positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
+            if (!positioner.TryPositionLoop(index, traj, state, loopUT, suppressFx))
+                MarkOrbitPlacementFailed(index, traj, state, loopUT, callsite);
             return route;
         }
 
@@ -5119,7 +5188,20 @@ namespace Parsek
 
                 if (HasLoadedGhostVisuals(state))
                 {
+                    ResetHiddenPrewarmPositioningFlags(state);
                     PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
+                    if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                            state.anchorRetiredThisFrame))
+                    {
+                        ApplyFrameVisuals(index, traj, state, playbackUT, warpRate,
+                            skipPartEvents: true, suppressVisualFx: true,
+                            allowTransientEffects: false);
+                        if (state.ghost.activeSelf)
+                            state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                        return false;
+                    }
+
                     if (state.ghost.activeSelf)
                         state.ghost.SetActive(false);
                     ResetGhostAppearanceTracking(state);
@@ -5197,6 +5279,7 @@ namespace Parsek
             state.playbackIndex = 0;
             state.partEventIndex = 0;
             state.anchorRetiredThisFrame = false;
+            state.orbitPlacementFailedThisFrame = false;
             state.anchorRotationShadowRoutedThisFrame = false;
             double primePlaybackUT = ResolveVisiblePlaybackUT(traj, state, playbackUT);
             PositionLoadedGhostAtPlaybackUT(index, traj, state, primePlaybackUT);
@@ -5222,6 +5305,19 @@ namespace Parsek
             return (false, true, false);
         }
 
+        internal static void ResetHiddenPrewarmPositioningFlagsForTesting(GhostPlaybackState state)
+            => ResetHiddenPrewarmPositioningFlags(state);
+
+        private static void ResetHiddenPrewarmPositioningFlags(GhostPlaybackState state)
+        {
+            if (state == null)
+                return;
+
+            state.anchorRetiredThisFrame = false;
+            state.orbitPlacementFailedThisFrame = false;
+            state.anchorRotationShadowRoutedThisFrame = false;
+        }
+
         private void SynchronizeLoadedGhostForWatch(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double playbackUT,
             double currentUT)
@@ -5236,6 +5332,7 @@ namespace Parsek
             // through the same relative-frame positioner as the per-frame
             // path, so it has the same vulnerability to a stale anchor pid.
             state.anchorRetiredThisFrame = false;
+            state.orbitPlacementFailedThisFrame = false;
             state.anchorRotationShadowRoutedThisFrame = false;
             PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
             if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
@@ -5345,7 +5442,8 @@ namespace Parsek
 
             if (!authoredGapHasShadow && ShouldUseOrbitTailPlayback(traj, playbackUT))
             {
-                positioner.PositionFromOrbit(index, traj, state, playbackUT);
+                if (!positioner.TryPositionFromOrbit(index, traj, state, playbackUT))
+                    MarkOrbitPlacementFailed(index, traj, state, playbackUT, "PositionLoadedGhostAtPlaybackUT-tail");
                 return;
             }
 
@@ -5378,7 +5476,10 @@ namespace Parsek
             }
 
             if (hasOrbitData)
-                positioner.PositionFromOrbit(index, traj, state, playbackUT);
+            {
+                if (!positioner.TryPositionFromOrbit(index, traj, state, playbackUT))
+                    MarkOrbitPlacementFailed(index, traj, state, playbackUT, "PositionLoadedGhostAtPlaybackUT-orbit");
+            }
         }
 
         internal static bool ShouldPrimeSinglePointGhostFromOrbit(
@@ -6099,11 +6200,81 @@ namespace Parsek
             if (!seg.HasValue || string.IsNullOrEmpty(seg.Value.bodyName))
                 return false;
 
-            if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg.Value))
+            if (OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
+                    traj,
+                    seg.Value,
+                    playbackUT,
+                    traj?.RecordingId,
+                    "pending-metadata"))
+            {
                 return false;
+            }
+
+            if (!TryValidatePendingOrbitSegment(
+                    seg.Value,
+                    traj?.RecordingId,
+                    "pending-metadata"))
+            {
+                return false;
+            }
 
             result = new InterpolationResult(Vector3.zero, seg.Value.bodyName, 0.0);
             return true;
+        }
+
+        private static bool TryValidatePendingOrbitSegment(
+            OrbitSegment segment,
+            string recordingId,
+            string context)
+        {
+            if (!OrbitResolution.TryValidateOrbitSegmentElements(
+                    segment,
+                    out OrbitRejectionReason elementReason))
+            {
+                OrbitResolution.LogOrbitSegmentRejected(
+                    segment,
+                    recordingId,
+                    context,
+                    elementReason,
+                    OrbitSegmentValidationMode.ValidateAndLog);
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(segment.bodyName)
+                || !CanResolvePendingOrbitBody(segment.bodyName))
+            {
+                OrbitResolution.LogOrbitSegmentRejected(
+                    segment,
+                    recordingId,
+                    context,
+                    OrbitRejectionReason.MissingBody,
+                    OrbitSegmentValidationMode.ValidateAndLog);
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool CanResolvePendingOrbitBody(string bodyName)
+        {
+            try
+            {
+                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+                if (segBody != null)
+                    return true;
+            }
+            catch (TypeInitializationException)
+            {
+            }
+            catch (System.Security.SecurityException)
+            {
+            }
+
+            double? radius = PendingOrbitBodyRadiusResolverForTesting?.Invoke(bodyName);
+            return radius.HasValue
+                && !double.IsNaN(radius.Value)
+                && !double.IsInfinity(radius.Value)
+                && radius.Value > 0.0;
         }
 
         private void TrackGhostAppearance(

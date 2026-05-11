@@ -235,6 +235,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ParsekPlaybackPolicy_EndpointTail_IsOrbitBackedMapSource()
+        {
+            OrbitSegment segment = Segment(startUT: 120.0, endUT: 150.0);
+
+            Assert.True(ParsekPlaybackPolicy.ShouldCreateMapVesselFromSource(
+                GhostMapPresence.TrackingStationGhostSource.EndpointTail));
+            Assert.True(ParsekPlaybackPolicy.TryGetMapOrbitKey(
+                GhostMapPresence.TrackingStationGhostSource.EndpointTail,
+                segment,
+                out ParsekPlaybackPolicy.MapOrbitKey orbitKey));
+            Assert.Equal("Kerbin", orbitKey.body);
+            Assert.Equal(segment.semiMajorAxis, orbitKey.sma);
+        }
+
+        [Fact]
         public void ResolveTrackingStationGhostSource_NonTerminalSegment_LogsTailBypass()
         {
             Recording rec = BuildEndpointRecording(Segment(startUT: 120.0, endUT: 150.0));

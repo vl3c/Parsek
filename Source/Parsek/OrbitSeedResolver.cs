@@ -287,7 +287,7 @@ namespace Parsek
                 OrbitSegment seg = traj.OrbitSegments[i];
                 if (!string.Equals(seg.bodyName, bodyName, StringComparison.Ordinal))
                     continue;
-                if (!IsFinite(seg.semiMajorAxis) || seg.semiMajorAxis <= 0.0)
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
                     continue;
                 if (!IsFinite(seg.endUT))
                     continue;
@@ -306,7 +306,7 @@ namespace Parsek
                 && IsFinite(orbit.eccentricity)
                 && orbit.eccentricity >= 0.0
                 && IsFinite(orbit.semiMajorAxis)
-                && Math.Abs(orbit.semiMajorAxis) > 0.0
+                && Math.Abs(orbit.semiMajorAxis) >= OrbitResolution.MinValidSmaMeters
                 && IsFinite(orbit.LAN)
                 && IsFinite(orbit.argumentOfPeriapsis)
                 && IsFinite(orbit.meanAnomalyAtEpoch)

@@ -4017,10 +4017,10 @@ namespace Parsek.InGameTests
                 GhostPlaybackState state, TrajectoryPoint point) { }
             public void PositionAtSurface(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state) { }
-            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut) { }
-            public void PositionLoop(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut, bool suppressFx) { }
+            public bool TryPositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) { return true; }
+            public bool TryPositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx) { return true; }
 
             public bool TryResolveExplosionAnchorPosition(
                 int index, IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
@@ -4361,12 +4361,13 @@ namespace Parsek.InGameTests
                 GhostPlaybackState state, TrajectoryPoint point) { }
             public void PositionAtSurface(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state) { }
-            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut) { }
-            public void PositionLoop(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) { return true; }
+            public bool TryPositionLoop(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
             {
                 PositionLoopCalls++;
+                return true;
             }
 
             public bool TryResolveExplosionAnchorPosition(int index,
@@ -14834,14 +14835,16 @@ namespace Parsek.InGameTests
             {
             }
 
-            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromOrbit(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut)
             {
+                return true;
             }
 
-            public void PositionLoop(int index, IPlaybackTrajectory traj,
+            public bool TryPositionLoop(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
             {
+                return true;
             }
 
             public bool TryResolveExplosionAnchorPosition(int index,
@@ -15391,17 +15394,18 @@ namespace Parsek.InGameTests
                 GhostPlaybackState state, TrajectoryPoint point) { }
             public void PositionAtSurface(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state) { }
-            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
-                GhostPlaybackState state, double ut) { }
-            public void PositionLoop(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) { return true; }
+            public bool TryPositionLoop(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
             {
                 LoopCalls++;
                 if (!SetsLoopRetireFlag || state == null)
-                    return;
+                    return true;
                 if (state.ghost != null && state.ghost.activeSelf)
                     state.ghost.SetActive(false);
                 state.anchorRetiredThisFrame = true;
+                return true;
             }
 
             public bool TryResolveExplosionAnchorPosition(int index,

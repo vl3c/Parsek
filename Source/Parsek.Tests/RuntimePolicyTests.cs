@@ -1017,6 +1017,58 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRemoveSoiGapStateVectorAfterRefreshMiss_SourceExpiredAndNoFlatPoint_Removes()
+        {
+            Assert.True(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: true,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.None,
+                hasFlatTrajectoryCoverage: false));
+
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: true,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.None,
+                hasFlatTrajectoryCoverage: true));
+
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: true,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.StateVectorSoiGap,
+                hasFlatTrajectoryCoverage: false));
+
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: false,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.None,
+                hasFlatTrajectoryCoverage: false));
+        }
+
+        [Fact]
+        public void HasFlatTrajectoryCoverageForStateVectorUpdate_PastEndBracketPointDoesNotCountAsCoverage()
+        {
+            var traj = new Recording
+            {
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Mun" },
+                    new TrajectoryPoint { ut = 110.0, bodyName = "Mun" }
+                }
+            };
+            int cached = -1;
+            TrajectoryPoint? bracketPoint = TrajectoryMath.BracketPointAtUT(
+                traj.Points,
+                120.0,
+                ref cached);
+
+            Assert.True(bracketPoint.HasValue);
+            Assert.False(ParsekPlaybackPolicy.HasFlatTrajectoryCoverageForStateVectorUpdate(
+                traj,
+                currentUT: 120.0,
+                bracketPointHasValue: bracketPoint.HasValue));
+            Assert.True(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: true,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.None,
+                hasFlatTrajectoryCoverage: false));
+        }
+
+        [Fact]
         public void StateVectorThresholds_HysteresisGap_AirlessBody()
         {
             // Airless body: vessel at 1000m and 50 m/s — in hysteresis dead zone

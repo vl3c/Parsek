@@ -110,10 +110,10 @@ Key source files and what they do - read the relevant one before modifying:
 - `GhostPlaybackEngine.cs` - ghost playback mechanics engine: owns ghostStates, per-frame positioning, loop/overlap playback, zone transitions, soft caps, reentry FX. Zero Recording references — accesses trajectories via IPlaybackTrajectory only. Future standalone mod core.
 - `ParsekPlaybackPolicy.cs` - event subscriber reacting to engine lifecycle events (spawn decisions, resource deltas, camera management, deferred spawn queue)
 - `IPlaybackTrajectory.cs` - interface exposing 27 trajectory/visual/orbital fields from Recording to the engine
-- `IGhostPositioner.cs` - 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene
+- `IGhostPositioner.cs` - positioning methods implemented by ParsekFlight; orbit/loop positioning returns false so the engine can retire/hide failed Kepler placement instead of continuing visual work
 - `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
 - `ChainSegmentManager.cs` - chain segment state (active chain ID, continuation tracking, boundary anchors). Owns 16 fields previously scattered across ParsekFlight.
-- `FlightRecorder.cs` - recording state + sampling (called by Harmony patch). Always-tree mode: every recording gets a RecordingTree (#271). `DecideOnVesselSwitch` has no Stop decision.
+- `FlightRecorder.cs` - recording state + sampling (called by Harmony patch). Always-tree mode: every recording gets a RecordingTree (#271). `DecideOnVesselSwitch` has no Stop decision. On-rails orbit segment opening is gated away for landed/splashed/prelaunch and atmospheric vessels so stale surface orbit elements are not persisted.
 - `RecordingTree.cs` - tree save/load metadata and branch topology. Phase F removed the public tree resource delta fields; legacy `delta*` / `preTree*` / `resourcesApplied` keys are load-only via a transient residual seam, and `TreeFormatVersion` gates the new save shape.
 - `ParsekUI.cs` - UI main window, map markers, and coordinator for extracted sub-windows
 - `UI/RecordingsTableUI.cs` - recordings table window (sort, rename, group tree, chain blocks, loop period editing)
@@ -138,10 +138,11 @@ Key source files and what they do - read the relevant one before modifying:
 - `IncompleteBallisticSceneExitFinalizer.cs` - scene-exit seam that snapshots, extrapolates, validates, and applies extended tail results to recordings
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
+- `OrbitResolution.cs` - shared stored-`OrbitSegment` validation, KSP `Orbit` construction, and finite/clamped world-position helpers for playback/map/anchor paths
 - `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities, resource manifest extraction (`ExtractResourceManifest`)
 - `ResourceManifest.cs` - `ResourceAmount` struct and `ComputeResourceDelta` for per-resource change computation (Phase 11)
 - `MergeDialog.cs` - post-revert tree merge dialog (standalone/chain dialogs removed in T56)
-- `GhostMapPresence.cs` - ProtoVessel lifecycle for ghost map presence: creates/destroys lightweight vessels for tracking station, orbit lines, targeting. Manages ghostMapVesselPids HashSet for O(1) guard checks across codebase.
+- `GhostMapPresence.cs` - ProtoVessel lifecycle for ghost map presence: creates/destroys lightweight vessels for tracking station, orbit lines, targeting. Map/proto orbit seeds are validated without playback surface-clamping, failed state-vector updates remove stale map vessels, and ghostMapVesselPids is the O(1) guard set across the codebase.
 - `ParsekHarmony.cs` + `Patches/` - Harmony patcher + patches (PhysicsFrame, GhostVesselLoad, GhostCommNetVessel, GhostTrackingStation, FacilityUpgrade, FlightResults, ScienceSubject, TechResearch, CrewDialogFilter, KerbalDismissal, GhostOrbitLine)
 - `RewindInvoker.cs` - Rewind-to-Separation (v0.9) invocation orchestrator: five-precondition gate, pre-load reconciliation bundle capture, RP quicksave copy to save-root, post-load Restore + Strip + Activate + atomic provisional + `ReFlySessionMarker` write.
 - `SupersedeCommit.cs` - re-fly merge tail: appends `RecordingSupersedeRelation` rows for the superseded subtree, flips MergeState (Immutable vs CommittedProvisional by `TerminalKindClassifier`), builds `LedgerTombstone`s for in-scope kerbal-death actions + bundled rep penalties, bumps ERS / ELS cache versions.
