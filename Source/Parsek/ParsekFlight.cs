@@ -15851,25 +15851,33 @@ namespace Parsek
                 tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate());
         }
 
+        private static readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> LiveAnchorTransformDelegate =
+            TryResolveLiveAnchorTransformForResolver;
+
         internal static Func<uint, string, double, (Vector3d pos, Quaternion rot)?> TryGetLiveAnchorTransformDelegate()
         {
-            return (anchorVesselId, victimRecordingId, targetUT) =>
+            return LiveAnchorTransformDelegate;
+        }
+
+        private static (Vector3d pos, Quaternion rot)? TryResolveLiveAnchorTransformForResolver(
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT)
+        {
+            ParsekFlight instance = Instance;
+            if (instance == null)
+                return null;
+
+            if (!instance.TryResolveLoopLiveAnchorPose(
+                    anchorVesselId,
+                    victimRecordingId,
+                    targetUT,
+                    out RelativeAnchorPose pose))
             {
-                ParsekFlight instance = Instance;
-                if (instance == null)
-                    return null;
+                return null;
+            }
 
-                if (!instance.TryResolveLoopLiveAnchorPose(
-                        anchorVesselId,
-                        victimRecordingId,
-                        targetUT,
-                        out RelativeAnchorPose pose))
-                {
-                    return null;
-                }
-
-                return (pose.worldPos, pose.worldRotation);
-            };
+            return (pose.worldPos, pose.worldRotation);
         }
 
         private static Vector3d ResolveAnchorResolverPointWorldPosition(TrajectoryPoint point)
@@ -17078,7 +17086,7 @@ namespace Parsek
         ///
         /// This path is recorded-data-only, never a substitute for live anchors.
         /// </remarks>
-        bool IGhostPositioner.TryPositionFromRelativeAbsoluteShadow(
+        bool IGhostPositioner.TryPositionFromBodyFixedPrimary(
             int index,
             IPlaybackTrajectory traj,
             GhostPlaybackState state,
@@ -18491,7 +18499,7 @@ namespace Parsek
                     out diagnostic);
             if (skipRecordedRelativeResolver)
             {
-                if (diagnostic.bodyFixedFramesCoverUT
+                if (diagnostic.BodyFixedFramesCoverUT
                     && TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
                 {
                     return true;
@@ -18501,7 +18509,7 @@ namespace Parsek
                     rec,
                     ut,
                     "TryComputeStandaloneRelativeWorldPosition",
-                    diagnostic.bodyFixedFramesCoverUT
+                    diagnostic.BodyFixedFramesCoverUT
                         ? "body-fixed-primary-position-failed"
                         : "body-fixed-primary-unavailable",
                     diagnostic);
@@ -18567,7 +18575,7 @@ namespace Parsek
                     diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture),
                     FormatStandaloneCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT),
                     FormatStandaloneCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT),
-                    FormatStandaloneCoverageRange(diagnostic.FirstbodyFixedFrameUT, diagnostic.LastbodyFixedFrameUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstBodyFixedFrameUT, diagnostic.LastBodyFixedFrameUT),
                     diagnostic.AnchorRecordingId ?? "(none)"),
                 5.0);
         }
@@ -18608,7 +18616,7 @@ namespace Parsek
                     diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture),
                     FormatStandaloneCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT),
                     FormatStandaloneCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT),
-                    FormatStandaloneCoverageRange(diagnostic.FirstbodyFixedFrameUT, diagnostic.LastbodyFixedFrameUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstBodyFixedFrameUT, diagnostic.LastBodyFixedFrameUT),
                     diagnostic.AnchorRecordingId ?? "(none)"),
                 5.0);
         }
@@ -20734,7 +20742,7 @@ namespace Parsek
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
             bool authoredGapHasShadow =
                 skipRecordedRelativeResolverForAuthoredFrameGap
-                && diagnostic.bodyFixedFramesCoverUT;
+                && diagnostic.BodyFixedFramesCoverUT;
 
             if (!authoredGapHasShadow
                 && TryResolveOrbitTailWorldPosition(
@@ -20766,7 +20774,7 @@ namespace Parsek
                             return true;
                         }
                         if ((!skipRecordedRelativeResolverForAuthoredFrameGap
-                                || diagnostic.bodyFixedFramesCoverUT)
+                                || diagnostic.BodyFixedFramesCoverUT)
                             && BodyFixedPrimaryCoversPlaybackUT(
                                 section, playbackUT, out _, out _))
                         {
@@ -20795,7 +20803,7 @@ namespace Parsek
                                 index,
                                 playbackUT,
                                 "TryResolvePlaybackWorldPosition",
-                                diagnostic.bodyFixedFramesCoverUT
+                                diagnostic.BodyFixedFramesCoverUT
                                     ? "body-fixed-primary-position-failed"
                                     : "body-fixed-primary-unavailable",
                                 diagnostic);

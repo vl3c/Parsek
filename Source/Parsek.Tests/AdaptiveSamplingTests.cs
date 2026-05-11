@@ -711,8 +711,11 @@ namespace Parsek.Tests
         [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.Full, 0.2f)]
         [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.Half, 0.4f)]
         [InlineData((int)ProximitySamplingTier.Full, (int)ProximitySamplingTier.None, 0.2f)]
+        [InlineData((int)ProximitySamplingTier.Full, (int)ProximitySamplingTier.Full, 0.2f)]
         [InlineData((int)ProximitySamplingTier.Full, (int)ProximitySamplingTier.Half, 0.2f)]
+        [InlineData((int)ProximitySamplingTier.Half, (int)ProximitySamplingTier.None, 0.4f)]
         [InlineData((int)ProximitySamplingTier.Half, (int)ProximitySamplingTier.Full, 0.4f)]
+        [InlineData((int)ProximitySamplingTier.Half, (int)ProximitySamplingTier.Half, 0.4f)]
         public void EffectiveMaxSampleInterval_ReFlyTierWinsThenDebrisTier(
             int reFlyTier,
             int debrisTier,
@@ -726,6 +729,23 @@ namespace Parsek.Tests
                 configuredMin: 0.2f);
 
             Assert.Equal(expected, actual);
+        }
+
+        [Theory]
+        [InlineData(500.0, false, true)]
+        [InlineData(500.1, false, false)]
+        [InlineData(550.0, true, true)]
+        [InlineData(550.1, true, false)]
+        public void DebrisRelativeSectionRange_UsesEnterAndRetainBoundaries(
+            double distanceMeters,
+            bool alreadyRelative,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                BackgroundRecorder.ShouldUseDebrisRelativeSectionForDistance(
+                    distanceMeters,
+                    alreadyRelative));
         }
 
         [Fact]

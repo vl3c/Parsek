@@ -697,13 +697,13 @@ namespace Parsek.Tests
             for (int i = 0; i < expected.frames.Count; i++)
                 AssertPointEqual(expected.frames[i], actual.frames[i]);
 
-            List<TrajectoryPoint> expectedbodyFixedFrames =
+            List<TrajectoryPoint> expectedBodyFixedFrames =
                 expected.bodyFixedFrames ?? new List<TrajectoryPoint>();
-            List<TrajectoryPoint> actualbodyFixedFrames =
+            List<TrajectoryPoint> actualBodyFixedFrames =
                 actual.bodyFixedFrames ?? new List<TrajectoryPoint>();
-            Assert.Equal(expectedbodyFixedFrames.Count, actualbodyFixedFrames.Count);
-            for (int i = 0; i < expectedbodyFixedFrames.Count; i++)
-                AssertPointEqual(expectedbodyFixedFrames[i], actualbodyFixedFrames[i]);
+            Assert.Equal(expectedBodyFixedFrames.Count, actualBodyFixedFrames.Count);
+            for (int i = 0; i < expectedBodyFixedFrames.Count; i++)
+                AssertPointEqual(expectedBodyFixedFrames[i], actualBodyFixedFrames[i]);
 
             Assert.Equal(expected.checkpoints.Count, actual.checkpoints.Count);
             for (int i = 0; i < expected.checkpoints.Count; i++)

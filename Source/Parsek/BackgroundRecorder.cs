@@ -3347,19 +3347,11 @@ namespace Parsek
             bool debrisSeedOpened = false;
             if (debrisContractApplies)
             {
-                Recording parentRec = null;
-                tree.Recordings.TryGetValue(treeRecForDebris.DebrisParentRecordingId, out parentRec);
-                Vessel parentVessel = parentRec != null
-                    ? FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId)
-                    : null;
-                double seedParentDistance = double.NaN;
-                if (parentVessel != null && parentVessel.loaded && !parentVessel.packed)
-                {
-                    Vector3d parentWorldPos = parentVessel.GetWorldPos3D();
-                    Vector3d childWorldPos = v.GetWorldPos3D();
-                    if (IsFinite(parentWorldPos) && IsFinite(childWorldPos))
-                        seedParentDistance = Vector3d.Distance(parentWorldPos, childWorldPos);
-                }
+                double seedParentDistance = ResolveDebrisParentDistanceMeters(
+                    treeRecForDebris,
+                    v,
+                    out Recording parentRec,
+                    out Vessel parentVessel);
                 bool seedWithinRelativeRange = IsFinite(seedParentDistance)
                     && seedParentDistance <= DebrisHalfFidelityProximityRangeMeters;
                 state.debrisProximityDistanceMeters = seedParentDistance;
@@ -4684,10 +4676,10 @@ namespace Parsek
                 state.hasCurrentAnchorCandidate = false;
             }
 
-            // If we just transitioned into the contract or swapped anchors, close
+            // If we just transitioned into the relative surface or swapped anchors, close
             // the Absolute section we opened (or re-open) and start a Relative one.
-            // The contract is "always Relative for debris's lifetime" so any non-
-            // Relative active section needs to flip.
+            // The contract is proximity-scoped: parent-local Relative sections are
+            // only opened while the parent remains in the debris relative range.
             bool needsSectionFlip = state.trackSectionActive
                 && state.currentTrackSection.referenceFrame != ReferenceFrame.Relative;
             bool anchorChanged = !wasRelative
@@ -5272,6 +5264,28 @@ namespace Parsek
         private double ResolveDebrisParentDistanceMeters(Recording debrisRecording, Vessel debrisVessel)
         {
             if (!IsDebrisAwareSampleCapEligible(debrisRecording)
+                || debrisVessel == null)
+            {
+                return double.NaN;
+            }
+
+            return ResolveDebrisParentDistanceMeters(
+                debrisRecording,
+                debrisVessel,
+                out _,
+                out _);
+        }
+
+        private double ResolveDebrisParentDistanceMeters(
+            Recording debrisRecording,
+            Vessel debrisVessel,
+            out Recording parentRecording,
+            out Vessel parentVessel)
+        {
+            parentRecording = null;
+            parentVessel = null;
+
+            if (debrisRecording == null
                 || debrisVessel == null
                 || tree?.Recordings == null
                 || string.IsNullOrEmpty(debrisRecording.DebrisParentRecordingId))
@@ -5281,18 +5295,18 @@ namespace Parsek
 
             if (!tree.Recordings.TryGetValue(
                     debrisRecording.DebrisParentRecordingId,
-                    out Recording parentRecording)
+                    out parentRecording)
                 || parentRecording == null
                 || parentRecording.VesselPersistentId == 0u)
             {
                 return double.NaN;
             }
 
-            Vessel parent = FlightRecorder.FindVesselByPid(parentRecording.VesselPersistentId);
-            if (parent == null || !parent.loaded || parent.packed)
+            parentVessel = FlightRecorder.FindVesselByPid(parentRecording.VesselPersistentId);
+            if (parentVessel == null || !parentVessel.loaded || parentVessel.packed)
                 return double.NaN;
 
-            Vector3d parentWorldPos = parent.GetWorldPos3D();
+            Vector3d parentWorldPos = parentVessel.GetWorldPos3D();
             Vector3d debrisWorldPos = debrisVessel.GetWorldPos3D();
             if (!IsFinite(parentWorldPos) || !IsFinite(debrisWorldPos))
                 return double.NaN;
@@ -5308,6 +5322,7 @@ namespace Parsek
             if (state == null)
                 return ProximitySamplingTier.None;
 
+            ProximitySamplingTier previousTier = state.debrisProximityTier;
             double distance = ResolveDebrisParentDistanceMeters(treeRec, debrisVessel);
             ProximitySamplingTier tier = ProximitySamplingTier.None;
             string reason = null;
@@ -5320,6 +5335,19 @@ namespace Parsek
                     out reason);
             }
 
+            if (previousTier != tier)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Anchor",
+                    "debris-proximity-tier-" + state.vesselPid.ToString(CultureInfo.InvariantCulture),
+                    $"debris-proximity-tier-transition: pid={state.vesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"recId={treeRec?.RecordingId ?? "(none)"} " +
+                    $"parentRecId={treeRec?.DebrisParentRecordingId ?? "(none)"} " +
+                    $"old={previousTier} new={tier} " +
+                    $"distance={(IsFinite(distance) ? distance.ToString("F1", CultureInfo.InvariantCulture) : "NaN")}m " +
+                    $"reason={reason ?? "ineligible"}");
+            }
+
             state.debrisProximityTier = tier;
             state.debrisProximityDistanceMeters = distance;
             state.debrisProximityReason = reason;
@@ -5328,16 +5356,28 @@ namespace Parsek
 
         private static bool ShouldUseDebrisRelativeSection(BackgroundVesselState state)
         {
-            if (state == null || !IsFinite(state.debrisProximityDistanceMeters))
+            if (state == null)
                 return false;
 
             bool alreadyRelative = state.isRelativeMode
                 || (state.trackSectionActive
                     && state.currentTrackSection.referenceFrame == ReferenceFrame.Relative);
+            return ShouldUseDebrisRelativeSectionForDistance(
+                state.debrisProximityDistanceMeters,
+                alreadyRelative);
+        }
+
+        internal static bool ShouldUseDebrisRelativeSectionForDistance(
+            double distanceMeters,
+            bool alreadyRelative)
+        {
+            if (!IsFinite(distanceMeters))
+                return false;
+
             double threshold = alreadyRelative
                 ? DebrisRelativeSectionExitMeters
                 : DebrisHalfFidelityProximityRangeMeters;
-            return state.debrisProximityDistanceMeters <= threshold;
+            return distanceMeters <= threshold;
         }
 
         // For v13 debris recordings whose parent recording id is known, cap the

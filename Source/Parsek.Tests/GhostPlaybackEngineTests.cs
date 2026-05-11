@@ -230,7 +230,7 @@ namespace Parsek.Tests
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {
@@ -929,7 +929,7 @@ namespace Parsek.Tests
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
             Assert.Equal("relative-only-without-body-fixed-primary", diagnostic.Reason);
             Assert.True(diagnostic.RelativeFramesCoverUT);
-            Assert.False(diagnostic.bodyFixedFramesCoverUT);
+            Assert.False(diagnostic.BodyFixedFramesCoverUT);
         }
 
         [Fact]
@@ -943,7 +943,7 @@ namespace Parsek.Tests
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
             Assert.Equal("covered-by-body-fixed-primary", diagnostic.Reason);
             Assert.True(diagnostic.RelativeFramesCoverUT);
-            Assert.True(diagnostic.bodyFixedFramesCoverUT);
+            Assert.True(diagnostic.BodyFixedFramesCoverUT);
         }
 
         [Fact]
@@ -957,7 +957,7 @@ namespace Parsek.Tests
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
             Assert.Equal("covered-by-body-fixed-primary", diagnostic.Reason);
             Assert.True(diagnostic.RelativeFramesCoverUT);
-            Assert.True(diagnostic.bodyFixedFramesCoverUT);
+            Assert.True(diagnostic.BodyFixedFramesCoverUT);
         }
 
         [Fact]
@@ -981,8 +981,8 @@ namespace Parsek.Tests
             Assert.Equal(0, diagnostic.SectionIndex);
             Assert.Equal(100.0, diagnostic.FirstRelativeFrameUT);
             Assert.Equal(110.0, diagnostic.LastRelativeFrameUT);
-            Assert.Equal(100.0, diagnostic.FirstbodyFixedFrameUT);
-            Assert.Equal(110.0, diagnostic.LastbodyFixedFrameUT);
+            Assert.Equal(100.0, diagnostic.FirstBodyFixedFrameUT);
+            Assert.Equal(110.0, diagnostic.LastBodyFixedFrameUT);
         }
 
         [Fact]
@@ -1004,7 +1004,7 @@ namespace Parsek.Tests
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
             Assert.Equal("covered-by-body-fixed-primary", diagnostic.Reason);
             Assert.False(diagnostic.RelativeFramesCoverUT);
-            Assert.True(diagnostic.bodyFixedFramesCoverUT);
+            Assert.True(diagnostic.BodyFixedFramesCoverUT);
         }
 
         [Fact]
@@ -1050,9 +1050,9 @@ namespace Parsek.Tests
                 out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic));
             Assert.Equal("relative-and-body-fixed-frames-out-of-range", diagnostic.Reason);
             Assert.False(diagnostic.RelativeFramesCoverUT);
-            Assert.False(diagnostic.bodyFixedFramesCoverUT);
-            Assert.Equal(120.0, diagnostic.FirstbodyFixedFrameUT);
-            Assert.Equal(120.0, diagnostic.LastbodyFixedFrameUT);
+            Assert.False(diagnostic.BodyFixedFramesCoverUT);
+            Assert.Equal(120.0, diagnostic.FirstBodyFixedFrameUT);
+            Assert.Equal(120.0, diagnostic.LastBodyFixedFrameUT);
         }
 
         [Fact]
@@ -1620,7 +1620,7 @@ namespace Parsek.Tests
         public void IsInterpolationResultValid_BodyNameNull_TreatsAsFailure()
         {
             // Regression guard for the fail-closed contract on the body-fixed
-            // route. Reviewer P2: TryPositionFromRelativeAbsoluteShadow used
+            // route. Reviewer P2: TryPositionFromBodyFixedPrimary used
             // to return true after InterpolateAndPosition even when the
             // helper had hit body-lookup-miss / empty-points failure paths,
             // which write InterpolationResult.Zero (bodyName=null) and call

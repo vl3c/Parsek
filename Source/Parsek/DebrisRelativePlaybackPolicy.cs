@@ -18,12 +18,12 @@ namespace Parsek
             internal double SectionEndUT;
             internal double FirstRelativeFrameUT;
             internal double LastRelativeFrameUT;
-            internal double FirstbodyFixedFrameUT;
-            internal double LastbodyFixedFrameUT;
+            internal double FirstBodyFixedFrameUT;
+            internal double LastBodyFixedFrameUT;
             internal string AnchorRecordingId;
             internal string Reason;
             internal bool RelativeFramesCoverUT;
-            internal bool bodyFixedFramesCoverUT;
+            internal bool BodyFixedFramesCoverUT;
 
             internal static ParentAnchoredDebrisCoverageDiagnostic Create(string reason)
             {
@@ -34,12 +34,12 @@ namespace Parsek
                     SectionEndUT = double.NaN,
                     FirstRelativeFrameUT = double.NaN,
                     LastRelativeFrameUT = double.NaN,
-                    FirstbodyFixedFrameUT = double.NaN,
-                    LastbodyFixedFrameUT = double.NaN,
+                    FirstBodyFixedFrameUT = double.NaN,
+                    LastBodyFixedFrameUT = double.NaN,
                     AnchorRecordingId = null,
                     Reason = reason,
                     RelativeFramesCoverUT = false,
-                    bodyFixedFramesCoverUT = false,
+                    BodyFixedFramesCoverUT = false,
                 };
             }
         }
@@ -165,8 +165,8 @@ namespace Parsek
                 out diagnostic.LastRelativeFrameUT);
             DebrisRelativeCoveragePrimitives.SetFrameRange(
                 section.bodyFixedFrames,
-                out diagnostic.FirstbodyFixedFrameUT,
-                out diagnostic.LastbodyFixedFrameUT);
+                out diagnostic.FirstBodyFixedFrameUT,
+                out diagnostic.LastBodyFixedFrameUT);
 
             if (section.referenceFrame != ReferenceFrame.Relative)
             {
@@ -180,11 +180,11 @@ namespace Parsek
                 section.endUT,
                 playbackUT,
                 DebrisRelativeCoverageMode.PlaybackCompatible);
-            diagnostic.bodyFixedFramesCoverUT = DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
+            diagnostic.BodyFixedFramesCoverUT = DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
                 section.bodyFixedFrames,
                 playbackUT);
 
-            if (diagnostic.bodyFixedFramesCoverUT)
+            if (diagnostic.BodyFixedFramesCoverUT)
                 diagnostic.Reason = "covered-by-body-fixed-primary";
             else if (diagnostic.RelativeFramesCoverUT)
                 diagnostic.Reason = "relative-only-without-body-fixed-primary";

@@ -229,8 +229,9 @@ namespace Parsek
                 return false;
             }
 
+            bool debrisFocusRecording = IsDebrisFocusRecording(context);
             if (recording.LoopAnchorVesselId != 0u
-                && !IsDebrisFocusRecording(context))
+                && !debrisFocusRecording)
             {
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.AnchorOutOfScope,
@@ -239,6 +240,16 @@ namespace Parsek
                     recording.RecordingId,
                     ut);
                 return false;
+            }
+            if (recording.LoopAnchorVesselId != 0u)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Anchor",
+                    "loop-anchor-carveout-" + (recording.RecordingId ?? "(none)"),
+                    $"loop-anchor-carveout-allowed: recordingId={recording.RecordingId ?? "(none)"} " +
+                    $"focusRecordingId={context.FocusRecordingId ?? "(none)"} " +
+                    $"loopAnchorVesselId={recording.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"ut={ut.ToString("R", CultureInfo.InvariantCulture)}");
             }
 
             if (recording.TrackSections != null && recording.TrackSections.Count > 0)

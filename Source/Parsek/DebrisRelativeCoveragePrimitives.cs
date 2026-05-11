@@ -57,7 +57,7 @@ namespace Parsek
         {
             // The shadow renderer interpolates between two samples; unlike a
             // single Relative frame, one body-fixed primary point cannot cover a
-            // full section span. See TryPositionFromRelativeAbsoluteShadow.
+            // full section span. See TryPositionFromBodyFixedPrimary.
             if (frames == null || frames.Count < 2)
                 return false;
             if (!IsFiniteUT(targetUT))

@@ -73,7 +73,7 @@ namespace Parsek
         /// Format v13: parent-anchored debris normally renders through this
         /// recorded-data-only surface. It is never a substitute for live anchors.
         /// </remarks>
-        bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+        bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
             out double bracketBeforeUT, out double bracketAfterUT);
 

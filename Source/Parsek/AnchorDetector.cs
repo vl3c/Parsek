@@ -228,15 +228,12 @@ namespace Parsek
             // visibly unstable ghost. Excluding debris from candidacy avoids
             // creating these fragile cross-recording anchors at recording time.
             //
-            // Self-reference: a debris recording's OWN contract path
+            // Self-reference: a debris recording's own contract path
             // (`BackgroundRecorder.UpdateBackgroundAnchorDetection` early-return
             // when `treeRec.DebrisParentRecordingId != null`) bypasses this
-            // helper entirely and pins the anchor to the parent recording, so
-            // a debris focus never reaches this rejection path. Two-debris
-            // anchoring (debris-A as candidate for debris-B) is also impossible
-            // by construction: debris-B's contract path forces it to anchor
-            // to its own parent (a non-debris parent recording), bypassing the
-            // candidate scan.
+            // helper entirely and pins the anchor to the parent recording. Keep
+            // this candidate-scan rejection as defense-in-depth for any future
+            // path that accidentally offers debris as a generic live anchor.
             if (candidateRecording.IsDebris)
                 return false;
 

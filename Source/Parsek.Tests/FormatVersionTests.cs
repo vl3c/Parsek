@@ -67,6 +67,47 @@ namespace Parsek.Tests
                 RecordingStore.CurrentRecordingFormatVersion);
         }
 
+        [Theory]
+        [InlineData(11)]
+        [InlineData(12)]
+        public void RecordingTreeLoad_PreV13Version_IsRejectedAndWarns(int formatVersion)
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-v" + formatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingFormatVersion", formatVersion.ToString(CultureInfo.InvariantCulture));
+
+            var rec = new Recording();
+            logLines.Clear();
+            RecordingTree.LoadRecordingFrom(node, rec);
+
+            Assert.Equal(-1, rec.RecordingFormatVersion);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Codec]") &&
+                line.Contains("recordingFormatVersion=" + formatVersion.ToString(CultureInfo.InvariantCulture)) &&
+                line.Contains("Only the v13 debris frame contract is loadable"));
+        }
+
+        [Fact]
+        public void RecordingTreeLoad_FutureVersion_IsRejectedAndWarns()
+        {
+            int futureVersion = RecordingStore.CurrentRecordingFormatVersion + 1;
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "future-v" + futureVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingFormatVersion", futureVersion.ToString(CultureInfo.InvariantCulture));
+
+            var rec = new Recording();
+            logLines.Clear();
+            RecordingTree.LoadRecordingFrom(node, rec);
+
+            Assert.Equal(-1, rec.RecordingFormatVersion);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Codec]") &&
+                line.Contains("recordingFormatVersion=" + futureVersion.ToString(CultureInfo.InvariantCulture)) &&
+                line.Contains(
+                    "expected CurrentRecordingFormatVersion="
+                    + RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture)));
+        }
+
         [Fact]
         public void BoundarySeamFlagFormatVersion_Is8()
         {

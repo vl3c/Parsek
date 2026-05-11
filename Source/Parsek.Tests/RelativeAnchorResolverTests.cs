@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Parsek;
 using UnityEngine;
 using Xunit;
@@ -1331,6 +1332,79 @@ namespace Parsek.Tests
             Assert.Equal(106.0, pose.WorldPos.x, 6);
             Assert.Equal(2.0, pose.WorldPos.y, 6);
             Assert.Equal(3.0, pose.WorldPos.z, 6);
+        }
+
+        [Fact]
+        public void TryResolveAnchorPose_DebrisFocusLiveAnchorLeafNull_ReturnsLoopLiveAnchorUnresolved()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording loopRoot = MakeRelativeRecording(
+                "loop-root",
+                tree.Id,
+                localOffset: new Vector3d(5, 0, 0),
+                legacyAnchorPid: 42u);
+            loopRoot.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            loopRoot.LoopPlayback = true;
+            loopRoot.LoopAnchorVesselId = 42u;
+            Recording child = MakeRelativeRecording(
+                "child",
+                tree.Id,
+                localOffset: new Vector3d(1, 2, 3),
+                anchorRecordingId: loopRoot.RecordingId);
+            child.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            child.IsDebris = true;
+            child.DebrisParentRecordingId = loopRoot.RecordingId;
+            tree.AddOrReplaceRecording(loopRoot);
+            tree.AddOrReplaceRecording(child);
+
+            bool callbackInvoked = false;
+            var context = MakeContext(
+                tree,
+                focusRecordingId: child.RecordingId,
+                liveAnchorTransformResolver: (pid, victimRecordingId, ut) =>
+                {
+                    callbackInvoked = true;
+                    Assert.Equal(42u, pid);
+                    Assert.Equal(loopRoot.RecordingId, victimRecordingId);
+                    Assert.Equal(5.0, ut);
+                    return null;
+                });
+
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                child.RecordingId,
+                5.0,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.True(callbackInvoked);
+            Assert.Equal(RelativeAnchorResolveOutcome.AnchorOutOfScope, failure.Outcome);
+            Assert.Equal("loop-live-anchor-unresolved", failure.Reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=loop-live-anchor-unresolved") &&
+                l.Contains("recordingId=loop-root"));
+        }
+
+        [Fact]
+        public void BuildFlightRelativeAnchorResolverContext_PopulatesSharedLiveAnchorCallback()
+        {
+            MethodInfo method = typeof(ParsekFlight).GetMethod(
+                "BuildFlightRelativeAnchorResolverContext",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            var tree = new RecordingTree { Id = "tree" };
+            var context = (RelativeAnchorResolverContext)method.Invoke(
+                null,
+                new object[] { tree, "focus-rec", null });
+
+            Assert.NotNull(context.TryResolveLiveAnchorTransform);
+            Assert.Same(
+                ParsekFlight.TryGetLiveAnchorTransformDelegate(),
+                context.TryResolveLiveAnchorTransform);
         }
 
         [Fact]

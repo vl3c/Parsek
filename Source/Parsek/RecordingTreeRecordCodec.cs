@@ -346,13 +346,13 @@ namespace Parsek
                 rec.RecordingFormatVersion = 0;
             }
 
-            if (rec.RecordingFormatVersion < RecordingStore.DebrisFrameContractFormatVersion)
+            if (rec.RecordingFormatVersion != RecordingStore.CurrentRecordingFormatVersion)
             {
                 ParsekLog.Warn("Codec",
                     $"LoadRecordingFrom: rejecting recording {rec.RecordingId ?? "<no-id>"} with " +
                     $"recordingFormatVersion={rec.RecordingFormatVersion.ToString(CultureInfo.InvariantCulture)} " +
-                    $"(< DebrisFrameContractFormatVersion={RecordingStore.DebrisFrameContractFormatVersion.ToString(CultureInfo.InvariantCulture)}). " +
-                    "v12 and earlier are no longer loadable.");
+                    $"(expected CurrentRecordingFormatVersion={RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture)}). " +
+                    "Only the v13 debris frame contract is loadable by this build.");
                 rec.RecordingFormatVersion = -1;
                 return;
             }

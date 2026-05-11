@@ -4004,7 +4004,7 @@ namespace Parsek.InGameTests
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {
@@ -4314,7 +4314,7 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Positioner stub for the tumbling-parent shadow-route in-game test.
-        /// Tracks calls to TryPositionFromRelativeAbsoluteShadow and writes
+        /// Tracks calls to TryPositionFromBodyFixedPrimary and writes
         /// a deterministic transform position so the test can verify the
         /// engine kept the mesh active and routed through the new path.
         /// </summary>
@@ -4338,7 +4338,7 @@ namespace Parsek.InGameTests
                 InterpolateCalls++;
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {
@@ -14414,7 +14414,7 @@ namespace Parsek.InGameTests
             {
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {
@@ -14968,7 +14968,7 @@ namespace Parsek.InGameTests
                 state.anchorRetiredThisFrame = true;
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {

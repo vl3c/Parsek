@@ -2768,13 +2768,13 @@ namespace Parsek
                 traj.RecordingId,
                 sectionIndex,
                 section);
-            // Note: positioner.TryPositionFromRelativeAbsoluteShadow calls
+            // Note: positioner.TryPositionFromBodyFixedPrimary calls
             // state.SetInterpolated(...) internally on success (matching the
             // existing positioner-with-state contract); engine does not need
             // to invoke it separately. anchorRetiredThisFrame is intentionally
             // NOT set so the post-position pipeline runs Activate /
             // TrackGhostAppearance for this frame -- the mesh stays visible.
-            if (!positioner.TryPositionFromRelativeAbsoluteShadow(
+            if (!positioner.TryPositionFromBodyFixedPrimary(
                     index, traj, state, playbackUT, target,
                     out double bracketBeforeUT,
                     out double bracketAfterUT))
@@ -3039,7 +3039,7 @@ namespace Parsek
                 $"sectionIndex={diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture)} " +
                 $"sectionUT={FormatCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT)} " +
                 $"relativeFrames={FormatCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT)} " +
-                $"bodyFixedFrames={FormatCoverageRange(diagnostic.FirstbodyFixedFrameUT, diagnostic.LastbodyFixedFrameUT)} " +
+                $"bodyFixedFrames={FormatCoverageRange(diagnostic.FirstBodyFixedFrameUT, diagnostic.LastBodyFixedFrameUT)} " +
                 $"anchorRec={diagnostic.AnchorRecordingId ?? "(none)"} " +
                 $"callsite={callsite ?? "(unknown)"}",
                 5.0);
@@ -5204,7 +5204,7 @@ namespace Parsek
                     traj,
                     playbackUT,
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
-                && diagnostic.bodyFixedFramesCoverUT;
+                && diagnostic.BodyFixedFramesCoverUT;
         }
 
         internal const double PredictedOrbitTailBridgeMaxGapSeconds = 0.5;

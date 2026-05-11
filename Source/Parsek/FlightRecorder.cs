@@ -5037,7 +5037,7 @@ namespace Parsek
             uint currentAnchor = currentTrackSection.anchorVesselId;
             string currentAnchorRec = currentTrackSection.anchorRecordingId;
             TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
-            TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionbodyFixedFrame();
+            TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionBodyFixedFrame();
 
             CloseCurrentTrackSection(ut);
             StartNewTrackSection(currentEnv, currentRef, ut, currentSource);
@@ -6822,7 +6822,7 @@ namespace Parsek
                 ? GetLastFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
             TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
-                ? GetLastbodyFixedFrameFromTrackSection(resumeSection.Value)
+                ? GetLastBodyFixedFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
 
             // Frame-mismatch repair when resume-anchor validation downgraded a
@@ -7307,7 +7307,7 @@ namespace Parsek
                     // Capture boundary point to seed the new section (#283).
                     // Same reference frame on both sides, so the point is directly reusable.
                     TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
-                    TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionbodyFixedFrame();
+                    TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionBodyFixedFrame();
 
                     var currentRef = isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute;
                     CloseCurrentTrackSection(currentUT);
@@ -8949,7 +8949,7 @@ namespace Parsek
             return null;
         }
 
-        private TrajectoryPoint? GetLastTrackSectionbodyFixedFrame()
+        private TrajectoryPoint? GetLastTrackSectionBodyFixedFrame()
         {
             if (trackSectionActive && currentTrackSection.bodyFixedFrames != null
                 && currentTrackSection.bodyFixedFrames.Count > 0)
@@ -8968,7 +8968,7 @@ namespace Parsek
             return null;
         }
 
-        private static TrajectoryPoint? GetLastbodyFixedFrameFromTrackSection(TrackSection section)
+        private static TrajectoryPoint? GetLastBodyFixedFrameFromTrackSection(TrackSection section)
         {
             if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
                 return section.bodyFixedFrames[section.bodyFixedFrames.Count - 1];
