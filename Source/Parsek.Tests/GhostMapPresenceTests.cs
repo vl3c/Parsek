@@ -3316,6 +3316,47 @@ namespace Parsek.Tests
             Assert.Equal("endpoint-conflict", diagnostics.FailureReason);
         }
 
+        [Theory]
+        [InlineData(0.5)]
+        [InlineData(double.NaN)]
+        public void TryGetEndpointAlignedOrbitSeed_InvalidPositiveEndpointSegment_FailsClosed(
+            double sma)
+        {
+            var traj = new MockTrajectory
+            {
+                EndpointPhase = RecordingEndpointPhase.OrbitSegment,
+                EndpointBodyName = "Kerbin",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                TerminalOrbitEccentricity = 0.03,
+                TerminalOrbitInclination = 7.0,
+                TerminalOrbitLAN = 8.0,
+                TerminalOrbitArgumentOfPeriapsis = 9.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.2,
+                TerminalOrbitEpoch = 300.0,
+                TerminalStateValue = TerminalState.Orbiting,
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    EndpointSeedSegment("Kerbin", sma)
+                }
+            };
+
+            Assert.False(RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
+                traj,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out _,
+                out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics diagnostics));
+            Assert.Equal("none", diagnostics.Source);
+            Assert.Equal("Kerbin", diagnostics.EndpointBodyName);
+            Assert.Equal("invalid-endpoint-orbit-segment", diagnostics.FailureReason);
+        }
+
         #endregion
 
         private static OrbitSegment EndpointSeedSegment(string bodyName, double semiMajorAxis)

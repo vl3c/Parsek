@@ -5870,14 +5870,18 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
-            OrbitReseed.FromWorldPosAndRecordedVelocity(
-                vessel.orbitDriver.orbit,
-                body,
-                worldPos,
-                vel,
-                ut);
-            vessel.orbitDriver.updateFromParameters();
-            NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
+            if (!TryApplyStateVectorOrbitUpdate(
+                    vessel,
+                    traj,
+                    recordingIndex,
+                    point,
+                    body,
+                    worldPos,
+                    vel,
+                    ut))
+            {
+                return StateVectorOrbitUpdateResult.Failed;
+            }
 
             if (soiChanged && vessel.orbitRenderer != null)
             {
@@ -5924,6 +5928,89 @@ namespace Parsek
                 LastUT = ut
             });
             return StateVectorOrbitUpdateResult.Updated;
+        }
+
+        private static bool TryApplyStateVectorOrbitUpdate(
+            Vessel vessel,
+            IPlaybackTrajectory traj,
+            int recordingIndex,
+            TrajectoryPoint point,
+            CelestialBody body,
+            Vector3d worldPos,
+            Vector3d vel,
+            double ut)
+        {
+            string failureReason = null;
+            if (vessel?.orbitDriver?.orbit == null)
+            {
+                failureReason = "no-orbit";
+            }
+            else if (!IsFinite(worldPos))
+            {
+                failureReason = "non-finite-world-position";
+            }
+            else if (!IsFinite(vel))
+            {
+                failureReason = "non-finite-velocity";
+            }
+
+            if (failureReason != null)
+            {
+                LogStateVectorUpdateFailure(
+                    traj,
+                    recordingIndex,
+                    point,
+                    vessel,
+                    ut,
+                    failureReason);
+                return false;
+            }
+
+            try
+            {
+                OrbitReseed.FromWorldPosAndRecordedVelocity(
+                    vessel.orbitDriver.orbit,
+                    body,
+                    worldPos,
+                    vel,
+                    ut);
+                vessel.orbitDriver.updateFromParameters();
+                NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogStateVectorUpdateFailure(
+                    traj,
+                    recordingIndex,
+                    point,
+                    vessel,
+                    ut,
+                    "orbit-reseed-failed:" + ex.GetType().Name);
+                return false;
+            }
+        }
+
+        private static void LogStateVectorUpdateFailure(
+            IPlaybackTrajectory traj,
+            int recordingIndex,
+            TrajectoryPoint point,
+            Vessel vessel,
+            double ut,
+            string reason)
+        {
+            var miss = NewDecisionFields("update-state-vector-miss");
+            miss.RecordingId = traj?.RecordingId;
+            miss.RecordingIndex = recordingIndex;
+            miss.VesselName = traj?.VesselName;
+            miss.Source = "StateVector";
+            miss.Body = point.bodyName;
+            miss.GhostPid = vessel?.persistentId ?? 0u;
+            miss.StateVecAlt = point.altitude;
+            miss.StateVecSpeed = point.velocity.magnitude;
+            miss.UT = ut;
+            miss.Reason = reason;
+            ParsekLog.Error(Tag, BuildGhostMapDecisionLine(miss));
         }
 
         /// <summary>
