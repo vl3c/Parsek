@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Serialization;
 using UnityEngine;
 using Xunit;
 
@@ -131,6 +132,23 @@ namespace Parsek.Tests
                 });
         }
 
+        private static void InvokePositionLoadedGhostAtPlaybackUT(
+            GhostPlaybackEngine engine,
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT)
+        {
+            MethodInfo method = typeof(GhostPlaybackEngine).GetMethod(
+                "PositionLoadedGhostAtPlaybackUT",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(
+                engine,
+                new object[] { index, traj, state, playbackUT });
+        }
+
         private static bool InvokeTryHandleParentAnchoredDebrisCoverageRetired(
             GhostPlaybackEngine engine,
             int index,
@@ -163,6 +181,16 @@ namespace Parsek.Tests
             object result = method.Invoke(engine, args);
             ghostActive = Assert.IsType<bool>(args[8]);
             return Assert.IsType<bool>(result);
+        }
+
+        private static GameObject MakeLoadedGhostForRoutingTest()
+        {
+            var ghost = (GameObject)FormatterServices.GetUninitializedObject(typeof(GameObject));
+            FieldInfo cachedPtr = typeof(UnityEngine.Object).GetField(
+                "m_CachedPtr",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            cachedPtr?.SetValue(ghost, new IntPtr(1));
+            return ghost;
         }
 
         private sealed class SpawnPrimingPositioner : IGhostPositioner
@@ -1391,6 +1419,49 @@ namespace Parsek.Tests
                 && l.Contains("recorded-relative-retired")
                 && l.Contains("coverageReason=body-fixed-primary-position-failed")
                 && l.Contains("recordingId=debris-rec"));
+        }
+
+        [Fact]
+        public void PositionLoadedGhostAtPlaybackUT_ParentAnchoredDebrisBodyFixedCovered_UsesBodyFixedPrimary()
+        {
+            var positioner = new SpawnPrimingPositioner
+            {
+                ShadowPositionShouldSucceed = true,
+                PrimedShadowBracketBeforeUT = 100.0,
+                PrimedShadowBracketAfterUT = 130.0,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            TrackSection section = traj.TrackSections[0];
+            section.endUT = 140.0;
+            section.bodyFixedFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 130.0 },
+            };
+            traj.TrackSections[0] = section;
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Debris",
+                ghost = MakeLoadedGhostForRoutingTest(),
+            };
+
+            InvokePositionLoadedGhostAtPlaybackUT(
+                engine,
+                index: 3,
+                traj: traj,
+                state: state,
+                playbackUT: 120.0);
+
+            Assert.Equal(1, positioner.ShadowPositionCalls);
+            Assert.Equal(0, positioner.InterpolateCalls);
+            Assert.Equal(0, positioner.PositionFromOrbitCalls);
+            Assert.False(state.anchorRetiredThisFrame);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Anchor]")
+                && l.Contains("body-fixed-primary-route")
+                && l.Contains("phase=loaded-direct-authored-frame-gap")
+                && l.Contains("bodyFixedFrames=2"));
         }
 
         [Fact]
