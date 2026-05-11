@@ -2066,10 +2066,23 @@ namespace Parsek
                 return false;
             }
 
-            // Capture target state BEFORE Die() clears it
-            bool wasTarget = FlightGlobals.fetch != null
-                && FlightGlobals.fetch.VesselTarget != null
-                && FlightGlobals.fetch.VesselTarget.GetVessel() == vessel;
+            // Capture target state BEFORE Die() clears it. FlightGlobals is not
+            // available in the headless xUnit process, but cleanup bookkeeping
+            // still needs to run there.
+            bool wasTarget = false;
+            try
+            {
+                wasTarget = FlightGlobals.fetch != null
+                    && FlightGlobals.fetch.VesselTarget != null
+                    && FlightGlobals.fetch.VesselTarget.GetVessel() == vessel;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "RemoveGhostVessel: target-state lookup unavailable for chain pid={0}: {1}",
+                        chainPid, ex.GetType().Name));
+            }
 
             uint ghostPid = vessel.persistentId;
             bool hadLastKnown = lastKnownByChainPid.TryGetValue(chainPid, out LastKnownGhostFrame last);
@@ -7603,6 +7616,11 @@ namespace Parsek
         {
             vesselsByChainPid.TryGetValue(chainPid, out Vessel vessel);
             return vessel;
+        }
+
+        internal static bool HasChainMapVessel(uint chainPid)
+        {
+            return vesselsByChainPid.ContainsKey(chainPid);
         }
 
         /// <summary>

@@ -1156,11 +1156,20 @@ namespace Parsek
         internal static bool ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
             bool isSoiGapStateVector,
             TrackingStationGhostSource refreshSource,
-            bool hasFlatTrajectoryPoint)
+            bool hasFlatTrajectoryCoverage)
         {
             return isSoiGapStateVector
                 && refreshSource == TrackingStationGhostSource.None
-                && !hasFlatTrajectoryPoint;
+                && !hasFlatTrajectoryCoverage;
+        }
+
+        internal static bool HasFlatTrajectoryCoverageForStateVectorUpdate(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            bool bracketPointHasValue)
+        {
+            return bracketPointHasValue
+                && GhostMapPresence.HasRecordedTrackCoverageAtUT(traj, currentUT);
         }
 
         /// <summary>
@@ -1582,11 +1591,15 @@ namespace Parsek
 
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
                     stateVectorCachedIndices[idx] = cached;
+                    bool hasFlatTrajectoryCoverage = HasFlatTrajectoryCoverageForStateVectorUpdate(
+                        traj,
+                        currentUT,
+                        pt.HasValue);
 
                     if (ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
                             isSoiGapStateVector,
                             soiGapRefreshSource,
-                            pt.HasValue))
+                            hasFlatTrajectoryCoverage))
                     {
                         GhostMapPresence.RemoveGhostVesselForRecording(
                             idx,
@@ -1596,7 +1609,7 @@ namespace Parsek
                         toExitStateVector.Add(idx);
                         ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
                             "Removed SOI-gap state-vector ghost map vessel for #{0} \"{1}\" — " +
-                            "refresh source expired and no trajectory point was available at UT={2:F1}",
+                            "refresh source expired and no trajectory coverage was available at UT={2:F1}",
                             idx,
                             traj?.VesselName ?? "(null)",
                             currentUT));

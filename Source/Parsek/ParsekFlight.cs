@@ -14914,7 +14914,7 @@ namespace Parsek
         /// Fallback positioning for chain ghosts: searches committed recordings for any
         /// orbit segment or surface position matching the chain's vessel PID.
         /// </summary>
-        private void PositionChainGhostFallback(GameObject ghostGO, GhostChain chain, double currentUT)
+        internal void PositionChainGhostFallback(GameObject ghostGO, GhostChain chain, double currentUT)
         {
             bool positioned = false;
             var committed = RecordingStore.CommittedRecordings;
@@ -14929,6 +14929,7 @@ namespace Parsek
 
             if (!positioned)
             {
+                ClearChainMapOrbitVessel(chain, "chain-no-positioning-data");
                 ParsekLog.VerboseRateLimited("Flight",
                     "chain-ghost-no-data-" + chain.OriginalVesselPid,
                     string.Format(CultureInfo.InvariantCulture,
@@ -15020,7 +15021,7 @@ namespace Parsek
             if (chain == null)
                 return;
 
-            if (!string.IsNullOrEmpty(chain.LastMapOrbitBodyName))
+            if (GhostMapPresence.HasChainMapVessel(chain.OriginalVesselPid))
                 GhostMapPresence.RemoveGhostVessel(chain.OriginalVesselPid, reason);
 
             ClearChainMapOrbit(chain);

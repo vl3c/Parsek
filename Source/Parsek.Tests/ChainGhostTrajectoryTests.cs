@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -787,6 +788,46 @@ namespace Parsek.Tests
             var result = ParsekFlight.FindBackgroundRecordingForChain(recordings, trees, chain, 1150);
 
             Assert.Null(result);
+        }
+
+        [Fact]
+        public void PositionChainGhostFallback_NoFallbackRecording_ClearsStoredMapOrbit()
+        {
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.CommittedTrees.Clear();
+            try
+            {
+                var chain = new GhostChain
+                {
+                    OriginalVesselPid = 100,
+                    TipTreeId = "tree-1"
+                };
+                OrbitSegment segment = new OrbitSegment
+                {
+                    startUT = 1000.0,
+                    endUT = 1100.0,
+                    bodyName = "Kerbin",
+                    semiMajorAxis = 700000.0,
+                    eccentricity = 0.01
+                };
+                ParsekFlight.StoreChainMapOrbit(chain, segment);
+
+                var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+
+                host.PositionChainGhostFallback(null, chain, currentUT: 1200.0);
+
+                Assert.Null(chain.LastMapOrbitBodyName);
+                Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Flight]")
+                    && l.Contains("Chain ghost has no positioning data")
+                    && l.Contains("pid=100"));
+            }
+            finally
+            {
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.CommittedTrees.Clear();
+            }
         }
 
         /// <summary>

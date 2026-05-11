@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -915,6 +916,26 @@ namespace Parsek.Tests
             Assert.Equal(0.0, chain.LastMapOrbitMeanAnomalyAtEpoch);
             Assert.Equal(0.0, chain.LastMapOrbitEpoch);
             Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+        }
+
+        [Fact]
+        public void GhostChain_ClearChainMapOrbitVessel_RemovesRegisteredMapVesselBeforeCacheStored()
+        {
+            var chain = new GhostChain { OriginalVesselPid = 123 };
+            var vessel = (Vessel)FormatterServices.GetUninitializedObject(typeof(Vessel));
+            vessel.persistentId = 456u;
+            ChainMapVesselsForTesting()[chain.OriginalVesselPid] = vessel;
+            GhostMapPresence.ghostMapVesselPids.Add(vessel.persistentId);
+
+            Assert.True(GhostMapPresence.HasChainMapVessel(chain.OriginalVesselPid));
+            Assert.Null(chain.LastMapOrbitBodyName);
+
+            ParsekFlight.ClearChainMapOrbitVessel(
+                chain,
+                "unit-test-clear-registered-chain-map-vessel");
+
+            Assert.False(GhostMapPresence.HasChainMapVessel(chain.OriginalVesselPid));
+            Assert.DoesNotContain(vessel.persistentId, GhostMapPresence.ghostMapVesselPids);
         }
 
         /// <summary>
@@ -3837,6 +3858,13 @@ namespace Parsek.Tests
                 meanAnomalyAtEpoch = 0.1,
                 epoch = 100.0
             };
+        }
+
+        private static Dictionary<uint, Vessel> ChainMapVesselsForTesting()
+        {
+            return (Dictionary<uint, Vessel>)typeof(GhostMapPresence)
+                .GetField("vesselsByChainPid", BindingFlags.NonPublic | BindingFlags.Static)
+                .GetValue(null);
         }
 
         #region Chain-aware integration
