@@ -1017,6 +1017,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRemoveSoiGapStateVectorAfterRefreshMiss_SourceExpiredAndNoFlatPoint_Removes()
+        {
+            Assert.True(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: true,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.None,
+                hasFlatTrajectoryPoint: false));
+
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: true,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.None,
+                hasFlatTrajectoryPoint: true));
+
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: true,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.StateVectorSoiGap,
+                hasFlatTrajectoryPoint: false));
+
+            Assert.False(ParsekPlaybackPolicy.ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                isSoiGapStateVector: false,
+                refreshSource: GhostMapPresence.TrackingStationGhostSource.None,
+                hasFlatTrajectoryPoint: false));
+        }
+
+        [Fact]
         public void StateVectorThresholds_HysteresisGap_AirlessBody()
         {
             // Airless body: vessel at 1000m and 50 m/s — in hysteresis dead zone

@@ -14707,32 +14707,43 @@ namespace Parsek
 
             bool suppressOrbitFallback =
                 ShouldSuppressChainOrbitFallback(rec, currentUT);
-            if (rec.HasOrbitSegments && !suppressOrbitFallback)
+            if (suppressOrbitFallback)
+            {
+                ClearChainMapOrbitVessel(chain, "chain-orbit-suppressed");
+            }
+            else if (rec.HasOrbitSegments)
             {
                 if (!HasOrbitCoverageAtUT(rec, currentUT))
-                    return false;
-
-                if (!PositionGhostFromOrbitOnly(
-                        ghostGO,
-                        rec,
-                        currentUT,
-                        (int)(chain.OriginalVesselPid * 10000),
-                        allowActivation: true))
                 {
-                    ParsekLog.VerboseRateLimited("Flight",
-                        "chain-ghost-orbit-failed-" + chain.OriginalVesselPid,
-                        string.Format(CultureInfo.InvariantCulture,
-                            "Chain ghost orbit positioning failed: pid={0} rec={1} tree={2} UT={3:F1}",
-                            chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
-                    return false;
+                    ClearChainMapOrbitVessel(chain, "chain-orbit-no-coverage");
                 }
-                UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
-                ParsekLog.VerboseRateLimited("Flight",
-                    "chain-ghost-orbit-" + chain.OriginalVesselPid,
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
-                        chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
-                return true;
+                else
+                {
+                    if (!PositionGhostFromOrbitOnly(
+                            ghostGO,
+                            rec,
+                            currentUT,
+                            (int)(chain.OriginalVesselPid * 10000),
+                            allowActivation: true))
+                    {
+                        ClearChainMapOrbitVessel(chain, "chain-orbit-position-failed");
+                        ParsekLog.VerboseRateLimited("Flight",
+                            "chain-ghost-orbit-failed-" + chain.OriginalVesselPid,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Chain ghost orbit positioning failed: pid={0} rec={1} tree={2} UT={3:F1}",
+                                chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
+                    }
+                    else
+                    {
+                        UpdateChainGhostOrbitIfNeeded(chain, rec.OrbitSegments, currentUT);
+                        ParsekLog.VerboseRateLimited("Flight",
+                            "chain-ghost-orbit-" + chain.OriginalVesselPid,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Chain ghost positioned from orbit: pid={0} rec={1} tree={2} UT={3:F1}",
+                                chain.OriginalVesselPid, rec.RecordingId, rec.TreeId, currentUT));
+                        return true;
+                    }
+                }
             }
 
             if (HasSurfaceCoverageAtUT(rec, currentUT))
@@ -15002,6 +15013,17 @@ namespace Parsek
             chain.LastMapOrbitArgumentOfPeriapsis = 0.0;
             chain.LastMapOrbitMeanAnomalyAtEpoch = 0.0;
             chain.LastMapOrbitEpoch = 0.0;
+        }
+
+        internal static void ClearChainMapOrbitVessel(GhostChain chain, string reason)
+        {
+            if (chain == null)
+                return;
+
+            if (!string.IsNullOrEmpty(chain.LastMapOrbitBodyName))
+                GhostMapPresence.RemoveGhostVessel(chain.OriginalVesselPid, reason);
+
+            ClearChainMapOrbit(chain);
         }
 
         /// <summary>

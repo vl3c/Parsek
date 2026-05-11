@@ -894,6 +894,29 @@ namespace Parsek.Tests
             Assert.Equal(100.0, chain.LastMapOrbitEpoch);
         }
 
+        [Fact]
+        public void GhostChain_ClearChainMapOrbitVessel_ClearsCachedOrbit()
+        {
+            var chain = new GhostChain { OriginalVesselPid = 123 };
+            OrbitSegment segment = ChainMapSegment();
+
+            ParsekFlight.StoreChainMapOrbit(chain, segment);
+
+            ParsekFlight.ClearChainMapOrbitVessel(chain, "unit-test-clear-chain-map-orbit");
+
+            Assert.Equal(0.0, chain.LastMapOrbitStartUT);
+            Assert.Equal(0.0, chain.LastMapOrbitEndUT);
+            Assert.Null(chain.LastMapOrbitBodyName);
+            Assert.Equal(0.0, chain.LastMapOrbitSma);
+            Assert.Equal(0.0, chain.LastMapOrbitEcc);
+            Assert.Equal(0.0, chain.LastMapOrbitInclination);
+            Assert.Equal(0.0, chain.LastMapOrbitLan);
+            Assert.Equal(0.0, chain.LastMapOrbitArgumentOfPeriapsis);
+            Assert.Equal(0.0, chain.LastMapOrbitMeanAnomalyAtEpoch);
+            Assert.Equal(0.0, chain.LastMapOrbitEpoch);
+            Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+        }
+
         /// <summary>
         /// Segment change detection: identical applied orbit means no change.
         /// </summary>

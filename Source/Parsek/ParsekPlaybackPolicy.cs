@@ -1153,6 +1153,16 @@ namespace Parsek
             return GhostMapPresence.ShouldRemoveStateVectorOrbit(altitude, speed, atmosphereDepth);
         }
 
+        internal static bool ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+            bool isSoiGapStateVector,
+            TrackingStationGhostSource refreshSource,
+            bool hasFlatTrajectoryPoint)
+        {
+            return isSoiGapStateVector
+                && refreshSource == TrackingStationGhostSource.None
+                && !hasFlatTrajectoryPoint;
+        }
+
         /// <summary>
         /// Look up atmosphere depth for a body by name. Returns 0 for airless bodies or if
         /// FlightGlobals is unavailable (test environment).
@@ -1496,9 +1506,13 @@ namespace Parsek
                         stateVectorCachedIndices[idx] = -1;
                     int cached = stateVectorCachedIndices[idx];
 
-                    if (soiGapStateVectorExpectedBodies.TryGetValue(idx, out string expectedSoiGapBody))
+                    bool isSoiGapStateVector =
+                        soiGapStateVectorExpectedBodies.TryGetValue(idx, out string expectedSoiGapBody);
+                    TrackingStationGhostSource soiGapRefreshSource = TrackingStationGhostSource.None;
+
+                    if (isSoiGapStateVector)
                     {
-                        TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                        soiGapRefreshSource = GhostMapPresence.ResolveMapPresenceGhostSource(
                             traj,
                             false,
                             IsMaterializedForMapPresence(traj),
@@ -1514,7 +1528,7 @@ namespace Parsek
                             expectedSoiGapBody: expectedSoiGapBody);
                         stateVectorCachedIndices[idx] = cached;
 
-                        if (source == TrackingStationGhostSource.StateVectorSoiGap)
+                        if (soiGapRefreshSource == TrackingStationGhostSource.StateVectorSoiGap)
                         {
                             GhostMapPresence.StateVectorOrbitUpdateResult updateResult =
                                 GhostMapPresence.UpdateGhostOrbitFromStateVectors(
@@ -1544,12 +1558,12 @@ namespace Parsek
                             continue;
                         }
 
-                        if (source == TrackingStationGhostSource.Segment
-                            || source == TrackingStationGhostSource.EndpointTail
-                            || source == TrackingStationGhostSource.TerminalOrbit)
+                        if (soiGapRefreshSource == TrackingStationGhostSource.Segment
+                            || soiGapRefreshSource == TrackingStationGhostSource.EndpointTail
+                            || soiGapRefreshSource == TrackingStationGhostSource.TerminalOrbit)
                         {
-                            if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, segment, source)
-                                && TryGetMapOrbitKey(source, segment, out var segmentKey))
+                            if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, segment, soiGapRefreshSource)
+                                && TryGetMapOrbitKey(soiGapRefreshSource, segment, out var segmentKey))
                             {
                                 if (stateVectorSegmentUpdates == null)
                                     stateVectorSegmentUpdates = new List<KeyValuePair<int, MapOrbitKey>>();
@@ -1568,6 +1582,26 @@ namespace Parsek
 
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
                     stateVectorCachedIndices[idx] = cached;
+
+                    if (ShouldRemoveSoiGapStateVectorAfterRefreshMiss(
+                            isSoiGapStateVector,
+                            soiGapRefreshSource,
+                            pt.HasValue))
+                    {
+                        GhostMapPresence.RemoveGhostVesselForRecording(
+                            idx,
+                            "soi-gap-state-vector-source-expired");
+                        lastMapOrbitByIndex.Remove(idx);
+                        if (toExitStateVector == null) toExitStateVector = new List<int>();
+                        toExitStateVector.Add(idx);
+                        ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                            "Removed SOI-gap state-vector ghost map vessel for #{0} \"{1}\" — " +
+                            "refresh source expired and no trajectory point was available at UT={2:F1}",
+                            idx,
+                            traj?.VesselName ?? "(null)",
+                            currentUT));
+                        continue;
+                    }
 
                     if (!pt.HasValue) continue;
 
