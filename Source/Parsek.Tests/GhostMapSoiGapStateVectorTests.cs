@@ -125,6 +125,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveTrackingStationOrbitRefreshSource_AfterSoiGap_ReturnsNextSegment()
+        {
+            Recording rec = MakeSoiGapRecording(
+                "soi-gap-refresh-handoff",
+                checkpointBody: "Mun",
+                futureSegmentBody: "Mun");
+
+            Assert.True(GhostMapPresence.TryResolveTrackingStationOrbitRefreshSource(
+                rec,
+                currentUT: 220.0,
+                segment: out OrbitSegment segment,
+                source: out GhostMapPresence.TrackingStationGhostSource source));
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Equal("Mun", segment.bodyName);
+            Assert.Equal(200.0, segment.startUT);
+            Assert.Equal(300.0, segment.endUT);
+        }
+
+        [Fact]
         public void ResolveMapPresenceGhostSource_NormalCheckpointStateVectorStillRejects()
         {
             Recording rec = MakeSoiGapRecording(

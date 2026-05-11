@@ -1242,9 +1242,7 @@ namespace Parsek
                         expectedSoiGapBody: pending.ExpectedSoiGapBody);
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
-                    if (source == TrackingStationGhostSource.Segment
-                        || GhostMapPresence.IsStateVectorGhostSource(source)
-                        || source == TrackingStationGhostSource.TerminalOrbit)
+                    if (ShouldCreateMapVesselFromSource(source))
                     {
                         if (toCreate == null)
                             toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, string)>();
@@ -1358,13 +1356,14 @@ namespace Parsek
                         IsMaterializedForMapPresence(rec),
                         ref cachedStateVectorIndex,
                         out OrbitSegment fallbackSegment,
+                        out TrackingStationGhostSource fallbackSource,
                         out var fallbackKey,
                         out bool fallbackChanged))
                     {
                         stateVectorCachedIndices[idx] = cachedStateVectorIndex;
                         if (fallbackChanged)
                         {
-                            if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, fallbackSegment))
+                            if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, fallbackSegment, fallbackSource))
                             {
                                 if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, MapOrbitKey>>();
                                 orbitUpdates.Add(new KeyValuePair<int, MapOrbitKey>(idx, fallbackKey));
@@ -1546,9 +1545,10 @@ namespace Parsek
                         }
 
                         if (source == TrackingStationGhostSource.Segment
+                            || source == TrackingStationGhostSource.EndpointTail
                             || source == TrackingStationGhostSource.TerminalOrbit)
                         {
-                            if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, segment)
+                            if (GhostMapPresence.UpdateGhostOrbitForRecording(idx, segment, source)
                                 && TryGetMapOrbitKey(source, segment, out var segmentKey))
                             {
                                 if (stateVectorSegmentUpdates == null)
@@ -1701,12 +1701,21 @@ namespace Parsek
                 terminalMapRetentionLoggedIds.Remove(staleKeys[i]);
         }
 
-        private static bool TryGetMapOrbitKey(
+        internal static bool ShouldCreateMapVesselFromSource(TrackingStationGhostSource source)
+        {
+            return source == TrackingStationGhostSource.Segment
+                || source == TrackingStationGhostSource.EndpointTail
+                || GhostMapPresence.IsStateVectorGhostSource(source)
+                || source == TrackingStationGhostSource.TerminalOrbit;
+        }
+
+        internal static bool TryGetMapOrbitKey(
             TrackingStationGhostSource source,
             OrbitSegment segment,
             out MapOrbitKey orbitKey)
         {
             if (source == TrackingStationGhostSource.Segment
+                || source == TrackingStationGhostSource.EndpointTail
                 || source == TrackingStationGhostSource.TerminalOrbit)
             {
                 orbitKey = new MapOrbitKey(segment);
@@ -1725,14 +1734,16 @@ namespace Parsek
             bool alreadyMaterialized,
             ref int cachedStateVectorIndex,
             out OrbitSegment fallbackSegment,
+            out TrackingStationGhostSource fallbackSource,
             out MapOrbitKey fallbackKey,
             out bool changed)
         {
             fallbackSegment = default(OrbitSegment);
+            fallbackSource = TrackingStationGhostSource.None;
             fallbackKey = default(MapOrbitKey);
             changed = false;
 
-            TrackingStationGhostSource fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+            fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
                 rec,
                 false,
                 alreadyMaterialized,
@@ -1744,15 +1755,21 @@ namespace Parsek
                 out _,
                 out _,
                 recordingIndex: idx);
-            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit)
+            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit
+                && fallbackSource != TrackingStationGhostSource.EndpointTail)
                 return false;
 
-            fallbackKey = new MapOrbitKey(fallbackSegment);
+            if (!TryGetMapOrbitKey(fallbackSource, fallbackSegment, out fallbackKey))
+                return false;
+
             changed = !fallbackKey.Equals(currentKey);
             if (changed)
             {
+                string sourceLabel = fallbackSource == TrackingStationGhostSource.EndpointTail
+                    ? "endpoint-tail"
+                    : "terminal-orbit";
                 ParsekLog.Info("Policy",
-                    $"Switched ghost map orbit for #{idx} \"{rec?.VesselName}\" to terminal-orbit fallback " +
+                    $"Switched ghost map orbit for #{idx} \"{rec?.VesselName}\" to {sourceLabel} fallback " +
                     $"during sparse gap body={fallbackKey.body} sma={fallbackKey.sma:F0}");
 
                 // Structured GhostMap line so the per-recording trace stays
@@ -1762,7 +1779,9 @@ namespace Parsek
                 fields.RecordingId = rec?.RecordingId;
                 fields.RecordingIndex = idx;
                 fields.VesselName = rec?.VesselName;
-                fields.Source = "TerminalOrbit";
+                fields.Source = fallbackSource == TrackingStationGhostSource.EndpointTail
+                    ? "EndpointTail"
+                    : "TerminalOrbit";
                 fields.Branch = "(n/a)";
                 fields.Body = fallbackSegment.bodyName;
                 fields.Segment = fallbackSegment;

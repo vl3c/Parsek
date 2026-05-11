@@ -5358,6 +5358,32 @@ namespace Parsek
                     continue;
                 }
 
+                if (isStateVector
+                    && isSoiGapStateVector
+                    && TryResolveTrackingStationOrbitRefreshSource(
+                        rec,
+                        currentUT,
+                        out OrbitSegment authoritativeSegment,
+                        out TrackingStationGhostSource authoritativeSource))
+                {
+                    if (!UpdateGhostOrbitForRecording(
+                            idx,
+                            authoritativeSegment,
+                            authoritativeSource,
+                            removeOnFailure: false))
+                    {
+                        if (toRemove == null) toRemove = new List<(int, string)>();
+                        toRemove.Add((idx, "orbit update rejected"));
+                    }
+                    else
+                    {
+                        trackingStationStateVectorOrbitTrajectories.Remove(idx);
+                        trackingStationSoiGapStateVectorOrbitIndices.Remove(idx);
+                        trackingStationStateVectorCachedIndices.Remove(idx);
+                    }
+                    continue;
+                }
+
                 if (isStateVector)
                 {
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
@@ -5421,35 +5447,11 @@ namespace Parsek
                 if (!hasOrbitBounds)
                     continue;
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
-                TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
-                if (seg.HasValue
-                    && TryResolveEndpointTailForMapPresence(
+                if (!TryResolveTrackingStationOrbitRefreshSource(
                         rec,
                         currentUT,
-                        seg.Value,
-                        IsTerminalMapPresenceRegion(rec, currentUT),
-                        out OrbitSegment endpointTailSegment,
-                        out _,
-                        out _))
-                {
-                    seg = endpointTailSegment;
-                    orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
-                }
-                else if (!seg.HasValue
-                    && TryResolveEndpointTailForMapPresence(
-                        rec,
-                        currentUT,
-                        selectedSegment: null,
-                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, currentUT),
-                        out endpointTailSegment,
-                        out _,
-                        out _))
-                {
-                    seg = endpointTailSegment;
-                    orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
-                }
-                if (!seg.HasValue)
+                        out OrbitSegment seg,
+                        out TrackingStationGhostSource orbitUpdateSource))
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
                     toRemove.Add((idx, "tracking-station-expired"));
@@ -5462,11 +5464,11 @@ namespace Parsek
                         bounds,
                         hasRenderedSegment,
                         renderedSegment,
-                        seg.Value))
+                        seg))
                 {
                     if (!UpdateGhostOrbitForRecording(
                             idx,
-                            seg.Value,
+                            seg,
                             orbitUpdateSource,
                             removeOnFailure: false))
                     {
@@ -5492,6 +5494,58 @@ namespace Parsek
                         "Removed tracking-station ghost #{0} — UT {1:F1} reason={2}",
                         idx, currentUT, reason));
             }
+        }
+
+        internal static bool TryResolveTrackingStationOrbitRefreshSource(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            out OrbitSegment segment,
+            out TrackingStationGhostSource source)
+        {
+            segment = default(OrbitSegment);
+            source = TrackingStationGhostSource.None;
+            if (traj == null)
+                return false;
+
+            OrbitSegment? visibleSegment =
+                TrajectoryMath.FindOrbitSegmentForMapDisplay(traj.OrbitSegments, currentUT);
+            bool terminalMapPresenceRegion = IsTerminalMapPresenceRegion(traj, currentUT);
+            if (visibleSegment.HasValue
+                && TryResolveEndpointTailForMapPresence(
+                    traj,
+                    currentUT,
+                    visibleSegment.Value,
+                    terminalMapPresenceRegion,
+                    out OrbitSegment endpointTailSegment,
+                    out _,
+                    out _))
+            {
+                segment = endpointTailSegment;
+                source = TrackingStationGhostSource.EndpointTail;
+                return true;
+            }
+
+            if (!visibleSegment.HasValue
+                && TryResolveEndpointTailForMapPresence(
+                    traj,
+                    currentUT,
+                    selectedSegment: null,
+                    terminalMapPresenceRegion: terminalMapPresenceRegion,
+                    out endpointTailSegment,
+                    out _,
+                    out _))
+            {
+                segment = endpointTailSegment;
+                source = TrackingStationGhostSource.EndpointTail;
+                return true;
+            }
+
+            if (!visibleSegment.HasValue)
+                return false;
+
+            segment = visibleSegment.Value;
+            source = TrackingStationGhostSource.Segment;
+            return true;
         }
 
         internal static bool ShouldRefreshTrackingStationSegmentOrbit(
@@ -8106,7 +8160,7 @@ namespace Parsek
             out string bodyName,
             out GhostProtoOrbitSeedDiagnostics diagnostics)
         {
-            LogNonPositiveEndpointSeedSegmentIfNeeded(traj);
+            LogZeroEndpointSeedSegmentIfNeeded(traj);
 
             if (RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
                 traj,
@@ -8185,7 +8239,8 @@ namespace Parsek
                 out argumentOfPeriapsis,
                 out meanAnomalyAtEpoch,
                 out epoch,
-                out bodyName);
+                out bodyName,
+                out string terminalSeedFailureReason);
 
             diagnostics = new GhostProtoOrbitSeedDiagnostics
             {
@@ -8193,7 +8248,9 @@ namespace Parsek
                 EndpointBodyName = endpointDiagnostics.EndpointBodyName,
                 FailureReason = fallbackResolved
                     ? null
-                    : (endpointDiagnostics.FailureReason ?? TrackingStationGhostSkipUnseedableTerminalOrbit),
+                    : (terminalSeedFailureReason
+                        ?? endpointDiagnostics.FailureReason
+                        ?? TrackingStationGhostSkipUnseedableTerminalOrbit),
                 FallbackReason = endpointDiagnostics.FailureReason,
                 TailUT = double.NaN,
                 TailSma = double.NaN,
@@ -8264,7 +8321,7 @@ namespace Parsek
             return false;
         }
 
-        private static void LogNonPositiveEndpointSeedSegmentIfNeeded(IPlaybackTrajectory traj)
+        private static void LogZeroEndpointSeedSegmentIfNeeded(IPlaybackTrajectory traj)
         {
             if (traj?.OrbitSegments == null
                 || !RecordingEndpointResolver.ShouldUseOrbitEndpoint(traj)
@@ -8279,7 +8336,7 @@ namespace Parsek
                 if (!string.Equals(candidate.bodyName, endpointBody, StringComparison.Ordinal))
                     continue;
 
-                if (candidate.semiMajorAxis <= 0.0)
+                if (candidate.semiMajorAxis == 0.0)
                 {
                     LogSkippedEndpointSeedSegment(traj, candidate, "non-positive-sma");
                     LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
@@ -8412,7 +8469,8 @@ namespace Parsek
             out double argumentOfPeriapsis,
             out double meanAnomalyAtEpoch,
             out double epoch,
-            out string bodyName)
+            out string bodyName,
+            out string failureReason)
         {
             inclination = 0.0;
             eccentricity = 0.0;
@@ -8422,6 +8480,7 @@ namespace Parsek
             meanAnomalyAtEpoch = 0.0;
             epoch = 0.0;
             bodyName = null;
+            failureReason = null;
 
             if (traj == null
                 || string.IsNullOrEmpty(traj.TerminalOrbitBody))
@@ -8452,6 +8511,35 @@ namespace Parsek
                 {
                     return false;
                 }
+            }
+
+            var terminalSegment = new OrbitSegment
+            {
+                inclination = traj.TerminalOrbitInclination,
+                eccentricity = traj.TerminalOrbitEccentricity,
+                semiMajorAxis = traj.TerminalOrbitSemiMajorAxis,
+                longitudeOfAscendingNode = traj.TerminalOrbitLAN,
+                argumentOfPeriapsis = traj.TerminalOrbitArgumentOfPeriapsis,
+                meanAnomalyAtEpoch = traj.TerminalOrbitMeanAnomalyAtEpoch,
+                epoch = traj.TerminalOrbitEpoch,
+                bodyName = traj.TerminalOrbitBody
+            };
+            OrbitRejectionReason reason = OrbitRejectionReason.None;
+            if (!OrbitResolution.IsFiniteOrbitSegment(terminalSegment))
+                reason = OrbitRejectionReason.NonFiniteElements;
+            else if (Math.Abs(terminalSegment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
+                reason = OrbitRejectionReason.BelowMinSma;
+
+            if (reason != OrbitRejectionReason.None)
+            {
+                OrbitResolution.LogOrbitSegmentRejected(
+                    terminalSegment,
+                    traj?.RecordingId,
+                    "map-presence-terminal-orbit-seed",
+                    reason,
+                    OrbitSegmentValidationMode.ValidateAndLog);
+                failureReason = "invalid-terminal-orbit-seed";
+                return false;
             }
 
             inclination = traj.TerminalOrbitInclination;

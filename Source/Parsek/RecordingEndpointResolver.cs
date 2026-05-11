@@ -321,7 +321,7 @@ namespace Parsek
                     if (!string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal))
                         continue;
 
-                    if (seg.semiMajorAxis <= 0.0)
+                    if (seg.semiMajorAxis == 0.0)
                         return false;
 
                     segInclination = seg.inclination;
