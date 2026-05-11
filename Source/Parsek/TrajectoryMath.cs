@@ -140,15 +140,7 @@ namespace Parsek
         /// </summary>
         internal static bool HasUsableOrbitSegmentElements(OrbitSegment segment)
         {
-            return IsFinite(segment.inclination)
-                && IsFinite(segment.eccentricity)
-                && segment.eccentricity >= 0.0
-                && IsFinite(segment.semiMajorAxis)
-                && System.Math.Abs(segment.semiMajorAxis) >= MinUsableOrbitSemiMajorAxisMeters
-                && IsFinite(segment.longitudeOfAscendingNode)
-                && IsFinite(segment.argumentOfPeriapsis)
-                && IsFinite(segment.meanAnomalyAtEpoch)
-                && IsFinite(segment.epoch);
+            return OrbitResolution.TryValidateOrbitSegmentElements(segment, out _);
         }
 
         /// <summary>

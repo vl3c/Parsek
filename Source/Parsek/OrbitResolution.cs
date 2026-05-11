@@ -88,6 +88,33 @@ namespace Parsek
                 && IsFiniteDouble(segment.epoch);
         }
 
+        internal static bool TryValidateOrbitSegmentElements(
+            OrbitSegment segment,
+            out OrbitRejectionReason reason)
+        {
+            reason = OrbitRejectionReason.None;
+            if (!IsFiniteOrbitSegment(segment))
+            {
+                reason = OrbitRejectionReason.NonFiniteElements;
+                return false;
+            }
+
+            if (segment.eccentricity < 0.0)
+            {
+                reason = OrbitRejectionReason.InvalidEccentricity;
+                return false;
+            }
+
+            double absSma = Math.Abs(segment.semiMajorAxis);
+            if (!IsFiniteDouble(absSma) || absSma < MinValidSmaMeters)
+            {
+                reason = OrbitRejectionReason.BelowMinSma;
+                return false;
+            }
+
+            return true;
+        }
+
         internal static bool TryValidateOrbitSegment(
             OrbitSegment segment,
             Func<string, CelestialBody> bodyResolver,
@@ -100,24 +127,8 @@ namespace Parsek
             body = null;
             reason = OrbitRejectionReason.None;
 
-            if (!IsFiniteOrbitSegment(segment))
+            if (!TryValidateOrbitSegmentElements(segment, out reason))
             {
-                reason = OrbitRejectionReason.NonFiniteElements;
-                LogOrbitSegmentRejected(segment, recordingId, context, reason, mode);
-                return false;
-            }
-
-            if (segment.eccentricity < 0.0)
-            {
-                reason = OrbitRejectionReason.InvalidEccentricity;
-                LogOrbitSegmentRejected(segment, recordingId, context, reason, mode);
-                return false;
-            }
-
-            double absSma = Math.Abs(segment.semiMajorAxis);
-            if (!IsFiniteDouble(absSma) || absSma < MinValidSmaMeters)
-            {
-                reason = OrbitRejectionReason.BelowMinSma;
                 LogOrbitSegmentRejected(segment, recordingId, context, reason, mode);
                 return false;
             }

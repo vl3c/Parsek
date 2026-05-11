@@ -447,12 +447,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit_RejectsSurfaceTrackSection()
+        public void ShouldSuppressChainOrbitFallback_RejectsSurfaceTrackSection()
         {
             var rec = ChainFallbackRecording(SegmentEnvironment.SurfaceStationary);
             rec.RecordingId = "chain_surface_junk";
 
-            bool suppressed = ParsekFlight.ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit(
+            bool suppressed = ParsekFlight.ShouldSuppressChainOrbitFallback(
                 rec,
                 currentUT: 150.0);
 
@@ -463,18 +463,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit_AllowsExoBallisticTrackSection()
+        public void ShouldSuppressChainOrbitFallback_AllowsExoBallisticTrackSection()
         {
             var rec = ChainFallbackRecording(SegmentEnvironment.ExoBallistic);
             rec.RecordingId = "chain_exo_ballistic";
 
-            bool suppressed = ParsekFlight.ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit(
+            bool suppressed = ParsekFlight.ShouldSuppressChainOrbitFallback(
                 rec,
                 currentUT: 150.0);
 
             Assert.False(suppressed);
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("legacy-surface-orbit-reject-chain_exo_ballistic-chain-fallback"));
+        }
+
+        [Fact]
+        public void ShouldSuppressChainOrbitFallback_RejectsInvalidOrbitElementsBeforeSurfaceFallback()
+        {
+            var rec = ChainFallbackRecording(SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "chain_invalid_orbit";
+            OrbitSegment segment = rec.OrbitSegments[0];
+            segment.eccentricity = -0.1;
+            rec.OrbitSegments[0] = segment;
+
+            bool suppressed = ParsekFlight.ShouldSuppressChainOrbitFallback(
+                rec,
+                currentUT: 150.0);
+
+            Assert.True(suppressed);
+            Assert.Contains(logLines, l =>
+                l.Contains("orbit-resolver-reject-chain_invalid_orbit-chain-fallback")
+                && l.Contains("reason=invalid-eccentricity"));
         }
 
         private static CelestialBody ResolveBody(string bodyName)

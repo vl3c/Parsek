@@ -6227,37 +6227,15 @@ namespace Parsek
             string recordingId,
             string context)
         {
-            if (!OrbitResolution.IsFiniteOrbitSegment(segment))
+            if (!OrbitResolution.TryValidateOrbitSegmentElements(
+                    segment,
+                    out OrbitRejectionReason elementReason))
             {
                 OrbitResolution.LogOrbitSegmentRejected(
                     segment,
                     recordingId,
                     context,
-                    OrbitRejectionReason.NonFiniteElements,
-                    OrbitSegmentValidationMode.ValidateAndLog);
-                return false;
-            }
-
-            if (segment.eccentricity < 0.0)
-            {
-                OrbitResolution.LogOrbitSegmentRejected(
-                    segment,
-                    recordingId,
-                    context,
-                    OrbitRejectionReason.InvalidEccentricity,
-                    OrbitSegmentValidationMode.ValidateAndLog);
-                return false;
-            }
-
-            double absSma = Math.Abs(segment.semiMajorAxis);
-            if (!OrbitResolution.IsFiniteDouble(absSma)
-                || absSma < OrbitResolution.MinValidSmaMeters)
-            {
-                OrbitResolution.LogOrbitSegmentRejected(
-                    segment,
-                    recordingId,
-                    context,
-                    OrbitRejectionReason.BelowMinSma,
+                    elementReason,
                     OrbitSegmentValidationMode.ValidateAndLog);
                 return false;
             }

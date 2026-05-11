@@ -14706,7 +14706,7 @@ namespace Parsek
                 return false;
 
             bool suppressOrbitFallback =
-                ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit(rec, currentUT);
+                ShouldSuppressChainOrbitFallback(rec, currentUT);
             if (rec.HasOrbitSegments && !suppressOrbitFallback)
             {
                 if (!HasOrbitCoverageAtUT(rec, currentUT))
@@ -14751,7 +14751,7 @@ namespace Parsek
             return false;
         }
 
-        internal static bool ShouldSuppressChainOrbitFallbackForLegacySurfaceOrbit(
+        internal static bool ShouldSuppressChainOrbitFallback(
             Recording rec,
             double currentUT)
         {
@@ -14761,6 +14761,19 @@ namespace Parsek
             OrbitSegment? activeSegment = FindOrbitSegment(rec.OrbitSegments, currentUT);
             if (!activeSegment.HasValue)
                 return false;
+
+            if (!OrbitResolution.TryValidateOrbitSegmentElements(
+                    activeSegment.Value,
+                    out OrbitRejectionReason reason))
+            {
+                OrbitResolution.LogOrbitSegmentRejected(
+                    activeSegment.Value,
+                    rec.RecordingId,
+                    "chain-fallback",
+                    reason,
+                    OrbitSegmentValidationMode.ValidateAndLog);
+                return true;
+            }
 
             return OrbitResolution.ShouldRejectLegacySurfaceOrbitSegment(
                 rec,

@@ -8302,16 +8302,12 @@ namespace Parsek
                 bodyName = bodyName
             };
 
-            OrbitRejectionReason reason = OrbitRejectionReason.None;
-            if (!OrbitResolution.IsFiniteOrbitSegment(segment))
-                reason = OrbitRejectionReason.NonFiniteElements;
-            else if (segment.eccentricity < 0.0)
-                reason = OrbitRejectionReason.InvalidEccentricity;
-            else if (Math.Abs(segment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
-                reason = OrbitRejectionReason.BelowMinSma;
-
-            if (reason == OrbitRejectionReason.None)
+            if (OrbitResolution.TryValidateOrbitSegmentElements(
+                    segment,
+                    out OrbitRejectionReason reason))
+            {
                 return true;
+            }
 
             OrbitResolution.LogOrbitSegmentRejected(
                 segment,
@@ -8351,16 +8347,12 @@ namespace Parsek
             IPlaybackTrajectory traj,
             OrbitSegment segment)
         {
-            OrbitRejectionReason reason = OrbitRejectionReason.None;
-            if (!OrbitResolution.IsFiniteOrbitSegment(segment))
-                reason = OrbitRejectionReason.NonFiniteElements;
-            else if (segment.eccentricity < 0.0)
-                reason = OrbitRejectionReason.InvalidEccentricity;
-            else if (Math.Abs(segment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
-                reason = OrbitRejectionReason.BelowMinSma;
-
-            if (reason == OrbitRejectionReason.None)
+            if (OrbitResolution.TryValidateOrbitSegmentElements(
+                    segment,
+                    out OrbitRejectionReason reason))
+            {
                 return false;
+            }
 
             OrbitResolution.LogOrbitSegmentRejected(
                 segment,
@@ -8528,15 +8520,9 @@ namespace Parsek
                 epoch = traj.TerminalOrbitEpoch,
                 bodyName = traj.TerminalOrbitBody
             };
-            OrbitRejectionReason reason = OrbitRejectionReason.None;
-            if (!OrbitResolution.IsFiniteOrbitSegment(terminalSegment))
-                reason = OrbitRejectionReason.NonFiniteElements;
-            else if (terminalSegment.eccentricity < 0.0)
-                reason = OrbitRejectionReason.InvalidEccentricity;
-            else if (Math.Abs(terminalSegment.semiMajorAxis) < OrbitResolution.MinValidSmaMeters)
-                reason = OrbitRejectionReason.BelowMinSma;
-
-            if (reason != OrbitRejectionReason.None)
+            if (!OrbitResolution.TryValidateOrbitSegmentElements(
+                    terminalSegment,
+                    out OrbitRejectionReason reason))
             {
                 OrbitResolution.LogOrbitSegmentRejected(
                     terminalSegment,
