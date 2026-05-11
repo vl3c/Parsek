@@ -3158,6 +3158,7 @@ namespace Parsek.Tests
                 out _,
                 out _,
                 out _,
+                out _,
                 out GhostMapPresence.GhostProtoOrbitSeedDiagnostics diagnostics));
 
             Assert.Equal("invalid-endpoint-orbit-segment", diagnostics.FailureReason);
@@ -3191,7 +3192,6 @@ namespace Parsek.Tests
 
             Assert.False(GhostMapPresence.TryResolveGhostProtoOrbitSeed(
                 traj,
-                out _,
                 out _,
                 out _,
                 out _,

@@ -7214,6 +7214,18 @@ namespace Parsek
                 return true;
             }
 
+            if (IsFatalEndpointOrbitSeedFailure(endpointDiagnostics.FailureReason))
+            {
+                diagnostics = new GhostProtoOrbitSeedDiagnostics
+                {
+                    Source = "none",
+                    EndpointBodyName = endpointDiagnostics.EndpointBodyName,
+                    FailureReason = endpointDiagnostics.FailureReason,
+                    FallbackReason = endpointDiagnostics.FailureReason
+                };
+                return false;
+            }
+
             bool fallbackResolved = TryResolveTerminalOrbitGhostSeed(
                 traj,
                 out inclination,
@@ -7242,6 +7254,14 @@ namespace Parsek
             }
 
             return fallbackResolved;
+        }
+
+        private static bool IsFatalEndpointOrbitSeedFailure(string failureReason)
+        {
+            return string.Equals(
+                failureReason,
+                "invalid-endpoint-orbit-segment",
+                StringComparison.Ordinal);
         }
 
         private static bool TryGetEndpointAlignedOrbitSeedForMapPresence(
