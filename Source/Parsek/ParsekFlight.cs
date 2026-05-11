@@ -14434,8 +14434,10 @@ namespace Parsek
 
             // Exact equality is intentional: segment values are stored doubles
             // that do not drift. Any element change means a different applied
-            // OrbitSegment, not floating-point accumulation.
-            return string.Equals(segment.bodyName, chain.LastMapOrbitBodyName, StringComparison.Ordinal)
+            // OrbitSegment or visible clipping window, not floating-point accumulation.
+            return segment.startUT == chain.LastMapOrbitStartUT
+                && segment.endUT == chain.LastMapOrbitEndUT
+                && string.Equals(segment.bodyName, chain.LastMapOrbitBodyName, StringComparison.Ordinal)
                 && segment.semiMajorAxis == chain.LastMapOrbitSma
                 && segment.eccentricity == chain.LastMapOrbitEcc
                 && segment.inclination == chain.LastMapOrbitInclination
@@ -14450,6 +14452,8 @@ namespace Parsek
             if (chain == null)
                 return;
 
+            chain.LastMapOrbitStartUT = segment.startUT;
+            chain.LastMapOrbitEndUT = segment.endUT;
             chain.LastMapOrbitBodyName = segment.bodyName;
             chain.LastMapOrbitSma = segment.semiMajorAxis;
             chain.LastMapOrbitEcc = segment.eccentricity;
@@ -14465,6 +14469,8 @@ namespace Parsek
             if (chain == null)
                 return;
 
+            chain.LastMapOrbitStartUT = 0.0;
+            chain.LastMapOrbitEndUT = 0.0;
             chain.LastMapOrbitBodyName = null;
             chain.LastMapOrbitSma = 0.0;
             chain.LastMapOrbitEcc = 0.0;

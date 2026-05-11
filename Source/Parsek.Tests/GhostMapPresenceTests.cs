@@ -857,6 +857,8 @@ namespace Parsek.Tests
         public void GhostChain_OrbitTracking_InitiallyNull()
         {
             var chain = new GhostChain();
+            Assert.Equal(0.0, chain.LastMapOrbitStartUT);
+            Assert.Equal(0.0, chain.LastMapOrbitEndUT);
             Assert.Null(chain.LastMapOrbitBodyName);
             Assert.Equal(0.0, chain.LastMapOrbitSma);
             Assert.Equal(0.0, chain.LastMapOrbitInclination);
@@ -875,6 +877,8 @@ namespace Parsek.Tests
 
             ParsekFlight.StoreChainMapOrbit(chain, segment);
 
+            Assert.Equal(100.0, chain.LastMapOrbitStartUT);
+            Assert.Equal(200.0, chain.LastMapOrbitEndUT);
             Assert.Equal("Kerbin", chain.LastMapOrbitBodyName);
             Assert.Equal(700000, chain.LastMapOrbitSma);
             Assert.Equal(0.01, chain.LastMapOrbitEcc);
@@ -920,6 +924,23 @@ namespace Parsek.Tests
             OrbitSegment segment = ChainMapSegment();
             ParsekFlight.StoreChainMapOrbit(chain, segment);
             segment.inclination = 6.0;
+
+            Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+        }
+
+        [Fact]
+        public void GhostChain_OrbitTracking_BoundsOnlyChange_Detected()
+        {
+            var chain = new GhostChain();
+            OrbitSegment segment = ChainMapSegment();
+            ParsekFlight.StoreChainMapOrbit(chain, segment);
+            segment.startUT = 120.0;
+
+            Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
+
+            ParsekFlight.StoreChainMapOrbit(chain, ChainMapSegment());
+            segment = ChainMapSegment();
+            segment.endUT = 260.0;
 
             Assert.False(ParsekFlight.IsChainMapOrbitUnchanged(chain, segment));
         }

@@ -124,6 +124,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryResolveOrbitFromSegment_RebuildsCacheWhenTupleChanges()
+        {
+            var cache = new Dictionary<long, Orbit>();
+            OrbitSegment firstSegment = KerbalXProbeSubOrbitalSegment();
+
+            Assert.True(OrbitResolution.TryResolveOrbitFromSegment(
+                firstSegment,
+                cacheKey: 42,
+                orbitCache: cache,
+                bodyResolver: ResolveBody,
+                mode: OrbitSegmentValidationMode.ValidateAndLog,
+                recordingId: "rec_cache",
+                context: "distance",
+                out Orbit firstOrbit,
+                out _,
+                out _));
+
+            OrbitSegment changedSegment = firstSegment;
+            changedSegment.meanAnomalyAtEpoch += 0.25;
+            changedSegment.epoch += 10.0;
+
+            Assert.True(OrbitResolution.TryResolveOrbitFromSegment(
+                changedSegment,
+                cacheKey: 42,
+                orbitCache: cache,
+                bodyResolver: ResolveBody,
+                mode: OrbitSegmentValidationMode.ValidateAndLog,
+                recordingId: "rec_cache",
+                context: "distance",
+                out Orbit secondOrbit,
+                out _,
+                out _));
+
+            Assert.False(object.ReferenceEquals(firstOrbit, secondOrbit));
+            Assert.Equal(changedSegment.meanAnomalyAtEpoch, secondOrbit.meanAnomalyAtEpoch, 10);
+            Assert.Equal(changedSegment.epoch, secondOrbit.epoch, 10);
+            Assert.Same(secondOrbit, cache[42]);
+        }
+
+        [Fact]
         public void TryComputeOrbitWorldPositionCore_RejectsNonFiniteBeforeBodyApi()
         {
             bool altitudeCalled = false;

@@ -35,6 +35,8 @@ namespace Parsek
         // Runtime state: last applied orbit segment elements for the ghost map
         // ProtoVessel (not serialized). Used to detect segment changes and
         // update the ProtoVessel's orbit.
+        public double LastMapOrbitStartUT;
+        public double LastMapOrbitEndUT;
         // null = no segment tracked yet (first frame, or no orbit data)
         public string LastMapOrbitBodyName;
         public double LastMapOrbitSma;

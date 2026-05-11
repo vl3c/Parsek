@@ -202,8 +202,12 @@ namespace Parsek
                 return false;
             }
 
-            if (orbitCache != null && orbitCache.TryGetValue(cacheKey, out orbit))
+            if (orbitCache != null
+                && orbitCache.TryGetValue(cacheKey, out orbit)
+                && IsCachedOrbitForSegment(orbit, segment, body))
+            {
                 return true;
+            }
 
             try
             {
@@ -228,6 +232,24 @@ namespace Parsek
             if (orbitCache != null)
                 orbitCache[cacheKey] = orbit;
             return true;
+        }
+
+        private static bool IsCachedOrbitForSegment(
+            Orbit orbit,
+            OrbitSegment segment,
+            CelestialBody body)
+        {
+            if (orbit == null)
+                return false;
+
+            return object.ReferenceEquals(orbit.referenceBody, body)
+                && orbit.inclination == segment.inclination
+                && orbit.eccentricity == segment.eccentricity
+                && orbit.semiMajorAxis == segment.semiMajorAxis
+                && orbit.LAN == segment.longitudeOfAscendingNode
+                && orbit.argumentOfPeriapsis == segment.argumentOfPeriapsis
+                && orbit.meanAnomalyAtEpoch == segment.meanAnomalyAtEpoch
+                && orbit.epoch == segment.epoch;
         }
 
         internal static bool TryComputeOrbitWorldPositionCore(
