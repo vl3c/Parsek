@@ -6334,15 +6334,20 @@ namespace Parsek
                     System.Globalization.CultureInfo.InvariantCulture, out sidecarEpoch);
             }
 
+            int formatVersion = GetTrajectoryFormatVersion(precNode);
+            bool supported = formatVersion == CurrentRecordingFormatVersion;
             probe = new TrajectorySidecarProbe
             {
                 Success = true,
-                Supported = true,
+                Supported = supported,
                 Encoding = TrajectorySidecarEncoding.TextConfigNode,
-                FormatVersion = GetTrajectoryFormatVersion(precNode),
+                FormatVersion = formatVersion,
                 SidecarEpoch = sidecarEpoch,
                 RecordingId = precNode.GetValue("recordingId"),
-                LegacyNode = precNode
+                LegacyNode = precNode,
+                FailureReason = supported
+                    ? null
+                    : $"unsupported text trajectory version {formatVersion}"
             };
 
             if (!SuppressLogging)
@@ -6350,6 +6355,12 @@ namespace Parsek
                 ParsekLog.Verbose("RecordingStore",
                     $"TryProbeTrajectorySidecar: encoding=TextConfigNode version={probe.FormatVersion} " +
                     $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                if (!probe.Supported)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"TryProbeTrajectorySidecar: unsupported text trajectory version {probe.FormatVersion} " +
+                        $"for recording={probe.RecordingId}");
+                }
             }
 
             return true;

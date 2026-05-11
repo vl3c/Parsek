@@ -940,6 +940,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorWithRelativeSection_ReturnsTrue()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u));
+
+            Assert.True(GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, 105.0));
+        }
+
+        [Fact]
+        public void ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorWithAbsoluteSection_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Absolute, parentLoopAnchorVesselId: 77u));
+
+            Assert.False(GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, 105.0));
+        }
+
+        [Fact]
+        public void ShouldUseLoopAnchoredDebrisChain_ParentLoopAnchorWithoutCoveringSection_ReturnsFalse()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingStore.AddCommittedTreeForTesting(
+                MakeDebrisChainTree(ReferenceFrame.Relative, parentLoopAnchorVesselId: 77u));
+
+            Assert.False(GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, 120.0));
+        }
+
+        [Fact]
         public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleRelativeFrameWithinSection_ReturnsFalse()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
@@ -1501,6 +1531,52 @@ namespace Parsek.Tests
                 },
             });
             return traj;
+        }
+
+        private static RecordingTree MakeDebrisChainTree(
+            ReferenceFrame parentReferenceFrame,
+            uint parentLoopAnchorVesselId)
+        {
+            var tree = new RecordingTree
+            {
+                Id = "loop-chain-tree",
+                TreeName = "Loop Chain Tree",
+                RootRecordingId = "parent-rec",
+                ActiveRecordingId = "debris-rec"
+            };
+            tree.Recordings["debris-rec"] = new Recording
+            {
+                RecordingId = "debris-rec",
+                VesselName = "Kerbal X Debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            tree.Recordings["parent-rec"] = new Recording
+            {
+                RecordingId = "parent-rec",
+                VesselName = "Kerbal X",
+                LoopAnchorVesselId = parentLoopAnchorVesselId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = parentReferenceFrame,
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        anchorRecordingId = parentReferenceFrame == ReferenceFrame.Relative
+                            ? "loop-root-rec"
+                            : null,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0 },
+                            new TrajectoryPoint { ut = 110.0 },
+                        },
+                    },
+                },
+            };
+            return tree;
         }
 
         #endregion

@@ -3518,9 +3518,11 @@ namespace Parsek
                         initialTrajectoryPoint.ut,
                         "initial-trajectory-point-debris");
                     if (hasTreeRecording)
-                        ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
+                        ApplyInitialTrajectoryPoint(
+                            state, treeRecForSeed, initialTrajectoryPoint, absoluteSeedPoint);
                     else
-                        AppendFrameToCurrentTrackSection(state, initialTrajectoryPoint);
+                        AppendFrameToCurrentTrackSection(
+                            state, initialTrajectoryPoint, absoluteSeedPoint);
                     debrisSeedOpened = true;
 
                     ParsekLog.Info("BgRecorder",
@@ -5868,7 +5870,10 @@ namespace Parsek
         }
 
         private static void ApplyInitialTrajectoryPoint(
-            BackgroundVesselState state, Recording treeRec, TrajectoryPoint point)
+            BackgroundVesselState state,
+            Recording treeRec,
+            TrajectoryPoint point,
+            TrajectoryPoint? absoluteShadowPoint = null)
         {
             // Bug #419: ApplyTrajectoryPointToRecording rejects non-monotonic appends. If
             // the flat-points append was rejected, the seed must NOT enter the track
@@ -5887,7 +5892,7 @@ namespace Parsek
                 return;
             }
 
-            AppendFrameToCurrentTrackSection(state, point);
+            AppendFrameToCurrentTrackSection(state, point, absoluteShadowPoint);
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
 
@@ -7617,7 +7622,10 @@ namespace Parsek
         /// </summary>
         internal void InjectLoadedStateWithEnvironmentForTesting(
             uint vesselPid, string recordingId, SegmentEnvironment initialEnv, double ut,
-            TrajectoryPoint? initialPoint = null)
+            TrajectoryPoint? initialPoint = null,
+            ReferenceFrame initialReferenceFrame = ReferenceFrame.Absolute,
+            string anchorRecordingId = null,
+            TrajectoryPoint? bodyFixedInitialPoint = null)
         {
             var state = new BackgroundVesselState
             {
@@ -7625,15 +7633,35 @@ namespace Parsek
                 recordingId = recordingId,
             };
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
-            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
+            if (initialReferenceFrame == ReferenceFrame.Relative
+                && !string.IsNullOrWhiteSpace(anchorRecordingId))
+            {
+                SetBackgroundCurrentAnchor(
+                    state,
+                    new RecordingAnchorCandidate(
+                        anchorRecordingId,
+                        Vector3d.zero,
+                        Quaternion.identity,
+                        AnchorCandidateSource.Ghost));
+            }
+            StartBackgroundTrackSection(state, initialEnv, initialReferenceFrame,
                 initialPoint.HasValue ? initialPoint.Value.ut : ut);
+            if (initialReferenceFrame == ReferenceFrame.Relative)
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
             if (initialPoint.HasValue)
             {
                 Recording treeRec;
                 if (tree != null && tree.Recordings.TryGetValue(recordingId, out treeRec))
-                    ApplyInitialTrajectoryPoint(state, treeRec, initialPoint.Value);
+                    ApplyInitialTrajectoryPoint(
+                        state,
+                        treeRec,
+                        initialPoint.Value,
+                        bodyFixedInitialPoint);
                 else
-                    AppendFrameToCurrentTrackSection(state, initialPoint.Value);
+                    AppendFrameToCurrentTrackSection(
+                        state,
+                        initialPoint.Value,
+                        bodyFixedInitialPoint);
             }
             loadedStates[vesselPid] = state;
         }

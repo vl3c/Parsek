@@ -2781,9 +2781,6 @@ namespace Parsek
                     return false;
                 }
 
-                if (anchor.LoopAnchorVesselId != 0u)
-                    return true;
-
                 if (anchor.TrackSections == null || anchor.TrackSections.Count == 0)
                     return false;
 
@@ -2794,6 +2791,8 @@ namespace Parsek
                 TrackSection section = anchor.TrackSections[sectionIndex];
                 if (section.referenceFrame != ReferenceFrame.Relative)
                     return false;
+                if (anchor.LoopAnchorVesselId != 0u)
+                    return true;
                 if (section.anchorVesselId != 0u)
                     return true;
                 if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
