@@ -310,6 +310,7 @@ namespace Parsek.Tests
         {
             GhostMapPresence.ghostMapVesselPids.Add(111);
             GhostMapPresence.ghostMapVesselPids.Add(222);
+            GhostMapPresence.ghostOrbitSegments[100u] = new OrbitSegment { bodyName = "Kerbin" };
             var stateVectorTrajectories = (Dictionary<int, IPlaybackTrajectory>)typeof(GhostMapPresence)
                 .GetField("trackingStationStateVectorOrbitTrajectories", BindingFlags.NonPublic | BindingFlags.Static)
                 .GetValue(null);
@@ -323,6 +324,7 @@ namespace Parsek.Tests
             Assert.False(GhostMapPresence.IsGhostMapVessel(111));
             Assert.False(GhostMapPresence.IsGhostMapVessel(222));
             Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+            Assert.Empty(GhostMapPresence.ghostOrbitSegments);
             Assert.Empty(stateVectorTrajectories);
             Assert.Empty(stateVectorCachedIndices);
         }
@@ -1936,6 +1938,95 @@ namespace Parsek.Tests
                 + "the ghost (state-vector subsurface drift case).");
         }
 
+        [Fact]
+        public void ShouldRefreshTrackingStationSegmentOrbit_OrientationOnlyChange_ReturnsTrue()
+        {
+            var rendered = new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 200.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.01,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
+            };
+            OrbitSegment current = rendered;
+            current.inclination = 5.0;
+
+            Assert.True(GhostMapPresence.ShouldRefreshTrackingStationSegmentOrbit(
+                hasOrbitBounds: true,
+                bounds: (100.0, 200.0),
+                hasRenderedSegment: true,
+                renderedSegment: rendered,
+                currentSegment: current));
+        }
+
+        [Fact]
+        public void ShouldRefreshTrackingStationSegmentOrbit_EpochOrAnomalyOnlyChange_ReturnsTrue()
+        {
+            var rendered = new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 200.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.01,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
+            };
+            OrbitSegment current = rendered;
+            current.meanAnomalyAtEpoch = 0.9;
+
+            Assert.True(GhostMapPresence.ShouldRefreshTrackingStationSegmentOrbit(
+                hasOrbitBounds: true,
+                bounds: (100.0, 200.0),
+                hasRenderedSegment: true,
+                renderedSegment: rendered,
+                currentSegment: current));
+
+            current = rendered;
+            current.epoch = 180.0;
+
+            Assert.True(GhostMapPresence.ShouldRefreshTrackingStationSegmentOrbit(
+                hasOrbitBounds: true,
+                bounds: (100.0, 200.0),
+                hasRenderedSegment: true,
+                renderedSegment: rendered,
+                currentSegment: current));
+        }
+
+        [Fact]
+        public void ShouldRefreshTrackingStationSegmentOrbit_IdenticalAppliedOrbit_ReturnsFalse()
+        {
+            var rendered = new OrbitSegment
+            {
+                startUT = 100.0,
+                endUT = 200.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.01,
+                inclination = 0.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
+            };
+
+            Assert.False(GhostMapPresence.ShouldRefreshTrackingStationSegmentOrbit(
+                hasOrbitBounds: true,
+                bounds: (100.0, 200.0),
+                hasRenderedSegment: true,
+                renderedSegment: rendered,
+                currentSegment: rendered));
+        }
+
         /// <summary>
         /// Same-body gap with a real orbit change should not be carried across.
         /// </summary>
@@ -3030,7 +3121,9 @@ namespace Parsek.Tests
                 eccentricity = 0.01,
                 inclination = 5.0,
                 longitudeOfAscendingNode = 10.0,
-                argumentOfPeriapsis = 15.0
+                argumentOfPeriapsis = 15.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
             });
             var changedOrientation = new ParsekPlaybackPolicy.MapOrbitKey(new OrbitSegment
             {
@@ -3039,10 +3132,41 @@ namespace Parsek.Tests
                 eccentricity = 0.01,
                 inclination = 6.0,
                 longitudeOfAscendingNode = 10.0,
-                argumentOfPeriapsis = 15.0
+                argumentOfPeriapsis = 15.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
             });
 
             Assert.False(first.Equals(changedOrientation));
+        }
+
+        [Fact]
+        public void MapOrbitKey_IncludesEpochAndMeanAnomaly()
+        {
+            var first = new ParsekPlaybackPolicy.MapOrbitKey(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 1000000,
+                eccentricity = 0.01,
+                inclination = 5.0,
+                longitudeOfAscendingNode = 10.0,
+                argumentOfPeriapsis = 15.0,
+                meanAnomalyAtEpoch = 0.1,
+                epoch = 100.0
+            });
+            var changedTiming = new ParsekPlaybackPolicy.MapOrbitKey(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 1000000,
+                eccentricity = 0.01,
+                inclination = 5.0,
+                longitudeOfAscendingNode = 10.0,
+                argumentOfPeriapsis = 15.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = 100.0
+            });
+
+            Assert.False(first.Equals(changedTiming));
         }
 
         #endregion
@@ -3239,13 +3363,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveGhostProtoOrbitSeed_ZeroEndpointSegment_SkipsAndLogs()
+        public void TryResolveGhostProtoOrbitSeed_ZeroEndpointSegment_FailsClosedAndLogs()
         {
             var traj = new MockTrajectory
             {
                 RecordingId = "endpoint_zero",
                 EndpointPhase = RecordingEndpointPhase.OrbitSegment,
                 EndpointBodyName = "Kerbin",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 900000.0,
+                TerminalOrbitEccentricity = 0.03,
+                TerminalOrbitInclination = 7.0,
+                TerminalOrbitLAN = 8.0,
+                TerminalOrbitArgumentOfPeriapsis = 9.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0.2,
+                TerminalOrbitEpoch = 300.0,
+                TerminalStateValue = TerminalState.Orbiting,
                 OrbitSegments = new List<OrbitSegment>
                 {
                     EndpointSeedSegment("Kerbin", 0.0)
@@ -3264,7 +3397,7 @@ namespace Parsek.Tests
                 out _,
                 out GhostMapPresence.GhostProtoOrbitSeedDiagnostics diagnostics));
 
-            Assert.Equal("endpoint-orbit-segment-missing", diagnostics.FailureReason);
+            Assert.Equal("invalid-endpoint-orbit-segment", diagnostics.FailureReason);
             Assert.Contains(logLines, l =>
                 l.Contains("Endpoint orbit seed segment skipped")
                 && l.Contains("rec=endpoint_zero")
@@ -3348,9 +3481,10 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(0.0)]
         [InlineData(0.5)]
         [InlineData(double.NaN)]
-        public void TryGetEndpointAlignedOrbitSeed_InvalidPositiveEndpointSegment_FailsClosed(
+        public void TryGetEndpointAlignedOrbitSeed_InvalidEndpointSegment_FailsClosed(
             double sma)
         {
             var traj = new MockTrajectory
@@ -3905,15 +4039,18 @@ namespace Parsek.Tests
             GhostMapPresence.ghostMapVesselPids.Add(100u);
             GhostMapPresence.ghostsWithSuppressedIcon.Add(100u);
             GhostMapPresence.ghostOrbitBounds[100u] = (10.0, 20.0);
+            GhostMapPresence.ghostOrbitSegments[100u] = new OrbitSegment { bodyName = "Kerbin" };
 
             GhostMapPresence.ResetBetweenTestRuns("unit-test-all-dicts");
 
             Assert.Empty(GhostMapPresence.ghostMapVesselPids);
             Assert.Empty(GhostMapPresence.ghostsWithSuppressedIcon);
             Assert.Empty(GhostMapPresence.ghostOrbitBounds);
+            Assert.Empty(GhostMapPresence.ghostOrbitSegments);
             Assert.Contains(logLines, l =>
                 l.Contains("[GhostMap]") && l.Contains("ResetBetweenTestRuns")
-                && l.Contains("suppressedIcons=1") && l.Contains("orbitBounds=1"));
+                && l.Contains("suppressedIcons=1") && l.Contains("orbitBounds=1")
+                && l.Contains("orbitSegments=1"));
         }
 
         /// <summary>

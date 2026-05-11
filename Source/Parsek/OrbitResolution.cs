@@ -130,7 +130,7 @@ namespace Parsek
                 body = null;
             }
 
-            if (body == null)
+            if (object.ReferenceEquals(body, null))
             {
                 reason = OrbitRejectionReason.MissingBody;
                 LogOrbitSegmentRejected(segment, recordingId, context, reason, mode);
@@ -639,12 +639,14 @@ namespace Parsek
         {
             string safeRecordingId = string.IsNullOrEmpty(recordingId) ? "<none>" : recordingId;
             string safeContext = string.IsNullOrEmpty(context) ? "unknown" : context;
+            string key = "legacy-surface-orbit-reject-" + safeRecordingId + "-" + safeContext;
             ParsekLog.VerboseRateLimited(
                 "Playback",
-                "legacy-surface-orbit-reject-" + safeRecordingId + "-" + safeContext,
+                key,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Legacy surface orbit segment rejected: context={0} reason={1} rec={2} body={3} |sma|={4:F0} targetUT={5:F1} segmentUT={6:F1}-{7:F1}",
+                    "Legacy surface orbit segment rejected: key={0} context={1} reason={2} rec={3} body={4} |sma|={5:F0} targetUT={6:F1} segmentUT={7:F1}-{8:F1}",
+                    key,
                     safeContext,
                     reason ?? "(none)",
                     safeRecordingId,
@@ -668,12 +670,15 @@ namespace Parsek
 
             string safeRecordingId = string.IsNullOrEmpty(recordingId) ? "<none>" : recordingId;
             string safeContext = string.IsNullOrEmpty(context) ? "unknown" : context;
+            string key = "orbit-resolver-reject-" + safeRecordingId + "-" + safeContext;
             ParsekLog.VerboseRateLimited(
                 "Playback",
-                "orbit-resolver-reject-" + safeRecordingId + "-" + safeContext,
+                key,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Orbit segment rejected by resolver: context={0} |sma|={1:F0} epoch={2:F1} body={3} reason={4}",
+                    "Orbit segment rejected by resolver: key={0} rec={1} context={2} |sma|={3:F0} epoch={4:F1} body={5} reason={6}",
+                    key,
+                    safeRecordingId,
                     safeContext,
                     Math.Abs(segment.semiMajorAxis),
                     segment.epoch,

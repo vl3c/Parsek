@@ -949,6 +949,8 @@ namespace Parsek
             public double inclination;
             public double lan;
             public double argumentOfPeriapsis;
+            public double meanAnomalyAtEpoch;
+            public double epoch;
 
             public MapOrbitKey(OrbitSegment segment)
             {
@@ -958,6 +960,8 @@ namespace Parsek
                 inclination = segment.inclination;
                 lan = segment.longitudeOfAscendingNode;
                 argumentOfPeriapsis = segment.argumentOfPeriapsis;
+                meanAnomalyAtEpoch = segment.meanAnomalyAtEpoch;
+                epoch = segment.epoch;
             }
 
             public bool Equals(MapOrbitKey other)
@@ -967,7 +971,9 @@ namespace Parsek
                     && ecc == other.ecc
                     && inclination == other.inclination
                     && lan == other.lan
-                    && argumentOfPeriapsis == other.argumentOfPeriapsis;
+                    && argumentOfPeriapsis == other.argumentOfPeriapsis
+                    && meanAnomalyAtEpoch == other.meanAnomalyAtEpoch
+                    && epoch == other.epoch;
             }
 
             public override bool Equals(object obj)
@@ -985,6 +991,8 @@ namespace Parsek
                     hash = (hash * 397) ^ inclination.GetHashCode();
                     hash = (hash * 397) ^ lan.GetHashCode();
                     hash = (hash * 397) ^ argumentOfPeriapsis.GetHashCode();
+                    hash = (hash * 397) ^ meanAnomalyAtEpoch.GetHashCode();
+                    hash = (hash * 397) ^ epoch.GetHashCode();
                     return hash;
                 }
             }

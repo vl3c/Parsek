@@ -994,8 +994,8 @@ namespace Parsek
 
             state.anchorRetiredThisFrame = true;
             state.orbitPlacementFailedThisFrame = true;
-            if (state.ghost != null && state.ghost.activeSelf)
-                state.ghost.SetActive(false);
+            if (!ReferenceEquals(state.ghost, null))
+                GhostPlaybackLogic.HideGhostForRetire(state.ghost);
             ResetGhostAppearanceTracking(state);
             ParsekLog.VerboseRateLimited(
                 "Engine",

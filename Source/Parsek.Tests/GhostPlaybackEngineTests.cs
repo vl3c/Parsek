@@ -3942,6 +3942,7 @@ namespace Parsek.Tests
                 {
                     new TrackSection
                     {
+                        environment = SegmentEnvironment.ExoBallistic,
                         referenceFrame = ReferenceFrame.Relative,
                         startUT = 100,
                         endUT = 140,
@@ -4029,8 +4030,9 @@ namespace Parsek.Tests
             Assert.Equal(1500.0, result.altitude);
             Assert.Equal(new Vector3(10f, 0f, 0f), result.velocity);
             Assert.Contains(logLines, l =>
-                l.Contains("[Engine]")
-                && l.Contains("surface track section active, skipping orbit precedence"));
+                l.Contains("[Playback]")
+                && l.Contains("legacy-surface-orbit-reject")
+                && l.Contains("reason=surface-track-section"));
         }
 
         [Fact]

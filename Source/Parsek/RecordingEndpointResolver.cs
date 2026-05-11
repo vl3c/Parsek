@@ -324,7 +324,10 @@ namespace Parsek
                         continue;
 
                     if (seg.semiMajorAxis <= 0.0)
+                    {
+                        invalidCandidate = IsInvalidPositiveEndpointSeedSegment(seg);
                         return false;
+                    }
 
                     if (IsInvalidPositiveEndpointSeedSegment(seg))
                     {

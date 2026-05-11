@@ -694,6 +694,14 @@ namespace Parsek
             = new Dictionary<uint, (double, double)>();
 
         /// <summary>
+        /// Last segment elements applied to each segment-based ghost vessel PID.
+        /// Used with ghostOrbitBounds so tracking-station refresh catches
+        /// orientation-only orbit changes under identical visible arc bounds.
+        /// </summary>
+        internal static readonly Dictionary<uint, OrbitSegment> ghostOrbitSegments
+            = new Dictionary<uint, OrbitSegment>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
@@ -2051,6 +2059,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            ghostOrbitSegments.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
             lifecycleDestroyedThisTick++;
@@ -3090,6 +3099,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitSegments.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -3228,6 +3238,7 @@ namespace Parsek
             {
                 TrackRecordingGhostVessel(recordingIndex, traj, vessel);
                 ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
+                ghostOrbitSegments[vessel.persistentId] = segment;
                 lifecycleCreatedThisTick++;
 
                 Vector3d worldPos = vessel.GetWorldPos3D();
@@ -3286,6 +3297,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            ghostOrbitSegments.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
@@ -4927,7 +4939,14 @@ namespace Parsek
                     toRemove.Add((idx, "tracking-station-expired"));
                     continue;
                 }
-                if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
+                bool hasRenderedSegment =
+                    ghostOrbitSegments.TryGetValue(pid, out OrbitSegment renderedSegment);
+                if (ShouldRefreshTrackingStationSegmentOrbit(
+                        hasOrbitBounds,
+                        bounds,
+                        hasRenderedSegment,
+                        renderedSegment,
+                        seg.Value))
                 {
                     if (!UpdateGhostOrbitForRecording(idx, seg.Value, removeOnFailure: false))
                     {
@@ -4952,6 +4971,39 @@ namespace Parsek
                         "Removed tracking-station ghost #{0} — UT {1:F1} reason={2}",
                         idx, currentUT, reason));
             }
+        }
+
+        internal static bool ShouldRefreshTrackingStationSegmentOrbit(
+            bool hasOrbitBounds,
+            (double startUT, double endUT) bounds,
+            bool hasRenderedSegment,
+            OrbitSegment renderedSegment,
+            OrbitSegment currentSegment)
+        {
+            if (!hasOrbitBounds)
+                return false;
+
+            if (bounds.startUT != currentSegment.startUT || bounds.endUT != currentSegment.endUT)
+                return true;
+
+            return !hasRenderedSegment
+                || !AreAppliedMapOrbitSegmentsEquivalent(
+                    renderedSegment,
+                    currentSegment);
+        }
+
+        private static bool AreAppliedMapOrbitSegmentsEquivalent(
+            OrbitSegment renderedSegment,
+            OrbitSegment currentSegment)
+        {
+            return string.Equals(renderedSegment.bodyName, currentSegment.bodyName, StringComparison.Ordinal)
+                && renderedSegment.semiMajorAxis == currentSegment.semiMajorAxis
+                && renderedSegment.eccentricity == currentSegment.eccentricity
+                && renderedSegment.inclination == currentSegment.inclination
+                && renderedSegment.longitudeOfAscendingNode == currentSegment.longitudeOfAscendingNode
+                && renderedSegment.argumentOfPeriapsis == currentSegment.argumentOfPeriapsis
+                && renderedSegment.meanAnomalyAtEpoch == currentSegment.meanAnomalyAtEpoch
+                && renderedSegment.epoch == currentSegment.epoch;
         }
 
         internal static void TryRunTrackingStationSpawnHandoffs(
@@ -6091,6 +6143,7 @@ namespace Parsek
 
             // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch)
             ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
+            ghostOrbitSegments[vessel.persistentId] = segment;
 
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
@@ -7003,6 +7056,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitSegments.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -7021,8 +7075,8 @@ namespace Parsek
 
         /// <summary>
         /// Synchronous bookkeeping reset for the in-game test runner's between-run cleanup
-        /// path (#417/#418). Clears the PID tracking HashSet, orbit bounds, and
-        /// recording-index maps in one shot without calling vessel.Die(), under the
+        /// path (#417/#418). Clears the PID tracking HashSet, orbit cache state,
+        /// and recording-index maps in one shot without calling vessel.Die(), under the
         /// assumption that the caller has already invoked GhostPlaybackEngine.DestroyAllGhosts
         /// (or RemoveAllGhostVessels) so the Vessel-layer destruction ran first. This closes
         /// the carryover window where a ProtoVessel was already killed by an engine-driven
@@ -7041,6 +7095,7 @@ namespace Parsek
             int pidCount = ghostMapVesselPids.Count;
             int suppressedIconCount = ghostsWithSuppressedIcon.Count;
             int orbitBoundsCount = ghostOrbitBounds.Count;
+            int orbitSegmentCount = ghostOrbitSegments.Count;
             int chainCount = vesselsByChainPid.Count;
             int indexCount = vesselsByRecordingIndex.Count;
             int reverseCount = vesselPidToRecordingIndex.Count;
@@ -7048,7 +7103,7 @@ namespace Parsek
             int tsStateVectorCount = trackingStationStateVectorOrbitTrajectories.Count;
             int tsStateVectorCacheCount = trackingStationStateVectorCachedIndices.Count;
 
-            int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount
+            int totalTracked = pidCount + suppressedIconCount + orbitBoundsCount + orbitSegmentCount
                 + chainCount + indexCount + reverseCount + reverseIdCount
                 + tsStateVectorCount + tsStateVectorCacheCount;
 
@@ -7064,6 +7119,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitSegments.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -7077,12 +7133,12 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(ic,
                     "ResetBetweenTestRuns: cleared bookkeeping reason={0} " +
-                    "pids={1} suppressedIcons={2} orbitBounds={3} chainVessels={4} " +
-                    "indexVessels={5} reverseLookup={6} reverseIdLookup={7} " +
-                    "tsStateVectors={8} tsStateVectorCache={9}",
+                    "pids={1} suppressedIcons={2} orbitBounds={3} orbitSegments={4} " +
+                    "chainVessels={5} indexVessels={6} reverseLookup={7} reverseIdLookup={8} " +
+                    "tsStateVectors={9} tsStateVectorCache={10}",
                     reason ?? "(null)",
                     pidCount, suppressedIconCount, orbitBoundsCount,
-                    chainCount, indexCount, reverseCount, reverseIdCount,
+                    orbitSegmentCount, chainCount, indexCount, reverseCount, reverseIdCount,
                     tsStateVectorCount, tsStateVectorCacheCount));
         }
 
@@ -7501,7 +7557,7 @@ namespace Parsek
                 if (candidate.semiMajorAxis <= 0.0)
                 {
                     LogSkippedEndpointSeedSegment(traj, candidate, "non-positive-sma");
-                    LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
+                    invalidCandidate = LogInvalidEndpointSeedSegmentIfNeeded(traj, candidate);
                     return false;
                 }
 
