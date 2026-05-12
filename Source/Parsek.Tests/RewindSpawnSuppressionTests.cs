@@ -519,6 +519,68 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRetainMapPresenceForTerminalRealSpawn_SuppressedRewindMarker_NoMapPresenceRetained()
+        {
+            // Pin the symmetric refusal at ParsekPlaybackPolicy.cs:1130-1134: when
+            // SpawnSuppressedByRewind is set, terminal-orbit map-presence retention is
+            // also refused so the orbit line / icon does not survive past the marker's
+            // scope. Without this, the suppressed source would render through the
+            // tracking station while the spawn gate blocked materialization.
+            var rec = MakeRecording(
+                "orbital-rewound",
+                "Kerbal X Probe",
+                pid: 2823934496u,
+                treeId: "tree-map-presence",
+                startUT: 0.0,
+                endUT: 992.23);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 500.0;
+
+            bool retain = ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn(
+                rec, hasFutureSegment: false);
+
+            Assert.False(retain);
+        }
+
+        [Fact]
+        public void ApplyPersistenceArtifactsFrom_DoesNotCopySuppressionFields_DeepClone_Does()
+        {
+            // Pin the load-bearing invariant behind the explicit field copy at
+            // ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording
+            // (lines 4819-4821): ApplyPersistenceArtifactsFrom intentionally does NOT
+            // copy SpawnSuppressedByRewind / Reason / UT, but DeepClone DOES. A
+            // regression that "fixes" ApplyPersistenceArtifactsFrom to copy the
+            // fields and removes the explicit copy will shift behavior at every
+            // other ApplyPersistenceArtifactsFrom call site (chain commit etc).
+            var source = MakeRecording(
+                "source-with-marker",
+                "Marked",
+                pid: 1234u,
+                treeId: "marked-tree",
+                startUT: 0.0,
+                endUT: 30.0);
+            source.SpawnSuppressedByRewind = true;
+            source.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            source.SpawnSuppressedByRewindUT = 15.5;
+
+            var artifactTarget = new Recording();
+            artifactTarget.ApplyPersistenceArtifactsFrom(source);
+            Assert.False(artifactTarget.SpawnSuppressedByRewind);
+            Assert.Null(artifactTarget.SpawnSuppressedByRewindReason);
+            Assert.True(double.IsNaN(artifactTarget.SpawnSuppressedByRewindUT));
+
+            var clone = Recording.DeepClone(source);
+            Assert.True(clone.SpawnSuppressedByRewind);
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
+                clone.SpawnSuppressedByRewindReason);
+            Assert.Equal(15.5, clone.SpawnSuppressedByRewindUT);
+        }
+
+        [Fact]
         public void TryClearSpawnSuppressionOnWatchEntry_SecondEntryAfterClear_IsNoOp()
         {
             // First watch-entry clears the marker; toggle-off → toggle-on (or any second
