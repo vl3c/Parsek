@@ -1169,6 +1169,7 @@ namespace Parsek
             if (joint.Child.vessel.persistentId != RecordingVesselId) return;
 
             // ---- Trace-Sep: open recording window + log break state ----
+            if (ParsekSettings.Current?.ghostRenderTracing == true)
             {
                 Vessel parentVessel = joint.Child.vessel;
                 double evUT = Planetarium.GetUniversalTime();

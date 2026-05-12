@@ -17127,10 +17127,12 @@ namespace Parsek
             // InterpolationResult.Zero. See ParsekFlight.cs:17226-17256.
             bool ghostWasActive = state.ghost.activeSelf;
             // ---- Trace-Sep: open playback window on first parent-anchored debris render ----
+            bool traceEnabled = ParsekSettings.Current?.ghostRenderTracing == true;
             int bodyFixedCount = target.Section.bodyFixedFrames != null
                 ? target.Section.bodyFixedFrames.Count : 0;
             bool firstPlaybackRender = state.appearanceCount == 0;
-            if (firstPlaybackRender && traj != null && traj.IsDebris
+            if (traceEnabled
+                && firstPlaybackRender && traj != null && traj.IsDebris
                 && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
             {
                 TraceSeparation.OpenPlaybackWindow(
@@ -17151,7 +17153,8 @@ namespace Parsek
                 sectionIndex: target.SectionIndex);
             state.playbackIndex = absolutePlaybackIdx;
             // ---- Trace-Sep: log debris playback positioning + bracketing samples ----
-            if (TraceSeparation.PlaybackWindowActive
+            if (traceEnabled
+                && TraceSeparation.PlaybackWindowActive
                 && traj != null && traj.IsDebris
                 && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
             {

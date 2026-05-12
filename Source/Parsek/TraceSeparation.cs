@@ -5,20 +5,20 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Throwaway diagnostic utility for tracing a separation (joint-break)
-    /// event and the playback that follows. Maintains:
+    /// Opt-in diagnostic utility for tracing a separation (joint-break)
+    /// event and the playback that follows, gated by the
+    /// <c>ghostRenderTracing</c> setting. Maintains:
     ///   1. A short ring buffer of pre-event log lines (~2 s history) so we
     ///      can see the per-tick samples leading up to the structural event.
     ///   2. An active-window UT after a joint-break fires (default 2 s)
-    ///      during which every instrumented site logs uncondionally.
+    ///      during which every instrumented site logs unconditionally.
     ///   3. A separate playback window opened the first time a debris ghost
     ///      is rendered after a structural event.
     ///
     /// All log lines go to <c>ParsekLog.Info("Trace-Sep", ...)</c>. The
-    /// component is OFF entirely unless a joint-break / ghost-activation
-    /// occurs, so cost on idle paths is one bool check.
-    ///
-    /// This class is throwaway-branch only. Do not merge to main.
+    /// component is OFF entirely unless <c>ghostRenderTracing</c> is on AND
+    /// a joint-break / ghost-activation occurs, so idle-path cost is a
+    /// settings null-check plus a bool check.
     /// </summary>
     internal static class TraceSeparation
     {
