@@ -8535,22 +8535,10 @@ namespace Parsek
         /// Constructs a TrajectoryPoint from the vessel's current state and the given velocity.
         /// Extracted to deduplicate the identical construction in OnPhysicsFrame, SamplePosition,
         /// and post-switch baseline seeding.
-        ///
-        /// <para>Per-tick phase-offset correction: KSP reads
-        /// <c>Vessel.latitude/longitude/altitude</c> from end-of-current-tick
-        /// PhysX state while <c>Planetarium.GetUniversalTime()</c> stamps the
-        /// sample with start-of-tick time, leaving each sample ~one
-        /// <c>Time.fixedDeltaTime</c> of motion ahead of its UT stamp. Walk
-        /// the body-fixed position back by that interval so position and stamp
-        /// align uniformly across every recording site (structural-event
-        /// snapshots, per-tick samples, boundary samples). Without this
-        /// uniform application, lerping between a corrected structural seed
-        /// and an uncorrected per-tick neighbour produces a visible ~v*dt
-        /// slide on the first playback interval after a staging event.</para>
         /// </summary>
         internal static TrajectoryPoint BuildTrajectoryPoint(Vessel v, Vector3 velocity, double ut)
         {
-            TrajectoryPoint pt = new TrajectoryPoint
+            return new TrajectoryPoint
             {
                 ut = ut,
                 latitude = v.latitude,
@@ -8567,7 +8555,6 @@ namespace Parsek
                 // with the real clearance when applicable.
                 recordedGroundClearance = double.NaN
             };
-            return BackwardExtrapolateBodyFixedPositionOneTick(pt, v, velocity);
         }
 
         /// <summary>
@@ -8670,37 +8657,40 @@ namespace Parsek
         internal static TrajectoryPoint BuildStructuralEventSnapshot(
             Vessel v, Vector3 velocity, double eventUT)
         {
-            // BuildTrajectoryPoint now applies the one-tick phase-offset
-            // back-step uniformly, so structural-event snapshots no longer
-            // need an extra explicit back-step here — adding one would
-            // double-correct. The flag set is still required so playback can
-            // identify which samples were captured at structural events.
             TrajectoryPoint pt = BuildTrajectoryPoint(v, velocity, eventUT);
+            // KSP fires joint-break / structural events in a phase where
+            // v.latitude/longitude/altitude reflect end-of-current-tick PhysX
+            // state, while Planetarium.GetUniversalTime() (used as eventUT)
+            // reflects start-of-tick time. Without correction, the recorded
+            // position is one Time.fixedDeltaTime ahead of its UT stamp; at
+            // typical staging velocities (~150-170 m/s) this is ~3 m, and the
+            // first lerp interval after the structural event shows a visible
+            // ground-speed deficit that makes debris ghosts appear to slide
+            // ~2-3 m forward relative to their parent during playback.
+            // Backward-extrapolate the body-fixed lat/lon/alt by one tick so
+            // the recorded position matches the recorded UT.
+            pt = BackwardExtrapolateStructuralSnapshotPosition(pt, v, velocity);
             return ApplyStructuralEventFlag(pt);
         }
 
         /// <summary>
         /// Backward-extrapolates the recorded body-fixed lat/lon/alt by one
-        /// <c>Time.fixedDeltaTime</c> worth of motion at the supplied
-        /// (Krakensbane-corrected inertial) velocity so the recorded position
-        /// matches the recorded UT stamp. Applied uniformly by
-        /// <see cref="BuildTrajectoryPoint"/> and
-        /// <see cref="BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel"/>
-        /// so structural-event snapshots and ordinary per-tick samples share
-        /// the same phase. Pure / Unity-aware (uses
+        /// Time.fixedDeltaTime worth of motion at the supplied inertial
+        /// velocity, so that a structural-event snapshot's position matches
+        /// its event-UT stamp. See <see cref="BuildStructuralEventSnapshot"/>
+        /// for the rationale. Pure / Unity-aware (uses
         /// <c>body.GetWorldSurfacePosition</c> and the body's lat/lon/alt
         /// helpers); not exercised by xUnit but pinned by the in-place
-        /// arithmetic stability test on
-        /// <see cref="BackwardStepWorldPositionByVelocity"/>. Safe when
-        /// <paramref name="velocity"/> is non-finite or zero: the helper bails
-        /// out and returns <paramref name="pt"/> unchanged.
+        /// arithmetic stability test in <see cref="StructuralSnapshotMathTests"/>.
+        /// Safe when <paramref name="velocity"/> is non-finite or zero: the
+        /// helper bails out and returns <paramref name="pt"/> unchanged.
         /// </summary>
-        internal static TrajectoryPoint BackwardExtrapolateBodyFixedPositionOneTick(
+        internal static TrajectoryPoint BackwardExtrapolateStructuralSnapshotPosition(
             TrajectoryPoint pt, Vessel v, Vector3 velocity)
         {
             if (v == null || v.mainBody == null)
                 return pt;
-            float dt = PerTickPositionPhaseOffsetSeconds(v);
+            float dt = StructuralEventPositionPhaseOffsetSeconds(v);
             if (!IsBackwardExtrapolationApplicable(dt, velocity))
                 return pt;
             // Reconstruct the live world position from the recorded body-fixed
@@ -8715,17 +8705,6 @@ namespace Parsek
             pt.longitude = body.GetLongitude(correctedWorld);
             pt.altitude = body.GetAltitude(correctedWorld);
             return pt;
-        }
-
-        /// <summary>
-        /// Legacy alias for the structural-event-only call sites that still
-        /// reference the original name. New code should call
-        /// <see cref="BackwardExtrapolateBodyFixedPositionOneTick"/>.
-        /// </summary>
-        internal static TrajectoryPoint BackwardExtrapolateStructuralSnapshotPosition(
-            TrajectoryPoint pt, Vessel v, Vector3 velocity)
-        {
-            return BackwardExtrapolateBodyFixedPositionOneTick(pt, v, velocity);
         }
 
         /// <summary>
@@ -8763,44 +8742,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Maximum back-step interval (seconds). KSP raises Time.fixedDeltaTime
-        /// under physics warp (e.g. 4x -> 0.08 s) or lag spikes; clamping
-        /// protects the per-tick correction from becoming a 10+ metre over-shoot
-        /// on a transient large dt. The clamp value matches the largest stock
-        /// physics tick a 1x physics-warp simulation is expected to produce
-        /// (slightly above the default 0.02 s tick to absorb minor jitter).
-        /// </summary>
-        internal const float MaxPerTickPhaseOffsetSeconds = 0.05f;
-
-        /// <summary>
-        /// Time offset (seconds) between the body-fixed position captured this
-        /// physics tick and the UT stamped on that sample. KSP reads
-        /// <c>Vessel.latitude/longitude/altitude</c> from end-of-tick PhysX
-        /// state while <c>Planetarium.GetUniversalTime()</c> reflects start-of-
-        /// tick time, so without correction every per-tick sample's position
-        /// is one <c>Time.fixedDeltaTime</c> ahead of its stamp. The applied
-        /// offset is clamped to <see cref="MaxPerTickPhaseOffsetSeconds"/> to
-        /// keep warp-induced large dts from blowing up the correction.
-        /// Empirically validated against recorded data showing exactly one
-        /// fixedDeltaTime of positional excess at staging events.
-        /// </summary>
-        internal static float PerTickPositionPhaseOffsetSeconds(Vessel v)
-        {
-            float dt = Time.fixedDeltaTime;
-            if (dt <= 0.0f || float.IsNaN(dt) || float.IsInfinity(dt))
-                dt = 0.02f;
-            return dt > MaxPerTickPhaseOffsetSeconds ? MaxPerTickPhaseOffsetSeconds : dt;
-        }
-
-        /// <summary>
-        /// Kept as a thin alias for the legacy structural-event-only callers
-        /// (xUnit tests, in-game test names, log strings) that still reference
-        /// the structural-event-specific name. New code should call
-        /// <see cref="PerTickPositionPhaseOffsetSeconds"/> directly.
+        /// Time offset (seconds) between the position captured at a structural
+        /// event and the UT stamped on that snapshot. Defaults to KSP's
+        /// physics tick (typically 0.02 s) since the event handler runs after
+        /// PhysX integration but reads <c>Planetarium.GetUniversalTime()</c>
+        /// which reflects start-of-tick time. Empirically validated against
+        /// recorded data showing exactly one fixedDeltaTime of positional
+        /// excess at staging events.
         /// </summary>
         internal static float StructuralEventPositionPhaseOffsetSeconds(Vessel v)
         {
-            return PerTickPositionPhaseOffsetSeconds(v);
+            // v argument reserved for future per-vessel tuning (e.g., packed
+            // vessels may not exhibit the offset). Currently uniform.
+            float dt = Time.fixedDeltaTime;
+            return dt > 0.0f && !float.IsNaN(dt) && !float.IsInfinity(dt) ? dt : 0.02f;
         }
 
         /// <summary>
