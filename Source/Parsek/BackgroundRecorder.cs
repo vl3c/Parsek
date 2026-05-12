@@ -540,7 +540,7 @@ namespace Parsek
                 }
                 preBreakVesselPidSnapshots[vesselPid] = snapshot;
                 TrajectoryPoint? parentBoundaryPoint = joint.Child.vessel != null
-                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
+                    ? (TrajectoryPoint?)CreateStructuralEventAbsolutePointFromVessel(
                         joint.Child.vessel, branchUT, preferRootPartSurfacePose: true)
                     : null;
                 if (parentBoundaryPoint.HasValue
@@ -718,7 +718,7 @@ namespace Parsek
                 if (!parentInitialPoint.HasValue && parentVessel != null)
                 {
                     double sampleUT = Planetarium.GetUniversalTime();
-                    parentInitialPoint = CreateAbsoluteTrajectoryPointFromVessel(
+                    parentInitialPoint = CreateStructuralEventAbsolutePointFromVessel(
                         parentVessel, sampleUT, preferRootPartSurfacePose: true);
                 }
                 OnVesselBackgrounded(parentPid, parentEngineState,
@@ -1173,9 +1173,14 @@ namespace Parsek
                 // Initialize tracking state for new child vessel. This check runs
                 // one frame after the joint break, so any child seed captured here
                 // must use the actual sample UT rather than the earlier branchUT.
+                // Capture via the structural-event helper because the seed is
+                // still inside the joint-break dispatch phase: v.latitude is the
+                // end-of-tick PhysX state but sampleUT reads start-of-tick from
+                // Planetarium.GetUniversalTime(), so the plain helper would
+                // record the debris seed ~3 m ahead of its stamp.
                 double sampleUT = Planetarium.GetUniversalTime();
                 TrajectoryPoint? childInitialPoint = childVessel != null
-                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
+                    ? (TrajectoryPoint?)CreateStructuralEventAbsolutePointFromVessel(
                         childVessel, sampleUT, preferRootPartSurfacePose: true)
                     : null;
                 OnVesselBackgrounded(child.VesselPersistentId, inherited,
@@ -3590,6 +3595,24 @@ namespace Parsek
                         state,
                         initialTrajectoryPoint.ut,
                         "initial-trajectory-point-debris");
+                    // v9 surface clearance must reach the very first
+                    // body-fixed shadow frame too -- otherwise surface debris
+                    // replays its seed at raw recorded altitude while every
+                    // subsequent shadow frame gets terrain correction,
+                    // producing a one-frame visual hop at terrain transitions.
+                    // The in-frames point is anchor-local metres under a
+                    // Relative section, so ApplySurfaceClearanceToPoint
+                    // correctly gate-skips it (the helper's frame gate
+                    // rejects Relative). Mirrors the periodic-sample wiring
+                    // at OnBackgroundPhysicsFrame and the structural-event
+                    // flush wiring -- those previously got the body-fixed
+                    // shadow clearance, but the seed path did not.
+                    ApplySurfaceClearanceToPoint(state, v, ref initialTrajectoryPoint);
+                    if (seedRelativeApplied)
+                    {
+                        ApplySurfaceClearanceToBodyFixedShadow(
+                            state, v, ref absoluteSeedPoint);
+                    }
                     if (hasTreeRecording)
                         ApplyInitialTrajectoryPoint(
                             state, treeRecForSeed, initialTrajectoryPoint, absoluteSeedPoint);
@@ -4269,6 +4292,33 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// Creates an absolute trajectory point captured during a joint-break /
+        /// structural-event handler dispatch. The position is backward-
+        /// extrapolated by one Time.fixedDeltaTime to align with the recorded
+        /// UT stamp: KSP fires these events in a phase where the live
+        /// v.latitude/longitude/altitude reflect end-of-current-tick PhysX
+        /// state but Planetarium.GetUniversalTime() returns start-of-tick
+        /// time, so without correction every structural-snapshot position
+        /// runs ~3 m ahead of its stamp at typical staging velocities. See
+        /// <see cref="FlightRecorder.BackwardExtrapolateStructuralSnapshotPosition"/>
+        /// for the full rationale. Use this overload at every structural-
+        /// event-phase capture site (split-time parent boundary, parent
+        /// continuation seed, debris child seed, BG structural snapshot);
+        /// ordinary periodic samples must continue to use the plain overload.
+        /// </summary>
+        internal static TrajectoryPoint CreateStructuralEventAbsolutePointFromVessel(
+            Vessel v,
+            double eventUT,
+            Vector3? explicitVelocity = null,
+            bool preferRootPartSurfacePose = false)
+        {
+            TrajectoryPoint pt = CreateAbsoluteTrajectoryPointFromVessel(
+                v, eventUT, explicitVelocity, preferRootPartSurfacePose);
+            return FlightRecorder.BackwardExtrapolateStructuralSnapshotPosition(
+                pt, v, pt.velocity);
+        }
+
         private static bool TryCanonicalizeBackgroundReFlyRecordingPoint(
             string recordingId,
             ref TrajectoryPoint point,
@@ -4553,11 +4603,24 @@ namespace Parsek
                     continue;
                 }
 
+                // Use vesselTransform.position to stay symmetric with
+                // vessel.transform.rotation -- mixing GetWorldPos3D (CoM) with
+                // vesselTransform rotation systematically shifts the recorded
+                // offset by the CoM-to-vesselTransform vector (the v0.9 radial-
+                // booster ~10 m forward bug). Falls back to CoM only when the
+                // Unity transform is unavailable (mid-teardown fake-null).
+                Transform candidateTransform = vessel.transform;
+                Vector3d candidatePos = candidateTransform != null
+                    ? (Vector3d)candidateTransform.position
+                    : vessel.GetWorldPos3D();
+                Quaternion candidateRot = candidateTransform != null
+                    ? candidateTransform.rotation
+                    : Quaternion.identity;
                 if (AnchorDetector.TryCreateRecordingAnchorCandidate(
                         focusRecording,
                         candidateRecording,
-                        vessel.GetWorldPos3D(),
-                        vessel.transform.rotation,
+                        candidatePos,
+                        candidateRot,
                         AnchorCandidateSource.Live,
                         vessel.persistentId,
                         -1,
@@ -4735,10 +4798,27 @@ namespace Parsek
 
             if (parentVessel != null && parentVessel.loaded)
             {
+                // Use vesselTransform.position (NOT GetWorldPos3D / CoM) to stay
+                // symmetric with parentVessel.transform.rotation and with the
+                // recorder's seed-time anchor capture (which writes
+                // v.latitude/longitude/altitude derived from vesselTransform via
+                // KSP's UpdatePosVel). Mixing CoM position with vesselTransform
+                // rotation was the v0.9 radial-booster ~10 m forward offset bug
+                // -- body-fixed primary masks the inconsistency for normal v13
+                // rendering, but the live candidate also leaks into diagnostics,
+                // fallback paths, and future anchor-based render logic. Falls
+                // back to CoM when transform is null (mid-teardown fake-null).
+                Transform parentTransform = parentVessel.transform;
+                Vector3d parentAnchorPos = parentTransform != null
+                    ? (Vector3d)parentTransform.position
+                    : parentVessel.GetWorldPos3D();
+                Quaternion parentAnchorRot = parentTransform != null
+                    ? parentTransform.rotation
+                    : Quaternion.identity;
                 var liveCandidate = new RecordingAnchorCandidate(
                     parentRecId,
-                    parentVessel.GetWorldPos3D(),
-                    parentVessel.transform.rotation,
+                    parentAnchorPos,
+                    parentAnchorRot,
                     AnchorCandidateSource.Live,
                     diagnosticPid: parentVessel.persistentId,
                     ghostIndex: -1,
@@ -4950,6 +5030,17 @@ namespace Parsek
                 return false;
             }
 
+            // Apply v9 surface clearance to both stores. The in-frames
+            // relativePoint goes into a Relative section so the helper's
+            // frame gate correctly skips it (anchor-local metres in
+            // lat/lon/alt would corrupt terrain math), but the body-fixed
+            // shadow carries genuine lat/lon/alt and the v13 body-fixed
+            // primary playback path applies terrain correction via
+            // recordedGroundClearance. Mirrors the periodic-sample,
+            // structural-event, and debris-seed wirings.
+            ApplySurfaceClearanceToPoint(state, vessel, ref relativePoint);
+            ApplySurfaceClearanceToBodyFixedShadow(state, vessel, ref absolutePoint);
+
             AddFrameToActiveTrackSection(state, relativePoint, absolutePoint);
             ParsekLog.Verbose("BgRecorder",
                 $"RELATIVE boundary seeded: pid={state.vesselPid} " +
@@ -4978,7 +5069,16 @@ namespace Parsek
                     vessel,
                     out Vector3d focusWorldPos))
             {
-                focusWorldPos = vessel.GetWorldPos3D();
+                // Fall back to vesselTransform.position (NOT GetWorldPos3D / CoM)
+                // to stay symmetric with the rotation fallback below at
+                // vessel.transform.rotation. Both pieces must come from the same
+                // frame or the recorded offset is shifted by the CoM-to-
+                // vesselTransform vector. CoM remains as the last-resort fallback
+                // if the Unity transform is mid-teardown (fake-null).
+                Transform focusTransform = vessel.transform;
+                focusWorldPos = focusTransform != null
+                    ? (Vector3d)focusTransform.position
+                    : vessel.GetWorldPos3D();
             }
             Vector3d offset = TrajectoryMath.ComputeRelativeLocalOffset(
                 focusWorldPos,
@@ -7192,7 +7292,12 @@ namespace Parsek
                 Vector3 velocity = v.packed
                     ? (Vector3)v.obt_velocity
                     : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
-                TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(
+                // KSP samples Vessel.latitude/longitude/altitude from PhysX end-of-tick state but
+                // Planetarium.GetUniversalTime() returns start-of-tick time, producing a one
+                // fixedDeltaTime phase offset on joint-break / structural events. Backward
+                // extrapolate by Time.fixedDeltaTime * velocity so the recorded position matches
+                // the stamped UT and debris ghosts do not slide forward on the first playback frame.
+                TrajectoryPoint point = CreateStructuralEventAbsolutePointFromVessel(
                     v,
                     eventUT,
                     velocity,

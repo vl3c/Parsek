@@ -5946,6 +5946,40 @@ namespace Parsek
                 $"{reason} lifecycle=\"{lifecycle}\"");
         }
 
+        /// <summary>
+        /// Clears the #573 active/source spawn-suppression marker when the player
+        /// engages with a rewound recording via Watch. The original #573 protection
+        /// was scoped at rewind time to avoid background ghost playback materialising
+        /// a duplicate of a vessel the player just stripped (chain-tip respawn next to
+        /// the player's freshly-launched vessel). Watching the rewound recording is
+        /// the player's explicit signal that they want to see this recording's outcome
+        /// — the spawn at terminal end should be allowed to evaluate normally.
+        /// Returns true when a marker was actually cleared. Only acts on the
+        /// <see cref="RewindSpawnSuppressionReasonSameRecording"/> reason: legacy
+        /// unscoped markers are normalized by
+        /// <c>ShouldBlockSpawnForRewindSuppression</c>'s separate path. This helper
+        /// deliberately does NOT gate on terminal state — final spawnability is
+        /// owned by <c>ShouldSpawnAtRecordingEnd</c>'s other gates (snapshot
+        /// situation, terminal-state, PID dedup, etc.). Gating here on an enum
+        /// whitelist would re-introduce the bug for null-terminal recordings that
+        /// pass <c>ShouldSpawnAtRecordingEnd</c> via the snapshot-situation path.
+        /// </summary>
+        internal static bool TryClearSpawnSuppressionOnWatchEntry(Recording rec)
+        {
+            if (rec == null || !rec.SpawnSuppressedByRewind)
+                return false;
+            if (!string.Equals(rec.SpawnSuppressedByRewindReason,
+                    RewindSpawnSuppressionReasonSameRecording,
+                    StringComparison.Ordinal))
+                return false;
+
+            ClearRewindSpawnSuppression(
+                rec,
+                $"reason={rec.SpawnSuppressedByRewindReason}",
+                "watch-entry: user engaged with rewound recording, allowing spawn at recording end");
+            return true;
+        }
+
         internal static string FormatRewindUT(double ut)
         {
             return double.IsNaN(ut)

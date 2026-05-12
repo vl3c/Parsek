@@ -4074,7 +4074,7 @@ namespace Parsek
             if (alreadyMaterialized)
             {
                 skipReason = TrackingStationGhostSkipAlreadySpawned;
-                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already materialized");
+                return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already spawned");
             }
 
             var terminal = traj.TerminalStateValue;
@@ -4462,7 +4462,7 @@ namespace Parsek
                 case TrackingStationGhostSkipSuppressed:
                     return WithStructured("isSuppressed=True");
                 case TrackingStationGhostSkipAlreadySpawned:
-                    return WithStructured("already materialized");
+                    return WithStructured("already spawned");
                 case "before-activation":
                     return WithStructured(string.Format(ic, "activationStartUT={0:F1}",
                         PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec)));
@@ -7136,7 +7136,7 @@ namespace Parsek
                 return "tracking-station-child-started";
 
             if (alreadyMaterialized)
-                return "tracking-station-materialized-real-vessel";
+                return "tracking-station-spawned-real-vessel";
 
             if (isStateVector)
                 return currentUT > rec.EndUT

@@ -617,7 +617,7 @@ namespace Parsek
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Suppressed: {0} | Materialized: {1}",
+                "Suppressed: {0} | Spawned: {1}",
                 state.SuppressedRecordings,
                 state.MaterializedRecordings);
         }
@@ -819,8 +819,8 @@ namespace Parsek
                     out _)
                 && GhostMapPresence.IsTrackingStationRecordingAlreadyMaterialized(selectedRecording))
             {
-                DismissCurrentGhostPopup("selected-recording-materialized");
-                GhostTrackingStationSelection.ClearSelectedGhost("selected-recording-materialized");
+                DismissCurrentGhostPopup("selected-recording-spawned");
+                GhostTrackingStationSelection.ClearSelectedGhost("selected-recording-spawned");
                 return;
             }
 
@@ -869,7 +869,7 @@ namespace Parsek
             if (!selection.HasRecording)
                 return "no-recording";
             if (selection.VesselSpawned || selection.SpawnedVesselPersistentId != 0)
-                return "materialized";
+                return "spawned";
             if (double.IsNaN(selection.EndUT) || double.IsInfinity(selection.EndUT))
                 return "unknown-end";
 
@@ -938,7 +938,7 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Tracking Station ghost popup opened: key={0} ghostPid={1} recId={2} materialize={3}",
+                    "Tracking Station ghost popup opened: key={0} ghostPid={1} recId={2} warpToSpawn={3}",
                     key ?? "(none)",
                     selection.GhostPid,
                     selection.RecordingId ?? "(none)",
@@ -1092,16 +1092,16 @@ namespace Parsek
             double currentUT)
         {
             if (!actionContext.MaterializeFastForwardEligible)
-                return string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel;
+                return string.IsNullOrEmpty(baseLabel) ? "Warp to Spawn" : baseLabel;
 
             double remaining = selection.EndUT - currentUT;
             if (!(remaining > 0.0))
-                return string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel;
+                return string.IsNullOrEmpty(baseLabel) ? "Warp to Spawn" : baseLabel;
 
             return string.Format(
                 CultureInfo.InvariantCulture,
                 "{0} ({1})",
-                string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel,
+                string.IsNullOrEmpty(baseLabel) ? "Warp to Spawn" : baseLabel,
                 ParsekTimeFormat.FormatDuration(remaining));
         }
 
@@ -1112,7 +1112,7 @@ namespace Parsek
             if (!selection.HasRecording)
                 return "unavailable";
             if (selection.VesselSpawned || selection.SpawnedVesselPersistentId != 0)
-                return "materialized";
+                return "spawned";
             if (double.IsNaN(selection.EndUT))
                 return "unknown";
 
@@ -1225,16 +1225,16 @@ namespace Parsek
             {
                 if (!FocusSpawnedTrackingStationVessel(
                         recording.SpawnedVesselPersistentId,
-                        "atmospheric-focus-materialized",
+                        "atmospheric-focus-spawned",
                         restoreStockSelection: true,
                         warnOnFailure: true,
                         out _))
                 {
                     ScheduleMaterializedFocusRetry(
                         recording.SpawnedVesselPersistentId,
-                        "atmospheric-focus-materialized");
+                        "atmospheric-focus-spawned");
                 }
-                DestroyAtmosphericFocusTarget("atmospheric-focus-materialized");
+                DestroyAtmosphericFocusTarget("atmospheric-focus-spawned");
                 return;
             }
 
@@ -1570,7 +1570,7 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialize selected ghost failed: missing recording for ghostPid={0} recId={1}",
+                        "Warp to Spawn selected ghost failed: missing recording for ghostPid={0} recId={1}",
                         selection.GhostPid,
                         selection.RecordingId ?? "(none)"));
                 return;
@@ -1585,7 +1585,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Materialize fast-forward refused: recId={0} fromUT={1:F1} endpointUT={2:F1} reason={3}",
+                            "Warp to Spawn fast-forward refused: recId={0} fromUT={1:F1} endpointUT={2:F1} reason={3}",
                             recording.RecordingId ?? "(none)",
                             currentUT,
                             recording.EndUT,
@@ -1593,11 +1593,11 @@ namespace Parsek
                     ParsekLog.ScreenMessage(
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Cannot materialize \"{0}\": {1}",
+                            "Cannot warp to spawn \"{0}\": {1}",
                             recording.VesselName ?? "ghost",
                             endpointMaterialize.reason ?? "endpoint blocked"),
                         4f);
-                    GhostTrackingStationSelection.ClearSelectedGhost("materialize endpoint ineligible");
+                    GhostTrackingStationSelection.ClearSelectedGhost("spawn endpoint ineligible");
                     return;
                 }
 
@@ -1605,7 +1605,7 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialize fast-forward requested: recId={0} fromUT={1:F1} endpointUT={2:F1} delta={3:F1}s",
+                        "Warp to Spawn fast-forward requested: recId={0} fromUT={1:F1} endpointUT={2:F1} delta={3:F1}s",
                         recording.RecordingId ?? "(none)",
                         currentUT,
                         recording.EndUT,
@@ -1614,7 +1614,7 @@ namespace Parsek
                 ParsekLog.ScreenMessage(
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Fast-forwarded to materialize \"{0}\" ({1:F0}s)",
+                        "Warped to spawn \"{0}\" ({1:F0}s)",
                         recording.VesselName ?? "ghost",
                         jumpDelta),
                     3f);
@@ -1629,7 +1629,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Materialize requested for Tracking Station ghost pid={0} recId={1} ut={2:F1} handled={3}",
+                    "Warp to Spawn requested for Tracking Station ghost pid={0} recId={1} ut={2:F1} handled={3}",
                     selection.GhostPid,
                     selection.RecordingId ?? "(none)",
                     currentUT,
@@ -1640,30 +1640,30 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialize handoff forcing immediate Tracking Station lifecycle tick: recId={0}",
+                        "Warp to Spawn handoff forcing immediate Tracking Station lifecycle tick: recId={0}",
                         selection.RecordingId ?? "(none)"));
                 GhostMapPresence.UpdateTrackingStationGhostLifecycle(refreshStockList: false);
                 nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
-                GhostMapPresence.TryRefreshLiveTrackingStationVesselList("tracking-station-materialize-handoff");
+                GhostMapPresence.TryRefreshLiveTrackingStationVesselList("tracking-station-spawn-handoff");
 
                 if (recording.SpawnedVesselPersistentId != 0)
                 {
                     if (!FocusSpawnedTrackingStationVessel(
                             recording.SpawnedVesselPersistentId,
-                            "tracking-station-materialize",
+                            "tracking-station-spawn",
                             restoreStockSelection: true,
                             warnOnFailure: true,
                             out _))
                     {
                         ScheduleMaterializedFocusRetry(
                             recording.SpawnedVesselPersistentId,
-                            "tracking-station-materialize");
+                            "tracking-station-spawn");
                     }
                 }
-                DestroyAtmosphericFocusTarget("materialize handoff");
+                DestroyAtmosphericFocusTarget("spawn handoff");
             }
 
-            GhostTrackingStationSelection.ClearSelectedGhost("materialize handoff");
+            GhostTrackingStationSelection.ClearSelectedGhost("spawn handoff");
         }
 
         private void ScheduleMaterializedFocusRetry(uint spawnedPid, string reason)
@@ -1673,7 +1673,7 @@ namespace Parsek
 
             pendingMaterializedFocusPid = spawnedPid;
             pendingMaterializedFocusReason = string.IsNullOrEmpty(reason)
-                ? "tracking-station-materialize"
+                ? "tracking-station-spawn"
                 : reason;
             pendingMaterializedFocusDeadlineTime =
                 Time.time + MaterializedFocusRetryDurationSec;
@@ -1684,7 +1684,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Scheduled materialized Tracking Station focus retry: pid={0} reason={1} duration={2:F1}s interval={3:F2}s",
+                    "Scheduled spawned Tracking Station focus retry: pid={0} reason={1} duration={2:F1}s interval={3:F2}s",
                     spawnedPid,
                     pendingMaterializedFocusReason,
                     MaterializedFocusRetryDurationSec,
@@ -1722,7 +1722,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialized Tracking Station focus retry baseline stock-selection probe failed: pid={0} error={1}",
+                        "Spawned Tracking Station focus retry baseline stock-selection probe failed: pid={0} error={1}",
                         spawnedPid,
                         selectedError ?? "(none)"));
             }
@@ -1730,7 +1730,7 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Captured materialized Tracking Station focus retry selection baseline: pid={0} ghostSelected={1} ghostPid={2} recId={3} stockAvailable={4} stockPid={5}",
+                    "Captured spawned Tracking Station focus retry selection baseline: pid={0} ghostSelected={1} ghostPid={2} recId={3} stockAvailable={4} stockPid={5}",
                     spawnedPid,
                     pendingMaterializedFocusBaselineHasSelectedGhost,
                     pendingMaterializedFocusBaselineGhostPid,
@@ -1754,7 +1754,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Materialized Tracking Station focus retry expired: pid={0} reason={1} attempts={2}",
+                            "Spawned Tracking Station focus retry expired: pid={0} reason={1} attempts={2}",
                             pendingMaterializedFocusPid,
                             pendingMaterializedFocusReason ?? "(none)",
                             pendingMaterializedFocusAttempts));
@@ -1764,7 +1764,7 @@ namespace Parsek
             }
 
             uint spawnedPid = pendingMaterializedFocusPid;
-            string reason = pendingMaterializedFocusReason ?? "tracking-station-materialize";
+            string reason = pendingMaterializedFocusReason ?? "tracking-station-spawn";
             if (ShouldAbortMaterializedFocusRetryForCurrentSelection(
                     spawnedPid,
                     out string abortReason))
@@ -1772,7 +1772,7 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialized Tracking Station focus retry cancelled: pid={0} reason={1} attempts={2} abort={3}",
+                        "Spawned Tracking Station focus retry cancelled: pid={0} reason={1} attempts={2} abort={3}",
                         spawnedPid,
                         reason,
                         pendingMaterializedFocusAttempts,
@@ -1794,7 +1794,7 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialized Tracking Station focus retry succeeded: pid={0} reason={1} attempts={2}",
+                        "Spawned Tracking Station focus retry succeeded: pid={0} reason={1} attempts={2}",
                         spawnedPid,
                         reason,
                         pendingMaterializedFocusAttempts));
@@ -1803,10 +1803,10 @@ namespace Parsek
             }
 
             ParsekLog.VerboseRateLimited(Tag,
-                "materialized-focus-retry-pending|" + spawnedPid,
+                "spawned-focus-retry-pending|" + spawnedPid,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Materialized Tracking Station focus retry pending: pid={0} reason={1} attempts={2} error={3}",
+                    "Spawned Tracking Station focus retry pending: pid={0} reason={1} attempts={2} error={3}",
                     spawnedPid,
                     reason,
                     pendingMaterializedFocusAttempts,
@@ -1852,10 +1852,10 @@ namespace Parsek
                     out string selectedError))
             {
                 ParsekLog.VerboseRateLimited(Tag,
-                    "materialized-focus-selected-vessel-probe-failed",
+                    "spawned-focus-selected-vessel-probe-failed",
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialized Tracking Station focus retry selection probe failed: pid={0} error={1}",
+                        "Spawned Tracking Station focus retry selection probe failed: pid={0} error={1}",
                         spawnedPid,
                         selectedError ?? "(none)"),
                     1.0);
@@ -1869,7 +1869,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Captured deferred materialized Tracking Station focus retry stock-selection baseline: pid={0} stockPid={1}",
+                        "Captured deferred spawned Tracking Station focus retry stock-selection baseline: pid={0} stockPid={1}",
                         spawnedPid,
                         selectedPid));
                 return false;
@@ -2034,7 +2034,7 @@ namespace Parsek
                                 ParsekLog.Warn(Tag,
                                     string.Format(
                                         CultureInfo.InvariantCulture,
-                                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} error={2}",
+                                        "Focus spawned Tracking Station vessel failed: pid={0} reason={1} error={2}",
                                         spawnedPid,
                                         reason ?? "(none)",
                                         error));
@@ -2055,7 +2055,7 @@ namespace Parsek
                                 ParsekLog.Warn(Tag,
                                     string.Format(
                                         CultureInfo.InvariantCulture,
-                                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} mapObject='{2}' error={3}",
+                                        "Focus spawned Tracking Station vessel failed: pid={0} reason={1} mapObject='{2}' error={3}",
                                         spawnedPid,
                                         reason ?? "(none)",
                                         mapObjectName ?? "(null)",
@@ -2068,7 +2068,7 @@ namespace Parsek
                     ParsekLog.Info(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Focused materialized Tracking Station vessel '{0}' pid={1} mapObject='{2}' reason={3} stockSelected={4}",
+                            "Focused spawned Tracking Station vessel '{0}' pid={1} mapObject='{2}' reason={3} stockSelected={4}",
                             spawned.vesselName ?? "(unknown)",
                             spawned.persistentId,
                             mapObjectName ?? "(null)",
@@ -2083,7 +2083,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Focus materialized Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4} error={5}",
+                            "Focus spawned Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4} error={5}",
                             spawnedPid,
                             reason ?? "(none)",
                             true,
@@ -2105,7 +2105,7 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} {2}",
+                        "Focus spawned Tracking Station vessel failed: pid={0} reason={1} {2}",
                         spawnedPid,
                         reason ?? "(none)",
                         error));

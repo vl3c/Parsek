@@ -11,12 +11,14 @@ namespace Parsek.Tests
         {
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
         }
 
         public void Dispose()
         {
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
+            ParsekTimeFormat.ResetForTesting();
         }
 
         [Fact]
@@ -34,6 +36,51 @@ namespace Parsek.Tests
             Assert.Equal(watch, loop);
             Assert.Equal(48f, goTo);
             Assert.True(goTo > watch);
+        }
+
+        [Fact]
+        public void TryConsumeCountdownTimeLabel_OnlyFirstVisibleFutureRow_ReturnsTrue()
+        {
+            bool countdownRowDrawn = false;
+
+            Assert.False(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 90, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.False(countdownRowDrawn);
+
+            Assert.False(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 100, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.False(countdownRowDrawn);
+
+            Assert.True(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 130, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.True(countdownRowDrawn);
+
+            Assert.False(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 160, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.True(countdownRowDrawn);
+        }
+
+        [Fact]
+        public void TryConsumeCountdownTimeLabel_HiddenFutureRow_DoesNotConsumeLatch()
+        {
+            bool countdownRowDrawn = false;
+
+            Assert.False(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 130, currentUT: 100, entryVisible: false, ref countdownRowDrawn));
+            Assert.False(countdownRowDrawn);
+
+            Assert.True(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 160, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.True(countdownRowDrawn);
+        }
+
+        [Fact]
+        public void FormatTimelineEntryTimeLabel_CountdownRow_UsesTMinusCountdown()
+        {
+            string label = TimelineWindowUI.FormatTimelineEntryTimeLabel(
+                entryUT: 430, currentUT: 100, showCountdownTime: true);
+
+            Assert.Equal("T-5m 30s", label);
         }
 
         [Fact]

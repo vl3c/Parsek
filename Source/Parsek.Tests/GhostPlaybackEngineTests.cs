@@ -4508,6 +4508,76 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveVisiblePlaybackUT_V13ParentAnchoredDebrisWithBodyFixedPrimary_DoesNotClamp()
+        {
+            // v13 carve-out: parent-anchored debris with body-fixed primary
+            // coverage at the activation UT must NOT have its first visible
+            // frame clamped back to activationStartUT. Without this carve-out,
+            // the clamp renders the first visible frame at seed UT, then the
+            // next frame unclamps and jumps to natural playbackUT --
+            // producing the user-visible "ghost slides ~6 m downrange on the
+            // first one or two frames" symptom for atmospheric debris.
+            // With the carve-out, every visible frame uses natural playbackUT
+            // (first frame lands sub-metre past seed, subsequent frames
+            // advance smoothly).
+            var traj = new MockTrajectory().WithTimeRange(109.74, 121.94);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 109.74,
+                endUT = 121.94,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 109.74 },
+                    new TrajectoryPoint { ut = 110.28 },
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            // playbackUT 109.757 is 0.017s past activationStartUT 109.74 --
+            // within the existing clamp window. Pre-carve-out behavior would
+            // return 109.74 (clamped); the carve-out returns natural
+            // playbackUT 109.757 so the first visible frame matches the
+            // ghost's natural-UT pose.
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 109.757);
+            Assert.Equal(109.757, visibleUT, 4);
+        }
+
+        [Fact]
+        public void ResolveVisiblePlaybackUT_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_StillClamps()
+        {
+            // Carve-out requires body-fixed primary coverage at the activation
+            // UT. Debris without body-fixed primary still gets the default
+            // first-frame clamp -- its first frame may need a deterministic
+            // seed pose because anchor-local playback depends on live anchor
+            // resolution.
+            var traj = new MockTrajectory().WithTimeRange(109.74, 121.94);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 109.74,
+                endUT = 121.94,
+                // No bodyFixedFrames.
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 109.757);
+            Assert.Equal(109.74, visibleUT, 4);
+        }
+
+        [Fact]
         public void ResolveVisiblePlaybackUT_DoesNotRewindLargeLateFirstAppearance()
         {
             var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);
@@ -4694,6 +4764,96 @@ namespace Parsek.Tests
             section.referenceFrame = ReferenceFrame.Absolute;
             traj.TrackSections[0] = section;
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_V13ParentAnchoredDebrisWithBodyFixedPrimary_ReturnsFalse()
+        {
+            // v13 carve-out: parent-anchored debris with a body-fixed primary
+            // surface covering the activation UT does not need the generic
+            // relative-start hide. Without this carve-out, the 0.08 s hide
+            // produces ~19 m of velocity-integrated downrange offset at
+            // typical debris atmospheric speeds (~190 m/s).
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 102.5 },
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_ReturnsTrue()
+        {
+            // Carve-out requires body-fixed primary coverage at the activation
+            // UT. A parent-anchored debris recording whose first section has
+            // anchor-local frames only (no body-fixed shadow) still gets the
+            // generic relative-start hide because its first frame depends on
+            // live anchor resolution.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_NonDebrisRelativeStartWithBodyFixed_ReturnsTrue()
+        {
+            // Carve-out is parent-anchored-debris-only. Non-debris Relative
+            // recordings (e.g. loop-anchored tankers, recorded-anchor chains)
+            // still need the generic hide -- their first frame may depend on
+            // resolving the live anchor pose.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = false;
+            traj.DebrisParentRecordingId = null;
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 102.5 },
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
                 traj, state, 100.04));
         }
 
@@ -5122,6 +5282,87 @@ namespace Parsek.Tests
                 traj, state, 100.20));
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHiddenThisFrame(
                 traj, state, 100.21));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_V13ParentAnchoredDebrisWithBodyFixedPrimary_ReturnsFalse()
+        {
+            // The v13 carve-out must skip BOTH initial-hide layers for parent-
+            // anchored debris with body-fixed primary coverage at the
+            // activation UT: the relative-start UT-window hide AND the
+            // activation-settle / minimum-frames time-warp fallback. Without
+            // covering both, the fallback layer primes a minimum-frames
+            // counter that holds the ghost hidden for additional frames
+            // during which playback advances and the transform slides
+            // forward by one physics-tick of velocity-integrated motion
+            // (the "ghost slides 2-3 m in front before settling" symptom
+            // that prompted this regression test).
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 102.5 },
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            // No frame is hidden -- including the first frame at the seed UT,
+            // the next physics-tick frame, and any subsequent frame. The
+            // minimum-frames counter must NOT be primed because there is no
+            // anchor-resolution race to mask -- body-fixed primary playback
+            // is deterministic at any playback UT.
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.00, out string seedReason));
+            Assert.Null(seedReason);
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.04, out string nextTickReason));
+            Assert.Null(nextTickReason);
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.20, out string laterReason));
+            Assert.Null(laterReason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_StillUsesFallback()
+        {
+            // Debris recording missing body-fixed primary coverage at the
+            // activation UT does NOT qualify for the v13 carve-out. The
+            // activation-settle / minimum-frames fallback still fires --
+            // because without body-fixed primary, the first frame may need
+            // to resolve through the anchor-local path which depends on the
+            // live parent pose.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                // No bodyFixedFrames -- the carve-out's coverage gate fails.
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            // The relative-start hide is the primary gate while activationLead
+            // is within the UT window.
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.04, out string reason));
+            Assert.Equal("relative-start", reason);
         }
 
         [Fact]

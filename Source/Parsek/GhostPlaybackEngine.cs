@@ -5401,6 +5401,21 @@ namespace Parsek
             if (!state.deferVisibilityUntilPlaybackSync || state.appearanceCount != 0)
                 return playbackUT;
 
+            // v13 carve-out (matches the hide-gate carve-out): parent-anchored
+            // debris with body-fixed primary covering the activation UT does
+            // NOT get clamped to activationStartUT for one frame either.
+            // Without this, the clamp produces a one-frame seed render that
+            // then jumps to the natural playback UT on the next frame --
+            // (rawPlaybackUT - activationStartUT) * velocity = ~6 m of
+            // downrange slide for atmospheric debris at ~150-190 m/s. With
+            // the carve-out, the first visible frame renders at the natural
+            // playback UT (typically <0.02 s past the seed, so the visible
+            // position is sub-metre off the seed) and subsequent frames
+            // advance smoothly with no jump. Body-fixed primary playback is
+            // deterministic at any UT inside the section so this is safe.
+            if (IsV13ParentAnchoredDebrisWithBodyFixedPrimaryAtActivationUT(traj))
+                return playbackUT;
+
             double activationStartUT = ResolveGhostActivationStartUT(traj);
             double activationLead = playbackUT - activationStartUT;
 
@@ -5446,8 +5461,71 @@ namespace Parsek
             if (sectionIndex < 0)
                 sectionIndex = TrajectoryMath.FindTrackSectionForUT(
                     traj.TrackSections, activationStartUT);
-            return sectionIndex >= 0
-                && traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Relative;
+            if (sectionIndex < 0
+                || traj.TrackSections[sectionIndex].referenceFrame != ReferenceFrame.Relative)
+            {
+                return false;
+            }
+
+            // v13 carve-out: parent-anchored debris that has a body-fixed primary
+            // surface covering the activation UT does not need the generic
+            // relative-start hide. The body-fixed primary path resolves the
+            // recorded world pose directly from the section's bodyFixedFrames
+            // without consulting any live anchor, so there is no anchor-
+            // resolution race to mask. Without this carve-out, the 0.08s hide
+            // forces playback to advance to activationLead > 0.08 before the
+            // ghost becomes visible -- at debris velocities (~190 m/s in
+            // atmosphere), that is ~19 m of velocity-integrated downrange
+            // motion past the recorded seed pose, producing the user-visible
+            // "ghost spawns too far forward" symptom.
+            if (IsV13ParentAnchoredDebrisWithBodyFixedPrimaryAtActivationUT(traj))
+                return false;
+
+            return true;
+        }
+
+        private static bool IsParentAnchoredDebrisTrajectory(IPlaybackTrajectory traj)
+        {
+            return traj != null
+                && traj.IsDebris
+                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
+        }
+
+        /// <summary>
+        /// Shared predicate for the v13 parent-anchored debris activation-hide
+        /// carve-outs: returns true when the trajectory is parent-anchored
+        /// debris AND the section covering the activation UT is Relative AND
+        /// body-fixed primary coverage exists at the activation UT. Both the
+        /// relative-start UT-window gate and the activation-settle time-warp
+        /// fallback consult this so they stay symmetric; flipping one without
+        /// the other reintroduces the velocity-integrated forward slide that
+        /// the carve-out is designed to eliminate.
+        /// </summary>
+        internal static bool IsV13ParentAnchoredDebrisWithBodyFixedPrimaryAtActivationUT(
+            IPlaybackTrajectory traj)
+        {
+            if (!IsParentAnchoredDebrisTrajectory(traj))
+                return false;
+            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                traj.TrackSections, activationStartUT + 1e-6);
+            if (sectionIndex < 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    traj.TrackSections, activationStartUT);
+            if (sectionIndex < 0
+                || traj.TrackSections[sectionIndex].referenceFrame != ReferenceFrame.Relative)
+            {
+                return false;
+            }
+
+            return ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                traj.TrackSections[sectionIndex],
+                activationStartUT,
+                out _,
+                out _);
         }
 
         private static bool CanEvaluateInitialActivationHidden(
@@ -5647,7 +5725,24 @@ namespace Parsek
                 || withinRelativeWindow
                 || withinAbsoluteBridge
                 || withinAbsoluteToRelativePrimer;
+            // v13 carve-out: parent-anchored debris that has body-fixed primary
+            // covering the activation UT does not need ANY initial-hide path --
+            // not the UT-window gates above, and not the activation-settle
+            // time-warp guard below. Body-fixed primary playback resolves the
+            // recorded world pose directly without any live-anchor race, so
+            // even under time warp there is nothing to wait for. Without this
+            // gate, the activation-settle clause primes the minimum-frames
+            // counter and the ghost stays hidden for additional frames during
+            // which playback advances and the transform slides forward by one
+            // physics-tick of velocity-integrated motion (the "ghost slides
+            // 2-3m in front then settles" symptom). The same body-fixed
+            // primary coverage condition that gates the relative-start skip
+            // in ShouldHoldInitialRelativeActivationHidden also gates this
+            // activation-settle skip, so the two carve-outs stay in lockstep.
+            bool v13ParentAnchoredDebrisExempt =
+                IsV13ParentAnchoredDebrisWithBodyFixedPrimaryAtActivationUT(traj);
             bool withinActivationSettle = !withinUtWindow
+                && !v13ParentAnchoredDebrisExempt
                 && CanEvaluateInitialActivationHidden(traj, state)
                 && !IsInitialDebrisSeedBridgeEndFrame(traj, state, playbackUT)
                 && !state.initialRelativeActivationHiddenPrimed;

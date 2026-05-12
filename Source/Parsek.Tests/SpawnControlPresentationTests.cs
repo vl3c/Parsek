@@ -94,7 +94,7 @@ namespace Parsek.Tests
 
             Assert.Equal(string.Empty, row.StateText);
             Assert.Equal(SpawnCandidateStateTone.None, row.StateTone);
-            Assert.Equal("FF-Spawn", row.WarpButtonLabel);
+            Assert.Equal("Warp to Spawn", row.WarpButtonLabel);
             Assert.True(row.WarpButtonEnabled);
             Assert.True(row.ConditionsMet);
             Assert.False(row.UsesDepartureWarp);
@@ -118,7 +118,7 @@ namespace Parsek.Tests
 
             Assert.Equal("Departs T-2m 0s", row.StateText);
             Assert.Equal(SpawnCandidateStateTone.UpcomingDeparture, row.StateTone);
-            Assert.Equal("FF-Depart", row.WarpButtonLabel);
+            Assert.Equal("Warp to Depart", row.WarpButtonLabel);
             Assert.True(row.WarpButtonEnabled);
             Assert.True(row.ConditionsMet);
             Assert.True(row.UsesDepartureWarp);
@@ -142,7 +142,7 @@ namespace Parsek.Tests
 
             Assert.Equal("Departing → ?", row.StateText);
             Assert.Equal(SpawnCandidateStateTone.DepartingNow, row.StateTone);
-            Assert.Equal("FF-Depart", row.WarpButtonLabel);
+            Assert.Equal("Warp to Depart", row.WarpButtonLabel);
             Assert.False(row.WarpButtonEnabled);
             // Physical preconditions still pass — only the time gate fails.
             Assert.True(row.ConditionsMet);
@@ -165,7 +165,7 @@ namespace Parsek.Tests
 
             Assert.False(row.ConditionsMet);
             Assert.False(row.WarpButtonEnabled);
-            Assert.Equal("FF-Spawn", row.WarpButtonLabel);
+            Assert.Equal("Warp to Spawn", row.WarpButtonLabel);
         }
 
         [Fact]
