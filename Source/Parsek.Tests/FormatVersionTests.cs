@@ -146,6 +146,66 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecordingTreeLoad_PreV13RejectionNullsDanglingRootAndActiveIds()
+        {
+            // Tree-level identity fields point at recordings that get rejected.
+            // After load, the dangling RootRecordingId / ActiveRecordingId must
+            // be nulled rather than left pointing into the void.
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            treeNode.AddValue("id", "test-tree");
+            treeNode.AddValue("treeName", "Test Tree");
+            treeNode.AddValue("rootRecordingId", "rejected-root");
+            treeNode.AddValue("activeRecordingId", "rejected-active");
+
+            var rejectedRoot = treeNode.AddNode("RECORDING");
+            rejectedRoot.AddValue("recordingId", "rejected-root");
+            rejectedRoot.AddValue("recordingFormatVersion", "11");
+
+            var rejectedActive = treeNode.AddNode("RECORDING");
+            rejectedActive.AddValue("recordingId", "rejected-active");
+            rejectedActive.AddValue("recordingFormatVersion", "12");
+
+            logLines.Clear();
+            RecordingTree tree = RecordingTree.Load(treeNode);
+
+            Assert.False(tree.Recordings.ContainsKey("rejected-root"));
+            Assert.False(tree.Recordings.ContainsKey("rejected-active"));
+            Assert.Equal("", tree.RootRecordingId);
+            Assert.Null(tree.ActiveRecordingId);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Codec]") &&
+                line.Contains("nulled dangling tree identity refs"));
+        }
+
+        [Fact]
+        public void RecordingTreeLoad_PreV13RejectionLeavesValidIdentityRefsAlone()
+        {
+            // Mixed case: rootRecordingId references the accepted recording,
+            // but activeRecordingId references a rejected one. Root must
+            // survive, Active must be nulled.
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            treeNode.AddValue("id", "test-tree");
+            treeNode.AddValue("treeName", "Test Tree");
+            treeNode.AddValue("rootRecordingId", "good-rec");
+            treeNode.AddValue("activeRecordingId", "rejected-rec");
+
+            var goodRec = treeNode.AddNode("RECORDING");
+            goodRec.AddValue("recordingId", "good-rec");
+            goodRec.AddValue(
+                "recordingFormatVersion",
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+
+            var rejectedRec = treeNode.AddNode("RECORDING");
+            rejectedRec.AddValue("recordingId", "rejected-rec");
+            rejectedRec.AddValue("recordingFormatVersion", "11");
+
+            RecordingTree tree = RecordingTree.Load(treeNode);
+
+            Assert.Equal("good-rec", tree.RootRecordingId);
+            Assert.Null(tree.ActiveRecordingId);
+        }
+
+        [Fact]
         public void RecordingTreeLoad_FutureVersion_IsRejectedAndWarns()
         {
             int futureVersion = RecordingStore.CurrentRecordingFormatVersion + 1;

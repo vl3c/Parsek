@@ -14,10 +14,17 @@ namespace Parsek
         // Defensive floor for tier-derived sample intervals. Production
         // ParsekSettings.GetMinSampleInterval enforces a positive value
         // (0.05f / 0.2f / 0.5f at High / Medium / Low), but the helper is
-        // public-API-shaped and the floor guards against a degenerate caller
-        // passing configuredMin == 0 (which would otherwise collapse every
-        // tier to 0 and record every physics frame).
-        internal const float MinimumSampleIntervalSeconds = 0.001f;
+        // public-API-shaped and a degenerate caller passing configuredMin == 0
+        // would otherwise produce a literal zero interval. Downstream
+        // ShouldRecordPoint compares `elapsed >= maxInterval`, so a literal
+        // zero would record on every physics frame and break the inv that
+        // every sampling decision flows through a positive interval. The
+        // floor is at the physics-tick scale (KSP's default fixedDeltaTime is
+        // 0.02 s = 50 Hz) so the clamped output is still the maximum cadence
+        // physics can deliver, NOT a meaningless near-zero. Set below the
+        // tightest production configuredMin (0.05f at High density) so this
+        // floor is never reached in production.
+        internal const float MinimumSampleIntervalSeconds = 0.02f;
 
         internal static ProximitySamplingTier Resolve(
             double distanceMeters,

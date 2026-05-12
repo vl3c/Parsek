@@ -221,6 +221,13 @@ namespace Parsek
             // surfacing as resolver-walk surprises downstream.
             PruneBranchPointReferencesToMissingRecordings(tree);
 
+            // Same upgrade-window concern for tree-level identity fields: a
+            // pre-v13 save's RootRecordingId / ActiveRecordingId may point at
+            // recordings that were rejected. Null them so callers that look up
+            // by id (e.g. tree walkers, UI) see a clean miss instead of a
+            // dangling pointer into a tree that has no such recording.
+            PruneDanglingTreeIdentityReferences(tree);
+
             tree.RebuildBackgroundMap();
             NormalizeLegacyRewindSuppressionMarkers(tree);
 
@@ -322,6 +329,39 @@ namespace Parsek
                     $"recordings (tree={tree.Id ?? "<no-id>"}): " +
                     $"parentRefs={prunedParentRefs} childRefs={prunedChildRefs} " +
                     $"emptiedBranchPoints={emptiedBranchPoints}. " +
+                    "This indicates an upgrade from a pre-v13 save whose recordings " +
+                    "were rejected by the v13 format gate.");
+            }
+        }
+
+        private static void PruneDanglingTreeIdentityReferences(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null)
+                return;
+
+            bool prunedRoot = false;
+            bool prunedActive = false;
+
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && !tree.Recordings.ContainsKey(tree.RootRecordingId))
+            {
+                tree.RootRecordingId = "";
+                prunedRoot = true;
+            }
+
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && !tree.Recordings.ContainsKey(tree.ActiveRecordingId))
+            {
+                tree.ActiveRecordingId = null;
+                prunedActive = true;
+            }
+
+            if (prunedRoot || prunedActive)
+            {
+                ParsekLog.Warn("Codec",
+                    $"RecordingTree.LoadFrom: nulled dangling tree identity refs " +
+                    $"(tree={tree.Id ?? "<no-id>"}): rootRecordingId={prunedRoot} " +
+                    $"activeRecordingId={prunedActive}. " +
                     "This indicates an upgrade from a pre-v13 save whose recordings " +
                     "were rejected by the v13 format gate.");
             }

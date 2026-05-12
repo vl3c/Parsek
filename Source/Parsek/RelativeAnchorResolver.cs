@@ -1383,9 +1383,26 @@ namespace Parsek
                     sectionIndex,
                     out string anchorRecordingId))
             {
-                uint liveAnchorVesselId = section.anchorVesselId != 0u
-                    ? section.anchorVesselId
-                    : recording.LoopAnchorVesselId;
+                // Mid-loop anchor-pid mismatch: a loop-anchored recording whose
+                // Relative section points at a different live PID than the
+                // recording's declared LoopAnchorVesselId. The engine gate
+                // GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain rejects
+                // this case before the resolver is reached, but other
+                // resolver consumers (cascade walk, anchor-candidate boundary
+                // resolution in ProductionAnchorWorldFrameResolver) don't run
+                // through the engine dispatch. Fall through to the rejection
+                // path here so we don't compose against a non-loop live PID
+                // across loop iterations. Under v13 invariants non-loop
+                // recordings never write section.anchorVesselId != 0u, so
+                // this guard only fires on the explicit mismatch.
+                bool loopAnchorMismatch = recording.LoopAnchorVesselId != 0u
+                    && section.anchorVesselId != 0u
+                    && section.anchorVesselId != recording.LoopAnchorVesselId;
+                uint liveAnchorVesselId = loopAnchorMismatch
+                    ? 0u
+                    : (section.anchorVesselId != 0u
+                        ? section.anchorVesselId
+                        : recording.LoopAnchorVesselId);
                 if (liveAnchorVesselId != 0u
                     && IsDebrisFocusRecording(context)
                     && context.TryResolveLiveAnchorTransform != null)
