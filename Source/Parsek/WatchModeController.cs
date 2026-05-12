@@ -1484,14 +1484,6 @@ namespace Parsek
             if (!TryResolveWatchEntryState(index, committed, out rec, out gs))
                 return;
 
-            if (ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec))
-            {
-                ParsekLog.Verbose("CameraFollow",
-                    $"Watch entry cleared post-rewind spawn suppression: rec=#{index} " +
-                    $"id={rec.RecordingId} vessel=\"{rec.VesselName}\" " +
-                    $"(#573 active/source protection lifted; spawn eligibility re-evaluated next frame)");
-            }
-
             ShowUnattendedFlightWarningIfNeeded();
 
             // If already watching a different recording, exit first (switch case -- preserve camera state)
@@ -1555,6 +1547,19 @@ namespace Parsek
 
             if (!TryStartWatchSession(index, rec, gs, out gs))
                 return;
+
+            // Lift the #573 active/source rewind spawn-suppression only after the
+            // watch session has actually started. Clearing it earlier would leave
+            // the marker gone if TryStartWatchSession fails (visual load failure /
+            // policy refusal), breaking the "background ghosts remain suppressed
+            // unless explicitly engaged" guarantee.
+            if (ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec))
+            {
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch entry cleared post-rewind spawn suppression: rec=#{index} " +
+                    $"id={rec.RecordingId} vessel=\"{rec.VesselName}\" " +
+                    $"(#573 active/source protection lifted; spawn eligibility re-evaluated next frame)");
+            }
 
             if (switching)
             {

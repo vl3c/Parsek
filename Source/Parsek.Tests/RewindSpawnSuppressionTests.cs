@@ -488,12 +488,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryClearSpawnSuppressionOnWatchEntry_NonSpawnableTerminal_PreservesMarker()
+        public void TryClearSpawnSuppressionOnWatchEntry_NullTerminal_ClearsAndAllowsSpawn()
         {
-            // Marker exists as an audit crumb; clearing it on a non-spawnable terminal
-            // (Destroyed/Recovered/Docked/Boarded/SubOrbital) would erase the crumb
-            // without ever enabling a spawn — ShouldSpawnAtRecordingEnd's terminal-state
-            // gate would still refuse it.
+            // ShouldSpawnAtRecordingEnd accepts null TerminalStateValue when the
+            // snapshot situation is spawnable (see ShouldSpawnAtRecordingEnd's
+            // terminal-state and snapshot-situation gates). Gating the watch-entry
+            // helper on an enum whitelist would leave the rewind+watch bug in place
+            // for legacy / null-terminal recordings. Mirror the snapshot situation
+            // KSP captures for a vessel on the pad: LANDED is spawnable.
+            var rec = MakeRecording(
+                "null-terminal-rewound",
+                "Legacy Probe",
+                pid: 4242u,
+                treeId: "legacy-null-tree",
+                startUT: 0.0,
+                endUT: 60.0);
+            rec.TerminalStateValue = null;
+            rec.VesselSnapshot = new ConfigNode("VESSEL");
+            rec.VesselSnapshot.AddValue("sit", "LANDED");
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 30.0;
+
+            bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+
+            Assert.True(cleared);
+            Assert.False(rec.SpawnSuppressedByRewind);
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false);
+            Assert.True(result.needsSpawn,
+                $"Null-terminal recording with spawnable snapshot must spawn after " +
+                $"watch lifts the rewind marker. Got reason='{result.reason}'.");
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_NonSpawnableTerminal_StillClears_SpawnGateRefuses()
+        {
+            // The helper now mirrors ShouldSpawnAtRecordingEnd's contract: it lifts
+            // the rewind-specific suppression unconditionally so the player's
+            // explicit Watch is honored, and downstream gates make the final
+            // spawnability decision. For a Destroyed terminal, the spawn gate
+            // refuses on the terminal-state check while the marker is gone.
             var rec = MakeRecording(
                 "destroyed-rewound",
                 "Doomed",
@@ -507,15 +546,17 @@ namespace Parsek.Tests
                 ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
             rec.SpawnSuppressedByRewindUT = 30.0;
 
-            int logCount = logLines.Count;
             bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
 
-            Assert.False(cleared);
-            Assert.True(rec.SpawnSuppressedByRewind);
-            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
-                rec.SpawnSuppressedByRewindReason);
-            Assert.Equal(30.0, rec.SpawnSuppressedByRewindUT);
-            Assert.Equal(logCount, logLines.Count);
+            Assert.True(cleared);
+            Assert.False(rec.SpawnSuppressedByRewind);
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false);
+            Assert.False(result.needsSpawn);
+            Assert.Contains("Destroyed", result.reason);
         }
 
         [Fact]

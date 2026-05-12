@@ -5737,15 +5737,16 @@ namespace Parsek
         /// a duplicate of a vessel the player just stripped (chain-tip respawn next to
         /// the player's freshly-launched vessel). Watching the rewound recording is
         /// the player's explicit signal that they want to see this recording's outcome
-        /// — the spawn at terminal end should fire normally, not stay suppressed.
+        /// — the spawn at terminal end should be allowed to evaluate normally.
         /// Returns true when a marker was actually cleared. Only acts on the
-        /// <see cref="RewindSpawnSuppressionReasonSameRecording"/> reason and only
-        /// when the recording's terminal state is spawnable (Landed/Splashed/Orbiting):
-        /// legacy unscoped markers are handled by
-        /// <c>ShouldBlockSpawnForRewindSuppression</c>'s normalization path, and
-        /// clearing the marker on a non-spawnable terminal would erase its audit
-        /// crumb without ever enabling a spawn (terminal-state gate would still
-        /// refuse it).
+        /// <see cref="RewindSpawnSuppressionReasonSameRecording"/> reason: legacy
+        /// unscoped markers are normalized by
+        /// <c>ShouldBlockSpawnForRewindSuppression</c>'s separate path. This helper
+        /// deliberately does NOT gate on terminal state — final spawnability is
+        /// owned by <c>ShouldSpawnAtRecordingEnd</c>'s other gates (snapshot
+        /// situation, terminal-state, PID dedup, etc.). Gating here on an enum
+        /// whitelist would re-introduce the bug for null-terminal recordings that
+        /// pass <c>ShouldSpawnAtRecordingEnd</c> via the snapshot-situation path.
         /// </summary>
         internal static bool TryClearSpawnSuppressionOnWatchEntry(Recording rec)
         {
@@ -5755,17 +5756,10 @@ namespace Parsek
                     RewindSpawnSuppressionReasonSameRecording,
                     StringComparison.Ordinal))
                 return false;
-            if (!rec.TerminalStateValue.HasValue)
-                return false;
-            var ts = rec.TerminalStateValue.Value;
-            if (ts != TerminalState.Landed
-                && ts != TerminalState.Splashed
-                && ts != TerminalState.Orbiting)
-                return false;
 
             ClearRewindSpawnSuppression(
                 rec,
-                $"reason={rec.SpawnSuppressedByRewindReason} terminal={ts}",
+                $"reason={rec.SpawnSuppressedByRewindReason}",
                 "watch-entry: user engaged with rewound recording, allowing spawn at recording end");
             return true;
         }
