@@ -1086,7 +1086,18 @@ namespace Parsek
                 return false;
 
             Vector3 velocity = (Vector3)(vessel.rb_velocityD + Krakensbane.GetFrameVelocity());
-            Vector3d worldPos = part.transform.position;
+            // KSP fires joint-break in a phase where part.transform.position
+            // reflects end-of-tick PhysX state, while Planetarium.GetUniversalTime()
+            // (the supplied ut) is start-of-tick. Walk the world position back by
+            // Time.fixedDeltaTime * velocity so the seed matches its UT stamp;
+            // otherwise the debris's first Relative-frame sample is computed as
+            // Inverse(anchor.rotation) * (focusWorldPos - anchorWorldPos) with
+            // focus at end-of-tick but the (already-corrected) parent anchor at
+            // start-of-tick, baking ~v*dt of forward offset into the seed.
+            Vector3d worldPos = BackwardStepWorldPositionByVelocity(
+                part.transform.position,
+                velocity,
+                StructuralEventPositionPhaseOffsetSeconds(vessel));
 
             point = new TrajectoryPoint
             {

@@ -9525,8 +9525,14 @@ namespace Parsek
                 }
                 else
                 {
+                    // Joint-break / split events suffer a one-fixedDeltaTime phase
+                    // offset between Vessel position (end-of-tick PhysX state) and
+                    // splitUT (start-of-tick Planetarium time); the structural-event
+                    // wrapper backward-extrapolates position to align with the stamp
+                    // and keep this fallback seed consistent with the corrected
+                    // parent boundary written by the recorder.
                     decoupleCreatedTrajectoryPoints[newVessel.persistentId] =
-                        BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                        BackgroundRecorder.CreateStructuralEventAbsolutePointFromVessel(
                             newVessel, splitUT, preferRootPartSurfacePose: true);
                     seedSource = "new-vessel-root-part";
                 }
