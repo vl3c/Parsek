@@ -540,7 +540,7 @@ namespace Parsek
                 }
                 preBreakVesselPidSnapshots[vesselPid] = snapshot;
                 TrajectoryPoint? parentBoundaryPoint = joint.Child.vessel != null
-                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
+                    ? (TrajectoryPoint?)CreateStructuralEventAbsolutePointFromVessel(
                         joint.Child.vessel, branchUT, preferRootPartSurfacePose: true)
                     : null;
                 if (parentBoundaryPoint.HasValue
@@ -718,7 +718,7 @@ namespace Parsek
                 if (!parentInitialPoint.HasValue && parentVessel != null)
                 {
                     double sampleUT = Planetarium.GetUniversalTime();
-                    parentInitialPoint = CreateAbsoluteTrajectoryPointFromVessel(
+                    parentInitialPoint = CreateStructuralEventAbsolutePointFromVessel(
                         parentVessel, sampleUT, preferRootPartSurfacePose: true);
                 }
                 OnVesselBackgrounded(parentPid, parentEngineState,
@@ -1173,9 +1173,14 @@ namespace Parsek
                 // Initialize tracking state for new child vessel. This check runs
                 // one frame after the joint break, so any child seed captured here
                 // must use the actual sample UT rather than the earlier branchUT.
+                // Capture via the structural-event helper because the seed is
+                // still inside the joint-break dispatch phase: v.latitude is the
+                // end-of-tick PhysX state but sampleUT reads start-of-tick from
+                // Planetarium.GetUniversalTime(), so the plain helper would
+                // record the debris seed ~3 m ahead of its stamp.
                 double sampleUT = Planetarium.GetUniversalTime();
                 TrajectoryPoint? childInitialPoint = childVessel != null
-                    ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
+                    ? (TrajectoryPoint?)CreateStructuralEventAbsolutePointFromVessel(
                         childVessel, sampleUT, preferRootPartSurfacePose: true)
                     : null;
                 OnVesselBackgrounded(child.VesselPersistentId, inherited,
@@ -4287,6 +4292,33 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// Creates an absolute trajectory point captured during a joint-break /
+        /// structural-event handler dispatch. The position is backward-
+        /// extrapolated by one Time.fixedDeltaTime to align with the recorded
+        /// UT stamp: KSP fires these events in a phase where the live
+        /// v.latitude/longitude/altitude reflect end-of-current-tick PhysX
+        /// state but Planetarium.GetUniversalTime() returns start-of-tick
+        /// time, so without correction every structural-snapshot position
+        /// runs ~3 m ahead of its stamp at typical staging velocities. See
+        /// <see cref="FlightRecorder.BackwardExtrapolateStructuralSnapshotPosition"/>
+        /// for the full rationale. Use this overload at every structural-
+        /// event-phase capture site (split-time parent boundary, parent
+        /// continuation seed, debris child seed, BG structural snapshot);
+        /// ordinary periodic samples must continue to use the plain overload.
+        /// </summary>
+        internal static TrajectoryPoint CreateStructuralEventAbsolutePointFromVessel(
+            Vessel v,
+            double eventUT,
+            Vector3? explicitVelocity = null,
+            bool preferRootPartSurfacePose = false)
+        {
+            TrajectoryPoint pt = CreateAbsoluteTrajectoryPointFromVessel(
+                v, eventUT, explicitVelocity, preferRootPartSurfacePose);
+            return FlightRecorder.BackwardExtrapolateStructuralSnapshotPosition(
+                pt, v, pt.velocity);
+        }
+
         private static bool TryCanonicalizeBackgroundReFlyRecordingPoint(
             string recordingId,
             ref TrajectoryPoint point,
@@ -7260,7 +7292,12 @@ namespace Parsek
                 Vector3 velocity = v.packed
                     ? (Vector3)v.obt_velocity
                     : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
-                TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(
+                // KSP samples Vessel.latitude/longitude/altitude from PhysX end-of-tick state but
+                // Planetarium.GetUniversalTime() returns start-of-tick time, producing a one
+                // fixedDeltaTime phase offset on joint-break / structural events. Backward
+                // extrapolate by Time.fixedDeltaTime * velocity so the recorded position matches
+                // the stamped UT and debris ghosts do not slide forward on the first playback frame.
+                TrajectoryPoint point = CreateStructuralEventAbsolutePointFromVessel(
                     v,
                     eventUT,
                     velocity,

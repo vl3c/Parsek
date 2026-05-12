@@ -403,5 +403,182 @@ namespace Parsek.Tests
                 flags = 0,
             };
         }
+
+        // ----- BackwardStepWorldPositionByVelocity / IsBackwardExtrapolationApplicable -----
+        //
+        // Pure-math seam introduced to compensate for the KSP joint-break /
+        // structural-event phase offset: at the moment KSP fires the event,
+        // v.latitude/longitude/altitude already reflect end-of-tick PhysX
+        // state, but Planetarium.GetUniversalTime() (the recorded eventUT)
+        // is still start-of-tick. The recorded position is therefore one
+        // Time.fixedDeltaTime ahead of its stamp, producing a visible 2-3 m
+        // forward slide on the first playback frame after staging events.
+        // The wrapper that handles body lat/lon/alt conversion is Unity-only
+        // (uses CelestialBody helpers) — these tests pin the velocity-step
+        // math and guard semantics in isolation.
+
+        [Fact]
+        public void BackwardStep_NormalCase_SubtractsVelocityTimesDt()
+        {
+            Vector3d world = new Vector3d(1000.0, 2000.0, 3000.0);
+            Vector3 velocity = new Vector3(100.0f, 0.0f, 0.0f);
+            float dt = 0.02f;
+
+            Vector3d corrected = FlightRecorder.BackwardStepWorldPositionByVelocity(world, velocity, dt);
+
+            Assert.Equal(1000.0 - 100.0 * 0.02, corrected.x, 6);
+            Assert.Equal(2000.0, corrected.y, 6);
+            Assert.Equal(3000.0, corrected.z, 6);
+        }
+
+        [Fact]
+        public void BackwardStep_ZeroVelocity_LeavesWorldUnchanged()
+        {
+            Vector3d world = new Vector3d(1000.0, 2000.0, 3000.0);
+
+            Vector3d corrected = FlightRecorder.BackwardStepWorldPositionByVelocity(
+                world, Vector3.zero, 0.02f);
+
+            Assert.Equal(world.x, corrected.x, 9);
+            Assert.Equal(world.y, corrected.y, 9);
+            Assert.Equal(world.z, corrected.z, 9);
+        }
+
+        [Fact]
+        public void BackwardStep_ZeroDt_LeavesWorldUnchanged()
+        {
+            Vector3d world = new Vector3d(1000.0, 2000.0, 3000.0);
+            Vector3 velocity = new Vector3(168.0f, 0.0f, 0.0f);
+
+            Vector3d corrected = FlightRecorder.BackwardStepWorldPositionByVelocity(
+                world, velocity, 0.0f);
+
+            Assert.Equal(world.x, corrected.x, 9);
+            Assert.Equal(world.y, corrected.y, 9);
+            Assert.Equal(world.z, corrected.z, 9);
+        }
+
+        [Fact]
+        public void BackwardStep_NegativeDt_LeavesWorldUnchanged()
+        {
+            Vector3d world = new Vector3d(1000.0, 2000.0, 3000.0);
+            Vector3 velocity = new Vector3(168.0f, 0.0f, 0.0f);
+
+            Vector3d corrected = FlightRecorder.BackwardStepWorldPositionByVelocity(
+                world, velocity, -0.02f);
+
+            Assert.Equal(world.x, corrected.x, 9);
+            Assert.Equal(world.y, corrected.y, 9);
+            Assert.Equal(world.z, corrected.z, 9);
+        }
+
+        [Fact]
+        public void BackwardStep_NanVelocity_LeavesWorldUnchanged()
+        {
+            Vector3d world = new Vector3d(1000.0, 2000.0, 3000.0);
+            Vector3 velocity = new Vector3(float.NaN, 0.0f, 0.0f);
+
+            Vector3d corrected = FlightRecorder.BackwardStepWorldPositionByVelocity(
+                world, velocity, 0.02f);
+
+            Assert.Equal(world.x, corrected.x, 9);
+            Assert.Equal(world.y, corrected.y, 9);
+            Assert.Equal(world.z, corrected.z, 9);
+        }
+
+        [Fact]
+        public void BackwardStep_InfiniteVelocity_LeavesWorldUnchanged()
+        {
+            Vector3d world = new Vector3d(1000.0, 2000.0, 3000.0);
+            Vector3 velocity = new Vector3(0.0f, float.PositiveInfinity, 0.0f);
+
+            Vector3d corrected = FlightRecorder.BackwardStepWorldPositionByVelocity(
+                world, velocity, 0.02f);
+
+            Assert.Equal(world.x, corrected.x, 9);
+            Assert.Equal(world.y, corrected.y, 9);
+            Assert.Equal(world.z, corrected.z, 9);
+        }
+
+        [Fact]
+        public void BackwardStep_TypicalStagingScenario_ProducesExpectedOffset()
+        {
+            // Empirical numbers from the bug investigation: ~168 m/s
+            // forward velocity at decoupler-back staging, dt = 0.02 s.
+            // Expected offset magnitude is ~3.36 m along the velocity axis,
+            // matching the observed forward slide on the first lerp interval.
+            Vector3d world = new Vector3d(0.0, 0.0, 0.0);
+            Vector3 velocity = new Vector3(168.0f, 0.0f, 0.0f);
+            float dt = 0.02f;
+
+            Vector3d corrected = FlightRecorder.BackwardStepWorldPositionByVelocity(world, velocity, dt);
+
+            Assert.Equal(-3.36, corrected.x, 6);
+            Assert.Equal(0.0, corrected.y, 6);
+            Assert.Equal(0.0, corrected.z, 6);
+        }
+
+        [Fact]
+        public void IsApplicable_NormalCase_True()
+        {
+            Assert.True(FlightRecorder.IsBackwardExtrapolationApplicable(
+                0.02f, new Vector3(100.0f, 0.0f, 0.0f)));
+        }
+
+        [Fact]
+        public void IsApplicable_ZeroDt_False()
+        {
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                0.0f, new Vector3(100.0f, 0.0f, 0.0f)));
+        }
+
+        [Fact]
+        public void IsApplicable_NegativeDt_False()
+        {
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                -0.02f, new Vector3(100.0f, 0.0f, 0.0f)));
+        }
+
+        [Fact]
+        public void IsApplicable_NanDt_False()
+        {
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                float.NaN, new Vector3(100.0f, 0.0f, 0.0f)));
+        }
+
+        [Fact]
+        public void IsApplicable_InfiniteDt_False()
+        {
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                float.PositiveInfinity, new Vector3(100.0f, 0.0f, 0.0f)));
+        }
+
+        [Fact]
+        public void IsApplicable_NanVelocityComponent_False()
+        {
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                0.02f, new Vector3(0.0f, float.NaN, 0.0f)));
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                0.02f, new Vector3(float.NaN, 0.0f, 0.0f)));
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                0.02f, new Vector3(0.0f, 0.0f, float.NaN)));
+        }
+
+        [Fact]
+        public void IsApplicable_InfiniteVelocityComponent_False()
+        {
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                0.02f, new Vector3(float.NegativeInfinity, 0.0f, 0.0f)));
+            Assert.False(FlightRecorder.IsBackwardExtrapolationApplicable(
+                0.02f, new Vector3(0.0f, float.PositiveInfinity, 0.0f)));
+        }
+
+        [Fact]
+        public void IsApplicable_ZeroVelocity_True()
+        {
+            // Zero velocity is fine — produces an identity transform but
+            // the guard still considers it "applicable".
+            Assert.True(FlightRecorder.IsBackwardExtrapolationApplicable(0.02f, Vector3.zero));
+        }
     }
 }
