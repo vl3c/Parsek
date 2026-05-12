@@ -74,7 +74,7 @@ namespace Parsek
                 {
                     StateText = string.Empty,
                     StateTone = SpawnCandidateStateTone.None,
-                    WarpButtonLabel = "FF-Spawn",
+                    WarpButtonLabel = "Warp to Spawn",
                     WarpButtonEnabled = conditionsMet && candidate.endUT > currentUT,
                     UsesDepartureWarp = false,
                     ConditionsMet = conditionsMet
@@ -94,7 +94,7 @@ namespace Parsek
                 StateTone = departureDelta <= 0
                     ? SpawnCandidateStateTone.DepartingNow
                     : SpawnCandidateStateTone.UpcomingDeparture,
-                WarpButtonLabel = "FF-Depart",
+                WarpButtonLabel = "Warp to Depart",
                 WarpButtonEnabled = conditionsMet && candidate.departureUT > currentUT,
                 UsesDepartureWarp = true,
                 ConditionsMet = conditionsMet

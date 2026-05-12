@@ -617,7 +617,7 @@ namespace Parsek
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Suppressed: {0} | Materialized: {1}",
+                "Suppressed: {0} | Spawned: {1}",
                 state.SuppressedRecordings,
                 state.MaterializedRecordings);
         }
@@ -869,7 +869,7 @@ namespace Parsek
             if (!selection.HasRecording)
                 return "no-recording";
             if (selection.VesselSpawned || selection.SpawnedVesselPersistentId != 0)
-                return "materialized";
+                return "spawned";
             if (double.IsNaN(selection.EndUT) || double.IsInfinity(selection.EndUT))
                 return "unknown-end";
 
@@ -1092,16 +1092,16 @@ namespace Parsek
             double currentUT)
         {
             if (!actionContext.MaterializeFastForwardEligible)
-                return string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel;
+                return string.IsNullOrEmpty(baseLabel) ? "Warp to Spawn" : baseLabel;
 
             double remaining = selection.EndUT - currentUT;
             if (!(remaining > 0.0))
-                return string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel;
+                return string.IsNullOrEmpty(baseLabel) ? "Warp to Spawn" : baseLabel;
 
             return string.Format(
                 CultureInfo.InvariantCulture,
                 "{0} ({1})",
-                string.IsNullOrEmpty(baseLabel) ? "Materialize" : baseLabel,
+                string.IsNullOrEmpty(baseLabel) ? "Warp to Spawn" : baseLabel,
                 ParsekTimeFormat.FormatDuration(remaining));
         }
 
@@ -1112,7 +1112,7 @@ namespace Parsek
             if (!selection.HasRecording)
                 return "unavailable";
             if (selection.VesselSpawned || selection.SpawnedVesselPersistentId != 0)
-                return "materialized";
+                return "spawned";
             if (double.IsNaN(selection.EndUT))
                 return "unknown";
 
@@ -1558,7 +1558,7 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialize selected ghost failed: missing recording for ghostPid={0} recId={1}",
+                        "Warp to Spawn selected ghost failed: missing recording for ghostPid={0} recId={1}",
                         selection.GhostPid,
                         selection.RecordingId ?? "(none)"));
                 return;
@@ -1573,7 +1573,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Materialize fast-forward refused: recId={0} fromUT={1:F1} endpointUT={2:F1} reason={3}",
+                            "Warp to Spawn fast-forward refused: recId={0} fromUT={1:F1} endpointUT={2:F1} reason={3}",
                             recording.RecordingId ?? "(none)",
                             currentUT,
                             recording.EndUT,
@@ -1581,7 +1581,7 @@ namespace Parsek
                     ParsekLog.ScreenMessage(
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Cannot materialize \"{0}\": {1}",
+                            "Cannot warp to spawn \"{0}\": {1}",
                             recording.VesselName ?? "ghost",
                             endpointMaterialize.reason ?? "endpoint blocked"),
                         4f);
@@ -1593,7 +1593,7 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialize fast-forward requested: recId={0} fromUT={1:F1} endpointUT={2:F1} delta={3:F1}s",
+                        "Warp to Spawn fast-forward requested: recId={0} fromUT={1:F1} endpointUT={2:F1} delta={3:F1}s",
                         recording.RecordingId ?? "(none)",
                         currentUT,
                         recording.EndUT,
@@ -1602,7 +1602,7 @@ namespace Parsek
                 ParsekLog.ScreenMessage(
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Fast-forwarded to materialize \"{0}\" ({1:F0}s)",
+                        "Warped to spawn \"{0}\" ({1:F0}s)",
                         recording.VesselName ?? "ghost",
                         jumpDelta),
                     3f);
@@ -1617,7 +1617,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Materialize requested for Tracking Station ghost pid={0} recId={1} ut={2:F1} handled={3}",
+                    "Warp to Spawn requested for Tracking Station ghost pid={0} recId={1} ut={2:F1} handled={3}",
                     selection.GhostPid,
                     selection.RecordingId ?? "(none)",
                     currentUT,
@@ -1628,7 +1628,7 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialize handoff forcing immediate Tracking Station lifecycle tick: recId={0}",
+                        "Warp to Spawn handoff forcing immediate Tracking Station lifecycle tick: recId={0}",
                         selection.RecordingId ?? "(none)"));
                 GhostMapPresence.UpdateTrackingStationGhostLifecycle(refreshStockList: false);
                 nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
