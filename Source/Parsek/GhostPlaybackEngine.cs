@@ -2857,8 +2857,26 @@ namespace Parsek
                     // mismatches — composing through a non-loop live PID
                     // across loop iterations is non-deterministic; body-fixed
                     // primary is the safe fallback.
-                    return section.anchorVesselId == anchor.LoopAnchorVesselId
+                    bool sectionPidValid = section.anchorVesselId == anchor.LoopAnchorVesselId
                         || section.anchorVesselId == 0u;
+                    if (!sectionPidValid)
+                    {
+                        string capturedAnchorId = anchorRecordingId;
+                        int capturedSectionIndex = sectionIndex;
+                        TrackSection capturedSection = section;
+                        Recording capturedAnchor = anchor;
+                        ParsekLog.VerboseRateLimited("LoopAnchor",
+                            "loop-anchor-pid-mismatch:" + traj.RecordingId,
+                            () => "ShouldUseLoopAnchoredDebrisChain rejecting: mid-loop section pid mismatch"
+                                + " recordingId=" + traj.RecordingId
+                                + " anchorRecordingId=" + capturedAnchorId
+                                + " declaredLoopPid=" + capturedAnchor.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture)
+                                + " sectionPid=" + capturedSection.anchorVesselId.ToString(CultureInfo.InvariantCulture)
+                                + " sectionIndex=" + capturedSectionIndex.ToString(CultureInfo.InvariantCulture)
+                                + " ut=" + playbackUT.ToString("R", CultureInfo.InvariantCulture)
+                                + "; body-fixed primary fallback");
+                    }
+                    return sectionPidValid;
                 }
                 if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
                     return false;
