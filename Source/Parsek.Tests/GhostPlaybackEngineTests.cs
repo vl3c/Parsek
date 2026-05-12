@@ -4537,6 +4537,76 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveVisiblePlaybackUT_V13ParentAnchoredDebrisWithBodyFixedPrimary_DoesNotClamp()
+        {
+            // v13 carve-out: parent-anchored debris with body-fixed primary
+            // coverage at the activation UT must NOT have its first visible
+            // frame clamped back to activationStartUT. Without this carve-out,
+            // the clamp renders the first visible frame at seed UT, then the
+            // next frame unclamps and jumps to natural playbackUT --
+            // producing the user-visible "ghost slides ~6 m downrange on the
+            // first one or two frames" symptom for atmospheric debris.
+            // With the carve-out, every visible frame uses natural playbackUT
+            // (first frame lands sub-metre past seed, subsequent frames
+            // advance smoothly).
+            var traj = new MockTrajectory().WithTimeRange(109.74, 121.94);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 109.74,
+                endUT = 121.94,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 109.74 },
+                    new TrajectoryPoint { ut = 110.28 },
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            // playbackUT 109.757 is 0.017s past activationStartUT 109.74 --
+            // within the existing clamp window. Pre-carve-out behavior would
+            // return 109.74 (clamped); the carve-out returns natural
+            // playbackUT 109.757 so the first visible frame matches the
+            // ghost's natural-UT pose.
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 109.757);
+            Assert.Equal(109.757, visibleUT, 4);
+        }
+
+        [Fact]
+        public void ResolveVisiblePlaybackUT_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_StillClamps()
+        {
+            // Carve-out requires body-fixed primary coverage at the activation
+            // UT. Debris without body-fixed primary still gets the default
+            // first-frame clamp -- its first frame may need a deterministic
+            // seed pose because anchor-local playback depends on live anchor
+            // resolution.
+            var traj = new MockTrajectory().WithTimeRange(109.74, 121.94);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 109.74,
+                endUT = 121.94,
+                // No bodyFixedFrames.
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            double visibleUT = GhostPlaybackEngine.ResolveVisiblePlaybackUT(traj, state, 109.757);
+            Assert.Equal(109.74, visibleUT, 4);
+        }
+
+        [Fact]
         public void ResolveVisiblePlaybackUT_DoesNotRewindLargeLateFirstAppearance()
         {
             var traj = new MockTrajectory().WithTimeRange(217.97, 261.41);

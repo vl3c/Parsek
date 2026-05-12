@@ -5402,6 +5402,21 @@ namespace Parsek
             if (!state.deferVisibilityUntilPlaybackSync || state.appearanceCount != 0)
                 return playbackUT;
 
+            // v13 carve-out (matches the hide-gate carve-out): parent-anchored
+            // debris with body-fixed primary covering the activation UT does
+            // NOT get clamped to activationStartUT for one frame either.
+            // Without this, the clamp produces a one-frame seed render that
+            // then jumps to the natural playback UT on the next frame --
+            // (rawPlaybackUT - activationStartUT) * velocity = ~6 m of
+            // downrange slide for atmospheric debris at ~150-190 m/s. With
+            // the carve-out, the first visible frame renders at the natural
+            // playback UT (typically <0.02 s past the seed, so the visible
+            // position is sub-metre off the seed) and subsequent frames
+            // advance smoothly with no jump. Body-fixed primary playback is
+            // deterministic at any UT inside the section so this is safe.
+            if (IsV13ParentAnchoredDebrisWithBodyFixedPrimaryAtActivationUT(traj))
+                return playbackUT;
+
             double activationStartUT = ResolveGhostActivationStartUT(traj);
             double activationLead = playbackUT - activationStartUT;
 
