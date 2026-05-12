@@ -32,6 +32,18 @@ namespace Parsek
     /// </summary>
     internal class GhostPlaybackEngine
     {
+        /// <summary>
+        /// Host-supplied probe consulted by the activation-settle re-fly carve-out.
+        /// Returns true when an active re-fly session is in progress in the host
+        /// scene. <c>ParsekScenario.OnAwake</c> wires this to the live
+        /// <c>ReFlySessionMarker</c>. Standalone consumers of the engine leave this
+        /// null; the carve-out then never fires and the activation-settle hide
+        /// behaves as it does outside Parsek. Keeping this a delegate preserves the
+        /// engine's "no recording/scenario references" boundary — the engine never
+        /// sees the marker shape, only its presence/absence.
+        /// </summary>
+        internal static Func<bool> ActiveReFlySessionInProgressProbe;
+
         private readonly IGhostPositioner positioner;
         private bool ghostAudioPaused;
 
@@ -5607,6 +5619,72 @@ namespace Parsek
                 && traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Relative;
         }
 
+        /// <summary>
+        /// Activation-settle carve-out for non-debris controlled ghosts whose
+        /// first rendered position is deterministic from recorded Absolute or
+        /// flat data while an active re-fly session is in progress. The hide
+        /// otherwise advances <c>playbackUT</c> by 2 physics ticks (~0.04 s)
+        /// before the ghost becomes visible, and the first-visible world
+        /// position is then offset from the recorded activation-start position
+        /// by <c>v_recorded × 0.04 s</c> — ~80 m at orbital re-fly ascent
+        /// velocities. The carve-out only fires during re-fly because that's
+        /// the moment fresh non-debris activations are visually salient and
+        /// the hide serves no purpose: with Absolute (or flat) coverage at
+        /// <c>activationStartUT</c> there is no anchor-resolution race for the
+        /// settle frames to mask, and the first frame's recorded position is
+        /// available immediately. Outside re-fly the hide is left intact so
+        /// other settle-sensitive paths (loop restarts, watch-mode anchoring)
+        /// keep their existing behavior.
+        /// </summary>
+        internal static bool IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(
+            IPlaybackTrajectory traj)
+        {
+            if (traj == null) return false;
+            if (traj.IsDebris) return false;
+            if (!IsActiveReFlySessionInProgress()) return false;
+
+            double activationStartUT = ResolveGhostActivationStartUT(traj);
+            return HasAbsoluteSectionAtActivationUT(traj, activationStartUT)
+                || HasFlatPointsCoverageAtActivationUT(traj, activationStartUT);
+        }
+
+        private static bool IsActiveReFlySessionInProgress()
+        {
+            var probe = ActiveReFlySessionInProgressProbe;
+            if (probe == null) return false;
+            try { return probe(); }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Engine",
+                    $"ActiveReFlySessionInProgressProbe threw {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool HasAbsoluteSectionAtActivationUT(
+            IPlaybackTrajectory traj, double activationStartUT)
+        {
+            if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                traj.TrackSections, activationStartUT + 1e-6);
+            if (sectionIndex < 0)
+                sectionIndex = TrajectoryMath.FindTrackSectionForUT(
+                    traj.TrackSections, activationStartUT);
+            if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
+                return false;
+            return traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Absolute;
+        }
+
+        private static bool HasFlatPointsCoverageAtActivationUT(
+            IPlaybackTrajectory traj, double activationStartUT)
+        {
+            var points = traj?.Points;
+            if (points == null || points.Count < 2) return false;
+            return activationStartUT >= points[0].ut - 1e-6
+                && activationStartUT <= points[points.Count - 1].ut + 1e-6;
+        }
+
         private static bool CanEvaluateInitialActivationHidden(
             IPlaybackTrajectory traj, GhostPlaybackState state)
         {
@@ -5804,7 +5882,16 @@ namespace Parsek
                 || withinRelativeWindow
                 || withinAbsoluteBridge
                 || withinAbsoluteToRelativePrimer;
+            // Re-fly carve-out: non-debris controlled ghosts whose first
+            // position is deterministic from recorded Absolute or flat data
+            // during an active re-fly session skip the activation-settle hide
+            // because the 2-frame hide otherwise produces a v×0.04s slide
+            // (~80 m at re-fly ascent velocities). The UT-window hides above
+            // are left intact — only this generic settle clause is bypassed.
+            bool reFlyControlledExempt =
+                IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(traj);
             bool withinActivationSettle = !withinUtWindow
+                && !reFlyControlledExempt
                 && CanEvaluateInitialActivationHidden(traj, state)
                 && !IsInitialDebrisSeedBridgeEndFrame(traj, state, playbackUT)
                 && !state.initialRelativeActivationHiddenPrimed;

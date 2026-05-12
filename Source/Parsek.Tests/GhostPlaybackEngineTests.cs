@@ -28,6 +28,9 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            // Static seam used by the re-fly activation-settle carve-out — make
+            // sure it doesn't leak across tests.
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = null;
         }
 
         private static EngineGhostInfo BuildEngineGhostInfo(int particleSystemCount)
@@ -5190,6 +5193,224 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
                 traj, state, 100.27, out string finalReason));
             Assert.Null(finalReason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ActiveReFlyControlledAbsolute_SkipsActivationSettle()
+        {
+            // Regression cover for the May-3 generalization of the
+            // activation-settle hide. A non-debris controlled ghost whose
+            // active section at activationStartUT is Absolute, encountered
+            // during an active re-fly session, must NOT take the
+            // activation-settle hide -- the 2-frame hide otherwise advances
+            // playbackUT by ~0.04 s and the first-visible world position is
+            // offset by v_recorded x 0.04 s (~80 m at re-fly ascent
+            // velocities). Without the carve-out the user sees the previous
+            // attempt's ghost slide forward along the recorded velocity
+            // vector at re-fly load. The UT-window gates above this clause
+            // stay intact; this only bypasses the generic settle fallback.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => true;
+
+            // First frame (the would-be activation-settle frame), second frame
+            // (would-be minimum-frames follow-up), and a frame several physics
+            // ticks past activation all remain unhidden because the carve-out
+            // skips the priming step.
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string firstReason));
+            Assert.Null(firstReason);
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.26, out string secondReason));
+            Assert.Null(secondReason);
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.27, out string thirdReason));
+            Assert.Null(thirdReason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ActiveReFlyControlledFlatPoints_SkipsActivationSettle()
+        {
+            // Companion case to the Absolute-section test: a trajectory with
+            // no TrackSections but whose flat Points list spans the
+            // activation UT also has a deterministic first-position resolve
+            // (the activation start clamps to Points[0] or a Points
+            // interpolation), so the carve-out applies during a re-fly.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            // No TrackSections -- flat Points coverage path.
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => true;
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string reason));
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ActiveReFlyDebris_StillTakesHide()
+        {
+            // The carve-out is non-debris-only. A parent-anchored debris
+            // trajectory whose active section is Absolute must still take the
+            // activation-settle hide during a re-fly -- debris has its own
+            // anchor-resolution race the hide protects.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => true;
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string reason));
+            Assert.Equal("activation-settle", reason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ActiveReFlyRelativeSection_StillTakesUtWindowHide()
+        {
+            // Relative section at activationStartUT means the first frame's
+            // position depends on the anchor's live pose -- not deterministic
+            // from recorded data. The carve-out predicate must NOT apply.
+            // The relative-start UT-window hide should still fire (the
+            // generic settle fallback is what the carve-out bypasses).
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => true;
+
+            // Inside the relative-start UT window: the existing hide fires.
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.04, out string reason));
+            Assert.Equal("relative-start", reason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_NoReFlySession_StillTakesActivationSettleHide()
+        {
+            // Regression cover: outside a re-fly session, the predicate is
+            // a no-op and the existing activation-settle behavior is intact.
+            // Mirrors HoldsFreshAbsoluteForMinimumFrames but explicitly with
+            // the probe set to a false-returning delegate (also covers the
+            // null-probe path because Dispose clears it between tests).
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => false;
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string reason));
+            Assert.Equal("activation-settle", reason);
+        }
+
+        [Fact]
+        public void IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart_PredicateBranches()
+        {
+            // Direct exercise of the predicate's four short-circuit branches:
+            // null traj, debris, no probe / probe returns false, and the
+            // probe-throws fallback (must swallow + return false).
+            Assert.False(GhostPlaybackEngine
+                .IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(null));
+
+            var debrisTraj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            debrisTraj.IsDebris = true;
+            debrisTraj.DebrisParentRecordingId = "parent-rec";
+            debrisTraj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => true;
+            Assert.False(GhostPlaybackEngine
+                .IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(debrisTraj));
+
+            var controlledTraj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            controlledTraj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = null;
+            Assert.False(GhostPlaybackEngine
+                .IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(controlledTraj));
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => false;
+            Assert.False(GhostPlaybackEngine
+                .IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(controlledTraj));
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe =
+                () => throw new InvalidOperationException("probe failure");
+            Assert.False(GhostPlaybackEngine
+                .IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(controlledTraj));
+            Assert.Contains(logLines, l => l.Contains("[Engine]")
+                && l.Contains("ActiveReFlySessionInProgressProbe threw")
+                && l.Contains("InvalidOperationException"));
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => true;
+            Assert.True(GhostPlaybackEngine
+                .IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(controlledTraj));
         }
 
         [Fact]

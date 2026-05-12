@@ -514,6 +514,14 @@ namespace Parsek
             // fires before OnLoad, so the Instance is available throughout the
             // load path.
             s_instance = this;
+
+            // Wire the engine's re-fly probe to the live marker so the
+            // activation-settle carve-out (GhostPlaybackEngine
+            // .IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart)
+            // can consult re-fly state without referencing Parsek-specific
+            // types from inside the engine.
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe =
+                () => Instance?.ActiveReFlySessionMarker != null;
         }
 
         public override void OnSave(ConfigNode node)
