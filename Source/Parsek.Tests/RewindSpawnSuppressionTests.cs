@@ -525,22 +525,30 @@ namespace Parsek.Tests
                 $"watch lifts the rewind marker. Got reason='{result.reason}'.");
         }
 
-        [Fact]
-        public void TryClearSpawnSuppressionOnWatchEntry_NonSpawnableTerminal_StillClears_SpawnGateRefuses()
+        [Theory]
+        [InlineData(TerminalState.Destroyed)]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        [InlineData(TerminalState.SubOrbital)]
+        public void TryClearSpawnSuppressionOnWatchEntry_NonSpawnableTerminal_StillClears_SpawnGateRefuses(
+            TerminalState terminal)
         {
             // The helper now mirrors ShouldSpawnAtRecordingEnd's contract: it lifts
             // the rewind-specific suppression unconditionally so the player's
             // explicit Watch is honored, and downstream gates make the final
-            // spawnability decision. For a Destroyed terminal, the spawn gate
-            // refuses on the terminal-state check while the marker is gone.
+            // spawnability decision. For any non-spawnable terminal listed in
+            // ShouldSpawnAtRecordingEnd's terminal-state block (Destroyed,
+            // Recovered, Docked, Boarded, SubOrbital), the marker clears but the
+            // spawn gate refuses on the terminal-state check.
             var rec = MakeRecording(
-                "destroyed-rewound",
-                "Doomed",
+                $"rec-{terminal}",
+                $"Vessel-{terminal}",
                 pid: 99u,
-                treeId: "doom-tree",
+                treeId: $"tree-{terminal}",
                 startUT: 0.0,
                 endUT: 60.0);
-            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.TerminalStateValue = terminal;
             rec.SpawnSuppressedByRewind = true;
             rec.SpawnSuppressedByRewindReason =
                 ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
@@ -556,7 +564,49 @@ namespace Parsek.Tests
                 isActiveChainMember: false,
                 isChainLooping: false);
             Assert.False(result.needsSpawn);
-            Assert.Contains("Destroyed", result.reason);
+            Assert.Contains(terminal.ToString(), result.reason);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_WatchSwitch_OnlyMarkedRecordingClears()
+        {
+            // Pin recording-scoped semantics: the helper acts on the recording passed
+            // in and nothing else. A watch-switch from a clean rec A to a marked rec
+            // B must clear B's marker without touching A; if A were re-watched first
+            // and B second, the per-call short-circuit on !SpawnSuppressedByRewind
+            // means no spurious second clearance log either.
+            var recA = MakeRecording(
+                "watch-switch-A-clean",
+                "A",
+                pid: 1u,
+                treeId: "tree-A",
+                startUT: 0.0,
+                endUT: 30.0);
+            // recA has no SpawnSuppressedByRewind set.
+
+            var recB = MakeRecording(
+                "watch-switch-B-marked",
+                "B",
+                pid: 2u,
+                treeId: "tree-B",
+                startUT: 100.0,
+                endUT: 160.0);
+            recB.SpawnSuppressedByRewind = true;
+            recB.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            recB.SpawnSuppressedByRewindUT = 120.0;
+
+            // First entry (A): no-op.
+            Assert.False(ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(recA));
+            Assert.False(recA.SpawnSuppressedByRewind);
+            // recB untouched while A is in scope.
+            Assert.True(recB.SpawnSuppressedByRewind);
+
+            // Switch to B: marker clears on B only.
+            Assert.True(ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(recB));
+            Assert.False(recB.SpawnSuppressedByRewind);
+            // A remains unmarked (no spurious state propagation).
+            Assert.False(recA.SpawnSuppressedByRewind);
         }
 
         [Fact]
