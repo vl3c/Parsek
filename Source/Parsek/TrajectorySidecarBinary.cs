@@ -9,8 +9,8 @@ namespace Parsek
     internal enum TrajectorySidecarEncoding
     {
         TextConfigNode = 0,
-        BinaryV2 = 1,
-        BinaryV3 = 2
+        BinaryV0 = 1,
+        UnknownBinary = 2
     }
 
     internal struct TrajectorySidecarProbe
@@ -19,50 +19,19 @@ namespace Parsek
         public bool Supported;
         public TrajectorySidecarEncoding Encoding;
         public int FormatVersion;
+        public int SchemaGeneration;
         public int SidecarEpoch;
         public string RecordingId;
+        public string MagicTag;
         public ConfigNode LegacyNode;
         public string FailureReason;
     }
 
     internal static class TrajectorySidecarBinary
     {
-        private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PRKB");
-        private const int LegacyBinaryVersion = 2;
-        // #411 follow-up: the binary sidecar layout changed at v3 (sparse point lists) and
-        // again at v5 (OrbitSegment.isPredicted). The v4 bump is metadata-only
-        // (loopIntervalSeconds semantic change, see
-        // RecordingStore.LaunchToLaunchLoopIntervalFormatVersion), so the v3 and v4 bytes are
-        // identical. Keep each version anchor explicit so decode gates can distinguish the
-        // v4 no-flag layout from the v5 predicted-flag layout.
-        private const int SparsePointBinaryVersion = 3;
-        private const int LoopIntervalBinaryVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
-        private const int PredictedOrbitSegmentBinaryVersion = RecordingStore.PredictedOrbitSegmentFormatVersion;
-        private const int RelativeLocalFrameBinaryVersion = RecordingStore.RelativeLocalFrameFormatVersion;
-        private const int RelativeBodyFixedPrimaryBinaryVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion;
-        // Internal so the cross-codec sync test in TrajectorySidecarBinaryTests can pin
-        // RecordingStore.BoundarySeamFlagFormatVersion == this constant. Drift between the
-        // two would silently break v8 round-trip — the binary write/read paths gate on
-        // this value, but the public RecordingStore.BoundarySeamFlagFormatVersion drives
-        // the recording's RecordingFormatVersion stamp and the version-selection ladder.
-        internal const int BoundarySeamFlagBinaryVersion = RecordingStore.BoundarySeamFlagFormatVersion;
-        // Phase 7 (design doc §13, §17.3.2, §18 Phase 7): per-point
-        // recordedGroundClearance double appended to each TrajectoryPoint's
-        // binary record. Gated on `binaryVersion >= TerrainGroundClearanceBinaryVersion`
-        // in WritePoint / ReadPoint and the sparse-list paths; legacy readers
-        // default-NaN. Same drift-pinning rationale as BoundarySeamFlagBinaryVersion.
-        internal const int TerrainGroundClearanceBinaryVersion = RecordingStore.TerrainGroundClearanceFormatVersion;
-        // Phase 9 (design doc §12, §17.3.2, §18 Phase 9): per-point `flags` byte
-        // appended after recordedGroundClearance on every TrajectoryPoint's binary
-        // record. Gated on `binaryVersion >= StructuralEventFlagBinaryVersion`
-        // in WritePoint / ReadPoint and the sparse-list paths; legacy v9-and-older
-        // readers default flags=0 (HR-9 fall-through to interpolated event ε per
-        // §15.17). Same drift-pinning rationale as BoundarySeamFlagBinaryVersion.
-        internal const int StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion;
-        internal const int RecordingAnchorChainBinaryVersion = RecordingStore.RecordingAnchorChainFormatVersion;
-        internal const int DebrisParentRecordingBinaryVersion = RecordingStore.DebrisParentRecordingFormatVersion;
-        internal const int DebrisFrameContractBinaryVersion = RecordingStore.DebrisFrameContractFormatVersion;
-        internal const int CurrentBinaryVersion = DebrisFrameContractBinaryVersion;
+        private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PSK0");
+        private static readonly byte[] PreResetMagic = Encoding.ASCII.GetBytes("PRKB");
+        internal const int CurrentBinaryVersion = RecordingStore.CurrentRecordingFormatVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -77,23 +46,48 @@ namespace Parsek
 
         internal static bool HasBinaryMagic(string path)
         {
+            return HasMagic(path, Magic);
+        }
+
+        internal static bool HasPreResetBinaryMagic(string path)
+        {
+            return HasMagic(path, PreResetMagic);
+        }
+
+        private static bool HasMagic(string path, byte[] magic)
+        {
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return false;
 
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                if (stream.Length < Magic.Length)
+                if (stream.Length < magic.Length)
                     return false;
 
-                for (int i = 0; i < Magic.Length; i++)
+                for (int i = 0; i < magic.Length; i++)
                 {
                     int b = stream.ReadByte();
-                    if (b != Magic[i])
+                    if (b != magic[i])
                         return false;
                 }
             }
 
             return true;
+        }
+
+        internal static TrajectorySidecarProbe BuildPreResetMagicProbe()
+        {
+            return new TrajectorySidecarProbe
+            {
+                Success = true,
+                Supported = false,
+                Encoding = TrajectorySidecarEncoding.UnknownBinary,
+                FormatVersion = -1,
+                SchemaGeneration = 0,
+                SidecarEpoch = 0,
+                MagicTag = Encoding.ASCII.GetString(PreResetMagic),
+                FailureReason = "magic-mismatch"
+            };
         }
 
         internal static bool TryProbe(string path, out TrajectorySidecarProbe probe)
@@ -106,38 +100,63 @@ namespace Parsek
                 return false;
             }
 
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var reader = new BinaryReader(stream, Encoding.UTF8))
+            try
             {
-                if (stream.Length < Magic.Length + sizeof(int) + sizeof(int))
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var reader = new BinaryReader(stream, Encoding.UTF8))
                 {
-                    probe.FailureReason = "binary header truncated";
-                    return false;
-                }
-
-                for (int i = 0; i < Magic.Length; i++)
-                {
-                    if (reader.ReadByte() != Magic[i])
+                    if (stream.Length < Magic.Length + sizeof(int) + sizeof(int) + sizeof(int))
                     {
-                        probe.FailureReason = "binary magic mismatch";
+                        probe.FailureReason = "binary header truncated";
                         return false;
                     }
+
+                    for (int i = 0; i < Magic.Length; i++)
+                    {
+                        if (reader.ReadByte() != Magic[i])
+                        {
+                            probe.FailureReason = "binary magic mismatch";
+                            return false;
+                        }
+                    }
+
+                    int formatVersion = reader.ReadInt32();
+                    int schemaGeneration = reader.ReadInt32();
+                    int sidecarEpoch = reader.ReadInt32();
+                    string recordingId = reader.ReadString();
+
+                    probe.Success = true;
+                    probe.Encoding = GetBinaryEncoding(formatVersion);
+                    probe.FormatVersion = formatVersion;
+                    probe.SchemaGeneration = schemaGeneration;
+                    probe.SidecarEpoch = sidecarEpoch;
+                    probe.RecordingId = recordingId;
+                    probe.MagicTag = Encoding.ASCII.GetString(Magic);
+                    probe.Supported = IsSupportedBinaryVersion(formatVersion)
+                        && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
+                    probe.FailureReason = BuildUnsupportedReason(formatVersion, schemaGeneration);
+                    return true;
                 }
-
-                int formatVersion = reader.ReadInt32();
-                int sidecarEpoch = reader.ReadInt32();
-                string recordingId = reader.ReadString();
-
-                probe.Success = true;
-                probe.Encoding = GetBinaryEncoding(formatVersion);
-                probe.FormatVersion = formatVersion;
-                probe.SidecarEpoch = sidecarEpoch;
-                probe.RecordingId = recordingId;
-                probe.Supported = IsSupportedBinaryVersion(formatVersion);
-                probe.FailureReason = probe.Supported
-                    ? null
-                    : $"unsupported binary trajectory version {formatVersion}";
-                return true;
+            }
+            catch (EndOfStreamException)
+            {
+                probe.FailureReason = "binary header truncated";
+                return false;
+            }
+            catch (FormatException ex)
+            {
+                probe.FailureReason = "binary header invalid: " + ex.Message;
+                return false;
+            }
+            catch (ArgumentException ex)
+            {
+                probe.FailureReason = "binary header invalid: " + ex.Message;
+                return false;
+            }
+            catch (IOException ex)
+            {
+                probe.FailureReason = "binary header invalid: " + ex.Message;
+                return false;
             }
         }
 
@@ -158,7 +177,7 @@ namespace Parsek
                 flatFallbackPoints != null && !ReferenceEquals(flatFallbackPoints, rec.Points);
             int flatFallbackPointCount = flatFallbackPoints != null ? flatFallbackPoints.Count : 0;
             var table = BuildStringTable(rec);
-            int binaryVersion = DebrisFrameContractBinaryVersion;
+            int binaryVersion = CurrentBinaryVersion;
             SparsePointWriteStats stats = default(SparsePointWriteStats);
 
             using (var stream = new MemoryStream())
@@ -166,6 +185,7 @@ namespace Parsek
             {
                 writer.Write(Magic);
                 writer.Write(binaryVersion);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 writer.Write(sidecarEpoch);
                 writer.Write(rec.RecordingId ?? string.Empty);
                 writer.Write(sectionAuthoritative ? FlagSectionAuthoritative : (byte)0);
@@ -238,7 +258,6 @@ namespace Parsek
                 int preHealOrbitSegmentCount = rec.OrbitSegments.Count;
                 bool healedMalformedFlatFallback = false;
                 if (!sectionAuthoritative &&
-                    probe.FormatVersion >= 1 &&
                     rec.TrackSections.Count > 0)
                 {
                     RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
@@ -249,13 +268,8 @@ namespace Parsek
                         rec, allowRelativeSections: true);
                 }
 
-                // #411 follow-up: promote-only. Never demote rec.RecordingFormatVersion from a
-                // higher in-memory value (e.g. a v4 stamp set by the tree/scenario legacy loop
-                // migration before sidecars were hydrated) back down to the on-disk binary
-                // version. Demotion would cause MigrateLegacyLoopIntervalAfterHydration to fire
-                // a second time against the already-migrated value and double the period.
-                if (rec.RecordingFormatVersion < probe.FormatVersion)
-                    rec.RecordingFormatVersion = probe.FormatVersion;
+                rec.RecordingFormatVersion = probe.FormatVersion;
+                rec.RecordingSchemaGeneration = probe.SchemaGeneration;
                 if (string.IsNullOrEmpty(rec.RecordingId))
                     rec.RecordingId = probe.RecordingId;
 
@@ -295,6 +309,7 @@ namespace Parsek
                 reader.ReadByte();
 
             reader.ReadInt32(); // formatVersion
+            reader.ReadInt32(); // recordingSchemaGeneration
             reader.ReadInt32(); // sidecarEpoch
             reader.ReadString(); // recordingId
         }
@@ -372,14 +387,27 @@ namespace Parsek
 
         private static bool IsSupportedBinaryVersion(int version)
         {
-            return version == DebrisFrameContractBinaryVersion;
+            return version == CurrentBinaryVersion;
         }
 
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)
         {
-            return version >= SparsePointBinaryVersion
-                ? TrajectorySidecarEncoding.BinaryV3
-                : TrajectorySidecarEncoding.BinaryV2;
+            return version == CurrentBinaryVersion
+                ? TrajectorySidecarEncoding.BinaryV0
+                : TrajectorySidecarEncoding.UnknownBinary;
+        }
+
+        private static string BuildUnsupportedReason(int formatVersion, int schemaGeneration)
+        {
+            if (schemaGeneration == 0)
+                return "generation-missing";
+            if (schemaGeneration < RecordingStore.CurrentRecordingSchemaGeneration)
+                return "generation-older";
+            if (schemaGeneration > RecordingStore.CurrentRecordingSchemaGeneration)
+                return "generation-newer";
+            if (!IsSupportedBinaryVersion(formatVersion))
+                return "format-version-mismatch";
+            return null;
         }
 
         private static void WritePointList(BinaryWriter writer, List<TrajectoryPoint> points, BinaryStringTable table, int binaryVersion, ref SparsePointWriteStats stats)
@@ -388,14 +416,7 @@ namespace Parsek
             if (points == null || points.Count == 0)
                 return;
 
-            if (binaryVersion >= SparsePointBinaryVersion)
-            {
-                WriteSparsePointList(writer, points, table, binaryVersion, ref stats);
-                return;
-            }
-
-            for (int i = 0; i < points.Count; i++)
-                WritePoint(writer, points[i], table, binaryVersion);
+            WriteSparsePointList(writer, points, table, binaryVersion, ref stats);
         }
 
         private static void ReadPointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
@@ -404,14 +425,7 @@ namespace Parsek
             if (count == 0)
                 return;
 
-            if (binaryVersion >= SparsePointBinaryVersion)
-            {
-                ReadSparsePointList(reader, points, stringTable, count, binaryVersion, ref stats);
-                return;
-            }
-
-            for (int i = 0; i < count; i++)
-                points.Add(ReadPoint(reader, stringTable, binaryVersion));
+            ReadSparsePointList(reader, points, stringTable, count, binaryVersion, ref stats);
         }
 
         private static void WritePoint(BinaryWriter writer, TrajectoryPoint pt, BinaryStringTable table, int binaryVersion)
@@ -431,19 +445,8 @@ namespace Parsek
             writer.Write(pt.funds);
             writer.Write(pt.science);
             writer.Write(pt.reputation);
-            // Phase 7 (v9): recordedGroundClearance double tail. Legacy v2 readers
-            // never reach this branch (the LegacyBinaryVersion path is selected for
-            // v < 3); v3-v8 readers stop reading at the reputation field above.
-            // Position-stable: this stays before the v10 flags byte so v9 readers
-            // still terminate cleanly after the double.
-            if (binaryVersion >= TerrainGroundClearanceBinaryVersion)
-                writer.Write(pt.recordedGroundClearance);
-            // Phase 9 (v10): per-point flags byte. Position-stable: appended after
-            // the v9 clearance double so v9 readers stop short of it harmlessly
-            // (they never read the byte and default-init flags=0). New readers
-            // gate on `binaryVersion >= StructuralEventFlagBinaryVersion`.
-            if (binaryVersion >= StructuralEventFlagBinaryVersion)
-                writer.Write(pt.flags);
+            writer.Write(pt.recordedGroundClearance);
+            writer.Write(pt.flags);
         }
 
         private static TrajectoryPoint ReadPoint(BinaryReader reader, List<string> stringTable, int binaryVersion)
@@ -468,20 +471,8 @@ namespace Parsek
                 science = reader.ReadSingle(),
                 reputation = reader.ReadSingle()
             };
-            // Phase 7 (v9): recordedGroundClearance — gated on
-            // `binaryVersion >= TerrainGroundClearanceBinaryVersion`. Legacy v2-v8
-            // readers see NaN sentinel, which the playback path interprets as
-            // "no clearance captured — use legacy altitude" (HR-9 fall-through).
-            pt.recordedGroundClearance = (binaryVersion >= TerrainGroundClearanceBinaryVersion)
-                ? reader.ReadDouble()
-                : double.NaN;
-            // Phase 9 (v10): per-point flags byte — gated on
-            // `binaryVersion >= StructuralEventFlagBinaryVersion`. Legacy v2-v9
-            // readers default flags=0, which AnchorCandidateBuilder interprets as
-            // "no structural-event snapshot — use interpolated event ε" (§15.17).
-            pt.flags = (binaryVersion >= StructuralEventFlagBinaryVersion)
-                ? reader.ReadByte()
-                : (byte)0;
+            pt.recordedGroundClearance = reader.ReadDouble();
+            pt.flags = reader.ReadByte();
             return pt;
         }
 
@@ -514,8 +505,7 @@ namespace Parsek
             writer.Write(seg.meanAnomalyAtEpoch);
             writer.Write(seg.epoch);
             writer.Write(table.GetIndex(seg.bodyName));
-            if (binaryVersion >= PredictedOrbitSegmentBinaryVersion)
-                writer.Write(seg.isPredicted ? OrbitSegmentFlagPredicted : (byte)0);
+            writer.Write(seg.isPredicted ? OrbitSegmentFlagPredicted : (byte)0);
             writer.Write(seg.orbitalFrameRotation.x);
             writer.Write(seg.orbitalFrameRotation.y);
             writer.Write(seg.orbitalFrameRotation.z);
@@ -538,8 +528,7 @@ namespace Parsek
             double meanAnomalyAtEpoch = reader.ReadDouble();
             double epoch = reader.ReadDouble();
             string bodyName = ReadIndexedString(reader, stringTable) ?? "Kerbin";
-            if (binaryVersion >= PredictedOrbitSegmentBinaryVersion)
-                isPredicted = (reader.ReadByte() & OrbitSegmentFlagPredicted) != 0;
+            isPredicted = (reader.ReadByte() & OrbitSegmentFlagPredicted) != 0;
 
             return new OrbitSegment
             {
@@ -692,31 +681,19 @@ namespace Parsek
                 writer.Write((int)track.referenceFrame);
                 writer.Write(track.startUT);
                 writer.Write(track.endUT);
-                // v13 rejects older binary payloads and carries both anchor contracts:
-                // anchorRecordingId for recorded-anchor chains and anchorVesselId for
-                // the loop-anchor live-PID leaf used by debris chain composition.
                 writer.Write(track.anchorVesselId);
-                if (binaryVersion >= RecordingAnchorChainBinaryVersion)
-                {
-                    string anchorRecordingId = string.IsNullOrEmpty(track.anchorRecordingId)
-                        ? null
-                        : track.anchorRecordingId;
-                    writer.Write(table.GetNullableIndex(anchorRecordingId));
-                }
+                string anchorRecordingId = string.IsNullOrEmpty(track.anchorRecordingId)
+                    ? null
+                    : track.anchorRecordingId;
+                writer.Write(table.GetNullableIndex(anchorRecordingId));
                 writer.Write(track.sampleRateHz);
                 writer.Write((int)track.source);
                 writer.Write(track.boundaryDiscontinuityMeters);
                 writer.Write(track.minAltitude);
                 writer.Write(track.maxAltitude);
-                // v8: isBoundarySeam flag for Producer-C no-payload boundary seam. The byte
-                // appears AFTER maxAltitude and BEFORE the frames list so v7 readers (which
-                // expect frames immediately after maxAltitude) keep reading frames at the
-                // correct offset. New readers gate on binaryVersion >= 8 and default-false on <8.
-                if (binaryVersion >= BoundarySeamFlagBinaryVersion)
-                    writer.Write(track.isBoundarySeam);
+                writer.Write(track.isBoundarySeam);
                 WritePointList(writer, track.frames, table, binaryVersion, ref stats);
-                if (binaryVersion >= RelativeBodyFixedPrimaryBinaryVersion)
-                    WritePointList(writer, track.bodyFixedFrames, table, binaryVersion, ref stats);
+                WritePointList(writer, track.bodyFixedFrames, table, binaryVersion, ref stats);
                 WriteOrbitSegmentList(writer, track.checkpoints, table, binaryVersion);
             }
         }
@@ -733,25 +710,20 @@ namespace Parsek
                     startUT = reader.ReadDouble(),
                     endUT = reader.ReadDouble(),
                     anchorVesselId = reader.ReadUInt32(),
-                    anchorRecordingId = binaryVersion >= RecordingAnchorChainBinaryVersion
-                        ? ReadNullableIndexedString(reader, stringTable)
-                        : null,
+                    anchorRecordingId = ReadNullableIndexedString(reader, stringTable),
                     sampleRateHz = reader.ReadSingle(),
                     source = (TrackSectionSource)reader.ReadInt32(),
                     boundaryDiscontinuityMeters = reader.ReadSingle(),
                     minAltitude = reader.ReadSingle(),
                     maxAltitude = reader.ReadSingle(),
-                    // v8: isBoundarySeam flag — gated on binaryVersion >= 8, default-false on <8.
-                    // Reading happens BEFORE the frames list to preserve positional layout.
-                    isBoundarySeam = (binaryVersion >= BoundarySeamFlagBinaryVersion) && reader.ReadBoolean(),
+                    isBoundarySeam = reader.ReadBoolean(),
                     frames = new List<TrajectoryPoint>(),
                     bodyFixedFrames = new List<TrajectoryPoint>(),
                     checkpoints = new List<OrbitSegment>()
                 };
 
                 ReadPointList(reader, track.frames, stringTable, binaryVersion, ref stats);
-                if (binaryVersion >= RelativeBodyFixedPrimaryBinaryVersion)
-                    ReadPointList(reader, track.bodyFixedFrames, stringTable, binaryVersion, ref stats);
+                ReadPointList(reader, track.bodyFixedFrames, stringTable, binaryVersion, ref stats);
                 ReadOrbitSegmentList(reader, track.checkpoints, stringTable, binaryVersion);
                 tracks.Add(track);
             }
@@ -856,20 +828,8 @@ namespace Parsek
                     writer.Write(pt.reputation);
                 }
 
-                // Phase 7 (v9): per-point recordedGroundClearance double appended
-                // after the optional reputation override field. Position-stable —
-                // legacy v8 readers stop after reputation. New readers gate on
-                // `binaryVersion >= TerrainGroundClearanceBinaryVersion` and
-                // default-NaN on `< 9` (HR-9 fall-through to legacy altitude path).
-                if (binaryVersion >= TerrainGroundClearanceBinaryVersion)
-                    writer.Write(pt.recordedGroundClearance);
-                // Phase 9 (v10): per-point flags byte appended at the very end of
-                // each sparse sample's record. Position-stable — legacy v9 readers
-                // stop after the clearance double. New readers gate on
-                // `binaryVersion >= StructuralEventFlagBinaryVersion` and default
-                // flags=0 on `< 10` (HR-9 fall-through to interpolated event ε).
-                if (binaryVersion >= StructuralEventFlagBinaryVersion)
-                    writer.Write(pt.flags);
+                writer.Write(pt.recordedGroundClearance);
+                writer.Write(pt.flags);
             }
         }
 
@@ -986,21 +946,8 @@ namespace Parsek
                     pt.reputation = reader.ReadSingle();
                 }
 
-                // Phase 7 (v9): per-point recordedGroundClearance read after the
-                // last optional override field. Gated on `binaryVersion >= 9`;
-                // legacy v3-v8 readers default-NaN to indicate "no clearance
-                // captured".
-                pt.recordedGroundClearance = (binaryVersion >= TerrainGroundClearanceBinaryVersion)
-                    ? reader.ReadDouble()
-                    : double.NaN;
-
-                // Phase 9 (v10): per-point flags byte at the very end of each
-                // sample's record. Gated on `binaryVersion >= 10`; legacy v3-v9
-                // readers default flags=0 to indicate "no structural-event
-                // snapshot — use interpolated event ε" (§15.17).
-                pt.flags = (binaryVersion >= StructuralEventFlagBinaryVersion)
-                    ? reader.ReadByte()
-                    : (byte)0;
+                pt.recordedGroundClearance = reader.ReadDouble();
+                pt.flags = reader.ReadByte();
 
                 points.Add(pt);
             }

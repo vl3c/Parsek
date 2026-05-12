@@ -12,7 +12,7 @@ namespace Parsek.Tests.Rendering
     /// <summary>
     /// Phase 7 (design doc §13, §17.3.2, §18 Phase 7) round-trip tests for the
     /// per-point <c>recordedGroundClearance</c> field added in
-    /// <see cref="RecordingStore.TerrainGroundClearanceFormatVersion"/> (v9).
+    /// <see cref="RecordingStore.CurrentRecordingFormatVersion"/> (v9).
     ///
     /// <para>Three contracts under test:
     /// <list type="number">
@@ -68,7 +68,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "phase7-v9-finite",
-                RecordingFormatVersion = RecordingStore.TerrainGroundClearanceFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var pt = new TrajectoryPoint
             {
@@ -115,7 +115,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "phase7-v9-nan",
-                RecordingFormatVersion = RecordingStore.TerrainGroundClearanceFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var pt = new TrajectoryPoint
             {
@@ -211,7 +211,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "phase7-v9-section",
-                RecordingFormatVersion = RecordingStore.TerrainGroundClearanceFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var p0 = MakeSurfaceMobilePoint(t0, -0.1, -74.5, 76.0, clearance: 1.0);
             var p1 = MakeSurfaceMobilePoint(t0 + 1, -0.1001, -74.5001, 76.5, clearance: 1.5);
@@ -298,7 +298,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "phase7-v8-end-to-end",
-                RecordingFormatVersion = RecordingStore.BoundarySeamFlagFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             foreach (var p in pts) rec.Points.Add(p);
 

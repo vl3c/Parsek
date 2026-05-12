@@ -13,10 +13,11 @@ namespace Parsek
     /// </summary>
     internal static class Ledger
     {
-        private const int CurrentLedgerVersion = 2;
+        private const int CurrentLedgerVersion = 0;
         private const string RootNodeName = "LEDGER";
         private const string ActionNodeName = "GAME_ACTION";
         private const string VersionKey = "version";
+        private const string SchemaGenerationKey = "recordingSchemaGeneration";
 
         private static List<GameAction> actions = new List<GameAction>();
 
@@ -333,6 +334,8 @@ namespace Parsek
             {
                 var root = new ConfigNode(RootNodeName);
                 root.AddValue(VersionKey, CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture));
+                root.AddValue(SchemaGenerationKey,
+                    RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
 
                 for (int i = 0; i < actions.Count; i++)
                 {
@@ -387,16 +390,25 @@ namespace Parsek
                     return false;
                 }
 
-                // Check version
                 string versionStr = loaded.GetValue(VersionKey);
+                string schemaGenerationStr = loaded.GetValue(SchemaGenerationKey);
                 int version = 0;
-                if (versionStr != null)
-                    int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version);
+                int schemaGeneration = 0;
+                bool versionOk = versionStr != null
+                    && int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version)
+                    && version == CurrentLedgerVersion;
+                bool generationOk = schemaGenerationStr != null
+                    && int.TryParse(schemaGenerationStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaGeneration)
+                    && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
 
-                if (version < 1)
+                if (!versionOk || !generationOk)
                 {
                     ParsekLog.Warn("Ledger",
-                        $"Ledger file '{path}' has unsupported version '{versionStr ?? "(missing)"}', starting with empty ledger");
+                        $"Ledger file '{path}' has unsupported schema: " +
+                        $"version='{versionStr ?? "(missing)"}' expected={CurrentLedgerVersion.ToString(CultureInfo.InvariantCulture)} " +
+                        $"recordingSchemaGeneration='{schemaGenerationStr ?? "(missing)"}' " +
+                        $"expectedGeneration={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}; " +
+                        "starting with empty ledger");
                     actions.Clear();
                     BumpStateVersion();
                     return false;
@@ -422,13 +434,11 @@ namespace Parsek
                     }
                 }
 
-                int migratedFacilityLevels = MigrateLegacyFacilityUpgradeLevels(newActions, version);
-
                 actions = newActions;
                 BumpStateVersion();
                 ParsekLog.Verbose("Ledger",
                     $"Loaded ledger from '{path}': version={version}, actions={actions.Count}, " +
-                    $"parseErrors={parseErrors}, migratedFacilityLevels={migratedFacilityLevels}");
+                    $"parseErrors={parseErrors}");
                 // Rewind-to-Staging Phase 1 (design section 9): emit the one-shot
                 // legacy ActionId migration log if any actions were rehydrated on load.
                 EmitLegacyActionIdMigrationLogOnce();
@@ -441,50 +451,6 @@ namespace Parsek
                 BumpStateVersion();
                 return false;
             }
-        }
-
-        /// <summary>
-        /// Ledger v1 stored facility upgrade levels as KSP's SetLevel index for
-        /// upgraded tiers (1/2). Ledger v2 stores the FacilitiesModule contract
-        /// directly (1/2/3 tiers), so old upgrade rows must move one tier up.
-        /// </summary>
-        private static int MigrateLegacyFacilityUpgradeLevels(List<GameAction> loadedActions, int version)
-        {
-            if (version >= 2 || loadedActions == null)
-                return 0;
-
-            int migrated = 0;
-            for (int i = 0; i < loadedActions.Count; i++)
-            {
-                var action = loadedActions[i];
-                if (action == null || action.Type != GameActionType.FacilityUpgrade)
-                    continue;
-
-                int oldLevel = action.ToLevel;
-                int newLevel;
-                if (oldLevel <= 0)
-                    newLevel = 1;
-                else
-                    newLevel = oldLevel + 1;
-
-                if (newLevel > 3)
-                    newLevel = 3;
-
-                if (newLevel == oldLevel)
-                    continue;
-
-                action.ToLevel = newLevel;
-                migrated++;
-            }
-
-            if (migrated > 0)
-            {
-                ParsekLog.Info("Ledger",
-                    $"Migrated {migrated.ToString(CultureInfo.InvariantCulture)} " +
-                    $"legacy facility upgrade level(s) from ledger version {version.ToString(CultureInfo.InvariantCulture)}");
-            }
-
-            return migrated;
         }
 
         // ================================================================

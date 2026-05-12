@@ -226,7 +226,7 @@ namespace Parsek.Tests
             RecordingStore.SerializeTrackSections(
                 parent,
                 tracks,
-                RecordingStore.StructuralEventFlagFormatVersion);
+                RecordingStore.CurrentRecordingFormatVersion);
 
             var loaded = new List<TrackSection>();
             RecordingStore.DeserializeTrackSections(parent, loaded);
@@ -269,7 +269,7 @@ namespace Parsek.Tests
             RecordingStore.SerializeTrackSections(
                 parent,
                 new List<TrackSection> { original },
-                RecordingStore.RecordingAnchorChainFormatVersion);
+                RecordingStore.CurrentRecordingFormatVersion);
 
             ConfigNode tsNode = parent.GetNode("TRACK_SECTION");
             Assert.Equal("anchor-rec-1", tsNode.GetValue("anchorRecordingId"));
@@ -744,7 +744,7 @@ namespace Parsek.Tests
             RecordingStore.SerializeTrackSections(
                 node,
                 new List<TrackSection> { track },
-                RecordingStore.LaunchToLaunchLoopIntervalFormatVersion);
+                RecordingStore.CurrentRecordingFormatVersion);
 
             ConfigNode tsNode = node.GetNode("TRACK_SECTION");
             Assert.NotNull(tsNode);

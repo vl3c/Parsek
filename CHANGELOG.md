@@ -4,6 +4,18 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.10.0
+
+### Breaking Changes
+
+- Reset the private-development recording/rendering schema baseline to v0. New recordings, recording trees, trajectory sidecars, snapshot sidecars, and the career ledger now stamp the current v0 contract plus `recordingSchemaGeneration = 1`; old pre-reset Parsek files are rejected with explicit reasons such as `magic-mismatch`, `generation-missing`, `generation-newer`, and `format-version-mismatch` instead of being migrated.
+- Reset pannotations sidecars through new `PNA0`/`PNC0` magic and v0 cache schema stamps.
+- Removed the historical recording-format compatibility ladder from the current trajectory codec. The binary `.prec` writer now emits the single current `PSK0`/BinaryV0 layout, text `.prec` files are debug mirrors only, and old `PRKB` trajectory sidecars, `PRKS` snapshot sidecars, and pre-reset pannotations magic tags are treated as unsupported.
+- Save/load now enforces that v0 `.sfs` metadata is only paired with current sidecars: saves rewrite stale/missing sidecars before serializing tree metadata and skip unsafe trees if the rewrite cannot produce current files; loads discard non-synthetic recordings whose sidecars fail schema hydration instead of committing metadata-only placeholders.
+- Current-magic sidecar probes now fail closed on malformed binary headers, and `InjectAllRecordings` explicitly excludes the frozen pre-reset `DefaultCareer` corpus until it is rebaked to v0/generation-1 files instead of copying unloadable legacy sidecars into runtime smoke saves.
+
+---
+
 ## 0.9.2
 
 ### Bug Fixes

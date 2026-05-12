@@ -13,9 +13,8 @@ namespace Parsek
         public double latitude;
         public double longitude;
         public double altitude;
-        // Absolute / surface playback stores body-surface-relative rotation (v.srfRelRotation).
-        // Format-v6 RELATIVE TrackSections instead store anchor-local world rotation.
-        // Legacy v5-and-older RELATIVE sections keep their original playback contract.
+        // Absolute / surface playback stores body-surface-relative rotation
+        // (v.srfRelRotation). RELATIVE TrackSections store anchor-local world rotation.
         public Quaternion rotation;
         public Vector3 velocity;    // Playback velocity captured from KSP; not guaranteed surface-relative
         public string bodyName;     // Reference celestial body
@@ -28,11 +27,8 @@ namespace Parsek
         // Phase 7: continuous terrain correction (design doc §13.1, §17.3.2,
         // §18 Phase 7). Recorded ground clearance in metres = altitude (root
         // origin) - terrainHeight at this point's lat/lon at recording time.
-        // Populated only for surface-section samples (post-v9 recordings).
-        // NaN sentinel for legacy points and non-surface environments —
-        // playback falls through to the legacy altitude-only path.
-        // Binary codec gates this field on
-        // RecordingStore.TerrainGroundClearanceFormatVersion (v9+).
+        // Populated only for surface-section samples. NaN means no surface
+        // clearance was captured, so playback uses the raw altitude path.
         public double recordedGroundClearance;
 
         // Phase 9: per-sample flag bitset (design doc §12, §17.3.2, §18 Phase 9).
@@ -40,10 +36,7 @@ namespace Parsek
         // a synthetic snapshot the recorder appended at the exact UT of a structural
         // event (dock / undock / EVA / joint-break) so anchor ε at re-fly merge
         // points lands at physics-precision instead of a one-tick interpolation.
-        // Bits 1-7 are reserved. Default 0 for every legacy point and every regular
-        // per-tick sample. Binary codec gates the byte on
-        // RecordingStore.StructuralEventFlagFormatVersion (v10+); legacy readers
-        // default to 0.
+        // Bits 1-7 are reserved. Default 0 for every regular per-tick sample.
         public byte flags;
 
         public override string ToString()

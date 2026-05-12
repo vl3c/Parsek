@@ -3251,7 +3251,10 @@ namespace Parsek.Tests
 
                 // Serialize to ConfigNode
                 var node = new ConfigNode("PARSEK_RECORDING");
-                node.AddValue("version", "5");
+                node.AddValue("version",
+                    RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+                node.AddValue("recordingSchemaGeneration",
+                    RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
                 node.AddValue("recordingId", rec.RecordingId);
                 RecordingStore.SerializeTrajectoryInto(node, rec);
 
@@ -3317,7 +3320,10 @@ namespace Parsek.Tests
 
                 // Serialize to ConfigNode and save to file
                 var precNode = new ConfigNode("PARSEK_RECORDING");
-                precNode.AddValue("version", "5");
+                precNode.AddValue("version",
+                    RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+                precNode.AddValue("recordingSchemaGeneration",
+                    RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
                 precNode.AddValue("recordingId", "filetest");
                 RecordingStore.SerializeTrajectoryInto(precNode, rec);
 
@@ -3328,7 +3334,13 @@ namespace Parsek.Tests
                 Assert.True(File.Exists(precPath), "Expected .prec file to be written");
                 string content = File.ReadAllText(precPath);
                 Assert.Contains("recordingId = filetest", content);
-                Assert.Contains("version = 5", content);
+                Assert.Contains(
+                    "version = " + RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture),
+                    content);
+                Assert.Contains(
+                    "recordingSchemaGeneration = " +
+                    RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture),
+                    content);
                 Assert.Contains("POINT", content);
                 Assert.Contains("ut = 500", content);
                 Assert.Contains("ut = 503", content);
@@ -5079,7 +5091,7 @@ namespace Parsek.Tests
                 Assert.True(File.Exists(precPath), $"Expected .prec file at {precPath}");
                 TrajectorySidecarProbe probe;
                 Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
-                Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+                Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
                 Assert.Equal(id, probe.RecordingId);
 
                 var restored = new Recording { RecordingId = id };
@@ -6352,15 +6364,21 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Surviving Capsule", content);
                     Assert.Contains("vesselName = Destroyed Booster", content);
 
-                    // Real career fixture recordings: standalone RECORDING nodes are
-                    // no longer loaded after T56 (sidecar files still get copied), but
-                    // RECORDING_TREE nodes ARE now injected via ScenarioWriter.AddTree.
-                    // #384 added the Learstar A1 mission tree from the S16 career as a
-                    // far-away / map-view smoke test — assert it round-tripped into the
-                    // injected save.
-                    Assert.Contains("vesselName = Learstar A1", content);
-                    Assert.Contains("vesselName = Learstar A1 Debris", content);
-                    Assert.Contains("treeName = Learstar A1", content);
+                    // The frozen real-career fixture is injected only after it has
+                    // been rebaked to the current reset schema. Until then, the
+                    // stale v3/text corpus is deliberately excluded so runtime
+                    // smoke coverage does not silently exercise unloadable data.
+                    if (realRecordingNodes.Length > 0)
+                    {
+                        Assert.Contains("vesselName = Learstar A1", content);
+                        Assert.Contains("vesselName = Learstar A1 Debris", content);
+                        Assert.Contains("treeName = Learstar A1", content);
+                    }
+                    else
+                    {
+                        Assert.DoesNotContain("vesselName = Learstar A1", content);
+                        Assert.DoesNotContain("treeName = Learstar A1", content);
+                    }
 
                     Assert.Contains("FLIGHTSTATE", content);
 
@@ -6397,11 +6415,11 @@ namespace Parsek.Tests
                 Assert.True(Directory.Exists(recordingsDir),
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
-                // Expect exactly the synthetic recordings plus the real career
-                // recordings whose sidecars CopyRealRecordingFiles forwards — no
-                // orphan .prec files from previous inject runs. Each recording
-                // has one .prec, and vessel/ghost snapshots produce at least one
-                // _vessel.craft OR _ghost.craft file.
+                // Expect exactly the synthetic recordings plus any current-schema
+                // real career recordings whose sidecars CopyRealRecordingFiles
+                // forwards — no orphan .prec files from previous inject runs.
+                // Each recording has one .prec, and vessel/ghost snapshots
+                // produce at least one _vessel.craft OR _ghost.craft file.
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
                 string[] vesselFiles = Directory.GetFiles(recordingsDir, "*_vessel.craft");
                 string[] ghostFiles = Directory.GetFiles(recordingsDir, "*_ghost.craft");
@@ -6602,9 +6620,8 @@ namespace Parsek.Tests
         {
             // Use frozen fixture copy instead of live default career
             string fixtureDir = ResolveDefaultCareerFixtureDir();
-            string defaultPersistent = fixtureDir != null
-                ? Path.Combine(fixtureDir, "persistent.sfs")
-                : Path.Combine(kspRoot, "saves", "default", "persistent.sfs");
+            string sourceCareerDir = fixtureDir ?? Path.Combine(kspRoot, "saves", "default");
+            string defaultPersistent = Path.Combine(sourceCareerDir, "persistent.sfs");
             if (!File.Exists(defaultPersistent))
                 return new ConfigNode[0];
 
@@ -6639,9 +6656,19 @@ namespace Parsek.Tests
 
             var allRecordings = new List<ConfigNode>(recNodes);
             for (int i = 0; i < treeNodes.Length; i++)
+                allRecordings.AddRange(treeNodes[i].GetNodes("RECORDING"));
+
+            if (!TryValidateRealCareerRecordingCorpusCurrent(
+                    sourceCareerDir, allRecordings, out string staleReason))
+            {
+                ParsekLog.Warn("SyntheticInjector",
+                    $"Skipped real career recording fixture '{sourceCareerDir}' because it is not current-schema: {staleReason}");
+                return new ConfigNode[0];
+            }
+
+            for (int i = 0; i < treeNodes.Length; i++)
             {
                 writer.AddTree(treeNodes[i]);
-                allRecordings.AddRange(treeNodes[i].GetNodes("RECORDING"));
             }
 
             // Forward group hierarchy entries from the real career (e.g.,
@@ -6676,6 +6703,85 @@ namespace Parsek.Tests
             }
 
             return allRecordings.ToArray();
+        }
+
+        private static bool TryValidateRealCareerRecordingCorpusCurrent(
+            string sourceCareerDir,
+            List<ConfigNode> recordings,
+            out string reason)
+        {
+            reason = null;
+            if (recordings == null || recordings.Count == 0)
+                return true;
+
+            string sourceRecordingDir = Path.Combine(sourceCareerDir, "Parsek", "Recordings");
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                ConfigNode recording = recordings[i];
+                string recordingId = recording.GetValue("recordingId");
+                if (string.IsNullOrEmpty(recordingId))
+                {
+                    reason = $"recording index {i} has no recordingId";
+                    return false;
+                }
+
+                if (!HasExpectedIntValue(
+                        recording,
+                        "recordingFormatVersion",
+                        RecordingStore.CurrentRecordingFormatVersion,
+                        out string formatActual))
+                {
+                    reason =
+                        $"recording '{recordingId}' recordingFormatVersion='{formatActual}' " +
+                        $"expected={RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture)}";
+                    return false;
+                }
+
+                if (!HasExpectedIntValue(
+                        recording,
+                        "recordingSchemaGeneration",
+                        RecordingStore.CurrentRecordingSchemaGeneration,
+                        out string generationActual))
+                {
+                    reason =
+                        $"recording '{recordingId}' recordingSchemaGeneration='{generationActual}' " +
+                        $"expected={RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)}";
+                    return false;
+                }
+
+                string trajectoryPath = Path.Combine(sourceRecordingDir, recordingId + ".prec");
+                TrajectorySidecarProbe probe;
+                if (!RecordingStore.TryProbeTrajectorySidecar(trajectoryPath, out probe))
+                {
+                    reason =
+                        $"recording '{recordingId}' sidecar probe failed: {probe.FailureReason ?? "(no reason)"}";
+                    return false;
+                }
+
+                if (!probe.Supported)
+                {
+                    reason =
+                        $"recording '{recordingId}' sidecar unsupported: encoding={probe.Encoding} " +
+                        $"format={probe.FormatVersion.ToString(CultureInfo.InvariantCulture)} " +
+                        $"generation={probe.SchemaGeneration.ToString(CultureInfo.InvariantCulture)} " +
+                        $"reason={probe.FailureReason ?? "(no reason)"}";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool HasExpectedIntValue(
+            ConfigNode node,
+            string key,
+            int expected,
+            out string actual)
+        {
+            actual = node.GetValue(key) ?? "(missing)";
+            int parsed;
+            return int.TryParse(actual, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)
+                && parsed == expected;
         }
 
         /// <summary>

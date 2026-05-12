@@ -141,11 +141,7 @@ namespace Parsek
             segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
             segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
             segNode.AddValue("body", seg.bodyName);
-            if (recordingFormatVersion >= RecordingStore.PredictedOrbitSegmentFormatVersion
-                || (writeLegacyPredictedFlag && seg.isPredicted))
-            {
-                segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
-            }
+            segNode.AddValue("isPredicted", seg.isPredicted ? "True" : "False");
             if (TrajectoryMath.HasOrbitalFrameRotation(seg))
             {
                 segNode.AddValue("ofrX", seg.orbitalFrameRotation.x.ToString("R", ic));
@@ -231,6 +227,12 @@ namespace Parsek
             {
                 targetNode.AddValue("version",
                     rec.RecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (string.IsNullOrEmpty(targetNode.GetValue("recordingSchemaGeneration")))
+            {
+                targetNode.AddValue("recordingSchemaGeneration",
+                    rec.RecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             }
 
             if (string.IsNullOrEmpty(targetNode.GetValue("recordingId")) &&
@@ -420,14 +422,12 @@ namespace Parsek
         internal static bool ShouldWriteSectionAuthoritativeTrajectory(Recording rec)
         {
             return rec != null
-                && rec.RecordingFormatVersion >= 1
                 && HasTrackSectionPayloadMatchingFlatTrajectory(rec, allowRelativeSections: true);
         }
 
         private static bool ShouldReadSectionAuthoritativeTrajectory(ConfigNode sourceNode, int formatVersion)
         {
-            if (formatVersion < 1
-                || sourceNode == null
+            if (sourceNode == null
                 || sourceNode.GetNodes("TRACK_SECTION").Length == 0)
             {
                 return false;
@@ -1212,7 +1212,7 @@ namespace Parsek
         {
             var ic = CultureInfo.InvariantCulture;
             EnsureTrajectoryHeader(targetNode, rec);
-            if (rec != null && rec.RecordingFormatVersion >= 1)
+            if (rec != null)
             {
                 RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                     rec,
@@ -1220,7 +1220,7 @@ namespace Parsek
                     context: "TrajectoryTextSidecarCodec.SerializeTrajectoryInto");
             }
             bool useSectionAuthoritative = ShouldWriteSectionAuthoritativeTrajectory(rec);
-            if (rec != null && rec.RecordingFormatVersion >= 1)
+            if (rec != null)
                 SetSectionAuthoritativeHeader(targetNode, useSectionAuthoritative);
             List<TrajectoryPoint> flatFallbackPoints = useSectionAuthoritative
                 ? null
@@ -1289,7 +1289,7 @@ namespace Parsek
             if (rec.TrackSections != null && rec.TrackSections.Count > 0)
                 SerializeTrackSections(targetNode, rec.TrackSections, rec.RecordingFormatVersion);
 
-            if (!useSectionAuthoritative && rec.RecordingFormatVersion >= 1)
+            if (!useSectionAuthoritative)
             {
                 if (!RecordingStore.SuppressLogging)
                 {
@@ -1329,7 +1329,7 @@ namespace Parsek
                 DeserializePoints(sourceNode, rec);
                 DeserializeOrbitSegments(sourceNode, rec);
                 DeserializeTrackSections(sourceNode, rec.TrackSections);
-                if (formatVersion >= 1 && rec.TrackSections.Count > 0)
+                if (rec.TrackSections.Count > 0)
                 {
                     RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                         rec,
@@ -1338,7 +1338,7 @@ namespace Parsek
                 }
 
                 bool healedMalformedFlatFallback = false;
-                if (formatVersion >= 1 && rec.TrackSections.Count > 0)
+                if (rec.TrackSections.Count > 0)
                 {
                     healedMalformedFlatFallback = TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
                         rec, allowRelativeSections: true);
@@ -1352,7 +1352,7 @@ namespace Parsek
                     }
                 }
 
-                if (formatVersion >= 1)
+                if (rec.TrackSections.Count > 0)
                 {
                     if (!RecordingStore.SuppressLogging)
                     {
@@ -1608,13 +1608,6 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(track.anchorRecordingId))
                     tsNode.AddValue("anchorRecordingId", track.anchorRecordingId);
 
-                if ((recordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion
-                        || recordingFormatVersion >= RecordingStore.DebrisFrameContractFormatVersion)
-                    && track.anchorVesselId != 0)
-                {
-                    tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
-                }
-
                 // Producer-C boundary seam flag: sparse — only write when set. Forward-tolerant
                 // for legacy text loaders (unknown key is silently ignored). See
                 // docs/dev/plans/optimizer-persistence-split.md §5.3.
@@ -1632,8 +1625,7 @@ namespace Parsek
                             SerializePoint(tsNode, frames[i], ic);
                     }
 
-                    if (track.referenceFrame == ReferenceFrame.Relative
-                        && recordingFormatVersion >= RecordingStore.RelativeBodyFixedPrimaryFormatVersion)
+                    if (track.referenceFrame == ReferenceFrame.Relative)
                     {
                         var bodyFixedFrames = track.bodyFixedFrames;
                         if (bodyFixedFrames != null)

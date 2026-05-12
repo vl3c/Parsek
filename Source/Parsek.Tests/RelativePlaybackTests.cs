@@ -125,7 +125,7 @@ namespace Parsek.Tests
                 dx: 10,
                 dy: 0,
                 dz: 0,
-                recordingFormatVersion: RecordingStore.PredictedOrbitSegmentFormatVersion);
+                recordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion);
 
             Assert.Equal(110.0, result.x, 10);
             Assert.Equal(200.0, result.y, 10);
@@ -144,7 +144,7 @@ namespace Parsek.Tests
                 dx: 10,
                 dy: 0,
                 dz: 0,
-                recordingFormatVersion: RecordingStore.RelativeLocalFrameFormatVersion);
+                recordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion);
 
             Assert.Equal(90.0, result.x, 5);
             Assert.Equal(200.0, result.y, 5);

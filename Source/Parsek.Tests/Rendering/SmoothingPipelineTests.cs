@@ -104,7 +104,8 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = id,
-                RecordingFormatVersion = 7,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = 1,
             };
             rec.TrackSections.AddRange(sections);
@@ -329,7 +330,8 @@ namespace Parsek.Tests.Rendering
             string pannPath = Path.Combine(tempDir, "rec-alg.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(pannPath, "rec-alg",
-                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
                 configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
             // Mutate AlgorithmStampVersion (offset 8..11 = magic[0..3] + binVer[4..7] + algStamp[8..11])
@@ -364,7 +366,8 @@ namespace Parsek.Tests.Rendering
             // Write the .pann under a different recording id ("foreign-rec")
             // to a file the loader will look up under "rec-mismatch".
             PannotationsSidecarBinary.Write(pannPath, "foreign-rec",
-                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
                 configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
             var rec = MakeRecording("rec-mismatch",
@@ -389,7 +392,8 @@ namespace Parsek.Tests.Rendering
             string pannPath = Path.Combine(tempDir, "rec-ep.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(pannPath, "rec-ep",
-                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
                 configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
             // The recording has SidecarEpoch=2 — file holds epoch=1.
@@ -406,19 +410,18 @@ namespace Parsek.Tests.Rendering
         [Fact]
         public void LoadOrCompute_StalePann_FormatDrift_Recomputes()
         {
-            // What makes it fail: HR-10 — recording-format version bumps
-            // (e.g. v7 → v8) reshape what the splines represent. Reusing
-            // splines fitted at v7 against a v8 recording would silently
-            // smooth the wrong coordinate space.
+            // What makes it fail: HR-10 — a pannotations file stamped with
+            // a different source recording format must be recomputed instead
+            // of silently applying stale spline coordinates.
             string pannPath = Path.Combine(tempDir, "rec-fmt.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(pannPath, "rec-fmt",
-                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 6,
+                sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion + 1,
                 configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
             var rec = MakeRecording("rec-fmt",
                 MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 10));
-            // Recording is v7 — file holds v6.
             SmoothingPipeline.LoadOrCompute(rec, pannPath);
 
             Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Sidecar]")
@@ -436,7 +439,8 @@ namespace Parsek.Tests.Rendering
             string pannPath = Path.Combine(tempDir, "rec-cfg.pann");
             byte[] realHash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(pannPath, "rec-cfg",
-                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
                 configurationHash: realHash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
@@ -789,23 +793,21 @@ namespace Parsek.Tests.Rendering
         // --- T5c.16: Pipeline-Format line ---
 
         [Fact]
-        public void LoadOrCompute_DegradedFormatVersion_LogsPipelineFormat()
+        public void LoadOrCompute_CurrentFormatVersion_LogsPipelineFormat()
         {
             // What makes it fail: skipping the Pipeline-Format Info line on
-            // load means future phases that DO have format-version-gated
-            // features (Phase 7 / 9) wouldn't be able to surface "this older
-            // recording loaded with a degraded feature set" without adding
-            // their own log site. Log it once now so the location is stable.
-            var rec = MakeRecording("rec-v5",
+            // load means schema reset diagnostics cannot prove the current
+            // recording format reached the rendering pipeline.
+            var rec = MakeRecording("rec-current",
                 MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frameCount: 8));
-            rec.RecordingFormatVersion = 5;
-            string pannPath = Path.Combine(tempDir, "rec-v5.pann");
+            string pannPath = Path.Combine(tempDir, "rec-current.pann");
 
             SmoothingPipeline.LoadOrCompute(rec, pannPath);
 
             Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Format]")
-                && l.Contains("recordingId=rec-v5")
-                && l.Contains("formatVersion=5")
+                && l.Contains("recordingId=rec-current")
+                && l.Contains("formatVersion="
+                    + RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 && l.Contains("degradedFeatures=[]"));
         }
 
@@ -931,7 +933,8 @@ namespace Parsek.Tests.Rendering
             string pannPath = Path.Combine(tempDir, "rec-v1stamp.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(pannPath, "rec-v1stamp",
-                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
                 configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
             // Mutate AlgorithmStampVersion (offset 8..11) to 1 — represents
@@ -1383,7 +1386,13 @@ namespace Parsek.Tests.Rendering
             // through a kraken spike — the visible regression Phase 8 is
             // designed to prevent.
             SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
-            var rec = new Recording { RecordingId = "rec-k", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            var rec = new Recording
+            {
+                RecordingId = "rec-k",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 1
+            };
             // 12 frames with a velocity spike at index 5.
             var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
             rec.TrackSections.Add(new TrackSection
@@ -1414,7 +1423,13 @@ namespace Parsek.Tests.Rendering
             // What makes it fail: rollout-gate broken. With the gate off the
             // classifier must NOT run.
             SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => false;
-            var rec = new Recording { RecordingId = "rec-koff", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            var rec = new Recording
+            {
+                RecordingId = "rec-koff",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 1
+            };
             var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
             rec.TrackSections.Add(new TrackSection
             {
@@ -1463,7 +1478,13 @@ namespace Parsek.Tests.Rendering
                     bodyName = "Kerbin",
                 });
             }
-            var rec = new Recording { RecordingId = "rec-many", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            var rec = new Recording
+            {
+                RecordingId = "rec-many",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 1
+            };
             rec.TrackSections.Add(new TrackSection
             {
                 environment = SegmentEnvironment.ExoBallistic,
@@ -1491,7 +1512,13 @@ namespace Parsek.Tests.Rendering
             // Write a .pann with outlier flags, clear store, load → flags
             // re-installed under the recording id.
             SmoothingPipeline.UseOutlierRejectionResolverForTesting = () => true;
-            var rec = new Recording { RecordingId = "rec-rt", RecordingFormatVersion = 8, SidecarEpoch = 1 };
+            var rec = new Recording
+            {
+                RecordingId = "rec-rt",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 1
+            };
             var frames = MakeFramesWithVelocity(12, 100.0, 1.0, krakenIndex: 5);
             rec.TrackSections.Add(new TrackSection
             {

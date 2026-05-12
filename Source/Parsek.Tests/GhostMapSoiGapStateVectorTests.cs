@@ -310,7 +310,8 @@ namespace Parsek.Tests
             return new Recording
             {
                 RecordingId = recordingId,
-                RecordingFormatVersion = 6,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 VesselName = "Kerbal X",
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Mun",

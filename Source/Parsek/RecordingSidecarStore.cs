@@ -97,6 +97,10 @@ namespace Parsek
 
             rec.SidecarLoadFailed = false;
             rec.SidecarLoadFailureReason = null;
+            rec.LoadedTrajectorySchemaGeneration = 0;
+            rec.LoadedTrajectoryMagicTag = null;
+            rec.LoadedTrajectorySchemaCompatible = false;
+            rec.LoadedTrajectorySchemaFailureReason = null;
         }
 
         internal static void MarkSidecarLoadFailure(Recording rec, string reason)
@@ -233,11 +237,48 @@ namespace Parsek
             }
             if (!probe.Supported)
             {
-                MarkSidecarLoadFailure(rec, "trajectory-unsupported");
+                string reason = string.IsNullOrEmpty(probe.FailureReason)
+                    ? "trajectory-unsupported"
+                    : probe.FailureReason;
+                rec.LoadedTrajectorySchemaGeneration = probe.SchemaGeneration;
+                rec.LoadedTrajectoryMagicTag = probe.MagicTag;
+                rec.LoadedTrajectorySchemaCompatible = false;
+                rec.LoadedTrajectorySchemaFailureReason = reason;
+                MarkSidecarLoadFailure(rec, reason);
                 ParsekLog.Warn("RecordingStore",
-                    $"LoadRecordingFiles: unsupported trajectory sidecar {FormatSidecarContext(rec)} " +
+                    $"LoadRecordingFiles: unsupported trajectory sidecar schema {FormatSidecarContext(rec)} " +
                     $"fileKind=trajectory path='{FormatPathForSidecarLog(precPath)}' " +
-                    $"encoding={probe.Encoding} version={probe.FormatVersion}");
+                    $"encoding={probe.Encoding} magic={probe.MagicTag ?? "<none>"} " +
+                    $"version={probe.FormatVersion} generation={probe.SchemaGeneration} " +
+                    $"reason={reason} action=skip");
+                return false;
+            }
+
+            rec.LoadedTrajectorySchemaGeneration = probe.SchemaGeneration;
+            rec.LoadedTrajectoryMagicTag = probe.MagicTag;
+            rec.LoadedTrajectorySchemaCompatible = true;
+            rec.LoadedTrajectorySchemaFailureReason = null;
+
+            if (!RecordingStore.IsRecordingSchemaCompatible(
+                    rec.RecordingFormatVersion,
+                    rec.RecordingSchemaGeneration,
+                    out string metadataSchemaReason)
+                || probe.FormatVersion != rec.RecordingFormatVersion
+                || probe.SchemaGeneration != rec.RecordingSchemaGeneration)
+            {
+                string reason = metadataSchemaReason
+                    ?? (probe.SchemaGeneration != rec.RecordingSchemaGeneration
+                        ? "generation-mismatch"
+                        : "format-version-mismatch");
+                rec.LoadedTrajectorySchemaCompatible = false;
+                rec.LoadedTrajectorySchemaFailureReason = reason;
+                MarkSidecarLoadFailure(rec, reason);
+                ParsekLog.Warn("RecordingStore",
+                    $"LoadRecordingFiles: recording metadata/trajectory schema mismatch {FormatSidecarContext(rec)} " +
+                    $"fileKind=trajectory path='{FormatPathForSidecarLog(precPath)}' " +
+                    $"metadataVersion={rec.RecordingFormatVersion} metadataGeneration={rec.RecordingSchemaGeneration} " +
+                    $"sidecarVersion={probe.FormatVersion} sidecarGeneration={probe.SchemaGeneration} " +
+                    $"magic={probe.MagicTag ?? "<none>"} reason={reason} action=skip");
                 return false;
             }
 
@@ -295,15 +336,12 @@ namespace Parsek
                 }
             }
 
-            // #412: Run legacy-loop migration and degenerate-interval normalization as soon
-            // as trajectory points are hydrated, BEFORE snapshot loading. A snapshot-sidecar
-            // failure below returns early while leaving Points populated; ParsekScenario.OnLoad
-            // still commits the recording, and ParsekKSC treats any enabled recording with
-            // >= 2 points as playback-eligible, so waiting until after snapshot success would
-            // let a degenerate LoopIntervalSeconds=0 slip past the auto-repair. Both
-            // normalizers only touch loop fields + trajectory bounds, so they're safe to run
-            // here regardless of snapshot outcome.
-            MigrateLegacyLoopIntervalAfterHydration(rec);
+            // #412: Run degenerate-interval normalization as soon as trajectory points are
+            // hydrated, BEFORE snapshot loading. A snapshot-sidecar failure below returns
+            // early while leaving Points populated; ParsekScenario.OnLoad still commits the
+            // recording, and ParsekKSC treats any enabled recording with >= 2 points as
+            // playback-eligible, so waiting until after snapshot success would let a
+            // degenerate LoopIntervalSeconds=0 slip past the auto-repair.
             NormalizeDegenerateLoopInterval(rec);
 
             // #288/#475: eagerly populate TerminalOrbit from the last endpoint-aligned
@@ -349,43 +387,6 @@ namespace Parsek
             }
 
             return true;
-        }
-
-        private static void MigrateLegacyLoopIntervalAfterHydration(Recording rec)
-        {
-            if (rec == null
-                || rec.RecordingFormatVersion >= RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
-                return;
-
-            double effectiveLoopDuration;
-            double migratedLoopIntervalSeconds;
-            if (!GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                    rec, rec.LoopIntervalSeconds,
-                    out migratedLoopIntervalSeconds, out effectiveLoopDuration))
-                return;
-
-            double legacyLoopIntervalSeconds = rec.LoopIntervalSeconds;
-            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
-            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
-            NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
-            ParsekLog.Warn("Loop",
-                $"RecordingStore: migrated recording '{rec.VesselName}' from legacy " +
-                $"gap loopIntervalSeconds={legacyLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
-                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
-                $"using hydrated effectiveLoopDuration={effectiveLoopDuration.ToString("R", CultureInfo.InvariantCulture)}s " +
-                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
-        }
-
-        internal static void NormalizeRecordingFormatVersionAfterLegacyLoopMigration(Recording rec)
-        {
-            if (rec == null
-                || rec.RecordingFormatVersion >= RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
-                return;
-
-            // Legacy loop-interval migration only repairs the loop-timing semantic bump.
-            // Do not silently reinterpret older RELATIVE sections as the newer v6
-            // anchor-local contract just because the loop interval was normalized.
-            rec.RecordingFormatVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
         }
 
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
@@ -627,6 +628,125 @@ namespace Parsek
             ReadableMirrorReconcileSummary summary = ReconcileReadableSidecarMirrors(
                 rec, precPath, vesselPath, ghostPath, RecordingStore.GetExpectedGhostSnapshotMode(rec));
             return !summary.Failed;
+        }
+
+        internal static bool AreRecordingFilesCurrentForSave(Recording rec, out string reason)
+        {
+            reason = null;
+            if (rec == null)
+            {
+                reason = "recording-null";
+                return false;
+            }
+
+            if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
+            {
+                reason = "recording-id-invalid";
+                return false;
+            }
+
+            string precPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+            if (string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
+            {
+                reason = "trajectory-missing";
+                return false;
+            }
+
+            TrajectorySidecarProbe trajectoryProbe;
+            if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out trajectoryProbe))
+            {
+                reason = "trajectory-invalid";
+                return false;
+            }
+
+            if (!trajectoryProbe.Supported)
+            {
+                reason = string.IsNullOrEmpty(trajectoryProbe.FailureReason)
+                    ? "trajectory-unsupported"
+                    : trajectoryProbe.FailureReason;
+                return false;
+            }
+
+            if (!string.Equals(trajectoryProbe.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+            {
+                reason = "trajectory-id-mismatch";
+                return false;
+            }
+
+            if (trajectoryProbe.FormatVersion != RecordingStore.CurrentRecordingFormatVersion
+                || trajectoryProbe.SchemaGeneration != RecordingStore.CurrentRecordingSchemaGeneration)
+            {
+                reason = "trajectory-schema-mismatch";
+                return false;
+            }
+
+            if (trajectoryProbe.SidecarEpoch != rec.SidecarEpoch)
+            {
+                reason = "trajectory-epoch-mismatch";
+                return false;
+            }
+
+            string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+            if (!IsSnapshotSidecarCurrentForSave(
+                    vesselPath,
+                    rec.VesselSnapshot != null,
+                    "vessel",
+                    out reason))
+            {
+                return false;
+            }
+
+            string ghostPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            bool ghostExpected = RecordingStore.GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate
+                && rec.GhostVisualSnapshot != null;
+            if (!IsSnapshotSidecarCurrentForSave(
+                    ghostPath,
+                    ghostExpected,
+                    "ghost",
+                    out reason))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsSnapshotSidecarCurrentForSave(
+            string path,
+            bool expected,
+            string label,
+            out string reason)
+        {
+            reason = null;
+            bool exists = !string.IsNullOrEmpty(path) && File.Exists(path);
+            if (!exists)
+            {
+                if (!expected)
+                    return true;
+
+                reason = $"snapshot-{label}-missing";
+                return false;
+            }
+
+            SnapshotSidecarProbe probe;
+            if (!RecordingStore.TryProbeSnapshotSidecar(path, out probe))
+            {
+                reason = $"snapshot-{label}-invalid";
+                return false;
+            }
+
+            if (!probe.Supported)
+            {
+                reason = string.IsNullOrEmpty(probe.FailureReason)
+                    ? $"snapshot-{label}-unsupported"
+                    : probe.FailureReason;
+                return false;
+            }
+
+            return true;
         }
 
         internal static bool ShouldSkipSaveToPreserveStaleSidecar(Recording rec)
@@ -1198,6 +1318,9 @@ namespace Parsek
         {
             var precNode = new ConfigNode("PARSEK_RECORDING");
             precNode.AddValue("version", rec?.RecordingFormatVersion ?? 0);
+            precNode.AddValue("recordingSchemaGeneration",
+                (rec?.RecordingSchemaGeneration ?? RecordingStore.CurrentRecordingSchemaGeneration)
+                .ToString(System.Globalization.CultureInfo.InvariantCulture));
             if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
                 precNode.AddValue("recordingId", rec.RecordingId);
             precNode.AddValue("sidecarEpoch", sidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));

@@ -1024,7 +1024,7 @@ namespace Parsek.Tests
             var recording = new Recording
             {
                 RecordingId = "sectionless-v11",
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = tree.Id,
                 VesselName = "sectionless-v11",
             };
@@ -1974,7 +1974,7 @@ namespace Parsek.Tests
             var missingSections = new Recording
             {
                 RecordingId = "missing-sections",
-                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = "tree",
             };
             resolved = RelativeAnchorResolver.TryResolveRecordingPose(
@@ -2021,7 +2021,7 @@ namespace Parsek.Tests
             var orbitalWithoutResolver = new Recording
             {
                 RecordingId = "orbital-anchor",
-                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = "tree",
             };
             orbitalWithoutResolver.TrackSections.Add(new TrackSection
@@ -2095,7 +2095,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = recordingId,
-                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = treeId,
                 VesselName = recordingId,
             };
@@ -2179,7 +2179,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = recordingId,
-                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = treeId,
                 VesselName = recordingId,
             };
@@ -2212,7 +2212,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = recordingId,
-                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = treeId,
                 VesselName = recordingId,
             };
@@ -2268,7 +2268,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = recordingId,
-                RecordingFormatVersion = RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = treeId,
                 VesselName = recordingId,
             };

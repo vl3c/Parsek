@@ -367,6 +367,7 @@ namespace Parsek.Tests.Generators
                 {
                     RecordingId = id,
                     RecordingFormatVersion = builder.GetFormatVersion(),
+                    RecordingSchemaGeneration = builder.GetSchemaGeneration(),
                     VesselName = builder.GetVesselName(),
                     VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),
                     GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),
@@ -529,6 +530,7 @@ namespace Parsek.Tests.Generators
                 RecordingId = recordingId,
                 VesselName = builder.GetVesselName(),
                 RecordingFormatVersion = builder.GetFormatVersion(),
+                RecordingSchemaGeneration = builder.GetSchemaGeneration(),
                 VesselPersistentId = StableHashToUint(recordingId),
                 ExplicitStartUT = builder.GetStartUT(),
                 ExplicitEndUT = builder.GetEndUT(),

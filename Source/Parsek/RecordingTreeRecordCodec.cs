@@ -84,7 +84,10 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
 
             // Existing recording metadata
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
+            recNode.AddValue("recordingSchemaGeneration", rec.RecordingSchemaGeneration);
             // Persist the mode that matches the current sidecars on disk. Recomputing
             // from live snapshots here can drift .sfs metadata away from sidecars when
             // later saves serialize tree state without rewriting files.
@@ -346,13 +349,27 @@ namespace Parsek
                 rec.RecordingFormatVersion = 0;
             }
 
-            if (rec.RecordingFormatVersion != RecordingStore.CurrentRecordingFormatVersion)
+            string earlySchemaGenerationStr = recNode.GetValue("recordingSchemaGeneration");
+            if (earlySchemaGenerationStr != null
+                && int.TryParse(earlySchemaGenerationStr, NumberStyles.Integer, ic, out int earlySchemaGeneration))
+            {
+                rec.RecordingSchemaGeneration = earlySchemaGeneration;
+            }
+            else
+            {
+                rec.RecordingSchemaGeneration = 0;
+            }
+
+            if (!RecordingStore.IsRecordingSchemaCompatible(
+                    rec.RecordingFormatVersion,
+                    rec.RecordingSchemaGeneration,
+                    out string schemaRejectReason))
             {
                 ParsekLog.Warn("Codec",
                     $"LoadRecordingFrom: rejecting recording {rec.RecordingId ?? "<no-id>"} with " +
                     $"recordingFormatVersion={rec.RecordingFormatVersion.ToString(CultureInfo.InvariantCulture)} " +
-                    $"(expected CurrentRecordingFormatVersion={RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture)}). " +
-                    "Only the v13 debris frame contract is loadable by this build.");
+                    $"recordingSchemaGeneration={rec.RecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture)} " +
+                    $"reason={schemaRejectReason}. Pre-reset recordings are no longer loadable.");
                 rec.RecordingFormatVersion = -1;
                 return;
             }
@@ -470,6 +487,12 @@ namespace Parsek
             {
                 rec.RecordingFormatVersion = 0;
             }
+            string schemaGenerationStr = recNode.GetValue("recordingSchemaGeneration");
+            if (schemaGenerationStr != null
+                && int.TryParse(schemaGenerationStr, NumberStyles.Integer, ic, out int schemaGeneration))
+                rec.RecordingSchemaGeneration = schemaGeneration;
+            else
+                rec.RecordingSchemaGeneration = 0;
             rec.GhostSnapshotMode = RecordingStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
 
             // Sidecar epoch (bug #270)
@@ -511,39 +534,7 @@ namespace Parsek
                 double loopIntervalSeconds;
                 if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
                 {
-                    if (rec.RecordingFormatVersion < RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
-                    {
-                        double effectiveLoopDuration;
-                        double migratedLoopIntervalSeconds =
-                            loopIntervalSeconds;
-                        if (GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                                rec, loopIntervalSeconds,
-                                out migratedLoopIntervalSeconds, out effectiveLoopDuration))
-                        {
-                            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
-                            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
-                            RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
-                            ParsekLog.Warn("Loop",
-                                $"RecordingTree: migrated recording '{rec.VesselName}' from legacy " +
-                                $"gap loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} " +
-                                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", ic)}s " +
-                                $"using effectiveLoopDuration={effectiveLoopDuration.ToString("R", ic)}s " +
-                                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
-                        }
-                        else
-                        {
-                            rec.LoopIntervalSeconds = loopIntervalSeconds;
-                            ParsekLog.Warn("Loop",
-                                $"RecordingTree: loaded recording '{rec.VesselName}' with legacy " +
-                                $"loopIntervalSeconds={loopIntervalSeconds.ToString("R", ic)} " +
-                                $"for recordingFormatVersion={rec.RecordingFormatVersion}, but deferred migration " +
-                                "because loop bounds are not hydrated yet.");
-                        }
-                    }
-                    else
-                    {
-                        rec.LoopIntervalSeconds = loopIntervalSeconds;
-                    }
+                    rec.LoopIntervalSeconds = loopIntervalSeconds;
                 }
             }
 

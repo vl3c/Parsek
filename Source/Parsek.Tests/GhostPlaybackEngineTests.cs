@@ -787,7 +787,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.RecordingId = "focus-rec";
-            traj.RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion;
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -816,7 +816,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 RecordingId = "focus-single",
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 110.0 },
@@ -846,7 +846,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.RecordingId = "focus-missing";
-            traj.RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion;
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             traj.LoopAnchorVesselId = 77u;
             traj.TrackSections.Add(new TrackSection
             {
@@ -875,7 +875,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.RecordingId = "legacy-focus";
-            traj.RecordingFormatVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion;
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,

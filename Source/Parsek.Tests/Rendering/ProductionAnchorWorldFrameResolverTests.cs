@@ -179,7 +179,7 @@ namespace Parsek.Tests.Rendering
             {
                 RecordingId = "root",
                 TreeId = tree.Id,
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             root.TrackSections.Add(new TrackSection
             {
@@ -203,7 +203,7 @@ namespace Parsek.Tests.Rendering
             {
                 RecordingId = "focus",
                 TreeId = tree.Id,
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var relSection = new TrackSection
             {
@@ -274,7 +274,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "focus",
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var relSection = new TrackSection
             {
@@ -313,7 +313,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "focus",
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var relSection = new TrackSection
             {

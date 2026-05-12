@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -97,24 +98,9 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
-            Assert.Equal(fixture.Builder.GetFormatVersion(), probe.FormatVersion);
-            Assert.Equal(
-                fixture.Builder.GetFormatVersion() >= 3
-                    ? TrajectorySidecarEncoding.BinaryV3
-                    : fixture.Builder.GetFormatVersion() >= 2
-                        ? TrajectorySidecarEncoding.BinaryV2
-                    : TrajectorySidecarEncoding.TextConfigNode,
-                probe.Encoding);
-
-            if (probe.Encoding == TrajectorySidecarEncoding.TextConfigNode)
-            {
-                ConfigNode expectedPrecNode = new ConfigNode("PARSEK_RECORDING");
-                expectedPrecNode.AddValue("version",
-                    fixture.Builder.GetFormatVersion().ToString(System.Globalization.CultureInfo.InvariantCulture));
-                expectedPrecNode.AddValue("recordingId", recordingId);
-                RecordingStore.SerializeTrajectoryInto(expectedPrecNode, original);
-                AssertConfigNodeEquivalent(expectedPrecNode, probe.LegacyNode, "prec");
-            }
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingSchemaGeneration, probe.SchemaGeneration);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
 
             ConfigNode expectedVessel = fixture.Builder.GetVesselSnapshot();
             Assert.Equal(expectedVessel != null, File.Exists(vesselPath));
@@ -219,7 +205,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.Equal(7, probe.SidecarEpoch);
             Assert.Contains(logLines, l =>
@@ -232,40 +218,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TextTrajectorySidecar_PredictedOrbitSegment_RoundTrips()
+        public void TextTrajectorySidecar_IsUnsupportedAfterReset()
         {
-            var original = new Recording
-            {
-                RecordingId = "text-predicted-orbit",
-                RecordingFormatVersion = 1
-            };
-            original.OrbitSegments.Add(MakeOrbitSegment(100.0, 220.0, isPredicted: true));
-
             string path = Path.Combine(tempDir, "text-predicted-orbit.prec");
-            RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 2);
+            var node = new ConfigNode("PARSEK_RECORDING");
+            node.AddValue("version", RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingId", "text-predicted-orbit");
+            node.AddValue("sidecarEpoch", "2");
+            node.Save(path);
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.Equal(TrajectorySidecarEncoding.TextConfigNode, probe.Encoding);
-            Assert.Equal(1, probe.FormatVersion);
-
-            var restored = new Recording
-            {
-                RecordingId = original.RecordingId,
-                RecordingFormatVersion = original.RecordingFormatVersion
-            };
-            RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
-
-            AssertSemanticTrajectoryEqual(original, restored);
-            Assert.True(restored.OrbitSegments[0].isPredicted);
+            Assert.False(probe.Supported);
+            Assert.Equal("text-sidecar-unsupported", probe.FailureReason);
         }
 
         [Fact]
-        public void TextTrajectorySidecar_LegacyOrbitSegmentWithoutPredictedFlag_DefaultsFalse()
+        public void TextTrajectoryNode_OrbitSegmentWithoutPredictedFlag_DefaultsFalse()
         {
             var node = new ConfigNode("PARSEK_RECORDING");
-            node.AddValue("version", "1");
-            node.AddValue("recordingId", "legacy-text-predicted");
+            node.AddValue("version", RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingId", "debug-text-predicted");
             var segNode = node.AddNode("ORBIT_SEGMENT");
             segNode.AddValue("startUT", "100");
             segNode.AddValue("endUT", "220");
@@ -280,8 +254,8 @@ namespace Parsek.Tests
 
             var restored = new Recording
             {
-                RecordingId = "legacy-text-predicted",
-                RecordingFormatVersion = 1
+                RecordingId = "debug-text-predicted",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             RecordingStore.DeserializeTrajectoryFrom(node, restored);
 
@@ -321,7 +295,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -366,7 +340,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
@@ -468,7 +442,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("WriteBinaryTrajectoryFile") &&
@@ -488,46 +462,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void V4BinaryTrajectorySidecar_WithPredictedSegments_UpgradesToV5AndPreservesFlag()
+        public void CurrentBinaryTrajectorySidecar_WithPredictedSegments_PreservesFlag()
         {
-            var legacy = new Recording
+            var rec = new Recording
             {
-                RecordingId = "legacy-v4-predicted",
-                RecordingFormatVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion
+                RecordingId = "current-predicted",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
-            legacy.OrbitSegments.Add(MakeOrbitSegment(100.0, 220.0, isPredicted: true));
+            rec.OrbitSegments.Add(MakeOrbitSegment(100.0, 220.0, isPredicted: true));
 
-            string path = Path.Combine(tempDir, "legacy-v4-predicted.prec");
+            string path = Path.Combine(tempDir, "current-predicted.prec");
             logLines.Clear();
-            RecordingStore.WriteTrajectorySidecar(path, legacy, sidecarEpoch: 1);
+            RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
-            Assert.Equal(RecordingStore.PredictedOrbitSegmentFormatVersion, legacy.RecordingFormatVersion);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, rec.RecordingFormatVersion);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
-            Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") &&
-                l.Contains("[RecordingStore]") &&
-                l.Contains("NormalizeRecordingFormatVersionForPredictedSegments") &&
-                l.Contains("recording=legacy-v4-predicted") &&
-                l.Contains("version=4->5") &&
-                l.Contains("predictedOrbitSegments=1") &&
-                l.Contains("predictedCheckpoints=0"));
+            Assert.DoesNotContain(logLines, l => l.Contains("version=4->5"));
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("WriteBinaryTrajectoryFile") &&
                 l.Contains("predictedOrbitSegments=1") &&
                 l.Contains("predictedCheckpoints=0"));
 
-            var restored = new Recording { RecordingId = legacy.RecordingId };
+            var restored = new Recording { RecordingId = rec.RecordingId };
             RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Single(restored.OrbitSegments);
             Assert.True(restored.OrbitSegments[0].isPredicted);
-            Assert.Equal(legacy.OrbitSegments[0].startUT, restored.OrbitSegments[0].startUT);
-            Assert.Equal(legacy.OrbitSegments[0].orbitalFrameRotation.x, restored.OrbitSegments[0].orbitalFrameRotation.x);
-            Assert.Equal(legacy.OrbitSegments[0].angularVelocity.z, restored.OrbitSegments[0].angularVelocity.z);
+            Assert.Equal(rec.OrbitSegments[0].startUT, restored.OrbitSegments[0].startUT);
+            Assert.Equal(rec.OrbitSegments[0].orbitalFrameRotation.x, restored.OrbitSegments[0].orbitalFrameRotation.x);
+            Assert.Equal(rec.OrbitSegments[0].angularVelocity.z, restored.OrbitSegments[0].angularVelocity.z);
         }
 
         [Fact]
@@ -600,7 +567,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("WriteBinaryTrajectoryFile") &&
@@ -629,7 +596,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]") &&
                 l.Contains("WriteBinaryTrajectoryFile") &&
@@ -852,8 +819,8 @@ namespace Parsek.Tests
 
             var cases = new[]
             {
-                new { Original = binary, Path = Path.Combine(tempDir, "mixed-current-a.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV3 },
-                new { Original = sparseBinary, Path = Path.Combine(tempDir, "mixed-current-b.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV3 }
+                new { Original = binary, Path = Path.Combine(tempDir, "mixed-current-a.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV0 },
+                new { Original = sparseBinary, Path = Path.Combine(tempDir, "mixed-current-b.prec"), ExpectedEncoding = TrajectorySidecarEncoding.BinaryV0 }
             };
 
             for (int i = 0; i < cases.Length; i++)
@@ -872,7 +839,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SnapshotSidecar_LegacyTextFormat_StillLoads()
+        public void SnapshotSidecar_LegacyTextFormat_IsUnsupported()
         {
             ConfigNode expected = BuildSnapshot("Legacy Snapshot", pid: 1001);
             string path = Path.Combine(tempDir, "legacy_vessel.craft");
@@ -881,11 +848,12 @@ namespace Parsek.Tests
             SnapshotSidecarProbe probe;
             Assert.True(RecordingStore.TryProbeSnapshotSidecar(path, out probe));
             Assert.Equal(SnapshotSidecarEncoding.TextConfigNode, probe.Encoding);
-            Assert.True(probe.Supported);
+            Assert.False(probe.Supported);
+            Assert.Equal("text-snapshot-unsupported", probe.FailureReason);
 
             ConfigNode loaded;
-            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(path, out loaded));
-            AssertConfigNodeEquivalent(expected, loaded, "legacySnapshot");
+            Assert.False(RecordingStore.LoadSnapshotSidecarForTesting(path, out loaded));
+            Assert.Null(loaded);
         }
 
         [Fact]
@@ -913,7 +881,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SnapshotSidecar_MixedLegacyAndCompressedFiles_LoadInSameProcess()
+        public void SnapshotSidecar_MixedLegacyAndCompressedFiles_RejectsLegacyAndLoadsCompressed()
         {
             ConfigNode legacy = BuildSnapshot("Legacy Mixed", pid: 3001);
             ConfigNode compressed = VesselSnapshotBuilder.FleaRocket("Compressed Mixed", "Valentina Kerman", pid: 3002)
@@ -927,9 +895,13 @@ namespace Parsek.Tests
 
             ConfigNode loadedLegacy;
             ConfigNode loadedCompressed;
-            Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(legacyPath, out loadedLegacy));
+            SnapshotSidecarProbe legacyProbe;
+            Assert.True(RecordingStore.TryProbeSnapshotSidecar(legacyPath, out legacyProbe));
+            Assert.False(legacyProbe.Supported);
+            Assert.Equal("text-snapshot-unsupported", legacyProbe.FailureReason);
+            Assert.False(RecordingStore.LoadSnapshotSidecarForTesting(legacyPath, out loadedLegacy));
             Assert.True(RecordingStore.LoadSnapshotSidecarForTesting(compressedPath, out loadedCompressed));
-            AssertConfigNodeEquivalent(legacy, loadedLegacy, "mixedLegacy");
+            Assert.Null(loadedLegacy);
             AssertConfigNodeEquivalent(compressed, loadedCompressed, "mixedCompressed");
         }
 
@@ -958,8 +930,9 @@ namespace Parsek.Tests
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
             using (var writer = new BinaryWriter(stream))
             {
-                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                writer.Write(new byte[] { (byte)'P', (byte)'S', (byte)'K', (byte)'0' });
                 writer.Write(99);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 writer.Write(0);
                 writer.Write("unsupported");
             }
@@ -971,7 +944,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
                 l.Contains("[RecordingStore]") &&
-                l.Contains("unsupported binary trajectory version"));
+                l.Contains("unsupported binary trajectory") &&
+                l.Contains("reason=format-version-mismatch"));
         }
 
         [Fact]
@@ -1679,29 +1653,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BinaryTrajectorySidecar_IsSmallerThanEquivalentTextSidecar()
+        public void CurrentBinaryTrajectorySidecar_IsSmallerThanReadableTextMirror()
         {
-            Recording text = RecordingStorageFixtures.MaterializeTrajectory(
+            Recording rec = RecordingStorageFixtures.MaterializeTrajectory(
                 RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
-            text.RecordingId = "size-text";
-            text.RecordingFormatVersion = 1;
+            rec.RecordingId = "size-binary";
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
 
-            Recording binary = RecordingStorageFixtures.MaterializeTrajectory(
-                RecordingStorageFixtures.AtmosphericActiveMultiSection().Builder);
-            binary.RecordingId = "size-binary";
-            binary.RecordingFormatVersion = 2;
-
-            string textPath = Path.Combine(tempDir, "size-text.prec");
+            string textPath = Path.Combine(tempDir, "size-readable.prec.txt");
             string binaryPath = Path.Combine(tempDir, "size-binary.prec");
 
-            RecordingStore.WriteTrajectorySidecar(textPath, text, sidecarEpoch: 1);
-            RecordingStore.WriteTrajectorySidecar(binaryPath, binary, sidecarEpoch: 1);
+            var textNode = new ConfigNode("PARSEK_RECORDING");
+            textNode.AddValue("version",
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+            textNode.AddValue("recordingSchemaGeneration",
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
+            textNode.AddValue("recordingId", rec.RecordingId);
+            textNode.AddValue("sidecarEpoch", "1");
+            RecordingStore.SerializeTrajectoryInto(textNode, rec);
+            textNode.Save(textPath);
+
+            RecordingStore.WriteTrajectorySidecar(binaryPath, rec, sidecarEpoch: 1);
 
             long textBytes = new FileInfo(textPath).Length;
             long binaryBytes = new FileInfo(binaryPath).Length;
 
             Assert.True(binaryBytes < textBytes,
-                $"Expected binary sidecar ({binaryBytes} bytes) to be smaller than text ({textBytes} bytes)");
+                $"Expected current binary sidecar ({binaryBytes} bytes) to be smaller than readable text mirror ({textBytes} bytes)");
         }
 
         [Fact]
@@ -1719,7 +1698,7 @@ namespace Parsek.Tests
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
 
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.True(new FileInfo(path).Length > 0);
         }
@@ -1730,7 +1709,8 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "sparse-defaults",
-                RecordingFormatVersion = 3,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 VesselName = "Sparse Defaults"
             };
 
@@ -2172,10 +2152,10 @@ namespace Parsek.Tests
         public void TrajectorySidecarBinary_TryProbe_FileShorterThanMagic_ReturnsFalse()
         {
             string path = Path.Combine(tempDir, "too-short.prec");
-            File.WriteAllBytes(path, new byte[] { 0x50, 0x52 }); // 2 bytes, less than 4-byte magic "PRKB"
+            File.WriteAllBytes(path, new byte[] { 0x50, 0x53 }); // 2 bytes, less than 4-byte magic "PSK0"
 
             // Call TrajectorySidecarBinary.TryProbe directly; the file length (2) is less than
-            // Magic.Length + 2*sizeof(int) = 12, so TryProbe returns false with "binary header truncated".
+            // Magic.Length + 3*sizeof(int) = 16, so TryProbe returns false with "binary header truncated".
             TrajectorySidecarProbe probe;
             bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
             Assert.False(result);
@@ -2186,8 +2166,8 @@ namespace Parsek.Tests
         public void TrajectorySidecarBinary_TryProbe_PartialMagic_ReturnsFalse()
         {
             string path = Path.Combine(tempDir, "partial-magic.prec");
-            // "PR" only -- first two bytes of "PRKB" but file length (2) < 12 minimum
-            File.WriteAllBytes(path, new byte[] { (byte)'P', (byte)'R' });
+            // "PS" only -- first two bytes of "PSK0" but file length (2) < 16 minimum
+            File.WriteAllBytes(path, new byte[] { (byte)'P', (byte)'S' });
 
             TrajectorySidecarProbe probe;
             bool result = TrajectorySidecarBinary.TryProbe(path, out probe);
@@ -2198,13 +2178,13 @@ namespace Parsek.Tests
         [Fact]
         public void TrajectorySidecarBinary_TryProbe_MagicButHeaderBodyTruncated_ReturnsFalse()
         {
-            // Write "PRKB" + 4 zero bytes = 8 bytes total.
-            // TryProbe requires Magic.Length + 2*sizeof(int) = 4+4+4 = 12 bytes minimum.
+            // Write "PSK0" + 4 zero bytes = 8 bytes total.
+            // TryProbe requires Magic.Length + 3*sizeof(int) = 4+4+4+4 = 16 bytes minimum.
             string path = Path.Combine(tempDir, "truncated-header.prec");
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
             using (var writer = new BinaryWriter(stream))
             {
-                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                writer.Write(new byte[] { (byte)'P', (byte)'S', (byte)'K', (byte)'0' });
                 writer.Write(new byte[] { 0, 0, 0, 0 }); // 4 zero bytes -- only 8 total
             }
 
@@ -2224,9 +2204,11 @@ namespace Parsek.Tests
             using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
             {
                 // Magic
-                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
-                // formatVersion = current v13 (supported)
+                writer.Write(new byte[] { (byte)'P', (byte)'S', (byte)'K', (byte)'0' });
+                // formatVersion = current v0 (supported)
                 writer.Write(RecordingStore.CurrentRecordingFormatVersion);
+                // recordingSchemaGeneration
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 // sidecarEpoch
                 writer.Write(1);
                 // recordingId (BinaryWriter.Write(string) writes length-prefixed UTF8)
@@ -2262,8 +2244,9 @@ namespace Parsek.Tests
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
             using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
             {
-                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'B' });
+                writer.Write(new byte[] { (byte)'P', (byte)'S', (byte)'K', (byte)'0' });
                 writer.Write(RecordingStore.CurrentRecordingFormatVersion);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 writer.Write(1); // sidecarEpoch
                 writer.Write("truncated-sparse-test");
                 writer.Write((byte)0); // flags
@@ -2291,23 +2274,24 @@ namespace Parsek.Tests
         [Fact]
         public void TrajectorySidecarBinary_Read_ValidHeaderWithZeroPoints_ReturnsEmptyRecording()
         {
-            // Write a recording with RecordingFormatVersion=3 and empty trajectory lists.
+            // Write a current-schema recording with empty trajectory lists.
             // Probe should succeed; deserialized recording should have all empty lists.
             var original = new Recording
             {
-                RecordingId = "zero-points-v3",
-                RecordingFormatVersion = 3
+                RecordingId = "zero-points-current",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration
             };
 
-            string path = Path.Combine(tempDir, "zero-points-v3.prec");
+            string path = Path.Combine(tempDir, "zero-points-current.prec");
             RecordingStore.WriteTrajectorySidecar(path, original, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
             Assert.True(probe.Success);
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, probe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
 
-            var restored = new Recording { RecordingId = "zero-points-v3" };
+            var restored = new Recording { RecordingId = "zero-points-current" };
             RecordingStore.DeserializeTrajectorySidecar(path, probe, restored);
 
             Assert.Empty(restored.Points);
@@ -2316,7 +2300,7 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------------
-        // Sparse v3 flag combinations (1 theory + 2 facts)
+        // Sparse current-binary flag combinations (1 theory + 2 facts)
         // -----------------------------------------------------------------------
 
         public static IEnumerable<object[]> SparseFlagCombinationCases()
@@ -2358,7 +2342,8 @@ namespace Parsek.Tests
             var original = new Recording
             {
                 RecordingId = "sparse-body-funds-mixed",
-                RecordingFormatVersion = 3
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration
             };
             for (int i = 0; i < 8; i++)
             {
@@ -2410,7 +2395,8 @@ namespace Parsek.Tests
             var original = new Recording
             {
                 RecordingId = "sparse-all-vary",
-                RecordingFormatVersion = 3
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration
             };
             for (int i = 0; i < 8; i++)
             {
@@ -2457,7 +2443,8 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = $"sparse-fixture-{Guid.NewGuid():N}",
-                RecordingFormatVersion = 3
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration
             };
 
             // When shareBody=false, use pointCount unique body names so FindMostCommonString
@@ -2490,7 +2477,7 @@ namespace Parsek.Tests
         // -----------------------------------------------------------------------
 
         [Theory]
-        [InlineData("v3Sparse")]
+        [InlineData("currentSparse")]
         [InlineData("aliasSnapshot")]
         public void CodecRoundTripMatrix_EveryFormatPreservesSemanticsAndBoundaryPairs(string caseName)
         {
@@ -2510,44 +2497,10 @@ namespace Parsek.Tests
 
             switch (caseName)
             {
-                case "v0Flat":
-                    writeRec = fixture;
-                    writeRec.RecordingFormatVersion = 0;
-                    writeRec.TrackSections.Clear();
-                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
-                    expectSectionAuthoritative = false;
-                    break;
-
-                case "v1FlatSectionsDuplicated":
-                    // Legacy flat OrbitSegments are normalized into OrbitalCheckpoint sections
-                    // before write, so the writer can take the section-authoritative path.
-                    writeRec = fixture;
-                    writeRec.RecordingFormatVersion = 1;
-                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
-                    expectSectionAuthoritative = true;
-                    break;
-
-                case "v1SectionAuthoritative":
-                    // Fixture adds an OrbitalCheckpoint section whose checkpoints exactly match
-                    // the flat OrbitSegments, so FlatTrajectoryExactlyMatchesTrackSectionPayload
-                    // returns true and the writer emits only TRACK_SECTION nodes.
-                    writeRec = fixture;
-                    writeRec.RecordingFormatVersion = 1;
-                    expectedEncoding = TrajectorySidecarEncoding.TextConfigNode;
-                    expectSectionAuthoritative = true;
-                    break;
-
-                case "v2Binary":
-                    writeRec = fixture;
-                    writeRec.RecordingFormatVersion = 2;
-                    expectedEncoding = TrajectorySidecarEncoding.BinaryV2;
-                    expectSectionAuthoritative = true;
-                    break;
-
-                case "v3Sparse":
+                case "currentSparse":
                     writeRec = fixture;
                     writeRec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
-                    expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
+                    expectedEncoding = TrajectorySidecarEncoding.BinaryV0;
                     expectSectionAuthoritative = true;
                     break;
 
@@ -2558,7 +2511,7 @@ namespace Parsek.Tests
                     writeRec.VesselSnapshot = BuildSnapshot("CodecMatrix Vessel", pid: 9901u);
                     writeRec.GhostVisualSnapshot = writeRec.VesselSnapshot;
                     writeRec.GhostSnapshotMode = GhostSnapshotMode.AliasVessel;
-                    expectedEncoding = TrajectorySidecarEncoding.BinaryV3;
+                    expectedEncoding = TrajectorySidecarEncoding.BinaryV0;
                     expectSectionAuthoritative = true;
                     break;
 
@@ -2577,29 +2530,6 @@ namespace Parsek.Tests
 
             string path = Path.Combine(tempDir, $"codec-matrix-{caseName}.prec");
             RecordingStore.WriteTrajectorySidecar(path, writeRec, sidecarEpoch: 1);
-
-            // For text-format cases (v0/v1) verify the serialized ConfigNode actually took
-            // the expected path: section-authoritative writes omit POINT/ORBIT_SEGMENT,
-            // flat-fallback writes include them.
-            if (expectedEncoding == TrajectorySidecarEncoding.TextConfigNode)
-            {
-                var savedNode = ConfigNode.Load(path);
-                Assert.NotNull(savedNode);
-                int pointNodes = savedNode.GetNodes("POINT").Length;
-                int orbitNodes = savedNode.GetNodes("ORBIT_SEGMENT").Length;
-                int trackNodes = savedNode.GetNodes("TRACK_SECTION").Length;
-                if (expectSectionAuthoritative)
-                {
-                    Assert.Equal(0, pointNodes);
-                    Assert.Equal(0, orbitNodes);
-                    Assert.True(trackNodes > 0, $"{caseName} expected TRACK_SECTION nodes");
-                }
-                else if (caseName != "v0Flat")
-                {
-                    Assert.True(pointNodes > 0, $"{caseName} expected POINT nodes (flat-fallback)");
-                    Assert.True(trackNodes > 0, $"{caseName} expected TRACK_SECTION nodes (flat-fallback)");
-                }
-            }
 
             TrajectorySidecarProbe probe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe),
@@ -2684,7 +2614,8 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "codec-matrix-boundary",
-                RecordingFormatVersion = 3
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration
             };
 
             // Flat point list: 3 points (first, boundary, last)
@@ -2747,8 +2678,7 @@ namespace Parsek.Tests
             // 2 Absolute track sections; boundary point shared between them.
             // Rebuilt Points match flat Points, but rebuilt OrbitSegments is empty (no
             // OrbitalCheckpoint section), so FlatTrajectoryExactlyMatchesTrackSectionPayload
-            // returns false and a writer with RecordingFormatVersion >= 1 falls through to
-            // flat-fallback. This shape drives the v1FlatSectionsDuplicated case.
+            // returns false and the current writer falls through to flat-fallback.
             rec.TrackSections.Add(new TrackSection
             {
                 environment = SegmentEnvironment.Atmospheric,

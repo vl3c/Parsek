@@ -81,7 +81,8 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "bug458-malformed-binary-flat-fallback",
-                RecordingFormatVersion = 3
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration
             };
 
             var frames = new List<TrajectoryPoint>();

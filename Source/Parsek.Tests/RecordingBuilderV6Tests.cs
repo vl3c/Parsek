@@ -101,7 +101,7 @@ namespace Parsek.Tests
         public void AddTrackSection_WithAnchorVesselId_Preserved()
         {
             var builder = new RecordingBuilder("AnchorTest")
-                .WithFormatVersion(RecordingStore.StructuralEventFlagFormatVersion)
+                .WithFormatVersion(RecordingStore.CurrentRecordingFormatVersion)
                 .AddTrackSection(
                     SegmentEnvironment.ExoPropulsive, ReferenceFrame.Relative, TrackSectionSource.Active,
                     17500.0, 17600.0,
@@ -119,7 +119,7 @@ namespace Parsek.Tests
         public void AddTrackSection_WithAnchorRecordingId_Preserved()
         {
             var builder = new RecordingBuilder("AnchorTest")
-                .WithFormatVersion(RecordingStore.RecordingAnchorChainFormatVersion)
+                .WithFormatVersion(RecordingStore.CurrentRecordingFormatVersion)
                 .AddTrackSection(
                     SegmentEnvironment.ExoPropulsive, ReferenceFrame.Relative, TrackSectionSource.Active,
                     17500.0, 17600.0,

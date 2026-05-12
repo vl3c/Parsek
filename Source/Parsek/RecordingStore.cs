@@ -102,17 +102,8 @@ namespace Parsek
             public int ForcedSelfRewindDropCount => ForcedSelfRewindDropIds.Count;
         }
 
-        public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
-        public const int PredictedOrbitSegmentFormatVersion = 5;
-        public const int RelativeLocalFrameFormatVersion = 6;
-        public const int RelativeBodyFixedPrimaryFormatVersion = 7;
-        public const int BoundarySeamFlagFormatVersion = 8;
-        public const int TerrainGroundClearanceFormatVersion = 9;
-        public const int StructuralEventFlagFormatVersion = 10;
-        public const int RecordingAnchorChainFormatVersion = 11;
-        public const int DebrisParentRecordingFormatVersion = 12;
-        public const int DebrisFrameContractFormatVersion = 13;
-        public const int CurrentRecordingFormatVersion = DebrisFrameContractFormatVersion;
+        public const int CurrentRecordingFormatVersion = 0;
+        public const int CurrentRecordingSchemaGeneration = 1;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -131,50 +122,51 @@ namespace Parsek
         /// Amount of pre-launch setup time rewind-to-launch restores before the launch UT.
         /// </summary>
         internal const double RewindToLaunchLeadTimeSeconds = 15.0;
-        // v0: initial release format
-        // v1: track sections become authoritative on disk when present; flat lists rebuild on load
-        // v2: binary .prec sidecars with header dispatch, exact scalar storage, and file-level string tables
-        // v3: binary .prec sparse point defaults for stable body/career fields, still exact on load
-        // v4: loopIntervalSeconds serialized as launch-to-launch period; older saves stored post-cycle gap
-        // v5: OrbitSegment.isPredicted serialized in text and binary trajectory codecs
-        // v6: RELATIVE TrackSection points store anchor-local offsets and anchor-local rotation
-        // v7: RELATIVE TrackSections also store absolute planet-relative shadow points
-        // v8: TrackSection.isBoundarySeam flag for the Producer-C no-payload boundary seam — mandatory
-        //     binary bump because TrajectorySidecarBinary.WriteTrackSections is positional; legacy v7
-        //     readers see a default-false flag (`v < 8` skips the byte). See
-        //     docs/dev/plans/optimizer-persistence-split.md §5.3.
-        // v9: TrajectoryPoint.recordedGroundClearance per-sample double for surface sections
-        //     (Phase 7 of the ghost trajectory rendering pipeline, design doc §13). NaN sentinel
-        //     for legacy points and non-surface environments — playback falls through to the
-        //     altitude-only path. Render-time correction:
-        //         rendered_altitude = current_terrain_height(lat, lon) + recordedGroundClearance.
-        //     Mandatory binary bump because TrajectorySidecarBinary's per-point layout is positional;
-        //     legacy v8 readers ignore the new doubles, new readers default-NaN on `v < 9`.
-        // v10: TrajectoryPoint.flags per-sample byte (Phase 9 of the ghost trajectory rendering
-        //     pipeline, design doc §12, §17.3.2, §18 Phase 9). Bit 0 = StructuralEventSnapshot:
-        //     the recorder appended this point at the exact UT of a dock / undock / EVA / joint-
-        //     break event so AnchorCandidateBuilder can prefer it over interpolated samples when
-        //     computing event ε. Default 0 for every regular per-tick sample. Mandatory binary
-        //     bump because the per-point layout is positional; legacy v9 readers stop short of
-        //     the new byte (their stream alignment ends at recordedGroundClearance), and new
-        //     readers default flags=0 on `v < 10`. Bits 1-7 reserved.
-        // v11: TrackSection.anchorRecordingId for non-loop Relative sections.
-        // v12: top-level Recording.DebrisParentRecordingId for parent-owned debris.
-        // v13: debris frame contract break. Parent-anchored debris records
-        //     bodyFixedFrames as the primary render surface, keeps proximity-limited
-        //     anchor-local Relative frames as the secondary loop-chain surface, and
-        //     rejects non-v13 recordings/sidecars instead of migrating v11/v12 data.
+        // v0 reset: current post-redesign private-development schema. A separate
+        // RecordingSchemaGeneration discriminator rejects old internal saves that
+        // also defaulted to recordingFormatVersion=0.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {
-            return recordingFormatVersion >= RelativeLocalFrameFormatVersion;
+            return true;
         }
 
         internal static string DescribeRelativeFrameContract(int recordingFormatVersion)
         {
-            return UsesRelativeLocalFrameContract(recordingFormatVersion)
-                ? "anchor-local"
-                : "legacy-world";
+            return "anchor-local";
+        }
+
+        internal static bool IsRecordingSchemaCompatible(
+            int recordingFormatVersion,
+            int recordingSchemaGeneration,
+            out string reason)
+        {
+            if (recordingSchemaGeneration == 0)
+            {
+                reason = "generation-missing";
+                return false;
+            }
+
+            if (recordingSchemaGeneration < CurrentRecordingSchemaGeneration)
+            {
+                reason = "generation-older";
+                return false;
+            }
+
+            if (recordingSchemaGeneration > CurrentRecordingSchemaGeneration)
+            {
+                reason = "generation-newer";
+                return false;
+            }
+
+            if (recordingFormatVersion != CurrentRecordingFormatVersion)
+            {
+                reason = "format-version-mismatch";
+                return false;
+            }
+
+            reason = null;
+            return true;
         }
 
         // When true, suppresses logging calls (for unit testing outside Unity)
@@ -6172,6 +6164,11 @@ namespace Parsek
             return RecordingSidecarStore.SaveRecordingFiles(rec, incrementEpoch);
         }
 
+        internal static bool AreRecordingFilesCurrentForSave(Recording rec, out string reason)
+        {
+            return RecordingSidecarStore.AreRecordingFilesCurrentForSave(rec, out reason);
+        }
+
         internal static void ReconcileReadableSidecarMirrorsForKnownRecordings()
         {
             RecordingSidecarStore.ReconcileReadableSidecarMirrorsForKnownRecordings(
@@ -6211,52 +6208,17 @@ namespace Parsek
 
         internal static void WriteTrajectorySidecar(string path, Recording rec, int sidecarEpoch)
         {
-            if (rec != null && rec.RecordingFormatVersion >= 1)
+            if (rec != null)
             {
+                rec.RecordingFormatVersion = CurrentRecordingFormatVersion;
+                rec.RecordingSchemaGeneration = CurrentRecordingSchemaGeneration;
                 EnsureCheckpointSectionsForTopLevelOrbitSegments(
                     rec,
                     markDirty: false,
                     context: "WriteTrajectorySidecar");
             }
-            NormalizeRecordingFormatVersionForPredictedSegments(rec);
 
-            if (rec != null && rec.RecordingFormatVersion >= 2)
-            {
-                TrajectorySidecarBinary.Write(path, rec, sidecarEpoch);
-                return;
-            }
-
-            var precNode = new ConfigNode("PARSEK_RECORDING");
-            precNode.AddValue("version", rec?.RecordingFormatVersion ?? 0);
-            if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
-                precNode.AddValue("recordingId", rec.RecordingId);
-            precNode.AddValue("sidecarEpoch", sidecarEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            SerializeTrajectoryInto(precNode, rec);
-            SafeWriteConfigNode(precNode, path);
-        }
-
-        internal static void NormalizeRecordingFormatVersionForPredictedSegments(Recording rec)
-        {
-            if (rec == null
-                || rec.RecordingFormatVersion < 2
-                || rec.RecordingFormatVersion >= PredictedOrbitSegmentFormatVersion)
-                return;
-
-            int predictedCheckpointCount;
-            int predictedOrbitSegmentCount = CountPredictedOrbitSegments(rec, out predictedCheckpointCount);
-            if (predictedOrbitSegmentCount == 0 && predictedCheckpointCount == 0)
-                return;
-
-            int originalVersion = rec.RecordingFormatVersion;
-            rec.RecordingFormatVersion = PredictedOrbitSegmentFormatVersion;
-            if (!SuppressLogging)
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"NormalizeRecordingFormatVersionForPredictedSegments: recording={rec.RecordingId} " +
-                    $"version={originalVersion}->{rec.RecordingFormatVersion} " +
-                    $"predictedOrbitSegments={predictedOrbitSegmentCount} " +
-                    $"predictedCheckpoints={predictedCheckpointCount}");
-            }
+            TrajectorySidecarBinary.Write(path, rec, sidecarEpoch);
         }
 
         internal static int CountPredictedOrbitSegments(Recording rec, out int predictedCheckpointCount)
@@ -6304,58 +6266,53 @@ namespace Parsek
                 if (binaryProbeOk && !SuppressLogging)
                 {
                     ParsekLog.Verbose("RecordingStore",
-                        $"TryProbeTrajectorySidecar: encoding={probe.Encoding} version={probe.FormatVersion} " +
+                        $"TryProbeTrajectorySidecar: encoding={probe.Encoding} magic={probe.MagicTag ?? "<none>"} " +
+                        $"version={probe.FormatVersion} generation={probe.SchemaGeneration} " +
                         $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
                     if (!probe.Supported)
                     {
                         ParsekLog.Warn("RecordingStore",
-                            $"TryProbeTrajectorySidecar: unsupported binary trajectory version {probe.FormatVersion} " +
-                            $"for recording={probe.RecordingId}");
+                            $"TryProbeTrajectorySidecar: unsupported binary trajectory " +
+                            $"reason={probe.FailureReason ?? "unknown"} version={probe.FormatVersion} " +
+                            $"generation={probe.SchemaGeneration} magic={probe.MagicTag ?? "<none>"} " +
+                            $"for recording={probe.RecordingId ?? "<none>"}");
                     }
                 }
 
                 return binaryProbeOk;
             }
 
-            var precNode = ConfigNode.Load(path);
-            if (precNode == null)
-                return false;
-
-            int sidecarEpoch = 0;
-            string fileEpochStr = precNode.GetValue("sidecarEpoch");
-            if (fileEpochStr != null)
+            if (TrajectorySidecarBinary.HasPreResetBinaryMagic(path))
             {
-                int.TryParse(fileEpochStr, System.Globalization.NumberStyles.Integer,
-                    System.Globalization.CultureInfo.InvariantCulture, out sidecarEpoch);
+                probe = TrajectorySidecarBinary.BuildPreResetMagicProbe();
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"TryProbeTrajectorySidecar: unsupported pre-reset binary trajectory " +
+                        $"reason={probe.FailureReason} magic={probe.MagicTag}");
+                }
+                return true;
             }
 
-            int formatVersion = GetTrajectoryFormatVersion(precNode);
-            bool supported = formatVersion == CurrentRecordingFormatVersion;
             probe = new TrajectorySidecarProbe
             {
                 Success = true,
-                Supported = supported,
+                Supported = false,
                 Encoding = TrajectorySidecarEncoding.TextConfigNode,
-                FormatVersion = formatVersion,
-                SidecarEpoch = sidecarEpoch,
-                RecordingId = precNode.GetValue("recordingId"),
-                LegacyNode = precNode,
-                FailureReason = supported
-                    ? null
-                    : $"unsupported text trajectory version {formatVersion}"
+                FormatVersion = -1,
+                SchemaGeneration = 0,
+                SidecarEpoch = 0,
+                RecordingId = null,
+                MagicTag = "<text>",
+                LegacyNode = null,
+                FailureReason = "text-sidecar-unsupported"
             };
 
             if (!SuppressLogging)
             {
-                ParsekLog.Verbose("RecordingStore",
-                    $"TryProbeTrajectorySidecar: encoding=TextConfigNode version={probe.FormatVersion} " +
-                    $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
-                if (!probe.Supported)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"TryProbeTrajectorySidecar: unsupported text trajectory version {probe.FormatVersion} " +
-                        $"for recording={probe.RecordingId}");
-                }
+                ParsekLog.Warn("RecordingStore",
+                    $"TryProbeTrajectorySidecar: unsupported text trajectory sidecar " +
+                    $"reason={probe.FailureReason} path='{path}'");
             }
 
             return true;
@@ -6363,14 +6320,13 @@ namespace Parsek
 
         internal static void DeserializeTrajectorySidecar(string path, TrajectorySidecarProbe probe, Recording rec)
         {
-            if (probe.Encoding == TrajectorySidecarEncoding.BinaryV2 ||
-                probe.Encoding == TrajectorySidecarEncoding.BinaryV3)
+            if (probe.Encoding == TrajectorySidecarEncoding.BinaryV0)
             {
                 TrajectorySidecarBinary.Read(path, rec, probe);
                 return;
             }
 
-            DeserializeTrajectoryFrom(probe.LegacyNode, rec);
+            throw new InvalidOperationException("Text trajectory sidecar loading is not supported after the v0 reset.");
         }
 
         internal static bool LoadTrajectorySidecarForTesting(string path, Recording rec)
@@ -6469,11 +6425,7 @@ namespace Parsek
 
         internal static string GetTrajectorySidecarEncodingLabel(int recordingFormatVersion)
         {
-            if (recordingFormatVersion >= 3)
-                return "BinaryV3";
-            if (recordingFormatVersion >= 2)
-                return "BinaryV2";
-            return "TextConfigNode";
+            return "BinaryV0";
         }
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)
@@ -6486,27 +6438,6 @@ namespace Parsek
             SnapshotSidecarCodec.Write(path, node);
         }
 
-        internal static void NormalizeRecordingFormatVersionAfterLegacyLoopMigration(Recording rec)
-        {
-            RecordingSidecarStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
-        }
-
-        /// <summary>
-        /// #565 / #567: encodes the narrow contract between a trajectory sidecar's on-disk
-        /// binary-encoding version (<c>probe.FormatVersion</c>) and the in-memory recording's
-        /// semantic version (<c>rec.RecordingFormatVersion</c>) for a current-format committed
-        /// recording. The two values can differ ONLY by the v3 -&gt; v4 metadata-only
-        /// migration: <see cref="LaunchToLaunchLoopIntervalFormatVersion"/> changed the
-        /// meaning of <c>loopIntervalSeconds</c> without altering binary layout, so a v3
-        /// sidecar with a v4 in-memory recording is correct on disk and only the in-memory
-        /// state was promoted (see
-        /// <see cref="NormalizeRecordingFormatVersionAfterLegacyLoopMigration"/>).
-        /// Every other lag is rejected: v5 added serialized
-        /// <c>OrbitSegment.isPredicted</c>, v6 changed RELATIVE TrackSection point
-        /// semantics, and v7 added RELATIVE body-fixed primary points, so a v3 sidecar
-        /// paired with a v5+ recording indicates stale or incomplete trajectory data
-        /// on disk that the runtime test must catch.
-        /// </summary>
         internal static bool IsAcceptableSidecarVersionLag(int probeFormatVersion, int recordingFormatVersion)
         {
             return RecordingSidecarStore.IsAcceptableSidecarVersionLag(probeFormatVersion, recordingFormatVersion);

@@ -2,20 +2,21 @@
 
 **Date:** 2026-05-11
 **Branch:** `claude/investigate-trajectory-logic-OtzVx`
-**Status:** Updated after the v13 debris-frame contract follow-up. This is a current-contract overview, not a legacy compatibility guide.
+**Status:** Updated after the v0 recording/rendering schema reset. This is a current-contract overview, not a legacy compatibility guide.
 
 ---
 
 ## Current Baseline
 
-The accepted recording and trajectory sidecar baseline is v13:
+The accepted recording and trajectory sidecar baseline is v0 with `recordingSchemaGeneration = 1`:
 
-- `RecordingStore.CurrentRecordingFormatVersion == DebrisFrameContractFormatVersion`
-- binary `.prec` sidecars are stamped with `TrajectorySidecarBinary.DebrisFrameContractBinaryVersion`
-- text ConfigNode `.prec` probes are supported only when their `version` equals the current v13 stamp
-- `RecordingTreeRecordCodec` rejects pre-v13 recordings, and sidecar load rejects pre-v13 probes
+- `RecordingStore.CurrentRecordingFormatVersion == 0`
+- `RecordingStore.CurrentRecordingSchemaGeneration == 1`
+- binary `.prec` sidecars use the `PSK0` magic and BinaryV0 payload
+- text ConfigNode `.prec` files are debug mirrors only; authoritative text sidecar load is unsupported
+- `RecordingTreeRecordCodec` and sidecar probes reject pre-reset files by generation, format mismatch, or magic mismatch
 
-Pre-v13 Relative payloads are historical implementation notes only. Do not add new migration paths for them unless the release policy changes.
+Pre-reset Relative payloads are historical implementation notes only. Do not add new migration paths for them unless the release policy changes.
 
 ---
 
@@ -66,7 +67,7 @@ Active Re-Fly does not rewrite old recordings or translate old ghosts toward the
 
 - Absolute sections render through body lookup.
 - Relative non-loop sections resolve through recorded anchor ids.
-- Parent-anchored debris follows the v13 body-fixed primary contract above.
+- Parent-anchored debris follows the current body-fixed primary contract above.
 - Orbital checkpoint sections render through orbit propagation.
 
 The live player vessel is consulted only for the explicit loop-anchor carve-out using `Recording.LoopAnchorVesselId`.
@@ -91,5 +92,5 @@ The live player vessel is consulted only for the explicit loop-anchor carve-out 
 1. A flat `Recording.Points` list is not enough to interpret a Relative sample. Resolve the `TrackSection` for the UT first.
 2. `bodyFixedFrames` are the current body-fixed primary list. Do not reintroduce legacy shadow routers or tumbling-parent render gates.
 3. A Relative section's declared `startUT`/`endUT` is not proof that `bodyFixedFrames` cover the same interval. Use the body-fixed list endpoints.
-4. A single body-fixed sample is not renderable coverage for v13 debris playback; clamping it creates stale frozen ghosts.
+4. A single body-fixed sample is not renderable coverage for current debris playback; clamping it creates stale frozen ghosts.
 5. Ballistic extrapolated tails are never Relative.

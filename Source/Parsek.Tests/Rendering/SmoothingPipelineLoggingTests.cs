@@ -87,7 +87,7 @@ namespace Parsek.Tests.Rendering
 
         private static Recording MakeRecording(string id,
             SegmentEnvironment env = SegmentEnvironment.ExoBallistic, int frameCount = 10,
-            int formatVersion = 7, int sidecarEpoch = 1)
+            int formatVersion = RecordingStore.CurrentRecordingFormatVersion, int sidecarEpoch = 1)
         {
             var section = new TrackSection
             {
@@ -105,6 +105,7 @@ namespace Parsek.Tests.Rendering
             {
                 RecordingId = id,
                 RecordingFormatVersion = formatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = sidecarEpoch,
             };
             rec.TrackSections.Add(section);
@@ -177,7 +178,13 @@ namespace Parsek.Tests.Rendering
                 },
                 checkpoints = new List<OrbitSegment>(),
             };
-            var rec = new Recording { RecordingId = "rec-L3", RecordingFormatVersion = 7, SidecarEpoch = 1 };
+            var rec = new Recording
+            {
+                RecordingId = "rec-L3",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 1
+            };
             rec.TrackSections.Add(section);
 
             SmoothingPipeline.FitAndStorePerSection(rec);
@@ -296,7 +303,8 @@ namespace Parsek.Tests.Rendering
             string pannPath = Path.Combine(tempDir, id + ".pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(pannPath, id,
-                sourceSidecarEpoch: 1, sourceRecordingFormatVersion: 7,
+                sourceSidecarEpoch: 1,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
                 configurationHash: hash, splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
             byte[] bytes = File.ReadAllBytes(pannPath);
@@ -377,14 +385,15 @@ namespace Parsek.Tests.Rendering
             // would force every later phase to add its own degraded-feature
             // log site. Centralising it here once gives §19.2 Format Gating
             // a stable home.
-            var rec = MakeRecording("rec-L11", formatVersion: 6);
+            var rec = MakeRecording("rec-L11");
             string pannPath = Path.Combine(tempDir, "rec-L11.pann");
 
             SmoothingPipeline.LoadOrCompute(rec, pannPath);
 
             Assert.Contains(logLines, l => l.Contains("[INFO][Pipeline-Format]")
                 && l.Contains("recordingId=rec-L11")
-                && l.Contains("formatVersion=6")
+                && l.Contains("formatVersion="
+                    + RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 && l.Contains("pannPresent=")
                 && l.Contains("degradedFeatures=[]"));
         }
@@ -433,7 +442,8 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = id,
-                RecordingFormatVersion = 8,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = 1,
             };
             rec.TrackSections.Add(section);

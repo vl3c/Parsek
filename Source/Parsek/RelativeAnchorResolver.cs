@@ -77,8 +77,6 @@ namespace Parsek
 
     internal static class RelativeAnchorResolver
     {
-        internal const int RecordingAnchorChainFormatVersion =
-            RecordingStore.RecordingAnchorChainFormatVersion;
         private const double UtEpsilon = 1e-6;
         internal const double SectionBoundaryEpsilonSeconds = 1e-9;
         private const double TerminalClampDoubleSlopSeconds = 1e-6;
@@ -346,27 +344,13 @@ namespace Parsek
                 }
             }
 
-            if (recording.RecordingFormatVersion >= RecordingStore.RelativeLocalFrameFormatVersion)
-            {
-                failure = WarnUnresolved(
-                    RelativeAnchorResolveOutcome.TrackSectionsMissing,
-                    "anchor-track-sections-missing",
-                    recording.RecordingId,
-                    recording.RecordingId,
-                    ut);
-                return false;
-            }
-
-            return TryResolveAbsoluteFramesPose(
-                context,
-                recording.Points,
-                ut,
-                resolvedSectionIndex: -1,
-                resolvedRecordingId: recording.RecordingId,
-                sectionStartUT: double.NaN,
-                sectionEndUT: double.NaN,
-                out pose,
-                out failure);
+            failure = WarnUnresolved(
+                RelativeAnchorResolveOutcome.TrackSectionsMissing,
+                "anchor-track-sections-missing",
+                recording.RecordingId,
+                recording.RecordingId,
+                ut);
+            return false;
         }
 
         private static bool TryResolveSameChainContinuationPose(
@@ -1434,12 +1418,9 @@ namespace Parsek
                 }
                 else
                 {
-                    string reason = recording.RecordingFormatVersion >= RecordingAnchorChainFormatVersion
-                        ? "anchor-recording-id-missing"
-                        : "legacy-anchor-recording-id-missing";
                     failure = WarnUnresolved(
                         RelativeAnchorResolveOutcome.Other,
-                        reason,
+                        "anchor-recording-id-missing",
                         recording.RecordingId,
                         null,
                         ut,

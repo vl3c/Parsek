@@ -69,7 +69,7 @@ namespace Parsek.Tests.Rendering
             return new CoBubbleOffsetTrace
             {
                 PeerRecordingId = peerId,
-                PeerSourceFormatVersion = 8,
+                PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 PeerSidecarEpoch = 1,
                 PeerContentSignature = sig,
                 StartUT = startUT,

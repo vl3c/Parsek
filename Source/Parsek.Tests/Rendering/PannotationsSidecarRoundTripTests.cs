@@ -74,7 +74,8 @@ namespace Parsek.Tests.Rendering
             };
 
             PannotationsSidecarBinary.Write(path, "rec1", sourceSidecarEpoch: 5,
-                sourceRecordingFormatVersion: 7, configurationHash: hash, splines: input);
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
+                configurationHash: hash, splines: input);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             Assert.True(probe.Success);
@@ -183,7 +184,8 @@ namespace Parsek.Tests.Rendering
             string path = Path.Combine(tempDir, "rec_epoch.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(path, "recEp", sourceSidecarEpoch: 42,
-                sourceRecordingFormatVersion: 7, configurationHash: hash,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
+                configurationHash: hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
@@ -648,7 +650,8 @@ namespace Parsek.Tests.Rendering
             };
 
             PannotationsSidecarBinary.Write(path, "rec-cands", sourceSidecarEpoch: 1,
-                sourceRecordingFormatVersion: 8, configurationHash: hash,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
+                configurationHash: hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                 anchorCandidates: candidates);
 
@@ -688,7 +691,8 @@ namespace Parsek.Tests.Rendering
             string path = Path.Combine(tempDir, "rec_empty_candidates.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
 
-            PannotationsSidecarBinary.Write(path, "rec-emp", 1, 8, hash,
+            PannotationsSidecarBinary.Write(path, "rec-emp", 1,
+                RecordingStore.CurrentRecordingFormatVersion, hash,
                 new List<KeyValuePair<int, SmoothingSpline>>());
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
@@ -731,7 +735,8 @@ namespace Parsek.Tests.Rendering
             };
 
             PannotationsSidecarBinary.Write(path, "rec-bubble-cands", sourceSidecarEpoch: 1,
-                sourceRecordingFormatVersion: 8, configurationHash: hash,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
+                configurationHash: hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                 anchorCandidates: candidates);
 

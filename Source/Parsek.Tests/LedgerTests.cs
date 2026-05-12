@@ -223,7 +223,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoadFromFile_Version1FacilityUpgradeLevels_MigratesToLedgerTiers()
+        public void LoadFromFile_PreResetLedgerVersion_IsRejected()
         {
             Ledger.AddAction(new GameAction
             {
@@ -244,20 +244,19 @@ namespace Parsek.Tests
 
             Assert.True(Ledger.SaveToFile(LedgerPath));
             string content = File.ReadAllText(LedgerPath);
-            Assert.Contains("version = 2", content);
-            File.WriteAllText(LedgerPath, content.Replace("version = 2", "version = 1"));
+            Assert.Contains("version = 0", content);
+            File.WriteAllText(LedgerPath, content.Replace("version = 0", "version = 1"));
 
             Ledger.ResetForTesting();
             logLines.Clear();
 
-            Assert.True(Ledger.LoadFromFile(LedgerPath));
+            Assert.False(Ledger.LoadFromFile(LedgerPath));
 
-            Assert.Equal(2, Ledger.Actions.Count);
-            Assert.Equal(2, Ledger.Actions[0].ToLevel);
-            Assert.Equal(3, Ledger.Actions[1].ToLevel);
+            Assert.Empty(Ledger.Actions);
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") &&
-                l.Contains("Migrated 2 legacy facility upgrade level"));
+                l.Contains("unsupported schema") &&
+                l.Contains("version='1'"));
         }
 
         // ================================================================

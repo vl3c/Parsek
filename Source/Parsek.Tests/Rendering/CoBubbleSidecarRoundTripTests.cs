@@ -64,7 +64,7 @@ namespace Parsek.Tests.Rendering
             return new CoBubbleOffsetTrace
             {
                 PeerRecordingId = peerId,
-                PeerSourceFormatVersion = 8,
+                PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 PeerSidecarEpoch = 3,
                 PeerContentSignature = sig,
                 StartUT = startUT,
@@ -238,9 +238,14 @@ namespace Parsek.Tests.Rendering
         public void ClassifyTraceDrift_PeerFormatChanged_ReturnsReason()
         {
             CoBubbleOffsetTrace trace = MakeTrace("peer");
-            trace.PeerSourceFormatVersion = 8;
+            trace.PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             SmoothingPipeline.CoBubblePeerResolverForTesting = id =>
-                new Recording { RecordingId = id, RecordingFormatVersion = 7, SidecarEpoch = trace.PeerSidecarEpoch };
+                new Recording
+                {
+                    RecordingId = id,
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion + 1,
+                    SidecarEpoch = trace.PeerSidecarEpoch
+                };
             Assert.Equal("peer-format-changed", SmoothingPipeline.ClassifyTraceDrift(trace));
         }
 
@@ -736,7 +741,8 @@ namespace Parsek.Tests.Rendering
             var recA = new Recording
             {
                 RecordingId = idA,
-                RecordingFormatVersion = 8,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = 1,
                 Points = new List<TrajectoryPoint>
                 {
@@ -764,7 +770,8 @@ namespace Parsek.Tests.Rendering
             var recB = new Recording
             {
                 RecordingId = idB,
-                RecordingFormatVersion = 8,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = 1,
                 Points = new List<TrajectoryPoint>
                 {

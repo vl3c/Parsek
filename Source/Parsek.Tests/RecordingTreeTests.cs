@@ -1130,12 +1130,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TreeFormatVersion_MissingOnLoad_DefaultsZero()
+        public void TreeFormatVersion_MissingOnCurrentTreeLoad_DefaultsZero()
         {
             var node = new ConfigNode("RECORDING_TREE");
             node.AddValue("id", "tree_delta");
             node.AddValue("treeName", "Delta Test");
             node.AddValue("rootRecordingId", "rec_d");
+            node.AddValue("recordingSchemaGeneration",
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
 
             var tree = RecordingTree.Load(node);
 
@@ -1153,6 +1155,10 @@ namespace Parsek.Tests
             node.AddValue("id", "legacy");
             node.AddValue("treeName", "Legacy");
             node.AddValue("rootRecordingId", "legacy-root");
+            node.AddValue("treeFormatVersion",
+                RecordingTree.CurrentTreeFormatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration",
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             node.AddValue("preTreeFunds", "60000");
             node.AddValue("preTreeScience", "200");
             node.AddValue("preTreeRep", "30");
@@ -1360,6 +1366,10 @@ namespace Parsek.Tests
             node.AddValue("id", "tree_fwd");
             node.AddValue("treeName", "Forward Compat");
             node.AddValue("rootRecordingId", "rec_fwd");
+            node.AddValue("treeFormatVersion",
+                RecordingTree.CurrentTreeFormatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration",
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             node.AddValue("preTreeFunds", "50000");
             node.AddValue("preTreeScience", "100");
             node.AddValue("preTreeRep", "50");
@@ -1379,6 +1389,7 @@ namespace Parsek.Tests
             recNode.AddValue("vesselName", "Future Ship");
             recNode.AddValue("vesselPersistentId", "999");
             recNode.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            recNode.AddValue("recordingSchemaGeneration", RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             recNode.AddValue("loopPlayback", "False");
             recNode.AddValue("loopIntervalSeconds", "10");
             recNode.AddValue("lastResIdx", "-1");

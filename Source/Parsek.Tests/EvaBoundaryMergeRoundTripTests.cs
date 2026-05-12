@@ -127,8 +127,8 @@ namespace Parsek.Tests
             TrajectorySidecarProbe absorbedProbe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(targetPath, out targetProbe));
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(absorbedPath, out absorbedProbe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, targetProbe.Encoding);
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, absorbedProbe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, targetProbe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, absorbedProbe.Encoding);
 
             var loadedTarget = new Recording
             {
@@ -177,7 +177,7 @@ namespace Parsek.Tests
 
             TrajectorySidecarProbe mergedProbe;
             Assert.True(RecordingStore.TryProbeTrajectorySidecar(mergedPath, out mergedProbe));
-            Assert.Equal(TrajectorySidecarEncoding.BinaryV3, mergedProbe.Encoding);
+            Assert.Equal(TrajectorySidecarEncoding.BinaryV0, mergedProbe.Encoding);
 
             var reloadedMerged = new Recording
             {

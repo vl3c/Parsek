@@ -204,7 +204,8 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "rec-v6",
-                RecordingFormatVersion = 8,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = 1,
             };
             rec.TrackSections.Add(new TrackSection

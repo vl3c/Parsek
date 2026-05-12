@@ -245,7 +245,7 @@ namespace Parsek.Tests
             };
             var rec = new Recording
             {
-                RecordingFormatVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 TrackSections = new List<TrackSection>
                 {
                     new TrackSection
@@ -321,7 +321,7 @@ namespace Parsek.Tests
             };
             var rec = new Recording
             {
-                RecordingFormatVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 Points = new List<TrajectoryPoint>
                 {
                     Point(100.0, 500.0, 600.0, 700.0),

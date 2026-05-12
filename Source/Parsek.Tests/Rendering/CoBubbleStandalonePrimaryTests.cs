@@ -55,7 +55,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "primary-relative",
-                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion, // v6 → metre-offset contract
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion, // v6 → metre-offset contract
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint
