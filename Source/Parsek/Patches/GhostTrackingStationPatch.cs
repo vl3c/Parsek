@@ -107,7 +107,7 @@ namespace Parsek.Patches
             {
                 new TrackingStationGhostActionState(
                     TrackingStationGhostActionKind.Materialize,
-                    "Materialize",
+                    "Warp to Spawn",
                     TrackingStationGhostActionSafety.SafeWhenEligible,
                     canMaterialize,
                     DescribeMaterializeReason(context, hasRecording))
@@ -121,28 +121,28 @@ namespace Parsek.Patches
             if (!hasRecording)
                 return "No committed recording is attached to this ghost.";
             if (context.AlreadyMaterialized)
-                return "The owning recording is already materialized.";
+                return "The owning recording has already spawned.";
             if (context.MaterializeEligible)
                 return "Spawn the recorded vessel at its resolved Tracking Station endpoint.";
             if (context.MaterializeFastForwardEligible)
-                return "Fast-forward to the endpoint and materialize.";
+                return "Warp to the endpoint and spawn the recorded vessel.";
 
             switch (context.MaterializeReason)
             {
                 case GhostMapPresence.TrackingStationSpawnSkipBeforeEnd:
-                    return "Recording endpoint is not eligible to materialize.";
+                    return "Recording endpoint is not eligible to spawn.";
                 case GhostMapPresence.TrackingStationSpawnSkipRewindPending:
                     return "Waiting for the pending rewind UT adjustment.";
                 case GhostMapPresence.TrackingStationSpawnSkipIntermediateChainSegment:
                 case GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink:
-                    return "Intermediate chain segments materialize through their chain tip.";
+                    return "Intermediate chain segments spawn through their chain tip.";
                 case GhostMapPresence.TrackingStationSpawnSkipTerminatedGhostChain:
-                    return "Terminated ghost chains do not materialize.";
+                    return "Terminated ghost chains do not spawn.";
                 case null:
                 case "":
-                    return "Recording is not eligible to materialize yet.";
+                    return "Recording is not eligible to spawn yet.";
                 default:
-                    return "Materialize blocked: " + context.MaterializeReason;
+                    return "Warp to Spawn blocked: " + context.MaterializeReason;
             }
         }
     }

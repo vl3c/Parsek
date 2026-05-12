@@ -41,7 +41,7 @@ namespace Parsek
         private const float SpawnColW_SpawnTime = 100f;
         private const float SpawnColW_Countdown = 95f;
         private const float SpawnColW_State = 110f;
-        private const float SpawnColW_Warp = 85f;
+        private const float SpawnColW_Warp = 118f;
 
         private const float SpacingSmall = 3f;
         private const float MinWindowWidth = 350f;
@@ -293,7 +293,7 @@ namespace Parsek
                     GUILayout.Label("", GUILayout.Width(SpawnColW_State));
                 }
 
-                // Warp button: "FF-Depart" for departing, "FF-Spawn" for normal
+                // Warp button: "Warp to Depart" for departing, "Warp to Spawn" for normal
                 GUI.enabled = row.WarpButtonEnabled;
                 if (GUILayout.Button(row.WarpButtonLabel, GUILayout.Width(SpawnColW_Warp)))
                 {
@@ -332,10 +332,10 @@ namespace Parsek
             GUI.enabled = next != null;
             string tooltip = next != null
                 ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";
-            if (GUILayout.Button(new GUIContent("Warp to Next Real Spawn", tooltip),
+            if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip),
                 GUILayout.ExpandWidth(true)))
             {
-                ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Real Spawn clicked");
+                ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Spawn clicked");
                 flight.WarpToNextCraftSpawn();
             }
             GUI.enabled = true;

@@ -260,7 +260,7 @@ namespace Parsek.Tests
         public void FindNextSpawnCandidate_FarButSlow_SkippedInFavorOfInnerCandidate()
         {
             // Slow ghost at 500m sits inside the wider "show in list" envelope but outside the
-            // 250m FF radius — the bottom-bar "Warp to Next Real Spawn" must not pick it.
+            // 250m FF radius — the bottom-bar "Warp to Next Spawn" must not pick it.
             // The closer slow ghost (within both gates) wins even though its endUT is later.
             var candidates = new List<NearbySpawnCandidate>
             {
@@ -290,7 +290,7 @@ namespace Parsek.Tests
         public void FindNextSpawnCandidate_OnlyFarSlowCandidate_ReturnsNull()
         {
             // Lone slow-but-distant ghost: window shows it (red distance text, FF disabled),
-            // bottom-bar "Warp to Next Real Spawn" stays disabled.
+            // bottom-bar "Warp to Next Spawn" stays disabled.
             var candidates = new List<NearbySpawnCandidate>
             {
                 new NearbySpawnCandidate
@@ -444,6 +444,24 @@ namespace Parsek.Tests
 
             Assert.Contains("Station", result);
             Assert.Contains("1m 40s", result);
+        }
+
+        [Fact]
+        public void FormatNextSpawnTooltip_DepartingCandidate_UsesDepartAction()
+        {
+            var cand = new NearbySpawnCandidate
+            {
+                vesselName = "Station",
+                endUT = 400,
+                willDepart = true,
+                departureUT = 220
+            };
+
+            string result = SelectiveSpawnUI.FormatNextSpawnTooltip(cand, 100);
+
+            Assert.Contains("Warp to Depart", result);
+            Assert.Contains("Station", result);
+            Assert.Contains("2m 0s", result);
         }
 
         [Fact]
