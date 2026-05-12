@@ -17126,6 +17126,17 @@ namespace Parsek
             // failure paths, which call ghost.SetActive(false) and write
             // InterpolationResult.Zero. See ParsekFlight.cs:17226-17256.
             bool ghostWasActive = state.ghost.activeSelf;
+            // ---- Trace-Sep: open playback window on first parent-anchored debris render ----
+            int bodyFixedCount = target.Section.bodyFixedFrames != null
+                ? target.Section.bodyFixedFrames.Count : 0;
+            bool firstPlaybackRender = state.appearanceCount == 0;
+            if (firstPlaybackRender && traj != null && traj.IsDebris
+                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+            {
+                TraceSeparation.OpenPlaybackWindow(
+                    "first debris ghost render recId=" + (target.RecordingId ?? "<null>"));
+            }
+            // ---- /Trace-Sep ----
             InterpolateAndPosition(
                 state.ghost,
                 target.Section.bodyFixedFrames,
@@ -17139,6 +17150,51 @@ namespace Parsek
                 recordingId: target.RecordingId,
                 sectionIndex: target.SectionIndex);
             state.playbackIndex = absolutePlaybackIdx;
+            // ---- Trace-Sep: log debris playback positioning + bracketing samples ----
+            if (TraceSeparation.PlaybackWindowActive
+                && traj != null && traj.IsDebris
+                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+            {
+                Vector3d ghostWorld = state.ghost.transform != null
+                    ? (Vector3d)state.ghost.transform.position : Vector3d.zero;
+                TrajectoryPoint? beforeFrame = null;
+                TrajectoryPoint? afterFrame = null;
+                if (target.Section.bodyFixedFrames != null && target.Section.bodyFixedFrames.Count > 0)
+                {
+                    int beforeIdx = -1;
+                    int afterIdx = -1;
+                    for (int j = 0; j < target.Section.bodyFixedFrames.Count; j++)
+                    {
+                        if (target.Section.bodyFixedFrames[j].ut <= playbackUT)
+                            beforeIdx = j;
+                        if (target.Section.bodyFixedFrames[j].ut >= playbackUT && afterIdx < 0)
+                            afterIdx = j;
+                    }
+                    if (beforeIdx >= 0) beforeFrame = target.Section.bodyFixedFrames[beforeIdx];
+                    if (afterIdx >= 0) afterFrame = target.Section.bodyFixedFrames[afterIdx];
+                }
+                string beforeStr = beforeFrame.HasValue
+                    ? ("ut=" + beforeFrame.Value.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + " lla=(" + beforeFrame.Value.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + "," + beforeFrame.Value.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + "," + beforeFrame.Value.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")")
+                    : "<none>";
+                string afterStr = afterFrame.HasValue
+                    ? ("ut=" + afterFrame.Value.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + " lla=(" + afterFrame.Value.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + "," + afterFrame.Value.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + "," + afterFrame.Value.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")")
+                    : "<none>";
+                TraceSeparation.PlaybackLog("PositionDebris",
+                    "recId=" + (target.RecordingId ?? "<null>") +
+                    " playbackUT=" + playbackUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " bodyFixedCount=" + bodyFixedCount +
+                    " first=" + firstPlaybackRender +
+                    " bracketBefore=[" + beforeStr + "]" +
+                    " bracketAfter=[" + afterStr + "]" +
+                    " ghostWorld=" + TraceSeparation.FormatVector3d(ghostWorld));
+            }
+            // ---- /Trace-Sep ----
             // Fail closed when InterpolateAndPosition could not produce a
             // valid pose. See GhostPlaybackEngine.IsInterpolationResultValid
             // for the bodyName-null sentinel rationale. Without this guard

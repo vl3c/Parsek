@@ -1105,6 +1105,25 @@ namespace Parsek
                 reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
                 recordedGroundClearance = double.NaN
             };
+            // ---- Trace-Sep ----
+            if (TraceSeparation.RecordingWindowActive)
+            {
+                TraceSeparation.RecordLog("PartOriginSeed",
+                    "vesselPid=" + vessel.persistentId +
+                    " partPid=" + part.persistentId +
+                    " partName='" + (part.partInfo?.name ?? part.name) + "'" +
+                    " ut=" + ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " partTransformPos=" + TraceSeparation.FormatVector3d(worldPos) +
+                    " resultLLA=(" + point.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + point.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + point.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                    " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", CultureInfo.InvariantCulture) +
+                    " vesselTransformPos=" + (vessel.transform != null ? TraceSeparation.FormatVector3d(vessel.transform.position) : "<null>") +
+                    " vesselLLA=(" + vessel.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + vessel.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + vessel.altitude.ToString("R", CultureInfo.InvariantCulture) + ")");
+            }
+            // ---- /Trace-Sep ----
             return true;
         }
 
@@ -1148,6 +1167,46 @@ namespace Parsek
                 return;
             }
             if (joint.Child.vessel.persistentId != RecordingVesselId) return;
+
+            // ---- Trace-Sep: open recording window + log break state ----
+            {
+                Vessel parentVessel = joint.Child.vessel;
+                double evUT = Planetarium.GetUniversalTime();
+                TraceSeparation.OpenRecordingWindow(evUT,
+                    "OnPartJointBreak childPid=" + joint.Child.persistentId);
+                if (parentVessel != null && parentVessel.mainBody != null)
+                {
+                    CelestialBody body = parentVessel.mainBody;
+                    Vector3d livePos = body.GetWorldSurfacePosition(
+                        parentVessel.latitude, parentVessel.longitude, parentVessel.altitude);
+                    Vector3 inertialVel = parentVessel.packed
+                        ? (Vector3)parentVessel.obt_velocity
+                        : (Vector3)(parentVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
+                    Vector3 surfaceVel = parentVessel.srf_velocity;
+                    Vector3d transformPos = parentVessel.transform != null
+                        ? parentVessel.transform.position : Vector3d.zero;
+                    TraceSeparation.RecordLog("JointBreak",
+                        "PARENT_AT_BREAK pid=" + parentVessel.persistentId +
+                        " name='" + parentVessel.vesselName + "' breakForce=" + breakForce.ToString("F2", CultureInfo.InvariantCulture) +
+                        " latLonAlt=(" + parentVessel.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                        ", " + parentVessel.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                        ", " + parentVessel.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                        " livePos=" + TraceSeparation.FormatVector3d(livePos) +
+                        " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
+                        " worldDeltaTransformVsLLA=" + TraceSeparation.FormatVector3d(transformPos - livePos) +
+                        " inertialVel=" + TraceSeparation.FormatVector3(inertialVel) + " |v|=" + inertialVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                        " surfaceVel=" + TraceSeparation.FormatVector3(surfaceVel) + " |vs|=" + surfaceVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                        " packed=" + parentVessel.packed);
+                }
+                if (joint.Child != null && joint.Child.transform != null)
+                {
+                    TraceSeparation.RecordLog("JointBreak",
+                        "CHILD_PART_AT_BREAK pid=" + joint.Child.persistentId +
+                        " name='" + (joint.Child.partInfo?.name ?? joint.Child.name) + "'" +
+                        " transformPos=" + TraceSeparation.FormatVector3d(joint.Child.transform.position));
+                }
+            }
+            // ---- /Trace-Sep ----
 
             // Skip non-structural joint breaks (e.g., wheel suspension stress)
             // Part.attachJoint is the structural connection to parent — only that indicates real separation
@@ -8527,7 +8586,7 @@ namespace Parsek
         /// </summary>
         internal static TrajectoryPoint BuildTrajectoryPoint(Vessel v, Vector3 velocity, double ut)
         {
-            return new TrajectoryPoint
+            TrajectoryPoint pt = new TrajectoryPoint
             {
                 ut = ut,
                 latitude = v.latitude,
@@ -8544,6 +8603,29 @@ namespace Parsek
                 // with the real clearance when applicable.
                 recordedGroundClearance = double.NaN
             };
+            // ---- Trace-Sep: log every FG per-tick sample (includes structural events) ----
+            if (v != null && (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive))
+            {
+                Vector3d worldPos = v.mainBody != null
+                    ? v.mainBody.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
+                    : Vector3d.zero;
+                Vector3d transformPos = v.transform != null ? (Vector3d)v.transform.position : Vector3d.zero;
+                TraceSeparation.RecordLog("BuildTP",
+                    "pid=" + v.persistentId +
+                    " name='" + v.vesselName + "'" +
+                    " ut=" + ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " packed=" + v.packed +
+                    " LLA=(" + pt.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + pt.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + pt.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                    " worldFromLLA=" + TraceSeparation.FormatVector3d(worldPos) +
+                    " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
+                    " transformVsLLAdelta=" + TraceSeparation.FormatVector3d(transformPos - worldPos) +
+                    " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", CultureInfo.InvariantCulture) +
+                    " srfVel=" + TraceSeparation.FormatVector3(v.srf_velocity) + " |sv|=" + v.srf_velocity.magnitude.ToString("R", CultureInfo.InvariantCulture));
+            }
+            // ---- /Trace-Sep ----
+            return pt;
         }
 
         /// <summary>

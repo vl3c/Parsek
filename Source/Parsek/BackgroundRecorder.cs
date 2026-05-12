@@ -4270,7 +4270,7 @@ namespace Parsek
             if (preferRootPartSurfacePose)
                 TryResolveRootPartSurfacePose(v, out latitude, out longitude, out altitude, out rotation);
 
-            return new TrajectoryPoint
+            TrajectoryPoint pt = new TrajectoryPoint
             {
                 ut = ut,
                 latitude = latitude,
@@ -4285,6 +4285,31 @@ namespace Parsek
                 // Phase 7: NaN sentinel for non-surface points.
                 recordedGroundClearance = double.NaN
             };
+            // ---- Trace-Sep: log every BG per-tick + structural-event sample ----
+            if (v != null && (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive))
+            {
+                Vector3d worldPos = v.mainBody != null
+                    ? v.mainBody.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
+                    : Vector3d.zero;
+                Vector3d transformPos = v.transform != null ? (Vector3d)v.transform.position : Vector3d.zero;
+                TraceSeparation.RecordLog("BG_CreateAbs",
+                    "pid=" + v.persistentId +
+                    " name='" + v.vesselName + "'" +
+                    " ut=" + ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " packed=" + v.packed +
+                    " explicitVel=" + explicitVelocity.HasValue +
+                    " preferRoot=" + preferRootPartSurfacePose +
+                    " LLA=(" + pt.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    "," + pt.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    "," + pt.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")" +
+                    " worldFromLLA=" + TraceSeparation.FormatVector3d(worldPos) +
+                    " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
+                    " transformVsLLAdelta=" + TraceSeparation.FormatVector3d(transformPos - worldPos) +
+                    " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " srfVel=" + TraceSeparation.FormatVector3(v.srf_velocity) + " |sv|=" + v.srf_velocity.magnitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            // ---- /Trace-Sep ----
+            return pt;
         }
 
         private static bool TryCanonicalizeBackgroundReFlyRecordingPoint(
