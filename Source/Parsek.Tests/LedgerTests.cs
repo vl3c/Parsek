@@ -953,7 +953,8 @@ namespace Parsek.Tests
         {
             // Create an empty (but valid) ledger file with no actions
             var root = new ConfigNode("LEDGER");
-            root.AddValue("version", "1");
+            root.AddValue("version", "0");
+            root.AddValue("recordingSchemaGeneration", RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             root.Save(LedgerPath);
 
             bool ok = Ledger.LoadFromFile(LedgerPath);
@@ -996,7 +997,8 @@ namespace Parsek.Tests
         public void LoadFromFile_BadVersion_LogsWarning()
         {
             var root = new ConfigNode("LEDGER");
-            root.AddValue("version", "0");
+            root.AddValue("version", "1");
+            root.AddValue("recordingSchemaGeneration", RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             root.Save(LedgerPath);
 
             bool ok = Ledger.LoadFromFile(LedgerPath);
@@ -1004,7 +1006,7 @@ namespace Parsek.Tests
             Assert.False(ok);
             Assert.Equal(0, Ledger.Actions.Count);
             Assert.Contains(logLines, l =>
-                l.Contains("[Ledger]") && l.Contains("unsupported version"));
+                l.Contains("[Ledger]") && l.Contains("unsupported schema"));
         }
 
         // ================================================================

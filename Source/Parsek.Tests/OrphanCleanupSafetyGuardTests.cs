@@ -28,6 +28,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
         }
 
         public void Dispose()

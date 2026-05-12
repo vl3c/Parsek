@@ -25,6 +25,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             RewindContext.ResetForTesting();
+            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
         }
 

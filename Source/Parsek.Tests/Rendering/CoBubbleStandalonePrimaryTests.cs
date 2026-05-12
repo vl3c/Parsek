@@ -109,7 +109,7 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, worldPos.z);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
                 && l.Contains("TryComputeStandaloneRelativeWorldPosition")
-                && l.Contains("legacy-anchor-recording-id-missing"));
+                && l.Contains("anchor-recording-id-missing"));
         }
 
         [Fact]

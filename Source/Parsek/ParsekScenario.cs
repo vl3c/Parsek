@@ -730,6 +730,9 @@ namespace Parsek
             if (rec == null)
                 return false;
 
+            if (RecordingStore.SkipSidecarCurrencyCheckForTesting)
+                return true;
+
             string currentReason;
             bool filesCurrent = RecordingStore.AreRecordingFilesCurrentForSave(rec, out currentReason);
             if (rec.FilesDirty || !filesCurrent)

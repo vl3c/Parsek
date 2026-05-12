@@ -202,16 +202,6 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void AtmosphericSplineRollback_BumpsPannAlgorithmStamp()
-        {
-            // Existing v11 .pann files can contain atmospheric splines from
-            // the short-lived eligibility expansion. The alg-stamp bump forces
-            // recompute so those unsafe entries are not reused.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 12,
-                "AlgorithmStampVersion must be >= 12 after Atmospheric spline eligibility rollback");
-        }
-
-        [Fact]
         public void FitAndStorePerSection_RelativeFrame_NotFitted()
         {
             // What makes it fail: HR-7 violation — smoothing across the

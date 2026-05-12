@@ -199,89 +199,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Test 3: RELATIVE reference frame with anchorVesselId
-
-        [Fact]
-        public void RoundTrip_LegacyRelativeFrame_WithAnchorVesselId()
-        {
-            var original = new TrackSection
-            {
-                environment = SegmentEnvironment.ExoPropulsive,
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 17500.0,
-                endUT = 17600.0,
-                sampleRateHz = 5.0f,
-                anchorVesselId = 42u,
-                frames = new List<TrajectoryPoint>
-                {
-                    MakePoint(17500.0, 0.0, 0.0, 100, velX: 1f, velY: 2f, velZ: 3f),
-                    MakePoint(17550.0, 0.1, 0.1, 200, velX: 4f, velY: 5f, velZ: 6f),
-                    MakePoint(17600.0, 0.2, 0.2, 300, velX: 7f, velY: 8f, velZ: 9f),
-                },
-                checkpoints = new List<OrbitSegment>()
-            };
-
-            var parent = new ConfigNode("TEST");
-            var tracks = new List<TrackSection> { original };
-            RecordingStore.SerializeTrackSections(
-                parent,
-                tracks,
-                RecordingStore.CurrentRecordingFormatVersion);
-
-            var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
-
-            Assert.Single(loaded);
-            var result = loaded[0];
-            Assert.Equal(ReferenceFrame.Relative, result.referenceFrame);
-            Assert.Equal(42u, result.anchorVesselId);
-            Assert.Equal(3, result.frames.Count);
-
-            for (int i = 0; i < 3; i++)
-                AssertPointsEqual(original.frames[i], result.frames[i], $"point[{i}]");
-        }
-
-        #endregion
-
         #region v11 anchorRecordingId
-
-        [Fact]
-        public void RoundTrip_RelativeFrame_WithAnchorRecordingId()
-        {
-            var original = new TrackSection
-            {
-                environment = SegmentEnvironment.ExoPropulsive,
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 17500.0,
-                endUT = 17600.0,
-                sampleRateHz = 5.0f,
-                anchorRecordingId = "anchor-rec-1",
-                anchorVesselId = 42u,
-                frames = new List<TrajectoryPoint>
-                {
-                    MakePoint(17500.0, 0.0, 0.0, 100, velX: 1f, velY: 2f, velZ: 3f),
-                    MakePoint(17600.0, 0.2, 0.2, 300, velX: 7f, velY: 8f, velZ: 9f),
-                },
-                checkpoints = new List<OrbitSegment>()
-            };
-
-            var parent = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(
-                parent,
-                new List<TrackSection> { original },
-                RecordingStore.CurrentRecordingFormatVersion);
-
-            ConfigNode tsNode = parent.GetNode("TRACK_SECTION");
-            Assert.Equal("anchor-rec-1", tsNode.GetValue("anchorRecordingId"));
-            Assert.Null(tsNode.GetValue("anchorPid"));
-
-            var loaded = new List<TrackSection>();
-            RecordingStore.DeserializeTrackSections(parent, loaded);
-
-            Assert.Single(loaded);
-            Assert.Equal("anchor-rec-1", loaded[0].anchorRecordingId);
-            Assert.Equal(0u, loaded[0].anchorVesselId);
-        }
 
         [Fact]
         public void RoundTrip_CurrentRelativeFrame_WithAnchorRecordingIdAndAnchorVesselId()
@@ -722,35 +640,6 @@ namespace Parsek.Tests
             Assert.Single(loaded);
             Assert.Single(loaded[0].checkpoints);
             Assert.True(loaded[0].checkpoints[0].isPredicted);
-        }
-
-        [Fact]
-        public void SerializeTrackSections_V4Checkpoint_OmitsPredictedFlag()
-        {
-            var track = new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
-                startUT = 18000,
-                endUT = 19000,
-                checkpoints = new List<OrbitSegment>
-                {
-                    MakeOrbitSegment(18000, 19000, isPredicted: true)
-                },
-                frames = new List<TrajectoryPoint>()
-            };
-
-            var node = new ConfigNode("TEST");
-            RecordingStore.SerializeTrackSections(
-                node,
-                new List<TrackSection> { track },
-                RecordingStore.CurrentRecordingFormatVersion);
-
-            ConfigNode tsNode = node.GetNode("TRACK_SECTION");
-            Assert.NotNull(tsNode);
-            ConfigNode checkpointNode = tsNode.GetNode("ORBIT_SEGMENT");
-            Assert.NotNull(checkpointNode);
-            Assert.Null(checkpointNode.GetValue("isPredicted"));
         }
 
         [Fact]

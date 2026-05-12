@@ -384,6 +384,15 @@ namespace Parsek
         private static bool savedPendingTreeDuringActiveRestoreSerializedForSave;
         internal static string CleanOrphanFilesDirectoryOverrideForTesting;
 
+        /// <summary>
+        /// Test-only escape hatch: when true, save-time sidecar-currency checks treat
+        /// every recording as already-current so in-memory test fixtures can exercise
+        /// the metadata-only `ParsekScenario.SaveTreeRecordings` path without first
+        /// writing real `.prec` / `.craft` files. Production always leaves this false
+        /// — the strict gate is what blocks a metadata save from outliving its sidecars.
+        /// </summary>
+        internal static bool SkipSidecarCurrencyCheckForTesting;
+
         public static IReadOnlyList<Recording> CommittedRecordings => committedRecordings;
         public static List<RecordingTree> CommittedTrees => committedTrees;
         public static bool HasPendingTree => pendingTree != null;
@@ -3796,6 +3805,7 @@ namespace Parsek
             savedPendingTreeDuringActiveRestore = null;
             savedPendingTreeDuringActiveRestoreSerializedForSave = false;
             CleanOrphanFilesDirectoryOverrideForTesting = null;
+            SkipSidecarCurrencyCheckForTesting = false;
             WriteReadableSidecarMirrorsOverrideForTesting = null;
             CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
@@ -4147,8 +4157,18 @@ namespace Parsek
         {
             if (!string.IsNullOrEmpty(CleanOrphanFilesDirectoryOverrideForTesting))
                 return Path.GetFullPath(CleanOrphanFilesDirectoryOverrideForTesting);
-            string root = KSPUtil.ApplicationRootPath ?? "";
-            string saveFolder = HighLogic.SaveFolder ?? "";
+            string root;
+            string saveFolder;
+            try
+            {
+                root = KSPUtil.ApplicationRootPath ?? "";
+                saveFolder = HighLogic.SaveFolder ?? "";
+            }
+            catch
+            {
+                // Unity bindings unavailable (e.g. unit-test host) — no save context.
+                return null;
+            }
             if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
                 return null;
             return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Recordings"));

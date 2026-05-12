@@ -1608,6 +1608,14 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(track.anchorRecordingId))
                     tsNode.AddValue("anchorRecordingId", track.anchorRecordingId);
 
+                // Live anchor PID symmetric with the binary codec's TrackSection.anchorVesselId
+                // write/read. The field is flagged for removal in
+                // docs/dev/plans/recording-rendering-v0-reset-checklist.md (§"TrackSection.anchorVesselId
+                // removal") but until then the text and binary paths must keep round-trip parity
+                // so format-roundtrip tests pass on either codec.
+                if (track.anchorVesselId != 0)
+                    tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
+
                 // Producer-C boundary seam flag: sparse — only write when set. Forward-tolerant
                 // for legacy text loaders (unknown key is silently ignored). See
                 // docs/dev/plans/optimizer-persistence-split.md §5.3.

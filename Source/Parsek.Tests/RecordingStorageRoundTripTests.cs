@@ -134,6 +134,8 @@ namespace Parsek.Tests
             var expectedReadablePrecNode = new ConfigNode("PARSEK_RECORDING");
             expectedReadablePrecNode.AddValue("version",
                 fixture.Builder.GetFormatVersion().ToString(System.Globalization.CultureInfo.InvariantCulture));
+            expectedReadablePrecNode.AddValue("recordingSchemaGeneration",
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             expectedReadablePrecNode.AddValue("recordingId", recordingId);
             expectedReadablePrecNode.AddValue("sidecarEpoch", "0");
             RecordingStore.SerializeTrajectoryInto(expectedReadablePrecNode, original);
@@ -1096,8 +1098,9 @@ namespace Parsek.Tests
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
             using (var writer = new BinaryWriter(stream))
             {
-                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'S' });
+                writer.Write(new byte[] { (byte)'P', (byte)'S', (byte)'N', (byte)'0' });
                 writer.Write(SnapshotSidecarCodec.CurrentVersion);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 writer.Write((byte)1);
                 writer.Write(SnapshotSidecarCodec.MaxPayloadBytes + 1);
                 writer.Write(0);

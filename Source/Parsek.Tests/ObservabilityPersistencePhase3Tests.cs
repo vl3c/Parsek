@@ -232,7 +232,7 @@ namespace Parsek.Tests
         public void SnapshotSidecarInvalidLog_IncludesRecordingPathEpochAndProbeContext()
         {
             string vesselPath = Path.Combine(tempDir, "rec_sidecar_vessel.craft");
-            File.WriteAllBytes(vesselPath, Encoding.ASCII.GetBytes("PRKS"));
+            File.WriteAllBytes(vesselPath, Encoding.ASCII.GetBytes("PSN0"));
             var rec = new Recording
             {
                 RecordingId = "rec_sidecar",
@@ -284,7 +284,7 @@ namespace Parsek.Tests
                 line.Contains("supported=False") &&
                 line.Contains("encoding=UnknownBinary") &&
                 line.Contains("version=" + unsupportedVersion) &&
-                line.Contains("failure='unsupported snapshot sidecar version " + unsupportedVersion + " codec 1'"));
+                line.Contains("failure='format-version-mismatch version " + unsupportedVersion + "'"));
         }
 
         [Fact]
@@ -652,8 +652,9 @@ namespace Parsek.Tests
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
             using (var writer = new BinaryWriter(stream, Encoding.UTF8))
             {
-                writer.Write(Encoding.ASCII.GetBytes("PRKS"));
+                writer.Write(Encoding.ASCII.GetBytes("PSN0"));
                 writer.Write(version);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 writer.Write(codec);
                 writer.Write(0);
                 writer.Write(0);

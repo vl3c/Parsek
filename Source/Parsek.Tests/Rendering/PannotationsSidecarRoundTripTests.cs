@@ -703,19 +703,6 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void AnchorCandidatesList_DiscardsOnAlgorithmStampVersionMismatch()
-        {
-            // What makes it fail: the AlgorithmStampVersion bump (Phase 6
-            // 2 -> 3) is the mechanism that invalidates pre-Phase-6 .pann
-            // files. ClassifyDrift must surface the alg-stamp-drift token
-            // so SmoothingPipeline.LoadOrCompute discards and recomputes.
-            // The drift classification lives in SmoothingPipeline; this
-            // test just pins the constant change.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 3,
-                "AlgorithmStampVersion must be >= 3 after Phase 6 ships");
-        }
-
-        [Fact]
         public void AnchorCandidatesList_RoundTripsBubbleEntryAndBubbleExit()
         {
             // §7.7 candidate sources must round-trip cleanly through the
@@ -756,16 +743,5 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(AnchorSide.End, candsOut[0].Value[1].Side);
         }
 
-        [Fact]
-        public void AnchorCandidatesList_DiscardsOnAlgorithmStampVersionBumpToFive()
-        {
-            // §7.7 ships in v0.9.1 with AlgorithmStampVersion bumped 4 → 5.
-            // Older .pann files must invalidate via alg-stamp-drift on
-            // first load so the new BubbleEntry/Exit emitter gets a chance
-            // to populate the AnchorCandidatesList block. A regression that
-            // forgot the bump would leave stale Phase 6 caches in place.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 5,
-                "AlgorithmStampVersion must be >= 5 after §7.7 ships in v0.9.1");
-        }
     }
 }

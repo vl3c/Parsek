@@ -337,10 +337,23 @@ namespace Parsek.Tests
                 angularVelocity = new Vector3(0.01f, 0.01f, 0.01f) // Below threshold
             });
 
-            // Serialize and check raw node — avX/Y/Z should NOT be present
+            // Serialize and check raw node — avX/Y/Z should NOT be present.
+            // Top-level orbit segments are wrapped in OrbitalCheckpoint TrackSections
+            // by EnsureCheckpointSectionsForTopLevelOrbitSegments, so the ORBIT_SEGMENT
+            // node now lives under TRACK_SECTION rather than at the top level.
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
-            var segNode = node.GetNodes("ORBIT_SEGMENT")[0];
+            ConfigNode segNode = null;
+            foreach (ConfigNode tsNode in node.GetNodes("TRACK_SECTION"))
+            {
+                ConfigNode[] inner = tsNode.GetNodes("ORBIT_SEGMENT");
+                if (inner.Length > 0)
+                {
+                    segNode = inner[0];
+                    break;
+                }
+            }
+            Assert.NotNull(segNode);
             Assert.Null(segNode.GetValue("avX"));
             Assert.Null(segNode.GetValue("avY"));
             Assert.Null(segNode.GetValue("avZ"));
@@ -348,9 +361,12 @@ namespace Parsek.Tests
             // Roundtrip should give back zero angular velocity
             var restored = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, restored);
-            Assert.Equal(0.0, (double)restored.OrbitSegments[0].angularVelocity.x, 10);
-            Assert.Equal(0.0, (double)restored.OrbitSegments[0].angularVelocity.y, 10);
-            Assert.Equal(0.0, (double)restored.OrbitSegments[0].angularVelocity.z, 10);
+            OrbitSegment restoredSeg = restored.OrbitSegments.Count > 0
+                ? restored.OrbitSegments[0]
+                : restored.TrackSections[0].checkpoints[0];
+            Assert.Equal(0.0, (double)restoredSeg.angularVelocity.x, 10);
+            Assert.Equal(0.0, (double)restoredSeg.angularVelocity.y, 10);
+            Assert.Equal(0.0, (double)restoredSeg.angularVelocity.z, 10);
         }
 
         /// <summary>
