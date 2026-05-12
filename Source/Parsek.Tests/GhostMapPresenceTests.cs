@@ -1822,7 +1822,7 @@ namespace Parsek.Tests
                 isStateVector: false,
                 currentUT: 320);
 
-            Assert.Equal("tracking-station-materialized-real-vessel", reason);
+            Assert.Equal("tracking-station-spawned-real-vessel", reason);
         }
 
         [Fact]

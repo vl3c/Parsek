@@ -819,8 +819,8 @@ namespace Parsek
                     out _)
                 && GhostMapPresence.IsTrackingStationRecordingAlreadyMaterialized(selectedRecording))
             {
-                DismissCurrentGhostPopup("selected-recording-materialized");
-                GhostTrackingStationSelection.ClearSelectedGhost("selected-recording-materialized");
+                DismissCurrentGhostPopup("selected-recording-spawned");
+                GhostTrackingStationSelection.ClearSelectedGhost("selected-recording-spawned");
                 return;
             }
 
@@ -938,7 +938,7 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Tracking Station ghost popup opened: key={0} ghostPid={1} recId={2} materialize={3}",
+                    "Tracking Station ghost popup opened: key={0} ghostPid={1} recId={2} warpToSpawn={3}",
                     key ?? "(none)",
                     selection.GhostPid,
                     selection.RecordingId ?? "(none)",
@@ -1225,16 +1225,16 @@ namespace Parsek
             {
                 if (!FocusSpawnedTrackingStationVessel(
                         recording.SpawnedVesselPersistentId,
-                        "atmospheric-focus-materialized",
+                        "atmospheric-focus-spawned",
                         restoreStockSelection: true,
                         warnOnFailure: true,
                         out _))
                 {
                     ScheduleMaterializedFocusRetry(
                         recording.SpawnedVesselPersistentId,
-                        "atmospheric-focus-materialized");
+                        "atmospheric-focus-spawned");
                 }
-                DestroyAtmosphericFocusTarget("atmospheric-focus-materialized");
+                DestroyAtmosphericFocusTarget("atmospheric-focus-spawned");
                 return;
             }
 
@@ -1585,7 +1585,7 @@ namespace Parsek
                             recording.VesselName ?? "ghost",
                             endpointMaterialize.reason ?? "endpoint blocked"),
                         4f);
-                    GhostTrackingStationSelection.ClearSelectedGhost("materialize endpoint ineligible");
+                    GhostTrackingStationSelection.ClearSelectedGhost("spawn endpoint ineligible");
                     return;
                 }
 
@@ -1632,26 +1632,26 @@ namespace Parsek
                         selection.RecordingId ?? "(none)"));
                 GhostMapPresence.UpdateTrackingStationGhostLifecycle(refreshStockList: false);
                 nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
-                GhostMapPresence.TryRefreshLiveTrackingStationVesselList("tracking-station-materialize-handoff");
+                GhostMapPresence.TryRefreshLiveTrackingStationVesselList("tracking-station-spawn-handoff");
 
                 if (recording.SpawnedVesselPersistentId != 0)
                 {
                     if (!FocusSpawnedTrackingStationVessel(
                             recording.SpawnedVesselPersistentId,
-                            "tracking-station-materialize",
+                            "tracking-station-spawn",
                             restoreStockSelection: true,
                             warnOnFailure: true,
                             out _))
                     {
                         ScheduleMaterializedFocusRetry(
                             recording.SpawnedVesselPersistentId,
-                            "tracking-station-materialize");
+                            "tracking-station-spawn");
                     }
                 }
-                DestroyAtmosphericFocusTarget("materialize handoff");
+                DestroyAtmosphericFocusTarget("spawn handoff");
             }
 
-            GhostTrackingStationSelection.ClearSelectedGhost("materialize handoff");
+            GhostTrackingStationSelection.ClearSelectedGhost("spawn handoff");
         }
 
         private void ScheduleMaterializedFocusRetry(uint spawnedPid, string reason)
@@ -1661,7 +1661,7 @@ namespace Parsek
 
             pendingMaterializedFocusPid = spawnedPid;
             pendingMaterializedFocusReason = string.IsNullOrEmpty(reason)
-                ? "tracking-station-materialize"
+                ? "tracking-station-spawn"
                 : reason;
             pendingMaterializedFocusDeadlineTime =
                 Time.time + MaterializedFocusRetryDurationSec;
@@ -1672,7 +1672,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Scheduled materialized Tracking Station focus retry: pid={0} reason={1} duration={2:F1}s interval={3:F2}s",
+                    "Scheduled spawned Tracking Station focus retry: pid={0} reason={1} duration={2:F1}s interval={3:F2}s",
                     spawnedPid,
                     pendingMaterializedFocusReason,
                     MaterializedFocusRetryDurationSec,
@@ -1710,7 +1710,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialized Tracking Station focus retry baseline stock-selection probe failed: pid={0} error={1}",
+                        "Spawned Tracking Station focus retry baseline stock-selection probe failed: pid={0} error={1}",
                         spawnedPid,
                         selectedError ?? "(none)"));
             }
@@ -1718,7 +1718,7 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Captured materialized Tracking Station focus retry selection baseline: pid={0} ghostSelected={1} ghostPid={2} recId={3} stockAvailable={4} stockPid={5}",
+                    "Captured spawned Tracking Station focus retry selection baseline: pid={0} ghostSelected={1} ghostPid={2} recId={3} stockAvailable={4} stockPid={5}",
                     spawnedPid,
                     pendingMaterializedFocusBaselineHasSelectedGhost,
                     pendingMaterializedFocusBaselineGhostPid,
@@ -1742,7 +1742,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Materialized Tracking Station focus retry expired: pid={0} reason={1} attempts={2}",
+                            "Spawned Tracking Station focus retry expired: pid={0} reason={1} attempts={2}",
                             pendingMaterializedFocusPid,
                             pendingMaterializedFocusReason ?? "(none)",
                             pendingMaterializedFocusAttempts));
@@ -1752,7 +1752,7 @@ namespace Parsek
             }
 
             uint spawnedPid = pendingMaterializedFocusPid;
-            string reason = pendingMaterializedFocusReason ?? "tracking-station-materialize";
+            string reason = pendingMaterializedFocusReason ?? "tracking-station-spawn";
             if (ShouldAbortMaterializedFocusRetryForCurrentSelection(
                     spawnedPid,
                     out string abortReason))
@@ -1760,7 +1760,7 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialized Tracking Station focus retry cancelled: pid={0} reason={1} attempts={2} abort={3}",
+                        "Spawned Tracking Station focus retry cancelled: pid={0} reason={1} attempts={2} abort={3}",
                         spawnedPid,
                         reason,
                         pendingMaterializedFocusAttempts,
@@ -1782,7 +1782,7 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialized Tracking Station focus retry succeeded: pid={0} reason={1} attempts={2}",
+                        "Spawned Tracking Station focus retry succeeded: pid={0} reason={1} attempts={2}",
                         spawnedPid,
                         reason,
                         pendingMaterializedFocusAttempts));
@@ -1791,10 +1791,10 @@ namespace Parsek
             }
 
             ParsekLog.VerboseRateLimited(Tag,
-                "materialized-focus-retry-pending|" + spawnedPid,
+                "spawned-focus-retry-pending|" + spawnedPid,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "Materialized Tracking Station focus retry pending: pid={0} reason={1} attempts={2} error={3}",
+                    "Spawned Tracking Station focus retry pending: pid={0} reason={1} attempts={2} error={3}",
                     spawnedPid,
                     reason,
                     pendingMaterializedFocusAttempts,
@@ -1840,10 +1840,10 @@ namespace Parsek
                     out string selectedError))
             {
                 ParsekLog.VerboseRateLimited(Tag,
-                    "materialized-focus-selected-vessel-probe-failed",
+                    "spawned-focus-selected-vessel-probe-failed",
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Materialized Tracking Station focus retry selection probe failed: pid={0} error={1}",
+                        "Spawned Tracking Station focus retry selection probe failed: pid={0} error={1}",
                         spawnedPid,
                         selectedError ?? "(none)"),
                     1.0);
@@ -1857,7 +1857,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Captured deferred materialized Tracking Station focus retry stock-selection baseline: pid={0} stockPid={1}",
+                        "Captured deferred spawned Tracking Station focus retry stock-selection baseline: pid={0} stockPid={1}",
                         spawnedPid,
                         selectedPid));
                 return false;
@@ -2022,7 +2022,7 @@ namespace Parsek
                                 ParsekLog.Warn(Tag,
                                     string.Format(
                                         CultureInfo.InvariantCulture,
-                                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} error={2}",
+                                        "Focus spawned Tracking Station vessel failed: pid={0} reason={1} error={2}",
                                         spawnedPid,
                                         reason ?? "(none)",
                                         error));
@@ -2043,7 +2043,7 @@ namespace Parsek
                                 ParsekLog.Warn(Tag,
                                     string.Format(
                                         CultureInfo.InvariantCulture,
-                                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} mapObject='{2}' error={3}",
+                                        "Focus spawned Tracking Station vessel failed: pid={0} reason={1} mapObject='{2}' error={3}",
                                         spawnedPid,
                                         reason ?? "(none)",
                                         mapObjectName ?? "(null)",
@@ -2056,7 +2056,7 @@ namespace Parsek
                     ParsekLog.Info(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Focused materialized Tracking Station vessel '{0}' pid={1} mapObject='{2}' reason={3} stockSelected={4}",
+                            "Focused spawned Tracking Station vessel '{0}' pid={1} mapObject='{2}' reason={3} stockSelected={4}",
                             spawned.vesselName ?? "(unknown)",
                             spawned.persistentId,
                             mapObjectName ?? "(null)",
@@ -2071,7 +2071,7 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         string.Format(
                             CultureInfo.InvariantCulture,
-                            "Focus materialized Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4} error={5}",
+                            "Focus spawned Tracking Station vessel failed: pid={0} reason={1} vessel={2} camera={3} mapObj={4} error={5}",
                             spawnedPid,
                             reason ?? "(none)",
                             true,
@@ -2093,7 +2093,7 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "Focus materialized Tracking Station vessel failed: pid={0} reason={1} {2}",
+                        "Focus spawned Tracking Station vessel failed: pid={0} reason={1} {2}",
                         spawnedPid,
                         reason ?? "(none)",
                         error));
