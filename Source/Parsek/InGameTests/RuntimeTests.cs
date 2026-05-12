@@ -3436,7 +3436,7 @@ namespace Parsek.InGameTests
 
                 InGameAssert.AreEqual(1, matchingGhostCount,
                     string.Format(CultureInfo.InvariantCulture,
-                        "Synthetic TS recording should materialize exactly one live ghost vessel named '{0}'",
+                        "Synthetic TS recording should spawn exactly one live ghost vessel named '{0}'",
                         expectedGhostName));
 
                 AssertNoCapturedTrackingStationErrors(capture,
@@ -3453,8 +3453,8 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
             AllowBatchExecution = false,
-            BatchSkipReason = "Manual-only — this canary drives stock Tracking Station Fly on a materialized orbital vessel and transitions the session to FLIGHT. Run it from a disposable Tracking Station session after an orbital recording has materialized.",
-            Description = "#554/#550: materialized orbital TS vessel can be selected/flown without loading a stale asteroid/comet")]
+            BatchSkipReason = "Manual-only — this canary drives stock Tracking Station Fly on a spawned orbital vessel and transitions the session to FLIGHT. Run it from a disposable Tracking Station session after an orbital recording has spawned.",
+            Description = "#554/#550: spawned orbital TS vessel can be selected/flown without loading a stale asteroid/comet")]
         public IEnumerator TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_NotStaleSelection()
         {
             EnsureTrackingStationScene();
@@ -3477,7 +3477,7 @@ namespace Parsek.InGameTests
                 out materialized))
             {
                 InGameAssert.Skip(
-                    "No materialized orbital Parsek spawn-handoff recording was present after the TS lifecycle tick");
+                    "No spawned orbital Parsek spawn-handoff recording was present after the TS lifecycle tick");
                 yield break;
             }
 
@@ -3543,11 +3543,11 @@ namespace Parsek.InGameTests
 
             Vessel selectedAfterFocus = selectedField.GetValue(tracking) as Vessel;
             InGameAssert.IsNotNull(selectedAfterFocus,
-                "Focusing the materialized Parsek vessel should leave a selected vessel");
+                "Focusing the spawned Parsek vessel should leave a selected vessel");
             InGameAssert.AreEqual(materialized.persistentId, selectedAfterFocus.persistentId,
-                "Focusing the materialized Parsek vessel should replace any stale private selection");
+                "Focusing the spawned Parsek vessel should replace any stale private selection");
             InGameAssert.IsFalse(GhostMapPresence.HasGhostVesselForRecording(recordingIndex),
-                "Materialized Tracking Station recording should not retain a ghost ProtoVessel");
+                "Spawned Tracking Station recording should not retain a ghost ProtoVessel");
 
             uint expectedPid = materialized.persistentId;
             string expectedName = materialized.vesselName;
@@ -3563,7 +3563,7 @@ namespace Parsek.InGameTests
                 "Tracking Station Fly should load a FLIGHT active vessel");
             InGameAssert.AreEqual(expectedPid, active.persistentId,
                 string.Format(CultureInfo.InvariantCulture,
-                    "Tracking Station Fly should load materialized Parsek vessel '{0}' pid={1}, not stale '{2}' pid={3}",
+                    "Tracking Station Fly should load spawned Parsek vessel '{0}' pid={1}, not stale '{2}' pid={3}",
                     expectedName,
                     expectedPid,
                     staleName,
@@ -9994,7 +9994,7 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(2f);
 
                 InGameAssert.IsTrue(recording.VesselSpawned,
-                    "Recording should stay marked spawned after the initial vessel materializes");
+                    "Recording should stay marked spawned after the initial vessel spawns");
                 InGameAssert.AreEqual((double)spawnedPid, (double)recording.SpawnedVesselPersistentId,
                     "Keep-vessel playback should not replace the spawned vessel with a second pid");
 
@@ -10238,7 +10238,7 @@ namespace Parsek.InGameTests
 
                 spawnedVessel = FlightRecorder.FindVesselByPid(spawnedPid);
                 InGameAssert.IsNotNull(spawnedVessel,
-                    "Real Spawn Control warp should still materialize the synthetic vessel by recording end");
+                    "Real Spawn Control warp should still spawn the synthetic vessel by recording end");
 
                 int autoStartCount = RuntimeTests.CountAnyAutoRecordStartLogLines(captured);
                 InGameAssert.AreEqual(0, autoStartCount,
@@ -14134,7 +14134,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
-            Description = "#539 in-game replacement for the removed xUnit pending-cycle-boundary stub: a pending loop first-spawn that crosses into the next cycle advances loopCycleIndex without emitting loop-restart or camera events for a ghost that never materialized")]
+            Description = "#539 in-game replacement for the removed xUnit pending-cycle-boundary stub: a pending loop first-spawn that crosses into the next cycle advances loopCycleIndex without emitting loop-restart or camera events for a ghost that never spawned")]
         public void PendingLoopCycleBoundary_PendingGhostDoesNotEmitRestartEvents_InGame()
         {
             var engine = new GhostPlaybackEngine(new PendingLoopBoundaryPositioner());
@@ -14218,7 +14218,7 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(ReferenceEquals(state, engine.ghostStates[0]),
                 "cycle-boundary path must keep the same pending GhostPlaybackState shell in the engine map");
             InGameAssert.IsNull(state.ghost,
-                "this regression relies on a ghost that never materialized; no fallback GameObject should appear when the debris snapshot is still missing");
+                "this regression relies on a ghost that never spawned; no fallback GameObject should appear when the debris snapshot is still missing");
             InGameAssert.AreEqual(0, engine.FrameSpawnCountForTesting,
                 "failing the missing-snapshot reload after the cycle advance must not consume a completed spawn slot");
             InGameAssert.AreEqual(0, cameraEvents.Count,

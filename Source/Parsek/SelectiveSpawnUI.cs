@@ -184,7 +184,7 @@ namespace Parsek
             {
                 double depDelta = c.departureUT - currentUT;
                 return string.Format(IC,
-                    "Warp to {0} departure (departs in {1})",
+                    "Warp to Depart: {0} (departs in {1})",
                     c.vesselName, FormatTimeDelta(depDelta));
             }
 

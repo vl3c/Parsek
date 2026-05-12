@@ -19,7 +19,7 @@ The epoch-shift preserves the *current* relative geometry, but the spawn positio
 
 ### Part A: Departure Detection Guard
 
-Detect when a ghost's final spawn position diverges from its current position and **replace the "Warp to Spawn" button with "Warp to Dep."** (epoch-shifted warp to departure UT).
+Detect when a ghost's final spawn position diverges from its current position and **replace the "Warp to Spawn" button with "Warp to Depart"** (epoch-shifted warp to departure UT).
 
 **Detection method:** Compare the orbit segment active at `currentUT` with the orbit at `EndUT` (final segment, terminal orbit, or last segment as fallback). If any orbital parameter differs — or if the body changes — the ghost will depart before spawn time.
 
@@ -27,13 +27,13 @@ Detect when a ghost's final spawn position diverges from its current position an
 
 ### Part B: UI Enhancement
 
-Transform the RSW window from a single-action ("Warp") to a context-aware display:
+Transform the RSW window from a single spawn action to a context-aware display:
 
 | Scenario | State Column | Button | Action |
 |----------|-------------|--------|--------|
-| Ghost stays in same orbit until spawn | — | **Warp** | Epoch-shifted time jump to `EndUT` (existing behavior) |
-| Ghost will depart before spawn | "Departs in T-Xm Xs" | **Warp to Dep.** | Epoch-shifted warp to departure UT (preserves rendezvous geometry) |
-| Ghost has no orbit segments | — | **Warp** | Existing behavior (trajectory-point-only recordings) |
+| Ghost stays in same orbit until spawn | — | **Warp to Spawn** | Epoch-shifted time jump to `EndUT` (existing behavior) |
+| Ghost will depart before spawn | "Departs in T-Xm Xs" | **Warp to Depart** | Epoch-shifted warp to departure UT (preserves rendezvous geometry) |
+| Ghost has no orbit segments | — | **Warp to Spawn** | Existing behavior (trajectory-point-only recordings) |
 
 ## Detailed Design
 
@@ -130,19 +130,19 @@ Use `SelectiveSpawnUI.FormatCountdown(departureUT - currentUT)` for the countdow
 
 #### Button changes
 
-Replace the single "Warp" button logic. Widen `SpawnColW_Warp` from 50 to 85 to accommodate the longer label:
+Replace the single spawn button logic. Widen `SpawnColW_Warp` to 118 to accommodate the longer label:
 
 ```
 if (!cand.willDepart)
-    → Button label: "Warp"
+    → Button label: "Warp to Spawn"
     → Action: flight.WarpToRecordingEnd(cand.recordingIndex)  [existing]
 
 if (cand.willDepart)
-    → Button label: "Warp to Dep."
+    → Button label: "Warp to Depart"
     → Action: flight.WarpToDeparture(cand.recordingIndex, cand.departureUT)  [new]
 ```
 
-Both buttons use **epoch-shifted** warp (`ExecuteJump`). "Warp to Dep." targets `departureUT` instead of `EndUT`. This preserves the rendezvous geometry — the player and ghost both stay at their current positions. The ghost is still in its current orbit at `departureUT`, and the playback engine will then show the ghost departing in real time.
+Both buttons use **epoch-shifted** warp (`ExecuteJump`). "Warp to Depart" targets `departureUT` instead of `EndUT`. This preserves the rendezvous geometry — the player and ghost both stay at their current positions. The ghost is still in its current orbit at `departureUT`, and the playback engine will then show the ghost departing in real time.
 
 ### 5. `ParsekFlight.WarpToDeparture` (new method)
 
@@ -170,21 +170,21 @@ The existing `cachedSortedCandidates` cache in ParsekUI.cs only invalidates on c
 - Current: `"Nearby craft: {name}. Open the Real Spawn Control window to fast forward and interact."`
 - Departing: `"Nearby craft: {name} (departs to {destination} in T-Xm). Open Real Spawn Control."`
 
-**`FormatNextSpawnTooltip`:** Update to reflect "Warp to Departure" instead of "Warp to spawn" when the next candidate has `willDepart = true`.
+**`FormatNextSpawnTooltip`:** Update to reflect "Warp to Depart" instead of "Warp to Spawn" when the next candidate has `willDepart = true`.
 
 ## Edge Cases
 
 ### Ghost with no orbit segments (trajectory-only recording)
-No departure detection possible. Show normal "Warp" button. These are typically short surface/atmospheric recordings where departure isn't a concern.
+No departure detection possible. Show normal "Warp to Spawn" button. These are typically short surface/atmospheric recordings where departure isn't a concern.
 
 ### Ghost currently off-rails (between orbit segments)
-`FindOrbitSegment(currentUT)` returns null. This means the ghost is in a physics-recorded phase (burn, atmospheric flight). Can't reliably predict departure. Show normal "Warp" button. In practice, off-rails phases are short — the ghost will enter an orbit segment soon, and the next proximity check (1.5s) will detect the departure.
+`FindOrbitSegment(currentUT)` returns null. This means the ghost is in a physics-recorded phase (burn, atmospheric flight). Can't reliably predict departure. Show normal "Warp to Spawn" button. In practice, off-rails phases are short — the ghost will enter an orbit segment soon, and the next proximity check (1.5s) will detect the departure.
 
 ### Ghost in final orbit segment (current segment covers EndUT)
 `OrbitsMatch` compares the segment against itself (or terminal orbit which should match). `willDepart = false`. Correct — the ghost stays in this orbit until spawn.
 
 ### Departure UT is very close (< 30 seconds)
-Still show "Warp to Dep." — the player gets a few seconds of real-time observation before the ghost departs. No special handling needed.
+Still show "Warp to Depart" — the player gets a few seconds of real-time observation before the ghost departs. No special handling needed.
 
 ### EndUT falls in off-rails gap (no segment covers EndUT, no terminal orbit)
 Fallback: compare current segment against the **last** orbit segment in the list. If they differ, it's a departure. If they match, `willDepart = false`. This covers the common case of multi-phase recordings that end during a final burn phase (e.g., Mun capture burn).
@@ -241,11 +241,11 @@ SMA comparison uses `Math.Abs` for both values in the relative tolerance: `|a - 
 ### In-Game Tests
 
 - [ ] Record multi-phase mission (parking orbit → Mun transfer → Mun orbit)
-- [ ] Intercept ghost during parking orbit phase — verify "Departs in T-" state and "Warp to Dep." button
-- [ ] Click "Warp to Dep." — verify time advances to departure UT with epoch-shift (rendezvous preserved)
+- [ ] Intercept ghost during parking orbit phase — verify "Departs in T-" state and "Warp to Depart" button
+- [ ] Click "Warp to Depart" — verify time advances to departure UT with epoch-shift (rendezvous preserved)
 - [ ] After warp, observe ghost depart in real time
-- [ ] Intercept ghost during final orbit phase — verify normal "Warp" button
-- [ ] Record single-orbit mission — verify no departure info shown, normal "Warp" button
+- [ ] Intercept ghost during final orbit phase — verify normal "Warp to Spawn" button
+- [ ] Record single-orbit mission — verify no departure info shown, normal "Warp to Spawn" button
 - [ ] Verify proximity notification text includes departure info
 - [ ] Verify FormatNextSpawnTooltip reflects departure action
 

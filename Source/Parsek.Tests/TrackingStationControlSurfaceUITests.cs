@@ -67,7 +67,7 @@ namespace Parsek.Tests
                 "Recordings: 7 | Map ghosts: 3",
                 ParsekTrackingStation.FormatControlSurfaceCountsLine(state));
             Assert.Equal(
-                "Suppressed: 2 | Materialized: 1",
+                "Suppressed: 2 | Spawned: 1",
                 ParsekTrackingStation.FormatControlSurfaceLifecycleLine(state));
         }
 
@@ -151,12 +151,12 @@ namespace Parsek.Tests
                 materializeFastForwardEligible: true);
 
             string label = ParsekTrackingStation.BuildMaterializeButtonLabel(
-                "Materialize",
+                "Warp to Spawn",
                 selection,
                 context,
                 currentUT: 20.0);
 
-            Assert.Equal("Materialize (1m 5s)", label);
+            Assert.Equal("Warp to Spawn (1m 5s)", label);
         }
 
         [Fact]

@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Rewound recording's vessel does not spawn when watched to terminal
+
+- ~~After a Rewind-to-Separation onto a recording with a spawnable terminal state (Landed/Splashed/Orbiting), entering Watch and letting the ghost play through to its terminal point left the vessel un-materialized. `ParsekPlaybackPolicy.HandlePlaybackCompleted` reported `needsSpawn=False` because `ShouldBlockSpawnForRewindSuppression` short-circuited on the same-recording `SpawnSuppressedByRewind` marker (`#573 active/source recording protection`). Source: `logs/2026-05-12_2018_kerbalx-no-spawn`, recording `e4c8042527c649648b7f94a5175d312d`. The original #573 fix was scoped to protect against background ghost playback duplicating a vessel the player just stripped on rewind (chain-tip respawn next to the player's freshly-launched new vessel). It was overly broad for the case where the player explicitly Watches the rewound recording to its terminal point.~~
+
+**Fix:** `ParsekScenario.TryClearSpawnSuppressionOnWatchEntry` lifts the same-recording `SpawnSuppressedByRewind` marker at Watch entry from `WatchModeController.EnterWatchMode`. Watching is the player's explicit signal that they want this recording's outcome to materialize, so the spawn-at-recording-end path runs naturally when ghost playback reaches the terminal. Only the same-recording reason is touched; legacy-unscoped markers continue to flow through `ShouldBlockSpawnForRewindSuppression`'s existing normalization path. Background ghosts the player ignores after rewind retain the marker exactly as before.
+
+**Coverage:** `RewindSpawnSuppressionTests` covers the helper directly (same-recording marker cleared with audit log + subsequent `ShouldSpawnAtRecordingEnd` returns `needsSpawn=true`), no-op cases (null/empty/legacy-unscoped markers), and the full mark → watch → spawn sequence.
+
+**Status:** CLOSED 2026-05-12.
+
+---
+
 ## Done - v0.9.2 Re-Fly probe ghost duplicated after on-rails transition
 
 - ~~In Watch mode after a probe Re-Fly reached space and vessels packed/on-rails, the probe booster ghost could appear doubled and the Recordings window could show two `Kerbal X Probe` exo/orbiting rows. In the retained repro (`logs/2026-05-11_1919_doubled-probe-ghost`), restore swapped the active recorder to the Re-Fly fork for PID `429255699`, but `RecordingTree.RebuildBackgroundMap()` left another non-active recording with the same PID eligible for background tracking. The background recorder kept flushing the old `51e41e...` recording while the active recorder wrote `rec_78ecd...`; optimization later split the stale old row into its own exo/orbiting segment, so both paths rendered and one duplicate path spawned a terminal orbital vessel.~~
@@ -66,6 +78,24 @@ Player-visible breakage from these sites is masked today by other paths winning 
 **Diagnostics:** GhostMap decision lines now carry `endpointTailSeed=accept|decline`, `tailUT`, `tailSma`, `tailEcc`, latest stored segment end, rotation drift, tail frame source, historical-rotation flag, and endpoint source/phase/body details when EndpointTail is considered but declined.
 
 **Coverage:** `GhostMapEndpointTailTests` covers stale endpoint override, legitimate in-window checkpoint preservation, TerminalOrbit-backed non-promotion, Segment decision logging when EndpointTail declines, and visible-bounds precedence after EndpointTail creation state is recorded. KSP-runtime validation remains in `GhostMapEndpointTail_UsesHistoricalTailSeedAcrossActivationDrift` because reconstructing historical body rotation depends on live KSP body transforms.
+
+---
+
+## Open - stale `RewindReplayTargetSourcePid` cross-contaminates `SpawnSuppressedByRewind` across consecutive rewinds
+
+Audit of `Recording.SpawnSuppressedByRewind` after PR #829 surfaced this. `ParsekScenario.ShouldApplyRewindSpawnSuppression` has a standalone-recording branch (`ParsekScenario.cs:5677`) that returns `same-recording` when `rewoundTreeId == null` and `rec.VesselPersistentId == rewindSourcePid`. KSP reuses persistent IDs after vessel deletion, so a session that first rewinds tree A (which sets `RecordingStore.RewindReplayTargetSourcePid = pidA`) and then rewinds a standalone recording without that field being reset will mark **every committed recording whose PID matches the stale pidA** as `same-recording`. The PID-only path is meant to cover the legitimate "standalone (no tree) rewind by source PID" case but does not currently sanity-check that the source recording matching the rewind context is present.
+
+**Symptom:** after a second consecutive rewind on a standalone recording, an unrelated tree's recordings sharing a recycled PID stop spawning at their terminal. No log line says "wrong recording marked" — the audit trail looks correct in isolation.
+
+**Fix shape:** (1) clear `RewindReplayTargetSourcePid` / `RewindReplayTargetRecordingId` inside `RewindContext.EndRewind` (or wherever the unconsumed-fields drain runs) so a stale value cannot survive into the next `MarkRewoundTreeRecordingsAsGhostOnly` call; (2) tighten `ShouldApplyRewindSpawnSuppression`'s standalone-PID branch to require a real `rewindRecordingId` co-presence — without a real rewind target id, the PID-only path returns false. Add `MarkRewoundTreeRecordingsAsGhostOnly_StandaloneRewindAfterTreeRewind_DoesNotMarkUnrelatedPid` regression coverage. Severity: **medium** — silent cross-contamination, but requires two rewinds in one session to trigger.
+
+---
+
+## Open - `ShouldBlockSpawnForRewindSuppression` mutates inside a predicate
+
+Same PR #829 audit. `GhostPlaybackLogic.cs:4924-4952` is named/typed like a pure read but auto-clears the marker and emits an `[Rewind] Info` log when the reason is `legacy-unscoped` (or null). Callers — `ShouldSpawnAtRecordingEnd`, `ShouldSpawnAtKscEnd`, `ShouldSpawnAtTrackingStationEnd`, `ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn` — treat the function as a predicate and call it from per-frame hot paths. A legacy save that survived the load-time normalizer with a stale `legacy-unscoped` marker produces one `[Rewind]` clearance Info log on the first call and then mutates the recording mid-frame from inside what looks like a read. Idempotent in effect, but a real surprise-side-effect and log-noise hazard if the same recording is touched from multiple call sites in a single frame.
+
+**Fix shape:** keep `ShouldBlockSpawnForRewindSuppression` strictly read-only (return false for non-same-recording reasons without clearing). Move the legacy-unscoped auto-clear into a one-shot maintenance pass that runs from `HandleRewindOnLoad` and `OnLoad` next to the existing `RecordingTree.NormalizeLegacyRewindSuppressionMarkers` so it lives alongside the other legacy-shape normalization. Add `ShouldBlockSpawnForRewindSuppression_LegacyMarker_DoesNotMutate` regression coverage that calls the predicate twice and asserts the marker is unchanged after the first call. Severity: **low** — the current implementation is correctness-equivalent on saves that load cleanly, but the architectural surprise survives PR review by being well-documented in comments rather than enforced by the type signature.
 
 ---
 

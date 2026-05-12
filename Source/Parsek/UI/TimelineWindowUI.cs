@@ -53,6 +53,7 @@ namespace Parsek
         private const float MinWindowWidth = CareerStateWindowUI.MinWindowWidth;
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
+        private const float TimeColumnWidth = 160f;
         // Keep the short row actions aligned; GoTo stays wider for its text label.
         private const float RowActionButtonWidth = 40f;
         private const float GoToButtonWidth = 48f;
@@ -741,13 +742,17 @@ namespace Parsek
             GUILayout.BeginVertical(GUI.skin.box);
 
             bool dividerDrawn = false;
+            bool countdownRowDrawn = false;
 
             for (int i = 0; i < cachedTimeline.Count; i++)
             {
                 var entry = cachedTimeline[i];
+                bool entryVisible = IsEntryVisible(entry, currentUT);
+                bool showCountdownTime = TryConsumeCountdownTimeLabel(
+                    entry.UT, currentUT, entryVisible, ref countdownRowDrawn);
 
                 // Visibility check
-                if (!IsEntryVisible(entry, currentUT)) continue;
+                if (!entryVisible) continue;
 
                 // Draw divider before the first future entry
                 if (!dividerDrawn && entry.UT > currentUT)
@@ -757,7 +762,7 @@ namespace Parsek
                 }
 
                 bool isFuture = entry.UT > currentUT;
-                DrawEntryRow(entry, isFuture);
+                DrawEntryRow(entry, isFuture, currentUT, showCountdownTime);
             }
 
             // Draw divider at the end if all entries are in the past
@@ -819,16 +824,38 @@ namespace Parsek
 
         private void DrawNowDivider(double currentUT)
         {
-            string utText;
-            try { utText = KSPUtil.PrintDateCompact(currentUT, true); }
-            catch { utText = currentUT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
+            string utText = FormatTimelineEntryTimeLabel(
+                currentUT, currentUT, showCountdownTime: false);
 
             GUILayout.Space(3);
             GUILayout.Label($"\u2500\u2500 {utText} (now) \u2500\u2500", timelineGrayStyle);
             GUILayout.Space(3);
         }
 
-        private void DrawEntryRow(TimelineEntry entry, bool isFuture)
+        internal static bool TryConsumeCountdownTimeLabel(
+            double entryUT, double currentUT, bool entryVisible, ref bool countdownRowAlreadyDrawn)
+        {
+            // The present line is before the first visible row strictly after now,
+            // so equal-UT rows keep the compact date label.
+            if (!entryVisible || countdownRowAlreadyDrawn || entryUT <= currentUT)
+                return false;
+
+            countdownRowAlreadyDrawn = true;
+            return true;
+        }
+
+        internal static string FormatTimelineEntryTimeLabel(
+            double entryUT, double currentUT, bool showCountdownTime)
+        {
+            if (showCountdownTime)
+                return SelectiveSpawnUI.FormatCountdown(entryUT - currentUT);
+
+            try { return KSPUtil.PrintDateCompact(entryUT, true); }
+            catch { return entryUT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
+        }
+
+        private void DrawEntryRow(
+            TimelineEntry entry, bool isFuture, double currentUT, bool showCountdownTime)
         {
             GUILayout.BeginHorizontal();
 
@@ -844,10 +871,8 @@ namespace Parsek
                 style = GetStyleForColor(entry.DisplayColor);
 
             // UT column
-            string time;
-            try { time = KSPUtil.PrintDateCompact(entry.UT, true); }
-            catch { time = entry.UT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
-            GUILayout.Label(time, style, GUILayout.Width(90));
+            string time = FormatTimelineEntryTimeLabel(entry.UT, currentUT, showCountdownTime);
+            GUILayout.Label(time, style, GUILayout.Width(TimeColumnWidth));
 
             // Visual spacer between UT and description — matches the breathing room
             // that appears before the R / FF / L / GoTo buttons on the far right.

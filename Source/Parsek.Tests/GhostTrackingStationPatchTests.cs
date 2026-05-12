@@ -545,7 +545,7 @@ namespace Parsek.Tests
             TrackingStationGhostActionState materialize = FindState(states, TrackingStationGhostActionKind.Materialize);
 
             Assert.True(materialize.Enabled);
-            Assert.Contains("Fast-forward", materialize.Reason);
+            Assert.Contains("Warp to the endpoint", materialize.Reason);
         }
 
         [Fact]
@@ -809,7 +809,7 @@ namespace Parsek.Tests
                 GhostMapPresence.TrackingStationSpawnSkipBeforeEnd,
                 context.MaterializeReason);
             Assert.True(materialize.Enabled);
-            Assert.Contains("Fast-forward", materialize.Reason);
+            Assert.Contains("Warp to the endpoint", materialize.Reason);
         }
 
         [Fact]
@@ -986,7 +986,7 @@ namespace Parsek.Tests
 
             Assert.True(context.AlreadyMaterialized);
             Assert.False(materialize.Enabled);
-            Assert.Contains("already materialized", materialize.Reason);
+            Assert.Contains("already spawned", materialize.Reason);
         }
 
         [Fact]

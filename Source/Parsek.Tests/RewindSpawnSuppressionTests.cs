@@ -390,6 +390,363 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_SameRecordingMarker_ClearsAndAllowsSpawn()
+        {
+            // Reproduces the user-facing bug behind this fix: a rewound recording
+            // (terminal=Landed) carries the same-recording #573 marker, watch is
+            // entered, and the spawn-at-recording-end path must now allow the
+            // vessel to materialize when ghost playback reaches the terminal point.
+            var rec = MakeRecording(
+                "kerbal-x-rewound",
+                "Kerbal X",
+                pid: 2708531065u,
+                treeId: "tree-watch-rewind",
+                startUT: 92.5,
+                endUT: 182.766);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 92.5;
+
+            bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+
+            Assert.True(cleared);
+            Assert.False(rec.SpawnSuppressedByRewind);
+            Assert.Null(rec.SpawnSuppressedByRewindReason);
+            Assert.True(double.IsNaN(rec.SpawnSuppressedByRewindUT));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("SpawnSuppressedByRewind cleared") &&
+                l.Contains("reason=same-recording") &&
+                l.Contains("watch-entry: user engaged with rewound recording"));
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false);
+            Assert.True(result.needsSpawn,
+                $"After watch-entry clears the same-recording rewind marker, the " +
+                $"Landed terminal recording must be spawn-eligible. Got reason='{result.reason}'.");
+            Assert.Equal(string.Empty, result.reason);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_NoMarker_ReturnsFalse_NoLog()
+        {
+            var rec = MakeRecording(
+                "fresh-rec",
+                "Fresh",
+                pid: 12345u,
+                treeId: "fresh-tree",
+                startUT: 0.0,
+                endUT: 30.0);
+            // No SpawnSuppressedByRewind set.
+
+            int logCount = logLines.Count;
+            bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+
+            Assert.False(cleared);
+            Assert.False(rec.SpawnSuppressedByRewind);
+            Assert.Equal(logCount, logLines.Count);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_LegacyUnscopedMarker_DoesNotClear()
+        {
+            // Legacy unscoped markers are normalized by ShouldBlockSpawnForRewindSuppression
+            // on first spawn-decision access. Watch entry must not touch them — clearing
+            // here would skip the normalization log path that audits relied on.
+            var rec = MakeRecording(
+                "legacy-future",
+                "Legacy Future",
+                pid: 736156658u,
+                treeId: "legacy-tree",
+                startUT: 100.0,
+                endUT: 160.0);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped;
+            rec.SpawnSuppressedByRewindUT = 50.0;
+
+            int logCount = logLines.Count;
+            bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+
+            Assert.False(cleared);
+            Assert.True(rec.SpawnSuppressedByRewind);
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped,
+                rec.SpawnSuppressedByRewindReason);
+            Assert.Equal(50.0, rec.SpawnSuppressedByRewindUT);
+            Assert.Equal(logCount, logLines.Count);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_NullRecording_ReturnsFalse()
+        {
+            bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(null);
+            Assert.False(cleared);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_NullTerminal_ClearsAndAllowsSpawn()
+        {
+            // ShouldSpawnAtRecordingEnd accepts null TerminalStateValue when the
+            // snapshot situation is spawnable (see ShouldSpawnAtRecordingEnd's
+            // terminal-state and snapshot-situation gates). Gating the watch-entry
+            // helper on an enum whitelist would leave the rewind+watch bug in place
+            // for legacy / null-terminal recordings. Mirror the snapshot situation
+            // KSP captures for a vessel on the pad: LANDED is spawnable.
+            var rec = MakeRecording(
+                "null-terminal-rewound",
+                "Legacy Probe",
+                pid: 4242u,
+                treeId: "legacy-null-tree",
+                startUT: 0.0,
+                endUT: 60.0);
+            rec.TerminalStateValue = null;
+            rec.VesselSnapshot = new ConfigNode("VESSEL");
+            rec.VesselSnapshot.AddValue("sit", "LANDED");
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 30.0;
+
+            bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+
+            Assert.True(cleared);
+            Assert.False(rec.SpawnSuppressedByRewind);
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false);
+            Assert.True(result.needsSpawn,
+                $"Null-terminal recording with spawnable snapshot must spawn after " +
+                $"watch lifts the rewind marker. Got reason='{result.reason}'.");
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Destroyed)]
+        [InlineData(TerminalState.Recovered)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        [InlineData(TerminalState.SubOrbital)]
+        public void TryClearSpawnSuppressionOnWatchEntry_NonSpawnableTerminal_StillClears_SpawnGateRefuses(
+            TerminalState terminal)
+        {
+            // The helper now mirrors ShouldSpawnAtRecordingEnd's contract: it lifts
+            // the rewind-specific suppression unconditionally so the player's
+            // explicit Watch is honored, and downstream gates make the final
+            // spawnability decision. For any non-spawnable terminal listed in
+            // ShouldSpawnAtRecordingEnd's terminal-state block (Destroyed,
+            // Recovered, Docked, Boarded, SubOrbital), the marker clears but the
+            // spawn gate refuses on the terminal-state check.
+            var rec = MakeRecording(
+                $"rec-{terminal}",
+                $"Vessel-{terminal}",
+                pid: 99u,
+                treeId: $"tree-{terminal}",
+                startUT: 0.0,
+                endUT: 60.0);
+            rec.TerminalStateValue = terminal;
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 30.0;
+
+            bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+
+            Assert.True(cleared);
+            Assert.False(rec.SpawnSuppressedByRewind);
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false);
+            Assert.False(result.needsSpawn);
+            Assert.Contains(terminal.ToString(), result.reason);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_WatchSwitch_OnlyMarkedRecordingClears()
+        {
+            // Pin recording-scoped semantics: the helper acts on the recording passed
+            // in and nothing else. A watch-switch from a clean rec A to a marked rec
+            // B must clear B's marker without touching A; if A were re-watched first
+            // and B second, the per-call short-circuit on !SpawnSuppressedByRewind
+            // means no spurious second clearance log either.
+            var recA = MakeRecording(
+                "watch-switch-A-clean",
+                "A",
+                pid: 1u,
+                treeId: "tree-A",
+                startUT: 0.0,
+                endUT: 30.0);
+            // recA has no SpawnSuppressedByRewind set.
+
+            var recB = MakeRecording(
+                "watch-switch-B-marked",
+                "B",
+                pid: 2u,
+                treeId: "tree-B",
+                startUT: 100.0,
+                endUT: 160.0);
+            recB.SpawnSuppressedByRewind = true;
+            recB.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            recB.SpawnSuppressedByRewindUT = 120.0;
+
+            // First entry (A): no-op.
+            Assert.False(ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(recA));
+            Assert.False(recA.SpawnSuppressedByRewind);
+            // recB untouched while A is in scope.
+            Assert.True(recB.SpawnSuppressedByRewind);
+
+            // Switch to B: marker clears on B only.
+            Assert.True(ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(recB));
+            Assert.False(recB.SpawnSuppressedByRewind);
+            // A remains unmarked (no spurious state propagation).
+            Assert.False(recA.SpawnSuppressedByRewind);
+        }
+
+        [Fact]
+        public void ShouldRetainMapPresenceForTerminalRealSpawn_SuppressedRewindMarker_NoMapPresenceRetained()
+        {
+            // Pin the symmetric refusal at ParsekPlaybackPolicy.cs:1130-1134: when
+            // SpawnSuppressedByRewind is set, terminal-orbit map-presence retention is
+            // also refused so the orbit line / icon does not survive past the marker's
+            // scope. Without this, the suppressed source would render through the
+            // tracking station while the spawn gate blocked materialization.
+            var rec = MakeRecording(
+                "orbital-rewound",
+                "Kerbal X Probe",
+                pid: 2823934496u,
+                treeId: "tree-map-presence",
+                startUT: 0.0,
+                endUT: 992.23);
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 500.0;
+
+            bool retain = ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn(
+                rec, hasFutureSegment: false);
+
+            Assert.False(retain);
+        }
+
+        [Fact]
+        public void ApplyPersistenceArtifactsFrom_DoesNotCopySuppressionFields_DeepClone_Does()
+        {
+            // Pin the load-bearing invariant behind the explicit field copy at
+            // ParsekScenario.RestoreCommittedSidecarPayloadIntoActiveTreeRecording
+            // (lines 4819-4821): ApplyPersistenceArtifactsFrom intentionally does NOT
+            // copy SpawnSuppressedByRewind / Reason / UT, but DeepClone DOES. A
+            // regression that "fixes" ApplyPersistenceArtifactsFrom to copy the
+            // fields and removes the explicit copy will shift behavior at every
+            // other ApplyPersistenceArtifactsFrom call site (chain commit etc).
+            var source = MakeRecording(
+                "source-with-marker",
+                "Marked",
+                pid: 1234u,
+                treeId: "marked-tree",
+                startUT: 0.0,
+                endUT: 30.0);
+            source.SpawnSuppressedByRewind = true;
+            source.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            source.SpawnSuppressedByRewindUT = 15.5;
+
+            var artifactTarget = new Recording();
+            artifactTarget.ApplyPersistenceArtifactsFrom(source);
+            Assert.False(artifactTarget.SpawnSuppressedByRewind);
+            Assert.Null(artifactTarget.SpawnSuppressedByRewindReason);
+            Assert.True(double.IsNaN(artifactTarget.SpawnSuppressedByRewindUT));
+
+            var clone = Recording.DeepClone(source);
+            Assert.True(clone.SpawnSuppressedByRewind);
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
+                clone.SpawnSuppressedByRewindReason);
+            Assert.Equal(15.5, clone.SpawnSuppressedByRewindUT);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_SecondEntryAfterClear_IsNoOp()
+        {
+            // First watch-entry clears the marker; toggle-off → toggle-on (or any second
+            // EnterWatchMode for the same recording) should be a silent no-op with no
+            // spurious clearance log.
+            var rec = MakeRecording(
+                "kerbal-x-toggle",
+                "Kerbal X",
+                pid: 2708531065u,
+                treeId: "tree-toggle",
+                startUT: 92.5,
+                endUT: 182.766);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 92.5;
+
+            Assert.True(ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec));
+            int logCount = logLines.Count;
+
+            bool secondTry = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+            Assert.False(secondTry);
+            Assert.Equal(logCount, logLines.Count);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_FullSequence_MarkThenWatchThenSpawn()
+        {
+            // End-to-end: drive the production sequence through the helper. The user
+            // rewinds (MarkRewoundTreeRecordingsAsGhostOnly applies same-recording),
+            // then enters Watch (TryClearSpawnSuppressionOnWatchEntry clears it),
+            // and the spawn-at-recording-end decision permits materialization.
+            const uint sourcePid = 2708531065u;
+            const string treeId = "tree-end-to-end";
+            const double rewindUT = 92.5;
+
+            var source = MakeRecording(
+                "kerbal-x-source",
+                "Kerbal X",
+                sourcePid,
+                treeId,
+                startUT: 0.0,
+                endUT: 182.766);
+
+            RecordingStore.RewindReplayTargetSourcePid = sourcePid;
+            RecordingStore.RewindReplayTargetRecordingId = source.RecordingId;
+            RewindContext.BeginRewind(rewindUT, default(BudgetSummary), 0, 0, 0);
+
+            int marked = ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly(
+                new List<Recording> { source });
+            Assert.Equal(1, marked);
+            Assert.True(source.SpawnSuppressedByRewind);
+
+            // Before watch entry: spawn must remain blocked.
+            var blocked = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                source,
+                isActiveChainMember: false,
+                isChainLooping: false);
+            Assert.False(blocked.needsSpawn);
+            Assert.Contains("#573", blocked.reason);
+
+            // Watch entry clears the same-recording marker.
+            Assert.True(ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(source));
+
+            // After watch entry: spawn is allowed.
+            var allowed = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                source,
+                isActiveChainMember: false,
+                isChainLooping: false);
+            Assert.True(allowed.needsSpawn,
+                $"Watched rewound recording must be spawn-eligible. " +
+                $"Got reason='{allowed.reason}'.");
+        }
+
+        [Fact]
         public void ShouldApplyRewindSpawnSuppression_BoundaryOverlapUsesEpsilonOnly()
         {
             const uint sourcePid = 888u;
