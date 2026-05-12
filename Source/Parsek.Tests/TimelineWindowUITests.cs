@@ -39,16 +39,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldShowCountdownTimeLabel_OnlyFirstFutureVisibleRow_ReturnsTrue()
+        public void TryConsumeCountdownTimeLabel_OnlyFirstVisibleFutureRow_ReturnsTrue()
         {
-            Assert.False(TimelineWindowUI.ShouldShowCountdownTimeLabel(
-                entryUT: 90, currentUT: 100, countdownRowAlreadyDrawn: false));
-            Assert.False(TimelineWindowUI.ShouldShowCountdownTimeLabel(
-                entryUT: 100, currentUT: 100, countdownRowAlreadyDrawn: false));
-            Assert.True(TimelineWindowUI.ShouldShowCountdownTimeLabel(
-                entryUT: 130, currentUT: 100, countdownRowAlreadyDrawn: false));
-            Assert.False(TimelineWindowUI.ShouldShowCountdownTimeLabel(
-                entryUT: 160, currentUT: 100, countdownRowAlreadyDrawn: true));
+            bool countdownRowDrawn = false;
+
+            Assert.False(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 90, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.False(countdownRowDrawn);
+
+            Assert.False(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 100, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.False(countdownRowDrawn);
+
+            Assert.True(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 130, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.True(countdownRowDrawn);
+
+            Assert.False(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 160, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.True(countdownRowDrawn);
+        }
+
+        [Fact]
+        public void TryConsumeCountdownTimeLabel_HiddenFutureRow_DoesNotConsumeLatch()
+        {
+            bool countdownRowDrawn = false;
+
+            Assert.False(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 130, currentUT: 100, entryVisible: false, ref countdownRowDrawn));
+            Assert.False(countdownRowDrawn);
+
+            Assert.True(TimelineWindowUI.TryConsumeCountdownTimeLabel(
+                entryUT: 160, currentUT: 100, entryVisible: true, ref countdownRowDrawn));
+            Assert.True(countdownRowDrawn);
         }
 
         [Fact]

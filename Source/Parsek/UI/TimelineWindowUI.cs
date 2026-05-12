@@ -53,7 +53,7 @@ namespace Parsek
         private const float MinWindowWidth = CareerStateWindowUI.MinWindowWidth;
         private const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
-        private const float TimeColumnWidth = 120f;
+        private const float TimeColumnWidth = 160f;
         // Keep the short row actions aligned; GoTo stays wider for its text label.
         private const float RowActionButtonWidth = 40f;
         private const float GoToButtonWidth = 48f;
@@ -747,9 +747,12 @@ namespace Parsek
             for (int i = 0; i < cachedTimeline.Count; i++)
             {
                 var entry = cachedTimeline[i];
+                bool entryVisible = IsEntryVisible(entry, currentUT);
+                bool showCountdownTime = TryConsumeCountdownTimeLabel(
+                    entry.UT, currentUT, entryVisible, ref countdownRowDrawn);
 
                 // Visibility check
-                if (!IsEntryVisible(entry, currentUT)) continue;
+                if (!entryVisible) continue;
 
                 // Draw divider before the first future entry
                 if (!dividerDrawn && entry.UT > currentUT)
@@ -759,11 +762,6 @@ namespace Parsek
                 }
 
                 bool isFuture = entry.UT > currentUT;
-                bool showCountdownTime = ShouldShowCountdownTimeLabel(
-                    entry.UT, currentUT, countdownRowDrawn);
-                if (showCountdownTime)
-                    countdownRowDrawn = true;
-
                 DrawEntryRow(entry, isFuture, currentUT, showCountdownTime);
             }
 
@@ -826,19 +824,24 @@ namespace Parsek
 
         private void DrawNowDivider(double currentUT)
         {
-            string utText;
-            try { utText = KSPUtil.PrintDateCompact(currentUT, true); }
-            catch { utText = currentUT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture); }
+            string utText = FormatTimelineEntryTimeLabel(
+                currentUT, currentUT, showCountdownTime: false);
 
             GUILayout.Space(3);
             GUILayout.Label($"\u2500\u2500 {utText} (now) \u2500\u2500", timelineGrayStyle);
             GUILayout.Space(3);
         }
 
-        internal static bool ShouldShowCountdownTimeLabel(
-            double entryUT, double currentUT, bool countdownRowAlreadyDrawn)
+        internal static bool TryConsumeCountdownTimeLabel(
+            double entryUT, double currentUT, bool entryVisible, ref bool countdownRowAlreadyDrawn)
         {
-            return !countdownRowAlreadyDrawn && entryUT > currentUT;
+            // The present line is before the first visible row strictly after now,
+            // so equal-UT rows keep the compact date label.
+            if (!entryVisible || countdownRowAlreadyDrawn || entryUT <= currentUT)
+                return false;
+
+            countdownRowAlreadyDrawn = true;
+            return true;
         }
 
         internal static string FormatTimelineEntryTimeLabel(
