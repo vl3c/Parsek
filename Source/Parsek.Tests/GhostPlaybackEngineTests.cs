@@ -5244,6 +5244,87 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_V13ParentAnchoredDebrisWithBodyFixedPrimary_ReturnsFalse()
+        {
+            // The v13 carve-out must skip BOTH initial-hide layers for parent-
+            // anchored debris with body-fixed primary coverage at the
+            // activation UT: the relative-start UT-window hide AND the
+            // activation-settle / minimum-frames time-warp fallback. Without
+            // covering both, the fallback layer primes a minimum-frames
+            // counter that holds the ghost hidden for additional frames
+            // during which playback advances and the transform slides
+            // forward by one physics-tick of velocity-integrated motion
+            // (the "ghost slides 2-3 m in front before settling" symptom
+            // that prompted this regression test).
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 102.5 },
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            // No frame is hidden -- including the first frame at the seed UT,
+            // the next physics-tick frame, and any subsequent frame. The
+            // minimum-frames counter must NOT be primed because there is no
+            // anchor-resolution race to mask -- body-fixed primary playback
+            // is deterministic at any playback UT.
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.00, out string seedReason));
+            Assert.Null(seedReason);
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.04, out string nextTickReason));
+            Assert.Null(nextTickReason);
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.20, out string laterReason));
+            Assert.Null(laterReason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_StillUsesFallback()
+        {
+            // Debris recording missing body-fixed primary coverage at the
+            // activation UT does NOT qualify for the v13 carve-out. The
+            // activation-settle / minimum-frames fallback still fires --
+            // because without body-fixed primary, the first frame may need
+            // to resolve through the anchor-local path which depends on the
+            // live parent pose.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                // No bodyFixedFrames -- the carve-out's coverage gate fails.
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            // The relative-start hide is the primary gate while activationLead
+            // is within the UT window.
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.04, out string reason));
+            Assert.Equal("relative-start", reason);
+        }
+
+        [Fact]
         public void ResolvePredictedOrbitTailContinuityBlendSeconds_CoversFinalizerGap()
         {
             Assert.Equal(5.0, GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
