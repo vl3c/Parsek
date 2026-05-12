@@ -488,6 +488,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_NonSpawnableTerminal_PreservesMarker()
+        {
+            // Marker exists as an audit crumb; clearing it on a non-spawnable terminal
+            // (Destroyed/Recovered/Docked/Boarded/SubOrbital) would erase the crumb
+            // without ever enabling a spawn — ShouldSpawnAtRecordingEnd's terminal-state
+            // gate would still refuse it.
+            var rec = MakeRecording(
+                "destroyed-rewound",
+                "Doomed",
+                pid: 99u,
+                treeId: "doom-tree",
+                startUT: 0.0,
+                endUT: 60.0);
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 30.0;
+
+            int logCount = logLines.Count;
+            bool cleared = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+
+            Assert.False(cleared);
+            Assert.True(rec.SpawnSuppressedByRewind);
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
+                rec.SpawnSuppressedByRewindReason);
+            Assert.Equal(30.0, rec.SpawnSuppressedByRewindUT);
+            Assert.Equal(logCount, logLines.Count);
+        }
+
+        [Fact]
+        public void TryClearSpawnSuppressionOnWatchEntry_SecondEntryAfterClear_IsNoOp()
+        {
+            // First watch-entry clears the marker; toggle-off → toggle-on (or any second
+            // EnterWatchMode for the same recording) should be a silent no-op with no
+            // spurious clearance log.
+            var rec = MakeRecording(
+                "kerbal-x-toggle",
+                "Kerbal X",
+                pid: 2708531065u,
+                treeId: "tree-toggle",
+                startUT: 92.5,
+                endUT: 182.766);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 92.5;
+
+            Assert.True(ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec));
+            int logCount = logLines.Count;
+
+            bool secondTry = ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec);
+            Assert.False(secondTry);
+            Assert.Equal(logCount, logLines.Count);
+        }
+
+        [Fact]
         public void TryClearSpawnSuppressionOnWatchEntry_FullSequence_MarkThenWatchThenSpawn()
         {
             // End-to-end: drive the production sequence through the helper. The user

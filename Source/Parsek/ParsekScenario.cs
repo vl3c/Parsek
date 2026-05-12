@@ -5739,9 +5739,13 @@ namespace Parsek
         /// the player's explicit signal that they want to see this recording's outcome
         /// — the spawn at terminal end should fire normally, not stay suppressed.
         /// Returns true when a marker was actually cleared. Only acts on the
-        /// <see cref="RewindSpawnSuppressionReasonSameRecording"/> reason: legacy
-        /// unscoped and future-of-rewind reasons are managed elsewhere and must
-        /// not be touched here.
+        /// <see cref="RewindSpawnSuppressionReasonSameRecording"/> reason and only
+        /// when the recording's terminal state is spawnable (Landed/Splashed/Orbiting):
+        /// legacy unscoped markers are handled by
+        /// <c>ShouldBlockSpawnForRewindSuppression</c>'s normalization path, and
+        /// clearing the marker on a non-spawnable terminal would erase its audit
+        /// crumb without ever enabling a spawn (terminal-state gate would still
+        /// refuse it).
         /// </summary>
         internal static bool TryClearSpawnSuppressionOnWatchEntry(Recording rec)
         {
@@ -5751,10 +5755,17 @@ namespace Parsek
                     RewindSpawnSuppressionReasonSameRecording,
                     StringComparison.Ordinal))
                 return false;
+            if (!rec.TerminalStateValue.HasValue)
+                return false;
+            var ts = rec.TerminalStateValue.Value;
+            if (ts != TerminalState.Landed
+                && ts != TerminalState.Splashed
+                && ts != TerminalState.Orbiting)
+                return false;
 
             ClearRewindSpawnSuppression(
                 rec,
-                $"reason={rec.SpawnSuppressedByRewindReason}",
+                $"reason={rec.SpawnSuppressedByRewindReason} terminal={ts}",
                 "watch-entry: user engaged with rewound recording, allowing spawn at recording end");
             return true;
         }

@@ -1486,10 +1486,10 @@ namespace Parsek
 
             if (ParsekScenario.TryClearSpawnSuppressionOnWatchEntry(rec))
             {
-                ParsekLog.Info("CameraFollow",
+                ParsekLog.Verbose("CameraFollow",
                     $"Watch entry cleared post-rewind spawn suppression: rec=#{index} " +
                     $"id={rec.RecordingId} vessel=\"{rec.VesselName}\" " +
-                    $"(#573 active/source protection lifted, ghost will spawn at recording end)");
+                    $"(#573 active/source protection lifted; spawn eligibility re-evaluated next frame)");
             }
 
             ShowUnattendedFlightWarningIfNeeded();
