@@ -3547,7 +3547,7 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(materialized.persistentId, selectedAfterFocus.persistentId,
                 "Focusing the materialized Parsek vessel should replace any stale private selection");
             InGameAssert.IsFalse(GhostMapPresence.HasGhostVesselForRecording(recordingIndex),
-                "Materialized Tracking Station recording should not retain a ghost ProtoVessel");
+                "Spawned Tracking Station recording should not retain a ghost ProtoVessel");
 
             uint expectedPid = materialized.persistentId;
             string expectedName = materialized.vesselName;

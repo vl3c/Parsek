@@ -6943,7 +6943,7 @@ namespace Parsek
                 return "tracking-station-child-started";
 
             if (alreadyMaterialized)
-                return "tracking-station-materialized-real-vessel";
+                return "tracking-station-spawned-real-vessel";
 
             if (isStateVector)
                 return currentUT > rec.EndUT
