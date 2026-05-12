@@ -725,6 +725,25 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData((int)ProximitySamplingTier.Full)]
+        [InlineData((int)ProximitySamplingTier.Half)]
+        public void ProximitySamplingCadence_ZeroConfiguredMin_HonorsDefensiveFloor(int tier)
+        {
+            // configuredMin == 0 is degenerate (no production caller produces
+            // it today; ParsekSettings.GetMinSampleInterval is positive). The
+            // helper must not collapse to 0 and record every physics frame.
+            float interval = ProximitySamplingCadence.ResolveSampleInterval(
+                (ProximitySamplingTier)tier,
+                configuredMin: 0f,
+                configuredMax: 3.0f);
+
+            Assert.True(
+                interval >= ProximitySamplingCadence.MinimumSampleIntervalSeconds,
+                $"interval={interval} must respect the defensive floor "
+                    + $"({ProximitySamplingCadence.MinimumSampleIntervalSeconds})");
+        }
+
+        [Theory]
         [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.None, 3.0f)]
         [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.Full, 0.2f)]
         [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.Half, 0.4f)]

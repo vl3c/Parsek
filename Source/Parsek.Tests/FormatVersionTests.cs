@@ -88,6 +88,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecordingTreeLoad_PreV13RejectionPrunesDanglingBranchPointReferences()
+        {
+            // Simulate an upgrade-from-pre-v13 save: one rejected (v11) recording,
+            // one accepted (v13) recording, and a branch point referencing both.
+            // The rejected recording is skipped; the branch point's reference to
+            // it must be pruned so downstream consumers don't see a dangling id.
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            treeNode.AddValue("id", "test-tree");
+            treeNode.AddValue("treeName", "Test Tree");
+            treeNode.AddValue("rootRecordingId", "good-rec");
+
+            var rejectedRec = treeNode.AddNode("RECORDING");
+            rejectedRec.AddValue("recordingId", "rejected-rec");
+            rejectedRec.AddValue("recordingFormatVersion", "11");
+
+            var goodRec = treeNode.AddNode("RECORDING");
+            goodRec.AddValue("recordingId", "good-rec");
+            goodRec.AddValue(
+                "recordingFormatVersion",
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+
+            // Branch point references both — the rejected reference must be pruned.
+            var bpNode = treeNode.AddNode("BRANCH_POINT");
+            bpNode.AddValue("id", "bp-1");
+            bpNode.AddValue("ut", "100.0");
+            bpNode.AddValue("type", ((int)BranchPointType.JointBreak).ToString(CultureInfo.InvariantCulture));
+            bpNode.AddValue("parentId", "rejected-rec");
+            bpNode.AddValue("childId", "good-rec");
+            bpNode.AddValue("childId", "rejected-rec");
+
+            // Empty-after-prune branch point — both endpoints rejected.
+            var emptyBpNode = treeNode.AddNode("BRANCH_POINT");
+            emptyBpNode.AddValue("id", "bp-2");
+            emptyBpNode.AddValue("ut", "120.0");
+            emptyBpNode.AddValue("type", ((int)BranchPointType.JointBreak).ToString(CultureInfo.InvariantCulture));
+            emptyBpNode.AddValue("parentId", "rejected-rec");
+            emptyBpNode.AddValue("childId", "rejected-rec");
+
+            logLines.Clear();
+            RecordingTree tree = RecordingTree.Load(treeNode);
+
+            Assert.False(tree.Recordings.ContainsKey("rejected-rec"));
+            Assert.True(tree.Recordings.ContainsKey("good-rec"));
+
+            // bp-1 survives but with only good-rec on each side; bp-2 was emptied.
+            BranchPoint bp1 = tree.BranchPoints.FirstOrDefault(bp => bp.Id == "bp-1");
+            Assert.NotNull(bp1);
+            Assert.DoesNotContain("rejected-rec", bp1.ParentRecordingIds);
+            Assert.DoesNotContain("rejected-rec", bp1.ChildRecordingIds);
+            Assert.Contains("good-rec", bp1.ChildRecordingIds);
+            Assert.DoesNotContain(tree.BranchPoints, bp => bp.Id == "bp-2");
+
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Codec]") &&
+                line.Contains("pruned branch-point references to missing recordings"));
+        }
+
+        [Fact]
         public void RecordingTreeLoad_FutureVersion_IsRejectedAndWarns()
         {
             int futureVersion = RecordingStore.CurrentRecordingFormatVersion + 1;

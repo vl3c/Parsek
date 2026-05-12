@@ -11,6 +11,14 @@ namespace Parsek
 
     internal static class ProximitySamplingCadence
     {
+        // Defensive floor for tier-derived sample intervals. Production
+        // ParsekSettings.GetMinSampleInterval enforces a positive value
+        // (0.05f / 0.2f / 0.5f at High / Medium / Low), but the helper is
+        // public-API-shaped and the floor guards against a degenerate caller
+        // passing configuredMin == 0 (which would otherwise collapse every
+        // tier to 0 and record every physics frame).
+        internal const float MinimumSampleIntervalSeconds = 0.001f;
+
         internal static ProximitySamplingTier Resolve(
             double distanceMeters,
             double fullFidelityMaxMeters,
@@ -53,7 +61,7 @@ namespace Parsek
             if (tier == ProximitySamplingTier.None)
                 return configuredMax;
 
-            float interval = Math.Max(0f, configuredMin);
+            float interval = Math.Max(MinimumSampleIntervalSeconds, configuredMin);
             if (tier == ProximitySamplingTier.Half)
                 interval *= 2f;
 

@@ -5350,6 +5350,13 @@ namespace Parsek
             if (parentVessel == null || !parentVessel.loaded || parentVessel.packed)
                 return double.NaN;
 
+            // Use CoM (GetWorldPos3D) rather than vesselTransform.position here.
+            // Pose composition deliberately uses vesselTransform to stay symmetric
+            // with the recorded lat/lon/alt frame (CoM-to-vesselTransform vector is
+            // ~10 m for radial boosters), but for the cadence-tier thresholds
+            // (250 / 500 / 550 m) the CoM vs vesselTransform delta is well below
+            // the boundary resolution and CoM is the cheaper, more conventional
+            // proximity metric.
             Vector3d parentWorldPos = parentVessel.GetWorldPos3D();
             Vector3d debrisWorldPos = debrisVessel.GetWorldPos3D();
             if (!IsFinite(parentWorldPos) || !IsFinite(debrisWorldPos))

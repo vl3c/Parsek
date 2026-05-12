@@ -214,6 +214,13 @@ namespace Parsek
                 tree.BranchPoints.Add(LoadBranchPointFrom(bpNodes[i]));
             }
 
+            // Drop branch-point references to recordings that were skipped by
+            // the v13 format gate above. This is only relevant during the
+            // upgrade window from a pre-v13 save: the recordings get rejected
+            // but their branch points would otherwise dangle, potentially
+            // surfacing as resolver-walk surprises downstream.
+            PruneBranchPointReferencesToMissingRecordings(tree);
+
             tree.RebuildBackgroundMap();
             NormalizeLegacyRewindSuppressionMarkers(tree);
 
@@ -249,6 +256,75 @@ namespace Parsek
                     "LedgerOrchestrator.MigrateLegacyTreeResources will reconcile.");
             }
             return tree;
+        }
+
+        private static void PruneBranchPointReferencesToMissingRecordings(RecordingTree tree)
+        {
+            if (tree == null
+                || tree.BranchPoints == null
+                || tree.BranchPoints.Count == 0
+                || tree.Recordings == null)
+            {
+                return;
+            }
+
+            int prunedParentRefs = 0;
+            int prunedChildRefs = 0;
+            int emptiedBranchPoints = 0;
+
+            for (int i = tree.BranchPoints.Count - 1; i >= 0; i--)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+
+                if (bp.ParentRecordingIds != null)
+                {
+                    for (int p = bp.ParentRecordingIds.Count - 1; p >= 0; p--)
+                    {
+                        string pid = bp.ParentRecordingIds[p];
+                        if (!string.IsNullOrEmpty(pid)
+                            && !tree.Recordings.ContainsKey(pid))
+                        {
+                            bp.ParentRecordingIds.RemoveAt(p);
+                            prunedParentRefs++;
+                        }
+                    }
+                }
+
+                if (bp.ChildRecordingIds != null)
+                {
+                    for (int c = bp.ChildRecordingIds.Count - 1; c >= 0; c--)
+                    {
+                        string cid = bp.ChildRecordingIds[c];
+                        if (!string.IsNullOrEmpty(cid)
+                            && !tree.Recordings.ContainsKey(cid))
+                        {
+                            bp.ChildRecordingIds.RemoveAt(c);
+                            prunedChildRefs++;
+                        }
+                    }
+                }
+
+                bool emptyAfterPrune =
+                    (bp.ParentRecordingIds == null || bp.ParentRecordingIds.Count == 0)
+                    && (bp.ChildRecordingIds == null || bp.ChildRecordingIds.Count == 0);
+                if (emptyAfterPrune)
+                {
+                    tree.BranchPoints.RemoveAt(i);
+                    emptiedBranchPoints++;
+                }
+            }
+
+            if (prunedParentRefs > 0 || prunedChildRefs > 0 || emptiedBranchPoints > 0)
+            {
+                ParsekLog.Warn("Codec",
+                    $"RecordingTree.LoadFrom: pruned branch-point references to missing " +
+                    $"recordings (tree={tree.Id ?? "<no-id>"}): " +
+                    $"parentRefs={prunedParentRefs} childRefs={prunedChildRefs} " +
+                    $"emptiedBranchPoints={emptiedBranchPoints}. " +
+                    "This indicates an upgrade from a pre-v13 save whose recordings " +
+                    "were rejected by the v13 format gate.");
+            }
         }
 
         private static void NormalizeLegacyRewindSuppressionMarkers(RecordingTree tree)
