@@ -4553,11 +4553,24 @@ namespace Parsek
                     continue;
                 }
 
+                // Use vesselTransform.position to stay symmetric with
+                // vessel.transform.rotation -- mixing GetWorldPos3D (CoM) with
+                // vesselTransform rotation systematically shifts the recorded
+                // offset by the CoM-to-vesselTransform vector (the v0.9 radial-
+                // booster ~10 m forward bug). Falls back to CoM only when the
+                // Unity transform is unavailable (mid-teardown fake-null).
+                Transform candidateTransform = vessel.transform;
+                Vector3d candidatePos = candidateTransform != null
+                    ? (Vector3d)candidateTransform.position
+                    : vessel.GetWorldPos3D();
+                Quaternion candidateRot = candidateTransform != null
+                    ? candidateTransform.rotation
+                    : Quaternion.identity;
                 if (AnchorDetector.TryCreateRecordingAnchorCandidate(
                         focusRecording,
                         candidateRecording,
-                        vessel.GetWorldPos3D(),
-                        vessel.transform.rotation,
+                        candidatePos,
+                        candidateRot,
                         AnchorCandidateSource.Live,
                         vessel.persistentId,
                         -1,
@@ -4735,10 +4748,27 @@ namespace Parsek
 
             if (parentVessel != null && parentVessel.loaded)
             {
+                // Use vesselTransform.position (NOT GetWorldPos3D / CoM) to stay
+                // symmetric with parentVessel.transform.rotation and with the
+                // recorder's seed-time anchor capture (which writes
+                // v.latitude/longitude/altitude derived from vesselTransform via
+                // KSP's UpdatePosVel). Mixing CoM position with vesselTransform
+                // rotation was the v0.9 radial-booster ~10 m forward offset bug
+                // -- body-fixed primary masks the inconsistency for normal v13
+                // rendering, but the live candidate also leaks into diagnostics,
+                // fallback paths, and future anchor-based render logic. Falls
+                // back to CoM when transform is null (mid-teardown fake-null).
+                Transform parentTransform = parentVessel.transform;
+                Vector3d parentAnchorPos = parentTransform != null
+                    ? (Vector3d)parentTransform.position
+                    : parentVessel.GetWorldPos3D();
+                Quaternion parentAnchorRot = parentTransform != null
+                    ? parentTransform.rotation
+                    : Quaternion.identity;
                 var liveCandidate = new RecordingAnchorCandidate(
                     parentRecId,
-                    parentVessel.GetWorldPos3D(),
-                    parentVessel.transform.rotation,
+                    parentAnchorPos,
+                    parentAnchorRot,
                     AnchorCandidateSource.Live,
                     diagnosticPid: parentVessel.persistentId,
                     ghostIndex: -1,
@@ -4978,7 +5008,16 @@ namespace Parsek
                     vessel,
                     out Vector3d focusWorldPos))
             {
-                focusWorldPos = vessel.GetWorldPos3D();
+                // Fall back to vesselTransform.position (NOT GetWorldPos3D / CoM)
+                // to stay symmetric with the rotation fallback below at
+                // vessel.transform.rotation. Both pieces must come from the same
+                // frame or the recorded offset is shifted by the CoM-to-
+                // vesselTransform vector. CoM remains as the last-resort fallback
+                // if the Unity transform is mid-teardown (fake-null).
+                Transform focusTransform = vessel.transform;
+                focusWorldPos = focusTransform != null
+                    ? (Vector3d)focusTransform.position
+                    : vessel.GetWorldPos3D();
             }
             Vector3d offset = TrajectoryMath.ComputeRelativeLocalOffset(
                 focusWorldPos,

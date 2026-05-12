@@ -5447,8 +5447,42 @@ namespace Parsek
             if (sectionIndex < 0)
                 sectionIndex = TrajectoryMath.FindTrackSectionForUT(
                     traj.TrackSections, activationStartUT);
-            return sectionIndex >= 0
-                && traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Relative;
+            if (sectionIndex < 0
+                || traj.TrackSections[sectionIndex].referenceFrame != ReferenceFrame.Relative)
+            {
+                return false;
+            }
+
+            // v13 carve-out: parent-anchored debris that has a body-fixed primary
+            // surface covering the activation UT does not need the generic
+            // relative-start hide. The body-fixed primary path resolves the
+            // recorded world pose directly from the section's bodyFixedFrames
+            // without consulting any live anchor, so there is no anchor-
+            // resolution race to mask. Without this carve-out, the 0.08s hide
+            // forces playback to advance to activationLead > 0.08 before the
+            // ghost becomes visible -- at debris velocities (~190 m/s in
+            // atmosphere), that is ~19 m of velocity-integrated downrange
+            // motion past the recorded seed pose, producing the user-visible
+            // "ghost spawns too far forward" symptom.
+            TrackSection activationSection = traj.TrackSections[sectionIndex];
+            if (IsParentAnchoredDebrisTrajectory(traj)
+                && ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                    activationSection,
+                    activationStartUT,
+                    out _,
+                    out _))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsParentAnchoredDebrisTrajectory(IPlaybackTrajectory traj)
+        {
+            return traj != null
+                && traj.IsDebris
+                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
         }
 
         private static bool CanEvaluateInitialActivationHidden(

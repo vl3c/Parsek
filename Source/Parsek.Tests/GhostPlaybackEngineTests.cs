@@ -4727,6 +4727,96 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_V13ParentAnchoredDebrisWithBodyFixedPrimary_ReturnsFalse()
+        {
+            // v13 carve-out: parent-anchored debris with a body-fixed primary
+            // surface covering the activation UT does not need the generic
+            // relative-start hide. Without this carve-out, the 0.08 s hide
+            // produces ~19 m of velocity-integrated downrange offset at
+            // typical debris atmospheric speeds (~190 m/s).
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 102.5 },
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_ReturnsTrue()
+        {
+            // Carve-out requires body-fixed primary coverage at the activation
+            // UT. A parent-anchored debris recording whose first section has
+            // anchor-local frames only (no body-fixed shadow) still gets the
+            // generic relative-start hide because its first frame depends on
+            // live anchor resolution.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
+        public void ShouldHoldInitialRelativeActivationHidden_NonDebrisRelativeStartWithBodyFixed_ReturnsTrue()
+        {
+            // Carve-out is parent-anchored-debris-only. Non-debris Relative
+            // recordings (e.g. loop-anchored tankers, recorded-anchor chains)
+            // still need the generic hide -- their first frame may depend on
+            // resolving the live anchor pose.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = false;
+            traj.DebrisParentRecordingId = null;
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 102.5 },
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialRelativeActivationHidden(
+                traj, state, 100.04));
+        }
+
+        [Fact]
         public void ShouldHoldInitialDebrisSeedBridgeActivationHidden_LargeParentAnchoredStructuralSeedGap_ReturnsTrueUntilFirstOrdinarySample()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
