@@ -4275,7 +4275,7 @@ namespace Parsek
             if (preferRootPartSurfacePose)
                 TryResolveRootPartSurfacePose(v, out latitude, out longitude, out altitude, out rotation);
 
-            return new TrajectoryPoint
+            TrajectoryPoint pt = new TrajectoryPoint
             {
                 ut = ut,
                 latitude = latitude,
@@ -4290,22 +4290,25 @@ namespace Parsek
                 // Phase 7: NaN sentinel for non-surface points.
                 recordedGroundClearance = double.NaN
             };
+            // Apply the same one-tick phase-offset back-step that the FG
+            // chokepoint applies, so BG per-tick samples share the same
+            // position-vs-stamp phase as FG samples and as the structural-event
+            // seeds. Without this uniform application, lerping between a
+            // corrected structural seed and an uncorrected per-tick neighbour
+            // produces the visible ~v*dt forward slide on the first playback
+            // interval after a staging event. See
+            // FlightRecorder.BackwardExtrapolateBodyFixedPositionOneTick.
+            return FlightRecorder.BackwardExtrapolateBodyFixedPositionOneTick(pt, v, velocity);
         }
 
         /// <summary>
-        /// Creates an absolute trajectory point captured during a joint-break /
-        /// structural-event handler dispatch. The position is backward-
-        /// extrapolated by one Time.fixedDeltaTime to align with the recorded
-        /// UT stamp: KSP fires these events in a phase where the live
-        /// v.latitude/longitude/altitude reflect end-of-current-tick PhysX
-        /// state but Planetarium.GetUniversalTime() returns start-of-tick
-        /// time, so without correction every structural-snapshot position
-        /// runs ~3 m ahead of its stamp at typical staging velocities. See
-        /// <see cref="FlightRecorder.BackwardExtrapolateStructuralSnapshotPosition"/>
-        /// for the full rationale. Use this overload at every structural-
-        /// event-phase capture site (split-time parent boundary, parent
-        /// continuation seed, debris child seed, BG structural snapshot);
-        /// ordinary periodic samples must continue to use the plain overload.
+        /// Kept as a thin alias for the structural-event-phase capture sites.
+        /// <see cref="CreateAbsoluteTrajectoryPointFromVessel"/> now applies
+        /// the one-tick phase-offset back-step uniformly to every per-tick
+        /// sample (FG and BG), so the structural-event overload is no longer
+        /// special — the named entry point is retained for call-site clarity
+        /// and to keep older log strings stable. Adding another back-step
+        /// here would double-correct.
         /// </summary>
         internal static TrajectoryPoint CreateStructuralEventAbsolutePointFromVessel(
             Vessel v,
@@ -4313,10 +4316,8 @@ namespace Parsek
             Vector3? explicitVelocity = null,
             bool preferRootPartSurfacePose = false)
         {
-            TrajectoryPoint pt = CreateAbsoluteTrajectoryPointFromVessel(
+            return CreateAbsoluteTrajectoryPointFromVessel(
                 v, eventUT, explicitVelocity, preferRootPartSurfacePose);
-            return FlightRecorder.BackwardExtrapolateStructuralSnapshotPosition(
-                pt, v, pt.velocity);
         }
 
         private static bool TryCanonicalizeBackgroundReFlyRecordingPoint(
