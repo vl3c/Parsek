@@ -966,7 +966,7 @@ namespace Parsek
                 && !FrameListCoversUT(frames, section.startUT, section.endUT, ut))
             {
                 List<TrajectoryPoint> flatFallbackFrames = recording.Points;
-                if (TrajectoryTextSidecarCodec.TryBuildAbsoluteShadowFlatPointsForRelativeSections(
+                if (TrajectoryTextSidecarCodec.TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(
                         recording,
                         out List<TrajectoryPoint> safeRelativeFlatPoints))
                 {
@@ -1163,7 +1163,7 @@ namespace Parsek
                 return false;
 
             if (RecordingContainsRelativeSections(recording))
-                return TrajectoryTextSidecarCodec.TryBuildAbsoluteShadowFlatPointsForRelativeSections(recording, out flatPoints);
+                return TrajectoryTextSidecarCodec.TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(recording, out flatPoints);
 
             if (!RecordingContainsOnlyAbsoluteSections(recording)
                 || recording.Points == null

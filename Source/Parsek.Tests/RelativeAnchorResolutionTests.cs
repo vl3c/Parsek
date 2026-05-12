@@ -232,7 +232,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryFindAbsoluteShadowBridgeFrame_UsesPriorAbsoluteSectionBoundary()
+        public void TryFindBodyFixedPrimaryBridgeFrame_UsesPriorAbsoluteSectionBoundary()
         {
             var absoluteSection = new TrackSection
             {
@@ -267,14 +267,14 @@ namespace Parsek.Tests
             };
 
             TrajectoryPoint bridge;
-            Assert.True(ParsekFlight.TryFindAbsoluteShadowBridgeFrame(
+            Assert.True(ParsekFlight.TryFindBodyFixedPrimaryBridgeFrame(
                 rec, relativeSection, 100.2, out bridge));
             Assert.Equal(99.5, bridge.ut);
             Assert.Equal(2.0, bridge.latitude);
         }
 
         [Fact]
-        public void ResolveAbsoluteShadowPlaybackFrames_TargetAfterShadow_ReturnsOriginalFrames()
+        public void ResolveBodyFixedPrimaryPlaybackFrames_TargetAfterShadow_ReturnsOriginalFrames()
         {
             var relativeSection = new TrackSection
             {
@@ -304,7 +304,7 @@ namespace Parsek.Tests
             };
 
             List<TrajectoryPoint> resolved =
-                ParsekFlight.ResolveAbsoluteShadowPlaybackFrames(rec, relativeSection, 100.4);
+                ParsekFlight.ResolveBodyFixedPrimaryPlaybackFrames(rec, relativeSection, 100.4);
 
             Assert.Same(relativeSection.bodyFixedFrames, resolved);
             Assert.Single(resolved);

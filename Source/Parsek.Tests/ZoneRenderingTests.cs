@@ -381,7 +381,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_UsesRelativeAbsoluteShadowOnly()
+        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_UsesRelativeBodyFixedPrimaryOnly()
         {
             var currentFrames = new List<TrajectoryPoint>
             {

@@ -8119,18 +8119,18 @@ namespace Parsek
         /// updates last-recorded bookkeeping, refreshes the backup snapshot, and emits periodic
         /// diagnostic logging.
         /// </summary>
-        private void CommitRecordedPoint(TrajectoryPoint point, Vessel v, TrajectoryPoint? absoluteShadowPoint = null)
+        private void CommitRecordedPoint(TrajectoryPoint point, Vessel v, TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point"))
                 return;
 
             if (object.ReferenceEquals(v, null))
             {
-                CommitRecordedPointWithoutVessel(point, absoluteShadowPoint);
+                CommitRecordedPointWithoutVessel(point, bodyFixedPrimaryPoint);
                 return;
             }
 
-            CommitRecordedPointWithVessel(point, v, absoluteShadowPoint);
+            CommitRecordedPointWithVessel(point, v, bodyFixedPrimaryPoint);
         }
 
         internal static bool IsSurfaceClearanceEnvironment(SegmentEnvironment env)
@@ -8154,7 +8154,7 @@ namespace Parsek
         private void CommitRecordedPointWithVessel(
             TrajectoryPoint point,
             Vessel v,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             const bool hasVessel = true;
 
@@ -8206,11 +8206,11 @@ namespace Parsek
             {
                 currentTrackSection.frames.Add(point);
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
-                    && absoluteShadowPoint.HasValue)
+                    && bodyFixedPrimaryPoint.HasValue)
                 {
                     if (currentTrackSection.bodyFixedFrames == null)
                         currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
-                    currentTrackSection.bodyFixedFrames.Add(absoluteShadowPoint.Value);
+                    currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
                 }
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
@@ -8249,7 +8249,7 @@ namespace Parsek
 
         private void CommitRecordedPointWithoutVessel(
             TrajectoryPoint point,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point-without-vessel"))
                 return;
@@ -8270,11 +8270,11 @@ namespace Parsek
             {
                 currentTrackSection.frames.Add(point);
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
-                    && absoluteShadowPoint.HasValue)
+                    && bodyFixedPrimaryPoint.HasValue)
                 {
                     if (currentTrackSection.bodyFixedFrames == null)
                         currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
-                    currentTrackSection.bodyFixedFrames.Add(absoluteShadowPoint.Value);
+                    currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
                 }
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
@@ -8982,7 +8982,7 @@ namespace Parsek
         /// Only writes to the TrackSection frames — does NOT dual-write to the flat
         /// Recording list (the point is already there from SamplePosition).
         /// </summary>
-        private void SeedBoundaryPoint(TrajectoryPoint? point, TrajectoryPoint? absoluteShadowPoint = null)
+        private void SeedBoundaryPoint(TrajectoryPoint? point, TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (!point.HasValue) return;
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.Value.ut, "section-boundary-seed"))
@@ -8990,11 +8990,11 @@ namespace Parsek
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
             if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
-                && absoluteShadowPoint.HasValue)
+                && bodyFixedPrimaryPoint.HasValue)
             {
                 if (currentTrackSection.bodyFixedFrames == null)
                     currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
-                currentTrackSection.bodyFixedFrames.Add(absoluteShadowPoint.Value);
+                currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             }
             UpdateTrackSectionAltitude((float)point.Value.altitude);
             ParsekLog.Verbose("Recorder",

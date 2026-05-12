@@ -548,7 +548,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal("Mun", loaded.LoopAnchorBodyName);
         }
@@ -609,7 +609,7 @@ namespace Parsek.Tests
             // No loopAnchorBodyName key
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(recNode, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(recNode, loaded);
 
             Assert.Null(loaded.LoopAnchorBodyName);
         }
@@ -622,7 +622,7 @@ namespace Parsek.Tests
             // No loopAnchorBodyName
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Null(loaded.LoopAnchorBodyName);
         }

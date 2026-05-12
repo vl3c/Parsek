@@ -81,7 +81,7 @@ namespace Parsek.Tests
                 new AuditCheck("Source/Parsek/ParsekFlight.cs", @"target\.Section\.anchorVesselId|FindVesselByPid\(section\.anchorVesselId|FindVesselByPid\(e\.anchorVesselId|legacyAnchorPid", "recorded-relative flight playback live PID read"),
                 new AuditCheck("Source/Parsek/GhostRenderTrace.cs", @"context\.AnchorVesselId\s*=|section\.AnchorVesselId", "recorded-relative trace section PID propagation"),
                 new AuditCheck("Source/Parsek/ParsekKSC.cs", @"KscAnchorLookup|TryLookupKscAnchorFrame|FindVesselByPid\(anchorVesselId|anchorPid=|section\.anchorVesselId", "KSC Relative live PID playback"),
-                new AuditCheck("Source/Parsek/GhostMapPresence.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFlyAbsoluteShadowPoint|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
+                new AuditCheck("Source/Parsek/GhostMapPresence.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFlyBodyFixedPrimaryPoint|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
             };
             var requiredChecks = new[]
             {

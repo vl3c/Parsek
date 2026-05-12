@@ -875,7 +875,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.RecordingId = "legacy-focus";
-            traj.RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion;
+            traj.RecordingFormatVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -1036,7 +1036,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleAbsoluteShadowFrame_ReturnsTrue()
+        public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_SingleBodyFixedPrimaryFrame_ReturnsTrue()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
             TrackSection section = traj.TrackSections[0];
@@ -1090,6 +1090,25 @@ namespace Parsek.Tests
                 parentLoopAnchorVesselId: 0u);
             TrackSection parentSection = tree.Recordings["parent-rec"].TrackSections[0];
             parentSection.anchorVesselId = 77u;
+            tree.Recordings["parent-rec"].TrackSections[0] = parentSection;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            Assert.False(GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain(traj, 105.0));
+        }
+
+        [Fact]
+        public void ShouldUseLoopAnchoredDebrisChain_LoopParentWithMismatchedSectionAnchorPid_ReturnsFalse()
+        {
+            // Mid-loop anchor flip: recording declares LoopAnchorVesselId=77 but
+            // the Relative section points at pid=99. Engine must reject this so
+            // playback falls to body-fixed primary instead of chasing a non-loop
+            // live PID across iterations.
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            RecordingTree tree = MakeDebrisChainTree(
+                ReferenceFrame.Relative,
+                parentLoopAnchorVesselId: 77u);
+            TrackSection parentSection = tree.Recordings["parent-rec"].TrackSections[0];
+            parentSection.anchorVesselId = 99u;
             tree.Recordings["parent-rec"].TrackSections[0] = parentSection;
             RecordingStore.AddCommittedTreeForTesting(tree);
 

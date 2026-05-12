@@ -288,7 +288,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal("meta123", loaded.RecordingId);
             Assert.Equal(0, loaded.RecordingFormatVersion);
@@ -305,7 +305,7 @@ namespace Parsek.Tests
 
             string defaultId = loaded.RecordingId;
 
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(defaultId, loaded.RecordingId);
             Assert.Equal(0, loaded.RecordingFormatVersion);
@@ -330,7 +330,7 @@ namespace Parsek.Tests
             Assert.Equal("True", node.GetValue("hidden"));
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.True(loaded.Hidden);
         }
@@ -352,7 +352,7 @@ namespace Parsek.Tests
             Assert.Null(node.GetValue("hidden"));
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.False(loaded.Hidden);
         }
@@ -366,7 +366,7 @@ namespace Parsek.Tests
             // No "hidden" value — simulates a pre-hide-feature recording
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.False(loaded.Hidden);
         }

@@ -52,7 +52,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(RecordingEndpointPhase.OrbitSegment, loaded.EndpointPhase);
             Assert.Equal("Mun", loaded.EndpointBodyName);

@@ -423,7 +423,7 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void StandaloneWorldPosition_RelativeFrameActiveReFlyPrimary_UsesAbsoluteShadow()
+        public void StandaloneWorldPosition_RelativeFrameActiveReFlyPrimary_UsesBodyFixedPrimary()
         {
             // P1-C regression: when the section's anchorVesselId matches
             // the active re-fly target's PID, the standalone resolver
@@ -533,7 +533,7 @@ namespace Parsek.Tests.Rendering
                     out Vector3d worldPos);
 
                 // FlightGlobals.Bodies is unavailable in xUnit, so the
-                // body resolver inside TryComputeStandaloneAbsoluteShadow
+                // body resolver inside TryComputeStandaloneBodyFixedPrimary
                 // returns null and the helper returns false — but the
                 // critical assertion is that the live-anchor path was NOT
                 // taken. v11 data without anchorRecordingId is fenced as a
@@ -555,10 +555,10 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void StandaloneAbsoluteShadow_UTPastEnd_FailsClosed()
+        public void StandaloneBodyFixedPrimary_UTPastEnd_FailsClosed()
         {
             // Phase 5 review-pass-3 P2-1 regression: the linear search in
-            // TryComputeStandaloneAbsoluteShadowWorldPosition (and its
+            // TryComputeStandaloneBodyFixedPrimaryWorldPosition (and its
             // siblings TryComputeStandaloneAbsoluteFallbackWorldPosition
             // / TryComputeStandaloneWorldPositionForRecording's lat/lon
             // branch) used `idx <= 0` to detect both at-or-before-start

@@ -306,7 +306,7 @@ namespace Parsek
 
         private static double GetShadowTailUT(TrackSection section)
         {
-            return DebrisRelativeCoveragePrimitives.TryGetAbsoluteShadowCoverageEndUT(
+            return DebrisRelativeCoveragePrimitives.TryGetBodyFixedPrimaryCoverageEndUT(
                 section.bodyFixedFrames,
                 out double shadowTailUT)
                 ? shadowTailUT

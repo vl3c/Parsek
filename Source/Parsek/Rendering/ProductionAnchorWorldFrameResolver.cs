@@ -367,7 +367,7 @@ namespace Parsek.Rendering
             worldPos = default;
             if (rec == null)
                 return false;
-            if (rec.RecordingFormatVersion < RecordingStore.RelativeAbsoluteShadowFormatVersion)
+            if (rec.RecordingFormatVersion < RecordingStore.RelativeBodyFixedPrimaryFormatVersion)
                 return false;
             if (relSection.bodyFixedFrames == null || relSection.bodyFixedFrames.Count == 0)
                 return false;

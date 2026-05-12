@@ -593,7 +593,7 @@ namespace Parsek
                 return false;
             }
 
-            bool healedPoints = TryBuildAbsoluteShadowFlatPointsForRelativeSections(
+            bool healedPoints = TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(
                     rec,
                     out List<TrajectoryPoint> safeRelativePoints)
                 && !TrajectoryPointListsEqual(safeRelativePoints, rec.Points);
@@ -614,13 +614,13 @@ namespace Parsek
 
         internal static List<TrajectoryPoint> GetFlatFallbackPointsForWrite(Recording rec)
         {
-            if (TryBuildAbsoluteShadowFlatPointsForRelativeSections(rec, out List<TrajectoryPoint> points))
+            if (TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(rec, out List<TrajectoryPoint> points))
                 return points;
 
             return rec?.Points;
         }
 
-        internal static bool TryBuildAbsoluteShadowFlatPointsForRelativeSections(
+        internal static bool TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(
             Recording rec,
             out List<TrajectoryPoint> points)
         {
@@ -1633,7 +1633,7 @@ namespace Parsek
                     }
 
                     if (track.referenceFrame == ReferenceFrame.Relative
-                        && recordingFormatVersion >= RecordingStore.RelativeAbsoluteShadowFormatVersion)
+                        && recordingFormatVersion >= RecordingStore.RelativeBodyFixedPrimaryFormatVersion)
                     {
                         var bodyFixedFrames = track.bodyFixedFrames;
                         if (bodyFixedFrames != null)

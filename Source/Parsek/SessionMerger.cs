@@ -1183,7 +1183,7 @@ namespace Parsek
                 return false;
             }
 
-            if (recordingFormatVersion < RecordingStore.RelativeAbsoluteShadowFormatVersion)
+            if (recordingFormatVersion < RecordingStore.RelativeBodyFixedPrimaryFormatVersion)
             {
                 reason = "relative-shadow-format-unavailable";
                 return false;

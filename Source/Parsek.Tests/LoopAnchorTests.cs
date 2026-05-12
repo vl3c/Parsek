@@ -50,7 +50,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(12345u, loaded.LoopAnchorVesselId);
         }
@@ -75,7 +75,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             // No loopAnchorPid key at all
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(0u, loaded.LoopAnchorVesselId);
         }
@@ -95,7 +95,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(130.5, loaded.LoopStartUT);
             Assert.Equal(170.25, loaded.LoopEndUT);
@@ -124,7 +124,7 @@ namespace Parsek.Tests
                 bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
             });
 
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(40.0, loaded.LoopIntervalSeconds);
             Assert.Equal(120.0, loaded.LoopStartUT);
@@ -155,7 +155,7 @@ namespace Parsek.Tests
                 bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
             });
 
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(70.0, loaded.LoopIntervalSeconds);
             Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, loaded.RecordingFormatVersion);
@@ -184,7 +184,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             // No loopStartUT / loopEndUT keys
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.True(double.IsNaN(loaded.LoopStartUT));
             Assert.True(double.IsNaN(loaded.LoopEndUT));
@@ -456,7 +456,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(4294967295u, loaded.LoopAnchorVesselId);
         }

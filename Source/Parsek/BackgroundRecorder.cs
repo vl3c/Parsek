@@ -4752,7 +4752,7 @@ namespace Parsek
                 state,
                 ut,
                 reason ?? "force-immediate-sample");
-            ParsekLog.Info("BgRecorder",
+            ParsekLog.Verbose("BgRecorder",
                 $"Immediate background trajectory sample forced: pid={state.vesselPid} " +
                 $"reason={reason ?? "unknown"} ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
@@ -5965,14 +5965,14 @@ namespace Parsek
         private static void AppendFrameToCurrentTrackSection(
             BackgroundVesselState state,
             TrajectoryPoint point,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (state == null || !state.trackSectionActive || state.currentTrackSection.frames == null)
                 return;
 
             state.currentTrackSection.frames.Add(point);
-            if (absoluteShadowPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
-                state.currentTrackSection.bodyFixedFrames.Add(absoluteShadowPoint.Value);
+            if (bodyFixedPrimaryPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
+                state.currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             if (float.IsNaN(state.currentTrackSection.minAltitude)
                 || point.altitude < state.currentTrackSection.minAltitude)
             {
@@ -5989,7 +5989,7 @@ namespace Parsek
             BackgroundVesselState state,
             Recording treeRec,
             TrajectoryPoint point,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             // Bug #419: ApplyTrajectoryPointToRecording rejects non-monotonic appends. If
             // the flat-points append was rejected, the seed must NOT enter the track
@@ -6008,7 +6008,7 @@ namespace Parsek
                 return;
             }
 
-            AppendFrameToCurrentTrackSection(state, point, absoluteShadowPoint);
+            AppendFrameToCurrentTrackSection(state, point, bodyFixedPrimaryPoint);
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
 
@@ -6096,14 +6096,14 @@ namespace Parsek
         private static void AddFrameToActiveTrackSection(
             BackgroundVesselState state,
             TrajectoryPoint point,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (!state.trackSectionActive || state.currentTrackSection.frames == null)
                 return;
 
             state.currentTrackSection.frames.Add(point);
-            if (absoluteShadowPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
-                state.currentTrackSection.bodyFixedFrames.Add(absoluteShadowPoint.Value);
+            if (bodyFixedPrimaryPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
+                state.currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             if (float.IsNaN(state.currentTrackSection.minAltitude)
                 || point.altitude < state.currentTrackSection.minAltitude)
             {

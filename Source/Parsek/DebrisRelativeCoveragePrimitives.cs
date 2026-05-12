@@ -51,7 +51,7 @@ namespace Parsek
                 && targetUT <= frames[frames.Count - 1].ut + UtEpsilon;
         }
 
-        internal static bool AbsoluteShadowFramesCoverUT(
+        internal static bool BodyFixedPrimaryFramesCoverUT(
             IList<TrajectoryPoint> frames,
             double targetUT)
         {
@@ -96,7 +96,7 @@ namespace Parsek
             return IsFiniteUT(endUT);
         }
 
-        internal static bool TryGetAbsoluteShadowCoverageEndUT(
+        internal static bool TryGetBodyFixedPrimaryCoverageEndUT(
             IList<TrajectoryPoint> frames,
             out double endUT)
         {
@@ -155,7 +155,7 @@ namespace Parsek
                 ConsiderCoverage(relativeEndUT, "relative-frames", ref coverageEndUT, ref coverageReason, ref found);
             }
 
-            if (TryGetAbsoluteShadowCoverageEndUT(bodyFixedFrames, out double shadowEndUT))
+            if (TryGetBodyFixedPrimaryCoverageEndUT(bodyFixedFrames, out double shadowEndUT))
             {
                 ConsiderCoverage(shadowEndUT, "body-fixed-primary", ref coverageEndUT, ref coverageReason, ref found);
             }

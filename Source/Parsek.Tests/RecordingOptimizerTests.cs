@@ -4799,7 +4799,7 @@ namespace Parsek.Tests
         #region Relative Absolute Shadow Optimizer Trims
 
         [Fact]
-        public void TrimBoringTailPayload_RelativeSection_TrimsAbsoluteShadowFrames()
+        public void TrimBoringTailPayload_RelativeSection_TrimsBodyFixedPrimaryFrames()
         {
             var section = new TrackSection
             {
@@ -4837,7 +4837,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrimOverlappingSectionFrames_RelativeSection_TrimsAbsoluteShadowFrames()
+        public void TrimOverlappingSectionFrames_RelativeSection_TrimsBodyFixedPrimaryFrames()
         {
             var sections = new List<TrackSection>
             {

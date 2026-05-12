@@ -147,7 +147,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WriteRead_RelativeSection_PreservesAbsoluteShadowFrames()
+        public void WriteRead_RelativeSection_PreservesBodyFixedPrimaryFrames()
         {
             Recording original = BuildRelativeShadowFixture();
 
@@ -211,7 +211,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WriteRead_RelativeFlatFallback_WritesAbsoluteShadowPointsAndPreservesOrbitTail()
+        public void WriteRead_RelativeFlatFallback_WritesBodyFixedPrimaryPointsAndPreservesOrbitTail()
         {
             Recording original = BuildRelativeFlatFallbackWithOrbitTailFixture();
             Assert.False(RecordingStore.ShouldWriteSectionAuthoritativeTrajectory(original));
@@ -457,7 +457,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "relative-shadow",
-                RecordingFormatVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion,
+                RecordingFormatVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion,
                 VesselName = "Upper Stage",
                 VesselPersistentId = 12001u
             };

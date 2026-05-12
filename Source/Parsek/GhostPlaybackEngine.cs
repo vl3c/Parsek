@@ -2849,8 +2849,17 @@ namespace Parsek
                     return false;
                 }
                 if (anchor.LoopAnchorVesselId != 0u)
+                {
+                    // Accept either: (a) section pid matches the recording's
+                    // declared loop anchor (typical case), or (b) section pid
+                    // is zero and the resolver will fall back to
+                    // recording.LoopAnchorVesselId. Reject mid-loop pid
+                    // mismatches — composing through a non-loop live PID
+                    // across loop iterations is non-deterministic; body-fixed
+                    // primary is the safe fallback.
                     return section.anchorVesselId == anchor.LoopAnchorVesselId
                         || section.anchorVesselId == 0u;
+                }
                 if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
                     return false;
 
@@ -5730,7 +5739,7 @@ namespace Parsek
                         traj, playbackUT, result, "active orbit segment");
                 }
 
-                if (TryResolvePendingRelativeSectionAbsoluteShadowInterpolation(
+                if (TryResolvePendingRelativeSectionBodyFixedPrimaryInterpolation(
                         traj, playbackUT, out result, out string relativePointSource))
                 {
                     return LogPendingPlaybackInterpolationResolved(
@@ -5799,7 +5808,7 @@ namespace Parsek
                 traj, playbackUT, "no points, surface metadata, orbit segment, or endpoint body");
         }
 
-        private static bool TryResolvePendingRelativeSectionAbsoluteShadowInterpolation(
+        private static bool TryResolvePendingRelativeSectionBodyFixedPrimaryInterpolation(
             IPlaybackTrajectory traj,
             double playbackUT,
             out InterpolationResult result,

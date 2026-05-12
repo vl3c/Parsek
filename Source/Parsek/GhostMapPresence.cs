@@ -4927,6 +4927,12 @@ namespace Parsek
             string recordingId,
             out Recording recording)
         {
+            // [ERS-exempt] Body-fixed-primary anchor pid lookup correlates a
+            // section's stored anchorRecordingId / DebrisParentRecordingId to a
+            // VesselPersistentId for state-vector telemetry only. The walk is
+            // string-id keyed (recording-id, not chain semantics) so ERS filtering
+            // by supersede/visibility would mask the very anchor recording an
+            // active Re-Fly provisional may need to resolve. Read-only; no ledger.
             recording = null;
             if (string.IsNullOrWhiteSpace(recordingId))
                 return false;
@@ -5758,7 +5764,7 @@ namespace Parsek
             Quaternion anchorWorldRot,
             uint anchorVesselId,
             bool allowOrbitalCheckpointStateVector = false,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             // v13 parent-anchored debris uses `bodyFixedFrames` as the primary
             // surface for ordinary debris. Callers pass the selected body-fixed
@@ -5766,9 +5772,9 @@ namespace Parsek
             // chain. Resolved through the standard surface lookup it yields the
             // recorded world position directly. Returns Branch="body-fixed-primary"
             // so call-site logs and tests can distinguish it from Absolute.
-            if (absoluteShadowPoint.HasValue)
+            if (bodyFixedPrimaryPoint.HasValue)
             {
-                TrajectoryPoint shadow = absoluteShadowPoint.Value;
+                TrajectoryPoint shadow = bodyFixedPrimaryPoint.Value;
                 Vector3d pos = absoluteSurfaceLookup(shadow.latitude, shadow.longitude, shadow.altitude);
                 return new StateVectorWorldFrame
                 {
@@ -5932,7 +5938,7 @@ namespace Parsek
                     anchorWorldRot: Quaternion.identity,
                     anchorVesselId: bodyFixedAnchorPid,
                     allowOrbitalCheckpointStateVector: allowOrbitalCheckpointStateVector,
-                    absoluteShadowPoint: bodyFixedPoint);
+                    bodyFixedPrimaryPoint: bodyFixedPoint);
             }
 
             if (section.HasValue
@@ -5960,7 +5966,7 @@ namespace Parsek
                 anchorRot,
                 anchorPid,
                 allowOrbitalCheckpointStateVector,
-                absoluteShadowPoint: null);
+                bodyFixedPrimaryPoint: null);
         }
 
         /// <summary>

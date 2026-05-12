@@ -152,7 +152,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-inv-slots";
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(8, loaded.StartInventorySlots);
             Assert.Equal(12, loaded.EndInventorySlots);

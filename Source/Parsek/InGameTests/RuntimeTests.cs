@@ -14697,6 +14697,246 @@ namespace Parsek.InGameTests
                 "post-boundary Absolute section should use absolute positioning");
         }
 
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris drifting past 550m: dispatch transitions from body-fixed primary (in Relative) to absolute positioning (in Absolute) cleanly")]
+        public void V13Debris_DriftingAway_TransitionsToAbsolute()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13DriftAway");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Drift Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: "v13-drift-debris",
+                parentRecordingId: "v13-drift-parent",
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: true,
+                includeAbsoluteTail: true);
+
+            // First frame inside Relative section: must dispatch through body-fixed primary.
+            RunV13DebrisUpdate(engine, rec, currentUT: 1.0);
+            int bodyFixedAfterRelative = positioner.BodyFixedCalls;
+            int absoluteAfterRelative = positioner.AbsoluteCalls;
+
+            // Second frame inside Absolute section: must dispatch through absolute.
+            RunV13DebrisUpdate(engine, rec, currentUT: 4.0);
+
+            InGameAssert.IsTrue(bodyFixedAfterRelative >= 1,
+                "Relative section sample must dispatch through body-fixed primary");
+            InGameAssert.AreEqual(0, absoluteAfterRelative,
+                "Relative section sample must not invoke absolute positioner");
+            InGameAssert.IsTrue(positioner.AbsoluteCalls >= 1,
+                "Absolute section sample must dispatch through absolute positioner");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "ghost must stay visible across the Relative -> Absolute transition");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris at long range (Absolute-only section, no Relative payload): renderer must not invoke the Relative route")]
+        public void V13Debris_LongRange_AbsoluteOnly_NoRelativeRoute()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13LongRange");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Long Range Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            string bodyName = activeVessel.mainBody.name;
+            var absoluteSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0.0,
+                endUT = 5.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    MakeV13RuntimePoint(0.0, bodyName, 10.0),
+                    MakeV13RuntimePoint(5.0, bodyName, 60.0),
+                },
+            };
+            var rec = new Recording
+            {
+                RecordingId = "v13-long-range-debris",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "v13-long-range-debris",
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = "v13-long-range-parent",
+                Points = new List<TrajectoryPoint>(absoluteSection.frames),
+                TrackSections = new List<TrackSection> { absoluteSection },
+            };
+
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.5);
+
+            InGameAssert.AreEqual(0, positioner.RelativeCalls,
+                "Absolute-only debris must not invoke the Relative route (no anchor coupling at long range)");
+            InGameAssert.AreEqual(0, positioner.BodyFixedCalls,
+                "Absolute-only debris must not invoke body-fixed-primary (used only inside Relative sections)");
+            InGameAssert.IsTrue(positioner.AbsoluteCalls >= 1,
+                "Absolute-only debris must dispatch through absolute positioner");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris frame transition at 2x physics warp: boundary stays visually continuous")]
+        public void V13Debris_PhysicsWarp_FrameBoundary_NoArtifact()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13Warp");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Warp Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: "v13-warp-debris",
+                parentRecordingId: "v13-warp-parent",
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: true,
+                includeAbsoluteTail: true);
+
+            // Run the same straddling UT pair as the boundary continuity test but at
+            // 2x physics warp. The fix-rate engine update path must produce the same
+            // continuous position handoff regardless of warp rate.
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.49, warpRate: 2f);
+            Vector3 before = ghost.transform.position;
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.51, warpRate: 2f);
+            Vector3 after = ghost.transform.position;
+
+            InGameAssert.IsTrue(Vector3.Distance(before, after) < 1.0f,
+                $"physics-warp boundary handoff must stay continuous; before={before} after={after}");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "ghost must stay visible across the warped boundary transition");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 loop-chain debris with missing live anchor: falls back to body-fixed primary (does not retire)")]
+        public void V13Debris_LoopChain_LiveAnchorMissing_FallsBackToBodyFixed()
+        {
+            // The loop-anchored tree references pid=77; no live vessel with that
+            // pid is registered, so the live anchor cannot resolve. The engine
+            // must fall back to body-fixed primary rather than retiring.
+            var scenario = RunV13DebrisFrameScenario(
+                loopAnchoredParent: true,
+                includeBodyFixedPrimary: true,
+                currentUT: 2.5);
+
+            // Either the relative resolver fails closed and engine falls back to
+            // body-fixed primary, or the relative path runs and uses the recorded
+            // anchor frames. Either way the ghost must stay visible and not
+            // retire.
+            InGameAssert.IsTrue(scenario.state.ghost.activeSelf,
+                "missing live anchor must not retire a loop-chain debris when body-fixed primary covers the frame");
+            InGameAssert.IsFalse(scenario.state.anchorRetiredThisFrame,
+                "missing live anchor must not set the frame-local retire flag when body-fixed primary covers the frame");
+            InGameAssert.IsTrue(
+                scenario.positioner.BodyFixedCalls + scenario.positioner.RelativeCalls >= 1,
+                "either body-fixed primary or recorded relative must be invoked - retirement is the failure mode");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 close-range debris with non-loop parent: body-fixed primary path is invariant under repeated frames (cadence-proportional render stability)")]
+        public void V13Debris_CloseRange_BodyFixedPrimaryStableAcrossFrames()
+        {
+            // The §7.4 'cadence proportional to density' test ultimately reduces
+            // to: at close range, repeated render calls keep dispatching through
+            // body-fixed primary deterministically, regardless of frame count.
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13CadenceStable");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Cadence Stable Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: "v13-cadence-debris",
+                parentRecordingId: "v13-cadence-parent",
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: true,
+                includeAbsoluteTail: false);
+
+            for (int i = 0; i < 5; i++)
+            {
+                RunV13DebrisUpdate(engine, rec, currentUT: 1.0 + i * 0.5);
+            }
+
+            InGameAssert.AreEqual(5, positioner.BodyFixedCalls,
+                "every close-range Relative-section render call must dispatch through body-fixed primary");
+            InGameAssert.AreEqual(0, positioner.RelativeCalls,
+                "close-range non-loop debris must never invoke the Relative route");
+            InGameAssert.AreEqual(0, positioner.AbsoluteCalls,
+                "close-range debris (no Absolute tail) must never invoke the absolute positioner");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "close-range debris must stay visible across repeated frames");
+        }
+
         private (GhostPlaybackState state, V13DebrisRuntimePositioner positioner)
             RunV13DebrisFrameScenario(
                 bool loopAnchoredParent,
@@ -14761,7 +15001,8 @@ namespace Parsek.InGameTests
         private static void RunV13DebrisUpdate(
             GhostPlaybackEngine engine,
             Recording rec,
-            double currentUT)
+            double currentUT,
+            float warpRate = 1f)
         {
             var flags = new[]
             {
@@ -14775,8 +15016,8 @@ namespace Parsek.InGameTests
             var ctx = new FrameContext
             {
                 currentUT = currentUT,
-                warpRate = 1f,
-                warpRateIndex = 0,
+                warpRate = warpRate,
+                warpRateIndex = warpRate > 1f ? 1 : 0,
                 activeVesselPos = Vector3d.zero,
                 protectedIndex = -1,
                 protectedLoopCycleIndex = -1,

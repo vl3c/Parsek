@@ -2026,7 +2026,7 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedRecordedRelativeStart.Clear();
-            loggedRelativeAbsoluteShadowStart?.Clear();
+            loggedRelativeBodyFixedPrimaryStart?.Clear();
             loggedAnchorNotFound.Clear();
             reFlyDenseAbsolutePlaybackFrameCache.Clear();
             loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
@@ -12034,10 +12034,10 @@ namespace Parsek
                 }
             }
 
-            if (TryGetLastAbsoluteShadowPoint(section, out TrajectoryPoint absoluteShadowPoint)
-                && !string.IsNullOrEmpty(absoluteShadowPoint.bodyName))
+            if (TryGetLastBodyFixedPrimaryPoint(section, out TrajectoryPoint bodyFixedPrimaryPoint)
+                && !string.IsNullOrEmpty(bodyFixedPrimaryPoint.bodyName))
             {
-                bodyName = absoluteShadowPoint.bodyName;
+                bodyName = bodyFixedPrimaryPoint.bodyName;
                 source = "relative-absolute-shadow-environment";
                 return true;
             }
@@ -12120,7 +12120,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryGetLastAbsoluteShadowPoint(
+        private static bool TryGetLastBodyFixedPrimaryPoint(
             TrackSection section,
             out TrajectoryPoint point)
         {
@@ -12169,7 +12169,7 @@ namespace Parsek
 
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
-                if (TryGetLastAbsoluteShadowPoint(section, out point))
+                if (TryGetLastBodyFixedPrimaryPoint(section, out point))
                 {
                     source = "relative-absolute-shadow-point";
                     return true;
@@ -16143,7 +16143,7 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedRecordedRelativeStart.Clear();
-            loggedRelativeAbsoluteShadowStart?.Clear();
+            loggedRelativeBodyFixedPrimaryStart?.Clear();
             loggedAnchorNotFound.Clear();
             unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
@@ -17115,7 +17115,7 @@ namespace Parsek
 
             // Bracket UTs are reported back to the caller for the
             // [Anchor] anchor-rotation-shadow-route log line.
-            ResolveAbsoluteShadowBracketUTs(
+            ResolveBodyFixedPrimaryBracketUTs(
                 target.Section.bodyFixedFrames, playbackUT,
                 out bracketBeforeUT, out bracketAfterUT);
 
@@ -17200,7 +17200,7 @@ namespace Parsek
         /// returned when the section has zero or one frames (the caller's
         /// log line will report no usable bracket).
         /// </summary>
-        private static void ResolveAbsoluteShadowBracketUTs(
+        private static void ResolveBodyFixedPrimaryBracketUTs(
             System.Collections.Generic.List<TrajectoryPoint> bodyFixedFrames,
             double playbackUT,
             out double bracketBeforeUT,
@@ -18310,7 +18310,7 @@ namespace Parsek
             // body.GetWorldSurfacePosition(metre, metre, metre) silently
             // produces a position deep inside the planet. The fallback path
             // below handles ABSOLUTE sections; for RELATIVE we route through
-            // the existing instance helpers (TryUseAbsoluteShadowFor… for
+            // the existing instance helpers (TryUseBodyFixedPrimaryFor… for
             // active-re-fly cases, TryResolveRelativeWorldPosition for the
             // anchor-bound common case). Checkpoint sections aren't relevant
             // for primary's P_render(t) — return false with a Verbose so
@@ -18461,7 +18461,7 @@ namespace Parsek
                     ut,
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic coverageDiagnostic);
 
-                if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
                     return true;
 
                 LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
@@ -18486,7 +18486,7 @@ namespace Parsek
                         rec.RecordingId,
                         ut.ToString("R", CultureInfo.InvariantCulture)),
                     5.0);
-                if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
                     return true;
                 return false;
             }
@@ -18500,7 +18500,7 @@ namespace Parsek
             if (skipRecordedRelativeResolver)
             {
                 if (diagnostic.BodyFixedFramesCoverUT
-                    && TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                    && TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
                 {
                     return true;
                 }
@@ -18532,7 +18532,7 @@ namespace Parsek
                 return true;
             }
 
-            if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+            if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
                 return true;
 
             string failureReason = RelativeAnchorResolveFailure.ReasonOrFallback(
@@ -18685,7 +18685,7 @@ namespace Parsek
         /// UT or the body cannot be resolved — the caller surfaces the
         /// failure as HR-9 visible-failure.
         /// </summary>
-        private static bool TryComputeStandaloneAbsoluteShadowWorldPosition(
+        private static bool TryComputeStandaloneBodyFixedPrimaryWorldPosition(
             Recording rec, TrackSection section, double ut, out Vector3d worldPos)
         {
             worldPos = default;
@@ -18780,7 +18780,7 @@ namespace Parsek
             float t;
             // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
             // from at/before-start (idx == 0). See sibling comment in
-            // TryComputeStandaloneAbsoluteShadowWorldPosition.
+            // TryComputeStandaloneBodyFixedPrimaryWorldPosition.
             if (idx == -1)
             {
                 ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
@@ -20123,7 +20123,7 @@ namespace Parsek
         private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
         private readonly HashSet<string> loggedRecordedRelativeStart =
             new HashSet<string>(StringComparer.Ordinal);
-        private readonly HashSet<string> loggedRelativeAbsoluteShadowStart =
+        private readonly HashSet<string> loggedRelativeBodyFixedPrimaryStart =
             new HashSet<string>(StringComparer.Ordinal);
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
@@ -21804,7 +21804,7 @@ namespace Parsek
             return true;
         }
 
-        internal static List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
+        internal static List<TrajectoryPoint> ResolveBodyFixedPrimaryPlaybackFrames(
             IPlaybackTrajectory trajectory,
             TrackSection section,
             double targetUT)
@@ -21818,7 +21818,7 @@ namespace Parsek
                 return bodyFixedFrames;
 
             TrajectoryPoint bridge;
-            if (!TryFindAbsoluteShadowBridgeFrame(trajectory, section, targetUT, out bridge))
+            if (!TryFindBodyFixedPrimaryBridgeFrame(trajectory, section, targetUT, out bridge))
                 return bodyFixedFrames;
             if (bridge.ut >= bodyFixedFrames[0].ut - 0.0001)
                 return bodyFixedFrames;
@@ -21847,7 +21847,7 @@ namespace Parsek
             return bridged;
         }
 
-        internal static bool TryFindAbsoluteShadowBridgeFrame(
+        internal static bool TryFindBodyFixedPrimaryBridgeFrame(
             IPlaybackTrajectory trajectory,
             TrackSection relativeSection,
             double targetUT,
@@ -22792,7 +22792,7 @@ namespace Parsek
                     return;
                 }
 
-                if (TryUseRelativeAbsoluteShadowFallback(
+                if (TryUseRelativeBodyFixedPrimaryFallback(
                         recordingIndex,
                         traj,
                         retireSignalState,
@@ -22838,7 +22838,7 @@ namespace Parsek
                     return;
                 }
 
-                if (TryUseRelativeAbsoluteShadowFallback(
+                if (TryUseRelativeBodyFixedPrimaryFallback(
                         recordingIndex,
                         traj,
                         retireSignalState,
@@ -22905,7 +22905,7 @@ namespace Parsek
                     out RelativeAnchorPose anchorPose,
                     out RelativeAnchorResolveFailure anchorFailure))
             {
-                if (TryUseRelativeAbsoluteShadowFallback(
+                if (TryUseRelativeBodyFixedPrimaryFallback(
                         recordingIndex,
                         traj,
                         retireSignalState,
@@ -23458,7 +23458,7 @@ namespace Parsek
             return false;
         }
 
-        private bool TryUseRelativeAbsoluteShadowFallback(
+        private bool TryUseRelativeBodyFixedPrimaryFallback(
             int recordingIndex,
             IPlaybackTrajectory trajectory,
             GhostPlaybackState state,
@@ -23522,7 +23522,7 @@ namespace Parsek
                     target.AnchorRecordingId ?? "(missing)",
                     "|",
                     target.SectionIndex.ToString(CultureInfo.InvariantCulture));
-                if (loggedRelativeAbsoluteShadowStart.Add(key))
+                if (loggedRelativeBodyFixedPrimaryStart.Add(key))
                 {
                     ParsekLog.Warn("Playback",
                         $"RELATIVE recorded-anchor fallback to body-fixed primary: " +

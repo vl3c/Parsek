@@ -1263,7 +1263,7 @@ namespace Parsek.Tests
         // -----------------------------------------------------------------
 
         [Fact]
-        public void Suppresses_WhenBranchIsAbsoluteShadow_ParentChainVictim()
+        public void Suppresses_WhenBranchIsBodyFixedPrimary_ParentChainVictim()
         {
             // Same scenario as the canonical positive test, but the caller
             // reports the retained v7 body-fixed-primary compatibility branch for

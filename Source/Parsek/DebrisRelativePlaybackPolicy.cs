@@ -116,11 +116,11 @@ namespace Parsek
                 mode);
         }
 
-        internal static bool AbsoluteShadowFramesCoverUT(
+        internal static bool BodyFixedPrimaryFramesCoverUT(
             TrackSection section,
             double playbackUT)
         {
-            return DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
+            return DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT(
                 section.bodyFixedFrames,
                 playbackUT);
         }
@@ -180,7 +180,7 @@ namespace Parsek
                 section.endUT,
                 playbackUT,
                 DebrisRelativeCoverageMode.PlaybackCompatible);
-            diagnostic.BodyFixedFramesCoverUT = DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
+            diagnostic.BodyFixedFramesCoverUT = DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT(
                 section.bodyFixedFrames,
                 playbackUT);
 

@@ -1358,7 +1358,7 @@ namespace Parsek
                             section.frames = section.frames.GetRange(firstKeep, section.frames.Count - firstKeep);
                     }
 
-                    TrimRelativeAbsoluteShadowForLeadingOverlap(ref section, previousEndUT);
+                    TrimRelativeBodyFixedPrimaryForLeadingOverlap(ref section, previousEndUT);
 
                     if (section.frames.Count > 0)
                     {
@@ -2912,7 +2912,7 @@ namespace Parsek
                             break;
                     }
 
-                    TrimRelativeAbsoluteShadowAfterUT(ref sec, trimUT);
+                    TrimRelativeBodyFixedPrimaryAfterUT(ref sec, trimUT);
 
                     if (sec.frames.Count == 0)
                         return false;
@@ -2922,7 +2922,7 @@ namespace Parsek
             }
         }
 
-        private static void TrimRelativeAbsoluteShadowForLeadingOverlap(
+        private static void TrimRelativeBodyFixedPrimaryForLeadingOverlap(
             ref TrackSection section,
             double? previousEndUT)
         {
@@ -2945,7 +2945,7 @@ namespace Parsek
             }
         }
 
-        private static void TrimRelativeAbsoluteShadowAfterUT(
+        private static void TrimRelativeBodyFixedPrimaryAfterUT(
             ref TrackSection section,
             double trimUT)
         {

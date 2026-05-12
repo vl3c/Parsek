@@ -738,7 +738,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(45000.5, loaded.PreLaunchFunds);
             Assert.Equal(123.456, loaded.PreLaunchScience, 3);
@@ -752,7 +752,7 @@ namespace Parsek.Tests
             // No preLaunch keys at all
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(0, loaded.PreLaunchFunds);
             Assert.Equal(0, loaded.PreLaunchScience);

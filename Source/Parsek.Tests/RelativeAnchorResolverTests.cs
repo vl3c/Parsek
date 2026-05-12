@@ -408,13 +408,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveAnchorPose_RelativeAnchorSectionGap_UsesAbsoluteShadowFallback()
+        public void TryResolveAnchorPose_RelativeAnchorSectionGap_UsesBodyFixedPrimaryFallback()
         {
             var tree = new RecordingTree { Id = "tree" };
             Recording anchor = MakeRelativeGapAnchor(
                 "relative-anchor",
                 tree.Id,
-                includeAbsoluteShadows: true);
+                includeBodyFixedPrimarys: true);
             Recording child = MakeRelativeRecording(
                 "relative-child",
                 tree.Id,
@@ -455,7 +455,7 @@ namespace Parsek.Tests
             Recording anchor = MakeRelativeGapAnchor(
                 "relative-anchor",
                 tree.Id,
-                includeAbsoluteShadows: true);
+                includeBodyFixedPrimarys: true);
             anchor.TrackSections[0].bodyFixedFrames.Insert(
                 1,
                 MakePoint(double.NaN, GapWorld(200.0, 10.01), Quaternion.identity));
@@ -486,13 +486,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolveAnchorPose_RelativeAnchorSectionGap_WithoutAbsoluteShadowFailsClosed()
+        public void TryResolveAnchorPose_RelativeAnchorSectionGap_WithoutBodyFixedPrimaryFailsClosed()
         {
             var tree = new RecordingTree { Id = "tree" };
             Recording anchor = MakeRelativeGapAnchor(
                 "relative-anchor",
                 tree.Id,
-                includeAbsoluteShadows: false);
+                includeBodyFixedPrimarys: false);
             Recording child = MakeRelativeRecording(
                 "relative-child",
                 tree.Id,
@@ -2208,7 +2208,7 @@ namespace Parsek.Tests
         private static Recording MakeRelativeGapAnchor(
             string recordingId,
             string treeId,
-            bool includeAbsoluteShadows)
+            bool includeBodyFixedPrimarys)
         {
             var rec = new Recording
             {
@@ -2250,7 +2250,7 @@ namespace Parsek.Tests
                 source = TrackSectionSource.Active,
             };
 
-            if (includeAbsoluteShadows)
+            if (includeBodyFixedPrimarys)
             {
                 firstSection.bodyFixedFrames = new List<TrajectoryPoint>
                 {

@@ -39,7 +39,7 @@ namespace Parsek
         private const int LoopIntervalBinaryVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
         private const int PredictedOrbitSegmentBinaryVersion = RecordingStore.PredictedOrbitSegmentFormatVersion;
         private const int RelativeLocalFrameBinaryVersion = RecordingStore.RelativeLocalFrameFormatVersion;
-        private const int RelativeAbsoluteShadowBinaryVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion;
+        private const int RelativeBodyFixedPrimaryBinaryVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion;
         // Internal so the cross-codec sync test in TrajectorySidecarBinaryTests can pin
         // RecordingStore.BoundarySeamFlagFormatVersion == this constant. Drift between the
         // two would silently break v8 round-trip — the binary write/read paths gate on
@@ -715,7 +715,7 @@ namespace Parsek
                 if (binaryVersion >= BoundarySeamFlagBinaryVersion)
                     writer.Write(track.isBoundarySeam);
                 WritePointList(writer, track.frames, table, binaryVersion, ref stats);
-                if (binaryVersion >= RelativeAbsoluteShadowBinaryVersion)
+                if (binaryVersion >= RelativeBodyFixedPrimaryBinaryVersion)
                     WritePointList(writer, track.bodyFixedFrames, table, binaryVersion, ref stats);
                 WriteOrbitSegmentList(writer, track.checkpoints, table, binaryVersion);
             }
@@ -750,7 +750,7 @@ namespace Parsek
                 };
 
                 ReadPointList(reader, track.frames, stringTable, binaryVersion, ref stats);
-                if (binaryVersion >= RelativeAbsoluteShadowBinaryVersion)
+                if (binaryVersion >= RelativeBodyFixedPrimaryBinaryVersion)
                     ReadPointList(reader, track.bodyFixedFrames, stringTable, binaryVersion, ref stats);
                 ReadOrbitSegmentList(reader, track.checkpoints, stringTable, binaryVersion);
                 tracks.Add(track);

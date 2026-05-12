@@ -105,7 +105,7 @@ namespace Parsek
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
         public const int PredictedOrbitSegmentFormatVersion = 5;
         public const int RelativeLocalFrameFormatVersion = 6;
-        public const int RelativeAbsoluteShadowFormatVersion = 7;
+        public const int RelativeBodyFixedPrimaryFormatVersion = 7;
         public const int BoundarySeamFlagFormatVersion = 8;
         public const int TerrainGroundClearanceFormatVersion = 9;
         public const int StructuralEventFlagFormatVersion = 10;

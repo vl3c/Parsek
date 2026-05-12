@@ -280,7 +280,7 @@ namespace Parsek.Tests
                 altitude = -3.4,    // metres along anchor z — negative "altitude" tell
                 bodyName = "Kerbin"
             };
-            var absoluteShadowPoint = new TrajectoryPoint
+            var bodyFixedPrimaryPoint = new TrajectoryPoint
             {
                 ut = 209.5,
                 latitude = -0.097,
@@ -298,7 +298,7 @@ namespace Parsek.Tests
                 startUT = 200.0,
                 endUT = 210.0,
                 frames = new List<TrajectoryPoint> { relativeOffsetPoint },
-                bodyFixedFrames = new List<TrajectoryPoint> { absoluteShadowPoint },
+                bodyFixedFrames = new List<TrajectoryPoint> { bodyFixedPrimaryPoint },
                 checkpoints = new List<OrbitSegment>()
             });
             recorder.Recording.Add(relativeOffsetPoint);
@@ -310,7 +310,7 @@ namespace Parsek.Tests
             var reopened = recorder.TrackSections[1];
             Assert.Equal(ReferenceFrame.Absolute, reopened.referenceFrame); // downgraded
             Assert.Equal(0u, reopened.anchorVesselId);                       // anchor cleared
-            Assert.Equal(absoluteShadowPoint.ut, reopened.startUT);
+            Assert.Equal(bodyFixedPrimaryPoint.ut, reopened.startUT);
             Assert.True(reopened.startUT <= recorder.TrackSections[0].endUT);
 
             // The seed must NOT be the relative-offset point (whose
@@ -319,8 +319,8 @@ namespace Parsek.Tests
             // tell: the relative-offset point's altitude is -3.4, which a
             // real body-fixed altitude would never carry at this UT.
             Assert.Single(reopened.frames);
-            Assert.Equal(absoluteShadowPoint.ut, reopened.frames[0].ut);
-            Assert.Equal(absoluteShadowPoint.altitude, reopened.frames[0].altitude);
+            Assert.Equal(bodyFixedPrimaryPoint.ut, reopened.frames[0].ut);
+            Assert.Equal(bodyFixedPrimaryPoint.altitude, reopened.frames[0].altitude);
             Assert.NotEqual(relativeOffsetPoint.altitude, reopened.frames[0].altitude);
         }
 

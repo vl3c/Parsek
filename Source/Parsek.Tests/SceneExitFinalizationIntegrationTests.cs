@@ -107,7 +107,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_UsesLastAbsoluteShadowPoint()
+        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_UsesLastBodyFixedPrimaryPoint()
         {
             var rec = new Recording { RecordingId = "scene-exit-tail-reseed" };
             rec.Points.Add(new TrajectoryPoint

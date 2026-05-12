@@ -20,7 +20,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal("Mun", loaded.StartBodyName);
             Assert.Equal("Midlands", loaded.StartBiome);
@@ -36,7 +36,7 @@ namespace Parsek.Tests
             node.AddValue("loopPlayback", "False");
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Null(loaded.StartBodyName);
             Assert.Null(loaded.StartBiome);
@@ -233,7 +233,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
             Assert.Equal("Launch Pad", loaded.LaunchSiteName);
         }
 
@@ -289,7 +289,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal("Mun", loaded.TerminalOrbitBody);
             Assert.Equal(12.345, loaded.TerminalOrbitInclination);
@@ -319,7 +319,7 @@ namespace Parsek.Tests
             node.AddValue("loopPlayback", "False");
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Null(loaded.TerminalOrbitBody);
             Assert.Equal(0.0, loaded.TerminalOrbitSemiMajorAxis);

@@ -65,7 +65,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(LoopTimeUnit.Auto, loaded.LoopTimeUnit);
         }
@@ -82,7 +82,7 @@ namespace Parsek.Tests
             ParsekScenario.SaveRecordingMetadata(node, source);
 
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(LoopTimeUnit.Hour, loaded.LoopTimeUnit);
         }
@@ -93,7 +93,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             // No loopTimeUnit key at all
             var loaded = new Recording();
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(LoopTimeUnit.Sec, loaded.LoopTimeUnit);
         }

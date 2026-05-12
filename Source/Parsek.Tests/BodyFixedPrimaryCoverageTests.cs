@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests
@@ -66,6 +67,37 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
                 section,
                 105.0,
+                out _,
+                out _));
+        }
+
+        [Fact]
+        public void CoversPlaybackUT_V13DualSurfaceFixture_CoversRelativeSection()
+        {
+            var fixture = DebrisFrameContractRecordingFixture.Create();
+
+            bool covers = ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                fixture.RelativeSection,
+                playbackUT: 15.0,
+                out double firstUT,
+                out double lastUT);
+
+            Assert.True(covers);
+            Assert.Equal(fixture.RelativeSection.bodyFixedFrames[0].ut, firstUT);
+            Assert.Equal(
+                fixture.RelativeSection.bodyFixedFrames[fixture.RelativeSection.bodyFixedFrames.Count - 1].ut,
+                lastUT);
+        }
+
+        [Fact]
+        public void CoversPlaybackUT_V13DualSurfaceFixture_AbsoluteSectionRejected()
+        {
+            var fixture = DebrisFrameContractRecordingFixture.Create();
+
+            // Absolute section has no bodyFixedFrames — the gate must reject it.
+            Assert.False(ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                fixture.AbsoluteSection,
+                playbackUT: 5.0,
                 out _,
                 out _));
         }

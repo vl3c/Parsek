@@ -309,7 +309,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveOverlaps_TrimsRelativeAbsoluteShadowWithFrames()
+        public void ResolveOverlaps_TrimsRelativeBodyFixedPrimaryWithFrames()
         {
             TrackSection background = MakeSection(
                 0, 200, TrackSectionSource.Background,
