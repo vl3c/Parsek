@@ -11,12 +11,14 @@ namespace Parsek.Tests
         {
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
         }
 
         public void Dispose()
         {
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
+            ParsekTimeFormat.ResetForTesting();
         }
 
         [Fact]
@@ -34,6 +36,28 @@ namespace Parsek.Tests
             Assert.Equal(watch, loop);
             Assert.Equal(48f, goTo);
             Assert.True(goTo > watch);
+        }
+
+        [Fact]
+        public void ShouldShowCountdownTimeLabel_OnlyFirstFutureVisibleRow_ReturnsTrue()
+        {
+            Assert.False(TimelineWindowUI.ShouldShowCountdownTimeLabel(
+                entryUT: 90, currentUT: 100, countdownRowAlreadyDrawn: false));
+            Assert.False(TimelineWindowUI.ShouldShowCountdownTimeLabel(
+                entryUT: 100, currentUT: 100, countdownRowAlreadyDrawn: false));
+            Assert.True(TimelineWindowUI.ShouldShowCountdownTimeLabel(
+                entryUT: 130, currentUT: 100, countdownRowAlreadyDrawn: false));
+            Assert.False(TimelineWindowUI.ShouldShowCountdownTimeLabel(
+                entryUT: 160, currentUT: 100, countdownRowAlreadyDrawn: true));
+        }
+
+        [Fact]
+        public void FormatTimelineEntryTimeLabel_CountdownRow_UsesTMinusCountdown()
+        {
+            string label = TimelineWindowUI.FormatTimelineEntryTimeLabel(
+                entryUT: 430, currentUT: 100, showCountdownTime: true);
+
+            Assert.Equal("T-5m 30s", label);
         }
 
         [Fact]
