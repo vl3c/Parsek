@@ -3590,6 +3590,24 @@ namespace Parsek
                         state,
                         initialTrajectoryPoint.ut,
                         "initial-trajectory-point-debris");
+                    // v9 surface clearance must reach the very first
+                    // body-fixed shadow frame too -- otherwise surface debris
+                    // replays its seed at raw recorded altitude while every
+                    // subsequent shadow frame gets terrain correction,
+                    // producing a one-frame visual hop at terrain transitions.
+                    // The in-frames point is anchor-local metres under a
+                    // Relative section, so ApplySurfaceClearanceToPoint
+                    // correctly gate-skips it (the helper's frame gate
+                    // rejects Relative). Mirrors the periodic-sample wiring
+                    // at OnBackgroundPhysicsFrame and the structural-event
+                    // flush wiring -- those previously got the body-fixed
+                    // shadow clearance, but the seed path did not.
+                    ApplySurfaceClearanceToPoint(state, v, ref initialTrajectoryPoint);
+                    if (seedRelativeApplied)
+                    {
+                        ApplySurfaceClearanceToBodyFixedShadow(
+                            state, v, ref absoluteSeedPoint);
+                    }
                     if (hasTreeRecording)
                         ApplyInitialTrajectoryPoint(
                             state, treeRecForSeed, initialTrajectoryPoint, absoluteSeedPoint);
@@ -4979,6 +4997,17 @@ namespace Parsek
             {
                 return false;
             }
+
+            // Apply v9 surface clearance to both stores. The in-frames
+            // relativePoint goes into a Relative section so the helper's
+            // frame gate correctly skips it (anchor-local metres in
+            // lat/lon/alt would corrupt terrain math), but the body-fixed
+            // shadow carries genuine lat/lon/alt and the v13 body-fixed
+            // primary playback path applies terrain correction via
+            // recordedGroundClearance. Mirrors the periodic-sample,
+            // structural-event, and debris-seed wirings.
+            ApplySurfaceClearanceToPoint(state, vessel, ref relativePoint);
+            ApplySurfaceClearanceToBodyFixedShadow(state, vessel, ref absolutePoint);
 
             AddFrameToActiveTrackSection(state, relativePoint, absolutePoint);
             ParsekLog.Verbose("BgRecorder",
