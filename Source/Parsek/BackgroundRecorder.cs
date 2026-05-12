@@ -1593,6 +1593,66 @@ namespace Parsek
                 trackSectionActive, frame, env, hasPqsController);
         }
 
+        /// <summary>
+        /// Pure gate predicate for the body-fixed-shadow clearance path
+        /// (v13 follow-up). Mirrors
+        /// <see cref="ShouldEmitBackgroundSurfaceClearance"/> but forces
+        /// <see cref="ReferenceFrame.Absolute"/> -- the shadow carries
+        /// genuine body-fixed lat/lon/alt regardless of the active
+        /// section's frame. The remaining three conditions
+        /// (<c>trackSectionActive</c>, surface env, PQS) still apply.
+        /// </summary>
+        internal static bool ShouldEmitBackgroundBodyFixedShadowClearance(
+            bool trackSectionActive,
+            SegmentEnvironment env,
+            bool hasPqsController)
+        {
+            return FlightRecorder.ShouldEmitSurfaceClearance(
+                trackSectionActive,
+                ReferenceFrame.Absolute,
+                env,
+                hasPqsController);
+        }
+
+        /// <summary>
+        /// v13 follow-up: apply v9 surface clearance to the body-fixed shadow
+        /// copy that gets stored in <c>TrackSection.bodyFixedFrames</c>
+        /// alongside a RELATIVE section. The in-frames <c>point</c> stays
+        /// NaN-clearance because anchor-local metre offsets in
+        /// <c>lat/lon/alt</c> are not body-fixed coordinates -- but the shadow
+        /// carries genuine body-fixed lat/lon/alt and the v13 body-fixed
+        /// primary playback path applies terrain correction via
+        /// <c>recordedGroundClearance</c>. Without this helper, parent-
+        /// anchored surface debris recorded inside a parent-relative section
+        /// would replay at raw recorded altitude and bury or pop on terrain
+        /// differences.
+        ///
+        /// <para>Per-section stats (<c>surfaceMobileMin/MaxClearanceThisSection</c>,
+        /// etc.) are intentionally NOT updated here: those track the
+        /// section's own primary <c>frames</c> samples, not the parallel
+        /// body-fixed shadow store.</para>
+        /// </summary>
+        private static void ApplySurfaceClearanceToBodyFixedShadow(
+            BackgroundVesselState state,
+            Vessel bgVessel,
+            ref TrajectoryPoint shadow)
+        {
+            bool hasPqs = bgVessel != null && bgVessel.mainBody != null
+                && bgVessel.mainBody.pqsController != null;
+            if (!ShouldEmitBackgroundBodyFixedShadowClearance(
+                    state != null && state.trackSectionActive,
+                    state != null && state.trackSectionActive
+                        ? state.currentTrackSection.environment
+                        : SegmentEnvironment.SurfaceMobile,
+                    hasPqs))
+            {
+                return;
+            }
+            double terrainHeight = bgVessel.mainBody.TerrainAltitude(
+                shadow.latitude, shadow.longitude, true);
+            shadow.recordedGroundClearance = shadow.altitude - terrainHeight;
+        }
+
         private static void ApplySurfaceClearanceToPoint(
             BackgroundVesselState state,
             Vessel bgVessel,
@@ -2022,6 +2082,17 @@ namespace Parsek
             // Non-surface / RELATIVE-frame / missing-PQS keep NaN, the
             // sentinel for the legacy altitude path.
             ApplySurfaceClearanceToPoint(state, bgVessel, ref point);
+            // v13 follow-up: when the active section is RELATIVE, also apply
+            // surface clearance to the body-fixed shadow that gets persisted
+            // in bodyFixedFrames. The shadow carries body-fixed lat/lon/alt
+            // and the v13 body-fixed-primary playback path needs
+            // recordedGroundClearance for v9 terrain correction; without
+            // this, parent-anchored surface debris replays at raw recorded
+            // altitude.
+            if (relativeApplied)
+            {
+                ApplySurfaceClearanceToBodyFixedShadow(state, bgVessel, ref absolutePoint);
+            }
 
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
@@ -7134,6 +7205,12 @@ namespace Parsek
                 TrajectoryPoint absolutePoint = point;
                 bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, v, eventUT);
                 ApplySurfaceClearanceToPoint(state, v, ref point);
+                // v13 follow-up: body-fixed shadow gets clearance too when
+                // the active section is RELATIVE (see helper docstring).
+                if (relativeApplied)
+                {
+                    ApplySurfaceClearanceToBodyFixedShadow(state, v, ref absolutePoint);
+                }
 
                 if (!ApplyTrajectoryPointToRecording(treeRec, point))
                 {

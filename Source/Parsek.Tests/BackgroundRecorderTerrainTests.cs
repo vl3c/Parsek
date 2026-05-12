@@ -145,5 +145,99 @@ namespace Parsek.Tests
 
             Assert.Equal(foregroundGate, backgroundGate);
         }
+
+        // ----- body-fixed shadow clearance gate (v13 follow-up) -----
+        //
+        // Under v13, parent-anchored debris records a body-fixed shadow into
+        // TrackSection.bodyFixedFrames while the active section is RELATIVE.
+        // The shadow carries genuine body-fixed lat/lon/alt and v13's
+        // body-fixed primary playback path applies terrain correction via
+        // recordedGroundClearance. The shadow-side gate therefore needs to
+        // emit clearance for the SurfaceMobile/Stationary env case WITHOUT
+        // gating on the section frame (the primary path's frame gate stays
+        // in place to keep anchor-local Relative metres out of terrain math).
+
+        [Fact]
+        public void ShadowGate_RelativeSectionWithSurfaceMobileAndPqs_GatePasses()
+        {
+            // The defining v13 case: parent-anchored surface debris recorded
+            // inside a parent-relative section. The primary gate would fail
+            // closed (frame=Relative), but the shadow gate must emit so the
+            // body-fixed shadow gets v9 terrain correction at playback.
+            Assert.True(BackgroundRecorder.ShouldEmitBackgroundBodyFixedShadowClearance(
+                trackSectionActive: true,
+                env: SegmentEnvironment.SurfaceMobile,
+                hasPqsController: true));
+        }
+
+        [Fact]
+        public void ShadowGate_RelativeSectionWithSurfaceStationaryAndPqs_GatePasses()
+        {
+            // Same as above for a stationary-on-surface debris piece.
+            Assert.True(BackgroundRecorder.ShouldEmitBackgroundBodyFixedShadowClearance(
+                trackSectionActive: true,
+                env: SegmentEnvironment.SurfaceStationary,
+                hasPqsController: true));
+        }
+
+        [Fact]
+        public void ShadowGate_TrackSectionInactive_GateFails()
+        {
+            // No section ⇒ nothing to attach the shadow clearance to.
+            Assert.False(BackgroundRecorder.ShouldEmitBackgroundBodyFixedShadowClearance(
+                trackSectionActive: false,
+                env: SegmentEnvironment.SurfaceMobile,
+                hasPqsController: true));
+        }
+
+        [Theory]
+        [InlineData(SegmentEnvironment.Atmospheric)]
+        [InlineData(SegmentEnvironment.ExoBallistic)]
+        [InlineData(SegmentEnvironment.ExoPropulsive)]
+        [InlineData(SegmentEnvironment.Approach)]
+        public void ShadowGate_NonSurfaceEnvironment_GateFails(SegmentEnvironment env)
+        {
+            // Terrain correction is meaningful only for surface sections.
+            // The shadow gate inherits the env restriction.
+            Assert.False(BackgroundRecorder.ShouldEmitBackgroundBodyFixedShadowClearance(
+                trackSectionActive: true,
+                env: env,
+                hasPqsController: true));
+        }
+
+        [Fact]
+        public void ShadowGate_NoPqsController_GateFails()
+        {
+            // Gas giants (no PQS) -- the shadow gate still fails closed.
+            Assert.False(BackgroundRecorder.ShouldEmitBackgroundBodyFixedShadowClearance(
+                trackSectionActive: true,
+                env: SegmentEnvironment.SurfaceMobile,
+                hasPqsController: false));
+        }
+
+        [Fact]
+        public void ShadowGate_DivergesFromPrimaryGateOnlyByFrame()
+        {
+            // The shadow gate must agree with the primary gate on every
+            // input EXCEPT the frame: the shadow's body-fixed lat/lon/alt
+            // is meaningful even when the active section is RELATIVE.
+            foreach (bool active in new[] { false, true })
+            foreach (var env in new[]
+            {
+                SegmentEnvironment.SurfaceMobile,
+                SegmentEnvironment.SurfaceStationary,
+                SegmentEnvironment.Atmospheric,
+                SegmentEnvironment.ExoBallistic,
+                SegmentEnvironment.ExoPropulsive,
+            })
+            foreach (bool pqs in new[] { false, true })
+            {
+                bool shadow = BackgroundRecorder.ShouldEmitBackgroundBodyFixedShadowClearance(
+                    active, env, pqs);
+                bool primaryAsAbsolute = BackgroundRecorder.ShouldEmitBackgroundSurfaceClearance(
+                    active, ReferenceFrame.Absolute, env, pqs);
+                Assert.Equal(primaryAsAbsolute, shadow);
+            }
+        }
     }
 }

@@ -8151,6 +8151,45 @@ namespace Parsek
                 && hasPqsController;
         }
 
+        /// <summary>
+        /// v13 follow-up: apply v9 surface clearance to the body-fixed shadow
+        /// copy that gets stored in <c>TrackSection.bodyFixedFrames</c>
+        /// alongside a RELATIVE section. The in-frames primary <c>point</c>
+        /// stays NaN-clearance because anchor-local metres-in-lat/lon/alt are
+        /// not body-fixed coordinates, but the shadow carries genuine
+        /// body-fixed lat/lon/alt and v13 playback applies terrain correction
+        /// via <c>recordedGroundClearance</c>. Without this, parent-anchored
+        /// surface debris recorded inside a parent-relative section would
+        /// replay at raw recorded altitude and bury / pop on terrain.
+        /// Per-section <c>surfaceMobileMin/Max/Sum</c> stats are NOT updated
+        /// here; those track the section's primary frames, not the parallel
+        /// body-fixed store.
+        /// </summary>
+        private void ApplySurfaceClearanceToBodyFixedShadow(
+            Vessel v,
+            ref TrajectoryPoint shadow)
+        {
+            if (object.ReferenceEquals(v, null) || v.mainBody == null
+                || v.mainBody.pqsController == null)
+            {
+                return;
+            }
+            // Mirror the production gate but force frame=Absolute -- the
+            // shadow carries body-fixed lat/lon/alt regardless of the section
+            // frame. The env / trackSectionActive / pqs checks still apply.
+            if (!ShouldEmitSurfaceClearance(
+                    trackSectionActive,
+                    ReferenceFrame.Absolute,
+                    trackSectionActive ? currentTrackSection.environment : SegmentEnvironment.Atmospheric,
+                    true))
+            {
+                return;
+            }
+            double terrainHeight = v.mainBody.TerrainAltitude(
+                shadow.latitude, shadow.longitude, true);
+            shadow.recordedGroundClearance = shadow.altitude - terrainHeight;
+        }
+
         private void CommitRecordedPointWithVessel(
             TrajectoryPoint point,
             Vessel v,
@@ -8208,9 +8247,15 @@ namespace Parsek
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                     && bodyFixedPrimaryPoint.HasValue)
                 {
+                    // v13 follow-up: apply surface clearance to the body-fixed
+                    // shadow before appending it to bodyFixedFrames. The shadow
+                    // carries body-fixed lat/lon/alt that v13 playback applies
+                    // terrain correction against.
+                    TrajectoryPoint shadow = bodyFixedPrimaryPoint.Value;
+                    ApplySurfaceClearanceToBodyFixedShadow(v, ref shadow);
                     if (currentTrackSection.bodyFixedFrames == null)
                         currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
-                    currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
+                    currentTrackSection.bodyFixedFrames.Add(shadow);
                 }
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
