@@ -68,6 +68,21 @@ namespace Parsek.InGameTests
             var scenario = ParsekScenario.Instance;
             InGameAssert.IsNotNull(scenario, "ParsekScenario.Instance is null");
 
+            // Skip when a real Re-Fly session is in flight: swapping a
+            // synthetic marker over the live one would leave the
+            // RenderSessionState anchor map indexed by the real marker's
+            // recording ids — and single-test runs do not get the batch
+            // flight baseline restore that would put things back. Cleanly
+            // refusing to run is safer than trying to round-trip live
+            // session state across a test.
+            if (scenario.ActiveReFlySessionMarker != null
+                || RewindInvokeContext.Pending)
+            {
+                InGameAssert.Skip(
+                    "requires no active Re-Fly session (would corrupt live RenderSessionState)");
+                yield break;
+            }
+
             ParsekFlight flight = UnityEngine.Object.FindObjectOfType<ParsekFlight>();
             if (flight == null)
             {
@@ -75,6 +90,9 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
+            // savedMarker is guaranteed null by the skip check above — the
+            // explicit save keeps the finally block symmetric with the
+            // control test and documents the contract.
             ReFlySessionMarker savedMarker = scenario.ActiveReFlySessionMarker;
             bool savedMergePending = ParsekScenario.MergeDialogPending;
             RecordingTree tree = BuildSyntheticPendingTree("ingame-onflightready-refly-guard");
@@ -121,7 +139,13 @@ namespace Parsek.InGameTests
                 {
                     RecordingStore.DiscardPendingTree();
                 }
+                // Restore the marker, then re-align RenderSessionState with
+                // it. Skip-on-active-session guarantees savedMarker is null
+                // here; the explicit Rebuild keeps the cleanup defensive in
+                // case the precondition relaxes later or the test was
+                // entered with a stray pending invocation.
                 scenario.ActiveReFlySessionMarker = savedMarker;
+                Parsek.Rendering.RenderSessionState.RebuildFromMarker(savedMarker);
                 ParsekScenario.MergeDialogPending = savedMergePending;
             }
         }
@@ -152,6 +176,19 @@ namespace Parsek.InGameTests
             var scenario = ParsekScenario.Instance;
             InGameAssert.IsNotNull(scenario, "ParsekScenario.Instance is null");
 
+            // Skip when a real Re-Fly session is in flight: clearing the
+            // live marker + wiping RenderSessionState mid-test would corrupt
+            // anchor state for any rendering code that reads it, and
+            // single-test runs do not get the batch flight baseline restore
+            // that would put things back.
+            if (scenario.ActiveReFlySessionMarker != null
+                || RewindInvokeContext.Pending)
+            {
+                InGameAssert.Skip(
+                    "requires no active Re-Fly session (would corrupt live RenderSessionState)");
+                yield break;
+            }
+
             ParsekFlight flight = UnityEngine.Object.FindObjectOfType<ParsekFlight>();
             if (flight == null)
             {
@@ -159,6 +196,7 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
+            // savedMarker is guaranteed null by the skip check above.
             ReFlySessionMarker savedMarker = scenario.ActiveReFlySessionMarker;
             bool savedMergePending = ParsekScenario.MergeDialogPending;
             RecordingTree tree = BuildSyntheticPendingTree("ingame-onflightready-control");
@@ -170,7 +208,10 @@ namespace Parsek.InGameTests
                 scenario.ActiveReFlySessionMarker = null;
                 // Pair the marker-null with the anchor-map clear so the T4
                 // grep scan (AnchorCorrectionLifecycleTests.Marker_NullAssignmentSites_AllPairWithClearCall)
-                // accepts this site.
+                // accepts this site. The skip-on-active-session check above
+                // guarantees there was no live anchor state to lose; this
+                // Clear is a no-op in the canonical case and a defensive
+                // wipe if a stale anchor map slipped past the precondition.
                 Parsek.Rendering.RenderSessionState.Clear("ingame-test-control-setup");
 
                 InGameAssert.IsFalse(
@@ -195,7 +236,13 @@ namespace Parsek.InGameTests
                 {
                     RecordingStore.DiscardPendingTree();
                 }
+                // Restore the marker, then re-align RenderSessionState with
+                // it. Skip-on-active-session guarantees savedMarker is null
+                // here, so RebuildFromMarker(null) re-clears the anchor map
+                // we wiped above; the explicit call keeps the cleanup
+                // defensive in case the precondition relaxes later.
                 scenario.ActiveReFlySessionMarker = savedMarker;
+                Parsek.Rendering.RenderSessionState.RebuildFromMarker(savedMarker);
                 ParsekScenario.MergeDialogPending = savedMergePending;
             }
         }
