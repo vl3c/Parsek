@@ -17368,12 +17368,21 @@ namespace Parsek
                 // Recorded anchor-local distance at the bracketing
                 // before-frame: in Relative sections the `frames[]` entries
                 // store anchor-local Cartesian metres in `latitude/longitude/altitude`,
-                // so the offset magnitude IS the parent-vs-debris distance the
-                // recorder captured. Compare this to renderedParentDist:
-                // matching values mean playback faithfully reproduces the
-                // recorded offset; divergence means playback math diverges
-                // from recorded data (or the parent ghost is being placed
-                // from a different bracketing sample).
+                // so the offset magnitude IS the parent-vs-debris distance
+                // the recorder captured at the bracket's left edge.
+                //
+                // Do NOT compare this directly to renderedParentDist as a
+                // fidelity check — this field is the seed-only value and
+                // stays constant across the entire bracket (e.g. the 600 ms
+                // seed→first-sample gap on a fresh debris recording),
+                // while the recorded relative motion may genuinely evolve
+                // across that bracket and the rendered distance follows
+                // the bracket's linear interpolation. Use
+                // `interpolatedAnchorLocalDist` (below) for the
+                // fidelity check; this field is retained for the
+                // "bracket-left-edge snapshot" view and for direct
+                // comparison against the section's `bodyFixedFrames[]`
+                // bracketing-before sample via `recordedBodyFixedDist`.
                 double recordedAnchorLocalDist = double.NaN;
                 // Interpolated anchor-local distance: same `frames[]` surface
                 // as recordedAnchorLocalDist, but linearly interpolated at the
