@@ -274,6 +274,63 @@ Call it from the existing `LoadTimeSweep` driver alongside `SweepOrphanRewindRet
 
 I'm being explicit that this sweep is a *one-shot* recovery for pre-fix saves; the long-term invariant (post-fix) is that no live-priorTip `RewoundOutOldSideReason` rows are ever written. If a future PR re-introduces a legitimate use of this reason for live priorTips, the sweep would need to be guarded or replaced. Adding a single TODO comment at the sweep entry suffices.
 
+### Guard: multi-old-side-to-one-Immutable-fork pre-canon-forks shape
+
+(Added in response to a review pass after the first commit landed.)
+
+Pre-canon-forks saves can carry a particular legacy shape that the new sweep would regress if removed unconditionally. Concretely:
+
+- A successful Re-Fly committed `MergeState.Immutable` fork `F` that superseded **multiple** priorTips `P1`, `P2`, `P3` in the same merge batch.
+- The pre-canon-forks `Pass-1` buggy code retired `F` (writing one `DefaultReason` retirement whose `RestoredRecordingId` named *one* priorTip, e.g. `P1`).
+- PR #807's old-side code wrote three per-priorTip `RewoundOutOldSideReason` rows for `P1`, `P2`, `P3`.
+
+The existing `LoadTimeSweep.RetirementPointingAtImmutable_RemovedAndSupersedeRestoredAtLoadTime` cleanup reconstructs **only one** supersede relation per fork retirement (the one named in `RestoredRecordingId`). So on load, `F→P1` is restored, but `F→P2` / `F→P3` are not. Under the original (pre-this-PR) behavior, `P2` and `P3` were kept hidden by their own old-side rows — that was the only remaining suppression mechanism.
+
+If the new non-Immutable old-side sweep removes those rows, `P2` and `P3` become visible as "Destroyed" outcomes — re-introducing the exact regression PR #807 fixed.
+
+**Guard:** before the per-row loop, scan the retirements once to determine if any `DefaultReason` (fork) retirement has a `RecordingId` resolving to a live Immutable recording. If yes, defer the entire new sweep — old-side rows stay until a future rewind under the post-fix code reseals them.
+
+```csharp
+bool hasLegacyImmutableForkRetirement = false;
+for (int i = 0; i < scenario.RecordingRewindRetirements.Count; i++)
+{
+    var r = scenario.RecordingRewindRetirements[i];
+    if (r == null
+        || string.IsNullOrEmpty(r.RecordingId)
+        || !string.Equals(r.Reason,
+            RecordingRewindRetirement.DefaultReason,
+            StringComparison.Ordinal))
+        continue;
+    if (immutableRecordingIds.Contains(r.RecordingId))
+    {
+        hasLegacyImmutableForkRetirement = true;
+        break;
+    }
+}
+// …per-row loop…
+if (isOldSideOnNonImmutablePriorTip && !hasLegacyImmutableForkRetirement)
+{
+    // sweep
+}
+```
+
+The guard fires *only* when a save carries both:
+
+1. A `DefaultReason` retirement whose target is currently `MergeState.Immutable`, AND
+2. At least one `RewoundOutOldSideReason` retirement to consider.
+
+Post-fix saves never produce condition 1 because canon-forks routes Immutable forks to `pendingImmutablePreservations` instead of `pendingDrops`. So the guard is effectively legacy-save-only.
+
+The user's reproduction scenario (`logs/2026-05-13_2335`) has only `CommittedProvisional` forks — no Immutable retirements — so the guard does not fire and the user's bug recovers cleanly.
+
+A post-loop `[LoadSweep] Legacy non-Immutable old-side sweep deferred …` Info line records when the guard kicks in.
+
+**Test #14**: `LegacyOldSideSweep_DeferredWhenSaveCarriesLegacyImmutableForkRetirement` constructs the exact `F→{P1,P2,P3}` multi-old shape, runs the sweep, and asserts:
+
+- The existing legacy-Immutable sweep removes `F`'s retirement and reconstructs `F→P1`.
+- All three old-side rows for `P1`, `P2`, `P3` survive.
+- The deferral log line fires.
+
 ## CHANGELOG / docs
 
 - `CHANGELOG.md` under `## 0.9.x / ### Bug Fixes`: one-line entry describing the visible behavior change (priorTip ghost visible during Watch after parent Rewind of a Crashed/Provisional re-fly).

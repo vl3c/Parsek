@@ -999,6 +999,97 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LegacyOldSideSweep_DeferredWhenSaveCarriesLegacyImmutableForkRetirement()
+        {
+            // Pre-canon-forks saves can carry the multi-old-side-to-one-Immutable
+            // -fork shape PR #807 addressed: multiple priorTips (P1, P2, P3)
+            // each superseded by the same canon fork F (Orbiting → Immutable).
+            // The buggy pre-fix code dropped all relations and wrote per-priorTip
+            // RewoundOutOldSideReason rows. The existing legacy-Immutable sweep
+            // can reconstruct ONLY ONE priorTip→canon relation per fork
+            // retirement (the one named in F's RestoredRecordingId metadata),
+            // so the other priorTips were kept hidden by their own old-side
+            // rows. If the new non-Immutable old-side sweep removed those rows
+            // here, P2 and P3 would re-appear as "Destroyed" outcomes in the
+            // recordings table — the exact regression PR #807 fixed.
+            //
+            // The guard defers the new sweep entirely when any DefaultReason
+            // fork retirement points at a live Immutable recording.
+            InstallTree("tree-multi-old",
+                new List<Recording>
+                {
+                    Rec("F", MergeState.Immutable),
+                    Rec("P1", MergeState.CommittedProvisional),
+                    Rec("P2", MergeState.CommittedProvisional),
+                    Rec("P3", MergeState.CommittedProvisional)
+                },
+                new List<BranchPoint>());
+            var fRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_F",
+                RecordingId = "F",
+                // Legacy pre-fix writer recorded only one of the priorTips here.
+                RestoredRecordingId = "P1",
+                SourceSupersedeRelationId = "rsr_F_P1",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var p1OldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_P1",
+                RecordingId = "P1",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var p2OldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_P2",
+                RecordingId = "P2",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var p3OldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_P3",
+                RecordingId = "P3",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement>
+                {
+                    fRetirement, p1OldSide, p2OldSide, p3OldSide
+                });
+
+            LoadTimeSweep.Run();
+
+            // The existing legacy-Immutable sweep removes F's retirement and
+            // restores F→P1 (P1 hidden by the surviving relation).
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "F");
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("P1", scenario.RecordingSupersedes[0].OldRecordingId);
+            Assert.Equal("F", scenario.RecordingSupersedes[0].NewRecordingId);
+
+            // The new non-Immutable old-side sweep is deferred: P1, P2, P3
+            // old-side rows survive. P2 and P3 stay hidden via their own
+            // retirements (the only remaining suppression mechanism for them).
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "P1");
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "P2");
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "P3");
+
+            // No "Removing legacy rewind-retirement" line for the non-Immutable
+            // old-side rows; the deferral log fires.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement")
+                && (l.Contains("recording=P1")
+                    || l.Contains("recording=P2")
+                    || l.Contains("recording=P3")));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Legacy non-Immutable old-side sweep deferred"));
+        }
+
+        [Fact]
         public void LegacyOldSideRetirement_SweepIsIdempotent()
         {
             // First load removes the stale row; subsequent loads have nothing
