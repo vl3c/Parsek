@@ -905,27 +905,41 @@ namespace Parsek
         {
             summary = default(TrajectoryPersistenceSummary);
 
-            // Suppress the routine Verbose probe + ReadBinary lines around the
-            // diagnostic re-read: this preflight runs on every save and feeds
-            // only the trajectory-shrinkage warning. Without suppression each
-            // save emits two extra Verbose lines per recording, which during
-            // bulk CommitTree merges piles up to >500 lines/sec. The error
-            // WARN in catch is gated on the caller's original SuppressLogging
-            // intent so genuine failures still surface.
-            bool previousSuppress = RecordingStore.SuppressLogging;
             try
             {
-                RecordingStore.SuppressLogging = true;
+                // Quiet probe: silences the routine "encoding=… version=…" Verbose
+                // line that fires on every successful probe. Warns for unsupported
+                // / pre-reset / text-sidecar conditions still fire — those are
+                // real diagnostics the user needs to see.
                 TrajectorySidecarProbe probe;
-                if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe) || !probe.Supported)
+                if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe, quietOnSuccess: true)
+                    || !probe.Supported)
+                {
                     return false;
+                }
 
                 var existing = new Recording
                 {
                     RecordingId = rec?.RecordingId,
                     RecordingFormatVersion = rec?.RecordingFormatVersion ?? RecordingStore.CurrentRecordingFormatVersion
                 };
-                RecordingStore.DeserializeTrajectorySidecar(precPath, probe, existing);
+
+                // Narrow SuppressLogging scope: only the deserialize call, which
+                // emits a Verbose summary line per call and no Warns. The
+                // surrounding diagnostic preflight runs on every save and the
+                // duplicate summary was the second half of the per-save log
+                // spam.
+                bool previousSuppress = RecordingStore.SuppressLogging;
+                try
+                {
+                    RecordingStore.SuppressLogging = true;
+                    RecordingStore.DeserializeTrajectorySidecar(precPath, probe, existing);
+                }
+                finally
+                {
+                    RecordingStore.SuppressLogging = previousSuppress;
+                }
+
                 summary = new TrajectoryPersistenceSummary
                 {
                     EffectivePointCount = existing.Points?.Count ?? 0,
@@ -940,18 +954,13 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                if (!previousSuppress)
+                if (!RecordingStore.SuppressLogging)
                 {
-                    RecordingStore.SuppressLogging = false;
                     ParsekLog.Warn("RecordingStore",
                         $"SaveRecordingFiles: unable to evaluate trajectory shrink diagnostic for {rec?.RecordingId ?? "<null>"} " +
                         $"path='{FormatPathForSidecarLog(precPath)}' error={FormatExceptionForSidecarLog(ex)}");
                 }
                 return false;
-            }
-            finally
-            {
-                RecordingStore.SuppressLogging = previousSuppress;
             }
         }
 
