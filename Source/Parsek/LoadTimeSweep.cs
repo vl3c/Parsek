@@ -600,6 +600,7 @@ namespace Parsek
 
             int removed = 0;
             int removedImmutableRetirements = 0;
+            int removedLegacyNonImmutableOldSideRetirements = 0;
             int retainedWithMissingRestored = 0;
             for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
             {
@@ -619,6 +620,38 @@ namespace Parsek
                         $"recording={retirement.RecordingId}; removing");
                     scenario.RecordingRewindRetirements.RemoveAt(i);
                     removed++;
+                    continue;
+                }
+
+                // Pre-fix legacy old-side cleanup (this PR):
+                // RewoundOutOldSideReason rows targeting a NON-Immutable
+                // priorTip were authored by the deprecated Pass-2 code path
+                // that retired priorTips for every dropped supersede regardless
+                // of the fork's MergeState. The post-fix Pass 2 only writes
+                // such rows when the dropped relation had an Immutable fork
+                // (and isn't a forced self-rewind). In production demotion
+                // shapes the priorTip is itself a fork retirement, so it never
+                // reaches Pass 2's write site under the new rule — meaning any
+                // live-priorTip non-Immutable RewoundOutOldSideReason row in
+                // an existing save is pre-fix stale state. Sweep it so the
+                // priorTip becomes visible again and Watch playback can replay
+                // it. See docs/dev/plans/fix-tree-rewind-supersede-old-side.md.
+                bool isOldSideOnNonImmutablePriorTip =
+                    !immutableRecordingIds.Contains(retirement.RecordingId)
+                    && string.Equals(retirement.Reason,
+                        RecordingRewindRetirement.RewoundOutOldSideReason,
+                        StringComparison.Ordinal);
+                if (isOldSideOnNonImmutablePriorTip)
+                {
+                    ParsekLog.Info(SupersedeTag,
+                        $"Removing legacy rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
+                        $"recording={retirement.RecordingId} " +
+                        $"reason=fork-non-immutable-priortip-pre-fix " +
+                        "(pre-fix Pass-2 wrote this row before the new MergeState gate; " +
+                        "priorTip will be visible after sweep so spawn-at-endpoint can replay it)");
+                    scenario.RecordingRewindRetirements.RemoveAt(i);
+                    removed++;
+                    removedLegacyNonImmutableOldSideRetirements++;
                     continue;
                 }
 
@@ -713,7 +746,9 @@ namespace Parsek
                     retainedWithMissingRestored++;
             }
 
-            int orphanOnly = removed - removedImmutableRetirements;
+            int orphanOnly = removed
+                - removedImmutableRetirements
+                - removedLegacyNonImmutableOldSideRetirements;
             if (orphanOnly > 0)
             {
                 ParsekLog.Info(SweepTag,
@@ -725,6 +760,13 @@ namespace Parsek
                 ParsekLog.Info(SweepTag,
                     $"[LoadSweep] Removed {removedImmutableRetirements.ToString(CultureInfo.InvariantCulture)} " +
                     "rewind-retirement row(s) pointing at Immutable canon recordings (legacy state cleanup)");
+            }
+            if (removedLegacyNonImmutableOldSideRetirements > 0)
+            {
+                ParsekLog.Info(SweepTag,
+                    $"[LoadSweep] Removed {removedLegacyNonImmutableOldSideRetirements.ToString(CultureInfo.InvariantCulture)} " +
+                    "rewind-retirement row(s) RewoundOutOldSide on non-Immutable priorTip(s) " +
+                    "(pre-fix Pass-2 state cleanup; priorTip becomes visible again for spawn-at-endpoint)");
             }
             if (retainedWithMissingRestored > 0)
             {

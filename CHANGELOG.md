@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.0
 
+### Bug Fixes
+
+- Rewinding the tree-root recording after a Re-Fly with a Crashed/Destroyed outcome (a `CommittedProvisional` fork) now keeps the original priorTip ghost visible during Watch playback. Previously the rewind permanently retired both the re-fly fork *and* the original recording it superseded — so entering Watch on the parent showed neither version of the priorTip. The new old-side retirement gate retires the priorTip only when the dropped supersede's fork was a non-self-rewound `Immutable` (canon) — provisional / not-committed forks are treated as rolled-back attempts and their priorTip becomes visible again so spawn-at-endpoint can replay it. Saves authored under the prior buggy code get a one-shot load-time sweep that drops stale `RewoundOutOldSideReason` rows pointing at live non-Immutable priorTips. See `docs/dev/plans/fix-tree-rewind-supersede-old-side.md`.
+
 ### Breaking Changes
 
 - Reset the private-development recording/rendering schema baseline to v0. New recordings, recording trees, trajectory sidecars, snapshot sidecars, and the career ledger now stamp the current v0 contract plus `recordingSchemaGeneration = 1`; old pre-reset Parsek files are rejected with explicit reasons such as `magic-mismatch`, `generation-missing`, `generation-newer`, and `format-version-mismatch` instead of being migrated.
