@@ -224,6 +224,71 @@ namespace Parsek
                     || traj.SurfacePos.HasValue);
         }
 
+        // Engine-iteration trace (closes observability gap left by GhostRenderTrace
+        // gating on IsDetailedWindowOpen). Bypasses the gate so a future repro can
+        // tell from a single log line whether a recording reached the per-trajectory
+        // loop, what its producer-side skipReason was, whether anchorReFlyUnstable
+        // was set (separate flag the engine reads later in the loop and the centre
+        // of the H2 hypothesis), whether its trajectory had renderable data, and
+        // whether ghostStates still holds an entry.
+        internal static string FormatEngineIterEntry(
+            int index,
+            string recordingId,
+            GhostPlaybackSkipReason skipReason,
+            bool anchorReFlyUnstable,
+            bool hasRenderableData,
+            bool inGhostStates,
+            double endUT)
+        {
+            string shortId = FormatRecordingIdShort(recordingId);
+            string skip = skipReason == GhostPlaybackSkipReason.None
+                ? "None"
+                : skipReason.ToLogToken();
+            return "[i=" + index.ToString(CultureInfo.InvariantCulture)
+                + " rec=" + shortId
+                + " skip=" + skip
+                + " aru=" + (anchorReFlyUnstable ? "T" : "F")
+                + " hd=" + (hasRenderableData ? "T" : "F")
+                + " hs=" + (inGhostStates ? "T" : "F")
+                + " endUT=" + endUT.ToString("F1", CultureInfo.InvariantCulture)
+                + "]";
+        }
+
+        internal static string FormatRecordingIdShort(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return "<none>";
+            return recordingId.Length > 8
+                ? recordingId.Substring(0, 8)
+                : recordingId;
+        }
+
+        // The literal `engine-frame-iter` token must appear in the rendered
+        // message body, not just the rate-limit key. ParsekLog.VerboseRateLimited
+        // uses the key purely for compositeKey lookup (ParsekLog.cs:176) — only
+        // the message argument is written via Write (ParsekLog.cs:194,
+        // ParsekLog.cs:406). The next-repro grep `[Engine] engine-frame-iter`
+        // documented in CHANGELOG.md and docs/dev/todo-and-known-bugs.md
+        // depends on this token being in the rendered line, not just the
+        // hidden rate-limit composite key.
+        internal const string EngineFrameIterMessagePrefix = "engine-frame-iter";
+
+        internal static string FormatEngineIterMessage(string entries)
+        {
+            if (string.IsNullOrEmpty(entries))
+                return EngineFrameIterMessagePrefix;
+            return EngineFrameIterMessagePrefix + " " + entries;
+        }
+
+        internal static void EmitEngineIterTrace(string entries)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Engine",
+                "engine-frame-iter",
+                FormatEngineIterMessage(entries),
+                1.0);
+        }
+
         internal GhostPlaybackEngine(IGhostPositioner positioner)
         {
             this.positioner = positioner;
@@ -561,11 +626,41 @@ namespace Parsek
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
 
+            // Engine-iteration trace builder (one ParsekLog line per frame,
+            // rate-limited via VerboseRateLimited so it can ride a 1.0s minimum
+            // without losing fidelity at 60fps). Off when ghostRenderTracing is
+            // off so the steady-state cost is zero. Bypasses GhostRenderTrace
+            // entirely — the trace is gated by IsDetailedWindowOpen, but this
+            // builder must run for every trajectory regardless so a future
+            // repro can distinguish "fell out of iteration" from "rendered with
+            // closed trace window."
+            bool engineIterTraceEnabled =
+                ParsekSettings.Current?.ghostRenderTracing == true;
+            System.Text.StringBuilder engineIterBuilder = engineIterTraceEnabled
+                ? new System.Text.StringBuilder(trajectories.Count * 48)
+                : null;
+
             for (int i = 0; i < trajectories.Count; i++)
             {
                 trajectoriesIterated++;
                 var traj = trajectories[i];
                 var f = flags[i];
+
+                if (engineIterBuilder != null)
+                {
+                    if (engineIterBuilder.Length > 0)
+                        engineIterBuilder.Append(',');
+                    engineIterBuilder.Append(FormatEngineIterEntry(
+                        index: i,
+                        recordingId: traj?.RecordingId,
+                        skipReason: f.skipGhost
+                            ? f.skipReason
+                            : GhostPlaybackSkipReason.None,
+                        anchorReFlyUnstable: f.anchorReFlyUnstable,
+                        hasRenderableData: HasRenderableGhostData(traj),
+                        inGhostStates: ghostStates.ContainsKey(i),
+                        endUT: traj?.EndUT ?? double.NaN));
+                }
 
                 // Disabled/suppressed: destroy any active ghost before skipping.
                 // Bug #433: only the PlaybackEnabled=false cause is career-neutral, so
@@ -815,6 +910,18 @@ namespace Parsek
                 {
                     DestroyGhost(i, traj, f, reason: "stale past-end ghost (no longer held)");
                 }
+            }
+
+            // Engine-iteration trace emit: one log line listing every iterated
+            // trajectory's identity + skipReason + renderable-data + ghostStates
+            // membership + endUT. Bypasses GhostRenderTrace's anomaly-window
+            // gate so a future ghost-vanish regression repro can answer
+            // definitively: did the recording reach the loop? what skipReason
+            // did it have? was ghostStates[i] still present? Rate-limited to
+            // 1.0s to keep steady-state cost negligible.
+            if (engineIterBuilder != null && engineIterBuilder.Length > 0)
+            {
+                EmitEngineIterTrace(engineIterBuilder.ToString());
             }
 
             // Post-loop: batch summary
