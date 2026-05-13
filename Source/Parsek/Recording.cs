@@ -379,6 +379,16 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// True when the recording carries at least one trajectory anchor (a Point, an
+        /// OrbitSegment, or a playable TrackSection). When false, <see cref="StartUT"/>
+        /// is either <see cref="ExplicitStartUT"/> or the literal 0.0 fallback — neither
+        /// of which can be distinguished from a legitimate sandbox-epoch start, so
+        /// callers that need to know "is this recording actually populated?" must use
+        /// this predicate instead of comparing StartUT against 0.
+        /// </summary>
+        internal bool HasActualTrajectoryBounds => TryGetActualTrajectoryBounds(out _, out _);
+
         private bool TryGetActualTrajectoryBounds(out double startUT, out double endUT)
         {
             startUT = 0.0;
