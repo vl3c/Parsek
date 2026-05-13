@@ -484,9 +484,50 @@ namespace Parsek
             WriteSparsePointList(writer, points, table, binaryVersion, ref stats);
         }
 
-        private static void ReadPointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
+        // Validate a list count read from the (untrusted) sidecar against
+        // the remaining bytes in the stream before any per-element loop
+        // or List<T> capacity allocation. A corrupted int32 that survived
+        // BinaryReader.ReadInt32 still represents a count, and every list
+        // element must consume at least one byte of input -- so any
+        // `count` greater than `remaining bytes` is necessarily invalid.
+        // Catching the OutOfMemoryException downstream of
+        // `new List<T>(count)` only works because .NET Framework rejects
+        // 0x7FFFFFFF immediately at the array-dimension cap; a corrupt
+        // count that is large-but-allocatable (e.g. 50M) would succeed
+        // the allocation, consume hundreds of MB, and only fail far
+        // later when the per-element reads run out of file. Reject up
+        // front instead. The minBytesPerElement argument is the
+        // pessimistic lower bound on bytes-per-entry for the specific
+        // list shape; pass 1 when the per-element minimum is genuinely
+        // a single byte (zero-length string in the string table).
+        private static int ReadBoundedCount(
+            BinaryReader reader, int minBytesPerElement, string label)
         {
             int count = reader.ReadInt32();
+            if (count < 0)
+                throw new InvalidDataException(
+                    label + " count negative: " + count);
+            if (count == 0)
+                return 0;
+            int safeMinBytes = minBytesPerElement < 1 ? 1 : minBytesPerElement;
+            long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+            long maxPossible = remaining / safeMinBytes;
+            if (count > maxPossible)
+                throw new InvalidDataException(
+                    label + " count " + count + " exceeds remaining-bytes-based bound " +
+                    maxPossible + " (remaining=" + remaining +
+                    ", minBytesPerElement=" + safeMinBytes + ")");
+            return count;
+        }
+
+        private static void ReadPointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
+        {
+            // Pessimistic per-point lower bound: every point payload
+            // consumes at least one byte. WritePoint actually emits ~120
+            // bytes per dense point (16 doubles/floats + 1 indexed string
+            // int), but sparse paths can write fewer per-element bytes
+            // with shared defaults, so stay conservative at 1.
+            int count = ReadBoundedCount(reader, 1, "point-list");
             if (count == 0)
                 return;
 
@@ -553,7 +594,7 @@ namespace Parsek
 
         private static void ReadOrbitSegmentList(BinaryReader reader, List<OrbitSegment> segments, List<string> stringTable, int binaryVersion)
         {
-            int count = reader.ReadInt32();
+            int count = ReadBoundedCount(reader, 1, "orbit-segment-list");
             for (int i = 0; i < count; i++)
                 segments.Add(ReadOrbitSegment(reader, stringTable, binaryVersion));
         }
@@ -640,7 +681,7 @@ namespace Parsek
 
         private static void ReadPartEventList(BinaryReader reader, List<PartEvent> events, List<string> stringTable)
         {
-            int count = reader.ReadInt32();
+            int count = ReadBoundedCount(reader, 1, "part-event-list");
             for (int i = 0; i < count; i++)
             {
                 events.Add(new PartEvent
@@ -682,7 +723,7 @@ namespace Parsek
 
         private static void ReadFlagEventList(BinaryReader reader, List<FlagEvent> events, List<string> stringTable)
         {
-            int count = reader.ReadInt32();
+            int count = ReadBoundedCount(reader, 1, "flag-event-list");
             for (int i = 0; i < count; i++)
             {
                 events.Add(new FlagEvent
@@ -721,7 +762,7 @@ namespace Parsek
 
         private static void ReadSegmentEventList(BinaryReader reader, List<SegmentEvent> events, List<string> stringTable)
         {
-            int count = reader.ReadInt32();
+            int count = ReadBoundedCount(reader, 1, "segment-event-list");
             for (int i = 0; i < count; i++)
             {
                 events.Add(new SegmentEvent
@@ -765,7 +806,7 @@ namespace Parsek
 
         private static void ReadTrackSections(BinaryReader reader, List<TrackSection> tracks, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
         {
-            int count = reader.ReadInt32();
+            int count = ReadBoundedCount(reader, 1, "track-sections");
             for (int i = 0; i < count; i++)
             {
                 var track = new TrackSection
@@ -1077,8 +1118,14 @@ namespace Parsek
 
         private static List<string> ReadStringTable(BinaryReader reader)
         {
-            int count = reader.ReadInt32();
-            var strings = new List<string>(count);
+            // Bound count first (each string entry consumes at least one
+            // byte -- the BinaryWriter-encoded 7-bit length prefix is one
+            // byte for a zero-length string). Then build the list without
+            // a capacity hint so a corrupt-but-bounded count cannot
+            // pre-allocate a giant string[] before the per-entry reads
+            // fail.
+            int count = ReadBoundedCount(reader, 1, "string-table");
+            var strings = new List<string>();
             for (int i = 0; i < count; i++)
                 strings.Add(reader.ReadString());
             return strings;

@@ -268,6 +268,104 @@ namespace Parsek.Tests
             Assert.StartsWith("trajectory-payload-invalid", gateReason);
         }
 
+        [Fact]
+        public void LargeButAllocatableCount_RejectedByBoundedReadCount()
+        {
+            // Reviewer concern: catching OutOfMemoryException after
+            // `new List<T>(count)` only works because .NET Framework
+            // immediately rejects 0x7FFFFFFF at the array-dimension cap.
+            // A corrupted count that is "large but allocatable" -- e.g.
+            // 100 million -- would succeed the allocation, consume
+            // hundreds of MB or more, and only fail far later when the
+            // per-entry reads run out of file. The reader must validate
+            // counts up front against the remaining file size and refuse
+            // any value that cannot fit even one byte per element.
+            //
+            // Construction: overwrite the string-table count int32 with
+            // 100_000_000 (well below 0x7FFFFFFF so a runtime cap would
+            // not save us). The fixture file is well under 100 MB so
+            // 100M entries cannot fit; ReadBoundedCount must throw
+            // InvalidDataException with the "exceeds remaining-bytes-
+            // based bound" message before any allocation happens.
+            var rec = BuildRecording("largecount");
+            var (precPath, _, _) = WriteFreshSidecars(rec);
+
+            byte[] all = File.ReadAllBytes(precPath);
+            int writePos;
+            using (var ms = new MemoryStream(all))
+            using (var br = new BinaryReader(ms, System.Text.Encoding.UTF8))
+            {
+                ms.Position += 4;
+                br.ReadInt32(); br.ReadInt32(); br.ReadInt32();
+                br.ReadString();
+                br.ReadByte();
+                writePos = (int)ms.Position;
+            }
+            const int largeButAllocatable = 100_000_000;
+            byte[] corrupt = BitConverter.GetBytes(largeButAllocatable);
+            Buffer.BlockCopy(corrupt, 0, all, writePos, 4);
+            File.WriteAllBytes(precPath, all);
+
+            // Sanity: the file is much smaller than 100M bytes so 100M
+            // entries (at >=1 byte each) cannot possibly fit. This is
+            // the precondition that ReadBoundedCount must enforce.
+            Assert.True(all.Length < largeButAllocatable,
+                "fixture must be smaller than the corrupted count for the bound to fire");
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.True(probe.Supported);
+
+            // Validate up front: no exception escapes, the gate rejects,
+            // and the structured reason carries the bound-violation
+            // signature (payload-data-invalid classifies
+            // InvalidDataException from ReadBoundedCount).
+            bool ok = TrajectorySidecarBinary.TryValidatePayload(precPath, probe, out string reason);
+            Assert.False(ok);
+            Assert.NotNull(reason);
+            Assert.Contains("payload-data-invalid", reason);
+            Assert.Contains("string-table", reason);
+        }
+
+        [Fact]
+        public void NegativeCount_RejectedByBoundedReadCount()
+        {
+            // A corrupted count of -1 would previously hit
+            // `new List<string>(-1)` which raises
+            // ArgumentOutOfRangeException -- caught by the earlier
+            // narrow catch only because ArgumentOutOfRangeException
+            // inherits from ArgumentException. ReadBoundedCount now
+            // rejects negative values up front with a clearer
+            // InvalidDataException message instead of relying on List's
+            // ctor throw.
+            var rec = BuildRecording("negcount");
+            var (precPath, _, _) = WriteFreshSidecars(rec);
+
+            byte[] all = File.ReadAllBytes(precPath);
+            int writePos;
+            using (var ms = new MemoryStream(all))
+            using (var br = new BinaryReader(ms, System.Text.Encoding.UTF8))
+            {
+                ms.Position += 4;
+                br.ReadInt32(); br.ReadInt32(); br.ReadInt32();
+                br.ReadString();
+                br.ReadByte();
+                writePos = (int)ms.Position;
+            }
+            byte[] corrupt = BitConverter.GetBytes(-1);
+            Buffer.BlockCopy(corrupt, 0, all, writePos, 4);
+            File.WriteAllBytes(precPath, all);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+
+            bool ok = TrajectorySidecarBinary.TryValidatePayload(precPath, probe, out string reason);
+            Assert.False(ok);
+            Assert.NotNull(reason);
+            Assert.Contains("payload-data-invalid", reason);
+            Assert.Contains("negative", reason);
+        }
+
         // --- Snapshot payload validation ---
 
         [Fact]

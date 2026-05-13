@@ -2198,32 +2198,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrajectorySidecarBinary_Read_PointListCountExceedsRemainingBytes_ThrowsEndOfStream()
+        public void TrajectorySidecarBinary_Read_PointListCountExceedsRemainingBytes_ThrowsInvalidData()
         {
-            // Craft a file with valid header but point-count=999 with only 20 bytes of data.
-            // Probe succeeds (header is valid); Read throws EndOfStreamException.
+            // Craft a file with valid header but point-count=999 with
+            // only 20 bytes of payload. ReadBoundedCount must reject the
+            // count up front (point-list count 999 exceeds remaining
+            // bytes / minBytesPerElement=1) with InvalidDataException,
+            // before any allocation or per-element read.
+            //
+            // Pre-bounded-count behavior was EndOfStreamException thrown
+            // deep in ReadPoint after the per-entry loop ran past EOF;
+            // the original test pinned that as "current behavior" and
+            // noted "A graceful fallback would be a production-code fix
+            // tracked separately". This is that fix.
             string path = Path.Combine(tempDir, "truncated-points.prec");
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
             using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
             {
-                // Magic
                 writer.Write(new byte[] { (byte)'P', (byte)'S', (byte)'K', (byte)'0' });
-                // formatVersion = current v0 (supported)
                 writer.Write(RecordingStore.CurrentRecordingFormatVersion);
-                // recordingSchemaGeneration
                 writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
-                // sidecarEpoch
                 writer.Write(1);
-                // recordingId (BinaryWriter.Write(string) writes length-prefixed UTF8)
                 writer.Write("truncated-points-test");
-                // flags byte: sectionAuthoritative=0
                 writer.Write((byte)0);
-                // string table count = 1 entry ("Kerbin")
                 writer.Write(1);
                 writer.Write("Kerbin");
-                // point list count = 999, but no actual point data follows
                 writer.Write(999);
-                // 20 zero bytes of payload (not enough for 999 points)
                 writer.Write(new byte[20]);
             }
 
@@ -2232,17 +2232,21 @@ namespace Parsek.Tests
             Assert.True(probe.Success);
 
             var rec = new Recording { RecordingId = "truncated-points-test" };
-            // Pin current behavior: the reader throws EndOfStreamException on truncation.
-            // A graceful fallback would be a production-code fix tracked separately.
-            Assert.Throws<EndOfStreamException>(() =>
+            var ex = Assert.Throws<InvalidDataException>(() =>
                 RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
+            Assert.Contains("point-list", ex.Message);
+            Assert.Contains("exceeds", ex.Message);
         }
 
         [Fact]
-        public void TrajectorySidecarBinary_Read_SparsePointListFlagPresent_TruncatedMidPoint_ThrowsEndOfStream()
+        public void TrajectorySidecarBinary_Read_SparsePointListFlagPresent_TruncatedMidPoint_ThrowsInvalidData()
         {
-            // Craft a file with sparse-list header (listFlags = SparsePointListFlagEnabled = 0x01)
-            // and point-count=50 but only minimal bytes of payload. Read throws EndOfStreamException.
+            // ReadPointList's bounded-count check runs before
+            // ReadSparsePointList consumes the sparse-list-flag byte, so
+            // a count of 50 against only ~12 bytes of remaining payload
+            // is rejected at the same up-front gate. The sparse-vs-dense
+            // header bytes that used to be consumed before the EOS throw
+            // are no longer read in this corruption scenario.
             string path = Path.Combine(tempDir, "truncated-sparse.prec");
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
             using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8))
@@ -2250,18 +2254,14 @@ namespace Parsek.Tests
                 writer.Write(new byte[] { (byte)'P', (byte)'S', (byte)'K', (byte)'0' });
                 writer.Write(RecordingStore.CurrentRecordingFormatVersion);
                 writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
-                writer.Write(1); // sidecarEpoch
+                writer.Write(1);
                 writer.Write("truncated-sparse-test");
-                writer.Write((byte)0); // flags
-                writer.Write(1);       // string table count
+                writer.Write((byte)0);
+                writer.Write(1);
                 writer.Write("Kerbin");
-                // point list count = 50
                 writer.Write(50);
-                // listFlags = SparsePointListFlagEnabled (0x01) | SparsePointListFlagBodyDefault (0x02)
                 writer.Write((byte)0x03);
-                // defaultBodyName index into string table (index 0 = "Kerbin")
                 writer.Write(0);
-                // 10 bytes of point data then EOF -- far too short
                 writer.Write(new byte[10]);
             }
 
@@ -2270,8 +2270,10 @@ namespace Parsek.Tests
             Assert.True(probe.Success);
 
             var rec = new Recording { RecordingId = "truncated-sparse-test" };
-            Assert.Throws<EndOfStreamException>(() =>
+            var ex = Assert.Throws<InvalidDataException>(() =>
                 RecordingStore.DeserializeTrajectorySidecar(path, probe, rec));
+            Assert.Contains("point-list", ex.Message);
+            Assert.Contains("exceeds", ex.Message);
         }
 
         [Fact]
