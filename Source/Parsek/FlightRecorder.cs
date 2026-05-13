@@ -6280,13 +6280,17 @@ namespace Parsek
         /// </summary>
         /// <param name="emitSeedEvents">True on new recording starts so ghost playback
         /// has an initial visual baseline (bugs #70/#65). False on chain continuation
-        /// promotions — the prior chain segment already has the seed events, and emitting
-        /// new ones at the promotion UT poisons FindLastInterestingUT (bug A / #263 sibling).
-        /// When false, this method still emits seeds if the active tree recording has
-        /// zero PartEvents, mirroring <see cref="BackgroundRecorder"/>'s data-driven gate:
-        /// Re-Fly forks and split/merge branches promote into a brand-new recording with
-        /// no events, and without seeds the ghost playback orphan-engine auto-start
-        /// heuristic incorrectly lights every booster engine at full power.</param>
+        /// promotions — the prior chain segment already has the non-engine seed events,
+        /// and emitting new DeployableExtended / LightOn / etc. at the promotion UT
+        /// poisons FindLastInterestingUT (bug A / #263 sibling).
+        /// When false, this method still emits ENGINE-ONLY seeds (EngineIgnited for
+        /// running engines and EngineShutdown sentinels for dead/idle engines) when the
+        /// active tree recording has zero engine events, so the ghost playback
+        /// orphan-engine auto-start heuristic does not false-positive on Re-Fly forks,
+        /// split branches, and merge branches that begin with empty PartEvents.
+        /// Non-engine seeds are still skipped on promotion to preserve the bug A
+        /// invariant — the orphan-engine guard only inspects engine events, so engine
+        /// sentinels are the minimum needed to defeat it.</param>
         private void ResetPartEventTrackingState(Vessel v, bool emitSeedEvents = true)
         {
             decoupledPartIds.Clear();
@@ -6345,16 +6349,21 @@ namespace Parsek
 
             if (!emitSeedEvents)
             {
-                // Data-driven gate, mirroring BackgroundRecorder.TrySeedLoadedPartEvents:
-                // only skip when the active tree recording ALREADY has part events. Chain
-                // promotions that create a new recording (Re-Fly fork via RewindInvoker,
-                // CreateSplitBranch, CreateMergeBranch) leave the active recording at
-                // zero PartEvents; without seeds the ghost playback orphan-engine
-                // auto-start heuristic in GhostPlaybackLogic.AutoStartOrphanEnginePlayback
-                // treats the recording as a pure debris booster and lights every engine
-                // at full power on playback. Quickload-resume promotes back into an
-                // already-populated recording, so the skip branch still fires there and
-                // preserves the bug A / #263 FindLastInterestingUT invariant.
+                // Engine-event-aware promotion gate. The playback orphan-engine guard
+                // (GhostPlaybackLogic.AutoStartOrphanEnginePlayback / BuildEngineEventKeySet)
+                // only inspects engine events — if a chain-promoted recording reaches
+                // playback with zero engine events, every engine on the ghost auto-starts
+                // at full power, even ones the recorder captured as shut down. Non-engine
+                // seeds (DeployableExtended, LightOn, ParachuteDeployed, etc.) are still
+                // skipped on promotion to preserve the bug A / #263 FindLastInterestingUT
+                // invariant — re-emitting them at a late promotion UT is what blocked
+                // rover boring-tail trim. Engine-only seeds are scoped narrowly enough
+                // that they cannot recreate that failure mode: every other recording type
+                // (Quickload-resume, BG promote, normal continuation) lands on an
+                // activeRec that already has engine events, so the engine gate skips too;
+                // the empty-engine branch fires only for genuinely fresh chain branches
+                // (Re-Fly fork, CreateSplitBranch, CreateMergeBranch) whose seed UT is
+                // effectively the recording's start UT.
                 string activeRecId = ActiveTree?.ActiveRecordingId;
                 Recording activeRec = null;
                 if (ActiveTree != null
@@ -6363,16 +6372,16 @@ namespace Parsek
                 {
                     ActiveTree.Recordings.TryGetValue(activeRecId, out activeRec);
                 }
-                if (!ChainPromotionShouldEmitSeedEvents(activeRec, out int activeRecEventCount))
+                if (!ChainPromotionShouldEmitEngineSeeds(activeRec, out int engineEventCount, out int totalEventCount))
                 {
                     ParsekLog.Verbose("Recorder",
                         $"ResetPartEventTrackingState: skipping seed events (chain promotion, " +
-                        $"activeRec='{activeRecId}' already has {activeRecEventCount} part event(s))");
+                        $"activeRec='{activeRecId}' already has {engineEventCount} engine event(s) " +
+                        $"of {totalEventCount} total)");
                     return;
                 }
-                ParsekLog.Verbose("Recorder",
-                    $"ResetPartEventTrackingState: emitting seed events for empty " +
-                    $"continuation recording (activeRec='{activeRecId ?? "(none)"}', chain promotion)");
+                EmitEngineOnlySeedEventsForPromotion(v, activeRecId, totalEventCount);
+                return;
             }
 
             // Emit seed events for the initial visual state so ghost playback
@@ -6394,27 +6403,83 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Decides whether <see cref="ResetPartEventTrackingState"/> should emit seed
-        /// events during a chain promotion (<c>emitSeedEvents=false</c> call path).
+        /// Emits engine-only seed events (EngineIgnited / EngineShutdown sentinels) into
+        /// the recorder's PartEvents buffer for the chain-promotion empty-engine branch
+        /// of <see cref="ResetPartEventTrackingState"/>. Other seed types are intentionally
+        /// not emitted here — see the promotion gate's bug A / #263 rationale.
+        /// </summary>
+        private void EmitEngineOnlySeedEventsForPromotion(
+            Vessel v, string activeRecId, int totalEventCount)
+        {
+            var partNamesByPid = new Dictionary<uint, string>();
+            if (v != null && v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                        partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                }
+            }
+            string NameFor(uint pid)
+            {
+                return partNamesByPid.TryGetValue(pid, out string n) ? n : "unknown";
+            }
+            var seedSets = BuildCurrentTrackingSets();
+            double seedUT = Planetarium.GetUniversalTime();
+            var engineSeedEvents = new List<PartEvent>();
+            PartStateSeeder.EmitEngineSeedEvents(seedSets, engineSeedEvents, seedUT, "Recorder", NameFor);
+            if (engineSeedEvents.Count > 0)
+                PartEvents.AddRange(engineSeedEvents);
+            ParsekLog.Verbose("Recorder",
+                $"ResetPartEventTrackingState: emitted {engineSeedEvents.Count} engine-only " +
+                $"seed event(s) for chain promotion (activeRec='{activeRecId ?? "(none)"}' had 0 " +
+                $"engine events of {totalEventCount} total — non-engine seeds still skipped to " +
+                $"preserve bug A / #263 invariant)");
+        }
+
+        /// <summary>
+        /// Decides whether <see cref="ResetPartEventTrackingState"/> should emit
+        /// engine-only seed events during a chain promotion
+        /// (<c>emitSeedEvents=false</c> call path).
         ///
-        /// Returns true when the active tree recording is empty (null, no PartEvents
-        /// list, or zero events) — the new recording would otherwise reach ghost playback
-        /// with zero engine events and trigger the orphan-engine auto-start heuristic
-        /// in <c>GhostPlaybackLogic.AutoStartOrphanEnginePlayback</c>.
+        /// Returns true when the active tree recording has zero engine events
+        /// (EngineIgnited / EngineThrottle / EngineShutdown). Matches the contract of
+        /// <see cref="GhostPlaybackLogic.BuildEngineEventKeySet"/> — the orphan-engine
+        /// auto-start heuristic only inspects those three event types, and Re-Fly
+        /// forks / split / merge branches that begin with empty PartEvents (or with
+        /// only non-engine events like <c>LightOn</c>) would still trip the heuristic
+        /// without engine seeds.
         ///
-        /// Returns false when the active recording already has events — the prior chain
-        /// segment / pre-quickload flight has populated it; emitting seeds at the
-        /// promotion UT would poison <c>FindLastInterestingUT</c> (bug A / #263 sibling).
+        /// Returns false when the active recording already has at least one engine
+        /// event — the prior chain segment / pre-quickload flight has covered the
+        /// orphan guard, and emitting engine sentinels at the promotion UT would
+        /// duplicate state that the orphan guard does not need duplicated.
+        ///
+        /// <paramref name="totalEventCount"/> is reported alongside the engine count
+        /// for diagnostic logging; only the engine count drives the decision.
         ///
         /// Pure static so it can be unit tested without a live <see cref="RecordingTree"/>.
         /// </summary>
-        internal static bool ChainPromotionShouldEmitSeedEvents(
-            Recording activeRec, out int activeRecEventCount)
+        internal static bool ChainPromotionShouldEmitEngineSeeds(
+            Recording activeRec, out int engineEventCount, out int totalEventCount)
         {
-            activeRecEventCount = activeRec != null && activeRec.PartEvents != null
-                ? activeRec.PartEvents.Count
-                : 0;
-            return activeRecEventCount == 0;
+            engineEventCount = 0;
+            totalEventCount = 0;
+            if (activeRec == null || activeRec.PartEvents == null)
+                return true;
+            totalEventCount = activeRec.PartEvents.Count;
+            for (int i = 0; i < activeRec.PartEvents.Count; i++)
+            {
+                var t = activeRec.PartEvents[i].eventType;
+                if (t == PartEventType.EngineIgnited
+                    || t == PartEventType.EngineThrottle
+                    || t == PartEventType.EngineShutdown)
+                {
+                    engineEventCount++;
+                }
+            }
+            return engineEventCount == 0;
         }
 
         /// <summary>

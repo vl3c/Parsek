@@ -173,66 +173,72 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region ChainPromotionShouldEmitSeedEvents
+        #region ChainPromotionShouldEmitEngineSeeds
 
         // The Re-Fly fork bug: RewindInvoker creates a new fork recording with zero
-        // PartEvents and calls FlightRecorder.StartRecording(isPromotion: true). Before
-        // this fix the recorder unconditionally skipped seed-event emission on
-        // promotion, leaving the fork's PartEvents empty on disk. On a subsequent
-        // Re-Fly the fork was loaded as a ghost; BuildEngineEventKeySet returned an
-        // empty set and AutoStartOrphanEnginePlayback lit every engine on the ghost
-        // at full power. The data-driven gate below mirrors
-        // BackgroundRecorder.TrySeedLoadedPartEvents: skip only when prior events
-        // already exist.
+        // PartEvents and calls FlightRecorder.StartRecording(isPromotion: true). The
+        // recorder used to unconditionally skip seed-event emission on promotion,
+        // leaving the fork's PartEvents empty on disk. On a subsequent Re-Fly the
+        // fork was loaded as a ghost; BuildEngineEventKeySet returned an empty set
+        // and AutoStartOrphanEnginePlayback lit every engine on the ghost at full
+        // power. The gate below scopes the emit decision narrowly to engine events,
+        // matching the orphan guard's contract: skip only when prior engine events
+        // already cover the guard, so a recording that has LightOn / DeployableExtended
+        // alone still gets engine sentinels emitted. Non-engine seeds remain skipped
+        // on promotion to preserve the bug A / #263 FindLastInterestingUT invariant.
 
         [Fact]
-        public void ChainPromotion_NullActiveRec_EmitsSeeds()
+        public void ChainPromotion_NullActiveRec_EmitsEngineSeeds()
         {
             // A chain promotion before any recording has been attached to the tree
-            // (defensive null guard) — treat as empty and seed.
-            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitSeedEvents(
-                activeRec: null, out int activeRecEventCount);
+            // (defensive null guard) — treat as empty and emit engine seeds.
+            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                activeRec: null, out int engineEventCount, out int totalEventCount);
 
             Assert.True(shouldEmit);
-            Assert.Equal(0, activeRecEventCount);
+            Assert.Equal(0, engineEventCount);
+            Assert.Equal(0, totalEventCount);
         }
 
         [Fact]
-        public void ChainPromotion_RecWithNullPartEvents_EmitsSeeds()
+        public void ChainPromotion_RecWithNullPartEvents_EmitsEngineSeeds()
         {
-            // Recording exists but its PartEvents list is null — still empty, seed.
+            // Recording exists but its PartEvents list is null — still empty, emit.
             var rec = new Recording { RecordingId = "rec_null_events" };
             rec.PartEvents = null;
 
-            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitSeedEvents(
-                rec, out int activeRecEventCount);
+            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                rec, out int engineEventCount, out int totalEventCount);
 
             Assert.True(shouldEmit);
-            Assert.Equal(0, activeRecEventCount);
+            Assert.Equal(0, engineEventCount);
+            Assert.Equal(0, totalEventCount);
         }
 
         [Fact]
-        public void ChainPromotion_EmptyRec_EmitsSeeds_ReFlyForkScenario()
+        public void ChainPromotion_EmptyRec_EmitsEngineSeeds_ReFlyForkScenario()
         {
             // Re-Fly fork: RewindInvoker.AtomicMarkerWrite creates a fresh fork
             // recording with no events copied over (chain promotion intentionally
-            // skips parent-event inheritance). Without seeds here ghost playback
-            // sees zero engine events and the booster engine FX lights up.
+            // skips parent-event inheritance). Without engine seeds here ghost
+            // playback sees zero engine events and the booster engine FX lights up.
             var reFlyFork = new Recording { RecordingId = "rec_152453a952804ee7b54f129bdfe2fdc1" };
 
-            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitSeedEvents(
-                reFlyFork, out int activeRecEventCount);
+            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                reFlyFork, out int engineEventCount, out int totalEventCount);
 
             Assert.True(shouldEmit);
-            Assert.Equal(0, activeRecEventCount);
+            Assert.Equal(0, engineEventCount);
+            Assert.Equal(0, totalEventCount);
         }
 
         [Fact]
-        public void ChainPromotion_RecWithPriorEvents_SkipsSeeds_QuickloadResume()
+        public void ChainPromotion_RecWithEngineEvents_SkipsSeeds_QuickloadResume()
         {
             // Quickload-resume path: the active recording was populated by the
-            // pre-quicksave flight. Re-emitting seeds at the resume UT would poison
-            // FindLastInterestingUT and block boring-tail trimming (bug A / #263).
+            // pre-quicksave flight and already carries engine events. The orphan
+            // guard is satisfied; emitting more engine seeds at the resume UT
+            // would duplicate state and risk poisoning FindLastInterestingUT.
             var resumedRec = new Recording { RecordingId = "rec_quickload_resume" };
             resumedRec.PartEvents.Add(new PartEvent
             {
@@ -248,32 +254,68 @@ namespace Parsek.Tests
                 value = 0.5f
             });
 
-            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitSeedEvents(
-                resumedRec, out int activeRecEventCount);
+            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                resumedRec, out int engineEventCount, out int totalEventCount);
 
             Assert.False(shouldEmit);
-            Assert.Equal(2, activeRecEventCount);
+            Assert.Equal(1, engineEventCount);
+            Assert.Equal(2, totalEventCount);
         }
 
         [Fact]
-        public void ChainPromotion_RecWithSingleEvent_SkipsSeeds()
+        public void ChainPromotion_RecWithOnlyNonEngineEvents_EmitsEngineSeeds_LoneLightOn()
         {
-            // Edge case: even one prior event means the recording is no longer empty.
-            // Background promotion (PromoteRecordingFromBackground) lands here when
-            // the BG recorder has flushed at least one event.
-            var rec = new Recording { RecordingId = "rec_bg_promote" };
+            // The orphan guard only counts EngineIgnited / EngineThrottle / EngineShutdown.
+            // A recording with a lone LightOn (or any combination of non-engine events)
+            // still leaves BuildEngineEventKeySet empty, so a ghost with engines would
+            // auto-start them. The engine-event-aware gate must emit seeds even when
+            // the recording has other (non-engine) events.
+            var rec = new Recording { RecordingId = "rec_lone_lighton" };
             rec.PartEvents.Add(new PartEvent
             {
                 ut = 1.0,
                 partPersistentId = 100,
                 eventType = PartEventType.LightOn
             });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 2.0,
+                partPersistentId = 200,
+                eventType = PartEventType.DeployableExtended
+            });
 
-            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitSeedEvents(
-                rec, out int activeRecEventCount);
+            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                rec, out int engineEventCount, out int totalEventCount);
+
+            Assert.True(shouldEmit);
+            Assert.Equal(0, engineEventCount);
+            Assert.Equal(2, totalEventCount);
+        }
+
+        [Theory]
+        [InlineData(PartEventType.EngineIgnited)]
+        [InlineData(PartEventType.EngineThrottle)]
+        [InlineData(PartEventType.EngineShutdown)]
+        public void ChainPromotion_RecWithSingleEngineEvent_SkipsSeeds(PartEventType engineEvt)
+        {
+            // Any one of the three engine event types satisfies the orphan guard via
+            // BuildEngineEventKeySet, so a single sentinel is enough to take the
+            // skip branch — pins the engine-event-aware gate's contract.
+            var rec = new Recording { RecordingId = "rec_single_engine_evt" };
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 50.0,
+                partPersistentId = 2485666303,
+                eventType = engineEvt,
+                value = engineEvt == PartEventType.EngineThrottle ? 0.5f : 0f
+            });
+
+            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                rec, out int engineEventCount, out int totalEventCount);
 
             Assert.False(shouldEmit);
-            Assert.Equal(1, activeRecEventCount);
+            Assert.Equal(1, engineEventCount);
+            Assert.Equal(1, totalEventCount);
         }
 
         #endregion
