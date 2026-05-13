@@ -4270,7 +4270,7 @@ namespace Parsek
             if (preferRootPartSurfacePose)
                 TryResolveRootPartSurfacePose(v, out latitude, out longitude, out altitude, out rotation);
 
-            return new TrajectoryPoint
+            TrajectoryPoint pt = new TrajectoryPoint
             {
                 ut = ut,
                 latitude = latitude,
@@ -4285,6 +4285,44 @@ namespace Parsek
                 // Phase 7: NaN sentinel for non-surface points.
                 recordedGroundClearance = double.NaN
             };
+            // ---- Trace-Sep: log every BG per-tick + structural-event sample ----
+            if (v != null && (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive))
+            {
+                Vector3d worldPos = v.mainBody != null
+                    ? v.mainBody.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
+                    : Vector3d.zero;
+                Vector3d transformPos = v.transform != null ? (Vector3d)v.transform.position : Vector3d.zero;
+                // tickSinceBreak parity with FG BuildTP. See
+                // FlightRecorder.BuildTrajectoryPoint trace comment for the
+                // diagnostic value of this field.
+                double lastBreak = TraceSeparation.LastRecordingTriggerUT;
+                double tickSinceBreak = double.NaN;
+                if (!double.IsNaN(lastBreak))
+                {
+                    float dt = Time.fixedDeltaTime;
+                    if (dt > 0f && !float.IsNaN(dt) && !float.IsInfinity(dt))
+                        tickSinceBreak = (ut - lastBreak) / dt;
+                }
+                TraceSeparation.RecordLog("BG_CreateAbs",
+                    "pid=" + v.persistentId +
+                    " name='" + v.vesselName + "'" +
+                    " ut=" + ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " tickSinceBreak=" + (double.IsNaN(tickSinceBreak) ? "NaN" : tickSinceBreak.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " packed=" + v.packed +
+                    " explicitVel=" + explicitVelocity.HasValue +
+                    " preferRoot=" + preferRootPartSurfacePose +
+                    " LLA=(" + pt.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    "," + pt.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    "," + pt.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")" +
+                    " worldFromLLA=" + TraceSeparation.FormatVector3d(worldPos) +
+                    " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
+                    " transformVsLLAdelta=" + TraceSeparation.FormatVector3d(transformPos - worldPos) +
+                    " |delta|=" + (transformPos - worldPos).magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                    " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " srfVel=" + TraceSeparation.FormatVector3(v.srf_velocity) + " |sv|=" + v.srf_velocity.magnitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            // ---- /Trace-Sep ----
+            return pt;
         }
 
         private static bool TryCanonicalizeBackgroundReFlyRecordingPoint(
@@ -5068,6 +5106,37 @@ namespace Parsek
                 anchorPose.WorldRotation);
 
             ApplyBackgroundCurrentAnchorToTrackSection(state);
+
+            // ---- Trace-Sep: log both parent-vs-debris distance measurements ----
+            // recorded-relative = |offset|, the magnitude of the anchor-local
+            // Cartesian offset just written into frames[].latitude/longitude/altitude.
+            // recorded-absolute = |focusWorldPos - anchorPose.WorldPos|, the
+            // ground-truth world-space distance between the live debris and
+            // the live anchor at this same instant. These two MUST match
+            // exactly (the relative offset only rotates the world vector into
+            // the anchor's frame, magnitude is preserved). A mismatch here is
+            // a smoking gun for ComputeRelativeLocalOffset doing more than
+            // rotation (scale, axis-swap, mis-applied anchor rotation, etc.)
+            // and would mean the recorded anchor-local distance does not
+            // correspond to the real ground-truth distance.
+            if (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive)
+            {
+                Vector3d worldDelta = focusWorldPos - anchorPose.WorldPos;
+                double recordedRelativeDist = offset.magnitude;
+                double recordedAbsoluteDist = worldDelta.magnitude;
+                TraceSeparation.RecordLog("BG_ApplyRel",
+                    "vesselPid=" + state.vesselPid +
+                    " anchorRecId=" + (anchorRecordingId ?? "<null>") +
+                    " ut=" + point.ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " focusWorldPos=" + TraceSeparation.FormatVector3d(focusWorldPos) +
+                    " anchorWorldPos=" + TraceSeparation.FormatVector3d(anchorPose.WorldPos) +
+                    " worldDelta=" + TraceSeparation.FormatVector3d(worldDelta) +
+                    " offset=" + TraceSeparation.FormatVector3d(offset) +
+                    " recordedRelativeDist=" + recordedRelativeDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " recordedAbsoluteDist=" + recordedAbsoluteDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " distMismatch=" + System.Math.Abs(recordedRelativeDist - recordedAbsoluteDist).ToString("F3", CultureInfo.InvariantCulture));
+            }
+            // ---- /Trace-Sep ----
 
             if (logSample)
             {

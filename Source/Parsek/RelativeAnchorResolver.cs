@@ -1382,6 +1382,19 @@ namespace Parsek
                 bool loopAnchorMismatch = recording.LoopAnchorVesselId != 0u
                     && section.anchorVesselId != 0u
                     && section.anchorVesselId != recording.LoopAnchorVesselId;
+                if (loopAnchorMismatch)
+                {
+                    TrackSection capturedSection = section;
+                    int capturedSectionIndex = sectionIndex;
+                    ParsekLog.VerboseRateLimited("LoopAnchor",
+                        "resolver-pid-mismatch:" + recording.RecordingId,
+                        () => "TryResolveRelativeSectionPose zeroing live anchor: mid-loop section pid mismatch"
+                            + " recordingId=" + recording.RecordingId
+                            + " declaredLoopPid=" + recording.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture)
+                            + " sectionPid=" + capturedSection.anchorVesselId.ToString(CultureInfo.InvariantCulture)
+                            + " sectionIndex=" + capturedSectionIndex.ToString(CultureInfo.InvariantCulture)
+                            + " ut=" + ut.ToString("R", CultureInfo.InvariantCulture));
+                }
                 uint liveAnchorVesselId = loopAnchorMismatch
                     ? 0u
                     : (section.anchorVesselId != 0u

@@ -260,6 +260,38 @@ namespace Parsek
             return state == null || state.loopCycleIndex != cycleIndex;
         }
 
+        /// <summary>
+        /// Diagnostic-only lookup: walks <see cref="ghostStates"/> for a ghost
+        /// whose stamped <c>recordingId</c> matches and returns its current
+        /// <c>transform.position</c>. Used by the separation-event playback
+        /// trace to log the rendered parent-vs-debris distance alongside the
+        /// recorded-data-derived distance so a log reader can see whether
+        /// playback diverges from recorded data. Returns <c>false</c> when no
+        /// ghost in any state currently has visuals materialized for that
+        /// recording (parent not yet spawned, retired, or never rendered in
+        /// the current window). Overlap-cycle and watch-resume ghosts are
+        /// ignored; only the primary state map is consulted, which matches
+        /// the slide repro: at the moment a debris first renders, its parent
+        /// is the live primary ghost.
+        /// </summary>
+        internal bool TryGetGhostWorldByRecordingId(string recordingId, out Vector3d world)
+        {
+            world = Vector3d.zero;
+            if (string.IsNullOrWhiteSpace(recordingId))
+                return false;
+            foreach (var kv in ghostStates)
+            {
+                GhostPlaybackState s = kv.Value;
+                if (s == null || s.ghost == null || s.ghost.transform == null)
+                    continue;
+                if (!string.Equals(s.recordingId, recordingId, System.StringComparison.Ordinal))
+                    continue;
+                world = (Vector3d)s.ghost.transform.position;
+                return true;
+            }
+            return false;
+        }
+
         private void CountFrameSkip(GhostPlaybackSkipReason reason)
         {
             switch (reason)
@@ -2856,8 +2888,26 @@ namespace Parsek
                     // mismatches — composing through a non-loop live PID
                     // across loop iterations is non-deterministic; body-fixed
                     // primary is the safe fallback.
-                    return section.anchorVesselId == anchor.LoopAnchorVesselId
+                    bool sectionPidValid = section.anchorVesselId == anchor.LoopAnchorVesselId
                         || section.anchorVesselId == 0u;
+                    if (!sectionPidValid)
+                    {
+                        string capturedAnchorId = anchorRecordingId;
+                        int capturedSectionIndex = sectionIndex;
+                        TrackSection capturedSection = section;
+                        Recording capturedAnchor = anchor;
+                        ParsekLog.VerboseRateLimited("LoopAnchor",
+                            "loop-anchor-pid-mismatch:" + traj.RecordingId,
+                            () => "ShouldUseLoopAnchoredDebrisChain rejecting: mid-loop section pid mismatch"
+                                + " recordingId=" + traj.RecordingId
+                                + " anchorRecordingId=" + capturedAnchorId
+                                + " declaredLoopPid=" + capturedAnchor.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture)
+                                + " sectionPid=" + capturedSection.anchorVesselId.ToString(CultureInfo.InvariantCulture)
+                                + " sectionIndex=" + capturedSectionIndex.ToString(CultureInfo.InvariantCulture)
+                                + " ut=" + playbackUT.ToString("R", CultureInfo.InvariantCulture)
+                                + "; body-fixed primary fallback");
+                    }
+                    return sectionPidValid;
                 }
                 if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
                     return false;
@@ -4405,6 +4455,7 @@ namespace Parsek
             var state = new GhostPlaybackState
             {
                 vesselName = traj?.VesselName ?? "Unknown",
+                recordingId = traj?.RecordingId ?? string.Empty,
                 playbackIndex = 0,
                 partEventIndex = 0,
                 flagEventIndex = 0,
