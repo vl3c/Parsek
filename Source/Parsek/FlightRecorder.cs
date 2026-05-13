@@ -6500,13 +6500,15 @@ namespace Parsek
         /// Resolves the UT to stamp on engine seed events emitted by the
         /// chain-promotion empty-engine branch of <see cref="ResetPartEventTrackingState"/>.
         ///
-        /// For a recording with established content (positive StartUT in the past),
-        /// returns the recording's <see cref="Recording.StartUT"/> so the sentinels
-        /// anchor at the recording's actual start, never moving FindLastInterestingUT
-        /// forward against later real activity. For a genuinely fresh chain branch
-        /// (StartUT unset, NaN, non-positive, or already at/after the current UT —
-        /// i.e. the recording has no trajectory or section data yet), returns the
-        /// current UT, which IS the fork's start moment by definition.
+        /// For a recording with established trajectory content (at least one Point,
+        /// OrbitSegment, or playable TrackSection — see
+        /// <see cref="Recording.HasActualTrajectoryBounds"/>), returns the recording's
+        /// <see cref="Recording.StartUT"/> so the sentinels anchor at the recording's
+        /// actual start, never moving FindLastInterestingUT forward against later real
+        /// activity. 0.0 is treated as a valid anchor when it comes from real
+        /// trajectory data (sandbox-epoch starts, debug worlds) — only the fallback
+        /// 0.0 from an empty recording reroutes to currentUT, which IS the fork's
+        /// start moment by definition.
         ///
         /// This is the bug A / #263 fix for non-inert EngineShutdown sentinels:
         /// without the StartUT anchor, a quickload-resume of an empty-engine
@@ -6519,8 +6521,14 @@ namespace Parsek
         {
             if (activeRec == null)
                 return currentUT;
+            // Discriminate "real anchor at 0.0" (sandbox-epoch trajectory) from
+            // "fallback default of 0.0" (empty recording / ExplicitStartUT-only).
+            // Recording.StartUT cannot distinguish those by value, so we check the
+            // recording's actual content instead.
+            if (!activeRec.HasActualTrajectoryBounds)
+                return currentUT;
             double recStartUT = activeRec.StartUT;
-            if (double.IsNaN(recStartUT) || double.IsInfinity(recStartUT) || recStartUT <= 0.0)
+            if (double.IsNaN(recStartUT) || double.IsInfinity(recStartUT))
                 return currentUT;
             // If the recording's StartUT is at or after the current UT, treat the
             // recording as fresh — the current frame IS its start moment.

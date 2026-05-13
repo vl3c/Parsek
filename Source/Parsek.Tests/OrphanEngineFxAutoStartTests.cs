@@ -322,7 +322,7 @@ namespace Parsek.Tests
 
         #region ResolveChainPromotionSeedUT
 
-        // P2 round 2: EngineShutdown sentinels are NOT inert in
+        // P2 round 2-3: EngineShutdown sentinels are NOT inert in
         // RecordingOptimizer.IsInertPartEventForTailTrim, so stamping them at the
         // current (promotion) UT would still move FindLastInterestingUT forward and
         // block boring-tail trim on an ordinary quickload-resume of an empty-engine
@@ -330,6 +330,10 @@ namespace Parsek.Tests
         // sentinels at the recording's actual StartUT for any populated recording so
         // they can never outpace the recording's own data, while keeping currentUT
         // for genuinely fresh forks whose StartUT is not yet established.
+        //
+        // The discriminator is Recording.HasActualTrajectoryBounds, NOT a StartUT > 0
+        // check: 0.0 is a valid KSP UT (sandbox-epoch starts, debug worlds), and a
+        // recording with Points[0].ut == 0.0 must keep that anchor.
 
         [Fact]
         public void SeedUT_NullActiveRec_ReturnsCurrentUT()
@@ -346,10 +350,11 @@ namespace Parsek.Tests
         public void SeedUT_EmptyRec_ReturnsCurrentUT_ReFlyForkScenario()
         {
             // Re-Fly fork at creation: no trajectory points, no track sections, so
-            // Recording.StartUT falls back to ExplicitStartUT or 0.0. Current UT IS
-            // the fork-start UT, so use it.
+            // Recording.HasActualTrajectoryBounds is false. Current UT IS the
+            // fork-start UT, so use it.
             var freshFork = new Recording { RecordingId = "rec_fresh_fork" };
 
+            Assert.False(freshFork.HasActualTrajectoryBounds);
             double seedUT = FlightRecorder.ResolveChainPromotionSeedUT(freshFork, currentUT: 128.27);
 
             Assert.Equal(128.27, seedUT);
@@ -368,10 +373,31 @@ namespace Parsek.Tests
             resumedFork.Points.Add(new TrajectoryPoint { ut = 128.27 });
             resumedFork.Points.Add(new TrajectoryPoint { ut = 158.46 });
 
+            Assert.True(resumedFork.HasActualTrajectoryBounds);
             double seedUT = FlightRecorder.ResolveChainPromotionSeedUT(
                 resumedFork, currentUT: 2000.0);
 
             Assert.Equal(128.27, seedUT);
+        }
+
+        [Fact]
+        public void SeedUT_PopulatedRecWithStartUTZero_ReturnsZero_SandboxEpochAnchor()
+        {
+            // Reviewer's P2 round-3 case: 0.0 is a legitimate KSP UT. A sandbox
+            // game started recording immediately gets Points[0].ut == 0.0, so
+            // Recording.StartUT == 0.0 is a real anchor, NOT the empty-recording
+            // fallback. The discriminator is HasActualTrajectoryBounds (true here),
+            // not the sign of StartUT.
+            var sandboxStartRec = new Recording { RecordingId = "rec_sandbox_epoch" };
+            sandboxStartRec.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            sandboxStartRec.Points.Add(new TrajectoryPoint { ut = 30.0 });
+
+            Assert.True(sandboxStartRec.HasActualTrajectoryBounds);
+            Assert.Equal(0.0, sandboxStartRec.StartUT);
+            double seedUT = FlightRecorder.ResolveChainPromotionSeedUT(
+                sandboxStartRec, currentUT: 500.0);
+
+            Assert.Equal(0.0, seedUT);
         }
 
         [Fact]
@@ -394,11 +420,8 @@ namespace Parsek.Tests
             // Defensive: a recording whose StartUT somehow lands ahead of currentUT
             // (e.g. ExplicitStartUT set further forward than the trajectory)
             // should never be used as the anchor — fall back to currentUT.
-            var rec = new Recording
-            {
-                RecordingId = "rec_future_start",
-                ExplicitStartUT = 5000.0
-            };
+            var rec = new Recording { RecordingId = "rec_future_start" };
+            rec.Points.Add(new TrajectoryPoint { ut = 5000.0 });
 
             double seedUT = FlightRecorder.ResolveChainPromotionSeedUT(rec, currentUT: 1000.0);
 
@@ -406,17 +429,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SeedUT_NegativeOrNaNRecordingStartUT_ReturnsCurrentUT()
+        public void SeedUT_EmptyRecWithExplicitStartUTSet_ReturnsCurrentUT()
         {
-            // Defensive: degenerate StartUT values should never propagate as the
-            // seed anchor. KSP UTs can technically be negative (pre-epoch debug
-            // worlds), but treat them as unset for our purposes.
+            // A recording with ExplicitStartUT set but no actual trajectory data is
+            // still empty in the sense that matters: there is no real anchor to
+            // attach engine sentinels to. The ExplicitStartUT can legitimately be
+            // set forward of the eventual trajectory, so trusting it as an anchor
+            // would risk poisoning FindLastInterestingUT just like the resume-UT
+            // case the StartUT anchor was meant to fix. Fall back to currentUT.
             var rec = new Recording
             {
-                RecordingId = "rec_negative_start",
-                ExplicitStartUT = -100.0
+                RecordingId = "rec_explicit_start_only",
+                ExplicitStartUT = 100.0
             };
 
+            Assert.False(rec.HasActualTrajectoryBounds);
             double seedUT = FlightRecorder.ResolveChainPromotionSeedUT(rec, currentUT: 200.0);
 
             Assert.Equal(200.0, seedUT);
