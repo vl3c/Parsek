@@ -9,8 +9,10 @@ namespace Parsek.Tests
     /// ghostRenderTracing is on. The line bypasses
     /// <c>GhostRenderTrace.ShouldEmitPhase</c> / IsDetailedWindowOpen so a
     /// future ghost-vanish repro can answer: did the recording reach the
-    /// per-trajectory loop, what skipReason did it carry, did its trajectory
-    /// have renderable data, and was <c>ghostStates[i]</c> still populated.
+    /// per-trajectory loop, what producer-side skipReason did it carry, was
+    /// anchorReFlyUnstable set (the engine consults that flag mid-loop and
+    /// will skip even when skipReason is None), did its trajectory have
+    /// renderable data, and was <c>ghostStates[i]</c> still populated.
     ///
     /// The format helpers are pure static so the contract can be pinned
     /// without any KSP-runtime dependency.
@@ -49,13 +51,15 @@ namespace Parsek.Tests
                 index: 9,
                 recordingId: "rec_152453a952804ee7b54f129bdfe2fdc1",
                 skipReason: GhostPlaybackSkipReason.None,
+                anchorReFlyUnstable: false,
                 hasRenderableData: true,
                 inGhostStates: true,
                 endUT: 1740.436);
 
-            // Compact format the spec calls out: [i=N rec=ID skip=R hd=T/F hs=T/F endUT=X]
+            // Compact format the spec calls out:
+            // [i=N rec=ID skip=R aru=T/F hd=T/F hs=T/F endUT=X]
             Assert.Equal(
-                "[i=9 rec=rec_1524 skip=None hd=T hs=T endUT=1740.4]",
+                "[i=9 rec=rec_1524 skip=None aru=F hd=T hs=T endUT=1740.4]",
                 entry);
         }
 
@@ -66,12 +70,13 @@ namespace Parsek.Tests
                 index: 0,
                 recordingId: "691dd66b032b4919b752597f48692fd0",
                 skipReason: GhostPlaybackSkipReason.SessionSuppressed,
+                anchorReFlyUnstable: false,
                 hasRenderableData: true,
                 inGhostStates: false,
                 endUT: 131.55);
 
             Assert.Equal(
-                "[i=0 rec=691dd66b skip=session-suppressed hd=T hs=F endUT=131.6]",
+                "[i=0 rec=691dd66b skip=session-suppressed aru=F hd=T hs=F endUT=131.6]",
                 entry);
         }
 
@@ -86,12 +91,41 @@ namespace Parsek.Tests
                 index: 10,
                 recordingId: "rec_bc0cd07fde9840e4956ce30a524ec670",
                 skipReason: GhostPlaybackSkipReason.NoRenderableData,
+                anchorReFlyUnstable: false,
                 hasRenderableData: false,
                 inGhostStates: false,
                 endUT: 128.27);
 
             Assert.Equal(
-                "[i=10 rec=rec_bc0c skip=no-renderable-data hd=F hs=F endUT=128.3]",
+                "[i=10 rec=rec_bc0c skip=no-renderable-data aru=F hd=F hs=F endUT=128.3]",
+                entry);
+        }
+
+        [Fact]
+        public void FormatEngineIterEntry_AnchorReFlyUnstable_Flag_Reported_As_T()
+        {
+            // H2 hypothesis: the engine reads f.anchorReFlyUnstable later in
+            // the UpdatePlayback per-trajectory loop and hides/skips the
+            // ghost as anchor-refly-unstable AFTER the producer-side
+            // skipGhost gate. So f.skipReason can be None while the engine
+            // still skips the ghost mid-loop. The trace must surface the
+            // producer-side anchorReFlyUnstable flag independently so a
+            // future repro can tell "rendering normally" (aru=F) apart from
+            // "engine will skip this frame" (aru=T) without scrolling for a
+            // separate GuardSkip emit (which is rate-limited and may be
+            // absent in the same 1.0s sample window as the iter line).
+            string entry = GhostPlaybackEngine.FormatEngineIterEntry(
+                index: 9,
+                recordingId: "rec_152453a952804ee7b54f129bdfe2fdc1",
+                skipReason: GhostPlaybackSkipReason.None,
+                anchorReFlyUnstable: true,
+                hasRenderableData: true,
+                inGhostStates: true,
+                endUT: 1740.436);
+
+            Assert.Contains("aru=T", entry);
+            Assert.Equal(
+                "[i=9 rec=rec_1524 skip=None aru=T hd=T hs=T endUT=1740.4]",
                 entry);
         }
 
@@ -102,12 +136,13 @@ namespace Parsek.Tests
                 index: 3,
                 recordingId: null,
                 skipReason: GhostPlaybackSkipReason.None,
+                anchorReFlyUnstable: false,
                 hasRenderableData: false,
                 inGhostStates: false,
                 endUT: 0.0);
 
             Assert.Equal(
-                "[i=3 rec=<none> skip=None hd=F hs=F endUT=0.0]",
+                "[i=3 rec=<none> skip=None aru=F hd=F hs=F endUT=0.0]",
                 entry);
         }
 
@@ -127,6 +162,7 @@ namespace Parsek.Tests
                     index: 9,
                     recordingId: "rec_1524",
                     skipReason: GhostPlaybackSkipReason.None,
+                    anchorReFlyUnstable: false,
                     hasRenderableData: true,
                     inGhostStates: true,
                     endUT: 1740.4);

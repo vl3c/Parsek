@@ -227,12 +227,15 @@ namespace Parsek
         // Engine-iteration trace (closes observability gap left by GhostRenderTrace
         // gating on IsDetailedWindowOpen). Bypasses the gate so a future repro can
         // tell from a single log line whether a recording reached the per-trajectory
-        // loop, what its producer-side skipReason was, whether its trajectory had
-        // renderable data, and whether ghostStates still holds an entry.
+        // loop, what its producer-side skipReason was, whether anchorReFlyUnstable
+        // was set (separate flag the engine reads later in the loop and the centre
+        // of the H2 hypothesis), whether its trajectory had renderable data, and
+        // whether ghostStates still holds an entry.
         internal static string FormatEngineIterEntry(
             int index,
             string recordingId,
             GhostPlaybackSkipReason skipReason,
+            bool anchorReFlyUnstable,
             bool hasRenderableData,
             bool inGhostStates,
             double endUT)
@@ -244,6 +247,7 @@ namespace Parsek
             return "[i=" + index.ToString(CultureInfo.InvariantCulture)
                 + " rec=" + shortId
                 + " skip=" + skip
+                + " aru=" + (anchorReFlyUnstable ? "T" : "F")
                 + " hd=" + (hasRenderableData ? "T" : "F")
                 + " hs=" + (inGhostStates ? "T" : "F")
                 + " endUT=" + endUT.ToString("F1", CultureInfo.InvariantCulture)
@@ -626,6 +630,7 @@ namespace Parsek
                         skipReason: f.skipGhost
                             ? f.skipReason
                             : GhostPlaybackSkipReason.None,
+                        anchorReFlyUnstable: f.anchorReFlyUnstable,
                         hasRenderableData: HasRenderableGhostData(traj),
                         inGhostStates: ghostStates.ContainsKey(i),
                         endUT: traj?.EndUT ?? double.NaN));
