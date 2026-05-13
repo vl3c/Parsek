@@ -3424,13 +3424,17 @@ namespace Parsek
                     activeVessel.situation,
                     activeVessel.missionTime))
             {
-                bool armedMatch = activeVesselPid == freshlyLaunchedActiveVesselPid;
+                bool prelaunchFresh = activeVessel.situation == Vessel.Situations.PRELAUNCH
+                    && activeVessel.missionTime >= 0
+                    && activeVessel.missionTime < FreshLaunchPrelaunchMissionTimeThresholdSeconds;
+                string reason = prelaunchFresh
+                    ? "PRELAUNCH+missionTime<1s"
+                    : "onLaunch-armed-pid-match";
                 ParsekLog.Info("Flight",
                     $"TryRestoreCommittedTreeForSpawnedActiveVessel: skipping for freshly-launched " +
                     $"vessel '{activeVessel.vesselName}' pid={activeVesselPid} " +
-                    $"(reason={(armedMatch ? "onLaunch-armed-pid-match" : "PRELAUNCH+missionTime<1s")} " +
-                    $"situation={activeVessel.situation} missionTime={activeVessel.missionTime:F3}) " +
-                    "— new mission gets its own tree");
+                    $"(reason={reason} situation={activeVessel.situation} " +
+                    $"missionTime={activeVessel.missionTime:F3}) — new mission gets its own tree");
                 return false;
             }
 
@@ -10803,14 +10807,27 @@ namespace Parsek
         // a fresh VAB/SPH launch would silently attach to the prior committed tree
         // and merge two distinct missions under one auto-generated group.
         //
-        // Two independent signals so the gate fires even if onLaunch races
-        // HandleMissedVesselSwitchRecovery: (1) the onLaunch-armed pid, the
-        // most reliable signal when it arrives in time, and (2) a PRELAUNCH
-        // vessel with sub-second missionTime, a sufficient stand-in when
-        // onLaunch hasn't fired yet. The PRELAUNCH check is safe against
-        // saved-on-pad reloads because those route the prior tree through
-        // ParsekScenario's ACTIVE_TREE restore path before Update() can call
-        // the committed-tree dispatcher (activeTree != null short-circuits).
+        // Two complementary signals because GameEvents.onLaunch is fired by
+        // KSP.UI.Screens.StageManager on FIRST STAGE ACTIVATION, not on rollout
+        // from VAB/SPH (verified in Assembly-CSharp: StageManager.cs:3379). The
+        // documented restore runs from HandleMissedVesselSwitchRecovery in
+        // Update() within ~63 ms of Parsek Flight Start(), well before the
+        // player presses space — see logs/2026-05-13_1850_kerbal-x-merge-bug.
+        //
+        // (1) PRELAUNCH situation + sub-second missionTime — the PRIMARY guard
+        //     for the documented bug. A fresh VAB/SPH rollout sits on the pad
+        //     in PRELAUNCH with launchTime≈current-UT until the player stages.
+        //     Safe against saved-on-pad reloads: those route the prior tree
+        //     through ParsekScenario's ACTIVE_TREE restore before Update() can
+        //     call the committed-tree dispatcher (activeTree != null
+        //     short-circuits at the top of TryRestoreCommittedTreeForSpawnedActiveVessel).
+        //
+        // (2) onLaunch-armed pid — supplementary coverage for the rare
+        //     post-staging restore window (vessel has already transitioned out
+        //     of PRELAUNCH, auto-record is disabled or has not yet armed a
+        //     recorder, activeTree is still null, HandleMissedVesselSwitchRecovery's
+        //     1-second retry fires another TryRestore). KSP's onLaunch will
+        //     have armed the pid by then because staging fires it.
         internal const double FreshLaunchPrelaunchMissionTimeThresholdSeconds = 1.0;
 
         internal static bool ShouldSkipCommittedTreeRestoreForFreshLaunch(
@@ -10820,13 +10837,16 @@ namespace Parsek
             double activeVesselMissionTime)
         {
             if (activeVesselPid == 0) return false;
-            if (activeVesselPid == armedFreshLaunchPid) return true;
+            // Primary: PRELAUNCH + sub-second missionTime — the only signal
+            // that arms in time for the documented Update()-tick restore race.
             if (activeVesselSituation == Vessel.Situations.PRELAUNCH
                 && activeVesselMissionTime >= 0
                 && activeVesselMissionTime < FreshLaunchPrelaunchMissionTimeThresholdSeconds)
             {
                 return true;
             }
+            // Supplementary: post-staging coverage.
+            if (activeVesselPid == armedFreshLaunchPid) return true;
             return false;
         }
 
