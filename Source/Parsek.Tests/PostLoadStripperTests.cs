@@ -44,6 +44,7 @@ namespace Parsek.Tests
             public uint PersistentId { get; set; }
             public uint RootPartPersistentId { get; set; }
             public string VesselName { get; set; }
+            public VesselType VesselType { get; set; } = VesselType.Ship;
             public Vessel LiveVessel => null; // tests do not construct live Unity objects
             public bool Died { get; private set; }
             public bool ThrowOnDie { get; set; }
@@ -378,6 +379,151 @@ namespace Parsek.Tests
             var collisions = PostLoadStripper.FindTreeNameCollisions(
                 new[] { "kerbal x" }, new[] { "Kerbal X" });
             Assert.Empty(collisions);
+        }
+
+        [Fact]
+        public void ShouldPreserveVesselType_FlagOnly()
+        {
+            // Contract: only VesselType.Flag is preserved. Asteroids/comets
+            // (SpaceObject) are left alone by the existing unmatched-vessel
+            // branch, not by this preserve predicate.
+            Assert.True(PostLoadStripper.ShouldPreserveVesselType(VesselType.Flag));
+            Assert.False(PostLoadStripper.ShouldPreserveVesselType(VesselType.Ship));
+            Assert.False(PostLoadStripper.ShouldPreserveVesselType(VesselType.Probe));
+            Assert.False(PostLoadStripper.ShouldPreserveVesselType(VesselType.Debris));
+            Assert.False(PostLoadStripper.ShouldPreserveVesselType(VesselType.EVA));
+            Assert.False(PostLoadStripper.ShouldPreserveVesselType(VesselType.SpaceObject));
+            Assert.False(PostLoadStripper.ShouldPreserveVesselType(VesselType.Unknown));
+        }
+
+        [Fact]
+        public void Strip_FlagVessel_PreservedEvenUnderStrictStrip()
+        {
+            // Repro of the user-reported bug: planted flag is one of the
+            // unmatched vessels in strict-strip mode; without the preserve
+            // branch it would be stripped along with sibling debris. The
+            // flag's PID is not in any slot map and it has no Parsek recording.
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 100u, 0 }, // probe (selected)
+                { 101u, 1 }, // capsule (sibling slot)
+            });
+
+            var probe = new StubVessel { PersistentId = 100u, VesselName = "Kerbal X Probe", VesselType = VesselType.Probe };
+            var capsule = new StubVessel { PersistentId = 101u, VesselName = "Kerbal X", VesselType = VesselType.Ship };
+            var flag = new StubVessel { PersistentId = 200u, VesselName = "Flag", VesselType = VesselType.Flag };
+            var source = new StubEnumeration(new IStrippableVessel[] { probe, capsule, flag });
+
+            var result = PostLoadStripper.Strip(
+                rp,
+                selectedSlotIndex: 0,
+                source,
+                stripUnmatchedVessels: true);
+
+            Assert.Equal(100u, result.SelectedPid);
+            Assert.False(probe.Died);
+            Assert.True(capsule.Died);
+            Assert.False(flag.Died);
+            Assert.Contains(101u, result.StrippedPids);
+            Assert.DoesNotContain(200u, result.StrippedPids);
+            Assert.NotNull(result.PreservedFlagPids);
+            Assert.Single(result.PreservedFlagPids);
+            Assert.Contains(200u, result.PreservedFlagPids);
+
+            // Per-vessel verbose preserve log.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("Strip preserve: flag vessel") &&
+                l.Contains("v=200") && l.Contains("'Flag'"));
+            // Summary log line.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("Strip preserved 1 flag vessel(s)") &&
+                l.Contains("[200]"));
+            // Strip-stripped summary includes preservedFlags count.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("Strip stripped=[101]") &&
+                l.Contains("preservedFlags=1"));
+            // Flag must NOT appear in the strict-unmatched WARN message.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Strip strict") && l.Contains("200:Flag"));
+        }
+
+        [Fact]
+        public void Strip_FlagOnly_PreservedAlongsideSelected()
+        {
+            // Sanity: only active vessel + flag in scene. Flag is preserved,
+            // selected vessel kept, nothing stripped.
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 100u, 0 },
+            });
+            var probe = new StubVessel { PersistentId = 100u, VesselName = "Probe", VesselType = VesselType.Probe };
+            var flag = new StubVessel { PersistentId = 300u, VesselName = "Flag", VesselType = VesselType.Flag };
+            var source = new StubEnumeration(new IStrippableVessel[] { probe, flag });
+
+            var result = PostLoadStripper.Strip(
+                rp,
+                selectedSlotIndex: 0,
+                source,
+                stripUnmatchedVessels: true);
+
+            Assert.Equal(100u, result.SelectedPid);
+            Assert.False(probe.Died);
+            Assert.False(flag.Died);
+            Assert.Empty(result.StrippedPids);
+            Assert.Single(result.PreservedFlagPids);
+            Assert.Contains(300u, result.PreservedFlagPids);
+        }
+
+        [Fact]
+        public void Strip_FlagPreserved_RegardlessOfSlotMapMembership()
+        {
+            // Contract: VesselType.Flag bypasses strip BEFORE the slot-map
+            // match, so even a flag whose PID happens to collide with a
+            // PidSlotMap entry (extremely unlikely in practice) is preserved.
+            // The flag's contract is the vessel type, not the situation.
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 100u, 0 }, // selected probe
+                { 999u, 1 }, // contrived: flag PID is registered as a sibling slot
+            });
+            var probe = new StubVessel { PersistentId = 100u, VesselName = "Probe", VesselType = VesselType.Probe };
+            var flag = new StubVessel { PersistentId = 999u, VesselName = "Flag", VesselType = VesselType.Flag };
+            var source = new StubEnumeration(new IStrippableVessel[] { probe, flag });
+
+            var result = PostLoadStripper.Strip(
+                rp,
+                selectedSlotIndex: 0,
+                source,
+                stripUnmatchedVessels: true);
+
+            Assert.Equal(100u, result.SelectedPid);
+            Assert.False(flag.Died);
+            Assert.DoesNotContain(999u, result.StrippedPids);
+            Assert.Contains(999u, result.PreservedFlagPids);
+        }
+
+        [Fact]
+        public void Strip_NoFlags_PreservedFlagPidsEmpty_NoSummaryLog()
+        {
+            // Without any VesselType.Flag candidates the preserve list is
+            // empty and the dedicated "Strip preserved N flag vessel(s)"
+            // summary line must NOT be emitted (only the standard summary
+            // with preservedFlags=0 is logged).
+            var rp = MakeRp(new Dictionary<uint, int>
+            {
+                { 100u, 0 },
+                { 101u, 1 },
+            });
+            var v0 = new StubVessel { PersistentId = 100u, VesselType = VesselType.Probe };
+            var v1 = new StubVessel { PersistentId = 101u, VesselType = VesselType.Ship };
+            var source = new StubEnumeration(new IStrippableVessel[] { v0, v1 });
+
+            var result = PostLoadStripper.Strip(rp, selectedSlotIndex: 0, source);
+
+            Assert.NotNull(result.PreservedFlagPids);
+            Assert.Empty(result.PreservedFlagPids);
+            Assert.Contains(logLines, l => l.Contains("preservedFlags=0"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Strip preserved") && l.Contains("flag vessel"));
         }
 
         [Fact]
