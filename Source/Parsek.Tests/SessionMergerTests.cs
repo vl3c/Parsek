@@ -1391,6 +1391,211 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void MergeTree_PreservesReseededPredictedTailWhenSectionEndUTExtendsPastLastRecordedPoint()
+        {
+            // Repro of the "ghost freezes at flat-point pair past end of recording" bug.
+            // The recorder commonly extends the last TrackSection.endUT past the UT of its
+            // last frame (post-recording settle tail). The finalizer's
+            // TryReseedFirstPredictedTailSegmentFromRecordedAnchor then moves the first
+            // predicted segment's startUT back to that last-frame UT. Before the fix the
+            // merger floor was maxTrackSectionEndUT and silently dropped the reseeded
+            // segment because its startUT < that floor. The playback hand-off bound is the
+            // last recorded source point UT, so the merger now uses
+            // min(lastRecordedPointUT, maxTrackSectionEndUT) as the floor.
+            const double anchorPointUT = 156.43;
+            const double sectionEndUT = 158.47; // 2.04 s settle tail past anchor frame
+            const double secondPredictedStartUT = 1382.97;
+            const double terminalUT = 1740.44;
+
+            // Build a section with extra interior frames so rebuilt-from-sections produces
+            // more points than the source flat Points list. That forces the merger to
+            // route through TrySyncFlatTrajectoryPreservingPredictedOrbitTail rather than
+            // the "preserved-flat-copy" fallback — same path as the real-world repro.
+            var section = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = sectionEndUT,
+                source = TrackSectionSource.Active,
+                sampleRateHz = 10f,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = -0.02, longitude = -74.5, altitude = 65000.0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 120.0, latitude = -0.018, longitude = -74.4, altitude = 68000.0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 140.0, latitude = -0.014, longitude = -74.3, altitude = 70500.0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    },
+                    // Last actual recorded frame — the anchor. section.endUT extends past
+                    // this UT by the recorder's settle tail (158.47 - 156.43 = 2.04 s).
+                    new TrajectoryPoint
+                    {
+                        ut = anchorPointUT, latitude = -0.01, longitude = -74.2, altitude = 72000.0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    }
+                },
+                checkpoints = new List<OrbitSegment>(),
+                boundaryDiscontinuityMeters = 0f
+            };
+
+            var rec = MakeRecording(
+                "rec-reseeded-anchor-tail",
+                "Kerbal X Probe",
+                new List<TrackSection> { section });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            // Source Points list is coarser than section.frames and ends at the last
+            // recorded sample (the anchor at 156.43, NOT the trailing section.endUT).
+            rec.Points = new List<TrajectoryPoint>
+            {
+                section.frames[0],
+                section.frames[section.frames.Count - 1]
+            };
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                // Reseeded predicted segment: startUT == anchor frame UT (NOT section.endUT).
+                MakeOrbitSegment(anchorPointUT, secondPredictedStartUT, isPredicted: true),
+                MakeOrbitSegment(secondPredictedStartUT, terminalUT, isPredicted: true)
+            };
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = terminalUT;
+
+            var tree = MakeTree("Reseeded Anchor Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-reseeded-anchor-tail"];
+
+            // Both predicted segments survive: the reseeded one anchored at the last
+            // recorded point UT plus the late extrapolated tail.
+            Assert.Equal(2, merged.OrbitSegments.Count);
+            Assert.All(merged.OrbitSegments, seg => Assert.True(seg.isPredicted));
+            Assert.Equal(anchorPointUT, merged.OrbitSegments[0].startUT);
+            Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-reseeded-anchor-tail'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:2"));
+        }
+
+        [Fact]
+        public void MergeTree_PreservesPredictedTailWhenLastPointAlignsWithSectionEndUT()
+        {
+            // Edge case: no settle tail. section.endUT == last frame UT == last point UT.
+            // The new floor min(lastPoint.ut, sectionEndUT) collapses to the same value as
+            // the old maxTrackSectionEndUT floor, so behavior is unchanged.
+            const double sectionEndUT = 91.426190490723116;
+            const double terminalUT = 767.36510226897826;
+
+            var section = MakeSection(
+                42.500000000001044,
+                sectionEndUT,
+                TrackSectionSource.Active,
+                lat: -0.09,
+                lon: -74.97,
+                alt: 2287.47,
+                endLat: -0.03,
+                endLon: -74.10,
+                endAlt: 25000.0);
+
+            var rec = MakeRecording(
+                "rec-no-settle-tail",
+                "Kerbal X Probe",
+                new List<TrackSection> { section });
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            rec.Points = new List<TrajectoryPoint>(section.frames);
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(sectionEndUT, 400.0, isPredicted: true),
+                MakeOrbitSegment(400.0, terminalUT, isPredicted: true)
+            };
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = terminalUT;
+
+            var tree = MakeTree("No Settle Tail", rec);
+
+            var result = SessionMerger.MergeTree(tree);
+            var merged = result["rec-no-settle-tail"];
+
+            Assert.Equal(2, merged.OrbitSegments.Count);
+            Assert.All(merged.OrbitSegments, seg => Assert.True(seg.isPredicted));
+            Assert.Equal(sectionEndUT, merged.OrbitSegments[0].startUT);
+            Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
+        }
+
+        [Fact]
+        public void MergeTree_EmptySourcePoints_FallsBackToMaxTrackSectionEndUTFloor()
+        {
+            // When source.Points is empty (defensive: shouldn't happen for a real
+            // finalized recording but we want robust fallback), the merger should fall
+            // back to the old maxTrackSectionEndUT floor. A predicted segment starting
+            // before that floor is rejected; one starting at or after it is preserved.
+            const double sectionEndUT = 200.0;
+            var section = MakeSection(
+                100.0,
+                sectionEndUT,
+                TrackSectionSource.Active,
+                lat: -0.02,
+                lon: -74.5,
+                alt: 65000.0,
+                endLat: -0.01,
+                endLon: -74.2,
+                endAlt: 72000.0);
+
+            // Case A: empty Points + predicted segment starting before sectionEndUT
+            // (which would be preserved if we used a non-existent "last point" of 0/NaN).
+            // Expectation: rejected, floor falls back to sectionEndUT=200.
+            var recRejected = MakeRecording(
+                "rec-empty-points-rejected",
+                "Kerbal X",
+                new List<TrackSection> { section });
+            recRejected.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            recRejected.Points = new List<TrajectoryPoint>();
+            recRejected.OrbitSegments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(150.0, 400.0, isPredicted: true)
+            };
+
+            var treeRejected = MakeTree("Empty Points Rejected", recRejected);
+            var resultRejected = SessionMerger.MergeTree(treeRejected);
+            var mergedRejected = resultRejected["rec-empty-points-rejected"];
+            Assert.Empty(mergedRejected.OrbitSegments);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("recording='rec-empty-points-rejected'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail"));
+
+            // Case B: empty Points + predicted segment starting at sectionEndUT.
+            // Expectation: preserved, floor falls back to sectionEndUT=200.
+            var recPreserved = MakeRecording(
+                "rec-empty-points-preserved",
+                "Kerbal X",
+                new List<TrackSection> { section });
+            recPreserved.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            recPreserved.Points = new List<TrajectoryPoint>();
+            recPreserved.OrbitSegments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(sectionEndUT, 400.0, isPredicted: true)
+            };
+
+            var treePreserved = MakeTree("Empty Points Preserved", recPreserved);
+            var resultPreserved = SessionMerger.MergeTree(treePreserved);
+            var mergedPreserved = resultPreserved["rec-empty-points-preserved"];
+            Assert.Single(mergedPreserved.OrbitSegments);
+            Assert.Equal(sectionEndUT, mergedPreserved.OrbitSegments[0].startUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("recording='rec-empty-points-preserved'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:1"));
+        }
+
         [Theory]
         [InlineData("non-predicted")]
         [InlineData("non-monotonic")]

@@ -271,6 +271,26 @@ namespace Parsek
             if (!TryGetMaxTrackSectionEndUT(target.TrackSections, out double sectionEndUT))
                 return false;
 
+            // Align the predicted-tail floor with the playback hand-off bound. Playback
+            // (GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment) treats the orbit tail
+            // as starting after the last recorded source point, not after the last
+            // TrackSection.endUT. The recorder commonly extends the trailing section
+            // endUT past the UT of its last frame (post-recording settle tail), and the
+            // finalizer's TryReseedFirstPredictedTailSegmentFromRecordedAnchor moves the
+            // first predicted segment's startUT back to that last-frame UT. Using just
+            // maxTrackSectionEndUT as the floor would drop that reseeded segment because
+            // its startUT < endUT-of-last-section. We take min(lastRecordedPointUT,
+            // maxTrackSectionEndUT) so the floor never sits past the playback bound, while
+            // still rejecting segments that overlap the resolved TrackSection payload
+            // (those are excluded by the resolved-prefix walk inside
+            // FindPredictedOrbitTailStart).
+            double predictedTailFloorUT = sectionEndUT;
+            if (TryGetLastSourcePointUT(source.Points, out double lastSourcePointUT)
+                && lastSourcePointUT < predictedTailFloorUT)
+            {
+                predictedTailFloorUT = lastSourcePointUT;
+            }
+
             var rebuiltPoints = new List<TrajectoryPoint>();
             RecordingStore.RebuildPointsFromTrackSections(target.TrackSections, rebuiltPoints);
 
@@ -279,7 +299,7 @@ namespace Parsek
                 target.TrackSections, rebuiltOrbitSegments);
 
             int suffixStart = FindPredictedOrbitTailStart(
-                source.OrbitSegments, rebuiltOrbitSegments, sectionEndUT);
+                source.OrbitSegments, rebuiltOrbitSegments, predictedTailFloorUT);
             if (suffixStart < 0)
                 return false;
 
@@ -327,6 +347,23 @@ namespace Parsek
                     maxEndUT = sections[i].endUT;
             }
 
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the UT of the last entry in the source <see cref="Recording.Points"/>
+        /// list (the playback orbit-tail hand-off bound). Returns false when the source
+        /// has no recorded points; callers then fall back to the TrackSection.endUT bound.
+        /// </summary>
+        private static bool TryGetLastSourcePointUT(
+            List<TrajectoryPoint> points,
+            out double lastPointUT)
+        {
+            lastPointUT = double.NegativeInfinity;
+            if (points == null || points.Count == 0)
+                return false;
+
+            lastPointUT = points[points.Count - 1].ut;
             return true;
         }
 
