@@ -213,6 +213,14 @@ namespace Parsek
         /// sample we return the last sample's magnitude (clamp-on-overrun is
         /// safe — the caller already passes the section's `frames` and knows
         /// the bracket ends).
+        ///
+        /// Assumes the caller passes a UT-monotonic `frames` list; the
+        /// bracket-finder mirrors the existing `recordedAnchorLocalDist`
+        /// loop in `ParsekFlight.cs` (early-break on the first
+        /// `frames[j].ut &gt; playbackUT`) so the two trace fields always pick
+        /// the same bracket on well-formed input. On pathological
+        /// non-monotonic input the bracket is whatever this contract says,
+        /// not whatever an alternative full-list scan would have produced.
         /// </summary>
         internal static double InterpolateAnchorLocalOffsetMagnitude(
             IReadOnlyList<TrajectoryPoint> frames, double playbackUT)
@@ -223,40 +231,33 @@ namespace Parsek
                 return double.NaN;
 
             int beforeIdx = -1;
-            int afterIdx = -1;
             for (int j = 0; j < frames.Count; j++)
             {
                 if (frames[j].ut <= playbackUT)
                     beforeIdx = j;
-                if (frames[j].ut >= playbackUT && afterIdx < 0)
-                    afterIdx = j;
+                else
+                    break;
             }
 
             if (beforeIdx < 0)
                 return double.NaN; // playbackUT before first sample
-            if (afterIdx < 0)
+            if (beforeIdx >= frames.Count - 1)
             {
-                // playbackUT past the last sample: return last-sample magnitude
-                // (caller's bracket has ended; this matches the existing
-                // "use the bracketing-before only" behavior at the right edge).
+                // playbackUT at-or-past the last sample. Clamp to the last
+                // sample's magnitude — the caller's bracket has ended and a
+                // NaN here would hide the real number from the log row.
                 TrajectoryPoint last = frames[frames.Count - 1];
                 return new Vector3d(last.latitude, last.longitude, last.altitude).magnitude;
             }
-            if (afterIdx == beforeIdx)
-            {
-                // Exact-hit on a sample, or single-sample-bracket edge.
-                TrajectoryPoint p = frames[beforeIdx];
-                return new Vector3d(p.latitude, p.longitude, p.altitude).magnitude;
-            }
 
             TrajectoryPoint b = frames[beforeIdx];
-            TrajectoryPoint a = frames[afterIdx];
+            TrajectoryPoint a = frames[beforeIdx + 1];
             double alpha = ComputeLerpAlpha(b.ut, a.ut, playbackUT);
             if (double.IsNaN(alpha))
             {
-                // Degenerate bracket (zero/negative span). Fall back to the
-                // bracketing-before magnitude rather than producing a NaN log
-                // value that hides the real number.
+                // Degenerate bracket (zero/negative span — typically a
+                // duplicate UT pair). Fall back to the bracketing-before
+                // magnitude rather than producing a NaN log value.
                 return new Vector3d(b.latitude, b.longitude, b.altitude).magnitude;
             }
 

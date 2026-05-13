@@ -234,24 +234,65 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void InterpolateAnchorLocalOffsetMagnitude_DuplicateUTBracket_FallsBackToBeforeMagnitude()
+        public void InterpolateAnchorLocalOffsetMagnitude_DuplicateUTBracket_ClampsToLastSampleMagnitude()
         {
-            // Degenerate zero-span bracket: ComputeLerpAlpha returns NaN, and
-            // we fall back to the bracketing-before magnitude rather than
-            // propagating NaN — gives the log reader the best available value.
+            // Duplicate UTs collapse the bracket: both samples qualify as
+            // bracketing-before, so beforeIdx advances to the last duplicate
+            // (j=1) and the helper takes the right-edge clamp path (the
+            // beforeIdx >= Count-1 branch), returning the last sample's
+            // magnitude rather than the first's. Pin this so the helper's
+            // monotonic-input contract is observable from the tests: any
+            // future refactor that flips the bracket order on duplicate
+            // UTs (e.g. picking the FIRST duplicate as beforeIdx) will
+            // fail this test instead of silently changing log values.
+            var frames = new List<TrajectoryPoint>
+            {
+                AnchorLocalFrame(268.656, 1.06, -15.15, -0.62),   // |.| ≈ 15.1997
+                AnchorLocalFrame(268.656, 5.00, -18.00, -2.00),   // |.| ≈ 18.7883
+            };
+            double mag = TraceSeparation.InterpolateAnchorLocalOffsetMagnitude(frames, 268.656);
+            // sqrt(25 + 324 + 4) = sqrt(353) ≈ 18.788
+            Assert.Equal(18.7883, mag, 3);
+        }
+
+        [Fact]
+        public void InterpolateAnchorLocalOffsetMagnitude_PositiveInfinityPlaybackUT_ReturnsNaN()
+        {
+            // Parity with ComputeLerpAlpha's PositiveInfinity guard: an
+            // infinite playback UT can't be located in the bracket so the
+            // helper must bail rather than treat it as past-last-sample.
             var frames = new List<TrajectoryPoint>
             {
                 AnchorLocalFrame(268.656, 1.06, -15.15, -0.62),
-                AnchorLocalFrame(268.656, 5.00, -18.00, -2.00),
+                AnchorLocalFrame(269.256, 5.00, -18.00, -2.00),
+            };
+            double mag = TraceSeparation.InterpolateAnchorLocalOffsetMagnitude(
+                frames, double.PositiveInfinity);
+            Assert.True(double.IsNaN(mag));
+        }
+
+        [Fact]
+        public void InterpolateAnchorLocalOffsetMagnitude_NaNUTInFrame_FallsBackToBeforeMagnitude()
+        {
+            // A frame with `ut=NaN` fails `ut <= playbackUT` (NaN
+            // comparisons return false), so the bracket-finder's `else
+            // break` short-circuits at the NaN entry and beforeIdx stays at
+            // the last valid frame. The lerp then sees a NaN UT in the
+            // after-sample, ComputeLerpAlpha returns NaN, and we fall back
+            // to the before-sample magnitude — a tolerable outcome that
+            // never dereferences the NaN frame's UT for math. This pins
+            // "no crash, returns the valid frame's magnitude" so a future
+            // refactor that flips the bracket-finder's NaN handling fails
+            // here instead of silently corrupting trace values.
+            var frames = new List<TrajectoryPoint>
+            {
+                AnchorLocalFrame(268.656, 1.06, -15.15, -0.62),
+                AnchorLocalFrame(double.NaN, 5.00, -18.00, -2.00),
             };
             double mag = TraceSeparation.InterpolateAnchorLocalOffsetMagnitude(frames, 268.656);
-            // Both samples have the same UT; beforeIdx ends up as the last
-            // duplicate (j=1), afterIdx as the first match (j=0). The lerp
-            // span is zero → alpha NaN → fallback to before-magnitude.
-            // Whichever sample wins, the magnitude is one of the two
-            // recorded values; assert both possibilities aren't NaN.
             Assert.False(double.IsNaN(mag));
-            Assert.True(mag > 0);
+            // sqrt(1.06^2 + 15.15^2 + 0.62^2) = sqrt(231.0305) ≈ 15.1997
+            Assert.Equal(15.1997, mag, 3);
         }
     }
 }
