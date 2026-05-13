@@ -3724,11 +3724,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrimBoringTail_SubOrbitalTerminalUsesOrbitGuard()
+        public void TrimBoringTail_SubOrbitalTerminal_RefusesTrim_ShapeMismatch()
         {
             var rec = MakeRecordingWithBoringTail(100, 130, 220,
                 SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
                 activePointCount: 4, boringPointCount: 6);
+            rec.RecordingId = "trim-suborbital-shape-mismatch";
             rec.TerminalStateValue = TerminalState.SubOrbital;
             rec.TerminalOrbitBody = "Kerbin";
             rec.TerminalOrbitInclination = 1.25;
@@ -3742,11 +3743,7 @@ namespace Parsek.Tests
                 endUT = 220,
                 bodyName = "Kerbin",
                 inclination = 1.25,
-                // Eccentricity delta = 0.04, above the absolute epsilon (1e-3). A coast
-                // segment whose eccentricity drifted by 0.04 is genuinely a different
-                // orbit (the recorded terminal SubOrbital is not yet stable); the guard
-                // must keep this recording un-trimmed.
-                eccentricity = 0.05,
+                eccentricity = 0.05, // far above the absolute epsilon (1e-3)
                 semiMajorAxis = 800000.0,
                 longitudeOfAscendingNode = 120.0,
                 argumentOfPeriapsis = 45.0
@@ -3755,6 +3752,154 @@ namespace Parsek.Tests
 
             Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
             Assert.Equal(220, rec.EndUT);
+        }
+
+        [Fact]
+        public void TrimBoringTail_SubOrbitalTerminal_RefusesTrim_RegardlessOfShapeMatch()
+        {
+            // Regression for "probe booster ghost disappears 10s after vacuum exit".
+            // Mirrors the real log scenario: probe finalized as SubOrbital, terminal
+            // orbit healed by PopulateTerminalOrbitFromLastSegment to match the
+            // captured on-rails BG orbit, ExoBallistic boring tail past the BubbleExit
+            // anchor. Pre-fix, TailMatchesTerminalOrbit returned true on the shape
+            // match and trim chopped the ballistic tail; post-fix, IsSpawnableTerminal
+            // refuses upfront because ShouldSpawnAtRecordingEnd never spawns a real
+            // vessel for SubOrbital (mid-air FLYING materialization would crash, #45),
+            // so the boring tail is the only continuation the player sees and must
+            // be preserved.
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = MakeRecordingWithBoringTail(404, 414, 440,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 12);
+            rec.RecordingId = "trim-suborbital-shape-match";
+            rec.VesselName = "Kerbal X Probe";
+            rec.TerminalStateValue = TerminalState.SubOrbital;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 0.4721;
+            rec.TerminalOrbitEccentricity = 0.3481;
+            rec.TerminalOrbitSemiMajorAxis = 601698.0;
+            rec.TerminalOrbitLAN = 0.0;
+            rec.TerminalOrbitArgumentOfPeriapsis = 75.83;
+            // Captured tail orbit shape matches the healed terminal byte-for-byte —
+            // the old guard would have accepted this and trimmed.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 413.6,
+                endUT = 440.0,
+                bodyName = "Kerbin",
+                inclination = 0.4721,
+                eccentricity = 0.3481,
+                semiMajorAxis = 601698.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 75.83
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings),
+                "SubOrbital recordings never spawn a real vessel — the boring tail " +
+                "is the only post-finalize playback and must survive TrimBoringTail.");
+            Assert.Equal(440, rec.EndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal")
+                && l.Contains("trim-suborbital-shape-match")
+                && l.Contains("terminal=SubOrbital"));
+        }
+
+        [Fact]
+        public void TrimBoringTail_DockedTerminal_RefusesTrim()
+        {
+            // Docked recordings are merged into another vessel — ShouldSpawnAtRecordingEnd
+            // refuses them, so the boring tail is the final playback and must be preserved.
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var rec = MakeRecordingWithBoringTail(100, 130, 220,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic,
+                activePointCount: 4, boringPointCount: 6);
+            rec.RecordingId = "trim-docked";
+            rec.TerminalStateValue = TerminalState.Docked;
+            rec.TerminalOrbitBody = "Kerbin";
+            rec.TerminalOrbitInclination = 0.0;
+            rec.TerminalOrbitEccentricity = 0.001;
+            rec.TerminalOrbitSemiMajorAxis = 700000.0;
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 130,
+                endUT = 220,
+                bodyName = "Kerbin",
+                inclination = 0.0,
+                eccentricity = 0.001,
+                semiMajorAxis = 700000.0,
+            });
+            var recordings = new List<Recording> { rec };
+
+            Assert.False(RecordingOptimizer.TrimBoringTail(rec, recordings));
+            Assert.Equal(220, rec.EndUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("TailPreservesTerminalSpawnState: refused trim for unstable terminal")
+                && l.Contains("trim-docked")
+                && l.Contains("terminal=Docked"));
+        }
+
+        [Fact]
+        public void IsSpawnableTerminal_MatchesShouldSpawnAtRecordingEndRefusalSet()
+        {
+            // Contract test: prevent the optimizer/policy divergence that caused the
+            // "probe booster ghost disappears" bug. For every TerminalState value, the
+            // IsSpawnableTerminal predicate must agree with ShouldSpawnAtRecordingEnd's
+            // terminal-state branch — otherwise TrimBoringTail can chop tails of
+            // recordings that never get a real-vessel takeover. The set of spawnable
+            // terminals is intentionally narrow: any change must update both call sites.
+            foreach (TerminalState ts in System.Enum.GetValues(typeof(TerminalState)))
+            {
+                bool spawnable = GhostPlaybackLogic.IsSpawnableTerminal(ts);
+                var rec = new Recording
+                {
+                    RecordingId = "contract-" + ts,
+                    TerminalStateValue = ts,
+                    VesselSnapshot = new ConfigNode("VESSEL"),
+                };
+                rec.VesselSnapshot.AddValue("sit", "ORBITING");
+                var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    rec, isActiveChainMember: false, isChainLooping: false);
+                if (spawnable)
+                {
+                    // Policy may still suppress for non-terminal reasons (snapshot
+                    // safety, dedup) but never on terminal-state grounds.
+                    Assert.False(reason != null
+                        && reason.StartsWith("terminal state "),
+                        "IsSpawnableTerminal(" + ts + ")=true but ShouldSpawnAtRecordingEnd " +
+                        "refused on terminal-state grounds: " + reason);
+                }
+                else
+                {
+                    Assert.False(needsSpawn,
+                        "IsSpawnableTerminal(" + ts + ")=false but ShouldSpawnAtRecordingEnd " +
+                        "allowed spawn (reason='" + reason + "').");
+                }
+
+                // Optimizer must agree: non-spawnable terminals always refuse trim.
+                if (!spawnable)
+                {
+                    Assert.True(RecordingOptimizer.IsUnstableTerminalState(ts));
+                    Assert.False(
+                        RecordingOptimizer.TailPreservesTerminalSpawnState(rec, trimUT: 0.0),
+                        "IsSpawnableTerminal(" + ts + ")=false but TailPreservesTerminalSpawnState " +
+                        "allowed trim.");
+                }
+                else
+                {
+                    Assert.False(RecordingOptimizer.IsUnstableTerminalState(ts));
+                }
+            }
         }
 
         /// <summary>
