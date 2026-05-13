@@ -12,6 +12,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-launching same `.craft` after a committed mission silently merged into the prior tree
+
+- ~~When the player committed a recording (e.g. Kerbal X mission 1 ending Landed) and then launched the same `.craft` again — even with a Re-Fly in between — the new mission attached to the prior tree instead of starting its own. The auto-generated group still read "Kerbal X", and the STASH listed both missions' decoupled probes as duplicate `Kerbal X Probe` rows. Repro: `logs/2026-05-13_1850_kerbal-x-merge-bug`, mission 1 launch at 18:33:54 → commit at 18:34:48 with `3554bcbb...SpawnedVesselPersistentId=2708531065`, Re-Fly Probe at 18:35:00, mission 2 launch at 18:35:49 with the same pid 2708531065 (KSP's craft-derived persistentId is deterministic enough for re-launching the same `.craft` to recycle the previous mission's pid), then `TryTakeCommittedTreeForSpawnedVesselRestore: removed committed tree 'Kerbal X' (10 recording(s))` at 18:35:51 — the new mission was folded into the old tree.~~
+
+**Root cause:** Re-Fly does NOT route through `HandleRewindOnLoad`/`ResetAllPlaybackState` (those gate on `RewindContext.IsRewinding`, which Re-Fly never sets). The prior committed recording kept its `SpawnedVesselPersistentId=2708531065`, and `RecordingStore.PreserveLiveRuntimeFieldsOnReplace` (the spawn-state cluster from #264) re-installs that stale pid on the Re-Fly merge replace. `TryFindCommittedTreeForSpawnedVessel` then matched the fresh launch's pid against the stale stamp, and the mission was attached to the existing tree.
+
+**Fix:** Two pure helpers plus a `ParsekFlight.Start`-time capture step.
+
+- `ParsekFlight.IsFreshLaunchStartupBehaviour(FlightDriver.StartupBehaviours)` returns true for `NEW_FROM_FILE` (editor Launch button) and `NEW_FROM_CRAFT_NODE` (Mission Builder / scenario inline craft launch). `FlightDriver.StartupBehaviour` (Assembly-CSharp/FlightDriver.cs:38) is KSP's own authoritative scene-startup mode: set by the editor's Launch handler / save-loader / revert path before the FLIGHT scene transitions in, stable for the entire scene's lifetime. Compared to the originally-tried `Vessel.Situations.PRELAUNCH` + `missionTime` pair, it does not expire as the player sits on the pad (game UT progresses at PRELAUNCH, so `missionTime` can grow past any threshold before staging); compared to `GameEvents.onLaunch` it is observable synchronously without a subscription race against `HandleMissedVesselSwitchRecovery`'s 1-second retry loop.
+
+- `ParsekFlight.CaptureFreshRolloutVesselPidIfApplicable()` runs once during `Start`, and stores `FlightGlobals.ActiveVessel.persistentId` into the scene-scoped instance field `freshRolloutVesselPid` only when `IsFreshLaunchStartupBehaviour` returns true. RESUME_SAVED_FILE / RESUME_SAVED_CACHE scenes leave the field at 0 so the guard is inactive.
+
+- `ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(activeVesselPid, freshRolloutVesselPid)` is a pure pid match. `TryRestoreCommittedTreeForSpawnedActiveVessel` calls it on every restore attempt and rejects ONLY when the active vessel's pid matches the captured rollout pid. The identity component is what keeps mid-scene vessel switches working: a player on a NEW_FROM_FILE scene who switches from the freshly-launched craft (pid X, guarded) to a nearby already-spawned committed vessel (pid Y) still resumes Y's committed recording because `X != Y`.
+
+The bug repro is the canonical NEW_FROM_FILE path: `logs/2026-05-13_1850_kerbal-x-merge-bug/KSP.log` line 53466 shows `Loading ship from file: ...\Auto-Saved Ship.craft` immediately before the FLIGHT scene loaded, which is FlightDriver's `NEW_FROM_FILE` dispatch branch (FlightDriver.cs:334-345).
+
+`GameEvents.onLaunch` is not used by this guard. Decompiling `Assembly-CSharp.dll` confirmed `KSP.UI.Screens.StageManager.cs:3379` fires it on first-stage activation, not on rollout, which is too late for the documented restore that runs from `HandleMissedVesselSwitchRecovery` in `Update()` ~63 ms after `Parsek Flight loaded` (well before the player presses space).
+
+The static lookup `TryFindCommittedTreeForSpawnedVessel` is unchanged so background-promotion and missed-switch recovery for save-loaded vessels keep working. Helpers are unit-tested across all four `FlightDriver.StartupBehaviours` values plus the pid-match identity matrix.
+
+**Follow-up:** The deeper invariant violation is in `RecordingStore.PreserveLiveRuntimeFieldsOnReplace` (#264 spawn-state cluster): Re-Fly merge replaces the prior committed recording but the helper re-installs the prior `SpawnedVesselPersistentId` even though the live vessel that pid pointed to was stripped by the Re-Fly invocation. The current fix neutralizes the downstream consequence in the committed-tree restore path, but every other consumer that pid-matches on `SpawnedVesselPersistentId` (e.g. `RecoverTimelineSpawnedVessel`, `ShouldMarkSupersededTerminalSpawn`) is still carrying a stale stamp. Open item: clear the field on prior recordings during Re-Fly merge — either at `PreserveLiveRuntimeFieldsOnReplace` (skip preservation when the existing stamp's vessel is gone from `flightState`) or by routing Re-Fly through a `ReconcileSpawnStateAfterStrip`-equivalent call, analogous to the rewind path at `ParsekScenario.cs:2405`.
+
+**Status:** CLOSED 2026-05-13 (downstream symptom); deeper invariant follow-up OPEN.
+
+---
+
 ## Done - v0.9.2 Rewound recording's vessel does not spawn when watched to terminal
 
 - ~~After a Rewind-to-Separation onto a recording with a spawnable terminal state (Landed/Splashed/Orbiting), entering Watch and letting the ghost play through to its terminal point left the vessel un-materialized. `ParsekPlaybackPolicy.HandlePlaybackCompleted` reported `needsSpawn=False` because `ShouldBlockSpawnForRewindSuppression` short-circuited on the same-recording `SpawnSuppressedByRewind` marker (`#573 active/source recording protection`). Source: `logs/2026-05-12_2018_kerbalx-no-spawn`, recording `e4c8042527c649648b7f94a5175d312d`. The original #573 fix was scoped to protect against background ghost playback duplicating a vessel the player just stripped on rewind (chain-tip respawn next to the player's freshly-launched new vessel). It was overly broad for the case where the player explicitly Watches the rewound recording to its terminal point.~~
