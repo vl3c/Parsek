@@ -278,8 +278,40 @@ namespace Parsek
             RecordingStore.RebuildOrbitSegmentsFromTrackSections(
                 target.TrackSections, rebuiltOrbitSegments);
 
+            // Align the predicted-tail floor with the resolved payload that we are about
+            // to write to target.Points / target.OrbitSegments — the END of the rebuilt
+            // payload is the playback hand-off bound (GhostPlaybackEngine.
+            // TryFindOrbitTailPlaybackSegment reads Points[Points.Count - 1].ut). Using
+            // source.Points.Last().ut here would let a stale or truncated source list
+            // lower the floor below the resolved payload end and silently accept a
+            // predicted segment anchored at a stale orbital state. Using just
+            // maxTrackSectionEndUT (the previous bound) is stricter than playback needs
+            // and drops legitimate reseeded suffixes when the trailing section endUT
+            // extends past its last frame UT (post-recording settle tail). The rebuilt
+            // payload's last point UT / last orbit-segment endUT is exactly what playback
+            // will hand off from, so it is the right floor here. When neither rebuilt
+            // surface yields a UT (defensive: shouldn't happen given the
+            // HasCompleteTrackSectionPayloadForFlatSync gate above), fall back to
+            // sectionEndUT.
+            double rebuiltLastPointUT = rebuiltPoints.Count > 0
+                ? rebuiltPoints[rebuiltPoints.Count - 1].ut
+                : double.NegativeInfinity;
+            double rebuiltLastOrbitEndUT = rebuiltOrbitSegments.Count > 0
+                ? rebuiltOrbitSegments[rebuiltOrbitSegments.Count - 1].endUT
+                : double.NegativeInfinity;
+            double predictedTailFloorUT;
+            if (rebuiltLastPointUT > double.NegativeInfinity
+                || rebuiltLastOrbitEndUT > double.NegativeInfinity)
+            {
+                predictedTailFloorUT = Math.Max(rebuiltLastPointUT, rebuiltLastOrbitEndUT);
+            }
+            else
+            {
+                predictedTailFloorUT = sectionEndUT;
+            }
+
             int suffixStart = FindPredictedOrbitTailStart(
-                source.OrbitSegments, rebuiltOrbitSegments, sectionEndUT);
+                source.OrbitSegments, rebuiltOrbitSegments, predictedTailFloorUT);
             if (suffixStart < 0)
                 return false;
 

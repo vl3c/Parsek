@@ -589,6 +589,176 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Fresh-launch restore guard
+
+        // Regression for the relaunch tree-collision bug: the previous mission's
+        // committed recording carries a stale SpawnedVesselPersistentId that KSP's
+        // deterministic craft-derived persistentId reuses on the next VAB launch.
+        // The guard is two pieces:
+        //   1. IsFreshLaunchStartupBehaviour gates the Start-time capture on
+        //      FlightDriver.StartupBehaviour (KSP's scene-startup mode, stable
+        //      for the entire scene — no missionTime expiry, no event race).
+        //   2. ShouldSkipCommittedTreeRestoreForFreshLaunch is a pure pid match
+        //      against the captured rollout vessel pid. The identity component
+        //      is what keeps mid-scene switches to other already-spawned
+        //      committed vessels working: their pid won't match the captured
+        //      rollout pid, so their committed-tree restore proceeds.
+        // See logs/2026-05-13_1850_kerbal-x-merge-bug; KSP.log line 53466 shows
+        // the VAB craft loader ("Loading ship from file: ...Auto-Saved Ship.craft")
+        // running through FlightDriver's NEW_FROM_FILE branch.
+
+        [Fact]
+        public void IsFreshLaunchStartupBehaviour_TrueForNewFromFile()
+        {
+            // VAB/SPH Launch button.
+            Assert.True(ParsekFlight.IsFreshLaunchStartupBehaviour(
+                FlightDriver.StartupBehaviours.NEW_FROM_FILE));
+        }
+
+        [Fact]
+        public void IsFreshLaunchStartupBehaviour_TrueForNewFromCraftNode()
+        {
+            // Mission Builder / scenario inline-craft launch path.
+            Assert.True(ParsekFlight.IsFreshLaunchStartupBehaviour(
+                FlightDriver.StartupBehaviours.NEW_FROM_CRAFT_NODE));
+        }
+
+        [Fact]
+        public void IsFreshLaunchStartupBehaviour_FalseForResumeSavedFile()
+        {
+            // Tracking station load, F9 quickload, or any .sfs-based resume.
+            Assert.False(ParsekFlight.IsFreshLaunchStartupBehaviour(
+                FlightDriver.StartupBehaviours.RESUME_SAVED_FILE));
+        }
+
+        [Fact]
+        public void IsFreshLaunchStartupBehaviour_FalseForResumeSavedCache()
+        {
+            // Revert to launch or other GameBackup cache restore.
+            Assert.False(ParsekFlight.IsFreshLaunchStartupBehaviour(
+                FlightDriver.StartupBehaviours.RESUME_SAVED_CACHE));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_SkipsForCapturedRolloutPid()
+        {
+            // The fresh-launch vessel coming back through the dispatcher in a
+            // NEW_FROM_FILE scene: pid matches the captured scene-entry pid → skip.
+            Assert.True(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 2708531065u,
+                freshRolloutVesselPid: 2708531065u));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsRestoreOfDifferentCommittedSpawnedPidInNewFromFileScene()
+        {
+            // Regression: scene loaded via NEW_FROM_FILE so the Start-time capture
+            // ran and stored the fresh-launch craft's pid into freshRolloutVesselPid.
+            // The player then switches to a legitimate Parsek-spawned vessel from
+            // an older committed tree, whose pid is different. The guard must NOT
+            // skip — restore needs to proceed so TryFindCommittedTreeForSpawnedVessel
+            // can match the real spawned pid and the committed tree resumes.
+            //
+            // Without an identity component, an idle-in-this-scene player could
+            // never resume a legitimate committed recording in a fresh-launch
+            // scene (auto-record may not arm, missed-switch recovery keeps calling
+            // the dispatcher, and a scene-wide guard would short-circuit forever).
+            const uint freshLaunchPid = 2708531065u;       // newly rolled-out craft
+            const uint olderCommittedSpawnedPid = 4206290288u; // an older committed-tree spawn
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: olderCommittedSpawnedPid,
+                freshRolloutVesselPid: freshLaunchPid));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_IdentityMatrix()
+        {
+            // Single self-contained truth table covering the four scenarios in a
+            // NEW_FROM_FILE / NEW_FROM_CRAFT_NODE scene (freshRolloutVesselPid != 0)
+            // and the save-load case (freshRolloutVesselPid == 0). The captured pid
+            // alone — not StartupBehaviour — drives the skip decision, so legitimate
+            // mid-scene switches keep resuming their committed trees.
+            const uint X = 2708531065u;  // captured fresh-launch pid (NEW_FROM_FILE)
+            const uint Y = 4206290288u;  // an older Parsek-spawned committed vessel
+            const uint Z = 0u;           // no capture (RESUME_SAVED_FILE / CACHE)
+
+            // Fresh launch craft, in a fresh-launch scene → skip (the documented bug case).
+            Assert.True(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: X, freshRolloutVesselPid: X));
+
+            // Player switches to a different committed vessel in the same scene → allow.
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: Y, freshRolloutVesselPid: X));
+
+            // Player switches back to the fresh launch craft → still skip (it remains
+            // the rollout vessel for the entire scene).
+            Assert.True(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: X, freshRolloutVesselPid: X));
+
+            // Save load / revert / tracking station scene → no capture → never skip.
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: X, freshRolloutVesselPid: Z));
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: Y, freshRolloutVesselPid: Z));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenNoRolloutCaptured()
+        {
+            // RESUME_SAVED_FILE / RESUME_SAVED_CACHE scene: the capture step
+            // skipped, freshRolloutVesselPid is 0, and the active vessel keeps
+            // its committed recording restore path.
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 2708531065u,
+                freshRolloutVesselPid: 0u));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenActivePidZero()
+        {
+            // No active vessel yet — the existing activeVesselPid==0 short-circuit
+            // in the dispatcher handles this uniformly, but the helper still
+            // returns false defensively so a stray call without active vessel
+            // doesn't suppress a future legitimate restore.
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 0u,
+                freshRolloutVesselPid: 2708531065u));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenBothZero()
+        {
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 0u,
+                freshRolloutVesselPid: 0u));
+        }
+
+        [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_StillMatchesAfterFreshLaunchGuardLayer()
+        {
+            // The fresh-launch guard lives at the instance dispatcher in
+            // TryRestoreCommittedTreeForSpawnedActiveVessel, not in the static
+            // lookup. The lookup must keep returning the matching tree so any
+            // non-fresh-launch caller (background promotion, missed-switch
+            // recovery for a loaded vessel) keeps working.
+            var tree = MakeTree("rec_active");
+            tree.Recordings["rec_active"].VesselPersistentId = 2708531065u;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 2708531065u;
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 2708531065u,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId);
+
+            Assert.True(found);
+            Assert.Same(tree, matchedTree);
+            Assert.Equal("rec_active", matchedRecordingId);
+        }
+
+        #endregion
+
         #region Existing tests still pass with default activeTree parameter
 
         [Fact]
