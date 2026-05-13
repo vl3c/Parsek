@@ -218,10 +218,10 @@ namespace Parsek.Tests
             // recording with no events copied over (chain promotion intentionally
             // skips parent-event inheritance). Without seeds here ghost playback
             // sees zero engine events and the booster engine FX lights up.
-            var refluFork = new Recording { RecordingId = "rec_152453a952804ee7b54f129bdfe2fdc1" };
+            var reFlyFork = new Recording { RecordingId = "rec_152453a952804ee7b54f129bdfe2fdc1" };
 
             bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitSeedEvents(
-                refluFork, out int activeRecEventCount);
+                reFlyFork, out int activeRecEventCount);
 
             Assert.True(shouldEmit);
             Assert.Equal(0, activeRecEventCount);
