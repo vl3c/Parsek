@@ -1337,5 +1337,422 @@ namespace Parsek.Tests
             Assert.Contains(7001u, killWithoutProtection);
             Assert.Contains(101u, killWithoutProtection);
         }
+
+        // ============================================================
+        // #fix-refly-preserve-flag-vessels follow-up #2 (PR #841 P2):
+        // user's escalated review noted that the kill-set protection
+        // alone (BuildProtectedPidsForInPlaceContinuation) is fragile.
+        // A future refactor that loosens protectedPids would silently
+        // regress flag preservation because the survey loop in
+        // StripPreExistingDebrisForInPlaceContinuation still admits
+        // VesselType.Flag entries into leftAlonePidNames. The fix
+        // factors the survey step into
+        // BuildLeftAlonePidNamesForInPlaceContinuation + adds a
+        // VesselType-keyed skip via ShouldSkipFromLeftAloneSurvey, so
+        // a preserved flag never even enters the kill-set construction.
+        //
+        // Both layers (survey skip + protectedPids) coexist as
+        // belt-and-suspenders. The tests below pin EACH layer
+        // independently with a regression-guard companion that proves
+        // it is load-bearing.
+        // ============================================================
+
+        /// <summary>
+        /// Minimal IStrippableVessel stub for the survey-level tests. Mirrors
+        /// PostLoadStripperTests.StubVessel but kept local to this file to
+        /// avoid coupling across test assemblies, with an extra
+        /// ThrowOnVesselType switch for the half-destroyed-vessel defense case.
+        /// </summary>
+        private sealed class StrippableStub : IStrippableVessel
+        {
+            public uint PersistentId { get; set; }
+            public uint RootPartPersistentId { get; set; }
+            public string VesselName { get; set; }
+            private VesselType _vesselType = VesselType.Ship;
+            public VesselType VesselType
+            {
+                get
+                {
+                    if (ThrowOnVesselType) throw new InvalidOperationException("simulated mid-strip teardown");
+                    return _vesselType;
+                }
+                set { _vesselType = value; }
+            }
+            public Vessel LiveVessel => null;
+            public bool ThrowOnVesselType { get; set; }
+            public void Die() { /* not exercised by survey tests */ }
+        }
+
+        [Fact]
+        public void ShouldSkipFromLeftAloneSurvey_FlagVessel_ReturnsTrue()
+        {
+            var flag = new StrippableStub
+            {
+                PersistentId = 7001u,
+                VesselName = "Kerbal X Debris",
+                VesselType = VesselType.Flag,
+            };
+
+            Assert.True(RewindInvoker.ShouldSkipFromLeftAloneSurvey(flag));
+        }
+
+        [Fact]
+        public void ShouldSkipFromLeftAloneSurvey_NonFlagVesselTypes_ReturnFalse()
+        {
+            // Spot-check the common stock VesselType values that must NOT
+            // be skipped: Ship/Probe/Debris/EVA/Plane/Lander etc. all share
+            // the "not a planted flag, kill if name matches" contract.
+            foreach (var t in new[]
+            {
+                VesselType.Ship, VesselType.Probe, VesselType.Debris,
+                VesselType.EVA, VesselType.Plane, VesselType.Lander,
+                VesselType.Rover, VesselType.Base, VesselType.Station,
+                VesselType.Relay, VesselType.SpaceObject, VesselType.Unknown,
+            })
+            {
+                var v = new StrippableStub
+                {
+                    PersistentId = 101u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = t,
+                };
+                Assert.False(
+                    RewindInvoker.ShouldSkipFromLeftAloneSurvey(v),
+                    $"VesselType.{t} must NOT be skipped from leftAlone survey");
+            }
+        }
+
+        [Fact]
+        public void ShouldSkipFromLeftAloneSurvey_NullVessel_ReturnsFalse()
+        {
+            // Defensive: a null entry must not crash the predicate.
+            Assert.False(RewindInvoker.ShouldSkipFromLeftAloneSurvey(null));
+        }
+
+        [Fact]
+        public void ShouldSkipFromLeftAloneSurvey_VesselTypeThrows_FailsClosed_ReturnsFalse()
+        {
+            // Mirrors LiveVesselAdapter.VesselType's defensive try/catch:
+            // a half-destroyed Unity GameObject can throw on the property
+            // getter. The predicate must fail closed (don't skip) so the
+            // kill-set protection layer still has the chance to defend the
+            // pid downstream.
+            var v = new StrippableStub
+            {
+                PersistentId = 7001u,
+                VesselName = "Kerbal X Debris",
+                ThrowOnVesselType = true,
+            };
+
+            Assert.False(RewindInvoker.ShouldSkipFromLeftAloneSurvey(v));
+        }
+
+        [Fact]
+        public void BuildLeftAlone_FlagSkipped_ShipKept_EvenWhenNamesCollide()
+        {
+            // Primary survey-level test: three live vessels post-strip --
+            //  - Probe (Selected, VesselType.Ship) -- excluded by SelectedPid
+            //  - Capsule (VesselType.Ship, name "Kerbal X Debris") -- KEPT in leftAlone
+            //  - Flag (VesselType.Flag, name "Kerbal X Debris") -- SKIPPED by survey
+            // The user's complaint scenario: the flag's vesselName matches a
+            // kill-eligible recording, but the survey-level skip keeps it out
+            // of leftAlonePidNames entirely. The Capsule still lands in the
+            // list so legitimate debris cleanup is unaffected.
+            var live = new List<IStrippableVessel>
+            {
+                new StrippableStub
+                {
+                    PersistentId = 200u,
+                    VesselName = "Kerbal X Probe",
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 101u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 7001u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Flag,
+                },
+            };
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint> { 7001u },
+            };
+
+            ParsekLog.VerboseOverrideForTesting = true;
+            var leftAlone = RewindInvoker.BuildLeftAlonePidNamesForInPlaceContinuation(
+                live, stripResult, isGhostMapVessel: _ => false);
+
+            Assert.Single(leftAlone);
+            Assert.Equal(101u, leftAlone[0].pid);
+            Assert.Equal("Kerbal X Debris", leftAlone[0].name);
+            Assert.DoesNotContain(leftAlone, e => e.pid == 7001u);
+            Assert.DoesNotContain(leftAlone, e => e.pid == 200u);
+
+            // One-shot Verbose log surfaces the survey-level flag skip.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Rewind]") &&
+                l.Contains("Strip post-supplement: skipping flag") &&
+                l.Contains("v=7001") &&
+                l.Contains("name='Kerbal X Debris'") &&
+                l.Contains("totalFlagsSkipped=1") &&
+                l.Contains("included=1"));
+        }
+
+        [Fact]
+        public void BuildLeftAlone_FlagSurvivesKillResolverViaSurveyOnly_RegardlessOfProtectedPids()
+        {
+            // Drive the full pipeline against the leftAlone list produced
+            // by the survey helper, with protectedPids EMPTY. Even without
+            // the kill-set protection layer, the flag pid never appears in
+            // the kill set because the survey skip already filtered it out.
+            // This pins the user-requested upstream defense.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            var live = new List<IStrippableVessel>
+            {
+                new StrippableStub
+                {
+                    PersistentId = 101u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 7001u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Flag,
+                },
+            };
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint> { 7001u },
+            };
+
+            var leftAlone = RewindInvoker.BuildLeftAlonePidNamesForInPlaceContinuation(
+                live, stripResult, isGhostMapVessel: _ => false);
+
+            // Cast the typed-tuple result to the resolver's parameter shape.
+            var leftAloneForResolver = new List<(uint, string)>();
+            foreach (var entry in leftAlone)
+                leftAloneForResolver.Add((entry.pid, entry.name));
+
+            // protectedPids EMPTY -- the user wants the survey skip to
+            // close the path on its own. The flag must not be killed.
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAloneForResolver, protectedPids: null);
+
+            Assert.Single(kill);
+            Assert.Contains(101u, kill);
+            Assert.DoesNotContain(7001u, kill);
+        }
+
+        [Fact]
+        public void BuildLeftAlone_RegressionGuard_WithoutSurveySkip_FlagWouldEnterKillSet_AbsentProtectedPids()
+        {
+            // Companion regression guard: prove the survey skip is
+            // load-bearing. If the survey-level filter were removed (we
+            // simulate by hand-rolling a leftAlone list that includes the
+            // flag), and protectedPids is empty (the kill-set protection
+            // is also bypassed), the kill set contains the flag pid.
+            // Removing EITHER protection layer alone causes this exact
+            // shape; both layers stay so a future refactor of either
+            // doesn't silently regress flag preservation.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            // Simulate the survey skip being absent: flag pid 7001u is in
+            // leftAlonePidNames.
+            var leftAlone = new List<(uint, string)>
+            {
+                (101u,  "Kerbal X Debris"),
+                (7001u, "Kerbal X Debris"),
+            };
+
+            var killAbsentBothLayers = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, protectedPids: null);
+
+            Assert.Equal(2, killAbsentBothLayers.Count);
+            Assert.Contains(7001u, killAbsentBothLayers);
+            Assert.Contains(101u, killAbsentBothLayers);
+        }
+
+        [Fact]
+        public void BuildLeftAlone_NullInputs_AreDefensive()
+        {
+            // null liveVessels -> empty result, no throw.
+            var stripResult = new PostLoadStripResult
+            {
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint>(),
+            };
+            var resultNull = RewindInvoker.BuildLeftAlonePidNamesForInPlaceContinuation(
+                liveVessels: null, stripResult: stripResult, isGhostMapVessel: null);
+            Assert.NotNull(resultNull);
+            Assert.Empty(resultNull);
+
+            // empty liveVessels -> empty result.
+            var resultEmpty = RewindInvoker.BuildLeftAlonePidNamesForInPlaceContinuation(
+                liveVessels: new List<IStrippableVessel>(),
+                stripResult: stripResult,
+                isGhostMapVessel: null);
+            Assert.Empty(resultEmpty);
+        }
+
+        [Fact]
+        public void BuildLeftAlone_GhostMapPid_Excluded()
+        {
+            // Ghost-map ProtoVessels (Parsek-owned) must not enter the
+            // leftAlone list -- they aren't pre-existing relics, they're
+            // Parsek's own playback presence.
+            var live = new List<IStrippableVessel>
+            {
+                new StrippableStub
+                {
+                    PersistentId = 9001u,
+                    VesselName = "Ghost: Kerbal X",
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 101u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Ship,
+                },
+            };
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 0u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint>(),
+            };
+
+            var result = RewindInvoker.BuildLeftAlonePidNamesForInPlaceContinuation(
+                live, stripResult, isGhostMapVessel: pid => pid == 9001u);
+
+            Assert.Single(result);
+            Assert.Equal(101u, result[0].pid);
+        }
+
+        [Fact]
+        public void BuildLeftAlone_StrippedAndSelectedPids_Excluded()
+        {
+            // Carries forward the existing survey contract: pids in
+            // StrippedPids (already-Die()d but not yet drained from
+            // FlightGlobals) and SelectedPid are excluded.
+            var live = new List<IStrippableVessel>
+            {
+                new StrippableStub
+                {
+                    PersistentId = 200u,
+                    VesselName = "Kerbal X Probe",
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 300u,
+                    VesselName = "Kerbal X Booster",
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 101u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Ship,
+                },
+            };
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint> { 300u },
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint>(),
+            };
+
+            var result = RewindInvoker.BuildLeftAlonePidNamesForInPlaceContinuation(
+                live, stripResult, isGhostMapVessel: null);
+
+            Assert.Single(result);
+            Assert.Equal(101u, result[0].pid);
+        }
+
+        [Fact]
+        public void BuildLeftAlone_ZeroPidAndEmptyName_Skipped()
+        {
+            // Zero pid + null/empty name are skipped without logging.
+            var live = new List<IStrippableVessel>
+            {
+                new StrippableStub
+                {
+                    PersistentId = 0u,
+                    VesselName = "zero-pid",
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 101u,
+                    VesselName = null,
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 102u,
+                    VesselName = "",
+                    VesselType = VesselType.Ship,
+                },
+                new StrippableStub
+                {
+                    PersistentId = 103u,
+                    VesselName = "Kerbal X Debris",
+                    VesselType = VesselType.Ship,
+                },
+            };
+            var stripResult = new PostLoadStripResult
+            {
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint>(),
+            };
+
+            var result = RewindInvoker.BuildLeftAlonePidNamesForInPlaceContinuation(
+                live, stripResult, isGhostMapVessel: null);
+
+            Assert.Single(result);
+            Assert.Equal(103u, result[0].pid);
+        }
     }
 }
