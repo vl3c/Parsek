@@ -1499,29 +1499,71 @@ namespace Parsek.Tests
         [Fact]
         public void MergeTree_PreservesPredictedTailWhenLastPointAlignsWithSectionEndUT()
         {
-            // Edge case: no settle tail. section.endUT == last frame UT.
-            // rebuiltPoints.Last().ut == sectionEndUT, so the new resolved-payload floor
-            // collapses to the same value as the old maxTrackSectionEndUT floor.
+            // Edge case: no settle tail. section.endUT == last frame UT, so rebuiltPoints.
+            // Last().ut == sectionEndUT and the resolved-payload floor collapses to the
+            // same value as the old maxTrackSectionEndUT floor. To exercise the
+            // TrySyncFlatTrajectoryPreservingPredictedOrbitTail helper (not the
+            // preserved-flat-copy fallback) the source.Points list must be COARSER than
+            // section.frames — otherwise FlatTrajectoryExtendsTrackSectionPayload returns
+            // true and the merger short-circuits before reaching the helper. The
+            // no-settle-tail invariant lives on the SECTION side (last frame UT ==
+            // sectionEndUT); source.Points is allowed to drop interior samples.
+            const double sectionStartUT = 42.500000000001044;
             const double sectionEndUT = 91.426190490723116;
             const double terminalUT = 767.36510226897826;
 
-            var section = MakeSection(
-                42.500000000001044,
-                sectionEndUT,
-                TrackSectionSource.Active,
-                lat: -0.09,
-                lon: -74.97,
-                alt: 2287.47,
-                endLat: -0.03,
-                endLon: -74.10,
-                endAlt: 25000.0);
+            var section = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = sectionStartUT,
+                endUT = sectionEndUT,
+                source = TrackSectionSource.Active,
+                sampleRateHz = 10f,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = sectionStartUT, latitude = -0.09, longitude = -74.97, altitude = 2287.47,
+                        bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 60.0, latitude = -0.07, longitude = -74.7, altitude = 12000.0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 75.0, latitude = -0.05, longitude = -74.4, altitude = 18500.0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    },
+                    // Last frame UT == section.endUT — no settle tail.
+                    new TrajectoryPoint
+                    {
+                        ut = sectionEndUT, latitude = -0.03, longitude = -74.10, altitude = 25000.0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero
+                    }
+                },
+                checkpoints = new List<OrbitSegment>(),
+                boundaryDiscontinuityMeters = 0f
+            };
 
             var rec = MakeRecording(
                 "rec-no-settle-tail",
                 "Kerbal X Probe",
                 new List<TrackSection> { section });
             rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
-            rec.Points = new List<TrajectoryPoint>(section.frames);
+            // source.Points coarser than section.frames so
+            // FlatTrajectoryExtendsTrackSectionPayload returns false and the merger
+            // routes through TrySyncFlatTrajectoryPreservingPredictedOrbitTail.
+            // Crucially, source.Points still ends at section.endUT — the resolved-payload
+            // floor comes from rebuiltPoints anyway, but this keeps the source surface
+            // consistent with the no-settle-tail invariant the test is pinning.
+            rec.Points = new List<TrajectoryPoint>
+            {
+                section.frames[0],
+                section.frames[section.frames.Count - 1]
+            };
             rec.OrbitSegments = new List<OrbitSegment>
             {
                 MakeOrbitSegment(sectionEndUT, 400.0, isPredicted: true),
@@ -1539,6 +1581,10 @@ namespace Parsek.Tests
             Assert.All(merged.OrbitSegments, seg => Assert.True(seg.isPredicted));
             Assert.Equal(sectionEndUT, merged.OrbitSegments[0].startUT);
             Assert.Equal(terminalUT, merged.OrbitSegments[merged.OrbitSegments.Count - 1].endUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Merger]") &&
+                l.Contains("recording='rec-no-settle-tail'") &&
+                l.Contains("flatSync=track-sections-preserved-predicted-orbit-tail:2"));
         }
 
         [Fact]
