@@ -12,6 +12,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Deferred merge-dialog fallback could leak a tree merge dialog over an active Re-Fly session
+
+- ~~PR #839 added a Re-Fly guard on the `OnFlightReady` fallback that opens the tree merge dialog when a pending tree leaks through to flight entry, gated on a new pure helper `ParsekFlight.ShouldShowOnFlightReadyMergeDialog(hasPendingTree, restoringActiveTree, reFlySessionActive)` consulting `ParsekScenario.IsReFlySessionActiveForQuickloadDiscard()`. The post-PR Opus review flagged the same shape of leak on the deferred-merge-dialog coroutine `ParsekScenario.ShowDeferredMergeDialog` (`ParsekScenario.cs:~5163`): it is the FLIGHT->non-FLIGHT exit fallback for when `SceneExitInterceptor`'s pre-transition `HighLogic.LoadScene` prefix misses the transition (mod compat, KSP version drift, foreign LoadScene patch). All three call sites in `ParsekScenario.OnLoad` (lines ~1862, ~1888, ~2211) are gated by `HighLogic.LoadedScene != GameScenes.FLIGHT`, which is exactly the missed FLIGHT->KSC/TS/MAINMENU case. During an active Re-Fly attempt the marker survives the scene change in the miss case, and `MergeDialog.ShowTreeDialog(RecordingStore.PendingTree)` would have fired over a tree owned by the active Re-Fly session.~~
+
+**Root cause:** Symmetric oversight with the OnFlightReady fallback in PR #839. The Re-Fly guard was added at the entry side (`OnFlightReady`) but not at the exit-side fallback (`ShowDeferredMergeDialog`).
+
+**Fix:** Added pure helper `ParsekScenario.ShouldShowDeferredMergeDialog(bool hasPendingTree, bool reFlySessionActive)` mirroring `ParsekFlight.ShouldShowOnFlightReadyMergeDialog`. The coroutine now consults `IsReFlySessionActiveForQuickloadDiscard()` after the 60-frame wait (right after the existing "pending consumed during wait" guard) and bails out with an Info skip line matching the OnFlightReady wording (`"Pending tree '<name>' reached deferred merge dialog — skipping merge dialog: active Re-Fly session owns the pending tree (Retry/initial invoke)"`), clearing `mergeDialogPending` so subsequent dispatches are not blocked.
+
+**Coverage:** `DeferredMergeDialogGuardTests` covers the four-quadrant truth table for the pure helper (`NoPendingTree`, `PendingTree_NoReFly`, `PendingTree_ReFlySessionActive`, `NoPendingTree_ReFlySessionActive`).
+
+**Status:** CLOSED 2026-05-13.
+
+---
+
 ## Done - v0.9.2 Re-Fly post-load strip silently deleted planted flag vessels
 
 - ~~After a player planted a flag during a recorded EVA, accepted the post-flight tree-merge dialog, and clicked Re-Fly on the Probe slot, the `PostLoadStripper.Strip` invocation deleted the flag vessel along with the other 11 unmatched sibling vessels (`vesselsBefore=13 kept=1 removed=12` in `logs/2026-05-13_2101_refly-spawn-investigation`). KSP stores planted flags as real save-level vessels of `VesselType.Flag`, and the strict-unmatched branch (enabled by `RewindInvoker.InvokeReFly`) does not consult vessel type — any vessel whose `persistentId` is not in `RewindPoint.PidSlotMap`/`RootPartPidMap` is killed via `Vessel.Die()`. Flags are not tracked by the Parsek recorder, so once stripped there is no recording-driven respawn path; the FlagPlant career milestone (a permanent player achievement) is silently destroyed.~~

@@ -5157,6 +5157,31 @@ namespace Parsek
         #region Deferred Merge Dialog
 
         /// <summary>
+        /// Pure decision for the deferred-merge-dialog fallback (the
+        /// FLIGHT→non-FLIGHT exit fallback used when
+        /// <c>SceneExitInterceptor</c>'s pre-transition prefix missed the
+        /// scene change). Returns <c>true</c> when the dialog should be
+        /// shown: a pending tree exists AND no active Re-Fly session owns it.
+        ///
+        /// <para>
+        /// The Re-Fly guard mirrors
+        /// <see cref="ParsekFlight.ShouldShowOnFlightReadyMergeDialog"/>
+        /// (PR #839): when a Re-Fly attempt is in progress, the pending
+        /// tree has a freshly-attached fork and the merge decision belongs
+        /// to <c>SceneExitInterceptor</c>'s <c>ReFlyAttempt</c> dialog or
+        /// the post-attempt scene-exit dialog — not to this deferred
+        /// fallback that fires only when the pre-transition intercept
+        /// missed the transition.
+        /// </para>
+        /// </summary>
+        internal static bool ShouldShowDeferredMergeDialog(
+            bool hasPendingTree,
+            bool reFlySessionActive)
+        {
+            return hasPendingTree && !reFlySessionActive;
+        }
+
+        /// <summary>
         /// Shows the merge dialog after a short delay, allowing the scene to fully load.
         /// Used when autoMerge is off and the player leaves Flight with a pending recording.
         /// </summary>
@@ -5184,6 +5209,25 @@ namespace Parsek
             {
                 mergeDialogPending = false;
                 ParsekLog.Verbose("Scenario", "Deferred merge dialog: pending consumed during wait — aborting");
+                yield break;
+            }
+
+            // Re-Fly guard: mirrors the OnFlightReady fallback guard from
+            // PR #839 (ParsekFlight.ShouldShowOnFlightReadyMergeDialog). If
+            // the pre-transition intercept missed a FLIGHT→non-FLIGHT
+            // transition while a Re-Fly session was active, the marker is
+            // still set when this coroutine resumes; the new fork belongs
+            // to the active attempt and the merge decision is not ours to
+            // make here.
+            bool reFlySessionActive = IsReFlySessionActiveForQuickloadDiscard();
+            if (!ShouldShowDeferredMergeDialog(
+                    hasPendingTree: RecordingStore.HasPendingTree,
+                    reFlySessionActive: reFlySessionActive))
+            {
+                ParsekLog.Info("Scenario",
+                    $"Pending tree '{RecordingStore.PendingTree?.TreeName ?? "<unnamed>"}' reached deferred merge dialog — " +
+                    "skipping merge dialog: active Re-Fly session owns the pending tree (Retry/initial invoke)");
+                mergeDialogPending = false;
                 yield break;
             }
 

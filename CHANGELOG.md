@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- The deferred merge-dialog fallback that fires when `SceneExitInterceptor`'s pre-transition prefix misses a FLIGHT->non-FLIGHT transition (mod compat, KSP version drift, foreign LoadScene patch) now skips when an active Re-Fly session owns the pending tree. Mirrors the OnFlightReady fallback guard so the same shape of leak does not reach the deferred coroutine path.
 - Planted flags now survive Re-Fly. The post-load strip used to delete flag vessels along with other unmatched siblings, silently erasing the FlagPlant career milestone; the stripper now preserves any `VesselType.Flag` vessel regardless of slot-map membership.
 - Re-Fly now re-spawns prior-committed sibling vessels (e.g. a landed capsule from an earlier mission) at their terminal endpoint instead of leaving them permanently un-materialized after the Re-Fly load strip removes them from the save.
 - Re-Fly fork ghosts no longer flame their booster engines at full throttle when the recorded engine was shut down. Chain-promotion seed emission now scopes narrowly to engine sentinels, fires only when the active recording lacks any engine events, and anchors the sentinel UT at the recording's StartUT when the recording has real trajectory data (including sandbox-epoch starts at UT 0) and current UT for genuinely fresh forks, so the ghost playback orphan-engine heuristic stays correct without poisoning boring-tail trim.
