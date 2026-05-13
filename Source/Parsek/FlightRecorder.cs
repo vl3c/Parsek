@@ -6281,7 +6281,12 @@ namespace Parsek
         /// <param name="emitSeedEvents">True on new recording starts so ghost playback
         /// has an initial visual baseline (bugs #70/#65). False on chain continuation
         /// promotions — the prior chain segment already has the seed events, and emitting
-        /// new ones at the promotion UT poisons FindLastInterestingUT (bug A / #263 sibling).</param>
+        /// new ones at the promotion UT poisons FindLastInterestingUT (bug A / #263 sibling).
+        /// When false, this method still emits seeds if the active tree recording has
+        /// zero PartEvents, mirroring <see cref="BackgroundRecorder"/>'s data-driven gate:
+        /// Re-Fly forks and split/merge branches promote into a brand-new recording with
+        /// no events, and without seeds the ghost playback orphan-engine auto-start
+        /// heuristic incorrectly lights every booster engine at full power.</param>
         private void ResetPartEventTrackingState(Vessel v, bool emitSeedEvents = true)
         {
             decoupledPartIds.Clear();
@@ -6340,9 +6345,34 @@ namespace Parsek
 
             if (!emitSeedEvents)
             {
+                // Data-driven gate, mirroring BackgroundRecorder.TrySeedLoadedPartEvents:
+                // only skip when the active tree recording ALREADY has part events. Chain
+                // promotions that create a new recording (Re-Fly fork via RewindInvoker,
+                // CreateSplitBranch, CreateMergeBranch) leave the active recording at
+                // zero PartEvents; without seeds the ghost playback orphan-engine
+                // auto-start heuristic in GhostPlaybackLogic.AutoStartOrphanEnginePlayback
+                // treats the recording as a pure debris booster and lights every engine
+                // at full power on playback. Quickload-resume promotes back into an
+                // already-populated recording, so the skip branch still fires there and
+                // preserves the bug A / #263 FindLastInterestingUT invariant.
+                string activeRecId = ActiveTree?.ActiveRecordingId;
+                Recording activeRec = null;
+                if (ActiveTree != null
+                    && ActiveTree.Recordings != null
+                    && !string.IsNullOrEmpty(activeRecId))
+                {
+                    ActiveTree.Recordings.TryGetValue(activeRecId, out activeRec);
+                }
+                if (!ChainPromotionShouldEmitSeedEvents(activeRec, out int activeRecEventCount))
+                {
+                    ParsekLog.Verbose("Recorder",
+                        $"ResetPartEventTrackingState: skipping seed events (chain promotion, " +
+                        $"activeRec='{activeRecId}' already has {activeRecEventCount} part event(s))");
+                    return;
+                }
                 ParsekLog.Verbose("Recorder",
-                    "ResetPartEventTrackingState: skipping seed events (chain promotion)");
-                return;
+                    $"ResetPartEventTrackingState: emitting seed events for empty " +
+                    $"continuation recording (activeRec='{activeRecId ?? "(none)"}', chain promotion)");
             }
 
             // Emit seed events for the initial visual state so ghost playback
@@ -6361,6 +6391,30 @@ namespace Parsek
             double seedUT = Planetarium.GetUniversalTime();
             var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "Recorder");
             PartEvents.AddRange(seedEvents);
+        }
+
+        /// <summary>
+        /// Decides whether <see cref="ResetPartEventTrackingState"/> should emit seed
+        /// events during a chain promotion (<c>emitSeedEvents=false</c> call path).
+        ///
+        /// Returns true when the active tree recording is empty (null, no PartEvents
+        /// list, or zero events) — the new recording would otherwise reach ghost playback
+        /// with zero engine events and trigger the orphan-engine auto-start heuristic
+        /// in <c>GhostPlaybackLogic.AutoStartOrphanEnginePlayback</c>.
+        ///
+        /// Returns false when the active recording already has events — the prior chain
+        /// segment / pre-quickload flight has populated it; emitting seeds at the
+        /// promotion UT would poison <c>FindLastInterestingUT</c> (bug A / #263 sibling).
+        ///
+        /// Pure static so it can be unit tested without a live <see cref="RecordingTree"/>.
+        /// </summary>
+        internal static bool ChainPromotionShouldEmitSeedEvents(
+            Recording activeRec, out int activeRecEventCount)
+        {
+            activeRecEventCount = activeRec != null && activeRec.PartEvents != null
+                ? activeRec.PartEvents.Count
+                : 0;
+            return activeRecEventCount == 0;
         }
 
         /// <summary>
