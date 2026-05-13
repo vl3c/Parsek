@@ -17375,6 +17375,16 @@ namespace Parsek
                 // from recorded data (or the parent ghost is being placed
                 // from a different bracketing sample).
                 double recordedAnchorLocalDist = double.NaN;
+                // Interpolated anchor-local distance: same `frames[]` surface
+                // as recordedAnchorLocalDist, but linearly interpolated at the
+                // current playbackUT instead of clamped to the bracketing-
+                // before entry. Use this to ask "is the rendered distance
+                // tracking the recorded relative motion, or actually
+                // diverging?" — the bracketing-before-only field is stable
+                // across an entire bracket (e.g. the 0.6 s seed→first-sample
+                // gap on fresh debris recordings) while the interpolated
+                // value evolves with the recorded geometry.
+                double interpolatedAnchorLocalDist = double.NaN;
                 if (target.Section.referenceFrame == ReferenceFrame.Relative
                     && target.Section.frames != null
                     && target.Section.frames.Count > 0)
@@ -17393,6 +17403,9 @@ namespace Parsek
                             relFrame.latitude, relFrame.longitude, relFrame.altitude);
                         recordedAnchorLocalDist = localOffset.magnitude;
                     }
+                    interpolatedAnchorLocalDist = TraceSeparation
+                        .InterpolateAnchorLocalOffsetMagnitude(
+                            target.Section.frames, playbackUT);
                 }
                 // Recorded body-fixed distance: subtract the parent's
                 // body-fixed primary world position at the bracketing UT from
@@ -17463,6 +17476,7 @@ namespace Parsek
                     " parentGhostWorld=" + (parentGhostFound ? TraceSeparation.FormatVector3d(parentGhostWorld) : "<unresolved>") +
                     " renderedParentDist=" + (double.IsNaN(renderedParentDist) ? "NaN" : renderedParentDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
                     " recordedAnchorLocalDist=" + (double.IsNaN(recordedAnchorLocalDist) ? "NaN" : recordedAnchorLocalDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " interpolatedAnchorLocalDist=" + (double.IsNaN(interpolatedAnchorLocalDist) ? "NaN" : interpolatedAnchorLocalDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
                     " recordedBodyFixedDist=" + (double.IsNaN(recordedBodyFixedDist) ? "NaN" : recordedBodyFixedDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)));
             }
             // ---- /Trace-Sep ----
