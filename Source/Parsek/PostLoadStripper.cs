@@ -69,6 +69,7 @@ namespace Parsek
                 LeftAlone = 0,
                 LeftAlonePidNames = new List<(uint, string)>(),
                 FallbackMatches = 0,
+                PreservedFlagPids = new List<uint>(),
             };
 
             if (rp == null)
@@ -112,6 +113,21 @@ namespace Parsek
                     result.GhostsGuarded++;
                     ParsekLog.Verbose(Tag,
                         $"Strip guard: ghost-ProtoVessel v={pid} name='{v.VesselName}'");
+                    continue;
+                }
+
+                // Planted-flag preservation (#fix-refly-preserve-flag-vessels).
+                // Flags are durable player achievements tied to a body surface and
+                // are not tracked as Parsek recordings; stripping them during a
+                // Re-Fly would silently erase the FlagPlant career milestone with
+                // no way to revive the visual marker. Bypass strip BEFORE the
+                // slot-map match and BEFORE the strict-unmatched fallback so the
+                // flag is not logged as "unmatched then stripped".
+                if (ShouldPreserveVesselType(v.VesselType))
+                {
+                    result.PreservedFlagPids.Add(pid);
+                    ParsekLog.Verbose(Tag,
+                        $"Strip preserve: flag vessel v={pid} name='{v.VesselName}'");
                     continue;
                 }
 
@@ -197,9 +213,31 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Strip stripped=[{strippedIds}] selected={selectedStr} " +
                 $"ghostsGuarded={result.GhostsGuarded} leftAlone={result.LeftAlone} " +
-                $"fallbackMatches={result.FallbackMatches}");
+                $"fallbackMatches={result.FallbackMatches} " +
+                $"preservedFlags={result.PreservedFlagPids.Count}");
+
+            if (result.PreservedFlagPids.Count > 0)
+            {
+                string flagIds = string.Join(",", result.PreservedFlagPids.ConvertAll(p => p.ToString()).ToArray());
+                ParsekLog.Info(Tag,
+                    $"Strip preserved {result.PreservedFlagPids.Count} flag vessel(s): [{flagIds}]");
+            }
 
             return result;
+        }
+
+        /// <summary>
+        /// Returns true for vessel types that the Re-Fly post-load strip must
+        /// leave untouched regardless of match state. Currently only
+        /// <see cref="VesselType.Flag"/>: planted flags are durable player
+        /// achievements (the stock FlagPlant career milestone), tied to a
+        /// specific body lat/lon, and not tracked by the Parsek recorder.
+        /// Stripping them during a Re-Fly would silently erase the visual
+        /// marker with no recording-driven respawn path.
+        /// </summary>
+        internal static bool ShouldPreserveVesselType(VesselType type)
+        {
+            return type == VesselType.Flag;
         }
 
         private static string FormatVesselListForLog(IList<IStrippableVessel> vessels)
@@ -298,6 +336,13 @@ namespace Parsek
         string VesselName { get; }
 
         /// <summary>
+        /// KSP vessel-type classification. Used by
+        /// <see cref="PostLoadStripper.ShouldPreserveVesselType"/> to bypass
+        /// the strip for planted-flag vessels.
+        /// </summary>
+        VesselType VesselType { get; }
+
+        /// <summary>
         /// The underlying <see cref="Vessel"/>, or null in test harnesses.
         /// The activate step (SetActiveVessel) needs a live Vessel; test
         /// harnesses observe that the selected stub was returned and skip
@@ -356,6 +401,26 @@ namespace Parsek
                 }
             }
             public string VesselName => vessel != null ? vessel.vesselName : null;
+            public VesselType VesselType
+            {
+                get
+                {
+                    // Defensive: KSP's Vessel getter walks managed Unity
+                    // state and (rarely) throws when the vessel's
+                    // GameObject has been torn down mid-strip. The null /
+                    // catch fallback to Unknown means
+                    // ShouldPreserveVesselType returns false, so the flag
+                    // bypass never engages on a half-destroyed vessel —
+                    // we fall through to the slot-map / strict-strip path
+                    // and behave as before this branch existed. Exercised
+                    // only in live KSP runtime; covered by the
+                    // PostLoadStripperTests stub interface contract
+                    // (`StubVessel.VesselType` defaulting to Ship matches
+                    // the pre-branch behavior).
+                    try { return vessel != null ? vessel.vesselType : VesselType.Unknown; }
+                    catch { return VesselType.Unknown; }
+                }
+            }
             public Vessel LiveVessel => vessel;
             public void Die()
             {
@@ -407,5 +472,14 @@ namespace Parsek
 
         /// <summary>Count of matches that used the root-part fallback path.</summary>
         public int FallbackMatches;
+
+        /// <summary>
+        /// PIDs of <see cref="VesselType.Flag"/> vessels the strip left in
+        /// scene. Planted flags are durable career milestones and must
+        /// survive Re-Fly; this list is populated by the flag-bypass branch
+        /// in <see cref="PostLoadStripper.Strip(RewindPoint, int, IVesselEnumeration, bool)"/>
+        /// and is reported in the final strip summary log.
+        /// </summary>
+        public List<uint> PreservedFlagPids;
     }
 }
