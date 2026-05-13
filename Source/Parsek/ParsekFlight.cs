@@ -8470,8 +8470,8 @@ namespace Parsek
                     hasPendingTree: RecordingStore.HasPendingTree,
                     pendingTreeIsFinalized:
                         RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized,
-                    reFlySessionActive:
-                        ParsekScenario.IsReFlySessionActiveForQuickloadDiscard()))
+                    reFlyInPlaceContinuationActive:
+                        ParsekScenario.IsReFlyInPlaceContinuationActive()))
             {
                 ParsekLog.Info("Flight",
                     "OnFlightReady: scheduling Quickload restore for Re-Fly retry " +
@@ -10204,11 +10204,21 @@ namespace Parsek
             // recorder to it. Without this carve-out, the OnFlightReady
             // merge-dialog skip leaves the player in a "fresh" attempt with
             // no recording happening at all.
+            // The coroutine is called both from the existing Limbo dispatch
+            // and from the OnFlightReady Re-Fly-retry carve-out (which
+            // upgrades restoreMode based on ShouldUpgradeRestoreModeForReFlyRetry).
+            // Re-read InPlaceContinuation here rather than trusting a
+            // dispatch-time snapshot — between StartCoroutine and the body
+            // executing, other code paths could in theory mutate the marker.
+            // The synchronous flow has the marker stable in practice, but
+            // the explicit re-read keeps this independent of dispatcher
+            // assumptions.
             bool acceptFinalizedForReFly = ShouldAcceptFinalizedPendingTreeForReFlyRetry(
                 hasPendingTree: RecordingStore.HasPendingTree,
                 pendingTreeIsFinalized:
                     RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized,
-                reFlySessionActive: ParsekScenario.IsReFlySessionActiveForQuickloadDiscard());
+                reFlyInPlaceContinuationActive:
+                    ParsekScenario.IsReFlyInPlaceContinuationActive());
             if (!RecordingStore.HasPendingTree
                 || (RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo
                     && !acceptFinalizedForReFly))
@@ -10821,21 +10831,34 @@ namespace Parsek
         /// <summary>
         /// Pure decision for the OnFlightReady fallback that opens the tree
         /// merge dialog. Returns <c>true</c> when the dialog should be shown:
-        /// a pending tree exists, no restore coroutine owns it (#293), and no
-        /// active Re-Fly session owns it. The Re-Fly guard prevents the
-        /// fallback from firing immediately after an initial Re-Fly invocation
-        /// or a Retry-from-Rewind-Point — those cases have a fresh fork
-        /// attached to the pending tree, and the merge decision belongs to
-        /// the scene-exit path once the attempt actually finishes.
+        /// a pending tree exists, no restore coroutine owns it (#293), and
+        /// no Re-Fly attempt owns it (in-place continuation marker or
+        /// pending invoke). The Re-Fly guard prevents the fallback from
+        /// firing immediately after an initial Re-Fly invocation or a
+        /// Retry-from-Rewind-Point — those cases have a fresh fork attached
+        /// to the pending tree, and the merge decision belongs to the
+        /// scene-exit path once the attempt actually finishes.
+        ///
+        /// <para>
+        /// Placeholder-mode Re-Fly markers (PID changed or chain orphaned
+        /// at <c>AtomicMarkerWrite</c> time) deliberately do NOT skip — the
+        /// recorder-restore carve-out cannot bind a recorder for that
+        /// marker shape, so the merge-dialog fallback is the player's only
+        /// recovery path. The caller passes
+        /// <c>ParsekScenario.IsReFlyInPlaceContinuationActive() || RewindInvokeContext.Pending</c>
+        /// to <paramref name="reFlyInPlaceContinuationActive"/>; the
+        /// parameter name reflects the dominant case (the brief pending
+        /// invoke window is a corner included for flicker safety).
+        /// </para>
         /// </summary>
         internal static bool ShouldShowOnFlightReadyMergeDialog(
             bool hasPendingTree,
             bool restoringActiveTree,
-            bool reFlySessionActive)
+            bool reFlyInPlaceContinuationActive)
         {
             return hasPendingTree
                 && !restoringActiveTree
-                && !reFlySessionActive;
+                && !reFlyInPlaceContinuationActive;
         }
 
         /// <summary>
@@ -10858,17 +10881,32 @@ namespace Parsek
         /// hides the symptom (no dialog) without resolving the underlying
         /// state.
         /// </para>
+        ///
+        /// <para>
+        /// The Re-Fly check is the stricter
+        /// <see cref="ParsekScenario.IsReFlyInPlaceContinuationActive"/>
+        /// (marker set AND <c>InPlaceContinuation == true</c>), not the
+        /// broader <see cref="ParsekScenario.IsReFlySessionActiveForQuickloadDiscard"/>.
+        /// In placeholder mode (PID changed or chain orphaned, see
+        /// <c>RewindInvoker.AtomicMarkerWrite</c> line 1096-1099), the
+        /// marker swap in the restore coroutine returns
+        /// <c>placeholder-pattern</c> with no swap; the wait loop then
+        /// targets the pre-rewind PID, times out at 3 s, and yield-breaks.
+        /// Firing the carve-out in that mode leaves the player stuck with
+        /// no recorder AND no dialog. Refusing to upgrade keeps the original
+        /// merge-dialog fallback as the recovery path.
+        /// </para>
         /// </summary>
         internal static bool ShouldUpgradeRestoreModeForReFlyRetry(
             ParsekScenario.ActiveTreeRestoreMode restoreMode,
             bool hasPendingTree,
             bool pendingTreeIsFinalized,
-            bool reFlySessionActive)
+            bool reFlyInPlaceContinuationActive)
         {
             return restoreMode == ParsekScenario.ActiveTreeRestoreMode.None
                 && hasPendingTree
                 && pendingTreeIsFinalized
-                && reFlySessionActive;
+                && reFlyInPlaceContinuationActive;
         }
 
         /// <summary>
@@ -10877,16 +10915,23 @@ namespace Parsek
         /// because the active Re-Fly session needs the recorder bound to
         /// the freshly-attached fork. Paired with
         /// <see cref="ShouldUpgradeRestoreModeForReFlyRetry"/> in the
-        /// OnFlightReady dispatch.
+        /// OnFlightReady dispatch — both gate on
+        /// <see cref="ParsekScenario.IsReFlyInPlaceContinuationActive"/>
+        /// (marker + InPlaceContinuation flag) rather than the broader
+        /// invoke-pending helper, because the coroutine's marker swap
+        /// (<see cref="ReFlySessionMarker.ResolveInPlaceContinuationTarget"/>)
+        /// is the load-bearing path that redirects the wait target to the
+        /// new fork's vessel and PID. Placeholder-mode markers cannot
+        /// satisfy that swap.
         /// </summary>
         internal static bool ShouldAcceptFinalizedPendingTreeForReFlyRetry(
             bool hasPendingTree,
             bool pendingTreeIsFinalized,
-            bool reFlySessionActive)
+            bool reFlyInPlaceContinuationActive)
         {
             return hasPendingTree
                 && pendingTreeIsFinalized
-                && reFlySessionActive;
+                && reFlyInPlaceContinuationActive;
         }
 
         /// <summary>
@@ -10902,19 +10947,24 @@ namespace Parsek
         /// or a fallback (auto-commit missed). #293: skip when restore
         /// coroutine is running — it owns the pending tree and will either
         /// resume recording or leave it in Limbo. Re-Fly guard: skip when an
-        /// active Re-Fly session owns the pending tree (initial invoke or
-        /// Retry-from-RP); the merge decision belongs to the scene-exit path
-        /// once the attempt actually finishes, not to the moment the user
-        /// just started flying it.
+        /// in-place-continuation Re-Fly session owns the pending tree, or
+        /// when a Re-Fly invocation is mid-write (<see cref="RewindInvokeContext.Pending"/>).
+        /// Placeholder-mode Re-Fly markers do NOT skip the dialog — the
+        /// recorder-restore carve-out cannot bind a recorder in that mode
+        /// (the marker swap returns <c>placeholder-pattern</c> and the wait
+        /// loop times out), so the merge-dialog fallback is the player's
+        /// only recovery path.
         /// </para>
         /// </summary>
         internal void MaybeShowPendingTreeMergeDialogOnFlightReady()
         {
-            bool reFlySessionActive = ParsekScenario.IsReFlySessionActiveForQuickloadDiscard();
+            bool reFlyOwnsPendingTree =
+                ParsekScenario.IsReFlyInPlaceContinuationActive()
+                || RewindInvokeContext.Pending;
             if (ShouldShowOnFlightReadyMergeDialog(
                     hasPendingTree: RecordingStore.HasPendingTree,
                     restoringActiveTree: restoringActiveTree,
-                    reFlySessionActive: reFlySessionActive))
+                    reFlyInPlaceContinuationActive: reFlyOwnsPendingTree))
             {
                 var pt = RecordingStore.PendingTree;
                 ParsekLog.Warn("Flight",
@@ -10927,11 +10977,11 @@ namespace Parsek
                     $"Pending tree '{RecordingStore.PendingTree.TreeName}' skipped — " +
                     "restore coroutine in progress (#293)");
             }
-            else if (RecordingStore.HasPendingTree && reFlySessionActive)
+            else if (RecordingStore.HasPendingTree && reFlyOwnsPendingTree)
             {
                 ParsekLog.Info("Flight",
                     $"Pending tree '{RecordingStore.PendingTree.TreeName}' reached OnFlightReady — " +
-                    "skipping merge dialog: active Re-Fly session owns the pending tree (Retry/initial invoke)");
+                    "skipping merge dialog: in-place Re-Fly session owns the pending tree (Retry/initial invoke)");
             }
         }
 

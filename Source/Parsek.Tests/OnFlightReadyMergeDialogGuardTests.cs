@@ -36,7 +36,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
                 hasPendingTree: false,
                 restoringActiveTree: false,
-                reFlySessionActive: false));
+                reFlyInPlaceContinuationActive: false));
         }
 
         [Fact]
@@ -47,7 +47,7 @@ namespace Parsek.Tests
             Assert.True(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
                 hasPendingTree: true,
                 restoringActiveTree: false,
-                reFlySessionActive: false));
+                reFlyInPlaceContinuationActive: false));
         }
 
         [Fact]
@@ -59,7 +59,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
                 hasPendingTree: true,
                 restoringActiveTree: true,
-                reFlySessionActive: false));
+                reFlyInPlaceContinuationActive: false));
         }
 
         [Fact]
@@ -72,7 +72,23 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
                 hasPendingTree: true,
                 restoringActiveTree: false,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
+        }
+
+        [Fact]
+        public void PendingTree_PlaceholderModeMarker_ReturnsTrue()
+        {
+            // Placeholder-mode Re-Fly markers (PID changed across rewind or
+            // chain orphaned) deliberately fall through to the dialog: the
+            // recorder-restore carve-out cannot bind a recorder for that
+            // marker shape (the in-place marker swap returns
+            // placeholder-pattern), so the merge dialog is the player's
+            // only recovery path. The caller passes
+            // reFlyInPlaceContinuationActive=false for that case.
+            Assert.True(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
+                hasPendingTree: true,
+                restoringActiveTree: false,
+                reFlyInPlaceContinuationActive: false));
         }
 
         [Fact]
@@ -83,7 +99,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
                 hasPendingTree: true,
                 restoringActiveTree: true,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         [Fact]
@@ -92,7 +108,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
                 hasPendingTree: false,
                 restoringActiveTree: true,
-                reFlySessionActive: false));
+                reFlyInPlaceContinuationActive: false));
         }
 
         [Fact]
@@ -101,7 +117,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldShowOnFlightReadyMergeDialog(
                 hasPendingTree: false,
                 restoringActiveTree: false,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         // ------------------------------------------------------------------
@@ -123,7 +139,7 @@ namespace Parsek.Tests
                 restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
                 hasPendingTree: true,
                 pendingTreeIsFinalized: true,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         [Fact]
@@ -137,7 +153,7 @@ namespace Parsek.Tests
                 restoreMode: ParsekScenario.ActiveTreeRestoreMode.Quickload,
                 hasPendingTree: true,
                 pendingTreeIsFinalized: true,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         [Fact]
@@ -147,7 +163,7 @@ namespace Parsek.Tests
                 restoreMode: ParsekScenario.ActiveTreeRestoreMode.VesselSwitch,
                 hasPendingTree: true,
                 pendingTreeIsFinalized: true,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         [Fact]
@@ -157,7 +173,7 @@ namespace Parsek.Tests
                 restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
                 hasPendingTree: false,
                 pendingTreeIsFinalized: false,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         [Fact]
@@ -169,7 +185,7 @@ namespace Parsek.Tests
                 restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
                 hasPendingTree: true,
                 pendingTreeIsFinalized: false,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         [Fact]
@@ -183,7 +199,7 @@ namespace Parsek.Tests
                 restoreMode: ParsekScenario.ActiveTreeRestoreMode.None,
                 hasPendingTree: true,
                 pendingTreeIsFinalized: true,
-                reFlySessionActive: false));
+                reFlyInPlaceContinuationActive: false));
         }
 
         // ------------------------------------------------------------------
@@ -197,7 +213,7 @@ namespace Parsek.Tests
             Assert.True(ParsekFlight.ShouldAcceptFinalizedPendingTreeForReFlyRetry(
                 hasPendingTree: true,
                 pendingTreeIsFinalized: true,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         [Fact]
@@ -207,7 +223,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldAcceptFinalizedPendingTreeForReFlyRetry(
                 hasPendingTree: true,
                 pendingTreeIsFinalized: false,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
 
         [Fact]
@@ -219,7 +235,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldAcceptFinalizedPendingTreeForReFlyRetry(
                 hasPendingTree: true,
                 pendingTreeIsFinalized: true,
-                reFlySessionActive: false));
+                reFlyInPlaceContinuationActive: false));
         }
 
         [Fact]
@@ -228,7 +244,7 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.ShouldAcceptFinalizedPendingTreeForReFlyRetry(
                 hasPendingTree: false,
                 pendingTreeIsFinalized: true,
-                reFlySessionActive: true));
+                reFlyInPlaceContinuationActive: true));
         }
     }
 }

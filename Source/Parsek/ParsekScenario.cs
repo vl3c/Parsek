@@ -344,6 +344,41 @@ namespace Parsek
             return RewindInvokeContext.Pending;
         }
 
+        /// <summary>
+        /// True when an active Re-Fly session is operating under the
+        /// in-place continuation contract: <see cref="ActiveReFlySessionMarker"/>
+        /// is non-null AND its <c>InPlaceContinuation</c> flag is set.
+        ///
+        /// <para>
+        /// Stricter than <see cref="IsReFlySessionActiveForQuickloadDiscard"/>:
+        /// the placeholder-mode marker (where <see cref="RewindInvoker.AtomicMarkerWrite"/>
+        /// could not eagerly attach the fork to a tree because PID changed
+        /// or the chain tip was orphaned) returns FALSE here. The OnFlightReady
+        /// recorder-restore carve-out relies on the in-place marker swap
+        /// (<see cref="ReFlySessionMarker.ResolveInPlaceContinuationTarget"/>);
+        /// in placeholder mode that swap returns <c>placeholder-pattern</c>
+        /// and the wait loop targets the pre-rewind PID, so the carve-out
+        /// must NOT fire there — instead, the original merge-dialog fallback
+        /// runs and the player can discard the orphan attempt.
+        /// </para>
+        ///
+        /// <para>
+        /// Unlike <see cref="IsReFlySessionActiveForQuickloadDiscard"/>,
+        /// this helper does NOT consider <see cref="RewindInvokeContext.Pending"/>:
+        /// during the brief invoke window the marker is null and the
+        /// in-place-vs-placeholder decision has not been made yet. Callers
+        /// that need to cover the brief window should combine this with a
+        /// separate <c>RewindInvokeContext.Pending</c> check.
+        /// </para>
+        /// </summary>
+        internal static bool IsReFlyInPlaceContinuationActive()
+        {
+            var scenario = Instance;
+            if (object.ReferenceEquals(null, scenario)) return false;
+            var marker = scenario.ActiveReFlySessionMarker;
+            return marker != null && marker.InPlaceContinuation;
+        }
+
         private static string DescribeReFlySessionForQuickloadDiscard()
         {
             var scenario = Instance;
