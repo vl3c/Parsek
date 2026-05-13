@@ -6380,7 +6380,7 @@ namespace Parsek
                         $"of {totalEventCount} total)");
                     return;
                 }
-                EmitEngineOnlySeedEventsForPromotion(v, activeRecId, totalEventCount);
+                EmitEngineOnlySeedEventsForPromotion(v, activeRec, activeRecId, totalEventCount);
                 return;
             }
 
@@ -6407,9 +6407,21 @@ namespace Parsek
         /// the recorder's PartEvents buffer for the chain-promotion empty-engine branch
         /// of <see cref="ResetPartEventTrackingState"/>. Other seed types are intentionally
         /// not emitted here — see the promotion gate's bug A / #263 rationale.
+        ///
+        /// Seed UT is anchored to <see cref="Recording.StartUT"/> when the active recording
+        /// has established trajectory data (i.e. a populated recording being resumed) and
+        /// falls back to <see cref="Planetarium.GetUniversalTime"/> for genuinely fresh
+        /// chain branches whose StartUT is not yet populated. The StartUT anchor closes
+        /// the bug A / #263 hole that EngineShutdown sentinels are non-inert in
+        /// <see cref="RecordingOptimizer.IsInertPartEventForTailTrim"/>: if a resume
+        /// landed on a recording with no engine events but live engine parts, emitting
+        /// sentinels at the resume UT would still move FindLastInterestingUT to the
+        /// resume UT and block boring-tail trim. Anchoring at the recording's actual
+        /// start UT (which is in the past for any resume) keeps the sentinels
+        /// dominated by later real activity.
         /// </summary>
         private void EmitEngineOnlySeedEventsForPromotion(
-            Vessel v, string activeRecId, int totalEventCount)
+            Vessel v, Recording activeRec, string activeRecId, int totalEventCount)
         {
             var partNamesByPid = new Dictionary<uint, string>();
             if (v != null && v.parts != null)
@@ -6426,7 +6438,8 @@ namespace Parsek
                 return partNamesByPid.TryGetValue(pid, out string n) ? n : "unknown";
             }
             var seedSets = BuildCurrentTrackingSets();
-            double seedUT = Planetarium.GetUniversalTime();
+            double currentUT = Planetarium.GetUniversalTime();
+            double seedUT = ResolveChainPromotionSeedUT(activeRec, currentUT);
             var engineSeedEvents = new List<PartEvent>();
             PartStateSeeder.EmitEngineSeedEvents(seedSets, engineSeedEvents, seedUT, "Recorder", NameFor);
             if (engineSeedEvents.Count > 0)
@@ -6434,8 +6447,9 @@ namespace Parsek
             ParsekLog.Verbose("Recorder",
                 $"ResetPartEventTrackingState: emitted {engineSeedEvents.Count} engine-only " +
                 $"seed event(s) for chain promotion (activeRec='{activeRecId ?? "(none)"}' had 0 " +
-                $"engine events of {totalEventCount} total — non-engine seeds still skipped to " +
-                $"preserve bug A / #263 invariant)");
+                $"engine events of {totalEventCount} total — seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} — " +
+                $"non-engine seeds still skipped to preserve bug A / #263 invariant)");
         }
 
         /// <summary>
@@ -6480,6 +6494,39 @@ namespace Parsek
                 }
             }
             return engineEventCount == 0;
+        }
+
+        /// <summary>
+        /// Resolves the UT to stamp on engine seed events emitted by the
+        /// chain-promotion empty-engine branch of <see cref="ResetPartEventTrackingState"/>.
+        ///
+        /// For a recording with established content (positive StartUT in the past),
+        /// returns the recording's <see cref="Recording.StartUT"/> so the sentinels
+        /// anchor at the recording's actual start, never moving FindLastInterestingUT
+        /// forward against later real activity. For a genuinely fresh chain branch
+        /// (StartUT unset, NaN, non-positive, or already at/after the current UT —
+        /// i.e. the recording has no trajectory or section data yet), returns the
+        /// current UT, which IS the fork's start moment by definition.
+        ///
+        /// This is the bug A / #263 fix for non-inert EngineShutdown sentinels:
+        /// without the StartUT anchor, a quickload-resume of an empty-engine
+        /// recording would stamp sentinels at the resume UT and block tail trim.
+        ///
+        /// Pure static so it can be unit tested without a live recording or
+        /// <see cref="Planetarium"/>.
+        /// </summary>
+        internal static double ResolveChainPromotionSeedUT(Recording activeRec, double currentUT)
+        {
+            if (activeRec == null)
+                return currentUT;
+            double recStartUT = activeRec.StartUT;
+            if (double.IsNaN(recStartUT) || double.IsInfinity(recStartUT) || recStartUT <= 0.0)
+                return currentUT;
+            // If the recording's StartUT is at or after the current UT, treat the
+            // recording as fresh — the current frame IS its start moment.
+            if (recStartUT >= currentUT)
+                return currentUT;
+            return recStartUT;
         }
 
         /// <summary>
