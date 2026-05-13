@@ -163,14 +163,23 @@ namespace Parsek
         // Full-payload validation. The header probe (TryProbe) above stops
         // after reading magic+version+epoch+recordingId; a .prec truncated
         // past the header still satisfies that. Run the full Read into a
-        // throwaway Recording and surface any exception as a structured
+        // throwaway Recording and surface any reader throw as a structured
         // failure reason. The binary trajectory codec has no payload
         // checksum, so the only signal that the payload is corrupt is the
-        // reader throwing (EndOfStream, FormatException, ArgumentException,
-        // IOException). A subtle mid-payload bit flip that happens to
-        // parse will still slip through — accepted limitation; the header
-        // probe + post-rewrite second pass keep the contract closed-form
-        // for the common truncation/missing-payload case.
+        // reader throwing — and the reader has several throw sites beyond
+        // the obvious EndOfStream / Format / Argument / IO families: the
+        // string-table indexers throw InvalidDataException for an
+        // out-of-range index (this file, around the ReadIndexedString /
+        // ReadNullableIndexedString helpers), and a garbage int32 read as
+        // a list count can trigger OutOfMemoryException /
+        // ArgumentOutOfRangeException when the deserializer tries to
+        // preallocate. Catch broadly so any reader-thrown exception
+        // becomes payload-invalid instead of aborting OnSave at
+        // EnsureRecordingFilesCurrentForSave -> AreRecordingFilesCurrentForSave.
+        // A mid-payload bit flip that happens to parse still slips through
+        // — accepted limitation; the header probe plus the post-rewrite
+        // second pass keep the contract closed-form for the common
+        // truncation / missing-payload case.
         internal static bool TryValidatePayload(
             string path, TrajectorySidecarProbe probe, out string failureReason)
         {
@@ -186,25 +195,33 @@ namespace Parsek
                 Read(path, scratch, probe);
                 return true;
             }
-            catch (EndOfStreamException ex)
+            catch (Exception ex)
             {
-                failureReason = "payload-truncated: " + ex.Message;
+                failureReason = ClassifyPayloadException(ex) + ": " + ex.GetType().Name + ": " + ex.Message;
                 return false;
             }
-            catch (FormatException ex)
+        }
+
+        private static string ClassifyPayloadException(Exception ex)
+        {
+            switch (ex)
             {
-                failureReason = "payload-format-invalid: " + ex.Message;
-                return false;
-            }
-            catch (ArgumentException ex)
-            {
-                failureReason = "payload-argument-invalid: " + ex.Message;
-                return false;
-            }
-            catch (IOException ex)
-            {
-                failureReason = "payload-io-error: " + ex.Message;
-                return false;
+                case EndOfStreamException _:
+                    return "payload-truncated";
+                case InvalidDataException _:
+                    return "payload-data-invalid";
+                case FormatException _:
+                    return "payload-format-invalid";
+                case OverflowException _:
+                    return "payload-length-overflow";
+                case OutOfMemoryException _:
+                    return "payload-allocation-failed";
+                case ArgumentException _:
+                    return "payload-argument-invalid";
+                case IOException _:
+                    return "payload-io-error";
+                default:
+                    return "payload-corrupt";
             }
         }
 

@@ -196,6 +196,78 @@ namespace Parsek.Tests
             Assert.NotNull(reason);
         }
 
+        [Fact]
+        public void CorruptStringTableCount_FailsSaveGate_NoExceptionPropagated()
+        {
+            // The reader's pre-fix narrow catch covered EndOfStream /
+            // Format / Argument / IO only. Several reader-thrown
+            // exception types (InvalidDataException from
+            // ReadIndexedString string-table OOR, OutOfMemoryException /
+            // OverflowException from list-capacity ints, etc.) escaped
+            // the gate and aborted OnSave at
+            // AreRecordingFilesCurrentForSave instead of returning
+            // trajectory-payload-invalid and letting the rewrite/skip
+            // path run. The broadened catch (TryValidatePayload now
+            // catches all Exception) must classify any reader throw as
+            // payload-invalid.
+            //
+            // To exercise that contract reliably, overwrite the int32
+            // immediately after the section-auth flag byte. That field
+            // is the string-table count. A value of 0x7FFFFFFF (~2B)
+            // drives `new List<string>(count)` to attempt a ~16GB single
+            // allocation on .NET Framework, which trips the 2GB
+            // single-object cap and surfaces as OutOfMemoryException.
+            // OOM was NOT in the pre-fix narrow catch -- this is the
+            // exact case where the bug shipped.
+            var rec = BuildRecording("strtab-cnt");
+            var (precPath, _, _) = WriteFreshSidecars(rec);
+
+            byte[] all = File.ReadAllBytes(precPath);
+            int writePos;
+            using (var ms = new MemoryStream(all))
+            using (var br = new BinaryReader(ms, System.Text.Encoding.UTF8))
+            {
+                ms.Position += 4;       // magic
+                br.ReadInt32();         // version
+                br.ReadInt32();         // schemaGeneration
+                br.ReadInt32();         // epoch
+                br.ReadString();        // recording id
+                br.ReadByte();          // section-auth flag
+                writePos = (int)ms.Position;     // string-table count int32 starts here
+            }
+            Assert.True(writePos + 4 <= all.Length,
+                "fixture must have a writable int32 region for the string-table count");
+            byte[] corrupt = BitConverter.GetBytes(0x7FFFFFFF);
+            Buffer.BlockCopy(corrupt, 0, all, writePos, 4);
+            File.WriteAllBytes(precPath, all);
+
+            TrajectorySidecarProbe probe;
+            Assert.True(RecordingStore.TryProbeTrajectorySidecar(precPath, out probe));
+            Assert.True(probe.Supported);
+
+            // Contract: TryValidatePayload must NOT throw, even when the
+            // inner Read raises a non-EOS/Format/Argument/IO exception.
+            // It must return false with a structured reason so the save
+            // gate falls through to the rewrite/skip path in
+            // EnsureRecordingFilesCurrentForSave.
+            Exception leaked = Record.Exception(() =>
+            {
+                TrajectorySidecarBinary.TryValidatePayload(precPath, probe, out _);
+            });
+            Assert.Null(leaked);
+
+            bool ok = TrajectorySidecarBinary.TryValidatePayload(precPath, probe, out string reason);
+            Assert.False(ok);
+            Assert.NotNull(reason);
+            // And the same exception type must NOT propagate through
+            // the save gate either.
+            bool current = RecordingStore.AreRecordingFilesCurrentAtPathsForTesting(
+                rec, precPath, /*vesselPath*/ precPath + ".nonexistent", /*ghostPath*/ precPath + ".nonexistent", out string gateReason);
+            Assert.False(current);
+            Assert.NotNull(gateReason);
+            Assert.StartsWith("trajectory-payload-invalid", gateReason);
+        }
+
         // --- Snapshot payload validation ---
 
         [Fact]
