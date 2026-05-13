@@ -726,7 +726,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeBoundaryDiscontinuity_LegacyRelativeNotInterpretedAsAnchorLocal()
+        public void ComputeBoundaryDiscontinuity_RelativeUsesCurrentAnchorLocalContract()
         {
             var prev = MakeSectionWithFrame(
                 10.0, lat: 0.0, lon: 0.0, alt: 0.0,
@@ -739,13 +739,10 @@ namespace Parsek.Tests
                 referenceFrame: ReferenceFrame.Relative);
             next.anchorVesselId = 42u;
 
-            float legacyDisc = SessionMerger.ComputeBoundaryDiscontinuity(
-                prev, next, RecordingStore.RelativeLocalFrameFormatVersion - 1);
-            float currentDisc = SessionMerger.ComputeBoundaryDiscontinuity(
+            float disc = SessionMerger.ComputeBoundaryDiscontinuity(
                 prev, next, RecordingStore.CurrentRecordingFormatVersion);
 
-            Assert.Equal(0f, legacyDisc);
-            Assert.InRange(currentDisc, 29.0f, 31.0f);
+            Assert.InRange(disc, 29.0f, 31.0f);
         }
 
         [Fact]
@@ -760,7 +757,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeTree_LegacyRelativeThreadsRecordingFormatThroughProductionCallers()
+        public void MergeTree_RelativeThreadsCurrentRecordingFormatThroughProductionCallers()
         {
             var background = MakeSectionWithFrame(
                 10.0, lat: 0.0, lon: 0.0, alt: 0.0,
@@ -780,21 +777,15 @@ namespace Parsek.Tests
             active.endUT = 11.0;
             active.anchorVesselId = 42u;
 
-            var rec = MakeRecording("rec-v5-relative", "Legacy Relative",
+            var rec = MakeRecording("rec-current-relative", "Current Relative",
                 new List<TrackSection> { background, active });
-            rec.RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion - 1;
-            var tree = MakeTree("Legacy Relative Merge", rec);
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            var tree = MakeTree("Current Relative Merge", rec);
 
-            var merged = SessionMerger.MergeTree(tree)["rec-v5-relative"];
+            var merged = SessionMerger.MergeTree(tree)["rec-current-relative"];
 
-            Assert.Equal(0f, merged.TrackSections[1].boundaryDiscontinuityMeters);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Merger]") &&
-                l.Contains("boundary discontinuity skipped") &&
-                l.Contains("recId=rec-v5-relative") &&
-                l.Contains("reason=prev-legacy-relative-not-measurable"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("current-format wrapper used"));
+            Assert.InRange(merged.TrackSections[1].boundaryDiscontinuityMeters, 29.0f, 31.0f);
+            Assert.DoesNotContain(logLines, l => l.Contains("boundary discontinuity skipped"));
         }
 
         #endregion

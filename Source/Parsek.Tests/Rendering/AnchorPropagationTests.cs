@@ -871,7 +871,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "rec-section-scoped-flagged-sample",
-                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             rec.Points.Add(absolutePoint);
             rec.Points.Add(relativeFlaggedPoint);

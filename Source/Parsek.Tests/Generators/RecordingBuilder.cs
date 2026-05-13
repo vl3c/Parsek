@@ -46,6 +46,7 @@ namespace Parsek.Tests.Generators
         private float defaultRotW = 1;
         private bool hasDefaultRotation;
         private int formatVersion = RecordingStore.CurrentRecordingFormatVersion;
+        private int schemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
 
         public RecordingBuilder(string vesselName)
         {
@@ -70,6 +71,12 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithFormatVersion(int version)
         {
             formatVersion = version;
+            return this;
+        }
+
+        public RecordingBuilder WithSchemaGeneration(int generation)
+        {
+            schemaGeneration = generation;
             return this;
         }
 
@@ -118,7 +125,7 @@ namespace Parsek.Tests.Generators
         /// <see cref="TrajectoryPoint.flags"/>. Mirrors the ConfigNode shape of
         /// <see cref="AddPoint"/> plus a <c>flags</c> value the binary codec
         /// round-trips at v10. Test fixtures using this method must also pin
-        /// <see cref="WithFormatVersion"/> to <see cref="RecordingStore.StructuralEventFlagFormatVersion"/>
+        /// <see cref="WithFormatVersion"/> to <see cref="RecordingStore.CurrentRecordingFormatVersion"/>
         /// (or rely on the default of <see cref="RecordingStore.CurrentRecordingFormatVersion"/>),
         /// otherwise the v9-or-older binary writer drops the byte.
         /// </summary>
@@ -550,9 +557,10 @@ namespace Parsek.Tests.Generators
         public ConfigNode BuildTrajectoryNode()
         {
             var node = new ConfigNode("PARSEK_RECORDING");
-            node.AddValue("version", formatVersion.ToString());
+            node.AddValue("version", formatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration", schemaGeneration.ToString(CultureInfo.InvariantCulture));
             node.AddValue("recordingId", GetRecordingId());
-            if (formatVersion >= 1 && trackSections.Count > 0)
+            if (trackSections.Count > 0)
             {
                 bool sectionAuthoritative = RecordingStore.HasCompleteTrackSectionPayloadForFlatSync(
                     trackSections, allowRelativeSections: true);
@@ -586,7 +594,8 @@ namespace Parsek.Tests.Generators
             node.AddValue("vesselName", vesselName);
             node.AddValue("pointCount", points.Count);
             node.AddValue("recordingId", GetRecordingId());
-            node.AddValue("recordingFormatVersion", formatVersion.ToString());
+            node.AddValue("recordingFormatVersion", formatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration", schemaGeneration.ToString(CultureInfo.InvariantCulture));
             var snapshotModeRecording = new Recording
             {
                 VesselSnapshot = vesselSnapshot,
@@ -846,6 +855,9 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns the format version.</summary>
         public int GetFormatVersion() => formatVersion;
+
+        /// <summary>Returns the recording schema generation.</summary>
+        public int GetSchemaGeneration() => schemaGeneration;
 
         /// <summary>Returns whether loop playback is enabled.</summary>
         public bool GetLoopPlayback() => loopPlayback;

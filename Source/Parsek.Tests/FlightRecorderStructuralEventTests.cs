@@ -143,7 +143,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "phase9-helper-roundtrip",
-                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             rec.Points.Add(flagged);
 
@@ -177,60 +177,45 @@ namespace Parsek.Tests
         // ----- ShouldEmitStructuralEventSnapshot — schema-gate fall-through -----
 
         [Fact]
-        public void ShouldEmitStructuralEventSnapshot_LegacyFormatV9_ReturnsFalse()
+        public void ShouldEmitStructuralEventSnapshot_PostResetV0_ReturnsTrue()
         {
-            // Phase 9 review pass (P2-2): legacy recordings (format < v10) must
-            // skip the structural-event snapshot append so the pipeline falls
-            // through to the §15.17 interpolated event ε path. Pin the gate at
-            // every interesting boundary version so a future bump does not
-            // silently flip the contract.
-            Assert.False(FlightRecorder.ShouldEmitStructuralEventSnapshot(
-                RecordingStore.TerrainGroundClearanceFormatVersion));
+            Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(
+                RecordingStore.CurrentRecordingFormatVersion));
         }
 
         [Fact]
         public void ShouldEmitStructuralEventSnapshot_V10AndAbove_ReturnsTrue()
         {
             Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(
-                RecordingStore.StructuralEventFlagFormatVersion));
+                RecordingStore.CurrentRecordingFormatVersion));
             Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(
-                RecordingStore.StructuralEventFlagFormatVersion + 1));
+                RecordingStore.CurrentRecordingFormatVersion + 1));
         }
 
         [Fact]
-        public void ShouldEmitStructuralEventSnapshot_BelowV9_StillReturnsFalse()
+        public void ShouldEmitStructuralEventSnapshot_IgnoresPreResetVersionNumbers()
         {
-            // Older format generations (v0-v8) must also stay on the legacy path —
-            // the gate is "v >= v10", not "v == v9 || v == v10".
-            for (int v = 0; v < RecordingStore.StructuralEventFlagFormatVersion; v++)
+            // Pre-reset version numbers are no longer used as behavior gates; old
+            // recordings are rejected by the schema loader instead.
+            for (int v = -1; v <= 13; v++)
             {
-                Assert.False(FlightRecorder.ShouldEmitStructuralEventSnapshot(v),
-                    $"Format v{v} must NOT emit structural-event snapshots " +
-                    $"(only v{RecordingStore.StructuralEventFlagFormatVersion}+ permits them)");
+                Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(v));
             }
         }
 
         [Fact]
-        public void AppendStructuralEventSnapshot_LegacyV9Recording_NoAppendAndEmitsSkipLog()
+        public void AppendStructuralEventSnapshot_CurrentRecordingWithNoInvolvedVessels_NoAppend()
         {
-            // Phase 9 review pass (P2-2): end-to-end coverage of the schema-gate
-            // fall-through branch. Build a FlightRecorder with an ActiveTree
-            // whose active recording is at v9 (TerrainGroundClearanceFormatVersion);
-            // call AppendStructuralEventSnapshot through the standard helper path
-            // and assert (a) no point landed in the recording's frames AND
-            // (b) the "skipped: recording format vN < v10" Verbose log line was
-            // emitted. Together these pin both the gate's behavioural contract
-            // and the HR-9 visibility requirement.
             var recorder = new FlightRecorder();
 
-            const string recId = "phase9-legacy-v9-gate-test";
-            var legacyRec = new Recording
+            const string recId = "phase9-current-no-involved-test";
+            var rec = new Recording
             {
                 RecordingId = recId,
-                RecordingFormatVersion = RecordingStore.TerrainGroundClearanceFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
-            var tree = new RecordingTree { Id = "tree-phase9-legacy-gate" };
-            tree.Recordings[recId] = legacyRec;
+            var tree = new RecordingTree { Id = "tree-phase9-current-no-involved" };
+            tree.Recordings[recId] = rec;
             tree.ActiveRecordingId = recId;
             recorder.ActiveTree = tree;
 
@@ -240,7 +225,7 @@ namespace Parsek.Tests
             recorder.IsRecording = true;
 
             int beforeRecordingPoints = recorder.Recording.Count;
-            int beforeLegacyPoints = legacyRec.Points.Count;
+            int beforePoints = rec.Points.Count;
             logLines.Clear();
 
             recorder.AppendStructuralEventSnapshot(
@@ -248,19 +233,9 @@ namespace Parsek.Tests
                 involved: new List<Vessel>(),
                 eventType: "Dock");
 
-            // (a) No point appended. The flat list AND the v9 recording's Points
-            // list both stay empty — CommitRecordedPoint never ran.
             Assert.Equal(beforeRecordingPoints, recorder.Recording.Count);
-            Assert.Equal(beforeLegacyPoints, legacyRec.Points.Count);
-
-            // (b) Verbose log line emitted with the §15.17 fall-through reason.
-            Assert.Contains(logLines, l =>
-                l.Contains("[Pipeline-Smoothing]") &&
-                l.Contains("structural event snapshot skipped") &&
-                l.Contains("recording format v" +
-                    RecordingStore.TerrainGroundClearanceFormatVersion +
-                    " < v" + RecordingStore.StructuralEventFlagFormatVersion) &&
-                l.Contains("eventType=Dock"));
+            Assert.Equal(beforePoints, rec.Points.Count);
+            Assert.DoesNotContain(logLines, l => l.Contains("recording format"));
         }
 
         // ----- §12 contract: simultaneous calls share physics-frame UT -----

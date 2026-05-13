@@ -10,7 +10,7 @@ namespace Parsek.Tests.Rendering
     /// <summary>
     /// Phase 9 (design doc §12, §17.3.2, §18 Phase 9) round-trip tests for the
     /// per-point <c>flags</c> byte added in
-    /// <see cref="RecordingStore.StructuralEventFlagFormatVersion"/> (v10).
+    /// <see cref="RecordingStore.CurrentRecordingFormatVersion"/> (v10).
     ///
     /// <para>Three contracts under test:
     /// <list type="number">
@@ -65,7 +65,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "phase9-v10-flagged",
-                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var pt = new TrajectoryPoint
             {
@@ -116,7 +116,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "phase9-v10-unflagged",
-                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var pt = new TrajectoryPoint
             {
@@ -215,7 +215,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "phase9-v10-mixed",
-                RecordingFormatVersion = RecordingStore.StructuralEventFlagFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             var p0 = MakePoint(t0, flags: 0);                                                     // unflagged tick
             var p1 = MakePoint(t0 + 1, flags: (byte)TrajectoryPointFlags.StructuralEventSnapshot); // dock event

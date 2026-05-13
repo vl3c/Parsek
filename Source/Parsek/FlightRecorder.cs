@@ -5821,8 +5821,6 @@ namespace Parsek
             // current live vessel.
             PrepareQuickloadResumeStateIfNeeded();
             ResetPartEventTrackingState(v, emitSeedEvents: !isPromotion);
-            MaybeUpgradeActiveRecordingRelativeContract(
-                isPromotion ? "resume-or-promotion" : "fresh-start");
 
             LogVisualRecordingCoverage(v);
 
@@ -7695,54 +7693,31 @@ namespace Parsek
             if (v == null || string.IsNullOrWhiteSpace(anchorRecordingId))
                 return false;
 
-            int recordingFormatVersion = ResolveActiveRecordingFormatVersion();
-            bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
-                recordingFormatVersion);
+            int recordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             Vector3d offset;
-            // Capture focus world position outside the branches so the
-            // Trace-Sep recording-side distance comparison below can read it
-            // regardless of which contract path produced the offset. In the
-            // v13 path this is the (vesselTransform-aligned) world position
-            // used as the rotated relative-offset source; in the legacy path
-            // it is the body.GetWorldSurfacePosition(LLA) result.
-            Vector3d focusWorldPosCaptured = Vector3d.zero;
-            if (useLocalContract)
+            if (!TryResolveAbsolutePointWorldForRelativeOffset(
+                    point,
+                    v,
+                    out Vector3d focusWorldPos))
             {
-                if (!TryResolveAbsolutePointWorldForRelativeOffset(
-                        point,
-                        v,
-                        out Vector3d focusWorldPos))
-                {
-                    focusWorldPos = v.GetWorldPos3D();
-                }
-                focusWorldPosCaptured = focusWorldPos;
-                offset = TrajectoryMath.ComputeRelativeLocalOffset(
-                    focusWorldPos,
-                    anchorPose.WorldPos,
-                    anchorPose.WorldRotation);
-                Quaternion focusWorldRotation;
-                if (!TryResolveAbsolutePointWorldRotationForRelativeOffset(
-                        point,
-                        v,
-                        out focusWorldRotation))
-                {
-                    focusWorldRotation = v.transform.rotation;
-                }
-                point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
-                    focusWorldRotation,
-                    anchorPose.WorldRotation);
+                focusWorldPos = v.GetWorldPos3D();
             }
-            else
+            Vector3d focusWorldPosCaptured = focusWorldPos;
+            offset = TrajectoryMath.ComputeRelativeLocalOffset(
+                focusWorldPos,
+                anchorPose.WorldPos,
+                anchorPose.WorldRotation);
+            Quaternion focusWorldRotation;
+            if (!TryResolveAbsolutePointWorldRotationForRelativeOffset(
+                    point,
+                    v,
+                    out focusWorldRotation))
             {
-                Vector3d focusPos;
-                if (!TryResolveAbsolutePointWorldForRelativeOffset(point, v, out focusPos))
-                {
-                    focusPos = v.mainBody.GetWorldSurfacePosition(
-                        v.latitude, v.longitude, v.altitude);
-                }
-                focusWorldPosCaptured = focusPos;
-                offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPose.WorldPos);
+                focusWorldRotation = v.transform.rotation;
             }
+            point.rotation = TrajectoryMath.ComputeRelativeLocalRotation(
+                focusWorldRotation,
+                anchorPose.WorldRotation);
 
             point.latitude = offset.x;
             point.longitude = offset.y;
@@ -7754,7 +7729,7 @@ namespace Parsek
             // Cartesian offset just written into frames[].latitude/longitude/altitude).
             // recorded-absolute = |focusWorldPosCaptured - anchorPose.WorldPos|
             // (= ground-truth world-space distance at this instant). These
-            // MUST agree exactly under the v13 contract (rotation alone
+            // MUST agree exactly under the v0 contract (rotation alone
             // preserves magnitude). Divergence indicates the rotation path
             // introduces unexpected scaling / mis-applied anchor frame and
             // would mean the recorded anchor-local distance does not
@@ -7774,8 +7749,7 @@ namespace Parsek
                     " offset=" + TraceSeparation.FormatVector3d(offset) +
                     " recordedRelativeDist=" + recordedRelativeDist.ToString("F3", CultureInfo.InvariantCulture) +
                     " recordedAbsoluteDist=" + recordedAbsoluteDist.ToString("F3", CultureInfo.InvariantCulture) +
-                    " distMismatch=" + System.Math.Abs(recordedRelativeDist - recordedAbsoluteDist).ToString("F3", CultureInfo.InvariantCulture) +
-                    " contract=" + (useLocalContract ? "local" : "legacy"));
+                    " distMismatch=" + System.Math.Abs(recordedRelativeDist - recordedAbsoluteDist).ToString("F3", CultureInfo.InvariantCulture));
             }
             // ---- /Trace-Sep ----
 
@@ -9113,21 +9087,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Phase 9 schema gate: returns true when the active recording's format version
-        /// permits writing <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
-        /// points. Legacy recordings (format &lt; v10) keep the interpolated event ε path
-        /// (design doc §15.17) — the writer would silently drop the byte but the in-memory
-        /// flag could still confuse the AnchorCandidateBuilder consumer until a save / load
-        /// round-trip clears it. Skipping the append at the recorder is cleaner.
-        ///
-        /// <para>Pure / static so xUnit can pin the gate semantics without a live KSP runtime
-        /// or an active <see cref="ActiveTree"/>; <see cref="AppendStructuralEventSnapshot"/>
-        /// resolves the active recording's format via
-        /// <see cref="ResolveActiveRecordingFormatVersion"/> and feeds it here.</para>
+        /// The post-reset v0 schema always carries structural-event flags.
         /// </summary>
         internal static bool ShouldEmitStructuralEventSnapshot(int activeFormatVersion)
         {
-            return activeFormatVersion >= RecordingStore.StructuralEventFlagFormatVersion;
+            return true;
         }
 
         /// <summary>
@@ -9139,8 +9103,7 @@ namespace Parsek
         /// when the handler runs.
         ///
         /// <para>No-op when the recorder is not currently recording (e.g. mid-stop), when the
-        /// recording's format version pre-dates v10 (legacy recordings keep their interpolation
-        /// path per §15.17), or when no involved vessel matches this recorder. Callers are
+        /// the recording cannot match an involved vessel. Callers are
         /// responsible for filtering "noise" structural events (e.g. non-structural joint
         /// breaks, transient pid mismatches) before invoking the helper.</para>
         ///
@@ -9169,23 +9132,6 @@ namespace Parsek
             }
             if (involved == null)
                 return;
-
-            // Phase 9 schema gating: legacy recordings (format < v10) keep the
-            // interpolated event ε path (§15.17). Reading the active recording's
-            // format version mirrors how Phase 7 gates `recordedGroundClearance`.
-            int activeFormatVersion = ResolveActiveRecordingFormatVersion();
-            if (!ShouldEmitStructuralEventSnapshot(activeFormatVersion))
-            {
-                ParsekLog.Verbose("Pipeline-Smoothing",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "structural event snapshot skipped: recording format v{0} < v{1} " +
-                        "(legacy interpolation path, §15.17) eventType={2} ut={3}",
-                        activeFormatVersion,
-                        RecordingStore.StructuralEventFlagFormatVersion,
-                        eventType ?? "<unknown>",
-                        eventUT.ToString("F2", CultureInfo.InvariantCulture)));
-                return;
-            }
 
             ActivateHighFidelitySampling(eventUT, $"structural-event-{eventType ?? "unknown"}");
 
@@ -9306,89 +9252,15 @@ namespace Parsek
             return RecordingStore.CurrentRecordingFormatVersion;
         }
 
-        private static bool HasRelativeTrackSections(Recording rec)
-        {
-            if (rec?.TrackSections == null)
-                return false;
-
-            for (int i = 0; i < rec.TrackSections.Count; i++)
-            {
-                if (rec.TrackSections[i].referenceFrame == ReferenceFrame.Relative)
-                    return true;
-            }
-
-            return false;
-        }
-
         private void MaybeUpgradeActiveRecordingRelativeContract(string reason)
         {
-            if (ActiveTree == null
-                || ActiveTree.Recordings == null
-                || string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
-                || !ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out Recording activeRec)
-                || activeRec == null)
-            {
-                return;
-            }
-
-            bool hasRelativeTrackSections = HasRelativeTrackSections(activeRec);
-            int targetFormatVersion = ResolveRelativeContractUpgradeTarget(
-                activeRec.RecordingFormatVersion,
-                hasRelativeTrackSections);
-            if (activeRec.RecordingFormatVersion >= targetFormatVersion)
-            {
-                if (hasRelativeTrackSections
-                    && activeRec.RecordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion
-                    && targetFormatVersion < RecordingStore.CurrentRecordingFormatVersion)
-                {
-                    ParsekLog.VerboseRateLimited("Recorder",
-                        "relative-contract-v11-upgrade-deferred-" + activeRec.RecordingId,
-                        $"Relative contract v11 upgrade deferred: recording={activeRec.RecordingId} " +
-                        $"version={activeRec.RecordingFormatVersion} " +
-                        $"current={RecordingStore.CurrentRecordingFormatVersion} " +
-                        $"reason={reason} existingRelativeSections=true");
-                }
-                return;
-            }
-
-            if (hasRelativeTrackSections
-                && activeRec.RecordingFormatVersion < RecordingStore.RelativeLocalFrameFormatVersion)
-            {
-                ParsekLog.Info("Recorder",
-                    $"Relative contract preserved: recording={activeRec.RecordingId} " +
-                    $"version={activeRec.RecordingFormatVersion} " +
-                    $"contract={RecordingStore.DescribeRelativeFrameContract(activeRec.RecordingFormatVersion)} " +
-                    $"reason={reason} existingRelativeSections=true");
-                return;
-            }
-
-            if (activeRec.RecordingFormatVersion < RecordingStore.PredictedOrbitSegmentFormatVersion)
-                return;
-
-            // Upgrading an already-open v6 recording does not synthesize
-            // bodyFixedFrames for relative samples captured before this point.
-            // Those legacy sections deliberately fall back to the pre-ReFly
-            // frozen anchor trajectory path; only new v7 samples append
-            // body-fixed primary frames.
-            int previousVersion = activeRec.RecordingFormatVersion;
-            activeRec.RecordingFormatVersion = targetFormatVersion;
-            ParsekLog.Info("Recorder",
-                $"Relative contract upgraded: recording={activeRec.RecordingId} " +
-                $"version={previousVersion}->{activeRec.RecordingFormatVersion} " +
-                $"contract={RecordingStore.DescribeRelativeFrameContract(activeRec.RecordingFormatVersion)} " +
-                $"reason={reason}");
+            // Retained as a no-op test seam until the old format-version tests are removed.
         }
 
         internal static int ResolveRelativeContractUpgradeTarget(
             int recordingFormatVersion,
             bool hasRelativeTrackSections)
         {
-            if (hasRelativeTrackSections
-                && recordingFormatVersion < RecordingStore.RecordingAnchorChainFormatVersion)
-            {
-                return RecordingStore.StructuralEventFlagFormatVersion;
-            }
-
             return RecordingStore.CurrentRecordingFormatVersion;
         }
 

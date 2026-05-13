@@ -706,17 +706,25 @@ namespace Parsek
             {
                 var tree = committedTrees[t];
 
-                // Write bulk data to external files only for recordings whose data changed
+                bool treeFilesCurrent = true;
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (rec.FilesDirty && !RecordingStore.SaveRecordingFiles(rec))
-                        ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
+                    if (!EnsureRecordingFilesCurrentForSave(rec, "committed tree"))
+                        treeFilesCurrent = false;
                     treeRecCount++;
                     treeTotalPoints += rec.Points.Count;
                     treeTotalOrbitSegments += rec.OrbitSegments.Count;
                     treeTotalPartEvents += rec.PartEvents.Count;
                     if (rec.TrackSections != null && rec.TrackSections.Count > 0) treeWithTrackSections++;
                     if (rec.VesselSnapshot != null) treeWithSnapshots++;
+                }
+
+                if (!treeFilesCurrent)
+                {
+                    ParsekLog.Warn("Scenario",
+                        $"OnSave: skipped tree '{tree.TreeName}' id={tree.Id ?? "<none>"} " +
+                        "because at least one recording could not be written with current v0 sidecars");
+                    continue;
                 }
 
                 ConfigNode treeNode = node.AddNode("RECORDING_TREE");
@@ -750,6 +758,54 @@ namespace Parsek
                         $"safety guard on next load. Restore from quicksave.sfs or backup if recordings are missing.");
                 }
             }
+        }
+
+        private static bool EnsureRecordingFilesCurrentForSave(Recording rec, string treeKind)
+        {
+            if (rec == null)
+                return false;
+
+            if (RecordingStore.SkipSidecarCurrencyCheckForTesting)
+                return true;
+
+            string currentReason;
+            bool filesCurrent = RecordingStore.AreRecordingFilesCurrentForSave(rec, out currentReason);
+            if (rec.FilesDirty || !filesCurrent)
+            {
+                if (!RecordingStore.SuppressLogging && !filesCurrent)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"OnSave: rewriting sidecars for recording='{rec.VesselName ?? "<unnamed>"}' " +
+                        $"id={rec.RecordingId ?? "<none>"} treeKind={treeKind} reason={currentReason ?? "<none>"}");
+                }
+
+                if (!RecordingStore.SaveRecordingFiles(rec))
+                {
+                    ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
+                    return false;
+                }
+            }
+
+            if (rec.FilesDirty || rec.SidecarLoadFailed)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnSave: recording '{rec.VesselName ?? "<unnamed>"}' id={rec.RecordingId ?? "<none>"} " +
+                    $"treeKind={treeKind} remains unsafe to serialize " +
+                    $"filesDirty={rec.FilesDirty} sidecarLoadFailed={rec.SidecarLoadFailed} " +
+                    $"reason={rec.SidecarLoadFailureReason ?? "<none>"}");
+                return false;
+            }
+
+            if (!RecordingStore.AreRecordingFilesCurrentForSave(rec, out currentReason))
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnSave: recording '{rec.VesselName ?? "<unnamed>"}' id={rec.RecordingId ?? "<none>"} " +
+                    $"treeKind={treeKind} still does not have current sidecars after save " +
+                    $"reason={currentReason ?? "<none>"}");
+                return false;
+            }
+
+            return true;
         }
 
         private static void SavePendingTreeIfAny(ConfigNode node)
@@ -801,6 +857,7 @@ namespace Parsek
             int pendingSaveFailedCount = 0;
             int pendingCommittedOverlapCount = 0;
             int pendingSkippedCommittedDirtyCount = 0;
+            bool pendingFilesCurrent = true;
             foreach (var rec in pendingTree.Recordings.Values)
             {
                 if (rec == null)
@@ -825,20 +882,30 @@ namespace Parsek
                             $"SavePendingTreeIfAny: skipped dirty sidecar save for committed-overlap " +
                             $"recording '{rec.RecordingId ?? "<no-id>"}' in pending tree '{pendingTree.TreeName}' " +
                             "to avoid mutating committed history before merge consent");
+                        pendingFilesCurrent = false;
                         pendingRecCount++;
                         continue;
                     }
-                    if (RecordingStore.SaveRecordingFiles(rec))
-                    {
-                        pendingSavedCount++;
-                    }
-                    else
-                    {
-                        pendingSaveFailedCount++;
-                        ScenarioLog($"[Parsek Scenario] WARNING: File write failed for pending tree recording '{rec.VesselName}'");
-                    }
+                }
+
+                if (!EnsureRecordingFilesCurrentForSave(rec, "pending tree"))
+                {
+                    pendingFilesCurrent = false;
+                    pendingSaveFailedCount++;
+                }
+                else if (wasDirty)
+                {
+                    pendingSavedCount++;
                 }
                 pendingRecCount++;
+            }
+
+            if (!pendingFilesCurrent)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"SavePendingTreeIfAny: skipped pending tree '{pendingTree.TreeName}' " +
+                    "because at least one recording could not be written with current v0 sidecars");
+                return;
             }
 
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
@@ -930,6 +997,7 @@ namespace Parsek
             int activeSavedCount = 0;
             int activeSaveFailedCount = 0;
             int activeSkippedDegradedCount = 0;
+            bool activeFilesCurrent = true;
             foreach (var rec in activeTree.Recordings.Values)
             {
                 bool wasDirty = rec.FilesDirty;
@@ -943,17 +1011,19 @@ namespace Parsek
                             $"SaveActiveTreeIfAny: skipped empty sidecar overwrite for hydration-failed " +
                             $"recording '{rec.RecordingId ?? "<no-id>"}' vessel='{rec.VesselName ?? "<no-name>"}' " +
                             $"reason={rec.SidecarLoadFailureReason ?? "<unknown>"}");
+                        activeFilesCurrent = false;
                         continue;
                     }
-                    if (RecordingStore.SaveRecordingFiles(rec))
-                    {
-                        activeSavedCount++;
-                    }
-                    else
-                    {
-                        activeSaveFailedCount++;
-                        ScenarioLog($"[Parsek Scenario] WARNING: File write failed for active tree recording '{rec.VesselName}'");
-                    }
+                }
+
+                if (!EnsureRecordingFilesCurrentForSave(rec, "active tree"))
+                {
+                    activeFilesCurrent = false;
+                    activeSaveFailedCount++;
+                }
+                else if (wasDirty)
+                {
+                    activeSavedCount++;
                 }
                 activeRecCount++;
             }
@@ -962,6 +1032,14 @@ namespace Parsek
                 $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
                 $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed, " +
                 $"{activeSkippedDegradedCount} skippedDegraded");
+
+            if (!activeFilesCurrent)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"SaveActiveTreeIfAny: skipped active tree '{activeTree.TreeName}' " +
+                    "because at least one recording could not be written with current v0 sidecars");
+                return;
+            }
 
             // Quickload resume restores the recorder's rewind save hint from
             // resumeRewindSave, but the committed tree's Rewind button resolves through the
@@ -3015,6 +3093,13 @@ namespace Parsek
                     }
 
                     var tree = RecordingTree.Load(treeNode);
+                    if (tree.Recordings == null || tree.Recordings.Count == 0)
+                    {
+                        ParsekLog.Warn("Scenario",
+                            $"LoadRecordingTrees: skipped tree '{tree.TreeName}' id={tree.Id} " +
+                            "because all recordings were rejected by the schema gate");
+                        continue;
+                    }
                     int sidecarHydrationFailures = 0;
                     int syntheticFixtureFailures = 0;
 
@@ -3036,6 +3121,17 @@ namespace Parsek
                             if (IsSyntheticFixtureSidecarMarker(rec))
                                 syntheticFixtureFailures++;
                         }
+                    }
+
+                    int droppedHydrationFailures = DropFailedSidecarHydrationRecordings(
+                        tree,
+                        "LoadRecordingTrees");
+                    if (tree.Recordings == null || tree.Recordings.Count == 0)
+                    {
+                        ParsekLog.Warn("Scenario",
+                            $"LoadRecordingTrees: skipped tree '{tree.TreeName}' id={tree.Id} " +
+                            $"after dropping {droppedHydrationFailures} recording(s) with incompatible sidecars");
+                        continue;
                     }
 
                     if (RepairMissingContiguousChainPredecessors(tree, "LoadRecordingTrees") > 0)
@@ -3134,6 +3230,87 @@ namespace Parsek
             if (rec == null) return false;
             if (rec.SidecarLoadFailureReason != "trajectory-missing") return false;
             return rec.Points == null || rec.Points.Count == 0;
+        }
+
+        internal static int DropFailedSidecarHydrationRecordings(RecordingTree tree, string context)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return 0;
+
+            HashSet<string> rejectedIds = null;
+            var examples = new List<string>();
+            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
+            {
+                Recording rec = kvp.Value;
+                if (rec == null || !rec.SidecarLoadFailed)
+                    continue;
+                if (IsSyntheticFixtureSidecarMarker(rec))
+                    continue;
+
+                if (rejectedIds == null)
+                    rejectedIds = new HashSet<string>(StringComparer.Ordinal);
+
+                if (!string.IsNullOrEmpty(kvp.Key))
+                    rejectedIds.Add(kvp.Key);
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                    rejectedIds.Add(rec.RecordingId);
+
+                if (examples.Count < 3)
+                {
+                    examples.Add(
+                        $"{rec.RecordingId ?? kvp.Key ?? "<no-id>"}:{rec.SidecarLoadFailureReason ?? "<unknown>"}");
+                }
+            }
+
+            if (rejectedIds == null || rejectedIds.Count == 0)
+                return 0;
+
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && rejectedIds.Contains(tree.RootRecordingId))
+            {
+                int removedRecordings = tree.Recordings.Count;
+                int rootRemovedBranchPoints = tree.BranchPoints != null ? tree.BranchPoints.Count : 0;
+                string rootRecordingId = tree.RootRecordingId;
+                tree.RootRecordingId = string.Empty;
+                tree.ActiveRecordingId = null;
+                tree.Recordings.Clear();
+                if (tree.BranchPoints != null)
+                    tree.BranchPoints.Clear();
+                if (tree.BackgroundMap != null)
+                    tree.BackgroundMap.Clear();
+                ParsekLog.Warn("Scenario",
+                    $"{context}: dropped entire tree '{tree.TreeName}' id={tree.Id ?? "<none>"} " +
+                    $"because root recording '{rootRecordingId}' had an incompatible sidecar; " +
+                    $"removedRecordings={removedRecordings} removedBranchPoints={rootRemovedBranchPoints} " +
+                    $"examples=[{string.Join(", ", examples.ToArray())}]");
+                return removedRecordings;
+            }
+
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && rejectedIds.Contains(tree.ActiveRecordingId))
+            {
+                tree.ActiveRecordingId = null;
+            }
+
+            int removed = PruneFutureOnlyRecordings(tree, rejectedIds);
+            int removedBranchPoints = RemoveEmptyBranchPoints(tree);
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+                if (!string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                    && rejectedIds.Contains(rec.DebrisParentRecordingId))
+                {
+                    rec.DebrisParentRecordingId = null;
+                }
+            }
+
+            tree.RebuildBackgroundMap();
+            ParsekLog.Warn("Scenario",
+                $"{context}: dropped {removed} recording(s) with incompatible sidecars " +
+                $"from tree '{tree.TreeName}' id={tree.Id ?? "<none>"} " +
+                $"removedBranchPoints={removedBranchPoints} examples=[{string.Join(", ", examples.ToArray())}]");
+            return removed;
         }
 
         /// <summary>
@@ -3246,6 +3423,13 @@ namespace Parsek
             }
 
             var tree = RecordingTree.Load(pendingNode);
+            if (tree.Recordings == null || tree.Recordings.Count == 0)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"TryRestorePendingTreeNode: skipped pending tree '{tree.TreeName}' id={tree.Id} " +
+                    "because all recordings were rejected by the schema gate");
+                return false;
+            }
             int sidecarHydrationFailures = 0;
             int syntheticFixtureFailures = 0;
             foreach (var rec in tree.Recordings.Values)
@@ -3256,6 +3440,17 @@ namespace Parsek
                     if (IsSyntheticFixtureSidecarMarker(rec))
                         syntheticFixtureFailures++;
                 }
+            }
+
+            int droppedHydrationFailures = DropFailedSidecarHydrationRecordings(
+                tree,
+                "TryRestorePendingTreeNode");
+            if (tree.Recordings == null || tree.Recordings.Count == 0)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"TryRestorePendingTreeNode: skipped pending tree '{tree.TreeName}' id={tree.Id} " +
+                    $"after dropping {droppedHydrationFailures} recording(s) with incompatible sidecars");
+                return false;
             }
 
             if (RepairMissingContiguousChainPredecessors(tree, "TryRestorePendingTreeNode") > 0)
@@ -3315,6 +3510,15 @@ namespace Parsek
                 if (!IsActiveTreeNode(treeNodes[t])) continue;
 
                 var tree = RecordingTree.Load(treeNodes[t]);
+                if (tree.Recordings == null || tree.Recordings.Count == 0)
+                {
+                    pendingActiveTreeResumeRewindSave = null;
+                    ClearPendingQuickloadResumeContext();
+                    ParsekLog.Warn("Scenario",
+                        $"TryRestoreActiveTreeNode: skipped active tree '{tree.TreeName}' id={tree.Id} " +
+                        "because all recordings were rejected by the schema gate");
+                    return false;
+                }
                 if (RecordingStore.TryConsumeNextActiveTreeRestoreSuppression(
                     "TryRestoreActiveTreeNode:active-tree",
                     out string suppressReason))
@@ -3397,6 +3601,18 @@ namespace Parsek
                 }
 
                 int salvagedHydrationFailures = RestoreHydrationFailedRecordingsFromPendingTree(tree);
+                int droppedHydrationFailures = DropFailedSidecarHydrationRecordings(
+                    tree,
+                    "TryRestoreActiveTreeNode");
+                if (tree.Recordings == null || tree.Recordings.Count == 0)
+                {
+                    pendingActiveTreeResumeRewindSave = null;
+                    ClearPendingQuickloadResumeContext();
+                    ParsekLog.Warn("Scenario",
+                        $"TryRestoreActiveTreeNode: skipped active tree '{tree.TreeName}' id={tree.Id} " +
+                        $"after dropping {droppedHydrationFailures} recording(s) with incompatible sidecars");
+                    return false;
+                }
 
                 // Bug #601: Re-Fly load preserves post-RP merge tree mutations.
                 // The RP's frozen .sfs snapshots the tree state AT RP creation time.
@@ -6075,39 +6291,7 @@ namespace Parsek
                 double loopIntervalSeconds;
                 if (double.TryParse(loopIntervalStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopIntervalSeconds))
                 {
-                    if (rec.RecordingFormatVersion < RecordingStore.LaunchToLaunchLoopIntervalFormatVersion)
-                    {
-                        double effectiveLoopDuration;
-                        double migratedLoopIntervalSeconds =
-                            loopIntervalSeconds;
-                        if (GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                                rec, loopIntervalSeconds,
-                                out migratedLoopIntervalSeconds, out effectiveLoopDuration))
-                        {
-                            int legacyRecordingFormatVersion = rec.RecordingFormatVersion;
-                            rec.LoopIntervalSeconds = migratedLoopIntervalSeconds;
-                            RecordingStore.NormalizeRecordingFormatVersionAfterLegacyLoopMigration(rec);
-                            ParsekLog.Warn("Loop",
-                                $"ParsekScenario: migrated recording '{rec.VesselName}' from legacy " +
-                                $"gap loopIntervalSeconds={loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
-                                $"to launch-to-launch period={migratedLoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}s " +
-                                $"using effectiveLoopDuration={effectiveLoopDuration.ToString("R", CultureInfo.InvariantCulture)}s " +
-                                $"for recordingFormatVersion={legacyRecordingFormatVersion} (pre-v4 loop save).");
-                        }
-                        else
-                        {
-                            rec.LoopIntervalSeconds = loopIntervalSeconds;
-                            ParsekLog.Warn("Loop",
-                                $"ParsekScenario: loaded recording '{rec.VesselName}' with legacy " +
-                                $"loopIntervalSeconds={loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
-                                $"for recordingFormatVersion={rec.RecordingFormatVersion}, but deferred migration " +
-                                "because loop bounds are not hydrated yet.");
-                        }
-                    }
-                    else
-                    {
-                        rec.LoopIntervalSeconds = loopIntervalSeconds;
-                    }
+                    rec.LoopIntervalSeconds = loopIntervalSeconds;
                 }
             }
 

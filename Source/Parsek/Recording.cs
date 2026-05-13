@@ -10,6 +10,7 @@ namespace Parsek
     {
         public string RecordingId = Guid.NewGuid().ToString("N");
         public int RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+        public int RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
         public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
         public bool HasOrbitSegments => OrbitSegments != null && OrbitSegments.Count > 0;
@@ -25,7 +26,7 @@ namespace Parsek
         public bool IsDebris;
 
         // Set on parent-anchored debris recordings to the parent recording's id;
-        // null on non-debris. The v13 debris-frame contract uses this field to
+        // null on non-debris. The current debris-frame contract uses this field to
         // choose parent-owned recording and playback paths.
         public string DebrisParentRecordingId;
 
@@ -84,6 +85,10 @@ namespace Parsek
         // looks empty because sidecar hydration was rejected).
         [NonSerialized] internal bool SidecarLoadFailed;
         [NonSerialized] internal string SidecarLoadFailureReason;
+        [NonSerialized] internal int LoadedTrajectorySchemaGeneration;
+        [NonSerialized] internal string LoadedTrajectoryMagicTag;
+        [NonSerialized] internal bool LoadedTrajectorySchemaCompatible;
+        [NonSerialized] internal string LoadedTrajectorySchemaFailureReason;
 
         [NonSerialized] internal bool SegmentBodyDisplayLabelCacheValid;
         [NonSerialized] internal string SegmentBodyDisplayLabelCache;
@@ -529,6 +534,7 @@ namespace Parsek
             VesselSituation = source.VesselSituation;
             MaxDistanceFromLaunch = source.MaxDistanceFromLaunch;
             RecordingFormatVersion = source.RecordingFormatVersion;
+            RecordingSchemaGeneration = source.RecordingSchemaGeneration;
             ParentRecordingId = source.ParentRecordingId;
             EvaCrewName = source.EvaCrewName;
             ChainId = source.ChainId;
@@ -602,7 +608,7 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
-            // Propagate the v13 debris parent-anchor contract alongside IsDebris.
+            // Propagate the debris parent-anchor contract alongside IsDebris.
             // Without this, every cloned debris recording would silently lose the
             // contract — see plan §"`IsDebris` propagation surface" site #4.
             DebrisParentRecordingId = source.DebrisParentRecordingId;
@@ -845,6 +851,7 @@ namespace Parsek
             {
                 RecordingId = RecordingId,
                 RecordingFormatVersion = RecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingSchemaGeneration,
                 Points = PreReFlyAnchorPoints != null
                     ? new List<TrajectoryPoint>(PreReFlyAnchorPoints)
                     : new List<TrajectoryPoint>(),
@@ -885,7 +892,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Stamps the v13 debris parent-anchor contract on <paramref name="child"/>:
+        /// Stamps the debris parent-anchor contract on <paramref name="child"/>:
         /// when the child is debris, sets <see cref="DebrisParentRecordingId"/> to the
         /// supplied parent's recording id; otherwise no-op. Idempotent on non-debris
         /// recordings so callers can invoke unconditionally adjacent to their existing

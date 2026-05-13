@@ -38,30 +38,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingAnchorChainVersion_PinnedAt11_AndCurrentVersionsTrackV13()
+        public void RecordingAnchorChainVersion_CollapsesToCurrentV0()
         {
-            // v13 keeps the anchor-chain boundary pinned at v11 while the current
-            // recording and binary versions advance to the debris frame contract.
-            Assert.Equal(11, RecordingStore.RecordingAnchorChainFormatVersion);
-            Assert.Equal(
-                RecordingStore.RecordingAnchorChainFormatVersion,
-                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
-            Assert.Equal(13, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(0, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(0, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(1, RecordingStore.CurrentRecordingSchemaGeneration);
             Assert.Equal(
                 RecordingStore.CurrentRecordingFormatVersion,
                 TrajectorySidecarBinary.CurrentBinaryVersion);
         }
 
         [Fact]
-        public void BinaryV13_RelativeTrackSection_RoundTripsAnchorRecordingIdAndLivePid()
+        public void BinaryV0_RelativeTrackSection_RoundTripsAnchorRecordingIdAndLivePid()
         {
             Recording original = BuildV11RelativeAnchorFixture();
-            string path = Path.Combine(tempDir, "v13-anchor-recording.prec");
+            string path = Path.Combine(tempDir, "v0-anchor-recording.prec");
 
             TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingSchemaGeneration, probe.SchemaGeneration);
             Assert.True(probe.Supported);
 
             var restored = new Recording();

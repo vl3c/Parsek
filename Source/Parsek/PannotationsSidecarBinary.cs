@@ -90,8 +90,8 @@ namespace Parsek
     /// </summary>
     internal static class PannotationsSidecarBinary
     {
-        private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PANN");
-        private static readonly byte[] CanonicalMagic = Encoding.ASCII.GetBytes("PANC");
+        private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PNA0");
+        private static readonly byte[] CanonicalMagic = Encoding.ASCII.GetBytes("PNC0");
 
         // P2#2: upper bounds on every count field read from a .pann file.
         // A real .pann has at most a few hundred entries per block; values
@@ -135,7 +135,7 @@ namespace Parsek
         // schema exactly.
         private const int MinBytesPerAnchorCandidateEntry = 9;
 
-        internal const int PannotationsBinaryVersion = 1;
+        internal const int PannotationsBinaryVersion = 0;
         // Bumped to 2 in Phase 4: ExoPropulsive / ExoBallistic splines are now
         // fitted in inertial-longitude space (FrameTag = 1) instead of body-
         // fixed. The .pann binary schema is unchanged — frameTag was already
@@ -272,8 +272,8 @@ namespace Parsek
         // rolled back until the fitter has an explicit monotonic/shape-safe
         // contract. v11 .pann files may contain unsafe atmospheric splines and
         // must be discarded on first load.
-        internal const int AlgorithmStampVersion = 12;
-        private const int CanonicalEncoderVersion = 1;
+        internal const int AlgorithmStampVersion = 0;
+        private const int CanonicalEncoderVersion = 0;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
         // splineType(1) + tension(4) + minSamples(4) + maxKnots(4) +

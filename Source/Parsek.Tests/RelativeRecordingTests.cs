@@ -226,7 +226,7 @@ namespace Parsek.Tests
                 storedPoint.latitude,
                 storedPoint.longitude,
                 storedPoint.altitude,
-                RecordingStore.RelativeLocalFrameFormatVersion);
+                RecordingStore.CurrentRecordingFormatVersion);
 
             Assert.Equal(focusWorld.x, reconstructed.x, 3);
             Assert.Equal(focusWorld.y, reconstructed.y, 3);
@@ -335,11 +335,11 @@ namespace Parsek.Tests
             Vector3d correctPlayback = TrajectoryMath.ResolveRelativePlaybackPosition(
                 parentVesselTransformWorld, anchorRot,
                 correctOffset.x, correctOffset.y, correctOffset.z,
-                RecordingStore.RelativeLocalFrameFormatVersion);
+                RecordingStore.CurrentRecordingFormatVersion);
             Vector3d buggyPlayback = TrajectoryMath.ResolveRelativePlaybackPosition(
                 parentVesselTransformWorld, anchorRot,
                 buggyOffset.x, buggyOffset.y, buggyOffset.z,
-                RecordingStore.RelativeLocalFrameFormatVersion);
+                RecordingStore.CurrentRecordingFormatVersion);
 
             // Correct round-trip lands on the focus.
             Assert.Equal(focusWorld.x, correctPlayback.x, 3);

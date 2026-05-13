@@ -1025,7 +1025,6 @@ namespace Parsek
                 string anchorKey;
                 bool sameAnchor = HasSameRelativeAnchorIdentity(prev, next, out anchorKey);
                 if (sameAnchor
-                    && recordingFormatVersion >= RecordingStore.RelativeLocalFrameFormatVersion
                     && IsFinite(dtSeconds)
                     && Math.Abs(dtSeconds) <= RelativeAnchorLocalDeltaMaxDtSeconds)
                 {
@@ -1049,8 +1048,7 @@ namespace Parsek
                     };
                 }
 
-                sameAnchorLargeDtRequiresShadow = sameAnchor
-                    && recordingFormatVersion >= RecordingStore.RelativeLocalFrameFormatVersion;
+                sameAnchorLargeDtRequiresShadow = sameAnchor;
             }
 
             string prevSource;
@@ -1206,18 +1204,6 @@ namespace Parsek
             if (section.referenceFrame != ReferenceFrame.Relative)
             {
                 reason = "orbital-checkpoint-no-body-fixed-frame";
-                return false;
-            }
-
-            if (recordingFormatVersion < RecordingStore.RelativeLocalFrameFormatVersion)
-            {
-                reason = "legacy-relative-not-measurable";
-                return false;
-            }
-
-            if (recordingFormatVersion < RecordingStore.RelativeBodyFixedPrimaryFormatVersion)
-            {
-                reason = "relative-shadow-format-unavailable";
                 return false;
             }
 

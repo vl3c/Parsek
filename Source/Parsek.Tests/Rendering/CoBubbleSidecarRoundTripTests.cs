@@ -64,7 +64,7 @@ namespace Parsek.Tests.Rendering
             return new CoBubbleOffsetTrace
             {
                 PeerRecordingId = peerId,
-                PeerSourceFormatVersion = 8,
+                PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 PeerSidecarEpoch = 3,
                 PeerContentSignature = sig,
                 StartUT = startUT,
@@ -129,51 +129,6 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void AlgStampVersion_BumpedToSixOrLater_ForBodyNameField()
-        {
-            // P1-A: the BodyName field is a new on-disk schema element. v5
-            // .pann files lack it; the runtime can't lower their FrameTag=1
-            // offsets correctly. Bumping the alg stamp invalidates them via
-            // the existing alg-stamp-drift gate so they get recomputed on
-            // first load (HR-10).
-            // Phase 5 review-pass-2 (P1-B + P2-B) further bumped to 7.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 6,
-                "AlgorithmStampVersion must be >= 6 after Phase 5 P1-A ships");
-        }
-
-        [Fact]
-        public void AlgStampVersion_BumpedToSevenOrLater_ForRecomputeAndWindowClampFix()
-        {
-            // Phase 5 review-pass-2: P1-B added CoBubbleOverlapDetector.DetectAndStore
-            // to the lazy recompute path so cache-miss / drifted .pann files
-            // regenerate traces instead of rewriting empty blocks. P2-B
-            // clamps BuildTrace to BlendMaxWindowSeconds so long-overlap
-            // traces no longer store EndUTs without sample coverage. v6
-            // .pann files written before these fixes have semantically
-            // incorrect trace content; the alg-stamp bump drives them
-            // through alg-stamp-drift on first load (HR-10).
-            // Phase 5 review-pass-5 further bumped to 8.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 7,
-                "AlgorithmStampVersion must be >= 7 after Phase 5 P1-B + P2-B ship");
-        }
-
-        [Fact]
-        public void AlgStampVersion_BumpedToEightOrLater_ForOffsetSignFix()
-        {
-            // Phase 5 review-pass-5 P1: DetectAndStore was emitting both
-            // stored sides of every overlap pair with reversed-sign
-            // offsets. CloneTraceWithPeer's flip condition was exactly
-            // inverted; both stored sides ended up with offset = primary -
-            // owner instead of owner - primary, so peer ghosts rendered
-            // on the opposite side of the primary at the offset's
-            // distance. v7 .pann files have wrong-sign offsets; bumping
-            // the alg stamp drives them through alg-stamp-drift on
-            // first load so they get recomputed with the correct sign.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 8,
-                "AlgorithmStampVersion must be >= 8 after Phase 5 review-pass-5 P1 (offset-sign fix) ships");
-        }
-
-        [Fact]
         public void Write_Read_NullBodyName_RoundTripsAsNull()
         {
             // Empty / null bodyName must round-trip through the on-disk
@@ -212,18 +167,6 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void AlgStampVersion_IsAtLeastFive_AfterPhaseFiveShips()
-        {
-            // The alg-stamp bump (4 -> 5) is the mechanism that invalidates
-            // pre-Phase-5 .pann files (those have CoBubbleOffsetTraces always
-            // empty). The drift logic itself lives in SmoothingPipeline; this
-            // test pins the constant so a future refactor can't silently
-            // revert it.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 5,
-                "AlgorithmStampVersion must be >= 5 after Phase 5 ships");
-        }
-
-        [Fact]
         public void ClassifyTraceDrift_PeerMissing_ReturnsReason()
         {
             // What makes it fail: a peer that was deleted between commit and
@@ -238,9 +181,14 @@ namespace Parsek.Tests.Rendering
         public void ClassifyTraceDrift_PeerFormatChanged_ReturnsReason()
         {
             CoBubbleOffsetTrace trace = MakeTrace("peer");
-            trace.PeerSourceFormatVersion = 8;
+            trace.PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             SmoothingPipeline.CoBubblePeerResolverForTesting = id =>
-                new Recording { RecordingId = id, RecordingFormatVersion = 7, SidecarEpoch = trace.PeerSidecarEpoch };
+                new Recording
+                {
+                    RecordingId = id,
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion + 1,
+                    SidecarEpoch = trace.PeerSidecarEpoch
+                };
             Assert.Equal("peer-format-changed", SmoothingPipeline.ClassifyTraceDrift(trace));
         }
 
@@ -736,7 +684,8 @@ namespace Parsek.Tests.Rendering
             var recA = new Recording
             {
                 RecordingId = idA,
-                RecordingFormatVersion = 8,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = 1,
                 Points = new List<TrajectoryPoint>
                 {
@@ -764,7 +713,8 @@ namespace Parsek.Tests.Rendering
             var recB = new Recording
             {
                 RecordingId = idB,
-                RecordingFormatVersion = 8,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = 1,
                 Points = new List<TrajectoryPoint>
                 {

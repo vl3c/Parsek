@@ -193,39 +193,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Relative_LegacyFormatV5_UsesWorldOffsetContract()
-        {
-            // V5 legacy: offset is world-space, anchor rotation ignored.
-            var point = new TrajectoryPoint
-            {
-                ut = 100.0,
-                latitude = 5.0,
-                longitude = 7.0,
-                altitude = 11.0,
-                bodyName = "Kerbin",
-            };
-            var anchorPos = new Vector3d(100, 200, 300);
-            var anchorRot = TrajectoryMath.PureAngleAxis(45f, Vector3.right); // should be ignored
-            var section = RelativeSection(50.0, 150.0, anchorPid: 42u);
-
-            var result = GhostMapPresence.ResolveStateVectorWorldPositionPure(
-                point,
-                section,
-                recordingFormatVersion: 5, // legacy
-                absoluteSurfaceLookup: SurfaceLookupReturning(new Vector3d(99, 99, 99)),
-                anchorFound: true,
-                anchorWorldPos: anchorPos,
-                anchorWorldRot: anchorRot,
-                anchorVesselId: 42u);
-
-            Assert.True(result.Resolved);
-            Assert.Equal("relative", result.Branch);
-            Assert.Equal(105.0, result.WorldPos.x, 4);
-            Assert.Equal(207.0, result.WorldPos.y, 4);
-            Assert.Equal(311.0, result.WorldPos.z, 4);
-        }
-
-        [Fact]
         public void Relative_AnchorNotFound_ReturnsUnresolvedWithReason()
         {
             var point = new TrajectoryPoint

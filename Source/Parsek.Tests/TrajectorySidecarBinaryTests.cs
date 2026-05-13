@@ -45,22 +45,15 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(2, (int)TrajectorySidecarEncoding.BinaryV2, false)]
-        [InlineData(3, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(4, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(5, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(6, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(7, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(8, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(9, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(10, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(11, (int)TrajectorySidecarEncoding.BinaryV3, false)]
-        [InlineData(13, (int)TrajectorySidecarEncoding.BinaryV3, true)]
-        [InlineData(99, (int)TrajectorySidecarEncoding.BinaryV3, false)]
+        [InlineData(-1, (int)TrajectorySidecarEncoding.UnknownBinary, false, "format-version-mismatch")]
+        [InlineData(0, (int)TrajectorySidecarEncoding.BinaryV0, true, null)]
+        [InlineData(1, (int)TrajectorySidecarEncoding.UnknownBinary, false, "format-version-mismatch")]
+        [InlineData(13, (int)TrajectorySidecarEncoding.UnknownBinary, false, "format-version-mismatch")]
         public void TryProbe_MapsVersionToEncodingAndSupport(
             int version,
             int expectedEncoding,
-            bool expectedSupported)
+            bool expectedSupported,
+            string expectedFailureReason)
         {
             string recordingId = "probe-" + version;
             string path = Path.Combine(tempDir, recordingId + ".prec");
@@ -78,30 +71,61 @@ namespace Parsek.Tests
             if (expectedSupported)
                 Assert.Null(probe.FailureReason);
             else
-                Assert.Equal($"unsupported binary trajectory version {version}", probe.FailureReason);
+                Assert.Equal(expectedFailureReason, probe.FailureReason);
         }
 
         [Fact]
         public void CurrentBinaryVersion_TracksCurrentRecordingFormatVersion()
         {
-            // v13 sidecars are accepted only at the current binary version; older
-            // layout-boundary constants remain pinned for writer/read-gate code.
-            Assert.Equal(
-                RecordingStore.RecordingAnchorChainFormatVersion,
-                TrajectorySidecarBinary.RecordingAnchorChainBinaryVersion);
+            // After the reset, v0 is the only accepted binary trajectory layout.
             Assert.Equal(
                 RecordingStore.CurrentRecordingFormatVersion,
                 TrajectorySidecarBinary.CurrentBinaryVersion);
         }
 
         [Fact]
-        public void Read_DoesNotDemoteHigherInMemoryVersion_AndBackfillsMissingRecordingId()
+        public void TryProbe_CurrentMagicMissingRecordingId_ReturnsFalseWithoutThrowing()
+        {
+            string path = Path.Combine(tempDir, "truncated-current-header.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("PSK0"));
+                writer.Write(RecordingStore.CurrentRecordingFormatVersion);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
+                writer.Write(1);
+            }
+
+            Assert.False(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
+            Assert.Equal("binary header truncated", probe.FailureReason);
+        }
+
+        [Fact]
+        public void TryProbe_CurrentMagicMalformedRecordingId_ReturnsFalseWithoutThrowing()
+        {
+            string path = Path.Combine(tempDir, "malformed-current-header.prec");
+            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("PSK0"));
+                writer.Write(RecordingStore.CurrentRecordingFormatVersion);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
+                writer.Write(1);
+                for (int i = 0; i < 5; i++)
+                    writer.Write((byte)0xff);
+            }
+
+            Assert.False(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
+            Assert.Contains("binary header invalid", probe.FailureReason);
+        }
+
+        [Fact]
+        public void Read_UsesCurrentProbeVersion_AndBackfillsMissingRecordingId()
         {
             var original = BuildSimpleFlatFixture();
-            original.RecordingId = "promote-not-demote";
-            original.RecordingFormatVersion = 3;
+            original.RecordingId = "current-probe-version";
 
-            string path = Path.Combine(tempDir, "promote-not-demote.prec");
+            string path = Path.Combine(tempDir, "current-probe-version.prec");
             TrajectorySidecarBinary.Write(path, original, sidecarEpoch: 7);
 
             TrajectorySidecarProbe probe;
@@ -248,8 +272,9 @@ namespace Parsek.Tests
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
             using (var writer = new BinaryWriter(stream, Encoding.UTF8))
             {
-                writer.Write(Encoding.ASCII.GetBytes("PRKB"));
+                writer.Write(Encoding.ASCII.GetBytes("PSK0"));
                 writer.Write(version);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 writer.Write(sidecarEpoch);
                 writer.Write(recordingId ?? string.Empty);
             }
@@ -259,7 +284,8 @@ namespace Parsek.Tests
         {
             var rec = new Recording
             {
-                RecordingFormatVersion = 3
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration
             };
 
             rec.Points.Add(new TrajectoryPoint
@@ -457,7 +483,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "relative-shadow",
-                RecordingFormatVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 VesselName = "Upper Stage",
                 VesselPersistentId = 12001u
             };
@@ -493,7 +519,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 RecordingId = "v11-anchor-recording-id",
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 VesselName = "Upper Stage",
                 VesselPersistentId = 12001u
             };
@@ -580,9 +606,10 @@ namespace Parsek.Tests
             using (var reader = new BinaryReader(stream, Encoding.UTF8))
             {
                 string magic = Encoding.ASCII.GetString(reader.ReadBytes(4));
-                Assert.Equal("PRKB", magic);
+                Assert.Equal("PSK0", magic);
 
                 reader.ReadInt32(); // version
+                reader.ReadInt32(); // recordingSchemaGeneration
                 reader.ReadInt32(); // sidecarEpoch
                 reader.ReadString(); // recordingId
                 byte flags = reader.ReadByte();
@@ -734,7 +761,7 @@ namespace Parsek.Tests
                 // (e.g. Phase 7's v9). The seam flag is gated on
                 // BoundarySeamFlagFormatVersion, so the contract under test is
                 // "v8 writer + v8 reader preserve the flag".
-                RecordingFormatVersion = RecordingStore.BoundarySeamFlagFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.Points.Add(new TrajectoryPoint
             {

@@ -368,6 +368,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "bad_ghost_mode");
             node.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration", RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             node.AddValue("ghostSnapshotMode", "BogusValue");
 
             try

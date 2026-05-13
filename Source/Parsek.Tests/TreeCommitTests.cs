@@ -17,6 +17,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
             ParsekScenario.ResetInstanceForTesting();
         }
 
@@ -1173,6 +1174,7 @@ namespace Parsek.Tests
             node.AddValue("lastResIdx", "7");
             node.AddValue("pointCount", "10");
             node.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration", RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             node.AddValue("loopPlayback", "False");
             node.AddValue("loopIntervalSeconds", "10");
 

@@ -7,9 +7,9 @@
 **Status:** design draft, not yet implemented. Primarily targets the rendering layer (Stages 1-5 in Section 5 are render-time-only). Persistence additions are the minimum needed for cache invalidation, raw-data capture for the surface-terrain and structural-event-snapshot phases, and offset traces for the co-bubble case:
 
 - A new **annotation sidecar `<id>.pann`** (Section 17.3.1) — separate binary file, optional, regenerable. Holds smoothing splines, outlier flags, anchor-candidate UT lists, and co-bubble offset traces. Recordings without it lazy-compute on first use.
-- Two **`.prec` schema bumps** (Section 17.3.2) gated by Phase 7 and Phase 9 only — additive per-point fields (`recordedGroundClearance`, `flags`) handled by extending the existing `TrajectorySidecarBinary` version chain. The implementation baseline has since advanced through v13 (`DebrisFrameContractFormatVersion`) for parent-anchored debris and body-fixed primary playback; future pipeline work should treat v13 as the current `.prec` baseline.
+- The current **`.prec` baseline is v0 plus `recordingSchemaGeneration = 1`** after the private-development schema reset. The v0 BinaryV0 payload includes the fields introduced by the older rendering phases (`recordedGroundClearance`, `flags`, body-fixed primary playback, debris parent anchors). Future pipeline work should extend that current contract instead of reviving the old compatibility ladder.
 
-No `.sfs` save-file shape changes. In the current v13 branch, pre-v13 recordings and trajectory sidecars are not compatibility targets; older format notes below describe historical contracts, not accepted load input.
+No `.sfs` save-file shape changes beyond the reset generation stamp. Pre-reset recordings and trajectory sidecars are not compatibility targets; older format notes below describe historical contracts, not accepted load input.
 
 ---
 
@@ -19,7 +19,7 @@ This document specifies the algorithm and edge-case handling for ghost trajector
 
 The motivating problem: recorded absolute trajectory samples have multiple noise sources that produce visible artifacts on playback — high-frequency jitter, alignment errors at separation, and along-track drift across long burns. Naively rendering a ghost at the recorded ABSOLUTE position produces visible bouncing, misaligned attachment to live vessels at separation, and gradual drift through long propulsive segments. Naively rendering relative to a live anchor causes the ghost to follow live player input, breaking the canonical-trajectory invariant.
 
-This document defines a rendering pipeline that resolves all three by combining smoothing, anchor correction, and (where applicable) interpolation between anchors. The pipeline is read-only against `.sfs` save files and game state. It is read-only against existing recorded samples (HR-1) — Phases 7 and 9 add new per-point fields to recordings going forward, but never modify samples that have already been written. Derived data (splines, outlier flags, anchor candidates, offset traces) lives in a separate annotation sidecar (`<id>.pann`); the canonical `.prec` is touched by exactly two phases (7 and 9) that capture genuinely new raw data.
+This document defines a rendering pipeline that resolves all three by combining smoothing, anchor correction, and (where applicable) interpolation between anchors. The pipeline is read-only against `.sfs` save files and game state. It is read-only against existing recorded samples (HR-1). The current v0 `.prec` payload already carries the raw fields added by the earlier rendering phases. Derived data (splines, outlier flags, anchor candidates, offset traces) lives in a separate annotation sidecar (`<id>.pann`); authoritative trajectory data remains in `.prec`.
 
 It covers:
 
@@ -39,7 +39,7 @@ It covers:
 - Implementation phasing: nine ordered phases naming files to create, types to add, hooks to wire, and per-phase done conditions
 - Diagnostic logging: per-stage subsystem tags, log lines, levels, and batch counters that make every pipeline decision observable in `KSP.log`
 - Test plan: unit tests, log-assertion tests, in-game tests, synthetic recording fixtures, and a per-phase test-done checklist
-- Loader policy: v13 is the accepted `.prec` baseline; `.pann` annotations may lazy-compute, but older trajectory sidecars are rejected instead of compatibility-routed
+- Loader policy: v0/generation-1 is the accepted `.prec` baseline; `.pann` annotations may lazy-compute, but older trajectory sidecars are rejected instead of compatibility-routed
 - Data lifecycle: storage classes for raw samples, annotations, derived caches, and session state
 - Post-commit optimization opportunities for pure-ghost playback (no live vessel)
 - Hard rules and risk surface across the recorder-to-renderer pipeline
@@ -279,7 +279,7 @@ This section enumerates every situation that produces an anchor. Each entry spec
 - **v6+ (`>= RelativeLocalFrameFormatVersion`):** anchor-local Cartesian offset stored in `TrajectoryPoint.latitude/longitude/altitude` as metres along the anchor's local axes, resolved as `anchorWorldPos + anchorWorldRot * (dx, dy, dz)` via `TrajectoryMath.ApplyRelativeLocalOffset` (`:1007`). The rotation step is mandatory; omitting it misplaces the segment whenever the anchor rotates.
 - **v7 (`>= RelativeAbsoluteShadowFormatVersion`):** v6 contract plus the parallel body-fixed primary list, now named `bodyFixedFrames` in code and text sidecars. Phase D removed the flight-scene active-Re-Fly body-fixed fallback selector; new playback code should route through the current resolver contracts instead of reintroducing live-anchor bypasses.
 - **v11 (`>= RecordingAnchorChainFormatVersion`):** non-loop Relative sections store `TrackSection.anchorRecordingId` and resolve through recorded anchor trajectories. Loop Relative playback remains the explicit live-PID exception through `Recording.LoopAnchorVesselId`.
-- **v13 (`>= DebrisFrameContractFormatVersion`):** parent-anchored debris uses `bodyFixedFrames` as the primary playback surface; anchor-local Relative `frames` remain the secondary path for loop-anchored chains and diagnostics. Pre-v13 recordings/sidecars are rejected by the current loader policy instead of migrated.
+- **Current v0/generation-1 payload:** parent-anchored debris uses `bodyFixedFrames` as the primary playback surface; anchor-local Relative `frames` remain the secondary path for loop-anchored chains and diagnostics. Pre-reset recordings/sidecars are rejected by the current loader policy instead of migrated.
 
 The boundary value of the RELATIVE segment, computed via the version-appropriate resolver, is the reference for the adjacent ABSOLUTE segment. New pipeline code never re-implements the resolver formulas inline — it always calls the existing helpers, which remain the single source of truth for the version dispatch.
 
@@ -754,14 +754,14 @@ This pipeline is a rendering-layer addition. It does not modify any existing dat
 | Pure trajectory math                     | `static class TrajectoryMath`                                           | `Source/Parsek/TrajectoryMath.cs:21`   | Existing helpers: `InterpolatePoints` (628), `BracketPointAtUT` (674), `FindWaypointIndex` (307), `ApplyRelativeLocalOffset` (1007), `ResolveRelativePlaybackPosition` (1049), `FindTrackSectionForUT` (1085), `IsSurfaceAtUT` (1105), `SanitizeQuaternion` (704), `PureSlerp` (898). New spline / lerp helpers added here. |
 | Re-fly session marker (live anchor)      | `class ReFlySessionMarker`                                              | `Source/Parsek/ReFlySessionMarker.cs`  | Six durable fields: `SessionId`, `TreeId`, `ActiveReFlyRecordingId`, `OriginChildRecordingId`, `RewindPointId`, `InvokedUT`, `InvokedRealTime`. |
 | Format-v7 body-fixed primary data        | `ResolveAbsoluteShadowPlaybackFrames`                                | `Source/Parsek/ParsekFlight.cs`        | `bodyFixedFrames` is the current body-fixed primary list for Relative sections; Phase D removed the old active-Re-Fly fallback selector. |
-| RELATIVE-frame world resolver            | `TryResolveRelativeWorldPosition` / `TryResolveRelativeOffsetWorldPosition` | `Source/Parsek/ParsekFlight.cs:15628`, `:15692` | Dispatches the accepted v13 Relative contract through body-fixed primary, recorded-anchor, and loop-anchor paths. Stage 4 anchor-lerp must hook here, not before — RELATIVE positions are already exact. |
+| RELATIVE-frame world resolver            | `TryResolveRelativeWorldPosition` / `TryResolveRelativeOffsetWorldPosition` | `Source/Parsek/ParsekFlight.cs:15628`, `:15692` | Dispatches the accepted v0 Relative contract through body-fixed primary, recorded-anchor, and loop-anchor paths. Stage 4 anchor-lerp must hook here, not before — RELATIVE positions are already exact. |
 | Map / tracking-station ghosts            | `class GhostMapPresence`                                                | `Source/Parsek/GhostMapPresence.cs`    | Parallel path. Same trajectory inputs but ProtoVessel-driven; pipeline outputs feed both via `IPlaybackTrajectory`. |
 | Camera follow                            | `class WatchModeController`                                             | `Source/Parsek/WatchModeController.cs` | Reads `U_render(t)` to position camera. Out of pipeline scope.                       |
 | Chain segment state                      | `class ChainSegmentManager`                                             | `Source/Parsek/ChainSegmentManager.cs` | Owns chain ID + boundary-anchor scratch state used by Stage 3 propagation across recordings. |
 | Recorder                                 | `class FlightRecorder`                                                  | `Source/Parsek/FlightRecorder.cs`      | Section 12 (sample-time alignment) lands here.                                       |
 | Ballistic tail extension                 | `BallisticExtrapolator` + `IncompleteBallisticSceneExitFinalizer`       | `Source/Parsek/BallisticExtrapolator.cs`, `IncompleteBallisticSceneExitFinalizer.cs` | Produces `OrbitSegment`s for incomplete tails — feeds Stage 3 SOI / orbital-checkpoint anchors at scene exit. |
 | Patched-conic snapshot                   | `PatchedConicSnapshot`                                                  | `Source/Parsek/PatchedConicSnapshot.cs` | Snapshots predicted-orbit chain. Already produces analytical anchor points consumed by Section 7.5/7.6. |
-| Sidecar I/O                              | `TrajectorySidecarBinary` (binary `.prec` codec) + `RecordingSidecarStore` (load / commit orchestration) | `Source/Parsek/RecordingStore.cs:57-65` (format constants), `Source/Parsek/TrajectorySidecarBinary.cs:122` (`Write`), `:184` (`Read`), `:699-733` (`TrackSection` write), `:738-769` (`TrackSection` read), `Source/Parsek/RecordingSidecarStore.cs:199-235` (load probe / read), `:729` (commit batch staging) | Current format is `DebrisFrameContractFormatVersion=13=CurrentRecordingFormatVersion`. v7 added `bodyFixedFrames`, v8 the boundary seam flag, v9 `recordedGroundClearance`, v10 point `flags`, v11 `TrackSection.anchorRecordingId`, v12 `Recording.DebrisParentRecordingId`, and v13 makes body-fixed primary the parent-anchored debris playback contract. New annotation fields and the new `.pann` sidecar gate on their own constants (Section 17.3.1, 21.1). |
+| Sidecar I/O                              | `TrajectorySidecarBinary` (binary `.prec` codec) + `RecordingSidecarStore` (load / commit orchestration) | `Source/Parsek/RecordingStore.cs:57-65` (format constants), `Source/Parsek/TrajectorySidecarBinary.cs:122` (`Write`), `:184` (`Read`), `:699-733` (`TrackSection` write), `:738-769` (`TrackSection` read), `Source/Parsek/RecordingSidecarStore.cs:199-235` (load probe / read), `:729` (commit batch staging) | Current format is `CurrentRecordingFormatVersion=0` with `CurrentRecordingSchemaGeneration=1` and `PSK0`/BinaryV0 sidecars. The v0 payload includes the historical fields once added by v7-v13: `bodyFixedFrames`, boundary seam, `recordedGroundClearance`, point `flags`, `TrackSection.anchorRecordingId`, `Recording.DebrisParentRecordingId`, and body-fixed primary debris playback. New annotation fields and the `.pann` sidecar gate on their own cache stamps (Section 17.3.1, 21.1). |
 | Path validation                          | `RecordingPaths.ValidateRecordingId`                                    | `Source/Parsek/RecordingPaths.cs`      | All new sidecar files must route through `Build*RelativePath` helpers.               |
 | Safe-write file I/O                      | `FileIOUtils`                                                           | `Source/Parsek/FileIOUtils.cs`         | Tmp + atomic rename. New cache file writes use this.                                 |
 | Save / load wiring                       | `ParsekScenario` `OnSave`/`OnLoad`                                      | `Source/Parsek/ParsekScenario.cs`      | Pipeline session state is transient — nothing new persists here. Only marker recompute triggers go here. |
@@ -786,7 +786,7 @@ Per-stage hook locations in the existing playback path. Each hook is additive; e
 
 ### 17.3 Sidecar Layout
 
-The pipeline persists data in two distinct ways. The split is deliberate: `.prec` is a high-frequency-loaded binary file with its own version-stamped schema (`Source/Parsek/TrajectorySidecarBinary.cs`, magic `PRKB`, current version `DebrisFrameContractFormatVersion = 13`); pipeline annotations are derivable from raw recordings and live in a separate binary sidecar so the canonical `.prec` is touched only when actually new *raw* fields are needed.
+The pipeline persists data in two distinct ways. The split is deliberate: `.prec` is a high-frequency-loaded binary file with its own reset schema (`Source/Parsek/TrajectorySidecarBinary.cs`, magic `PSK0`, current version `0`, recording schema generation `1`); pipeline annotations are derivable from raw recordings and live in a separate binary sidecar so the canonical `.prec` is touched only when actually new *raw* fields are needed.
 
 #### 17.3.1 New Annotation Sidecar `<id>.pann`
 
@@ -897,7 +897,7 @@ After all phases ship:
 
 | File                       | Existing / new | Purpose                                                  |
 |----------------------------|----------------|----------------------------------------------------------|
-| `<id>.prec`                | existing       | Canonical trajectory + sections + events (binary; `TrajectorySidecarBinary.cs`). Currently at v13 (`DebrisFrameContractFormatVersion`); v9/v10 carry the pipeline raw fields described in 17.3.2 and v13 carries the debris body-fixed primary contract. |
+| `<id>.prec`                | existing       | Canonical trajectory + sections + events (binary; `TrajectorySidecarBinary.cs`). Currently v0/generation-1 (`PSK0`/BinaryV0); the reset payload carries the pipeline raw fields described in 17.3.2 and the debris body-fixed primary contract. |
 | `<id>.prec.txt`            | existing       | Optional debug-only readable mirror of `.prec`. Not consumed at load time. |
 | `<id>_vessel.craft`        | existing       | Vessel proto for spawn. Untouched.                       |
 | `<id>_vessel.craft.txt`    | existing       | Optional debug-only readable mirror.                     |
@@ -907,7 +907,7 @@ After all phases ship:
 
 (Note: `<id>.pcrf`, mentioned in earlier drafts of `.claude/CLAUDE.md`, was retired in the `refactor-4-pass2` series and now lives in `RecordingStore.LegacyRecordingFileSuffixes` for cleanup. New code does not write it.)
 
-Recordings without `.pann` remain loadable when the source `.prec` is on the accepted v13 baseline. The pipeline lazy-computes whatever annotations are missing (Section 21.3). Historical pre-v13 raw-field behavior is no longer an accepted load path in this branch; the loader rejects older recordings/sidecars instead of deriving a partial compatibility route.
+Recordings without `.pann` remain loadable when the source `.prec` is on the accepted v0/generation-1 baseline. The pipeline lazy-computes whatever annotations are missing (Section 21.3). Historical pre-reset raw-field behavior is no longer an accepted load path in this branch; the loader rejects older recordings/sidecars instead of deriving a partial compatibility route.
 
 All new readers/writers route through `FileIOUtils.SafeWrite*` (atomic tmp + rename, HR-12) and through `RecordingPaths.Build*RelativePath` helpers (path-traversal validation).
 
@@ -933,7 +933,7 @@ It does not produce or consume:
 - Game state (no resource, science, contract, kerbal effects).
 - Recording on-disk data outside the additive sidecar nodes listed in 17.3.
 
-The recorder change required for Section 12 (sample-time alignment at structural events) is the only modification outside the rendering pipeline. Current playback assumes the accepted v13 `.prec` baseline; recordings predating that baseline are rejected rather than rendered through a degraded compatibility route. The annotation sidecar additions above remain additive: missing or stale `.pann` data is lazy-computed from an accepted v13 source recording.
+The recorder change required for Section 12 (sample-time alignment at structural events) is the only modification outside the rendering pipeline. Current playback assumes the accepted v0/generation-1 `.prec` baseline; recordings predating that reset baseline are rejected rather than rendered through a degraded compatibility route. The annotation sidecar additions above remain additive: missing or stale `.pann` data is lazy-computed from an accepted v0 source recording.
 
 ---
 
@@ -1054,7 +1054,7 @@ The first four phases together address the three naive-rendering failure modes (
 **Modified files:**
 
 - `Source/Parsek/TrajectoryPoint.cs` — additive field `public double recordedGroundClearance` (default `double.NaN` for legacy points; readers fill NaN when the field is absent in older binaries).
-- `Source/Parsek/RecordingStore.cs` — ensure `TerrainGroundClearanceFormatVersion = 9` remains in the version block. This phase originally advanced `CurrentRecordingFormatVersion` to v9; the current codebase has since advanced to v13.
+- `Source/Parsek/RecordingStore.cs` — the reset v0 payload now includes terrain ground-clearance samples unconditionally. This phase originally advanced `CurrentRecordingFormatVersion` to v9; the current codebase has since collapsed the private version ladder to v0/generation-1.
 - `Source/Parsek/TrajectorySidecarBinary.cs` — append `TerrainGroundClearanceBinaryVersion = RecordingStore.TerrainGroundClearanceFormatVersion` to the version constants block. Extend `IsSupportedBinaryVersion` and `GetBinaryEncoding`. Gate the new field's read/write inside `WritePointList` / `ReadPointList` on `binaryVersion >= TerrainGroundClearanceBinaryVersion`. Trajectory data is binary-only (post `refactor-4-pass2`); the `.prec.txt` debug mirror is regenerated from the binary representation and inherits the new field automatically — no parallel text-codec changes required.
 - `Source/Parsek/FlightRecorder.cs` — populate `recordedGroundClearance` for every sample in a `SurfaceMobile` section. Use `body.pqsController.GetSurfaceHeight(...)` minus the recorded altitude at recording time (or the equivalent KSP-API distance to surface).
 - `Source/Parsek/ParsekFlight.cs` — `PositionAtPoint` and `InterpolateAndPosition` for `SurfaceMobile` sections use `body.pqsController.GetSurfaceHeight` plus `recordedGroundClearance` instead of stored `altitude` when `recordedGroundClearance` is non-NaN; otherwise fall through to today's altitude path.
@@ -1089,7 +1089,7 @@ The first four phases together address the three naive-rendering failure modes (
 **Modified files:**
 
 - `Source/Parsek/TrajectoryPoint.cs` — additive `flags` byte (default 0 for legacy points; bit 0 = `StructuralEventSnapshot`). A new `[Flags] enum TrajectoryPointFlags : byte` documents the bit assignments.
-- `Source/Parsek/RecordingStore.cs` — ensure `StructuralEventFlagFormatVersion = 10` remains in the version block. This phase originally advanced `CurrentRecordingFormatVersion` to v10; the current codebase has since advanced to v13.
+- `Source/Parsek/RecordingStore.cs` — the reset v0 payload now includes structural-event point flags unconditionally. This phase originally advanced `CurrentRecordingFormatVersion` to v10; the current codebase has since collapsed the private version ladder to v0/generation-1.
 - `Source/Parsek/TrajectorySidecarBinary.cs` — append `StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion` to the version constants. Extend `IsSupportedBinaryVersion` and `GetBinaryEncoding`. Gate the new `flags` byte read/write inside `WritePointList` / `ReadPointList` on `binaryVersion >= StructuralEventFlagBinaryVersion`. No parallel text-codec change (trajectory is binary-only post-refactor; `.prec.txt` is the debug mirror only).
 - `Source/Parsek/FlightRecorder.cs` — at the dock / undock / EVA / `onPartJointBreak` (`PartJoint joint, float breakForce`) handlers, call a new `AppendStructuralEventSnapshot(double eventUT, IEnumerable<Vessel> involved)` that interpolates each vessel's per-tick state to the exact event UT and writes one `TrajectoryPoint` per involved vessel into the corresponding section, with `flags |= TrajectoryPointFlags.StructuralEventSnapshot`. Both vessels' snapshots are taken from the same physics state (Section 12).
 - `Source/Parsek/Rendering/AnchorCandidateBuilder.cs` — prefer `StructuralEventSnapshot`-flagged points over interpolated samples when computing event ε. Recordings without the flag fall through to today's interpolation behaviour.
@@ -1101,7 +1101,7 @@ The first four phases together address the three naive-rendering failure modes (
 
 - Phases 1-4 are sequential and high-leverage. Each builds on the previous and unlocks a visible failure-mode fix.
 - Phases 5-9 are independent and can ship in any order once 1-4 land. None block each other.
-- Format-version landings: Phase 1 introduces the `.pann` annotation sidecar at its own initial version `PannotationsBinaryVersion = 1`; later phases that touch `.pann` bump only the `AlgorithmStampVersion` inside the file, never `PannotationsBinaryVersion`. The current canonical `.prec` chain ends at v13 (`DebrisFrameContractFormatVersion`). The original pipeline plan accounted for v9 (`TerrainGroundClearanceFormatVersion`) and v10 (`StructuralEventFlagFormatVersion`) respectively (Section 17.3.2); later work added v11 recorded-anchor Relative playback, v12 debris parent ownership, and v13 body-fixed primary debris playback. Phases 2-6 and 8 do not touch `.prec`.
+- Format-version landings: Phase 1 introduces the `.pann` annotation sidecar at its own initial version `PannotationsBinaryVersion = 1`; later phases that touch `.pann` bump only the `AlgorithmStampVersion` inside the file, never `PannotationsBinaryVersion`. The current canonical `.prec` chain has been reset to v0/generation-1. The original pipeline plan accounted for historical v9 (`recordedGroundClearance`) and v10 (`flags`) respectively (Section 17.3.2); later work added recorded-anchor Relative playback, debris parent ownership, and body-fixed primary debris playback. Phases 2-6 and 8 do not touch `.prec`.
 - Each phase ends with a CHANGELOG entry under the current Parsek version (per `.claude/CLAUDE.md` → "Documentation Updates — Per Commit, Not Per PR") and the corresponding `docs/dev/todo-and-known-bugs.md` strikethroughs.
 
 ---
@@ -1323,8 +1323,8 @@ Test fixtures use the existing generators (`Source/Parsek.Tests/Generators/`):
 | Co-bubble per-trace peer format-version validation      | Peer `.prec` migrated to a newer format; existing trace must be discarded                                   | same                                                   |
 | Co-bubble per-trace `peerContentSignature` mismatch     | Peer raw bytes in `[startUT, endUT]` window changed under same epoch (defence-in-depth) → trace discarded   | same                                                   |
 | Co-bubble peer-missing fallback                         | Peer recording deleted; trace must discard and consumer falls back to standalone, with HR-9 Warn log        | same                                                   |
-| Current `.prec` v13 schema round-trip                    | Body-fixed primary, recorded anchors, debris parent ids, ground clearance, and point flags corrupt on save / load | `PrecBinaryRoundTripTests.cs`                          |
-| Pre-v13 `.prec` probe rejection                          | Older recording sidecar is accepted partially instead of failing closed with `probe.Supported = false`       | same                                                   |
+| Current `.prec` v0 schema round-trip                     | Body-fixed primary, recorded anchors, debris parent ids, ground clearance, and point flags corrupt on save / load | `PrecBinaryRoundTripTests.cs`                          |
+| Pre-reset `.prec` probe rejection                        | Older recording sidecar is accepted partially instead of failing closed with `probe.Supported = false`       | same                                                   |
 | Future `.prec` version probe rejection                   | Older Parsek build encounters newer `.prec` and refuses cleanly (`probe.Supported = false`) — no silent corruption | same                                              |
 | `RenderSessionState.RebuildFromMarker` deterministic    | Same marker + same recordings → different ε map between runs → HR-3 violated                                | `RenderSessionStateTests.cs`                           |
 | `RenderSessionState.Clear` invalidation                 | Anchor lookup after `Clear` returns stale value → would cause ghost to spawn at last-session position       | same                                                   |
@@ -1421,7 +1421,7 @@ Maps to Section 18's phase ordering. A phase is not done until every box ticks.
 
 ## 21. Backward Compatibility & Format Evolution
 
-The pipeline's persistent additions are sidecar annotation nodes (Section 17.3) plus the current v13 `.prec` trajectory baseline. Pre-v13 recordings are rejected by the current loader policy; historical format notes in this section describe why the schema evolved, not a compatibility promise for new playback.
+The pipeline's persistent additions are sidecar annotation nodes (Section 17.3) plus the current v0/generation-1 `.prec` trajectory baseline. Pre-reset recordings are rejected by the current loader policy; historical format notes in this section describe why the schema evolved, not a compatibility promise for new playback.
 
 ### 21.1 Format Version Chain
 
@@ -1442,16 +1442,16 @@ Two version chains are relevant to the pipeline. Keep them distinct in any revie
 | `DebrisParentRecordingFormatVersion`                             | 12    | Top-level `Recording.DebrisParentRecordingId` for parent-owned debris          |
 | `DebrisFrameContractFormatVersion`                               | 13    | Parent-anchored debris uses `bodyFixedFrames` as primary playback surface      |
 
-`CurrentRecordingFormatVersion` is currently `DebrisFrameContractFormatVersion` (13). The original pipeline plan added the v9/v10 raw fields; later work added v11 recorded-anchor Relative playback, v12 debris parent ownership, and v13 body-fixed primary debris playback. Any new behaviour gated on a version comparison uses the named constants — raw integer comparisons rot when the next version lands.
+`CurrentRecordingFormatVersion` is now `0` with `CurrentRecordingSchemaGeneration = 1`. The original pipeline plan added the historical v9/v10 raw fields; later work added recorded-anchor Relative playback, debris parent ownership, and body-fixed primary debris playback. Those fields are now part of the single current v0 payload; new behavior should use schema generation or feature-specific cache stamps, not resurrect raw historical recording-format comparisons.
 
-**`.pann` (pipeline annotations, new file `Source/Parsek/PannotationsSidecarBinary.cs`).** Magic `PANN`. Independent version chain.
+**`.pann` (pipeline annotations, `Source/Parsek/PannotationsSidecarBinary.cs`).** Magic `PNA0` for section annotations and `PNC0` for canonical caches. Independent cache schema stamps.
 
 | Constant                                          | Value | What it gates                                                                |
 |---------------------------------------------------|-------|------------------------------------------------------------------------------|
 | `PannotationsBinaryVersion` *(new, Phase 1)*      | 1     | Initial `.pann` schema (Section 17.3.1) — `SmoothingSplineList`, `OutlierFlagsList`, `AnchorCandidatesList`, `CoBubbleOffsetTraces` blocks. Phases 1, 6, 8, 5 each populate one block; the file's binary version itself does not bump until a structural schema change. |
 | `AlgorithmStampVersion` *(file-internal int)*     | 1+    | Bumps every time a smoothing / outlier / anchor algorithm changes its output for the same input. Older `.pann` files with a non-matching stamp are discarded and recomputed (HR-10). |
 
-The two chains are independent, but the current loader only accepts the v13 `.prec` baseline. A v13 recording can have no `.pann` (lazy compute) or a current `.pann` v1 cache (everything eager). Cache-key freshness is verified by matching the `.pann` `SourceSidecarEpoch` and `SourceRecordingFormatVersion` fields against the source `.prec`'s values.
+The two chains are independent, but the current loader only accepts the v0/generation-1 `.prec` baseline. A current recording can have no `.pann` (lazy compute) or a current `.pann` v0 cache (everything eager). Cache-key freshness is verified by matching the `.pann` `SourceSidecarEpoch` and `SourceRecordingFormatVersion` fields against the source `.prec`'s values.
 
 ### 21.2 What Each Older Recording Produces Through the Pipeline
 
@@ -1484,11 +1484,11 @@ The flow:
 
 ### 21.4 Cross-Version Re-Fly
 
-Cross-version Re-Fly is not a current compatibility target. Every loaded recording in a tree must satisfy the v13 `.prec` baseline before it contributes playback, anchors, or annotations. Older recordings are rejected at load/probe time and do not enter render paths that combine multiple trajectory baselines.
+Cross-version Re-Fly is not a current compatibility target. Every loaded recording in a tree must satisfy the v0/generation-1 `.prec` baseline before it contributes playback, anchors, or annotations. Older recordings are rejected at load/probe time and do not enter render paths that combine multiple trajectory baselines.
 
 ### 21.5 Save-File Compatibility
 
-The pipeline writes no annotation payloads to `.sfs` save files. Current `.prec` trajectory sidecars must be v13; older `.prec` versions fail the probe/load gate with an explicit unsupported-version reason. There is no migration or downgrade tool, and no partial-load fallback for older trajectory formats.
+The pipeline writes no annotation payloads to `.sfs` save files. Current `.prec` trajectory sidecars must be v0/generation-1; older `.prec` versions fail the probe/load gate with an explicit unsupported-version reason. There is no migration or downgrade tool, and no partial-load fallback for older trajectory formats.
 
 ### 21.6 What This Section Is Not
 
@@ -1647,7 +1647,7 @@ Sidecar files carry a version header. The format evolves additively per the exis
 For pipeline-related additions:
 
 - New raw fields (e.g., velocity samples if not previously recorded): require a `.prec` baseline bump. Older baselines are rejected rather than partially derived.
-- New annotation types: additive. Computed lazily for accepted v13 recordings whose `.pann` sidecar is absent or stale.
+- New annotation types: additive. Computed lazily for accepted v0/generation-1 recordings whose `.pann` sidecar is absent or stale.
 - New cache types: additive. Computed on demand if absent.
 
 Sidecar version bumps for pipeline additions follow the existing scheme.

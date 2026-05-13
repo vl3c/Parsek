@@ -207,7 +207,7 @@ namespace Parsek.Tests
             {
                 RecordingId = recordingId,
                 VesselName = recordingId,
-                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.TrackSections.Add(new TrackSection
             {

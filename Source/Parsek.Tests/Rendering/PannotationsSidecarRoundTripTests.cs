@@ -74,7 +74,8 @@ namespace Parsek.Tests.Rendering
             };
 
             PannotationsSidecarBinary.Write(path, "rec1", sourceSidecarEpoch: 5,
-                sourceRecordingFormatVersion: 7, configurationHash: hash, splines: input);
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
+                configurationHash: hash, splines: input);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             Assert.True(probe.Success);
@@ -183,7 +184,8 @@ namespace Parsek.Tests.Rendering
             string path = Path.Combine(tempDir, "rec_epoch.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
             PannotationsSidecarBinary.Write(path, "recEp", sourceSidecarEpoch: 42,
-                sourceRecordingFormatVersion: 7, configurationHash: hash,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
+                configurationHash: hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>());
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
@@ -648,7 +650,8 @@ namespace Parsek.Tests.Rendering
             };
 
             PannotationsSidecarBinary.Write(path, "rec-cands", sourceSidecarEpoch: 1,
-                sourceRecordingFormatVersion: 8, configurationHash: hash,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
+                configurationHash: hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                 anchorCandidates: candidates);
 
@@ -688,7 +691,8 @@ namespace Parsek.Tests.Rendering
             string path = Path.Combine(tempDir, "rec_empty_candidates.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
 
-            PannotationsSidecarBinary.Write(path, "rec-emp", 1, 8, hash,
+            PannotationsSidecarBinary.Write(path, "rec-emp", 1,
+                RecordingStore.CurrentRecordingFormatVersion, hash,
                 new List<KeyValuePair<int, SmoothingSpline>>());
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
@@ -696,19 +700,6 @@ namespace Parsek.Tests.Rendering
                 out var splines, out var candsOut, out _));
             Assert.NotNull(candsOut);
             Assert.Empty(candsOut);
-        }
-
-        [Fact]
-        public void AnchorCandidatesList_DiscardsOnAlgorithmStampVersionMismatch()
-        {
-            // What makes it fail: the AlgorithmStampVersion bump (Phase 6
-            // 2 -> 3) is the mechanism that invalidates pre-Phase-6 .pann
-            // files. ClassifyDrift must surface the alg-stamp-drift token
-            // so SmoothingPipeline.LoadOrCompute discards and recomputes.
-            // The drift classification lives in SmoothingPipeline; this
-            // test just pins the constant change.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 3,
-                "AlgorithmStampVersion must be >= 3 after Phase 6 ships");
         }
 
         [Fact]
@@ -731,7 +722,8 @@ namespace Parsek.Tests.Rendering
             };
 
             PannotationsSidecarBinary.Write(path, "rec-bubble-cands", sourceSidecarEpoch: 1,
-                sourceRecordingFormatVersion: 8, configurationHash: hash,
+                sourceRecordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion,
+                configurationHash: hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                 anchorCandidates: candidates);
 
@@ -751,16 +743,5 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(AnchorSide.End, candsOut[0].Value[1].Side);
         }
 
-        [Fact]
-        public void AnchorCandidatesList_DiscardsOnAlgorithmStampVersionBumpToFive()
-        {
-            // §7.7 ships in v0.9.1 with AlgorithmStampVersion bumped 4 → 5.
-            // Older .pann files must invalidate via alg-stamp-drift on
-            // first load so the new BubbleEntry/Exit emitter gets a chance
-            // to populate the AnchorCandidatesList block. A regression that
-            // forgot the bump would leave stale Phase 6 caches in place.
-            Assert.True(PannotationsSidecarBinary.AlgorithmStampVersion >= 5,
-                "AlgorithmStampVersion must be >= 5 after §7.7 ships in v0.9.1");
-        }
     }
 }

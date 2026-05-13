@@ -188,7 +188,8 @@ namespace Parsek.Tests
             var original = new Recording
             {
                 RecordingId = "bug585-followup-original",
-                RecordingFormatVersion = 3,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 SidecarEpoch = 5,
             };
             var p0 = new TrajectoryPoint
@@ -287,7 +288,8 @@ namespace Parsek.Tests
             var fresh = new Recording
             {
                 RecordingId = "bug585-followup-active-recovered",
-                RecordingFormatVersion = 3,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 VesselName = "Kerbal X Probe",
                 SidecarEpoch = 0,
                 SidecarLoadFailed = true,
@@ -406,7 +408,7 @@ namespace Parsek.Tests
                 l.Contains("existingProbeRecordingId=" + original.RecordingId) &&
                 l.Contains("existingProbeEpoch=" + originalEpoch) &&
                 l.Contains("existingProbeVersion=" + RecordingStore.CurrentRecordingFormatVersion) &&
-                l.Contains("existingProbeEncoding=BinaryV3") &&
+                l.Contains("existingProbeEncoding=BinaryV0") &&
                 l.Contains("existingPoints=12") &&
                 l.Contains("incomingPoints=1") &&
                 l.Contains("sectionAuthoritative=True") &&

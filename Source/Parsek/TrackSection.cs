@@ -54,7 +54,7 @@ namespace Parsek
         public double startUT;
         public double endUT;
         public uint anchorVesselId;             // For Relative frame only (0 = not set)
-        public string anchorRecordingId;        // For v11 Relative frame only (null = not set)
+        public string anchorRecordingId;        // For Relative frame sections (null = not set)
         public List<TrajectoryPoint> frames;    // For Absolute/Relative (null until initialized)
         public List<TrajectoryPoint> bodyFixedFrames; // For Relative only: body-fixed world-coordinate primary surface
         public List<OrbitSegment> checkpoints;  // For OrbitalCheckpoint (null until initialized)
@@ -67,10 +67,8 @@ namespace Parsek
         // marker. Set by BackgroundRecorder.FlushLoadedStateForOnRailsTransition for the no-payload
         // boundary section (loaded->on-rails transition that produces no playable on-rails payload).
         // RecordingOptimizer skips boundaries on either side of a flagged section as a hard step-1
-        // override, ahead of the body / Surface / ExoPropulsive short-circuits. Persisted: text codec
-        // sparse "seam=1" key (forward-tolerant); binary codec gated by
-        // RecordingStore.BoundarySeamFlagFormatVersion (mandatory v8 bump). See
-        // docs/dev/plans/optimizer-persistence-split.md §5.
+        // override, ahead of the body / Surface / ExoPropulsive short-circuits.
+        // Persisted as text "seam=1" and a binary bool in the current v0 layout.
         public bool isBoundarySeam;
 
         public override string ToString()

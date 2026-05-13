@@ -55,7 +55,7 @@ namespace Parsek.Tests.Rendering
             var rec = new Recording
             {
                 RecordingId = "primary-relative",
-                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion, // v6 → metre-offset contract
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion, // v6 → metre-offset contract
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint
@@ -109,7 +109,7 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, worldPos.z);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
                 && l.Contains("TryComputeStandaloneRelativeWorldPosition")
-                && l.Contains("legacy-anchor-recording-id-missing"));
+                && l.Contains("anchor-recording-id-missing"));
         }
 
         [Fact]

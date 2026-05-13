@@ -90,9 +90,7 @@ namespace Parsek.Tests
             Assert.Equal(SnapshotSidecarEncoding.UnknownBinary, probe.Encoding);
             Assert.Equal(7, probe.Codec);
             Assert.Equal(SnapshotSidecarCodec.CurrentVersion, probe.FormatVersion);
-            Assert.Equal(
-                $"unsupported snapshot sidecar version {SnapshotSidecarCodec.CurrentVersion} codec 7",
-                probe.FailureReason);
+            Assert.Equal("unsupported snapshot codec 7", probe.FailureReason);
         }
 
         [Fact]
@@ -106,7 +104,7 @@ namespace Parsek.Tests
             SnapshotSidecarCodec.Write(path, original);
 
             byte[] bytes = File.ReadAllBytes(path);
-            int checksumOffset = 4 + sizeof(int) + sizeof(byte) + sizeof(int) + sizeof(int);
+            int checksumOffset = 4 + sizeof(int) + sizeof(int) + sizeof(byte) + sizeof(int) + sizeof(int);
             bytes[checksumOffset] ^= 0x5A;
             File.WriteAllBytes(path, bytes);
 
@@ -156,8 +154,9 @@ namespace Parsek.Tests
             using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
             using (var writer = new BinaryWriter(stream, Encoding.UTF8))
             {
-                writer.Write(Encoding.ASCII.GetBytes("PRKS"));
+                writer.Write(Encoding.ASCII.GetBytes("PSN0"));
                 writer.Write(version);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 writer.Write(codec);
                 writer.Write(payload.Length);
                 writer.Write(compressedPayload.Length);

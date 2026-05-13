@@ -18971,30 +18971,19 @@ namespace Parsek
 
         /// <summary>
         /// P1-D: RELATIVE-frame standalone resolver for
-        /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>. v6+
+        /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>. Post-reset
         /// RELATIVE sections store metre offsets in <c>latitude</c>/
         /// <c>longitude</c>/<c>altitude</c>; reading them as lat/lon/alt
-        /// would land deep inside the planet. v11 sections resolve through
+        /// would land deep inside the planet. Sections resolve through
         /// <see cref="RelativeAnchorResolver"/> by <c>anchorRecordingId</c>,
         /// except ordinary parent-anchored debris, where v13 makes
         /// <c>bodyFixedFrames</c> the primary render surface and a primary miss
         /// fails closed instead of falling through to recorded Relative replay.
-        /// v5-and-older recordings keep their older lat/lon/alt contract.
         /// </summary>
         private static bool TryComputeStandaloneRelativeWorldPosition(
             Recording rec, TrackSection section, double ut, out Vector3d worldPos)
         {
             worldPos = default;
-            // Legacy (v5-and-older) RELATIVE sections kept the older
-            // contract: lat/lon/alt fields actually held lat/lon/alt and
-            // the dispatcher could safely call GetWorldSurfacePosition on
-            // them. Detect via RecordingFormatVersion and route through the
-            // ABSOLUTE-style fallback.
-            if (rec.RecordingFormatVersion < RecordingStore.RelativeLocalFrameFormatVersion)
-            {
-                return TryComputeStandaloneAbsoluteFallbackWorldPosition(rec, ut, out worldPos);
-            }
-
             bool ordinaryParentAnchoredDebris =
                 GhostPlaybackEngine.ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(rec, ut);
             if (ordinaryParentAnchoredDebris)
@@ -19018,14 +19007,11 @@ namespace Parsek
 
             if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
             {
-                string reason = rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion
-                    ? "anchor-recording-id-missing"
-                    : "legacy-anchor-recording-id-missing";
                 ParsekLog.WarnRateLimited("Pipeline-CoBubble",
                     "standalone-relative-no-anchor-recording-id|" + (rec.RecordingId ?? "(none)"),
                     string.Format(CultureInfo.InvariantCulture,
                         "TryComputeStandaloneRelativeWorldPosition: reason={0} recording={1} ut={2}",
-                        reason,
+                        "anchor-recording-id-missing",
                         rec.RecordingId,
                         ut.ToString("R", CultureInfo.InvariantCulture)),
                     5.0);

@@ -787,7 +787,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.RecordingId = "focus-rec";
-            traj.RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion;
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -816,7 +816,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 RecordingId = "focus-single",
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 Points = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 110.0 },
@@ -842,40 +842,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryGetRelativeSectionAtUT_MissingV11AnchorDoesNotSynthesizeLoopAnchor()
-        {
-            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
-            traj.RecordingId = "focus-missing";
-            traj.RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion;
-            traj.LoopAnchorVesselId = 77u;
-            traj.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.0,
-                endUT = 110.0,
-                anchorVesselId = 0u,
-                frames = traj.Points,
-            });
-
-            bool result = GhostPlaybackEngine.TryGetRelativeSectionAtUT(
-                traj, 110.0, out RelativeSectionPlaybackTarget target);
-
-            Assert.True(result);
-            Assert.False(target.HasAnchorRecordingId);
-            Assert.Null(target.AnchorRecordingId);
-            Assert.Equal(0, target.SectionIndex);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Engine]")
-                && l.Contains("RELATIVE v11 section missing anchorRecordingId")
-                && l.Contains("recordingId=focus-missing"));
-        }
-
-        [Fact]
         public void TryGetRelativeSectionAtUT_LegacyMissingAnchorStillRoutesButDoesNotInventPid()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.RecordingId = "legacy-focus";
-            traj.RecordingFormatVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion;
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,

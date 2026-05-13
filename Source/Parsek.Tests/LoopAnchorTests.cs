@@ -102,17 +102,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoopRange_Scenario_Load_LegacyNegativeInterval_MigratesToLaunchPeriod()
+        public void LoopRange_Scenario_Load_CurrentNegativeInterval_PreservesStoredValue()
         {
             var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "legacy-scenario-loop");
-            node.AddValue("recordingFormatVersion", "3");
+            node.AddValue("recordingId", "current-scenario-negative-loop");
+            node.AddValue("recordingFormatVersion",
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration",
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             node.AddValue("loopPlayback", true);
             node.AddValue("loopStartUT", 120.0.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("loopEndUT", 180.0.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("loopIntervalSeconds", (-20.0).ToString("R", CultureInfo.InvariantCulture));
 
-            var loaded = new Recording { VesselName = "LegacyScenario" };
+            var loaded = new Recording { VesselName = "CurrentScenarioNegative" };
             loaded.Points.Add(new TrajectoryPoint
             {
                 ut = 100, latitude = 0, longitude = 0, altitude = 0,
@@ -126,24 +129,28 @@ namespace Parsek.Tests
 
             ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
-            Assert.Equal(40.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(-20.0, loaded.LoopIntervalSeconds);
             Assert.Equal(120.0, loaded.LoopStartUT);
             Assert.Equal(180.0, loaded.LoopEndUT);
-            Assert.Contains(logLines, line => line.Contains("migrated recording 'LegacyScenario'"));
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+            Assert.DoesNotContain(logLines, line => line.Contains("migrated recording"));
         }
 
         [Fact]
-        public void LoopRange_Scenario_Load_LegacyPositiveGap_MigratesToLaunchPeriod()
+        public void LoopRange_Scenario_Load_CurrentPositiveGap_PreservesStoredValue()
         {
             var node = new ConfigNode("RECORDING");
-            node.AddValue("recordingId", "legacy-scenario-positive-gap");
-            node.AddValue("recordingFormatVersion", "3");
+            node.AddValue("recordingId", "current-scenario-positive-gap");
+            node.AddValue("recordingFormatVersion",
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration",
+                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             node.AddValue("loopPlayback", true);
             node.AddValue("loopStartUT", 120.0.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("loopEndUT", 180.0.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("loopIntervalSeconds", 10.0.ToString("R", CultureInfo.InvariantCulture));
 
-            var loaded = new Recording { VesselName = "LegacyScenarioPositive" };
+            var loaded = new Recording { VesselName = "CurrentScenarioPositive" };
             loaded.Points.Add(new TrajectoryPoint
             {
                 ut = 100, latitude = 0, longitude = 0, altitude = 0,
@@ -157,9 +164,9 @@ namespace Parsek.Tests
 
             ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
-            Assert.Equal(70.0, loaded.LoopIntervalSeconds);
-            Assert.Equal(RecordingStore.LaunchToLaunchLoopIntervalFormatVersion, loaded.RecordingFormatVersion);
-            Assert.Contains(logLines, line => line.Contains("migrated recording 'LegacyScenarioPositive'"));
+            Assert.Equal(10.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, loaded.RecordingFormatVersion);
+            Assert.DoesNotContain(logLines, line => line.Contains("migrated recording"));
         }
 
         [Fact]

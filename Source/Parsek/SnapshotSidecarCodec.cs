@@ -18,7 +18,9 @@ namespace Parsek
         public bool Supported;
         public SnapshotSidecarEncoding Encoding;
         public int FormatVersion;
+        public int SchemaGeneration;
         public byte Codec;
+        public string MagicTag;
         public string NodeName;
         public int UncompressedLength;
         public int CompressedLength;
@@ -29,13 +31,14 @@ namespace Parsek
 
     internal static class SnapshotSidecarCodec
     {
-        private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PRKS");
+        private static readonly byte[] Magic = Encoding.ASCII.GetBytes("PSN0");
+        private static readonly byte[] PreResetMagic = Encoding.ASCII.GetBytes("PRKS");
         private static readonly uint[] Crc32Table = BuildCrc32Table();
-        private const int CurrentFormatVersion = 1;
+        private const int CurrentFormatVersion = 0;
         private const byte CodecDeflate = 1;
         private const string WrapperNodeName = "SNAPSHOT_SIDECAR";
         private const string FallbackNodeName = "SNAPSHOT";
-        private const int HeaderByteCount = 4 + sizeof(int) + sizeof(byte) + sizeof(int) + sizeof(int) + sizeof(uint);
+        private const int HeaderByteCount = 4 + sizeof(int) + sizeof(int) + sizeof(byte) + sizeof(int) + sizeof(int) + sizeof(uint);
         private const int MaxPayloadBytesLimit = 16 * 1024 * 1024;
 
         internal static int CurrentVersion => CurrentFormatVersion;
@@ -46,17 +49,27 @@ namespace Parsek
 
         internal static bool HasBinaryMagic(string path)
         {
+            return HasMagic(path, Magic);
+        }
+
+        private static bool HasPreResetBinaryMagic(string path)
+        {
+            return HasMagic(path, PreResetMagic);
+        }
+
+        private static bool HasMagic(string path, byte[] magic)
+        {
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return false;
 
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                if (stream.Length < Magic.Length)
+                if (stream.Length < magic.Length)
                     return false;
 
-                for (int i = 0; i < Magic.Length; i++)
+                for (int i = 0; i < magic.Length; i++)
                 {
-                    if (stream.ReadByte() != Magic[i])
+                    if (stream.ReadByte() != magic[i])
                         return false;
                 }
             }
@@ -98,28 +111,37 @@ namespace Parsek
                 }
             }
 
-            var legacyNode = ConfigNode.Load(path);
-            if (legacyNode == null)
+            if (HasPreResetBinaryMagic(path))
             {
-                probe.Encoding = SnapshotSidecarEncoding.TextConfigNode;
-                probe.FailureReason = "legacy text parse failed";
-                return false;
+                probe = new SnapshotSidecarProbe
+                {
+                    Success = true,
+                    Supported = false,
+                    Encoding = SnapshotSidecarEncoding.UnknownBinary,
+                    FormatVersion = -1,
+                    SchemaGeneration = 0,
+                    Codec = 0,
+                    MagicTag = Encoding.ASCII.GetString(PreResetMagic),
+                    FailureReason = "magic-mismatch"
+                };
+                return true;
             }
 
-            long fileLength = new FileInfo(path).Length;
             probe = new SnapshotSidecarProbe
             {
                 Success = true,
-                Supported = true,
+                Supported = false,
                 Encoding = SnapshotSidecarEncoding.TextConfigNode,
-                FormatVersion = 0,
+                FormatVersion = -1,
+                SchemaGeneration = 0,
                 Codec = 0,
-                NodeName = legacyNode.name,
-                UncompressedLength = fileLength > int.MaxValue ? int.MaxValue : (int)fileLength,
+                MagicTag = "<text>",
+                NodeName = null,
+                UncompressedLength = 0,
                 CompressedLength = 0,
                 Checksum = 0,
-                LegacyNode = legacyNode,
-                FailureReason = null
+                LegacyNode = null,
+                FailureReason = "text-snapshot-unsupported"
             };
             return true;
         }
@@ -132,12 +154,6 @@ namespace Parsek
 
             if (!probe.Supported)
                 return false;
-
-            if (probe.Encoding == SnapshotSidecarEncoding.TextConfigNode)
-            {
-                node = probe.LegacyNode;
-                return node != null;
-            }
 
             try
             {
@@ -208,6 +224,7 @@ namespace Parsek
             {
                 writer.Write(Magic);
                 writer.Write(CurrentFormatVersion);
+                writer.Write(RecordingStore.CurrentRecordingSchemaGeneration);
                 writer.Write(CodecDeflate);
                 writer.Write(payload.Length);
                 writer.Write(compressedPayload.Length);
@@ -232,13 +249,15 @@ namespace Parsek
         {
             return string.Format(
                 System.Globalization.CultureInfo.InvariantCulture,
-                "success={0} supported={1} encoding={2} version={3} codec={4} node={5} " +
-                "uncompressedBytes={6} compressedBytes={7} checksum={8} failure={9}",
+                "success={0} supported={1} encoding={2} version={3} generation={4} codec={5} magic={6} node={7} " +
+                "uncompressedBytes={8} compressedBytes={9} checksum={10} failure={11}",
                 probe.Success,
                 probe.Supported,
                 GetEncodingLabel(probe),
                 probe.FormatVersion,
+                probe.SchemaGeneration,
                 probe.Codec,
+                probe.MagicTag ?? "<none>",
                 string.IsNullOrEmpty(probe.NodeName) ? "<none>" : probe.NodeName,
                 probe.UncompressedLength,
                 probe.CompressedLength,
@@ -280,6 +299,7 @@ namespace Parsek
             }
 
             int formatVersion = reader.ReadInt32();
+            int schemaGeneration = reader.ReadInt32();
             byte codec = reader.ReadByte();
             int uncompressedLength = reader.ReadInt32();
             int compressedLength = reader.ReadInt32();
@@ -318,14 +338,18 @@ namespace Parsek
                 return false;
             }
 
-            bool supported = formatVersion == CurrentFormatVersion && codec == CodecDeflate;
+            bool supported = formatVersion == CurrentFormatVersion
+                && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration
+                && codec == CodecDeflate;
             probe = new SnapshotSidecarProbe
             {
                 Success = true,
                 Supported = supported,
                 Encoding = supported ? SnapshotSidecarEncoding.DeflateV1 : SnapshotSidecarEncoding.UnknownBinary,
                 FormatVersion = formatVersion,
+                SchemaGeneration = schemaGeneration,
                 Codec = codec,
+                MagicTag = Encoding.ASCII.GetString(Magic),
                 NodeName = null,
                 UncompressedLength = uncompressedLength,
                 CompressedLength = compressedLength,
@@ -333,9 +357,24 @@ namespace Parsek
                 LegacyNode = null,
                 FailureReason = supported
                     ? null
-                    : $"unsupported snapshot sidecar version {formatVersion} codec {codec}"
+                    : BuildUnsupportedReason(formatVersion, schemaGeneration, codec)
             };
             return true;
+        }
+
+        private static string BuildUnsupportedReason(int formatVersion, int schemaGeneration, byte codec)
+        {
+            if (schemaGeneration == 0)
+                return "generation-missing";
+            if (schemaGeneration < RecordingStore.CurrentRecordingSchemaGeneration)
+                return "generation-older";
+            if (schemaGeneration > RecordingStore.CurrentRecordingSchemaGeneration)
+                return "generation-newer";
+            if (formatVersion != CurrentFormatVersion)
+                return $"format-version-mismatch version {formatVersion}";
+            if (codec != CodecDeflate)
+                return $"unsupported snapshot codec {codec}";
+            return "unsupported snapshot sidecar";
         }
 
         private static byte[] SerializeWrappedPayload(ConfigNode node)

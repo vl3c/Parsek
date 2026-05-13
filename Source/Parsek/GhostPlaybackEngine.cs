@@ -2733,8 +2733,7 @@ namespace Parsek
                 sectionIdx,
                 section);
 
-            if (!target.HasAnchorRecordingId
-                && traj.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion)
+            if (!target.HasAnchorRecordingId)
             {
                 string key =
                     "relative-section-missing-anchor-recording-id|" +
@@ -2743,7 +2742,7 @@ namespace Parsek
                 ParsekLog.WarnRateLimited(
                     "Engine",
                     key,
-                    $"RELATIVE v11 section missing anchorRecordingId: " +
+                    $"RELATIVE section missing anchorRecordingId: " +
                     $"recordingId={traj.RecordingId ?? "(none)"} " +
                     $"sectionIndex={sectionIdx} " +
                     $"sectionUT=[{section.startUT.ToString("F2", CultureInfo.InvariantCulture)}," +

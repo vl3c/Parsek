@@ -32,7 +32,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TextConfigNode_CurrentVersion_IsSupported()
+        public void TextConfigNode_CurrentVersion_IsUnsupportedAfterReset()
         {
             string path = SaveTextSidecar(RecordingStore.CurrentRecordingFormatVersion);
             try
@@ -40,10 +40,10 @@ namespace Parsek.Tests
                 TrajectorySidecarProbe probe;
                 Assert.True(RecordingStore.TryProbeTrajectorySidecar(path, out probe));
 
-                Assert.True(probe.Supported);
+                Assert.False(probe.Supported);
                 Assert.Equal(TrajectorySidecarEncoding.TextConfigNode, probe.Encoding);
-                Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
-                Assert.Null(probe.FailureReason);
+                Assert.Equal(-1, probe.FormatVersion);
+                Assert.Equal("text-sidecar-unsupported", probe.FailureReason);
             }
             finally
             {
@@ -52,7 +52,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TextConfigNode_PreCurrentVersion_IsUnsupported()
+        public void TextConfigNode_PreResetVersion_IsUnsupportedAfterReset()
         {
             int legacyVersion = RecordingStore.CurrentRecordingFormatVersion - 1;
             string path = SaveTextSidecar(legacyVersion);
@@ -63,8 +63,8 @@ namespace Parsek.Tests
 
                 Assert.False(probe.Supported);
                 Assert.Equal(TrajectorySidecarEncoding.TextConfigNode, probe.Encoding);
-                Assert.Equal(legacyVersion, probe.FormatVersion);
-                Assert.Contains("unsupported text trajectory version", probe.FailureReason);
+                Assert.Equal(-1, probe.FormatVersion);
+                Assert.Equal("text-sidecar-unsupported", probe.FailureReason);
             }
             finally
             {

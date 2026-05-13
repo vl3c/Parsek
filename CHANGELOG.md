@@ -4,6 +4,20 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.10.0
+
+### Breaking Changes
+
+- Reset the private-development recording/rendering schema baseline to v0. New recordings, recording trees, trajectory sidecars, snapshot sidecars, and the career ledger now stamp the current v0 contract plus `recordingSchemaGeneration = 1`; old pre-reset Parsek files are rejected with explicit reasons such as `magic-mismatch`, `generation-missing`, `generation-newer`, and `format-version-mismatch` instead of being migrated.
+- Reset pannotations sidecars through new `PNA0`/`PNC0` magic and v0 cache schema stamps.
+- Removed the historical recording-format compatibility ladder from the current trajectory codec. The binary `.prec` writer now emits the single current `PSK0`/BinaryV0 layout, text `.prec` files are debug mirrors only, and old `PRKB` trajectory sidecars, `PRKS` snapshot sidecars, and pre-reset pannotations magic tags are treated as unsupported.
+- Save/load now enforces that v0 `.sfs` metadata is only paired with current sidecars: saves rewrite stale/missing sidecars before serializing tree metadata and skip unsafe trees if the rewrite cannot produce current files; loads discard non-synthetic recordings whose sidecars fail schema hydration instead of committing metadata-only placeholders.
+- The save-time sidecar gate now runs a full-payload validation pass on trajectory and snapshot sidecars before certifying them, instead of stopping at the header probe. A `.prec` truncated past its valid header and a `.craft` whose CRC32 fails are now flagged as `trajectory-payload-invalid` / `snapshot-{label}-payload-invalid`, forcing the save path to rewrite from the in-memory recording rather than persisting a tree node whose next load would fail hydration and drop the recording.
+- Trajectory `.prec` reader now bounds every list-count int32 read from the file against the remaining stream size before any per-element loop or `List<T>` allocation. Corrupted counts -- including large-but-allocatable values like 100M that would previously succeed `new List<T>(count)`, consume hundreds of MB, and only fail far later mid-read -- are rejected up front with `InvalidDataException` carrying the bound-violation detail. Negative counts are similarly rejected at the same gate. This closes the OOM-allocation hazard that the post-probe payload validator's exception catch could not handle in time.
+- Current-magic sidecar probes now fail closed on malformed binary headers, and `InjectAllRecordings` explicitly excludes the frozen pre-reset `DefaultCareer` corpus until it is rebaked to v0/generation-1 files instead of copying unloadable legacy sidecars into runtime smoke saves.
+
+---
+
 ## 0.9.2
 
 ### Bug Fixes

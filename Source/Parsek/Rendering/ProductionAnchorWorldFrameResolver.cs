@@ -41,151 +41,134 @@ namespace Parsek.Rendering
             TrackSection relSection = rec.TrackSections[relIdx];
             if (relSection.referenceFrame != ReferenceFrame.Relative) return false;
 
-            if (rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion)
+            RelativeAnchorResolveFailure chainFailure = default;
+            bool boundaryHasExactBodyFixedPrimary = TryFindExactBoundaryFrameSample(
+                relSection.bodyFixedFrames,
+                boundaryUT,
+                side,
+                emitLog: false,
+                pt: out _);
+            if (relSection.frames == null || relSection.frames.Count == 0)
             {
-                RelativeAnchorResolveFailure chainFailure = default;
-                bool boundaryHasExactBodyFixedPrimary = TryFindExactBoundaryFrameSample(
-                    relSection.bodyFixedFrames,
+                chainFailure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PreconditionFailed,
+                    "relative-boundary-frames-missing",
+                    rec.RecordingId,
+                    relSection.anchorRecordingId,
+                    boundaryUT,
+                    relIdx);
+            }
+            else if (!TryFindBoundaryFrameSample(
+                         relSection.frames,
+                         boundaryUT,
+                         side,
+                         out TrajectoryPoint pt))
+            {
+                chainFailure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.OutOfSectionRange,
+                    "relative-boundary-frame-missing",
+                    rec.RecordingId,
+                    relSection.anchorRecordingId,
+                    boundaryUT,
+                    relIdx);
+            }
+            else if (!TryBuildRelativeAnchorResolverContext(
+                         rec,
+                         out RelativeAnchorResolverContext context))
+            {
+                chainFailure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.Other,
+                    "focus-tree-missing",
+                    rec.RecordingId,
+                    relSection.anchorRecordingId,
+                    pt.ut,
+                    relIdx);
+            }
+            else if (TryResolveKnownRelativeBoundaryPose(
+                         context,
+                         rec,
+                         relSection,
+                         relIdx,
+                         pt.ut,
+                         out AnchorPose pose,
+                         out chainFailure))
+            {
+                worldPos = pose.WorldPos;
+                if (IsFinite(worldPos))
+                    return true;
+
+                chainFailure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.PoseNonFinite,
+                    "relative-pose-nonfinite",
+                    rec.RecordingId,
+                    relSection.anchorRecordingId,
+                    pt.ut,
+                    relIdx);
+            }
+
+            if (!chainFailure.HasFailure)
+            {
+                chainFailure = RelativeAnchorResolveFailure.Create(
+                    RelativeAnchorResolveOutcome.Other,
+                    "relative-boundary-chain-unresolved",
+                    rec.RecordingId,
+                    relSection.anchorRecordingId,
+                    boundaryUT,
+                    relIdx);
+            }
+
+            if (TryResolveRelativeBoundaryShadowWorldPos(
+                    rec,
+                    relSection,
                     boundaryUT,
                     side,
-                    emitLog: false,
-                    pt: out _);
-                // V11 path: resolve the anchor-local boundary through the
-                // recorded anchor chain. If the chain misses, fall back to the
-                // v7+ body-fixed primary below instead of failing outright.
-                if (relSection.frames == null || relSection.frames.Count == 0)
-                {
-                    chainFailure = RelativeAnchorResolveFailure.Create(
-                        RelativeAnchorResolveOutcome.PreconditionFailed,
-                        "relative-boundary-frames-missing",
-                        rec.RecordingId,
-                        relSection.anchorRecordingId,
-                        boundaryUT,
-                        relIdx);
-                }
-                else if (!TryFindBoundaryFrameSample(
-                             relSection.frames,
-                             boundaryUT,
-                             side,
-                             out TrajectoryPoint pt))
-                {
-                    chainFailure = RelativeAnchorResolveFailure.Create(
-                        RelativeAnchorResolveOutcome.OutOfSectionRange,
-                        "relative-boundary-frame-missing",
-                        rec.RecordingId,
-                        relSection.anchorRecordingId,
-                        boundaryUT,
-                        relIdx);
-                }
-                else if (!TryBuildRelativeAnchorResolverContext(
-                             rec,
-                             out RelativeAnchorResolverContext context))
-                {
-                    chainFailure = RelativeAnchorResolveFailure.Create(
-                        RelativeAnchorResolveOutcome.Other,
-                        "focus-tree-missing",
-                        rec.RecordingId,
-                        relSection.anchorRecordingId,
-                        pt.ut,
-                        relIdx);
-                }
-                else if (TryResolveKnownRelativeBoundaryPose(
-                             context,
-                             rec,
-                             relSection,
-                             relIdx,
-                             pt.ut,
-                             out AnchorPose pose,
-                             out chainFailure))
-                {
-                    worldPos = pose.WorldPos;
-                    if (IsFinite(worldPos))
-                        return true;
-
-                    chainFailure = RelativeAnchorResolveFailure.Create(
-                        RelativeAnchorResolveOutcome.PoseNonFinite,
-                        "relative-pose-nonfinite",
-                        rec.RecordingId,
-                        relSection.anchorRecordingId,
-                        pt.ut,
-                        relIdx);
-                }
-
-                if (!chainFailure.HasFailure)
-                {
-                    chainFailure = RelativeAnchorResolveFailure.Create(
-                        RelativeAnchorResolveOutcome.Other,
-                        "relative-boundary-chain-unresolved",
-                        rec.RecordingId,
-                        relSection.anchorRecordingId,
-                        boundaryUT,
-                        relIdx);
-                }
-
-                if (TryResolveRelativeBoundaryShadowWorldPos(
-                        rec,
-                        relSection,
-                        boundaryUT,
-                        side,
-                        ResolveAbsoluteWorldPosition,
-                        out worldPos))
-                {
-                    ParsekLog.VerboseRateLimited("Pipeline-Anchor",
-                        string.Format(
-                            CultureInfo.InvariantCulture,
-                            "relative-boundary-shadow-fallback|{0}|{1}|{2}",
-                            rec.RecordingId ?? "(none)",
-                            relIdx,
-                            side),
-                        string.Format(
-                            CultureInfo.InvariantCulture,
-                            "relative-boundary-shadow-fallback recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4}",
-                            rec.RecordingId ?? "(none)",
-                            relIdx,
-                            side,
-                            boundaryUT,
-                            relSection.anchorRecordingId ?? "(missing)")
-                            + string.Format(
-                                CultureInfo.InvariantCulture,
-                                " chainOutcome={0} chainReason={1}",
-                                chainFailure.Outcome,
-                                RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)")),
-                        5.0);
-                    return true;
-                }
-
-                ParsekLog.WarnRateLimited("Pipeline-Anchor",
+                    ResolveAbsoluteWorldPosition,
+                    out worldPos))
+            {
+                ParsekLog.VerboseRateLimited("Pipeline-Anchor",
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "relative-boundary-chain-unresolved|{0}|{1}|{2}",
+                        "relative-boundary-shadow-fallback|{0}|{1}|{2}",
                         rec.RecordingId ?? "(none)",
                         relIdx,
                         side),
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} legacyAnchorPid={5} outcome={6} reason={7} boundaryHasExactBodyFixedPrimary={8}",
+                        "relative-boundary-shadow-fallback recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4}",
                         rec.RecordingId ?? "(none)",
                         relIdx,
                         side,
                         boundaryUT,
-                        relSection.anchorRecordingId ?? "(missing)",
-                        relSection.anchorVesselId,
-                        chainFailure.Outcome,
-                        RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)"),
-                        boundaryHasExactBodyFixedPrimary),
+                        relSection.anchorRecordingId ?? "(missing)")
+                        + string.Format(
+                            CultureInfo.InvariantCulture,
+                            " chainOutcome={0} chainReason={1}",
+                            chainFailure.Outcome,
+                            RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)")),
                     5.0);
-                return false;
+                return true;
             }
 
-            // V7-v10 compatibility fence: only the body-fixed primary can safely
-            // represent the focused vessel boundary without v11 anchor ids.
-            return TryResolveRelativeBoundaryShadowWorldPos(
-                rec,
-                relSection,
-                boundaryUT,
-                side,
-                ResolveAbsoluteWorldPosition,
-                out worldPos);
+            ParsekLog.WarnRateLimited("Pipeline-Anchor",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "relative-boundary-chain-unresolved|{0}|{1}|{2}",
+                    rec.RecordingId ?? "(none)",
+                    relIdx,
+                    side),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} outcome={5} reason={6} boundaryHasAbsoluteShadow={7}",
+                    rec.RecordingId ?? "(none)",
+                    relIdx,
+                    side,
+                    boundaryUT,
+                    relSection.anchorRecordingId ?? "(missing)",
+                    chainFailure.Outcome,
+                    RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)"),
+                    boundaryHasExactBodyFixedPrimary),
+                5.0);
+            return false;
         }
 
         internal static bool TryResolveKnownRelativeBoundaryPose(
@@ -366,8 +349,6 @@ namespace Parsek.Rendering
         {
             worldPos = default;
             if (rec == null)
-                return false;
-            if (rec.RecordingFormatVersion < RecordingStore.RelativeBodyFixedPrimaryFormatVersion)
                 return false;
             if (relSection.bodyFixedFrames == null || relSection.bodyFixedFrames.Count == 0)
                 return false;

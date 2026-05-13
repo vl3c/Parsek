@@ -792,7 +792,7 @@ namespace Parsek.InGameTests
             {
                 RecordingId = "runtime-ksc-recorded-anchor",
                 VesselName = "Runtime KSC Recorded Anchor",
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             anchorRec.Points.Add(anchorPoint);
             anchorRec.Points.Add(new TrajectoryPoint
@@ -836,7 +836,7 @@ namespace Parsek.InGameTests
             {
                 RecordingId = "runtime-ksc-relative-anchor",
                 VesselName = "Runtime KSC Relative Probe",
-                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.Points.Add(before);
             rec.Points.Add(after);

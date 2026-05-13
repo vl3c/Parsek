@@ -70,7 +70,7 @@ namespace Parsek.Tests.Harness
             {
                 RecordingId = recordingId,
                 RecordingFormatVersion =
-                    RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                    RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = treeId,
                 VesselName = recordingId,
             };
@@ -105,7 +105,7 @@ namespace Parsek.Tests.Harness
             {
                 RecordingId = recordingId,
                 RecordingFormatVersion =
-                    RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                    RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = treeId,
                 VesselName = recordingId,
             };
@@ -232,7 +232,7 @@ namespace Parsek.Tests.Harness
             {
                 RecordingId = "abs-rel-transition-target",
                 RecordingFormatVersion =
-                    RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                    RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = tree.Id,
                 VesselName = "abs-rel-transition-target",
             };
@@ -308,7 +308,7 @@ namespace Parsek.Tests.Harness
             {
                 RecordingId = "on-rails-bg",
                 RecordingFormatVersion =
-                    RelativeAnchorResolver.RecordingAnchorChainFormatVersion,
+                    RecordingStore.CurrentRecordingFormatVersion,
                 TreeId = tree.Id,
                 VesselName = "on-rails-bg",
             };

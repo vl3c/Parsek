@@ -130,7 +130,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 VesselName = "RelativeKsc",
-                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.Points.Add(before);
             rec.Points.Add(after);
@@ -244,7 +244,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 VesselName = "AbsoluteKsc",
-                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.Points.Add(before);
             rec.Points.Add(after);
@@ -283,7 +283,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 VesselName = "CheckpointKsc",
-                RecordingFormatVersion = RecordingStore.RelativeLocalFrameFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.Points.Add(before);
             rec.Points.Add(after);
