@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-launching same `.craft` after a committed mission silently merged into the prior tree
+
+- ~~When the player committed a recording (e.g. Kerbal X mission 1 ending Landed) and then launched the same `.craft` again — even with a Re-Fly in between — the new mission attached to the prior tree instead of starting its own. The auto-generated group still read "Kerbal X", and the STASH listed both missions' decoupled probes as duplicate `Kerbal X Probe` rows. Repro: `logs/2026-05-13_1850_kerbal-x-merge-bug`, mission 1 launch at 18:33:54 → commit at 18:34:48 with `3554bcbb...SpawnedVesselPersistentId=2708531065`, Re-Fly Probe at 18:35:00, mission 2 launch at 18:35:49 with the same pid 2708531065 (KSP's craft-derived persistentId is deterministic enough for re-launching the same `.craft` to recycle the previous mission's pid), then `TryTakeCommittedTreeForSpawnedVesselRestore: removed committed tree 'Kerbal X' (10 recording(s))` at 18:35:51 — the new mission was folded into the old tree.~~
+
+**Root cause:** Re-Fly does NOT route through `HandleRewindOnLoad`/`ResetAllPlaybackState` (those gate on `RewindContext.IsRewinding`, which Re-Fly never sets). The prior committed recording kept its `SpawnedVesselPersistentId=2708531065`, and `RecordingStore.PreserveLiveRuntimeFieldsOnReplace` (the spawn-state cluster from #264) re-installs that stale pid on the Re-Fly merge replace. `TryFindCommittedTreeForSpawnedVessel` then matched the fresh launch's pid against the stale stamp, and the mission was attached to the existing tree.
+
+**Fix:** `ParsekFlight` now subscribes to `GameEvents.onLaunch` (which KSP fires only for VAB/SPH launches — load-from-save and tracking-station resumes do not), records the launched vessel's pid in a scene-instance field, and `TryRestoreCommittedTreeForSpawnedActiveVessel` skips the committed-tree restore when the active vessel pid matches that just-launched pid. The static lookup `TryFindCommittedTreeForSpawnedVessel` is unchanged so background-promotion and missed-switch recovery for save-loaded vessels keep working. Pure helper `ShouldSkipCommittedTreeRestoreForFreshLaunch` is unit-tested.
+
+**Status:** CLOSED 2026-05-13.
+
+---
+
 ## Done - v0.9.2 Rewound recording's vessel does not spawn when watched to terminal
 
 - ~~After a Rewind-to-Separation onto a recording with a spawnable terminal state (Landed/Splashed/Orbiting), entering Watch and letting the ghost play through to its terminal point left the vessel un-materialized. `ParsekPlaybackPolicy.HandlePlaybackCompleted` reported `needsSpawn=False` because `ShouldBlockSpawnForRewindSuppression` short-circuited on the same-recording `SpawnSuppressedByRewind` marker (`#573 active/source recording protection`). Source: `logs/2026-05-12_2018_kerbalx-no-spawn`, recording `e4c8042527c649648b7f94a5175d312d`. The original #573 fix was scoped to protect against background ghost playback duplicating a vessel the player just stripped on rewind (chain-tip respawn next to the player's freshly-launched new vessel). It was overly broad for the case where the player explicitly Watches the rewound recording to its terminal point.~~

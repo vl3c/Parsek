@@ -252,6 +252,12 @@ namespace Parsek
         private float nextCommittedSpawnedRestoreRetryAt;
         private MissedVesselSwitchRecoveryDiagnosticContext currentVesselSwitchRecoveryDiagnosticContext;
 
+        // Set by GameEvents.onLaunch (VAB/SPH only — resume-from-save does not fire it).
+        // Read by TryRestoreCommittedTreeForSpawnedActiveVessel to skip restore when
+        // a re-launched .craft's pid collides with a prior recording's stale
+        // SpawnedVesselPersistentId. Instance-scoped: a new ParsekFlight starts at 0.
+        private uint freshlyLaunchedActiveVesselPid;
+
         // Deferred watch target after fast-forward — the ghost needs one frame
         // to be positioned after the time jump before we can enter watch mode.
         // Uses recording ID (not index) to be safe against list reordering.
@@ -1041,6 +1047,7 @@ namespace Parsek
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
+            GameEvents.onLaunch.Add(OnLaunch);
             MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
             GameEvents.onGamePause.Add(OnGamePause);
@@ -2058,6 +2065,7 @@ namespace Parsek
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
+            GameEvents.onLaunch.Remove(OnLaunch);
             MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
             GameEvents.onGamePause.Remove(OnGamePause);
@@ -3409,6 +3417,16 @@ namespace Parsek
             uint activeVesselPid = activeVessel != null ? activeVessel.persistentId : 0;
             if (activeVesselPid == 0 || GhostMapPresence.IsGhostMapVessel(activeVesselPid))
                 return false;
+
+            if (ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                    activeVesselPid, freshlyLaunchedActiveVesselPid))
+            {
+                ParsekLog.Info("Flight",
+                    $"TryRestoreCommittedTreeForSpawnedActiveVessel: skipping for freshly-launched " +
+                    $"vessel '{activeVessel.vesselName}' pid={activeVesselPid} " +
+                    $"(matches GameEvents.onLaunch pid) — new mission gets its own tree");
+                return false;
+            }
 
             if (!TryTakeCommittedTreeForSpawnedVesselRestore(
                     activeVesselPid,
@@ -8363,6 +8381,25 @@ namespace Parsek
             chainManager.CommitBoundarySplit(recorder, completedPhase, bodyName);
         }
 
+        // KSP fires onLaunch for VAB/SPH launches only — load-from-save and
+        // tracking-station resumes do not. Recording the launched vessel's pid here
+        // lets TryRestoreCommittedTreeForSpawnedActiveVessel reject committed-tree
+        // restores triggered by a fresh launch whose .craft-derived pid happens to
+        // equal a prior recording's SpawnedVesselPersistentId.
+        void OnLaunch(EventReport report)
+        {
+            Vessel v = FlightGlobals.ActiveVessel;
+            if (v == null)
+            {
+                ParsekLog.Warn("Flight",
+                    "OnLaunch: no FlightGlobals.ActiveVessel — fresh-launch restore guard is unarmed for this scene");
+                return;
+            }
+            freshlyLaunchedActiveVesselPid = v.persistentId;
+            ParsekLog.Info("Flight",
+                $"OnLaunch: armed fresh-launch restore guard for vessel '{v.vesselName}' pid={freshlyLaunchedActiveVesselPid}");
+        }
+
         void OnFlightReady()
         {
             Log("Flight ready. Checking for pending recordings...");
@@ -10755,6 +10792,19 @@ namespace Parsek
             if (hasPendingTree) return false;
             if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None) return false;
             return currentUnscaledTime >= nextRetryAt;
+        }
+
+        // KSP's craft-file-derived persistentId is deterministic enough that
+        // re-launching the same .craft tends to recycle the previous mission's pid,
+        // and Re-Fly merges preserve the prior SpawnedVesselPersistentId
+        // (RecordingStore.PreserveLiveRuntimeFieldsOnReplace). Without this gate,
+        // a fresh VAB/SPH launch would silently attach to the prior committed tree
+        // and merge two distinct missions under one auto-generated group.
+        internal static bool ShouldSkipCommittedTreeRestoreForFreshLaunch(
+            uint activeVesselPid, uint freshlyLaunchedActiveVesselPid)
+        {
+            return activeVesselPid != 0
+                && activeVesselPid == freshlyLaunchedActiveVesselPid;
         }
 
         internal static bool TryFindCommittedTreeForSpawnedVessel(

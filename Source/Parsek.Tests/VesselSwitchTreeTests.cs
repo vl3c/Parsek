@@ -589,6 +589,91 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Fresh-launch restore guard
+
+        // Regression for the relaunch tree-collision bug: the previous mission's
+        // committed recording carries a stale SpawnedVesselPersistentId that KSP's
+        // deterministic craft-derived persistentId reuses on the next VAB launch.
+        // ParsekFlight subscribes to GameEvents.onLaunch and feeds the launched
+        // pid through ShouldSkipCommittedTreeRestoreForFreshLaunch to skip the
+        // restore. See the playtest log at logs/2026-05-13_1850_kerbal-x-merge-bug
+        // for the originating trace.
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_SkipsWhenPidMatchesEditorLaunch()
+        {
+            Assert.True(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 2708531065u,
+                freshlyLaunchedActiveVesselPid: 2708531065u));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenPidsDiffer()
+        {
+            // Loaded-from-save resume: same FLIGHT scene, but pid was assigned to a
+            // different vessel than the last VAB/SPH launch. Restore must proceed
+            // so the existing recording resumes against the loaded vessel.
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 12345u,
+                freshlyLaunchedActiveVesselPid: 2708531065u));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenLauncherUnarmed()
+        {
+            // No onLaunch fired this scene (resume-from-save, tracking station,
+            // post-revert resume, etc.). The guard must not skip — restore is the
+            // intended behavior in these cases.
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 2708531065u,
+                freshlyLaunchedActiveVesselPid: 0u));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenActivePidZero()
+        {
+            // No active vessel yet (defense against early-frame races). Returning
+            // false lets the existing activeVesselPid==0 short-circuit in
+            // TryRestoreCommittedTreeForSpawnedActiveVessel handle it uniformly.
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 0u,
+                freshlyLaunchedActiveVesselPid: 2708531065u));
+        }
+
+        [Fact]
+        public void ShouldSkipCommittedTreeRestoreForFreshLaunch_AllowsWhenBothZero()
+        {
+            Assert.False(ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch(
+                activeVesselPid: 0u,
+                freshlyLaunchedActiveVesselPid: 0u));
+        }
+
+        [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_StillMatchesAfterFreshLaunchGuardLayer()
+        {
+            // The fresh-launch guard lives at the instance dispatcher in
+            // TryRestoreCommittedTreeForSpawnedActiveVessel, not in the static
+            // lookup. The lookup must keep returning the matching tree so any
+            // non-fresh-launch caller (background promotion, missed-switch
+            // recovery for a loaded vessel) keeps working.
+            var tree = MakeTree("rec_active");
+            tree.Recordings["rec_active"].VesselPersistentId = 2708531065u;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 2708531065u;
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 2708531065u,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId);
+
+            Assert.True(found);
+            Assert.Same(tree, matchedTree);
+            Assert.Equal("rec_active", matchedRecordingId);
+        }
+
+        #endregion
+
         #region Existing tests still pass with default activeTree parameter
 
         [Fact]
