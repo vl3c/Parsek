@@ -105,13 +105,14 @@ namespace Parsek
         public const int LaunchToLaunchLoopIntervalFormatVersion = 4;
         public const int PredictedOrbitSegmentFormatVersion = 5;
         public const int RelativeLocalFrameFormatVersion = 6;
-        public const int RelativeAbsoluteShadowFormatVersion = 7;
+        public const int RelativeBodyFixedPrimaryFormatVersion = 7;
         public const int BoundarySeamFlagFormatVersion = 8;
         public const int TerrainGroundClearanceFormatVersion = 9;
         public const int StructuralEventFlagFormatVersion = 10;
         public const int RecordingAnchorChainFormatVersion = 11;
         public const int DebrisParentRecordingFormatVersion = 12;
-        public const int CurrentRecordingFormatVersion = DebrisParentRecordingFormatVersion;
+        public const int DebrisFrameContractFormatVersion = 13;
+        public const int CurrentRecordingFormatVersion = DebrisFrameContractFormatVersion;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -157,17 +158,12 @@ namespace Parsek
         //     bump because the per-point layout is positional; legacy v9 readers stop short of
         //     the new byte (their stream alignment ends at recordedGroundClearance), and new
         //     readers default flags=0 on `v < 10`. Bits 1-7 reserved.
-        // v11: TrackSection.anchorRecordingId for non-loop Relative sections. This is a
-        //     private-development format break: v11 correctness is recording-id anchored,
-        //     while legacy pid-only Relative sections are fenced by playback follow-up phases.
-        // v12: top-level Recording.DebrisParentRecordingId — set on debris recordings to
-        //     the parent recording's id, null on non-debris and on legacy v11 debris.
-        //     ConfigNode codec only; the binary `.prec` codec is unaffected (it stores
-        //     trajectory data, not top-level Recording fields). Sparse on disk: only
-        //     written when non-null, so non-debris recordings stay byte-identical across
-        //     the upgrade. Legacy v11 saves load with the field defaulted to null and
-        //     dispatch through the PR 3c playback gate. See
-        //     docs/dev/plans/recording-and-ghost-policies-refactor-plan.md.
+        // v11: TrackSection.anchorRecordingId for non-loop Relative sections.
+        // v12: top-level Recording.DebrisParentRecordingId for parent-owned debris.
+        // v13: debris frame contract break. Parent-anchored debris records
+        //     bodyFixedFrames as the primary render surface, keeps proximity-limited
+        //     anchor-local Relative frames as the secondary loop-chain surface, and
+        //     rejects non-v13 recordings/sidecars instead of migrating v11/v12 data.
 
         internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
         {
@@ -2874,9 +2870,9 @@ namespace Parsek
                 {
                     AppendBodyTransitions(bodies, section.frames);
                 }
-                else if (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                else if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
                 {
-                    AppendBodyTransitions(bodies, section.absoluteFrames);
+                    AppendBodyTransitions(bodies, section.bodyFixedFrames);
                 }
                 else if (section.checkpoints != null)
                 {
@@ -6333,15 +6329,20 @@ namespace Parsek
                     System.Globalization.CultureInfo.InvariantCulture, out sidecarEpoch);
             }
 
+            int formatVersion = GetTrajectoryFormatVersion(precNode);
+            bool supported = formatVersion == CurrentRecordingFormatVersion;
             probe = new TrajectorySidecarProbe
             {
                 Success = true,
-                Supported = true,
+                Supported = supported,
                 Encoding = TrajectorySidecarEncoding.TextConfigNode,
-                FormatVersion = GetTrajectoryFormatVersion(precNode),
+                FormatVersion = formatVersion,
                 SidecarEpoch = sidecarEpoch,
                 RecordingId = precNode.GetValue("recordingId"),
-                LegacyNode = precNode
+                LegacyNode = precNode,
+                FailureReason = supported
+                    ? null
+                    : $"unsupported text trajectory version {formatVersion}"
             };
 
             if (!SuppressLogging)
@@ -6349,6 +6350,12 @@ namespace Parsek
                 ParsekLog.Verbose("RecordingStore",
                     $"TryProbeTrajectorySidecar: encoding=TextConfigNode version={probe.FormatVersion} " +
                     $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                if (!probe.Supported)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"TryProbeTrajectorySidecar: unsupported text trajectory version {probe.FormatVersion} " +
+                        $"for recording={probe.RecordingId}");
+                }
             }
 
             return true;
@@ -6496,7 +6503,7 @@ namespace Parsek
         /// <see cref="NormalizeRecordingFormatVersionAfterLegacyLoopMigration"/>).
         /// Every other lag is rejected: v5 added serialized
         /// <c>OrbitSegment.isPredicted</c>, v6 changed RELATIVE TrackSection point
-        /// semantics, and v7 added RELATIVE absolute shadow points, so a v3 sidecar
+        /// semantics, and v7 added RELATIVE body-fixed primary points, so a v3 sidecar
         /// paired with a v5+ recording indicates stale or incomplete trajectory data
         /// on disk that the runtime test must catch.
         /// </summary>

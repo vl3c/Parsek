@@ -269,7 +269,7 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void RelativeBoundary_ShadowResolverUsesAbsoluteFrames()
+        public void RelativeBoundary_ShadowResolverUsesExactbodyFixedFrame()
         {
             var rec = new Recording
             {
@@ -281,7 +281,7 @@ namespace Parsek.Tests.Rendering
                 referenceFrame = ReferenceFrame.Relative,
                 startUT = 0,
                 endUT = 10,
-                absoluteFrames = new List<TrajectoryPoint>
+                bodyFixedFrames = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint
                     {
@@ -305,6 +305,52 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(100.0, worldPos.x, 6);
             Assert.Equal(20.0, worldPos.y, 6);
             Assert.Equal(3.0, worldPos.z, 6);
+        }
+
+        [Fact]
+        public void RelativeBoundary_ShadowResolverRejectsStaleBodyFixedFrame()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "focus",
+                RecordingFormatVersion = RecordingStore.RecordingAnchorChainFormatVersion,
+            };
+            var relSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0,
+                endUT = 20,
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 9,
+                        latitude = 100,
+                        longitude = 20,
+                        altitude = 3,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 11,
+                        latitude = 102,
+                        longitude = 22,
+                        altitude = 5,
+                    },
+                },
+            };
+
+            bool resolved = ProductionAnchorWorldFrameResolver.TryResolveRelativeBoundaryShadowWorldPos(
+                rec,
+                relSection,
+                boundaryUT: 10,
+                side: AnchorSide.End,
+                absoluteWorldPositionResolver: p => new Vector3d(p.latitude, p.longitude, p.altitude),
+                out Vector3d worldPos);
+
+            Assert.False(resolved);
+            Assert.Equal(0.0, worldPos.x, 6);
+            Assert.Equal(0.0, worldPos.y, 6);
+            Assert.Equal(0.0, worldPos.z, 6);
         }
 
         // --- §7.5 OrbitalCheckpoint guard paths ---------------------------

@@ -110,7 +110,7 @@ namespace Parsek
                 if (section.frames != null && section.frames.Count >= 2)
                     return true;
 
-                if (section.absoluteFrames != null && section.absoluteFrames.Count >= 2)
+                if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count >= 2)
                     return true;
             }
 

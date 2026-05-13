@@ -76,11 +76,11 @@ namespace Parsek
             Legacy = 1,
 
             /// <summary>
-            /// Recording's <c>absoluteFrames</c> shadow lerp. Used for
-            /// parent-anchored debris (v12+) whenever shadow data covers
-            /// the playback UT, regardless of the tumbling-parent gate.
+            /// Recording's <c>bodyFixedFrames</c> body-fixed primary lerp.
+            /// Used for parent-anchored debris (v13+) whenever the loop-chain
+            /// relative surface is not deliberately selected.
             /// </summary>
-            Shadow = 2,
+            BodyFixedPrimary = 2,
 
             /// <summary>
             /// Mesh inactive — ghost retired or hidden by the parent-anchored
@@ -94,7 +94,7 @@ namespace Parsek
             switch (surface)
             {
                 case RenderSurface.Legacy: return "legacy";
-                case RenderSurface.Shadow: return "shadow";
+                case RenderSurface.BodyFixedPrimary: return "body-fixed-primary";
                 case RenderSurface.Hidden: return "hidden";
                 default: return "unknown";
             }
@@ -109,7 +109,7 @@ namespace Parsek
             public double StartUT;
             public double EndUT;
             public int FrameCount;
-            public int AbsoluteFrameCount;
+            public int bodyFixedFrameCount;
             public int CheckpointCount;
             public string AnchorRecordingId;
             public float BoundaryDiscontinuityMeters;
@@ -117,12 +117,9 @@ namespace Parsek
             // Debris-frame bracket span at the current playback UT: the time
             // gap between the two recorded `frames` entries that contain
             // playbackUT. NaN when not Relative or fewer than two frames are
-            // available. Surfaces the wide-bracket pattern (thin-tail
-            // optimiser cuts that produce 2 s+ gaps) which the legacy
-            // relative-offset reconstruction lerps through linearly while
-            // the parent rotates underneath. The dominant pre-shadow-route
-            // failure mode that PR #803 / docs/dev/plans/debris-always-shadow.md
-            // resolves; logged so post-hoc analysis can attribute frames to it.
+            // available. This surfaces the wide-bracket pattern that format v13
+            // avoids for parent-anchored debris by rendering body-fixed primary
+            // frames first.
             public double DebrisBracketSeconds;
         }
 
@@ -906,7 +903,7 @@ namespace Parsek
             context.StartUT = section.startUT;
             context.EndUT = section.endUT;
             context.FrameCount = section.frames?.Count ?? 0;
-            context.AbsoluteFrameCount = section.absoluteFrames?.Count ?? 0;
+            context.bodyFixedFrameCount = section.bodyFixedFrames?.Count ?? 0;
             context.CheckpointCount = section.checkpoints?.Count ?? 0;
             context.AnchorRecordingId = section.anchorRecordingId;
             context.BoundaryDiscontinuityMeters = section.boundaryDiscontinuityMeters;
@@ -948,7 +945,7 @@ namespace Parsek
                 + " env=" + Token(section.HasSection ? section.Environment.ToString() : "none")
                 + " source=" + Token(section.HasSection ? section.Source.ToString() : "none")
                 + " frames=" + section.FrameCount.ToString(CultureInfo.InvariantCulture)
-                + " absFrames=" + section.AbsoluteFrameCount.ToString(CultureInfo.InvariantCulture)
+                + " bodyFixedFrames=" + section.bodyFixedFrameCount.ToString(CultureInfo.InvariantCulture)
                 + " checkpoints=" + section.CheckpointCount.ToString(CultureInfo.InvariantCulture)
                 + " anchorRec=" + ShortId(section.AnchorRecordingId)
                 + " boundaryDM=" + section.BoundaryDiscontinuityMeters.ToString("F2", CultureInfo.InvariantCulture)

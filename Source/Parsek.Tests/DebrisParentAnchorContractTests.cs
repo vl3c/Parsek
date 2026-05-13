@@ -7,7 +7,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// PR 3b unit tests covering the v12+ debris parent-anchor contract.
+    /// PR 3b unit tests covering the v13 debris parent-anchor contract.
     ///
     /// Coverage matrix:
     ///   - <see cref="Recording.ApplyDebrisAnchorContract"/> helper (both overloads):

@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// — PR 3b review follow-up. The predicate replaced the original v8-of-the-plan
     /// `parentRec.ExplicitEndUT &lt; currentUT` check, which incorrectly treated
     /// the natural per-sample lag of an active background recording's ExplicitEndUT
-    /// as "parent finalized" and would have ended every v12 debris on the next TTL
+    /// as "parent finalized" and would have ended every v13 debris on the next TTL
     /// tick. Each test exercises one truth-table case so a future regression to the
     /// lagging-UT signal would fail loudly.
     /// </summary>

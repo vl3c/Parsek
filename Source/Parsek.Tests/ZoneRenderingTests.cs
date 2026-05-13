@@ -337,7 +337,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_AppendsNextAbsoluteFrameWhenSectionEndIsUnbracketed()
+        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_AppendsNextbodyFixedFrameWhenSectionEndIsUnbracketed()
         {
             var currentFrames = new List<TrajectoryPoint>
             {
@@ -381,7 +381,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_UsesRelativeAbsoluteShadowOnly()
+        public void TryGetAbsoluteSectionPlaybackFramesForPlayback_UsesRelativeBodyFixedPrimaryOnly()
         {
             var currentFrames = new List<TrajectoryPoint>
             {
@@ -392,7 +392,7 @@ namespace Parsek.Tests
             {
                 new TrajectoryPoint { ut = 10.6, bodyName = "Kerbin", altitude = -5000.0 }
             };
-            var relativeAbsoluteFrames = new List<TrajectoryPoint>
+            var relativebodyFixedFrames = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 10.6, bodyName = "Kerbin", altitude = 140.0 }
             };
@@ -411,7 +411,7 @@ namespace Parsek.Tests
                     startUT = 10.5,
                     endUT = 11.0,
                     frames = relativeOffsetFrames,
-                    absoluteFrames = relativeAbsoluteFrames
+                    bodyFixedFrames = relativebodyFixedFrames
                 }
             };
 

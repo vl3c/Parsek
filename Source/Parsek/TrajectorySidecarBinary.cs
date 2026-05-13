@@ -39,7 +39,7 @@ namespace Parsek
         private const int LoopIntervalBinaryVersion = RecordingStore.LaunchToLaunchLoopIntervalFormatVersion;
         private const int PredictedOrbitSegmentBinaryVersion = RecordingStore.PredictedOrbitSegmentFormatVersion;
         private const int RelativeLocalFrameBinaryVersion = RecordingStore.RelativeLocalFrameFormatVersion;
-        private const int RelativeAbsoluteShadowBinaryVersion = RecordingStore.RelativeAbsoluteShadowFormatVersion;
+        private const int RelativeBodyFixedPrimaryBinaryVersion = RecordingStore.RelativeBodyFixedPrimaryFormatVersion;
         // Internal so the cross-codec sync test in TrajectorySidecarBinaryTests can pin
         // RecordingStore.BoundarySeamFlagFormatVersion == this constant. Drift between the
         // two would silently break v8 round-trip — the binary write/read paths gate on
@@ -60,16 +60,9 @@ namespace Parsek
         // §15.17). Same drift-pinning rationale as BoundarySeamFlagBinaryVersion.
         internal const int StructuralEventFlagBinaryVersion = RecordingStore.StructuralEventFlagFormatVersion;
         internal const int RecordingAnchorChainBinaryVersion = RecordingStore.RecordingAnchorChainFormatVersion;
-        // PR 3a (format v12): the binary `.prec` LAYOUT is identical to v11 (the
-        // top-level `Recording.DebrisParentRecordingId` is a ConfigNode-codec field,
-        // not trajectory data). The constant exists only so the binary stamp tracks
-        // the recording's RecordingFormatVersion when freshly written — without it,
-        // writing a v12 recording would stamp the sidecar as v11 and break
-        // Probe.FormatVersion == rec.RecordingFormatVersion equality on fresh writes.
-        // No new read/write gates use this constant; v11 gates still cover the
-        // shared layout. See plan §"Format version" and §3a.
         internal const int DebrisParentRecordingBinaryVersion = RecordingStore.DebrisParentRecordingFormatVersion;
-        internal const int CurrentBinaryVersion = DebrisParentRecordingBinaryVersion;
+        internal const int DebrisFrameContractBinaryVersion = RecordingStore.DebrisFrameContractFormatVersion;
+        internal const int CurrentBinaryVersion = DebrisFrameContractBinaryVersion;
         private const byte FlagSectionAuthoritative = 1 << 0;
         private const byte OrbitSegmentFlagPredicted = 1 << 0;
         private const byte SparsePointListFlagEnabled = 1 << 0;
@@ -165,30 +158,7 @@ namespace Parsek
                 flatFallbackPoints != null && !ReferenceEquals(flatFallbackPoints, rec.Points);
             int flatFallbackPointCount = flatFallbackPoints != null ? flatFallbackPoints.Count : 0;
             var table = BuildStringTable(rec);
-            // v12 layout is identical to v11; the only difference is the stamp.
-            // Pick the highest binary version <= the recording's format version so
-            // a freshly-written v12 recording's probe matches its RecordingFormatVersion.
-            int binaryVersion = rec.RecordingFormatVersion >= DebrisParentRecordingBinaryVersion
-                ? DebrisParentRecordingBinaryVersion
-                : rec.RecordingFormatVersion >= RecordingAnchorChainBinaryVersion
-                ? RecordingAnchorChainBinaryVersion
-                : rec.RecordingFormatVersion >= StructuralEventFlagBinaryVersion
-                    ? StructuralEventFlagBinaryVersion
-                : rec.RecordingFormatVersion >= TerrainGroundClearanceBinaryVersion
-                    ? TerrainGroundClearanceBinaryVersion
-                : rec.RecordingFormatVersion >= BoundarySeamFlagBinaryVersion
-                    ? BoundarySeamFlagBinaryVersion
-                : rec.RecordingFormatVersion >= RelativeAbsoluteShadowBinaryVersion
-                    ? RelativeAbsoluteShadowBinaryVersion
-                : rec.RecordingFormatVersion >= RelativeLocalFrameBinaryVersion
-                    ? RelativeLocalFrameBinaryVersion
-                : rec.RecordingFormatVersion >= PredictedOrbitSegmentBinaryVersion
-                    ? PredictedOrbitSegmentBinaryVersion
-                : rec.RecordingFormatVersion >= LoopIntervalBinaryVersion
-                    ? LoopIntervalBinaryVersion
-                : rec.RecordingFormatVersion >= SparsePointBinaryVersion
-                    ? SparsePointBinaryVersion
-                    : LegacyBinaryVersion;
+            int binaryVersion = DebrisFrameContractBinaryVersion;
             SparsePointWriteStats stats = default(SparsePointWriteStats);
 
             using (var stream = new MemoryStream())
@@ -383,10 +353,10 @@ namespace Parsek
                     {
                         table.Register(section.anchorRecordingId);
                     }
-                    if (section.absoluteFrames != null)
+                    if (section.bodyFixedFrames != null)
                     {
-                        for (int i = 0; i < section.absoluteFrames.Count; i++)
-                            table.Register(section.absoluteFrames[i].bodyName);
+                        for (int i = 0; i < section.bodyFixedFrames.Count; i++)
+                            table.Register(section.bodyFixedFrames[i].bodyName);
                     }
 
                     if (section.checkpoints != null)
@@ -402,17 +372,7 @@ namespace Parsek
 
         private static bool IsSupportedBinaryVersion(int version)
         {
-            return version == LegacyBinaryVersion
-                || version == SparsePointBinaryVersion
-                || version == LoopIntervalBinaryVersion
-                || version == PredictedOrbitSegmentBinaryVersion
-                || version == RelativeLocalFrameBinaryVersion
-                || version == RelativeAbsoluteShadowBinaryVersion
-                || version == BoundarySeamFlagBinaryVersion
-                || version == TerrainGroundClearanceBinaryVersion
-                || version == StructuralEventFlagBinaryVersion
-                || version == RecordingAnchorChainBinaryVersion
-                || version == DebrisParentRecordingBinaryVersion;
+            return version == DebrisFrameContractBinaryVersion;
         }
 
         private static TrajectorySidecarEncoding GetBinaryEncoding(int version)
@@ -732,7 +692,10 @@ namespace Parsek
                 writer.Write((int)track.referenceFrame);
                 writer.Write(track.startUT);
                 writer.Write(track.endUT);
-                writer.Write(binaryVersion >= RecordingAnchorChainBinaryVersion ? 0u : track.anchorVesselId);
+                // v13 rejects older binary payloads and carries both anchor contracts:
+                // anchorRecordingId for recorded-anchor chains and anchorVesselId for
+                // the loop-anchor live-PID leaf used by debris chain composition.
+                writer.Write(track.anchorVesselId);
                 if (binaryVersion >= RecordingAnchorChainBinaryVersion)
                 {
                     string anchorRecordingId = string.IsNullOrEmpty(track.anchorRecordingId)
@@ -752,8 +715,8 @@ namespace Parsek
                 if (binaryVersion >= BoundarySeamFlagBinaryVersion)
                     writer.Write(track.isBoundarySeam);
                 WritePointList(writer, track.frames, table, binaryVersion, ref stats);
-                if (binaryVersion >= RelativeAbsoluteShadowBinaryVersion)
-                    WritePointList(writer, track.absoluteFrames, table, binaryVersion, ref stats);
+                if (binaryVersion >= RelativeBodyFixedPrimaryBinaryVersion)
+                    WritePointList(writer, track.bodyFixedFrames, table, binaryVersion, ref stats);
                 WriteOrbitSegmentList(writer, track.checkpoints, table, binaryVersion);
             }
         }
@@ -782,13 +745,13 @@ namespace Parsek
                     // Reading happens BEFORE the frames list to preserve positional layout.
                     isBoundarySeam = (binaryVersion >= BoundarySeamFlagBinaryVersion) && reader.ReadBoolean(),
                     frames = new List<TrajectoryPoint>(),
-                    absoluteFrames = new List<TrajectoryPoint>(),
+                    bodyFixedFrames = new List<TrajectoryPoint>(),
                     checkpoints = new List<OrbitSegment>()
                 };
 
                 ReadPointList(reader, track.frames, stringTable, binaryVersion, ref stats);
-                if (binaryVersion >= RelativeAbsoluteShadowBinaryVersion)
-                    ReadPointList(reader, track.absoluteFrames, stringTable, binaryVersion, ref stats);
+                if (binaryVersion >= RelativeBodyFixedPrimaryBinaryVersion)
+                    ReadPointList(reader, track.bodyFixedFrames, stringTable, binaryVersion, ref stats);
                 ReadOrbitSegmentList(reader, track.checkpoints, stringTable, binaryVersion);
                 tracks.Add(track);
             }

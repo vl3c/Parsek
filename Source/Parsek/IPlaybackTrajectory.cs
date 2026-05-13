@@ -69,8 +69,8 @@ namespace Parsek
         bool PlaybackEnabled { get; }
         bool IsDebris { get; }
 
-        // Set on debris recordings (v12+) to the parent recording's id; null on legacy v11
-        // debris and on non-debris.
+        // Set on parent-anchored debris recordings to the parent recording's id;
+        // null on non-debris.
         string DebrisParentRecordingId { get; }
 
         // === Loop sync (debris follows parent's loop clock) ===

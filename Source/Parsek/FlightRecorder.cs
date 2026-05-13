@@ -26,13 +26,6 @@ namespace Parsek
             PromoteFromBackground     // background recording -> active (resume physics sampling)
         }
 
-        internal enum ReFlyTreeSamplingCadence
-        {
-            None,
-            Full,
-            Half
-        }
-
         internal struct ReFlyPostLoadSettleDecision
         {
             public bool Hold;
@@ -749,7 +742,7 @@ namespace Parsek
                 || IsHighFidelityProximityActive(proximityDistanceMeters);
         }
 
-        internal static ReFlyTreeSamplingCadence ResolveActiveReFlyTreeSamplingCadence(
+        internal static ProximitySamplingTier ResolveActiveReFlyTreeSamplingCadence(
             string activeRecordingId,
             string activeTreeId,
             ReFlySessionMarker marker,
@@ -761,61 +754,65 @@ namespace Parsek
             if (string.IsNullOrEmpty(activeRecordingId))
             {
                 reason = "active-recording-id-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (string.IsNullOrEmpty(activeTreeId))
             {
                 reason = "active-tree-id-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (marker == null)
             {
                 reason = "marker-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (string.IsNullOrEmpty(marker.SessionId))
             {
                 reason = "marker-session-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (string.IsNullOrEmpty(marker.TreeId))
             {
                 reason = "marker-tree-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
             {
                 reason = "marker-active-recording-missing";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (!IsFinite(currentUT))
             {
                 reason = "ut-non-finite";
-                return ReFlyTreeSamplingCadence.None;
+                return ProximitySamplingTier.None;
             }
             if (!string.Equals(activeTreeId, marker.TreeId, StringComparison.Ordinal))
             {
                 reason = "tree-mismatch";
-                return ReFlyTreeSamplingCadence.None;
-            }
-            if (!IsFinite(proximityDistanceMeters))
-            {
-                reason = "proximity-missing";
-                return ReFlyTreeSamplingCadence.None;
-            }
-            if (proximityDistanceMeters <= ReFlyTreeFullFidelityProximityRangeMeters)
-            {
-                reason = "active-refly-tree-full";
-                return ReFlyTreeSamplingCadence.Full;
-            }
-            if (proximityDistanceMeters <= ReFlyTreeHalfFidelityProximityRangeMeters)
-            {
-                reason = "active-refly-tree-half";
-                return ReFlyTreeSamplingCadence.Half;
+                return ProximitySamplingTier.None;
             }
 
-            reason = "proximity-out-of-range";
-            return ReFlyTreeSamplingCadence.None;
+            ProximitySamplingTier tier = ProximitySamplingCadence.Resolve(
+                proximityDistanceMeters,
+                ReFlyTreeFullFidelityProximityRangeMeters,
+                ReFlyTreeHalfFidelityProximityRangeMeters,
+                out string proximityReason);
+            switch (proximityReason)
+            {
+                case "full":
+                    reason = "active-refly-tree-full";
+                    break;
+                case "half":
+                    reason = "active-refly-tree-half";
+                    break;
+                case "distance-missing":
+                    reason = "proximity-missing";
+                    break;
+                default:
+                    reason = "proximity-out-of-range";
+                    break;
+            }
+            return tier;
         }
 
         internal static float ResolveEffectiveMinSampleInterval(bool highFidelityActive, float configuredMin)
@@ -824,16 +821,22 @@ namespace Parsek
         }
 
         internal static float ResolveEffectiveMinSampleInterval(
-            ReFlyTreeSamplingCadence reFlyTreeCadence,
+            ProximitySamplingTier reFlyTreeTier,
+            ProximitySamplingTier debrisTier,
             bool highFidelityActive,
             float configuredMin,
             float configuredMax)
         {
-            if (reFlyTreeCadence != ReFlyTreeSamplingCadence.None)
-                return ResolveReFlyTreeCadenceSampleInterval(
-                    reFlyTreeCadence,
-                    configuredMax,
-                    configuredMin);
+            if (reFlyTreeTier != ProximitySamplingTier.None)
+                return ProximitySamplingCadence.ResolveSampleInterval(
+                    reFlyTreeTier,
+                    configuredMin,
+                    configuredMax);
+            if (debrisTier != ProximitySamplingTier.None)
+                return ProximitySamplingCadence.ResolveSampleInterval(
+                    debrisTier,
+                    configuredMin,
+                    configuredMax);
             return ResolveEffectiveMinSampleInterval(highFidelityActive, configuredMin);
         }
 
@@ -848,31 +851,26 @@ namespace Parsek
         }
 
         internal static float ResolveEffectiveMaxSampleInterval(
-            ReFlyTreeSamplingCadence reFlyTreeCadence,
+            ProximitySamplingTier reFlyTreeTier,
+            ProximitySamplingTier debrisTier,
             bool highFidelityActive,
             float configuredMax,
             float configuredMin)
         {
-            if (reFlyTreeCadence != ReFlyTreeSamplingCadence.None)
-                return ResolveReFlyTreeCadenceSampleInterval(
-                    reFlyTreeCadence,
-                    configuredMax,
-                    configuredMin);
+            if (reFlyTreeTier != ProximitySamplingTier.None)
+                return ProximitySamplingCadence.ResolveSampleInterval(
+                    reFlyTreeTier,
+                    configuredMin,
+                    configuredMax);
+            if (debrisTier != ProximitySamplingTier.None)
+                return ProximitySamplingCadence.ResolveSampleInterval(
+                    debrisTier,
+                    configuredMin,
+                    configuredMax);
             return ResolveEffectiveMaxSampleInterval(
                 highFidelityActive,
                 configuredMax,
                 configuredMin);
-        }
-
-        private static float ResolveReFlyTreeCadenceSampleInterval(
-            ReFlyTreeSamplingCadence reFlyTreeCadence,
-            float configuredMax,
-            float configuredMin)
-        {
-            float configuredMinClamped = Math.Max(0f, configuredMin);
-            if (reFlyTreeCadence == ReFlyTreeSamplingCadence.Half)
-                configuredMinClamped *= 2f;
-            return Math.Min(configuredMax, configuredMinClamped);
         }
 
         internal static double ResolveHighFidelitySamplingWindowSeconds(float configuredMax)
@@ -932,7 +930,7 @@ namespace Parsek
             RecordingFinalizationCacheProducer.DefaultRefreshIntervalUT;
         private const float snapshotPerfLogThresholdMs = 25.0f;
         private const float attitudeSampleThresholdDegrees = 1.0f;
-        internal const double HighFidelityProximityRangeMeters = 200.0;
+        internal const double HighFidelityProximityRangeMeters = 250.0;
         internal const double ReFlyTreeFullFidelityProximityRangeMeters = 250.0;
         internal const double ReFlyTreeHalfFidelityProximityRangeMeters = 500.0;
         internal const double SparseSectionGapWarningThresholdSeconds = 0.50;
@@ -1107,6 +1105,48 @@ namespace Parsek
                 reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0,
                 recordedGroundClearance = double.NaN
             };
+            // ---- Trace-Sep ----
+            if (TraceSeparation.RecordingWindowActive)
+            {
+                // Parent-vessel reference position derived from the stale-LLA
+                // path. At joint-break callback time VesselPrecalculate has
+                // already run pre-PhysX, so v.latitude/longitude/altitude
+                // reflect start-of-tick state while part.transform.position
+                // reflects end-of-tick PhysX state. The delta is the candidate
+                // offset that the reverted fix tried to back-step out of the
+                // seed; logging both the delta and what predicted-back-step
+                // magnitudes look like at this vessel's velocities lets the
+                // log reader confirm direction and frame before re-attempting
+                // any correction.
+                Vector3d vesselLlaWorld = body.GetWorldSurfacePosition(
+                    vessel.latitude, vessel.longitude, vessel.altitude);
+                Vector3 srfVel = vessel.srf_velocity;
+                float dt = Time.fixedDeltaTime;
+                double predictedSrfStep = srfVel.magnitude * dt;
+                double predictedInertialStep = velocity.magnitude * dt;
+                double observedDelta = (worldPos - vesselLlaWorld).magnitude;
+                TraceSeparation.RecordLog("PartOriginSeed",
+                    "vesselPid=" + vessel.persistentId +
+                    " partPid=" + part.persistentId +
+                    " partName='" + (part.partInfo?.name ?? part.name) + "'" +
+                    " ut=" + ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " partTransformPos=" + TraceSeparation.FormatVector3d(worldPos) +
+                    " resultLLA=(" + point.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + point.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + point.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                    " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", CultureInfo.InvariantCulture) +
+                    " srfVel=" + TraceSeparation.FormatVector3(srfVel) + " |sv|=" + srfVel.magnitude.ToString("R", CultureInfo.InvariantCulture) +
+                    " vesselTransformPos=" + (vessel.transform != null ? TraceSeparation.FormatVector3d(vessel.transform.position) : "<null>") +
+                    " vesselLLA=(" + vessel.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + vessel.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + vessel.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                    " vesselLLAWorld=" + TraceSeparation.FormatVector3d(vesselLlaWorld) +
+                    " partVsVesselLLA=" + TraceSeparation.FormatVector3d(worldPos - vesselLlaWorld) +
+                    " |observedDelta|=" + observedDelta.ToString("F3", CultureInfo.InvariantCulture) +
+                    " predictedSrfStep=" + predictedSrfStep.ToString("F3", CultureInfo.InvariantCulture) +
+                    " predictedInertialStep=" + predictedInertialStep.ToString("F3", CultureInfo.InvariantCulture));
+            }
+            // ---- /Trace-Sep ----
             return true;
         }
 
@@ -1150,6 +1190,84 @@ namespace Parsek
                 return;
             }
             if (joint.Child.vessel.persistentId != RecordingVesselId) return;
+
+            // ---- Trace-Sep: open recording window + log break state ----
+            if (ParsekSettings.Current?.ghostRenderTracing == true)
+            {
+                Vessel parentVessel = joint.Child.vessel;
+                double evUT = Planetarium.GetUniversalTime();
+                TraceSeparation.OpenRecordingWindow(evUT,
+                    "OnPartJointBreak childPid=" + joint.Child.persistentId);
+                if (parentVessel != null && parentVessel.mainBody != null)
+                {
+                    CelestialBody body = parentVessel.mainBody;
+                    Vector3d livePos = body.GetWorldSurfacePosition(
+                        parentVessel.latitude, parentVessel.longitude, parentVessel.altitude);
+                    Vector3 inertialVel = parentVessel.packed
+                        ? (Vector3)parentVessel.obt_velocity
+                        : (Vector3)(parentVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
+                    Vector3 surfaceVel = parentVessel.srf_velocity;
+                    Vector3d transformPos = parentVessel.transform != null
+                        ? parentVessel.transform.position : Vector3d.zero;
+                    // Predicted one-tick back-step magnitudes for the two
+                    // candidate velocity frames. If the reverted fix's
+                    // inertial-velocity hypothesis is right, |predictedInertialStep|
+                    // should match |worldDeltaTransformVsLLA| at the joint-break
+                    // instant. If body-rotation contamination is the culprit
+                    // (per the critical-analysis path) |predictedSrfStep| matches
+                    // and inertial overshoots by `omega_body x position * dt`
+                    // (~3.5 m at Kerbin equator). Logging both lets the log
+                    // reader pick the winning frame without rerunning.
+                    float dt = Time.fixedDeltaTime;
+                    double predictedSrfStep = surfaceVel.magnitude * dt;
+                    double predictedInertialStep = inertialVel.magnitude * dt;
+                    double observedDelta = (transformPos - livePos).magnitude;
+                    TraceSeparation.RecordLog("JointBreak",
+                        "PARENT_AT_BREAK pid=" + parentVessel.persistentId +
+                        " name='" + parentVessel.vesselName + "' breakForce=" + breakForce.ToString("F2", CultureInfo.InvariantCulture) +
+                        " latLonAlt=(" + parentVessel.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                        ", " + parentVessel.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                        ", " + parentVessel.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                        " livePos=" + TraceSeparation.FormatVector3d(livePos) +
+                        " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
+                        " worldDeltaTransformVsLLA=" + TraceSeparation.FormatVector3d(transformPos - livePos) +
+                        " |observedDelta|=" + observedDelta.ToString("F3", CultureInfo.InvariantCulture) +
+                        " inertialVel=" + TraceSeparation.FormatVector3(inertialVel) + " |v|=" + inertialVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                        " surfaceVel=" + TraceSeparation.FormatVector3(surfaceVel) + " |vs|=" + surfaceVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                        " predictedSrfStep=" + predictedSrfStep.ToString("F3", CultureInfo.InvariantCulture) +
+                        " predictedInertialStep=" + predictedInertialStep.ToString("F3", CultureInfo.InvariantCulture) +
+                        " packed=" + parentVessel.packed);
+                }
+                if (joint.Child != null && joint.Child.transform != null)
+                {
+                    // Compare the child part's PhysX transform.position
+                    // (end-of-tick state) to the parent vessel's
+                    // body.GetWorldSurfacePosition(LLA) (stale pre-PhysX LLA
+                    // updated by VesselPrecalculate.CalculatePhysicsStats in
+                    // this same FixedUpdate). The signed delta in the parent's
+                    // velocity direction is the smoking-gun debris-side offset:
+                    // if it is positive and matches |srfVel|*dt at the parent's
+                    // surface velocity, the joint-child part-origin seed needs
+                    // a back-step; if it is near zero, the seed is in-phase.
+                    Vector3d childPos = joint.Child.transform.position;
+                    Vector3d childVsParentLla = parentVessel != null && parentVessel.mainBody != null
+                        ? (childPos - parentVessel.mainBody.GetWorldSurfacePosition(
+                            parentVessel.latitude, parentVessel.longitude, parentVessel.altitude))
+                        : Vector3d.zero;
+                    Vector3 parentSrfVel = parentVessel != null ? parentVessel.srf_velocity : Vector3.zero;
+                    double childVsParentAlongVel = parentSrfVel.sqrMagnitude > 0f
+                        ? Vector3d.Dot(childVsParentLla, (Vector3d)parentSrfVel.normalized)
+                        : 0.0;
+                    TraceSeparation.RecordLog("JointBreak",
+                        "CHILD_PART_AT_BREAK pid=" + joint.Child.persistentId +
+                        " name='" + (joint.Child.partInfo?.name ?? joint.Child.name) + "'" +
+                        " transformPos=" + TraceSeparation.FormatVector3d(childPos) +
+                        " childVsParentLLA=" + TraceSeparation.FormatVector3d(childVsParentLla) +
+                        " |delta|=" + childVsParentLla.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                        " alongParentSrfVel=" + childVsParentAlongVel.ToString("F3", CultureInfo.InvariantCulture));
+                }
+            }
+            // ---- /Trace-Sep ----
 
             // Skip non-structural joint breaks (e.g., wheel suspension stress)
             // Part.attachJoint is the structural connection to parent — only that indicates real separation
@@ -4878,7 +4996,7 @@ namespace Parsek
                 startUT = ut,
                 source = source,
                 frames = new List<TrajectoryPoint>(),
-                absoluteFrames = refFrame == ReferenceFrame.Relative ? new List<TrajectoryPoint>() : null,
+                bodyFixedFrames = refFrame == ReferenceFrame.Relative ? new List<TrajectoryPoint>() : null,
                 checkpoints = new List<OrbitSegment>(),
                 minAltitude = float.NaN,
                 maxAltitude = float.NaN
@@ -5039,7 +5157,7 @@ namespace Parsek
             uint currentAnchor = currentTrackSection.anchorVesselId;
             string currentAnchorRec = currentTrackSection.anchorRecordingId;
             TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
-            TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionAbsoluteFrame();
+            TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionBodyFixedFrame();
 
             CloseCurrentTrackSection(ut);
             StartNewTrackSection(currentEnv, currentRef, ut, currentSource);
@@ -6824,7 +6942,7 @@ namespace Parsek
                 ? GetLastFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
             TrajectoryPoint? absoluteBoundaryPoint = resumeSection.HasValue
-                ? GetLastAbsoluteFrameFromTrackSection(resumeSection.Value)
+                ? GetLastBodyFixedFrameFromTrackSection(resumeSection.Value)
                 : (TrajectoryPoint?)null;
 
             // Frame-mismatch repair when resume-anchor validation downgraded a
@@ -6834,11 +6952,11 @@ namespace Parsek
             // Seeding it into a freshly-opened ABSOLUTE section would write
             // a meaningless metre-scale "lat/lon/alt" sample at the seam,
             // re-introducing the corrupted-trajectory class this PR closes.
-            // The parallel v7 absolute shadow already carries the focused
+            // The parallel v7 body-fixed primary already carries the focused
             // vessel's true body-fixed position at the same UT — swap
             // boundaryPoint to that shadow value so the new ABSOLUTE
             // section's first sample matches its declared contract. Legacy
-            // recordings without an absolute shadow (v5 and earlier
+            // recordings without an body-fixed primary (v5 and earlier
             // RELATIVE) fall through with no boundary seed; the next normal
             // sample seeds the ABSOLUTE section cleanly.
             bool downgradedRelativeToAbsolute = resumeSection.HasValue
@@ -6849,7 +6967,7 @@ namespace Parsek
                 if (absoluteBoundaryPoint.HasValue)
                 {
                     ParsekLog.Verbose("Anchor",
-                        $"RELATIVE->ABSOLUTE resume: substituting absolute-shadow boundary point " +
+                        $"RELATIVE->ABSOLUTE resume: substituting body-fixed-primary boundary point " +
                         $"at ut={absoluteBoundaryPoint.Value.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
                         $"in place of relative-frame boundary point");
                     boundaryPoint = absoluteBoundaryPoint;
@@ -6857,7 +6975,7 @@ namespace Parsek
                 else
                 {
                     ParsekLog.Verbose("Anchor",
-                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no absolute-shadow " +
+                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no body-fixed-primary " +
                         $"(legacy v5/v6); skipping boundary seed to avoid mis-framed sample");
                     boundaryPoint = null;
                 }
@@ -6914,7 +7032,7 @@ namespace Parsek
         {
             // Prefer the recorder's most recently closed section snapshot only when it
             // carries a payload we can seed or resume from. Relative v7+ sections may
-            // carry only absolute-shadow frames, which are still valid resume payload.
+            // carry only body-fixed-primary frames, which are still valid resume payload.
             // A discarded zero-frame section has metadata but no coverage, so using it
             // would reopen at the later resume UT and leave the prior persisted
             // section's boundary uncovered.
@@ -6937,7 +7055,7 @@ namespace Parsek
         private static bool TrackSectionHasResumePayload(TrackSection section)
         {
             return (section.frames != null && section.frames.Count > 0)
-                || (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                || (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
                 || (section.checkpoints != null && section.checkpoints.Count > 0);
         }
 
@@ -7102,7 +7220,7 @@ namespace Parsek
                 currentUT,
                 highFidelitySamplingUntilUT,
                 highFidelityProximityMeters);
-            ReFlyTreeSamplingCadence reFlyTreeSamplingCadence =
+            ProximitySamplingTier reFlyTreeSamplingCadence =
                 ResolveActiveReFlyTreeSamplingCadence(
                     ActiveTree?.ActiveRecordingId,
                     ActiveTree?.Id,
@@ -7111,7 +7229,7 @@ namespace Parsek
                     reFlyTreeSamplingProximityMeters,
                     out string reFlyRecordingSamplingReason);
             bool reFlyRecordingSamplingActive =
-                reFlyTreeSamplingCadence != ReFlyTreeSamplingCadence.None;
+                reFlyTreeSamplingCadence != ProximitySamplingTier.None;
             if (reFlyRecordingSamplingActive)
             {
                 var ic = CultureInfo.InvariantCulture;
@@ -7136,11 +7254,13 @@ namespace Parsek
                     : highFidelitySamplingReason;
             float effectiveMinSampleInterval = ResolveEffectiveMinSampleInterval(
                 reFlyTreeSamplingCadence,
+                ProximitySamplingTier.None,
                 highFidelityActive,
                 minSampleInterval,
                 maxSampleInterval);
             float effectiveMaxSampleInterval = ResolveEffectiveMaxSampleInterval(
                 reFlyTreeSamplingCadence,
+                ProximitySamplingTier.None,
                 highFidelityActive,
                 maxSampleInterval,
                 minSampleInterval);
@@ -7307,7 +7427,7 @@ namespace Parsek
                     // Capture boundary point to seed the new section (#283).
                     // Same reference frame on both sides, so the point is directly reusable.
                     TrajectoryPoint? boundaryPoint = GetLastTrackSectionFrame();
-                    TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionAbsoluteFrame();
+                    TrajectoryPoint? absoluteBoundaryPoint = GetLastTrackSectionBodyFixedFrame();
 
                     var currentRef = isRelativeMode ? ReferenceFrame.Relative : ReferenceFrame.Absolute;
                     CloseCurrentTrackSection(currentUT);
@@ -7392,6 +7512,13 @@ namespace Parsek
             bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
                 recordingFormatVersion);
             Vector3d offset;
+            // Capture focus world position outside the branches so the
+            // Trace-Sep recording-side distance comparison below can read it
+            // regardless of which contract path produced the offset. In the
+            // v13 path this is the (vesselTransform-aligned) world position
+            // used as the rotated relative-offset source; in the legacy path
+            // it is the body.GetWorldSurfacePosition(LLA) result.
+            Vector3d focusWorldPosCaptured = Vector3d.zero;
             if (useLocalContract)
             {
                 if (!TryResolveAbsolutePointWorldForRelativeOffset(
@@ -7401,6 +7528,7 @@ namespace Parsek
                 {
                     focusWorldPos = v.GetWorldPos3D();
                 }
+                focusWorldPosCaptured = focusWorldPos;
                 offset = TrajectoryMath.ComputeRelativeLocalOffset(
                     focusWorldPos,
                     anchorPose.WorldPos,
@@ -7425,6 +7553,7 @@ namespace Parsek
                     focusPos = v.mainBody.GetWorldSurfacePosition(
                         v.latitude, v.longitude, v.altitude);
                 }
+                focusWorldPosCaptured = focusPos;
                 offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPose.WorldPos);
             }
 
@@ -7432,6 +7561,36 @@ namespace Parsek
             point.longitude = offset.y;
             point.altitude = offset.z;
             ApplyCurrentRecordingAnchorToCurrentTrackSection();
+
+            // ---- Trace-Sep: log both parent-vs-debris distance measurements ----
+            // recorded-relative = |offset| (= magnitude of the anchor-local
+            // Cartesian offset just written into frames[].latitude/longitude/altitude).
+            // recorded-absolute = |focusWorldPosCaptured - anchorPose.WorldPos|
+            // (= ground-truth world-space distance at this instant). These
+            // MUST agree exactly under the v13 contract (rotation alone
+            // preserves magnitude). Divergence indicates the rotation path
+            // introduces unexpected scaling / mis-applied anchor frame and
+            // would mean the recorded anchor-local distance does not
+            // correspond to the real ground-truth distance.
+            if (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive)
+            {
+                Vector3d worldDelta = focusWorldPosCaptured - anchorPose.WorldPos;
+                double recordedRelativeDist = offset.magnitude;
+                double recordedAbsoluteDist = worldDelta.magnitude;
+                TraceSeparation.RecordLog("FG_ApplyRel",
+                    "vesselPid=" + (v?.persistentId ?? 0u) +
+                    " anchorRecId=" + (anchorRecordingId ?? "<null>") +
+                    " ut=" + point.ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " focusWorldPos=" + TraceSeparation.FormatVector3d(focusWorldPosCaptured) +
+                    " anchorWorldPos=" + TraceSeparation.FormatVector3d(anchorPose.WorldPos) +
+                    " worldDelta=" + TraceSeparation.FormatVector3d(worldDelta) +
+                    " offset=" + TraceSeparation.FormatVector3d(offset) +
+                    " recordedRelativeDist=" + recordedRelativeDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " recordedAbsoluteDist=" + recordedAbsoluteDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " distMismatch=" + System.Math.Abs(recordedRelativeDist - recordedAbsoluteDist).ToString("F3", CultureInfo.InvariantCulture) +
+                    " contract=" + (useLocalContract ? "local" : "legacy"));
+            }
+            // ---- /Trace-Sep ----
 
             if (logSample)
             {
@@ -8119,18 +8278,18 @@ namespace Parsek
         /// updates last-recorded bookkeeping, refreshes the backup snapshot, and emits periodic
         /// diagnostic logging.
         /// </summary>
-        private void CommitRecordedPoint(TrajectoryPoint point, Vessel v, TrajectoryPoint? absoluteShadowPoint = null)
+        private void CommitRecordedPoint(TrajectoryPoint point, Vessel v, TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point"))
                 return;
 
             if (object.ReferenceEquals(v, null))
             {
-                CommitRecordedPointWithoutVessel(point, absoluteShadowPoint);
+                CommitRecordedPointWithoutVessel(point, bodyFixedPrimaryPoint);
                 return;
             }
 
-            CommitRecordedPointWithVessel(point, v, absoluteShadowPoint);
+            CommitRecordedPointWithVessel(point, v, bodyFixedPrimaryPoint);
         }
 
         internal static bool IsSurfaceClearanceEnvironment(SegmentEnvironment env)
@@ -8151,10 +8310,49 @@ namespace Parsek
                 && hasPqsController;
         }
 
+        /// <summary>
+        /// v13 follow-up: apply v9 surface clearance to the body-fixed shadow
+        /// copy that gets stored in <c>TrackSection.bodyFixedFrames</c>
+        /// alongside a RELATIVE section. The in-frames primary <c>point</c>
+        /// stays NaN-clearance because anchor-local metres-in-lat/lon/alt are
+        /// not body-fixed coordinates, but the shadow carries genuine
+        /// body-fixed lat/lon/alt and v13 playback applies terrain correction
+        /// via <c>recordedGroundClearance</c>. Without this, parent-anchored
+        /// surface debris recorded inside a parent-relative section would
+        /// replay at raw recorded altitude and bury / pop on terrain.
+        /// Per-section <c>surfaceMobileMin/Max/Sum</c> stats are NOT updated
+        /// here; those track the section's primary frames, not the parallel
+        /// body-fixed store.
+        /// </summary>
+        private void ApplySurfaceClearanceToBodyFixedShadow(
+            Vessel v,
+            ref TrajectoryPoint shadow)
+        {
+            if (object.ReferenceEquals(v, null) || v.mainBody == null
+                || v.mainBody.pqsController == null)
+            {
+                return;
+            }
+            // Mirror the production gate but force frame=Absolute -- the
+            // shadow carries body-fixed lat/lon/alt regardless of the section
+            // frame. The env / trackSectionActive / pqs checks still apply.
+            if (!ShouldEmitSurfaceClearance(
+                    trackSectionActive,
+                    ReferenceFrame.Absolute,
+                    trackSectionActive ? currentTrackSection.environment : SegmentEnvironment.Atmospheric,
+                    true))
+            {
+                return;
+            }
+            double terrainHeight = v.mainBody.TerrainAltitude(
+                shadow.latitude, shadow.longitude, true);
+            shadow.recordedGroundClearance = shadow.altitude - terrainHeight;
+        }
+
         private void CommitRecordedPointWithVessel(
             TrajectoryPoint point,
             Vessel v,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             const bool hasVessel = true;
 
@@ -8206,11 +8404,17 @@ namespace Parsek
             {
                 currentTrackSection.frames.Add(point);
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
-                    && absoluteShadowPoint.HasValue)
+                    && bodyFixedPrimaryPoint.HasValue)
                 {
-                    if (currentTrackSection.absoluteFrames == null)
-                        currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
-                    currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+                    // v13 follow-up: apply surface clearance to the body-fixed
+                    // shadow before appending it to bodyFixedFrames. The shadow
+                    // carries body-fixed lat/lon/alt that v13 playback applies
+                    // terrain correction against.
+                    TrajectoryPoint shadow = bodyFixedPrimaryPoint.Value;
+                    ApplySurfaceClearanceToBodyFixedShadow(v, ref shadow);
+                    if (currentTrackSection.bodyFixedFrames == null)
+                        currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
+                    currentTrackSection.bodyFixedFrames.Add(shadow);
                 }
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
@@ -8249,7 +8453,7 @@ namespace Parsek
 
         private void CommitRecordedPointWithoutVessel(
             TrajectoryPoint point,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point-without-vessel"))
                 return;
@@ -8270,11 +8474,11 @@ namespace Parsek
             {
                 currentTrackSection.frames.Add(point);
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
-                    && absoluteShadowPoint.HasValue)
+                    && bodyFixedPrimaryPoint.HasValue)
                 {
-                    if (currentTrackSection.absoluteFrames == null)
-                        currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
-                    currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+                    if (currentTrackSection.bodyFixedFrames == null)
+                        currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
+                    currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
                 }
                 UpdateTrackSectionAltitude((float)point.altitude);
             }
@@ -8366,20 +8570,20 @@ namespace Parsek
                     currentTrackSection.frames.RemoveRange(frameTrimIdx,
                         currentTrackSection.frames.Count - frameTrimIdx);
             }
-            if (trackSectionActive && currentTrackSection.absoluteFrames != null)
+            if (trackSectionActive && currentTrackSection.bodyFixedFrames != null)
             {
-                int shadowTrimIdx = currentTrackSection.absoluteFrames.Count;
-                for (int i = 0; i < currentTrackSection.absoluteFrames.Count; i++)
+                int shadowTrimIdx = currentTrackSection.bodyFixedFrames.Count;
+                for (int i = 0; i < currentTrackSection.bodyFixedFrames.Count; i++)
                 {
-                    if (currentTrackSection.absoluteFrames[i].ut >= newUT)
+                    if (currentTrackSection.bodyFixedFrames[i].ut >= newUT)
                     {
                         shadowTrimIdx = i;
                         break;
                     }
                 }
-                if (shadowTrimIdx < currentTrackSection.absoluteFrames.Count)
-                    currentTrackSection.absoluteFrames.RemoveRange(shadowTrimIdx,
-                        currentTrackSection.absoluteFrames.Count - shadowTrimIdx);
+                if (shadowTrimIdx < currentTrackSection.bodyFixedFrames.Count)
+                    currentTrackSection.bodyFixedFrames.RemoveRange(shadowTrimIdx,
+                        currentTrackSection.bodyFixedFrames.Count - shadowTrimIdx);
             }
 
             // Locale-safe formatting (comma-locale machines would otherwise write "27 266,0"
@@ -8482,12 +8686,31 @@ namespace Parsek
         /// </summary>
         internal static TrajectoryPoint BuildTrajectoryPoint(Vessel v, Vector3 velocity, double ut)
         {
-            return new TrajectoryPoint
+            // Derive lat/lon/alt from v.transform.position rather than reading
+            // v.latitude/longitude/altitude directly. Those fields lag the
+            // transform by exactly one fixedDeltaTime for loaded/unpacked
+            // vessels: Vessel.LateUpdate's LLA refresh runs after PhysX has
+            // already moved the transform, so v.latitude reflects the
+            // PREVIOUS tick's CoM while v.transform.position reflects the
+            // current tick. Every per-tick FG sample written from the stale
+            // path stored a position ~velocity*0.02s behind ground truth
+            // (~4.3 m at 215 m/s), invisible until separation made it visible
+            // as a forward slide of debris ghosts against the parent ghost
+            // (the parent stayed on the stale FG path while the debris seed
+            // and subsequent BG samples used fresh transform-derived LLA).
+            // PR 832 trace evidence pinned the staleness vector as exactly
+            // velocity*fixedDeltaTime, perfectly parallel to velocity
+            // (cos=0.999999), matching the predicted one-tick step to within
+            // 5 mm. body.GetLatitude/Longitude/Altitude is the inverse of
+            // body.GetWorldSurfacePosition, so this produces the LLA that
+            // round-trips back to the live transform position.
+            Vector3d freshWorldPos = v.transform.position;
+            TrajectoryPoint pt = new TrajectoryPoint
             {
                 ut = ut,
-                latitude = v.latitude,
-                longitude = v.longitude,
-                altitude = v.altitude,
+                latitude = v.mainBody.GetLatitude(freshWorldPos),
+                longitude = v.mainBody.GetLongitude(freshWorldPos),
+                altitude = v.mainBody.GetAltitude(freshWorldPos),
                 rotation = v.srfRelRotation,
                 velocity = velocity,
                 bodyName = v.mainBody.name,
@@ -8499,6 +8722,51 @@ namespace Parsek
                 // with the real clearance when applicable.
                 recordedGroundClearance = double.NaN
             };
+            // ---- Trace-Sep: log every FG per-tick sample (includes structural events) ----
+            if (v != null && (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive))
+            {
+                Vector3d worldPos = v.mainBody != null
+                    ? v.mainBody.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
+                    : Vector3d.zero;
+                Vector3d transformPos = v.transform != null ? (Vector3d)v.transform.position : Vector3d.zero;
+                // tickSinceBreak: which post-PhysX physics tick this sample is
+                // on, relative to the most recent recording-window trigger.
+                // tickSinceBreak ~= 0 is the same-tick BuildTP that fires from
+                // the joint break's own FixedUpdate cycle (pre-PhysX
+                // VesselPrecalculate postfix). tickSinceBreak ~= 1 is the next
+                // FixedUpdate's pre-PhysX postfix, AFTER PhysX in the
+                // intervening frame has moved transform.position by one tick.
+                // If the per-tick BuildTP sample really has a +dt phase offset
+                // (as commit 3's hypothesis claimed), the transformVsLLAdelta
+                // magnitude here would jump at tickSinceBreak=1 relative to
+                // the surrounding cadence; if not, it stays near zero across
+                // all per-tick samples and the hypothesis is wrong.
+                double lastBreak = TraceSeparation.LastRecordingTriggerUT;
+                double tickSinceBreak = double.NaN;
+                if (!double.IsNaN(lastBreak))
+                {
+                    float dt = Time.fixedDeltaTime;
+                    if (dt > 0f && !float.IsNaN(dt) && !float.IsInfinity(dt))
+                        tickSinceBreak = (ut - lastBreak) / dt;
+                }
+                TraceSeparation.RecordLog("BuildTP",
+                    "pid=" + v.persistentId +
+                    " name='" + v.vesselName + "'" +
+                    " ut=" + ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " tickSinceBreak=" + (double.IsNaN(tickSinceBreak) ? "NaN" : tickSinceBreak.ToString("F3", CultureInfo.InvariantCulture)) +
+                    " packed=" + v.packed +
+                    " LLA=(" + pt.latitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + pt.longitude.ToString("R", CultureInfo.InvariantCulture) +
+                    "," + pt.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                    " worldFromLLA=" + TraceSeparation.FormatVector3d(worldPos) +
+                    " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
+                    " transformVsLLAdelta=" + TraceSeparation.FormatVector3d(transformPos - worldPos) +
+                    " |delta|=" + (transformPos - worldPos).magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                    " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", CultureInfo.InvariantCulture) +
+                    " srfVel=" + TraceSeparation.FormatVector3(v.srf_velocity) + " |sv|=" + v.srf_velocity.magnitude.ToString("R", CultureInfo.InvariantCulture));
+            }
+            // ---- /Trace-Sep ----
+            return pt;
         }
 
         /// <summary>
@@ -8911,10 +9179,10 @@ namespace Parsek
                 return;
 
             // Upgrading an already-open v6 recording does not synthesize
-            // absoluteFrames for relative samples captured before this point.
+            // bodyFixedFrames for relative samples captured before this point.
             // Those legacy sections deliberately fall back to the pre-ReFly
             // frozen anchor trajectory path; only new v7 samples append
-            // absolute shadow frames.
+            // body-fixed primary frames.
             int previousVersion = activeRec.RecordingFormatVersion;
             activeRec.RecordingFormatVersion = targetFormatVersion;
             ParsekLog.Info("Recorder",
@@ -8949,11 +9217,11 @@ namespace Parsek
             return null;
         }
 
-        private TrajectoryPoint? GetLastTrackSectionAbsoluteFrame()
+        private TrajectoryPoint? GetLastTrackSectionBodyFixedFrame()
         {
-            if (trackSectionActive && currentTrackSection.absoluteFrames != null
-                && currentTrackSection.absoluteFrames.Count > 0)
-                return currentTrackSection.absoluteFrames[currentTrackSection.absoluteFrames.Count - 1];
+            if (trackSectionActive && currentTrackSection.bodyFixedFrames != null
+                && currentTrackSection.bodyFixedFrames.Count > 0)
+                return currentTrackSection.bodyFixedFrames[currentTrackSection.bodyFixedFrames.Count - 1];
             return null;
         }
 
@@ -8968,10 +9236,10 @@ namespace Parsek
             return null;
         }
 
-        private static TrajectoryPoint? GetLastAbsoluteFrameFromTrackSection(TrackSection section)
+        private static TrajectoryPoint? GetLastBodyFixedFrameFromTrackSection(TrackSection section)
         {
-            if (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
-                return section.absoluteFrames[section.absoluteFrames.Count - 1];
+            if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                return section.bodyFixedFrames[section.bodyFixedFrames.Count - 1];
             return null;
         }
 
@@ -8982,7 +9250,7 @@ namespace Parsek
         /// Only writes to the TrackSection frames — does NOT dual-write to the flat
         /// Recording list (the point is already there from SamplePosition).
         /// </summary>
-        private void SeedBoundaryPoint(TrajectoryPoint? point, TrajectoryPoint? absoluteShadowPoint = null)
+        private void SeedBoundaryPoint(TrajectoryPoint? point, TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (!point.HasValue) return;
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.Value.ut, "section-boundary-seed"))
@@ -8990,11 +9258,11 @@ namespace Parsek
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
             if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
-                && absoluteShadowPoint.HasValue)
+                && bodyFixedPrimaryPoint.HasValue)
             {
-                if (currentTrackSection.absoluteFrames == null)
-                    currentTrackSection.absoluteFrames = new List<TrajectoryPoint>();
-                currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+                if (currentTrackSection.bodyFixedFrames == null)
+                    currentTrackSection.bodyFixedFrames = new List<TrajectoryPoint>();
+                currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             }
             UpdateTrackSectionAltitude((float)point.Value.altitude);
             ParsekLog.Verbose("Recorder",

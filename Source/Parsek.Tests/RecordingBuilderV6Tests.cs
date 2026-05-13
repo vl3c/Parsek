@@ -451,11 +451,11 @@ namespace Parsek.Tests
             Assert.Null(metadata.GetValue("isDebris"));
         }
 
-        // ===== v12 DebrisParentRecordingId codec round-trip =====
+        // ===== v13 debrisParentRecordingId codec round-trip =====
         // Mirrors the recorder's sparse-on-disk contract: only emitted when
         // IsDebris is true AND the parent id is set. PR 3b plumbs this
         // through RecordingBuilder + ScenarioWriter so the synthetic
-        // injector (InjectAllRecordings) can produce v12+ debris fixtures.
+        // injector (InjectAllRecordings) can produce v13 debris fixtures.
 
         [Fact]
         public void WithDebrisParentRecordingId_AsDebris_BuildV3Metadata_EmitsField()

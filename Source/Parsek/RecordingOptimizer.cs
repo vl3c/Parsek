@@ -975,7 +975,7 @@ namespace Parsek
             second.AntennaSpecs = original.AntennaSpecs != null
                 ? new List<AntennaSpec>(original.AntennaSpecs) : null;
             second.IsDebris = original.IsDebris;
-            // PR 3b: propagate the v12+ debris parent-anchor contract to both halves of
+            // PR 3b: propagate the v13 debris parent-anchor contract to both halves of
             // a SplitAtSection split. The `original` half retains its field by virtue of
             // in-place mutation; the `second` (newly-allocated) half needs the explicit copy.
             second.DebrisParentRecordingId = original.DebrisParentRecordingId;
@@ -1358,7 +1358,7 @@ namespace Parsek
                             section.frames = section.frames.GetRange(firstKeep, section.frames.Count - firstKeep);
                     }
 
-                    TrimRelativeAbsoluteShadowForLeadingOverlap(ref section, previousEndUT);
+                    TrimRelativeBodyFixedPrimaryForLeadingOverlap(ref section, previousEndUT);
 
                     if (section.frames.Count > 0)
                     {
@@ -2912,7 +2912,7 @@ namespace Parsek
                             break;
                     }
 
-                    TrimRelativeAbsoluteShadowAfterUT(ref sec, trimUT);
+                    TrimRelativeBodyFixedPrimaryAfterUT(ref sec, trimUT);
 
                     if (sec.frames.Count == 0)
                         return false;
@@ -2922,45 +2922,45 @@ namespace Parsek
             }
         }
 
-        private static void TrimRelativeAbsoluteShadowForLeadingOverlap(
+        private static void TrimRelativeBodyFixedPrimaryForLeadingOverlap(
             ref TrackSection section,
             double? previousEndUT)
         {
             if (section.referenceFrame != ReferenceFrame.Relative
-                || section.absoluteFrames == null
-                || section.absoluteFrames.Count == 0)
+                || section.bodyFixedFrames == null
+                || section.bodyFixedFrames.Count == 0)
             {
                 return;
             }
 
-            section.absoluteFrames = FlightRecorder.StableSortByUT(section.absoluteFrames, p => p.ut);
+            section.bodyFixedFrames = FlightRecorder.StableSortByUT(section.bodyFixedFrames, p => p.ut);
 
             if (!previousEndUT.HasValue)
                 return;
 
-            for (int i = section.absoluteFrames.Count - 1; i >= 0; i--)
+            for (int i = section.bodyFixedFrames.Count - 1; i >= 0; i--)
             {
-                if (section.absoluteFrames[i].ut <= previousEndUT.Value)
-                    section.absoluteFrames.RemoveAt(i);
+                if (section.bodyFixedFrames[i].ut <= previousEndUT.Value)
+                    section.bodyFixedFrames.RemoveAt(i);
             }
         }
 
-        private static void TrimRelativeAbsoluteShadowAfterUT(
+        private static void TrimRelativeBodyFixedPrimaryAfterUT(
             ref TrackSection section,
             double trimUT)
         {
             if (section.referenceFrame != ReferenceFrame.Relative
-                || section.absoluteFrames == null
-                || section.absoluteFrames.Count == 0)
+                || section.bodyFixedFrames == null
+                || section.bodyFixedFrames.Count == 0)
             {
                 return;
             }
 
-            section.absoluteFrames = FlightRecorder.StableSortByUT(section.absoluteFrames, p => p.ut);
-            for (int i = section.absoluteFrames.Count - 1; i >= 0; i--)
+            section.bodyFixedFrames = FlightRecorder.StableSortByUT(section.bodyFixedFrames, p => p.ut);
+            for (int i = section.bodyFixedFrames.Count - 1; i >= 0; i--)
             {
-                if (section.absoluteFrames[i].ut > trimUT)
-                    section.absoluteFrames.RemoveAt(i);
+                if (section.bodyFixedFrames[i].ut > trimUT)
+                    section.bodyFixedFrames.RemoveAt(i);
                 else
                     break;
             }

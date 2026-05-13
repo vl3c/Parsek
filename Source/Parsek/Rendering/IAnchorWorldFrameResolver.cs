@@ -17,7 +17,7 @@ namespace Parsek.Rendering
     /// <see langword="true"/> + a finite world-frame
     /// <see cref="Vector3d"/> on success; return <see langword="false"/>
     /// when the resolver cannot satisfy the lookup (missing live anchor,
-    /// missing checkpoint, missing absolute shadow, etc.). The propagator
+    /// missing checkpoint, missing body-fixed primary, etc.). The propagator
     /// emits a <c>Pipeline-Anchor</c> Verbose line on failure and leaves
     /// ε = 0 for that slot — the §7.11 priority slot is still reserved
     /// (HR-9: visible failure surface, not silent zero).
@@ -32,7 +32,7 @@ namespace Parsek.Rendering
         /// the appropriate version-dispatch path
         /// (<see cref="TrajectoryMath.ResolveRelativePlaybackPosition"/>
         /// for v6+; legacy world-offset for v5; v7+ may consult the
-        /// recorded <c>absoluteFrames</c> shadow when the live anchor is
+        /// recorded <c>bodyFixedFrames</c> shadow when the live anchor is
         /// unreliable). The candidate's <paramref name="sectionIndex"/>
         /// always points at the ABSOLUTE side of the boundary by
         /// AnchorCandidateBuilder construction; the resolver finds the

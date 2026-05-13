@@ -195,45 +195,7 @@ namespace Parsek.Tests
             }
         }
 
-        [Fact]
-        public void ComputePlaybackFlags_AnchorRotationReliabilityCallback_OnlyForParentAnchoredDebris()
-        {
-            RecordingStore.ResetForTesting();
-            try
-            {
-                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
-                Recording nonDebris = MakeRecording("rec-non-debris", "Normal Vessel");
-                nonDebris.IsDebris = false;
-                nonDebris.DebrisParentRecordingId = "parent-rec";
-
-                Recording legacyDebris = MakeRecording("rec-legacy-debris", "Legacy Debris");
-                legacyDebris.IsDebris = true;
-                legacyDebris.DebrisParentRecordingId = null;
-
-                Recording parentAnchoredDebris = MakeRecording("rec-v12-debris", "Parent Debris");
-                parentAnchoredDebris.IsDebris = true;
-                parentAnchoredDebris.DebrisParentRecordingId = "parent-rec";
-
-                var committed = new List<Recording>
-                {
-                    nonDebris,
-                    legacyDebris,
-                    parentAnchoredDebris
-                };
-
-                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 100.0);
-
-                Assert.Null(flags[0].tryEvaluateAnchorRotationReliability);
-                Assert.Null(flags[1].tryEvaluateAnchorRotationReliability);
-                Assert.NotNull(flags[2].tryEvaluateAnchorRotationReliability);
-            }
-            finally
-            {
-                RecordingStore.ResetForTesting();
-            }
-        }
-
-        [Fact]
+                [Fact]
         public void ComputePlaybackFlags_LogsGhostSkipReasonAndSuppressesStableRepeats()
         {
             RecordingStore.ResetForTesting();

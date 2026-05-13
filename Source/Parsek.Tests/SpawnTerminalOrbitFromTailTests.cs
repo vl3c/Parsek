@@ -51,7 +51,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryFindLatestCoastTrajectoryFrame_PicksLastExoBallisticAbsoluteFrame()
+        public void TryFindLatestCoastTrajectoryFrame_PicksLastExoBallisticbodyFixedFrame()
         {
             var rec = new Recording { RecordingId = "r1" };
             rec.TrackSections.Add(BuildAbsoluteCoastSection(
@@ -157,7 +157,7 @@ namespace Parsek.Tests
                 startUT: 100, endUT: 110,
                 BuildPoint(ut: 105, lat: 0.5, lon: 1.0, alt: 200000, vel: new Vector3(1700, 0, -1000))));
             // Last section is Relative with anchor-local Cartesian dx/dy/dz in
-            // lat/lon/alt fields; without absoluteFrames shadow these CANNOT be
+            // lat/lon/alt fields; without bodyFixedFrames shadow these CANNOT be
             // reseeded as planet-relative orbits.
             var relativeSection = new TrackSection
             {
@@ -198,7 +198,7 @@ namespace Parsek.Tests
                 {
                     BuildPoint(ut: 115, lat: 5.0, lon: -3.0, alt: 12.5, vel: new Vector3(1, 2, 3)),
                 },
-                absoluteFrames = new List<TrajectoryPoint>
+                bodyFixedFrames = new List<TrajectoryPoint>
                 {
                     BuildPoint(ut: 119, lat: 0.7, lon: 8.5, alt: 203500,
                         vel: new Vector3(1736f, -1.7f, -1179f))

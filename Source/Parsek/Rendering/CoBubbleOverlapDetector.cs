@@ -321,8 +321,8 @@ namespace Parsek.Rendering
         {
             if (s.frames != null && s.frames.Count > 0)
                 return s.frames[0].bodyName;
-            if (s.absoluteFrames != null && s.absoluteFrames.Count > 0)
-                return s.absoluteFrames[0].bodyName;
+            if (s.bodyFixedFrames != null && s.bodyFixedFrames.Count > 0)
+                return s.bodyFixedFrames[0].bodyName;
             return null;
         }
 

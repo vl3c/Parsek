@@ -248,6 +248,59 @@ namespace Parsek.Tests
             Assert.Equal(point.velocity, bgRecorder.GetLastRecordedVelocityForTesting(pid));
         }
 
+        [Fact]
+        public void InitLoadedState_RelativeInitialPoint_WritesBodyFixedSeedPeer()
+        {
+            uint pid = 509;
+            string recId = "rec_bg10";
+            var tree = MakeTree(pid, recId);
+            tree.Recordings[recId].Points.Clear();
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            var relativePoint = new TrajectoryPoint
+            {
+                ut = 995.25,
+                latitude = 12.0,
+                longitude = 13.0,
+                altitude = 14.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(1f, 2f, 3f),
+                bodyName = "Kerbin"
+            };
+            var bodyFixedPoint = new TrajectoryPoint
+            {
+                ut = relativePoint.ut,
+                latitude = -1.5,
+                longitude = 22.25,
+                altitude = 345.0,
+                rotation = Quaternion.identity,
+                velocity = new Vector3(4f, 5f, 6f),
+                bodyName = "Kerbin"
+            };
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid,
+                recId,
+                SegmentEnvironment.ExoBallistic,
+                1000.0,
+                initialPoint: relativePoint,
+                initialReferenceFrame: ReferenceFrame.Relative,
+                anchorRecordingId: "parent-rec",
+                bodyFixedInitialPoint: bodyFixedPoint);
+
+            var section = bgRecorder.GetCurrentTrackSectionForTesting(pid);
+            Assert.NotNull(section);
+            Assert.Equal(ReferenceFrame.Relative, section.Value.referenceFrame);
+            Assert.Equal("parent-rec", section.Value.anchorRecordingId);
+            Assert.Single(section.Value.frames);
+            Assert.Single(section.Value.bodyFixedFrames);
+            Assert.Equal(relativePoint.latitude, section.Value.frames[0].latitude, 6);
+            Assert.Equal(bodyFixedPoint.latitude, section.Value.bodyFixedFrames[0].latitude, 6);
+            Assert.Equal(bodyFixedPoint.longitude, section.Value.bodyFixedFrames[0].longitude, 6);
+            Assert.Equal(bodyFixedPoint.altitude, section.Value.bodyFixedFrames[0].altitude, 6);
+            Assert.Equal(relativePoint.ut, tree.Recordings[recId].Points.Single().ut, 6);
+        }
+
         #endregion
 
         #region ClassifyBackgroundEnvironment — pure static tests
@@ -1173,7 +1226,53 @@ namespace Parsek.Tests
             Assert.Equal(ReferenceFrame.Relative, relative.referenceFrame);
             Assert.Equal(anchorId, relative.anchorRecordingId);
             Assert.Equal(0u, relative.anchorVesselId);
-            Assert.NotNull(relative.absoluteFrames);
+            Assert.NotNull(relative.bodyFixedFrames);
+        }
+
+        [Fact]
+        public void ParentDebrisRelativeEntry_ForcesImmediateSampleAtSectionStart()
+        {
+            uint pid = 962;
+            string recId = "rec_debris_relative_entry";
+            string parentId = "rec_debris_parent";
+            var tree = MakeTree(pid, recId);
+            Recording debris = tree.Recordings[recId];
+            debris.IsDebris = true;
+            debris.DebrisParentRecordingId = parentId;
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
+                pid,
+                recId,
+                SegmentEnvironment.Atmospheric,
+                1000.0,
+                initialPoint: Point(1000.0));
+
+            bgRecorder.StartDebrisParentRelativeTrackSectionForTesting(
+                pid,
+                parentId,
+                SegmentEnvironment.Atmospheric,
+                ut: 1000.1);
+
+            TrackSection? current = bgRecorder.GetCurrentTrackSectionForTesting(pid);
+            Assert.NotNull(current);
+            Assert.Equal(ReferenceFrame.Relative, current.Value.referenceFrame);
+            Assert.Equal(parentId, current.Value.anchorRecordingId);
+            Assert.Equal(1000.1, current.Value.startUT);
+            Assert.Equal(-1.0, bgRecorder.GetLastRecordedUTForTesting(pid));
+            Assert.True(TrajectoryMath.ShouldRecordPoint(
+                Vector3.zero,
+                Vector3.zero,
+                current.Value.startUT,
+                bgRecorder.GetLastRecordedUTForTesting(pid),
+                minInterval: 999.0f,
+                maxInterval: 999.0f,
+                velDirThreshold: 999.0f,
+                speedThreshold: 999.0f));
+            Assert.Contains(logLines, l =>
+                l.Contains("[BgRecorder]")
+                && l.Contains("Immediate background trajectory sample forced")
+                && l.Contains("reason=debris-parent-relative-enter"));
         }
 
         #endregion

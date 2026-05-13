@@ -202,6 +202,7 @@ namespace Parsek.Tests
         {
             Assert.Equal("Absolute", GhostMapPresence.MapResolutionBranch("absolute"));
             Assert.Equal("Relative", GhostMapPresence.MapResolutionBranch("relative"));
+            Assert.Equal("BodyFixedPrimary", GhostMapPresence.MapResolutionBranch("body-fixed-primary"));
             Assert.Equal("OrbitalCheckpoint", GhostMapPresence.MapResolutionBranch("orbital-checkpoint"));
             Assert.Equal("no-section", GhostMapPresence.MapResolutionBranch("no-section"));
             Assert.Equal("(n/a)", GhostMapPresence.MapResolutionBranch(null));

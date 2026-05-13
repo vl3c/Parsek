@@ -42,9 +42,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is12()
+        public void CurrentRecordingFormatVersion_Is13()
         {
-            Assert.Equal(12, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(13, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
@@ -54,11 +54,176 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CurrentRecordingFormatVersion_TracksDebrisParentRecordingFormatVersion()
+        public void DebrisFrameContractFormatVersion_Is13()
+        {
+            Assert.Equal(13, RecordingStore.DebrisFrameContractFormatVersion);
+        }
+
+        [Fact]
+        public void CurrentRecordingFormatVersion_TracksDebrisFrameContractFormatVersion()
         {
             Assert.Equal(
-                RecordingStore.DebrisParentRecordingFormatVersion,
+                RecordingStore.DebrisFrameContractFormatVersion,
                 RecordingStore.CurrentRecordingFormatVersion);
+        }
+
+        [Theory]
+        [InlineData(11)]
+        [InlineData(12)]
+        public void RecordingTreeLoad_PreV13Version_IsRejectedAndWarns(int formatVersion)
+        {
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-v" + formatVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingFormatVersion", formatVersion.ToString(CultureInfo.InvariantCulture));
+
+            var rec = new Recording();
+            logLines.Clear();
+            RecordingTree.LoadRecordingFrom(node, rec);
+
+            Assert.Equal(-1, rec.RecordingFormatVersion);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Codec]") &&
+                line.Contains("recordingFormatVersion=" + formatVersion.ToString(CultureInfo.InvariantCulture)) &&
+                line.Contains("Only the v13 debris frame contract is loadable"));
+        }
+
+        [Fact]
+        public void RecordingTreeLoad_PreV13RejectionPrunesDanglingBranchPointReferences()
+        {
+            // Simulate an upgrade-from-pre-v13 save: one rejected (v11) recording,
+            // one accepted (v13) recording, and a branch point referencing both.
+            // The rejected recording is skipped; the branch point's reference to
+            // it must be pruned so downstream consumers don't see a dangling id.
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            treeNode.AddValue("id", "test-tree");
+            treeNode.AddValue("treeName", "Test Tree");
+            treeNode.AddValue("rootRecordingId", "good-rec");
+
+            var rejectedRec = treeNode.AddNode("RECORDING");
+            rejectedRec.AddValue("recordingId", "rejected-rec");
+            rejectedRec.AddValue("recordingFormatVersion", "11");
+
+            var goodRec = treeNode.AddNode("RECORDING");
+            goodRec.AddValue("recordingId", "good-rec");
+            goodRec.AddValue(
+                "recordingFormatVersion",
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+
+            // Branch point references both — the rejected reference must be pruned.
+            var bpNode = treeNode.AddNode("BRANCH_POINT");
+            bpNode.AddValue("id", "bp-1");
+            bpNode.AddValue("ut", "100.0");
+            bpNode.AddValue("type", ((int)BranchPointType.JointBreak).ToString(CultureInfo.InvariantCulture));
+            bpNode.AddValue("parentId", "rejected-rec");
+            bpNode.AddValue("childId", "good-rec");
+            bpNode.AddValue("childId", "rejected-rec");
+
+            // Empty-after-prune branch point — both endpoints rejected.
+            var emptyBpNode = treeNode.AddNode("BRANCH_POINT");
+            emptyBpNode.AddValue("id", "bp-2");
+            emptyBpNode.AddValue("ut", "120.0");
+            emptyBpNode.AddValue("type", ((int)BranchPointType.JointBreak).ToString(CultureInfo.InvariantCulture));
+            emptyBpNode.AddValue("parentId", "rejected-rec");
+            emptyBpNode.AddValue("childId", "rejected-rec");
+
+            logLines.Clear();
+            RecordingTree tree = RecordingTree.Load(treeNode);
+
+            Assert.False(tree.Recordings.ContainsKey("rejected-rec"));
+            Assert.True(tree.Recordings.ContainsKey("good-rec"));
+
+            // bp-1 survives but with only good-rec on each side; bp-2 was emptied.
+            BranchPoint bp1 = tree.BranchPoints.FirstOrDefault(bp => bp.Id == "bp-1");
+            Assert.NotNull(bp1);
+            Assert.DoesNotContain("rejected-rec", bp1.ParentRecordingIds);
+            Assert.DoesNotContain("rejected-rec", bp1.ChildRecordingIds);
+            Assert.Contains("good-rec", bp1.ChildRecordingIds);
+            Assert.DoesNotContain(tree.BranchPoints, bp => bp.Id == "bp-2");
+
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Codec]") &&
+                line.Contains("pruned branch-point references to missing recordings"));
+        }
+
+        [Fact]
+        public void RecordingTreeLoad_PreV13RejectionNullsDanglingRootAndActiveIds()
+        {
+            // Tree-level identity fields point at recordings that get rejected.
+            // After load, the dangling RootRecordingId / ActiveRecordingId must
+            // be nulled rather than left pointing into the void.
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            treeNode.AddValue("id", "test-tree");
+            treeNode.AddValue("treeName", "Test Tree");
+            treeNode.AddValue("rootRecordingId", "rejected-root");
+            treeNode.AddValue("activeRecordingId", "rejected-active");
+
+            var rejectedRoot = treeNode.AddNode("RECORDING");
+            rejectedRoot.AddValue("recordingId", "rejected-root");
+            rejectedRoot.AddValue("recordingFormatVersion", "11");
+
+            var rejectedActive = treeNode.AddNode("RECORDING");
+            rejectedActive.AddValue("recordingId", "rejected-active");
+            rejectedActive.AddValue("recordingFormatVersion", "12");
+
+            logLines.Clear();
+            RecordingTree tree = RecordingTree.Load(treeNode);
+
+            Assert.False(tree.Recordings.ContainsKey("rejected-root"));
+            Assert.False(tree.Recordings.ContainsKey("rejected-active"));
+            Assert.Equal("", tree.RootRecordingId);
+            Assert.Null(tree.ActiveRecordingId);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Codec]") &&
+                line.Contains("nulled dangling tree identity refs"));
+        }
+
+        [Fact]
+        public void RecordingTreeLoad_PreV13RejectionLeavesValidIdentityRefsAlone()
+        {
+            // Mixed case: rootRecordingId references the accepted recording,
+            // but activeRecordingId references a rejected one. Root must
+            // survive, Active must be nulled.
+            var treeNode = new ConfigNode("RECORDING_TREE");
+            treeNode.AddValue("id", "test-tree");
+            treeNode.AddValue("treeName", "Test Tree");
+            treeNode.AddValue("rootRecordingId", "good-rec");
+            treeNode.AddValue("activeRecordingId", "rejected-rec");
+
+            var goodRec = treeNode.AddNode("RECORDING");
+            goodRec.AddValue("recordingId", "good-rec");
+            goodRec.AddValue(
+                "recordingFormatVersion",
+                RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture));
+
+            var rejectedRec = treeNode.AddNode("RECORDING");
+            rejectedRec.AddValue("recordingId", "rejected-rec");
+            rejectedRec.AddValue("recordingFormatVersion", "11");
+
+            RecordingTree tree = RecordingTree.Load(treeNode);
+
+            Assert.Equal("good-rec", tree.RootRecordingId);
+            Assert.Null(tree.ActiveRecordingId);
+        }
+
+        [Fact]
+        public void RecordingTreeLoad_FutureVersion_IsRejectedAndWarns()
+        {
+            int futureVersion = RecordingStore.CurrentRecordingFormatVersion + 1;
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "future-v" + futureVersion.ToString(CultureInfo.InvariantCulture));
+            node.AddValue("recordingFormatVersion", futureVersion.ToString(CultureInfo.InvariantCulture));
+
+            var rec = new Recording();
+            logLines.Clear();
+            RecordingTree.LoadRecordingFrom(node, rec);
+
+            Assert.Equal(-1, rec.RecordingFormatVersion);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][Codec]") &&
+                line.Contains("recordingFormatVersion=" + futureVersion.ToString(CultureInfo.InvariantCulture)) &&
+                line.Contains(
+                    "expected CurrentRecordingFormatVersion="
+                    + RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture)));
         }
 
         [Fact]

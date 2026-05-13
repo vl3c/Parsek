@@ -335,6 +335,28 @@ namespace Parsek
             if (!string.IsNullOrEmpty(id))
                 rec.RecordingId = id;
 
+            string earlyFormatVersionStr = recNode.GetValue("recordingFormatVersion");
+            if (earlyFormatVersionStr != null
+                && int.TryParse(earlyFormatVersionStr, NumberStyles.Integer, ic, out int earlyFormatVersion))
+            {
+                rec.RecordingFormatVersion = earlyFormatVersion;
+            }
+            else
+            {
+                rec.RecordingFormatVersion = 0;
+            }
+
+            if (rec.RecordingFormatVersion != RecordingStore.CurrentRecordingFormatVersion)
+            {
+                ParsekLog.Warn("Codec",
+                    $"LoadRecordingFrom: rejecting recording {rec.RecordingId ?? "<no-id>"} with " +
+                    $"recordingFormatVersion={rec.RecordingFormatVersion.ToString(CultureInfo.InvariantCulture)} " +
+                    $"(expected CurrentRecordingFormatVersion={RecordingStore.CurrentRecordingFormatVersion.ToString(CultureInfo.InvariantCulture)}). " +
+                    "Only the v13 debris frame contract is loadable by this build.");
+                rec.RecordingFormatVersion = -1;
+                return;
+            }
+
             rec.VesselName = Recording.ResolveLocalizedName(recNode.GetValue("vesselName") ?? "");
             rec.TreeId = recNode.GetValue("treeId");
             int treeOrder;
@@ -750,7 +772,7 @@ namespace Parsek
                     rec.IsDebris = isDebris;
             }
 
-            // v12+ debris parent recording id (sparse on disk). Missing key on legacy
+            // v13 debris parent recording id (sparse on disk). Missing key on legacy
             // v11 debris and on non-debris recordings — both default to null. PR 3c's
             // playback gate fires when IsDebris && DebrisParentRecordingId == null.
             string debrisParentRecordingIdStr = recNode.GetValue("debrisParentRecordingId");

@@ -107,7 +107,7 @@ namespace Parsek
 
                 bool hasCoverage = DebrisRelativeCoveragePrimitives.TryGetRenderableCoverageEndUT(
                     section.frames,
-                    section.absoluteFrames,
+                    section.bodyFixedFrames,
                     section.checkpoints,
                     section.startUT,
                     section.endUT,
@@ -158,7 +158,7 @@ namespace Parsek
                     {
                         if (DebrisRelativeCoveragePrimitives.TryGetRenderableCoverageEndUT(
                                 section.frames,
-                                section.absoluteFrames,
+                                section.bodyFixedFrames,
                                 section.checkpoints,
                                 section.startUT,
                                 section.endUT,
@@ -306,8 +306,8 @@ namespace Parsek
 
         private static double GetShadowTailUT(TrackSection section)
         {
-            return DebrisRelativeCoveragePrimitives.TryGetAbsoluteShadowCoverageEndUT(
-                section.absoluteFrames,
+            return DebrisRelativeCoveragePrimitives.TryGetBodyFixedPrimaryCoverageEndUT(
+                section.bodyFixedFrames,
                 out double shadowTailUT)
                 ? shadowTailUT
                 : double.NaN;

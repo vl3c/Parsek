@@ -412,8 +412,8 @@ namespace Parsek.Rendering
                 return s.frames[s.frames.Count - 1].bodyName;
             if (s.checkpoints != null && s.checkpoints.Count > 0)
                 return s.checkpoints[s.checkpoints.Count - 1].bodyName;
-            if (s.absoluteFrames != null && s.absoluteFrames.Count > 0)
-                return s.absoluteFrames[s.absoluteFrames.Count - 1].bodyName;
+            if (s.bodyFixedFrames != null && s.bodyFixedFrames.Count > 0)
+                return s.bodyFixedFrames[s.bodyFixedFrames.Count - 1].bodyName;
             return null;
         }
 
@@ -423,8 +423,8 @@ namespace Parsek.Rendering
                 return s.frames[0].bodyName;
             if (s.checkpoints != null && s.checkpoints.Count > 0)
                 return s.checkpoints[0].bodyName;
-            if (s.absoluteFrames != null && s.absoluteFrames.Count > 0)
-                return s.absoluteFrames[0].bodyName;
+            if (s.bodyFixedFrames != null && s.bodyFixedFrames.Count > 0)
+                return s.bodyFixedFrames[0].bodyName;
             return null;
         }
 

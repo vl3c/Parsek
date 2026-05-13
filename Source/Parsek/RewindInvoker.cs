@@ -215,7 +215,7 @@ namespace Parsek
         /// PR 3b review follow-up §3: extracting this block lets a
         /// regression test fail fast if a future refactor touches the
         /// inheritance set without preserving every field. The
-        /// <c>DebrisParentRecordingId</c> copy is the load-bearing v12+
+        /// <c>DebrisParentRecordingId</c> copy is the load-bearing current-schema
         /// debris-anchor inheritance the plan flags as a critical
         /// Re-Fly safety hook (plan §"Risk analysis": "Re-Fly inheritance
         /// loses the contract — High if RewindInvoker propagation is
@@ -239,7 +239,7 @@ namespace Parsek
             provisional.VesselPersistentId = inheritFrom.VesselPersistentId;
             provisional.VesselName = inheritFrom.VesselName;
             provisional.IsDebris = inheritFrom.IsDebris;
-            // PR 3b: critical Re-Fly safety hook — propagate the v12+ debris
+            // PR 3b: critical Re-Fly safety hook — propagate the v13 debris
             // parent-anchor contract so a re-fly of a flight with debris children
             // doesn't silently lose the contract on the provisional. Without this,
             // the resolver's chain-walk would not have a parent recording id to

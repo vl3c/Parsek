@@ -193,7 +193,7 @@ namespace Parsek.Tests.Rendering
                         anchorRecordingId = "parent-rec",
                         sampleRateHz = 4.0f,
                         frames = relativeFrames,
-                        absoluteFrames = new List<TrajectoryPoint>
+                        bodyFixedFrames = new List<TrajectoryPoint>
                         {
                             new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
                             new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin", rotation = Quaternion.identity },
@@ -210,9 +210,172 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, worldPos.x);
             Assert.Equal(0.0, worldPos.y);
             Assert.Equal(0.0, worldPos.z);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("body-fixed primary failed closed")
+                && l.Contains("recorded-relative fallback suppressed")
+                && l.Contains("routeReason=body-fixed-primary-unavailable")
+                && l.Contains("coverageReason=relative-and-body-fixed-frames-out-of-range")
+                && l.Contains(rec.RecordingId));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]")
                 || l.Contains("chain resolver failed"));
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_ParentAnchoredDebrisBodyFixedMiss_FailsClosedWithoutResolverWarn()
+        {
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100.0, latitude = 12.5, longitude = 7.0, altitude = 3.0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 130.0, latitude = 13.0, longitude = 7.5, altitude = 3.2,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                },
+            };
+            var rec = new Recording
+            {
+                RecordingId = "parent-anchored-debris-body-miss",
+                VesselName = "Parent Anchored Debris Body Miss",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                IsDebris = true,
+                DebrisParentRecordingId = "parent-rec",
+                Points = relativeFrames,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 130.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        source = TrackSectionSource.Active,
+                        anchorRecordingId = "parent-rec",
+                        sampleRateHz = 4.0f,
+                        frames = relativeFrames,
+                        bodyFixedFrames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0, bodyName = "NoSuchBody", rotation = Quaternion.identity },
+                            new TrajectoryPoint { ut = 130.0, bodyName = "NoSuchBody", rotation = Quaternion.identity },
+                        },
+                    }
+                }
+            };
+            RecordingStore.AddCommittedInternal(rec);
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                rec.RecordingId, 120.0, fallbackBody: null, out Vector3d worldPos);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, worldPos.x);
+            Assert.Equal(0.0, worldPos.y);
+            Assert.Equal(0.0, worldPos.z);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("body-fixed primary failed closed")
+                && l.Contains("recorded-relative fallback suppressed")
+                && l.Contains("routeReason=body-fixed-primary-position-failed")
+                && l.Contains("coverageReason=covered-by-body-fixed-primary")
+                && l.Contains(rec.RecordingId));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]")
+                || l.Contains("chain resolver failed"));
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InheritedLoopAnchoredDebrisWithoutBodyFixed_ReachesRecordedRelativeResolver()
+        {
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = 100.0, latitude = 12.5, longitude = 7.0, altitude = 3.0,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                },
+                new TrajectoryPoint
+                {
+                    ut = 110.0, latitude = 13.0, longitude = 7.5, altitude = 3.2,
+                    bodyName = "Kerbin", rotation = Quaternion.identity,
+                },
+            };
+            var rec = new Recording
+            {
+                RecordingId = "loop-chain-debris",
+                VesselName = "Loop Chain Debris",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                IsDebris = true,
+                DebrisParentRecordingId = "loop-chain-parent",
+                Points = relativeFrames,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        source = TrackSectionSource.Active,
+                        anchorRecordingId = "loop-chain-parent",
+                        sampleRateHz = 4.0f,
+                        frames = relativeFrames,
+                    }
+                }
+            };
+            var parent = new Recording
+            {
+                RecordingId = "loop-chain-parent",
+                VesselName = "Loop Chain Parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                LoopAnchorVesselId = 77u,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        source = TrackSectionSource.Active,
+                        anchorVesselId = 77u,
+                        sampleRateHz = 4.0f,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                            new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                        },
+                    }
+                }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "loop-chain-tree",
+                TreeName = "Loop Chain Tree",
+                RootRecordingId = parent.RecordingId,
+                ActiveRecordingId = rec.RecordingId,
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+            tree.Recordings[parent.RecordingId] = parent;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddCommittedInternal(rec);
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                rec.RecordingId, 105.0, fallbackBody: null, out Vector3d worldPos);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, worldPos.x);
+            Assert.Equal(0.0, worldPos.y);
+            Assert.Equal(0.0, worldPos.z);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("TryComputeStandaloneRelativeWorldPosition: chain resolver failed")
+                && l.Contains(rec.RecordingId));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("relative-only-without-body-fixed-primary")
+                && l.Contains(rec.RecordingId));
         }
 
         [Fact]
@@ -260,21 +423,21 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void StandaloneWorldPosition_RelativeFrameActiveReFlyPrimary_UsesAbsoluteShadow()
+        public void StandaloneWorldPosition_RelativeFrameActiveReFlyPrimary_UsesBodyFixedPrimary()
         {
             // P1-C regression: when the section's anchorVesselId matches
             // the active re-fly target's PID, the standalone resolver
             // must NOT call the live-anchor relative resolver (which
             // would drag the primary ghost with the player's controls
             // — the Naive Relative Trap §3.4). Instead it must lerp
-            // the section's absoluteFrames shadow.
+            // the section's bodyFixedFrames shadow.
             //
             // This test passes a section whose anchorVesselId matches an
             // active re-fly target's PID. The recording has
-            // absoluteFrames at sentinel coordinates that, when world-
+            // bodyFixedFrames at sentinel coordinates that, when world-
             // resolved through the Kerbin body, produce a deterministic
             // position. We assert the helper returns true with that
-            // position — proving it took the absolute-shadow path
+            // position — proving it took the body-fixed-primary path
             // BEFORE the Instance null-check (the test has no
             // ParsekFlight.Instance, so any other path would return
             // false).
@@ -292,8 +455,8 @@ namespace Parsek.Tests.Rendering
             };
             RecordingStore.AddCommittedInternal(reflyRec);
 
-            // Primary recording with a v7 RELATIVE section + absoluteFrames
-            // shadow. The absoluteFrames bracketing UT=105 carry the
+            // Primary recording with a v7 RELATIVE section + bodyFixedFrames
+            // shadow. The bodyFixedFrames bracketing UT=105 carry the
             // body-fixed lat/lon/alt the resolver lerps + lifts to world.
             var shadowBefore = new TrajectoryPoint
             {
@@ -344,7 +507,7 @@ namespace Parsek.Tests.Rendering
                         source = TrackSectionSource.Active,
                         anchorVesselId = reflyPid,    // SAME PID as active re-fly target
                         sampleRateHz = 4.0f,
-                        absoluteFrames = new List<TrajectoryPoint> { shadowBefore, shadowAfter },
+                        bodyFixedFrames = new List<TrajectoryPoint> { shadowBefore, shadowAfter },
                     }
                 }
             };
@@ -370,7 +533,7 @@ namespace Parsek.Tests.Rendering
                     out Vector3d worldPos);
 
                 // FlightGlobals.Bodies is unavailable in xUnit, so the
-                // body resolver inside TryComputeStandaloneAbsoluteShadow
+                // body resolver inside TryComputeStandaloneBodyFixedPrimary
                 // returns null and the helper returns false — but the
                 // critical assertion is that the live-anchor path was NOT
                 // taken. v11 data without anchorRecordingId is fenced as a
@@ -392,10 +555,10 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void StandaloneAbsoluteShadow_UTPastEnd_FailsClosed()
+        public void StandaloneBodyFixedPrimary_UTPastEnd_FailsClosed()
         {
             // Phase 5 review-pass-3 P2-1 regression: the linear search in
-            // TryComputeStandaloneAbsoluteShadowWorldPosition (and its
+            // TryComputeStandaloneBodyFixedPrimaryWorldPosition (and its
             // siblings TryComputeStandaloneAbsoluteFallbackWorldPosition
             // / TryComputeStandaloneWorldPositionForRecording's lat/lon
             // branch) used `idx <= 0` to detect both at-or-before-start
@@ -407,7 +570,7 @@ namespace Parsek.Tests.Rendering
             //
             // Fix: distinguish the two cases. idx == -1 fails closed with
             // a Verbose; idx == 0 keeps the existing at-or-before-start
-            // clamp. This test exercises the absolute-shadow path
+            // clamp. This test exercises the body-fixed-primary path
             // through the active-re-fly branch with a synthetic shadow
             // whose last sample is at ut=30 and a query at ut=35.
             const uint reflyPid = 4242u;
@@ -421,10 +584,10 @@ namespace Parsek.Tests.Rendering
             RecordingStore.AddCommittedInternal(reflyRec);
 
             // Section spans UTs [10, 50] (so the query at 35 selects this
-            // RELATIVE section), but the absolute-shadow ends at 30 — the
+            // RELATIVE section), but the body-fixed-primary ends at 30 — the
             // canonical bug case where the recorder stopped capturing
             // shadow points partway through the section. Shadow walk at
-            // ut=35 hits idx==-1 (past last shadow sample), and the fix
+            // ut=35 hits idx==-1 (past last body-fixed sample), and the fix
             // must fail closed instead of clamping to shadow[0].
             var rec = new Recording
             {
@@ -453,7 +616,7 @@ namespace Parsek.Tests.Rendering
                         source = TrackSectionSource.Active,
                         anchorVesselId = reflyPid,
                         sampleRateHz = 4.0f,
-                        absoluteFrames = new List<TrajectoryPoint>
+                        bodyFixedFrames = new List<TrajectoryPoint>
                         {
                             new TrajectoryPoint { ut = 10.0, latitude = 0, longitude = 0, altitude = 0, bodyName = "Kerbin", rotation = Quaternion.identity },
                             new TrajectoryPoint { ut = 20.0, latitude = 0, longitude = 0, altitude = 0, bodyName = "Kerbin", rotation = Quaternion.identity },
@@ -488,9 +651,9 @@ namespace Parsek.Tests.Rendering
                 // pre-fix the code clamped to shadow[0] and returned
                 // true with a wrong position; post-fix it returns false
                 // and emits this log). Match the visible log text:
-                // "Absolute shadow exhausted: recording=...".
+                // "body-fixed primary exhausted: recording=...".
                 Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
-                    && l.Contains("Absolute shadow exhausted")
+                    && l.Contains("body-fixed primary exhausted")
                     && l.Contains(rec.RecordingId));
             }
             finally

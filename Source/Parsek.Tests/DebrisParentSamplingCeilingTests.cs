@@ -5,13 +5,14 @@ using Xunit;
 
 namespace Parsek.Tests
 {
-    // Unit tests for the v12+ debris parent-anchored sampling caps added in
+    // Unit tests for the v13 debris parent-anchored sampling caps added in
     // BackgroundRecorder. The cap is gated on
     // (Recording.IsDebris && DebrisParentRecordingId != null) and bounds BOTH
     // adaptive-sampler thresholds:
     //   * ResolveDebrisAwareSampleInterval lowers the proximity-tier MIN floor
     //     to ProximityRateSelector.MidInterval (0.5 s) while preserving closer
-    //     tiers and the OutOfRange short-circuit.
+    //     tiers. The OutOfRange sentinel stays unchanged; the skip gate separately
+    //     checks whether a parent-proximity debris tier is active.
     //   * ResolveDebrisAwareMaxSampleInterval caps the configured MAX backstop
     //     at MidInterval so stable-velocity drift past the high-fidelity window
     //     cannot starve the recording for 3.0 s (Medium) or 8.0 s (Low).
@@ -136,11 +137,40 @@ namespace Parsek.Tests
             double tierInterval = ProximityRateSelector.OutOfRangeInterval; // double.MaxValue
             double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec);
 
-            // Critical invariant: OutOfRange must NOT be capped to a finite value,
-            // otherwise out-of-bubble debris would falsely pass the early-return
-            // check at BackgroundRecorder.cs OnBackgroundPhysicsFrame and start
-            // sampling against an unloaded vessel.
+            // Critical invariant: OutOfRange must NOT be capped to a finite value.
+            // The OnBackgroundPhysicsFrame skip gate decides whether the active
+            // parent-proximity tier is allowed to bypass the focused-vessel
+            // out-of-range sentinel.
             Assert.Equal(ProximityRateSelector.OutOfRangeInterval, resolved);
+        }
+
+        [Fact]
+        public void SkipGate_OutOfFocusedRangeWithoutDebrisTier_ReturnsTrue()
+        {
+            Assert.True(BackgroundRecorder.ShouldSkipTrajectorySamplingForProximity(
+                ProximityRateSelector.OutOfRangeInterval,
+                highFidelityActive: false,
+                debrisTier: ProximitySamplingTier.None));
+        }
+
+        [Theory]
+        [InlineData((int)ProximitySamplingTier.Full)]
+        [InlineData((int)ProximitySamplingTier.Half)]
+        public void SkipGate_OutOfFocusedRangeWithParentDebrisTier_ReturnsFalse(int tier)
+        {
+            Assert.False(BackgroundRecorder.ShouldSkipTrajectorySamplingForProximity(
+                ProximityRateSelector.OutOfRangeInterval,
+                highFidelityActive: false,
+                debrisTier: (ProximitySamplingTier)tier));
+        }
+
+        [Fact]
+        public void SkipGate_HighFidelityActive_ReturnsFalse()
+        {
+            Assert.False(BackgroundRecorder.ShouldSkipTrajectorySamplingForProximity(
+                ProximityRateSelector.OutOfRangeInterval,
+                highFidelityActive: true,
+                debrisTier: ProximitySamplingTier.None));
         }
 
         [Fact]

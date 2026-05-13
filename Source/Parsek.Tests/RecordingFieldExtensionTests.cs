@@ -170,7 +170,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BackwardCompat_LegacyV11Debris_LoadsAsNullDebrisParent()
+        public void BackwardCompat_LegacyV11Debris_IsRejected()
         {
             // Simulate a legacy v11 RECORDING node that has isDebris=True but
             // no debrisParentRecordingId key. Field defaults to null and PR 3c's
@@ -183,8 +183,7 @@ namespace Parsek.Tests
             var rec = new Recording();
             RecordingTree.LoadRecordingFrom(node, rec);
 
-            Assert.True(rec.IsDebris);
-            Assert.Null(rec.DebrisParentRecordingId);
+            Assert.Equal(-1, rec.RecordingFormatVersion);
         }
 
         [Fact]
@@ -368,6 +367,7 @@ namespace Parsek.Tests
         {
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "bad_ghost_mode");
+            node.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
             node.AddValue("ghostSnapshotMode", "BogusValue");
 
             try

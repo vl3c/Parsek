@@ -281,7 +281,7 @@ namespace Parsek.Tests
                     new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
                     new TrajectoryPoint { ut = 200, bodyName = "Mun" }
                 },
-                absoluteFrames = new System.Collections.Generic.List<TrajectoryPoint>
+                bodyFixedFrames = new System.Collections.Generic.List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
                     new TrajectoryPoint { ut = 200, bodyName = "Mun" }

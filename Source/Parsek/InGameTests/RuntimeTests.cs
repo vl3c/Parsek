@@ -4004,7 +4004,7 @@ namespace Parsek.InGameTests
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {
@@ -4314,7 +4314,7 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Positioner stub for the tumbling-parent shadow-route in-game test.
-        /// Tracks calls to TryPositionFromRelativeAbsoluteShadow and writes
+        /// Tracks calls to TryPositionFromBodyFixedPrimary and writes
         /// a deterministic transform position so the test can verify the
         /// engine kept the mesh active and routed through the new path.
         /// </summary>
@@ -4338,18 +4338,18 @@ namespace Parsek.InGameTests
                 InterpolateCalls++;
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {
                 ShadowCalls++;
-                bracketBeforeUT = target.Section.absoluteFrames != null
-                    && target.Section.absoluteFrames.Count > 0
-                    ? target.Section.absoluteFrames[0].ut
+                bracketBeforeUT = target.Section.bodyFixedFrames != null
+                    && target.Section.bodyFixedFrames.Count > 0
+                    ? target.Section.bodyFixedFrames[0].ut
                     : double.NaN;
-                bracketAfterUT = target.Section.absoluteFrames != null
-                    && target.Section.absoluteFrames.Count > 1
-                    ? target.Section.absoluteFrames[target.Section.absoluteFrames.Count - 1].ut
+                bracketAfterUT = target.Section.bodyFixedFrames != null
+                    && target.Section.bodyFixedFrames.Count > 1
+                    ? target.Section.bodyFixedFrames[target.Section.bodyFixedFrames.Count - 1].ut
                     : double.NaN;
                 if (state?.ghost != null)
                     state.ghost.transform.position = PrimedShadowPosition;
@@ -4383,407 +4383,6 @@ namespace Parsek.InGameTests
             }
 
             public void ClearOrbitCache() { }
-        }
-
-        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
-            Description = "Tumbling-parent gate routes parent-anchored debris through the absoluteFrames shadow when shadow data is available; mesh stays active, anchor-rotation-shadow-route log fires, and the legacy positioner.PositionLoop is bypassed")]
-        public void TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable()
-        {
-            // End-to-end coverage of the four engine post-position branches'
-            // shadow-route paths: the engine must keep the mesh active, mark
-            // state.anchorRotationShadowRoutedThisFrame=true, leave
-            // state.anchorRetiredThisFrame=false, and bypass
-            // positioner.PositionLoop / InterpolateAndPositionRelative for
-            // the route window. Plan: docs/dev/plans/debris-smooth-trajectory-during-tumble.md.
-
-            var positioner = new TumblingParentShadowPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            engine.ResolvePlaybackDistanceOverride =
-                (recordingIndex, traj, ghostState, ut) => 0.0;
-            engine.ResolvePlaybackActiveVesselDistanceOverride =
-                (recordingIndex, traj, ghostState, ut) => 0.0;
-
-            var ghost = new GameObject("ParsekTestGhost_TumblingShadow");
-            runner.TrackForCleanup(ghost);
-            ghost.SetActive(true);
-
-            var state = new GhostPlaybackState
-            {
-                vesselName = "Tumbling-shadow debris",
-                ghost = ghost,
-                playbackIndex = 0,
-                initialRelativeActivationHiddenPrimed = true,
-                appearanceCount = 1,
-            };
-            engine.ghostStates[0] = state;
-
-            // Recording mirrors the run-3 playtest fixture: parent-anchored
-            // (v12+) debris with a Relative section that carries a populated
-            // absoluteFrames shadow track.
-            var rec = new Recording
-            {
-                RecordingId = "ingame-tumbling-shadow-debris",
-                VesselName = "Tumbling Parent Debris",
-                PlaybackEnabled = true,
-                IsDebris = true,
-                DebrisParentRecordingId = "ingame-tumbling-parent",
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                Points = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
-                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
-                },
-            };
-            rec.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.0,
-                endUT = 200.0,
-                anchorRecordingId = "ingame-tumbling-parent",
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0 },
-                    new TrajectoryPoint { ut = 200.0 },
-                },
-                absoluteFrames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint
-                    {
-                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
-                        rotation = Quaternion.identity,
-                    },
-                    new TrajectoryPoint
-                    {
-                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
-                        rotation = Quaternion.identity,
-                    },
-                },
-            });
-
-            // Host predicate forces the gate to fire (Unreliable=true) so the
-            // engine takes the route branch.
-            var flags = new[]
-            {
-                new TrajectoryPlaybackFlags
-                {
-                    chainEndUT = 200.0,
-                    recordingId = rec.RecordingId,
-                    tryEvaluateAnchorRotationReliability =
-                        (int idx, IPlaybackTrajectory traj, double playbackUT,
-                            string playbackScope,
-                            out AnchorRotationReliabilityDecision decision) =>
-                        {
-                            decision = new AnchorRotationReliabilityDecision(
-                                unreliable: true,
-                                anchorRecordingId: "ingame-tumbling-parent",
-                                bracketDegrees: 24.0,
-                                rateDegreesPerSecond: 240.0,
-                                offsetMeters: 1500.0);
-                            return true;
-                        },
-                },
-            };
-
-            var ctx = new FrameContext
-            {
-                currentUT = 150.0,
-                warpRate = 1f,
-                warpRateIndex = 0,
-                activeVesselPos = Vector3d.zero,
-                protectedIndex = -1,
-                protectedLoopCycleIndex = -1,
-                mapViewEnabled = false,
-                autoLoopIntervalSeconds = 120.0,
-            };
-
-            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
-
-            GhostPlaybackState retainedState;
-            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
-                "shadow route should preserve ghost state");
-            InGameAssert.IsTrue(ghost.activeSelf,
-                "shadow route must keep the mesh active (the user-visible point of this fix)");
-            InGameAssert.IsTrue(retainedState.anchorRotationShadowRoutedThisFrame,
-                "engine must mark state.anchorRotationShadowRoutedThisFrame=true on the route frame");
-            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
-                "shadow route must NOT mark anchorRetiredThisFrame=true (that would skip Activate / TrackGhostAppearance)");
-            InGameAssert.AreEqual(1, positioner.ShadowCalls,
-                "engine must call positioner.TryPositionFromRelativeAbsoluteShadow exactly once on the gate-fire frame");
-            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
-                "engine must NOT call positioner.PositionLoop when the shadow route succeeds");
-            InGameAssert.AreEqual(0, positioner.InterpolateCalls,
-                "engine must NOT call positioner.InterpolateAndPosition[Relative] when the shadow route succeeds");
-            // The shadow positioner wrote its primed position; verify it is
-            // what the ghost transform now reads.
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
-        }
-
-        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
-            Description = "Always-shadow steady state (PR #803): parent-anchored debris with shadow data renders via the absoluteFrames lerp every frame, even when the tumbling-parent gate is INACTIVE; FX suppression flag stays clear so plumes / RCS / audio play normally outside tumble windows")]
-        public void ParentAnchoredDebris_AlwaysShadow_StableThroughout()
-        {
-            // Companion to TumblingParentDebris_ShadowRoute_KeepsGhostVisibleAndStable
-            // -- that test covers the gate=Active branch (mode=gated). This
-            // test covers the new gate=Inactive branch (mode=always) introduced
-            // in PR #803, where shadow renders unconditionally for v12+
-            // parent-anchored debris when shadow data covers the playback UT.
-            // The fix's user-visible promise: zero per-frame instability
-            // pops at the gate-fire / gate-release boundaries that were the
-            // residual artifact in the post-PR-#800 playtest.
-
-            var positioner = new TumblingParentShadowPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            engine.ResolvePlaybackDistanceOverride =
-                (recordingIndex, traj, ghostState, ut) => 0.0;
-            engine.ResolvePlaybackActiveVesselDistanceOverride =
-                (recordingIndex, traj, ghostState, ut) => 0.0;
-
-            var ghost = new GameObject("ParsekTestGhost_AlwaysShadow");
-            runner.TrackForCleanup(ghost);
-            ghost.SetActive(true);
-
-            var state = new GhostPlaybackState
-            {
-                vesselName = "Always-shadow debris",
-                ghost = ghost,
-                playbackIndex = 0,
-                initialRelativeActivationHiddenPrimed = true,
-                appearanceCount = 1,
-            };
-            engine.ghostStates[0] = state;
-
-            var rec = new Recording
-            {
-                RecordingId = "ingame-always-shadow-debris",
-                VesselName = "Always-shadow debris",
-                PlaybackEnabled = true,
-                IsDebris = true,
-                DebrisParentRecordingId = "ingame-always-shadow-parent",
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                Points = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
-                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
-                },
-            };
-            rec.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.0,
-                endUT = 200.0,
-                anchorRecordingId = "ingame-always-shadow-parent",
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0 },
-                    new TrajectoryPoint { ut = 200.0 },
-                },
-                absoluteFrames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint
-                    {
-                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
-                        rotation = Quaternion.identity,
-                    },
-                    new TrajectoryPoint
-                    {
-                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
-                        rotation = Quaternion.identity,
-                    },
-                },
-            });
-
-            // Host predicate returns Unreliable=false -- gate does NOT fire,
-            // exercising the new always-on shadow branch.
-            var flags = new[]
-            {
-                new TrajectoryPlaybackFlags
-                {
-                    chainEndUT = 200.0,
-                    recordingId = rec.RecordingId,
-                    tryEvaluateAnchorRotationReliability =
-                        (int idx, IPlaybackTrajectory traj, double playbackUT,
-                            string playbackScope,
-                            out AnchorRotationReliabilityDecision decision) =>
-                        {
-                            decision = new AnchorRotationReliabilityDecision(
-                                unreliable: false,
-                                anchorRecordingId: "ingame-always-shadow-parent",
-                                bracketDegrees: 4.0,
-                                rateDegreesPerSecond: 18.0,
-                                offsetMeters: 1500.0);
-                            return true;
-                        },
-                },
-            };
-
-            var ctx = new FrameContext
-            {
-                currentUT = 150.0,
-                warpRate = 1f,
-                warpRateIndex = 0,
-                activeVesselPos = Vector3d.zero,
-                protectedIndex = -1,
-                protectedLoopCycleIndex = -1,
-                mapViewEnabled = false,
-                autoLoopIntervalSeconds = 120.0,
-            };
-
-            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
-
-            GhostPlaybackState retainedState;
-            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
-                "always-shadow path should preserve ghost state");
-            InGameAssert.IsTrue(ghost.activeSelf,
-                "always-shadow path must keep the mesh active outside tumble windows too");
-            InGameAssert.IsFalse(retainedState.anchorRotationShadowRoutedThisFrame,
-                "FX suppression flag must STAY CLEAR when the gate is inactive (steady-state shadow render does not suppress plumes / RCS / audio)");
-            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
-                "always-shadow path must NOT mark anchorRetiredThisFrame=true");
-            InGameAssert.AreEqual(1, positioner.ShadowCalls,
-                "engine must call TryPositionFromRelativeAbsoluteShadow once even though the gate is inactive (this is the PR #803 behaviour change)");
-            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
-                "engine must NOT call positioner.PositionLoop when the shadow positioner succeeds");
-            InGameAssert.AreEqual(0, positioner.InterpolateCalls,
-                "engine must NOT call positioner.InterpolateAndPosition[Relative] when the shadow positioner succeeds");
-            // Ghost transform reflects the shadow positioner's primed position
-            // — confirms it ran end-to-end, not just that the call counter
-            // incremented.
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
-        }
-
-        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
-            Description = "PR #803 contract regression: the gate evaluator returning FALSE (focus-tree miss / resolver-side issue) must NOT block the shadow render — shadow is always-on for v12+ parent-anchored debris when shadow data covers, regardless of evaluator runtime success")]
-        public void ParentAnchoredDebris_AlwaysShadow_EvaluatorMiss_StillRendersShadow()
-        {
-            // Companion to ParentAnchoredDebris_AlwaysShadow_StableThroughout.
-            // That test pins the evaluator-returned-true case (mode=always with
-            // a populated decision struct). This one pins the evaluator-
-            // returned-false case (mode=always with a defaulted decision
-            // struct -- the runtime evaluator hit a focus-tree miss or a
-            // resolver-side issue, but the host predicate already filtered
-            // the recording in scope at flag-build time, so the shadow render
-            // must still fire).
-            //
-            // Round-1 P2-2 fix accidentally gated the shadow attempt on
-            // gateEvaluated, contradicting the PR contract. Round-2 P2 fix
-            // dropped that gate; this test would have caught the regression.
-
-            var positioner = new TumblingParentShadowPositioner();
-            var engine = new GhostPlaybackEngine(positioner);
-            engine.ResolvePlaybackDistanceOverride =
-                (recordingIndex, traj, ghostState, ut) => 0.0;
-            engine.ResolvePlaybackActiveVesselDistanceOverride =
-                (recordingIndex, traj, ghostState, ut) => 0.0;
-
-            var ghost = new GameObject("ParsekTestGhost_AlwaysShadow_EvaluatorMiss");
-            runner.TrackForCleanup(ghost);
-            ghost.SetActive(true);
-
-            var state = new GhostPlaybackState
-            {
-                vesselName = "Always-shadow evaluator-miss debris",
-                ghost = ghost,
-                playbackIndex = 0,
-                initialRelativeActivationHiddenPrimed = true,
-                appearanceCount = 1,
-            };
-            engine.ghostStates[0] = state;
-
-            var rec = new Recording
-            {
-                RecordingId = "ingame-always-shadow-evaluator-miss",
-                VesselName = "Always-shadow evaluator-miss debris",
-                PlaybackEnabled = true,
-                IsDebris = true,
-                DebrisParentRecordingId = "ingame-always-shadow-evaluator-miss-parent",
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                Points = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
-                    new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" },
-                },
-            };
-            rec.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Relative,
-                startUT = 100.0,
-                endUT = 200.0,
-                anchorRecordingId = "ingame-always-shadow-evaluator-miss-parent",
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = 100.0 },
-                    new TrajectoryPoint { ut = 200.0 },
-                },
-                absoluteFrames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint
-                    {
-                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
-                        rotation = Quaternion.identity,
-                    },
-                    new TrajectoryPoint
-                    {
-                        ut = 200.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
-                        rotation = Quaternion.identity,
-                    },
-                },
-            });
-
-            // Host predicate: the runtime evaluator returns FALSE (e.g. focus
-            // tree wasn't found, or the resolver short-circuited internally
-            // for some non-LoopAnchorVesselId reason). The decision struct
-            // stays defaulted. The router must STILL try shadow.
-            var flags = new[]
-            {
-                new TrajectoryPlaybackFlags
-                {
-                    chainEndUT = 200.0,
-                    recordingId = rec.RecordingId,
-                    tryEvaluateAnchorRotationReliability =
-                        (int idx, IPlaybackTrajectory traj, double playbackUT,
-                            string playbackScope,
-                            out AnchorRotationReliabilityDecision decision) =>
-                        {
-                            decision = default;
-                            return false;
-                        },
-                },
-            };
-
-            var ctx = new FrameContext
-            {
-                currentUT = 150.0,
-                warpRate = 1f,
-                warpRateIndex = 0,
-                activeVesselPos = Vector3d.zero,
-                protectedIndex = -1,
-                protectedLoopCycleIndex = -1,
-                mapViewEnabled = false,
-                autoLoopIntervalSeconds = 120.0,
-            };
-
-            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
-
-            GhostPlaybackState retainedState;
-            InGameAssert.IsTrue(engine.ghostStates.TryGetValue(0, out retainedState),
-                "evaluator-miss path must preserve ghost state");
-            InGameAssert.IsTrue(ghost.activeSelf,
-                "evaluator-miss must NOT block the shadow render -- mesh stays active");
-            InGameAssert.IsFalse(retainedState.anchorRotationShadowRoutedThisFrame,
-                "FX suppression flag must stay clear (gate evaluator returned false, so fxSuppress is false)");
-            InGameAssert.IsFalse(retainedState.anchorRetiredThisFrame,
-                "evaluator-miss must NOT retire the ghost");
-            InGameAssert.AreEqual(1, positioner.ShadowCalls,
-                "engine MUST still call TryPositionFromRelativeAbsoluteShadow even when the evaluator returned false (this is the regression that the round-1 P2-2 fix introduced)");
-            InGameAssert.AreEqual(0, positioner.PositionLoopCalls,
-                "engine must NOT fall back to legacy PositionLoop when shadow successfully runs");
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.x, ghost.transform.position.x);
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.y, ghost.transform.position.y);
-            InGameAssert.ApproxEqual(positioner.PrimedShadowPosition.z, ghost.transform.position.z);
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
@@ -14815,7 +14414,7 @@ namespace Parsek.InGameTests
             {
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {
@@ -14989,19 +14588,560 @@ namespace Parsek.InGameTests
                 "coverage helper must handle parent-anchored debris when playback UT is outside the recorded Relative section");
             InGameAssert.IsFalse(ghostActive,
                 "coverage-retired helper must report the ghost inactive to the caller");
-            InGameAssert.IsTrue(state.parentAnchoredDebrisCoverageRetired,
-                "coverage-retired helper must set the persistent activation guard");
             InGameAssert.IsTrue(state.anchorRetiredThisFrame,
                 "coverage-retired helper must set the frame-local FX/appearance suppression flag");
             InGameAssert.IsFalse(state.ghost.activeSelf,
                 "coverage-retired parent-anchored debris must end inactive on the real Unity GameObject");
+        }
 
-            bool activated = GhostPlaybackEngine.ActivateGhostVisualsIfNeededForTesting(state);
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris: first visible parent-anchored frame uses body-fixed primary and stays visible")]
+        public void V13Debris_NoVisibleSlideAtInit_UsesBodyFixedPrimary()
+        {
+            var scenario = RunV13DebrisFrameScenario(
+                loopAnchoredParent: false,
+                includeBodyFixedPrimary: true,
+                currentUT: 2.5);
 
-            InGameAssert.IsFalse(activated,
-                "engine-owned activation helper must refuse to reactivate coverage-retired debris");
-            InGameAssert.IsFalse(state.ghost.activeSelf,
-                "coverage-retired parent-anchored debris must stay inactive after the defensive activation guard");
+            InGameAssert.AreEqual(1, scenario.positioner.BodyFixedCalls,
+                "ordinary parent-anchored debris must position through body-fixed primary");
+            InGameAssert.AreEqual(0, scenario.positioner.RelativeCalls,
+                "ordinary parent-anchored debris must not use recorded Relative frames when body-fixed primary covers the frame");
+            InGameAssert.IsTrue(scenario.state.ghost.activeSelf,
+                "body-fixed-primary frame must stay visible");
+            InGameAssert.ApproxEqual(25.0f, scenario.state.ghost.transform.position.x, 0.01f,
+                "body-fixed primary interpolation should place the ghost at the body-fixed path, not at the local Relative offset");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris: missing body-fixed primary fails closed instead of replaying local Relative offsets")]
+        public void V13Debris_BodyFixedPrimaryMissing_FailsClosedInactive()
+        {
+            var scenario = RunV13DebrisFrameScenario(
+                loopAnchoredParent: false,
+                includeBodyFixedPrimary: false,
+                currentUT: 2.5);
+
+            InGameAssert.AreEqual(0, scenario.positioner.BodyFixedCalls,
+                "body-fixed positioner should not be called when the section lacks covering body-fixed samples");
+            InGameAssert.AreEqual(0, scenario.positioner.RelativeCalls,
+                "ordinary parent-anchored debris must not fall back to local Relative offsets after a body-fixed miss");
+            InGameAssert.IsTrue(scenario.state.anchorRetiredThisFrame,
+                "body-fixed miss must set the frame-local retire flag");
+            InGameAssert.IsFalse(scenario.state.ghost.activeSelf,
+                "body-fixed miss must leave the real ghost inactive");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris: loop-anchored ancestor routes through Relative composition instead of body-fixed primary")]
+        public void V13Debris_LoopAnchoredAncestor_FollowsRelativeRoute()
+        {
+            var scenario = RunV13DebrisFrameScenario(
+                loopAnchoredParent: true,
+                includeBodyFixedPrimary: true,
+                currentUT: 2.5);
+
+            InGameAssert.AreEqual(0, scenario.positioner.BodyFixedCalls,
+                "loop-anchored debris chains should not force ordinary body-fixed-primary routing while the chain is covered");
+            InGameAssert.AreEqual(1, scenario.positioner.RelativeCalls,
+                "loop-anchored debris chains should use the Relative route so the live loop anchor can be composed");
+            InGameAssert.IsTrue(scenario.state.ghost.activeSelf,
+                "covered loop-chain Relative frame must stay visible");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris: Relative-to-Absolute boundary keeps the ghost position continuous")]
+        public void V13Debris_BoundaryPointContinuity_AtFrameTransition()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13BoundaryContinuity");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Boundary Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: "v13-boundary-debris",
+                parentRecordingId: "v13-boundary-parent",
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: true,
+                includeAbsoluteTail: true);
+
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.49);
+            Vector3 before = ghost.transform.position;
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.51);
+            Vector3 after = ghost.transform.position;
+
+            InGameAssert.IsTrue(Vector3.Distance(before, after) < 1.0f,
+                $"boundary handoff should be visually continuous; before={before} after={after}");
+            InGameAssert.IsTrue(positioner.BodyFixedCalls >= 1,
+                "pre-boundary Relative section should use body-fixed primary");
+            InGameAssert.IsTrue(positioner.AbsoluteCalls >= 1,
+                "post-boundary Absolute section should use absolute positioning");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris drifting past 550m: dispatch transitions from body-fixed primary (in Relative) to absolute positioning (in Absolute) cleanly")]
+        public void V13Debris_DriftingAway_TransitionsToAbsolute()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13DriftAway");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Drift Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: "v13-drift-debris",
+                parentRecordingId: "v13-drift-parent",
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: true,
+                includeAbsoluteTail: true);
+
+            // First frame inside Relative section: must dispatch through body-fixed primary.
+            RunV13DebrisUpdate(engine, rec, currentUT: 1.0);
+            int bodyFixedAfterRelative = positioner.BodyFixedCalls;
+            int absoluteAfterRelative = positioner.AbsoluteCalls;
+
+            // Second frame inside Absolute section: must dispatch through absolute.
+            RunV13DebrisUpdate(engine, rec, currentUT: 4.0);
+
+            InGameAssert.IsTrue(bodyFixedAfterRelative >= 1,
+                "Relative section sample must dispatch through body-fixed primary");
+            InGameAssert.AreEqual(0, absoluteAfterRelative,
+                "Relative section sample must not invoke absolute positioner");
+            InGameAssert.IsTrue(positioner.AbsoluteCalls >= 1,
+                "Absolute section sample must dispatch through absolute positioner");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "ghost must stay visible across the Relative -> Absolute transition");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris at long range (Absolute-only section, no Relative payload): renderer must not invoke the Relative route")]
+        public void V13Debris_LongRange_AbsoluteOnly_NoRelativeRoute()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13LongRange");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Long Range Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            string bodyName = activeVessel.mainBody.name;
+            var absoluteSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0.0,
+                endUT = 5.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    MakeV13RuntimePoint(0.0, bodyName, 10.0),
+                    MakeV13RuntimePoint(5.0, bodyName, 60.0),
+                },
+            };
+            var rec = new Recording
+            {
+                RecordingId = "v13-long-range-debris",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = "v13-long-range-debris",
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = "v13-long-range-parent",
+                Points = new List<TrajectoryPoint>(absoluteSection.frames),
+                TrackSections = new List<TrackSection> { absoluteSection },
+            };
+
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.5);
+
+            InGameAssert.AreEqual(0, positioner.RelativeCalls,
+                "Absolute-only debris must not invoke the Relative route (no anchor coupling at long range)");
+            InGameAssert.AreEqual(0, positioner.BodyFixedCalls,
+                "Absolute-only debris must not invoke body-fixed-primary (used only inside Relative sections)");
+            InGameAssert.IsTrue(positioner.AbsoluteCalls >= 1,
+                "Absolute-only debris must dispatch through absolute positioner");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 debris frame transition at 2x physics warp: boundary stays visually continuous")]
+        public void V13Debris_PhysicsWarp_FrameBoundary_NoArtifact()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13Warp");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Warp Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: "v13-warp-debris",
+                parentRecordingId: "v13-warp-parent",
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: true,
+                includeAbsoluteTail: true);
+
+            // Run the same straddling UT pair as the boundary continuity test but at
+            // 2x physics warp. The fix-rate engine update path must produce the same
+            // continuous position handoff regardless of warp rate.
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.49, warpRate: 2f);
+            Vector3 before = ghost.transform.position;
+            RunV13DebrisUpdate(engine, rec, currentUT: 2.51, warpRate: 2f);
+            Vector3 after = ghost.transform.position;
+
+            InGameAssert.IsTrue(Vector3.Distance(before, after) < 1.0f,
+                $"physics-warp boundary handoff must stay continuous; before={before} after={after}");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "ghost must stay visible across the warped boundary transition");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 loop-chain debris with missing live anchor: falls back to body-fixed primary (does not retire)")]
+        public void V13Debris_LoopChain_LiveAnchorMissing_FallsBackToBodyFixed()
+        {
+            // The loop-anchored tree references pid=77; no live vessel with that
+            // pid is registered, so the live anchor cannot resolve. The engine
+            // must fall back to body-fixed primary rather than retiring.
+            var scenario = RunV13DebrisFrameScenario(
+                loopAnchoredParent: true,
+                includeBodyFixedPrimary: true,
+                currentUT: 2.5);
+
+            // Either the relative resolver fails closed and engine falls back to
+            // body-fixed primary, or the relative path runs and uses the recorded
+            // anchor frames. Either way the ghost must stay visible and not
+            // retire.
+            InGameAssert.IsTrue(scenario.state.ghost.activeSelf,
+                "missing live anchor must not retire a loop-chain debris when body-fixed primary covers the frame");
+            InGameAssert.IsFalse(scenario.state.anchorRetiredThisFrame,
+                "missing live anchor must not set the frame-local retire flag when body-fixed primary covers the frame");
+            InGameAssert.IsTrue(
+                scenario.positioner.BodyFixedCalls + scenario.positioner.RelativeCalls >= 1,
+                "either body-fixed primary or recorded relative must be invoked - retirement is the failure mode");
+        }
+
+        [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
+            Description = "v13 close-range debris with non-loop parent: body-fixed primary path is invariant under repeated frames (cadence-proportional render stability)")]
+        public void V13Debris_CloseRange_BodyFixedPrimaryStableAcrossFrames()
+        {
+            // The §7.4 'cadence proportional to density' test ultimately reduces
+            // to: at close range, repeated render calls keep dispatching through
+            // body-fixed primary deterministically, regardless of frame count.
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject("ParsekTestGhost_V13CadenceStable");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = "V13 Cadence Stable Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: "v13-cadence-debris",
+                parentRecordingId: "v13-cadence-parent",
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: true,
+                includeAbsoluteTail: false);
+
+            for (int i = 0; i < 5; i++)
+            {
+                RunV13DebrisUpdate(engine, rec, currentUT: 1.0 + i * 0.5);
+            }
+
+            InGameAssert.AreEqual(5, positioner.BodyFixedCalls,
+                "every close-range Relative-section render call must dispatch through body-fixed primary");
+            InGameAssert.AreEqual(0, positioner.RelativeCalls,
+                "close-range non-loop debris must never invoke the Relative route");
+            InGameAssert.AreEqual(0, positioner.AbsoluteCalls,
+                "close-range debris (no Absolute tail) must never invoke the absolute positioner");
+            InGameAssert.IsTrue(state.ghost.activeSelf,
+                "close-range debris must stay visible across repeated frames");
+        }
+
+        private (GhostPlaybackState state, V13DebrisRuntimePositioner positioner)
+            RunV13DebrisFrameScenario(
+                bool loopAnchoredParent,
+                bool includeBodyFixedPrimary,
+                double currentUT)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+                InGameAssert.Skip("needs an active vessel with a main body");
+
+            var positioner = new V13DebrisRuntimePositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, playbackTrajectory, ghostState, playbackUT) => 0.0;
+
+            GameObject ghost = new GameObject(loopAnchoredParent
+                ? "ParsekTestGhost_V13LoopDebris"
+                : "ParsekTestGhost_V13Debris");
+            runner.TrackForCleanup(ghost);
+            ghost.SetActive(true);
+            var state = new GhostPlaybackState
+            {
+                vesselName = loopAnchoredParent ? "V13 Loop Debris" : "V13 Debris",
+                ghost = ghost,
+                playbackIndex = 0,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 0,
+            };
+            engine.ghostStates[0] = state;
+
+            string parentId = loopAnchoredParent
+                ? "v13-loop-parent"
+                : "v13-parent";
+            Recording rec = MakeV13DebrisRuntimeRecording(
+                recordingId: loopAnchoredParent ? "v13-loop-debris" : "v13-debris",
+                parentRecordingId: parentId,
+                bodyName: activeVessel.mainBody.name,
+                includeBodyFixedPrimary: includeBodyFixedPrimary,
+                includeAbsoluteTail: false);
+            RecordingTree tree = null;
+            if (loopAnchoredParent)
+            {
+                tree = MakeV13LoopAnchoredRuntimeTree(rec, parentId);
+                RecordingStore.AddCommittedTreeForTesting(tree);
+            }
+
+            try
+            {
+                RunV13DebrisUpdate(engine, rec, currentUT);
+            }
+            finally
+            {
+                if (tree != null)
+                    RecordingStore.RemoveCommittedTreeById(tree.Id, "v13-runtime-test-cleanup");
+            }
+
+            return (state, positioner);
+        }
+
+        private static void RunV13DebrisUpdate(
+            GhostPlaybackEngine engine,
+            Recording rec,
+            double currentUT,
+            float warpRate = 1f)
+        {
+            var flags = new[]
+            {
+                new TrajectoryPlaybackFlags
+                {
+                    chainEndUT = rec.EndUT,
+                    recordingId = rec.RecordingId,
+                    segmentLabel = rec.VesselName,
+                },
+            };
+            var ctx = new FrameContext
+            {
+                currentUT = currentUT,
+                warpRate = warpRate,
+                warpRateIndex = warpRate > 1f ? 1 : 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = -1,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 10.0,
+            };
+            engine.UpdatePlayback(new IPlaybackTrajectory[] { rec }, flags, ctx);
+        }
+
+        private static Recording MakeV13DebrisRuntimeRecording(
+            string recordingId,
+            string parentRecordingId,
+            string bodyName,
+            bool includeBodyFixedPrimary,
+            bool includeAbsoluteTail)
+        {
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                MakeV13RuntimePoint(0.0, bodyName, 1.0),
+                MakeV13RuntimePoint(5.0, bodyName, 2.0),
+            };
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0.0,
+                endUT = includeAbsoluteTail ? 2.5 : 5.0,
+                anchorRecordingId = parentRecordingId,
+                frames = relativeFrames,
+                bodyFixedFrames = includeBodyFixedPrimary
+                    ? new List<TrajectoryPoint>
+                    {
+                        MakeV13RuntimePoint(0.0, bodyName, 0.0),
+                        MakeV13RuntimePoint(includeAbsoluteTail ? 2.5 : 5.0, bodyName, 50.0),
+                    }
+                    : new List<TrajectoryPoint>(),
+            };
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = recordingId,
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = parentRecordingId,
+                Points = new List<TrajectoryPoint>(relativeFrames),
+                TrackSections = new List<TrackSection> { section },
+            };
+            if (includeAbsoluteTail)
+            {
+                var absoluteSection = new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 2.5,
+                    endUT = 5.0,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        MakeV13RuntimePoint(2.5, bodyName, 50.0),
+                        MakeV13RuntimePoint(5.0, bodyName, 60.0),
+                    },
+                };
+                rec.TrackSections.Add(absoluteSection);
+                rec.Points.AddRange(absoluteSection.frames);
+            }
+            return rec;
+        }
+
+        private static RecordingTree MakeV13LoopAnchoredRuntimeTree(
+            Recording child,
+            string parentRecordingId)
+        {
+            uint loopAnchorPid = 77u;
+            var parent = new Recording
+            {
+                RecordingId = parentRecordingId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                TreeId = "v13-runtime-loop-tree",
+                VesselName = parentRecordingId,
+                LoopPlayback = true,
+                LoopAnchorVesselId = loopAnchorPid,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 0.0,
+                        endUT = 5.0,
+                        anchorVesselId = loopAnchorPid,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            MakeV13RuntimePoint(0.0, child.Points[0].bodyName, 100.0),
+                            MakeV13RuntimePoint(5.0, child.Points[0].bodyName, 110.0),
+                        },
+                    },
+                },
+            };
+            child.TreeId = parent.TreeId;
+            var tree = new RecordingTree
+            {
+                Id = parent.TreeId,
+                TreeName = "v13 runtime loop tree",
+                RootRecordingId = parent.RecordingId,
+                ActiveRecordingId = child.RecordingId,
+            };
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+            return tree;
+        }
+
+        private static TrajectoryPoint MakeV13RuntimePoint(
+            double ut,
+            string bodyName,
+            double x)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                bodyName = bodyName,
+                latitude = x,
+                longitude = 0.0,
+                altitude = 0.0,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            };
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
@@ -15341,6 +15481,138 @@ namespace Parsek.InGameTests
             return (engine, state, positioner, loopEvents, overlapEvents, createdEvents, localLog);
         }
 
+        private sealed class V13DebrisRuntimePositioner : IGhostPositioner
+        {
+            internal int BodyFixedCalls;
+            internal int RelativeCalls;
+            internal int AbsoluteCalls;
+
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                AbsoluteCalls++;
+                int sectionIndex = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+                List<TrajectoryPoint> frames = sectionIndex >= 0
+                    ? traj.TrackSections[sectionIndex].frames
+                    : traj.Points;
+                TryPositionFromFrames(frames, ut, state, out _, out _);
+            }
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target)
+            {
+                RelativeCalls++;
+                TryPositionFromFrames(target.Section.frames, ut, state, out _, out _);
+            }
+
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                BodyFixedCalls++;
+                return TryPositionFromFrames(
+                    target.Section.bodyFixedFrames,
+                    playbackUT,
+                    state,
+                    out bracketBeforeUT,
+                    out bracketAfterUT);
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point)
+            {
+                ApplyPoint(state, point);
+            }
+
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state)
+            {
+            }
+
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut)
+            {
+            }
+
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx)
+            {
+                AbsoluteCalls++;
+                TryPositionFromFrames(traj.Points, ut, state, out _, out _);
+            }
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = state != null && state.ghost != null
+                    ? state.ghost.transform.position
+                    : Vector3.zero;
+                return state != null && state.ghost != null;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache()
+            {
+            }
+
+            private static bool TryPositionFromFrames(
+                List<TrajectoryPoint> frames,
+                double ut,
+                GhostPlaybackState state,
+                out double bracketBeforeUT,
+                out double bracketAfterUT)
+            {
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                if (frames == null || frames.Count == 0 || state?.ghost == null)
+                    return false;
+
+                TrajectoryPoint before = frames[0];
+                TrajectoryPoint after = frames[frames.Count - 1];
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    if (frames[i].ut <= ut)
+                        before = frames[i];
+                    if (frames[i].ut >= ut)
+                    {
+                        after = frames[i];
+                        break;
+                    }
+                }
+
+                bracketBeforeUT = before.ut;
+                bracketAfterUT = after.ut;
+                double span = after.ut - before.ut;
+                float t = span > 0.0 ? (float)((ut - before.ut) / span) : 0f;
+                var pos = Vector3.Lerp(
+                    new Vector3((float)before.latitude, (float)before.longitude, (float)before.altitude),
+                    new Vector3((float)after.latitude, (float)after.longitude, (float)after.altitude),
+                    t);
+                state.ghost.transform.position = pos;
+                if (!state.ghost.activeSelf)
+                    state.ghost.SetActive(true);
+                state.SetInterpolated(new InterpolationResult(Vector3.zero, before.bodyName, before.altitude));
+                return true;
+            }
+
+            private static void ApplyPoint(GhostPlaybackState state, TrajectoryPoint point)
+            {
+                if (state?.ghost == null)
+                    return;
+                state.ghost.transform.position = new Vector3(
+                    (float)point.latitude,
+                    (float)point.longitude,
+                    (float)point.altitude);
+                state.SetInterpolated(new InterpolationResult(Vector3.zero, point.bodyName, point.altitude));
+            }
+        }
+
         // Mock positioner that mimics ParsekFlight's relative-frame retire
         // branch. When SetsRetireFlag is true, InterpolateAndPositionRelative
         // sets state.ghost.SetActive(false) AND state.anchorRetiredThisFrame=true,
@@ -15378,7 +15650,7 @@ namespace Parsek.InGameTests
                 state.anchorRetiredThisFrame = true;
             }
 
-            public bool TryPositionFromRelativeAbsoluteShadow(int index, IPlaybackTrajectory traj,
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
                 out double bracketBeforeUT, out double bracketAfterUT)
             {

@@ -74,50 +74,6 @@ namespace Parsek
         }
     }
 
-    internal delegate bool TryEvaluateAnchorRotationReliability(
-        int index,
-        IPlaybackTrajectory traj,
-        double playbackUT,
-        string playbackScope,
-        out AnchorRotationReliabilityDecision decision);
-
-    /// <summary>
-    /// Rendering surface chosen by the parent-anchored-debris router. The
-    /// router now ALWAYS prefers the recording's absoluteFrames shadow lerp
-    /// when shadow data covers the playback UT, independently of the
-    /// tumbling-parent gate's per-frame fire decision. The gate's fire
-    /// decision is folded into <c>state.anchorRotationShadowRoutedThisFrame</c>
-    /// for downstream FX gating but no longer determines whether shadow is
-    /// used at all. Hidden remains the third-tier fallback for parent-anchored
-    /// debris recordings without shadow coverage when the gate is firing.
-    /// </summary>
-    internal enum AnchorRotationUnreliableRoute : byte
-    {
-        /// <summary>Shadow not available AND gate did not fire; normal positioning runs.</summary>
-        None = 0,
-
-        /// <summary>
-        /// Ghost was positioned via the recording's absoluteFrames shadow
-        /// lerp. Mesh stays active. FX/events suppression for the frame is
-        /// derived from <c>state.anchorRotationShadowRoutedThisFrame</c>,
-        /// which is set true ONLY when the gate is also firing this frame
-        /// (shadow render + tumble window) — the steady-state always-shadow
-        /// path leaves it false so plumes / RCS / audio play normally during
-        /// the rest of the recording. <c>state.anchorRetiredThisFrame</c>
-        /// stays false so the engine's post-position pipeline (Activate /
-        /// TrackGhostAppearance) runs.
-        /// </summary>
-        ShadowPositioned = 1,
-
-        /// <summary>
-        /// Gate fired AND no usable absoluteFrames covered the playback UT.
-        /// Existing hide path runs (mesh inactive, FX teardown,
-        /// <c>state.anchorRetiredThisFrame=true</c>). Reachable only on
-        /// parent-anchored debris recordings without v7+ shadow data.
-        /// </summary>
-        Hidden = 2,
-    }
-
     internal struct GhostPlaybackFrameCounters
     {
         public int spawned;
@@ -180,9 +136,6 @@ namespace Parsek
 
         /// <summary>Vessel persistent ID (for event payloads and logging).</summary>
         public uint vesselPersistentId;
-
-        /// <summary>Optional host predicate for transient tumbling-parent interpolation hides.</summary>
-        public TryEvaluateAnchorRotationReliability tryEvaluateAnchorRotationReliability;
 
         /// <summary>Transient Re-Fly settle/FloatingOrigin stability hold; hide-only gate.</summary>
         public bool anchorReFlyUnstable;

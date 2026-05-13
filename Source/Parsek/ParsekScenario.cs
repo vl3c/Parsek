@@ -5906,9 +5906,18 @@ namespace Parsek
         /// <summary>
         /// Loads versioned recording metadata and ghost-geometry metadata.
         /// Missing fields are treated as old-format recordings.
-        /// Extracted for testability.
+        /// <para>
+        /// <b>Test-only.</b> Production recording-tree load paths must use
+        /// <see cref="RecordingTree.LoadRecordingFrom"/>, which enforces the
+        /// current format gate (see
+        /// <c>RecordingTreeRecordCodec</c>) before hydrating metadata. This
+        /// helper bypasses that gate by design so unit tests can exercise
+        /// metadata serialization in isolation. Do not add production callers;
+        /// the explicit name suffix is the only thing preventing accidental
+        /// reuse.
+        /// </para>
         /// </summary>
-        internal static void LoadRecordingMetadata(ConfigNode recNode, Recording rec)
+        internal static void LoadRecordingMetadataForTests(ConfigNode recNode, Recording rec)
         {
             LoadRecordingIdentityAndLoopMetadata(recNode, rec);
 

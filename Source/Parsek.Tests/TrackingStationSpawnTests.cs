@@ -697,5 +697,139 @@ namespace Parsek.Tests
             Assert.Equal(0, created);
             Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
         }
+
+        [Fact]
+        public void TrySelectTrackingStationFocusFrames_OrdinaryParentAnchoredDebris_UsesBodyFixedPrimary()
+        {
+            Recording rec = MakeTrackingStationDebrisRecording("ts-debris", "ts-parent");
+            TrackSection section = rec.TrackSections[0];
+
+            bool selected = ParsekTrackingStation.TrySelectTrackingStationFocusFrames(
+                rec,
+                105.0,
+                out List<TrajectoryPoint> frames,
+                out string reason);
+
+            Assert.True(selected, reason);
+            Assert.Same(section.bodyFixedFrames, frames);
+        }
+
+        [Fact]
+        public void TrySelectTrackingStationFocusFrames_LoopAnchoredDebrisChain_UsesBodyFixedPrimary()
+        {
+            Recording child = MakeTrackingStationDebrisRecording("ts-loop-child", "ts-loop-parent");
+            child.TreeId = "ts-loop-tree";
+            Recording parent = MakeTrackingStationParentRecording(
+                "ts-loop-parent",
+                treeId: child.TreeId,
+                loopAnchorPid: 77u);
+            var tree = new RecordingTree
+            {
+                Id = child.TreeId,
+                TreeName = "Tracking Station loop chain",
+                RootRecordingId = parent.RecordingId,
+                ActiveRecordingId = child.RecordingId,
+            };
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(child);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            try
+            {
+                TrackSection section = child.TrackSections[0];
+
+                bool selected = ParsekTrackingStation.TrySelectTrackingStationFocusFrames(
+                    child,
+                    105.0,
+                    out List<TrajectoryPoint> frames,
+                    out string reason);
+
+                Assert.True(selected, reason);
+                Assert.Same(section.bodyFixedFrames, frames);
+            }
+            finally
+            {
+                RecordingStore.RemoveCommittedTreeById(tree.Id, "tracking-station-test-cleanup");
+            }
+        }
+
+        private static Recording MakeTrackingStationDebrisRecording(
+            string recordingId,
+            string parentRecordingId)
+        {
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                MakeTrackingStationPoint(100.0, 1.0),
+                MakeTrackingStationPoint(110.0, 2.0),
+            };
+            var bodyFixedFrames = new List<TrajectoryPoint>
+            {
+                MakeTrackingStationPoint(100.0, 101.0),
+                MakeTrackingStationPoint(110.0, 102.0),
+            };
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorRecordingId = parentRecordingId,
+                frames = relativeFrames,
+                bodyFixedFrames = bodyFixedFrames,
+            };
+            return new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                VesselName = recordingId,
+                PlaybackEnabled = true,
+                IsDebris = true,
+                DebrisParentRecordingId = parentRecordingId,
+                Points = relativeFrames,
+                TrackSections = new List<TrackSection> { section },
+            };
+        }
+
+        private static Recording MakeTrackingStationParentRecording(
+            string recordingId,
+            string treeId,
+            uint loopAnchorPid)
+        {
+            return new Recording
+            {
+                RecordingId = recordingId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                TreeId = treeId,
+                VesselName = recordingId,
+                LoopPlayback = true,
+                LoopAnchorVesselId = loopAnchorPid,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        anchorVesselId = loopAnchorPid,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            MakeTrackingStationPoint(100.0, 201.0),
+                            MakeTrackingStationPoint(110.0, 202.0),
+                        },
+                    },
+                },
+            };
+        }
+
+        private static TrajectoryPoint MakeTrackingStationPoint(double ut, double latitude)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                bodyName = "Kerbin",
+                latitude = latitude,
+                longitude = 0.0,
+                altitude = 0.0,
+            };
+        }
     }
 }

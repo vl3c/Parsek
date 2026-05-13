@@ -1172,7 +1172,7 @@ namespace Parsek.Tests
 
             node.AddValue("lastResIdx", "7");
             node.AddValue("pointCount", "10");
-            node.AddValue("recordingFormatVersion", "0");
+            node.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
             node.AddValue("loopPlayback", "False");
             node.AddValue("loopIntervalSeconds", "10");
 

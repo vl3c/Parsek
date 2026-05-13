@@ -474,8 +474,8 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------
-        // ABSOLUTE-SHADOW branch — v7+ Relative section with a parallel
-        // absoluteFrames entry passed in by the caller (KSP-side wrapper
+        // body-fixed-primary branch — v7+ Relative section with a parallel
+        // bodyFixedFrames entry passed in by the caller (KSP-side wrapper
         // detects "anchor PID == active Re-Fly target PID" and supplies the
         // shadow entry). Pure helper must use the SHADOW point's surface
         // lat/lon/alt, NOT the relative offsets in the original point — this
@@ -485,7 +485,7 @@ namespace Parsek.Tests
         // -----------------------------------------------------------------
 
         [Fact]
-        public void AbsoluteShadow_UsesShadowSurfaceLookup_ReturnsLookupResult()
+        public void BodyFixedPrimary_UsesShadowSurfaceLookup_ReturnsLookupResult()
         {
             // The original Relative-frame point has anchor-local XYZ in its
             // lat/lon/alt fields (metres, not body-fixed coords) — feeding
@@ -526,10 +526,10 @@ namespace Parsek.Tests
                 anchorWorldRot: Quaternion.identity,
                 anchorVesselId: 2450432355u,
                 allowOrbitalCheckpointStateVector: false,
-                absoluteShadowPoint: shadowPoint);
+                bodyFixedPrimaryPoint: shadowPoint);
 
             Assert.True(result.Resolved);
-            Assert.Equal("absolute-shadow", result.Branch);
+            Assert.Equal("body-fixed-primary", result.Branch);
             // Vector3d uses Unity's approximate == operator; assert components
             // individually so a 1ulp drift doesn't fail an otherwise correct
             // test.
@@ -540,7 +540,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AbsoluteShadow_NullShadow_FallsThroughToRelativeBranch()
+        public void BodyFixedPrimary_NullShadow_FallsThroughToRelativeBranch()
         {
             // No shadow → behaviour unchanged: use the live anchor + relative
             // offsets. Negative test that protects unrelated callers.
@@ -555,7 +555,7 @@ namespace Parsek.Tests
                 anchorWorldPos: new Vector3d(0, 0, 0),
                 anchorWorldRot: Quaternion.identity,
                 anchorVesselId: 42u,
-                absoluteShadowPoint: null);
+                bodyFixedPrimaryPoint: null);
 
             Assert.True(result.Resolved);
             Assert.Equal("relative", result.Branch);

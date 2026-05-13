@@ -17,7 +17,7 @@ namespace Parsek.Rendering
     /// <para>
     /// The resolver never throws on missing data: each TryResolve* returns
     /// <c>false</c> + an empty position when its inputs are unavailable
-    /// (no live vessel, no checkpoint, no absolute shadow). The propagator
+    /// (no live vessel, no checkpoint, no body-fixed primary). The propagator
     /// then logs the failure and leaves ε = 0 for that slot.
     /// </para>
     /// </summary>
@@ -44,11 +44,15 @@ namespace Parsek.Rendering
             if (rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion)
             {
                 RelativeAnchorResolveFailure chainFailure = default;
-                bool boundaryHasAbsoluteShadow =
-                    relSection.absoluteFrames != null && relSection.absoluteFrames.Count > 0;
+                bool boundaryHasExactBodyFixedPrimary = TryFindExactBoundaryFrameSample(
+                    relSection.bodyFixedFrames,
+                    boundaryUT,
+                    side,
+                    emitLog: false,
+                    pt: out _);
                 // V11 path: resolve the anchor-local boundary through the
                 // recorded anchor chain. If the chain misses, fall back to the
-                // v7+ absolute shadow below instead of failing outright.
+                // v7+ body-fixed primary below instead of failing outright.
                 if (relSection.frames == null || relSection.frames.Count == 0)
                 {
                     chainFailure = RelativeAnchorResolveFailure.Create(
@@ -159,7 +163,7 @@ namespace Parsek.Rendering
                         side),
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} legacyAnchorPid={5} outcome={6} reason={7} boundaryHasAbsoluteShadow={8}",
+                        "relative-boundary-chain-unresolved recordingId={0} relSectionIndex={1} side={2} boundaryUT={3:R} anchorRecordingId={4} legacyAnchorPid={5} outcome={6} reason={7} boundaryHasExactBodyFixedPrimary={8}",
                         rec.RecordingId ?? "(none)",
                         relIdx,
                         side,
@@ -168,12 +172,12 @@ namespace Parsek.Rendering
                         relSection.anchorVesselId,
                         chainFailure.Outcome,
                         RelativeAnchorResolveFailure.ReasonOrFallback(chainFailure, "(none)"),
-                        boundaryHasAbsoluteShadow),
+                        boundaryHasExactBodyFixedPrimary),
                     5.0);
                 return false;
             }
 
-            // V7-v10 compatibility fence: only the absolute shadow can safely
+            // V7-v10 compatibility fence: only the body-fixed primary can safely
             // represent the focused vessel boundary without v11 anchor ids.
             return TryResolveRelativeBoundaryShadowWorldPos(
                 rec,
@@ -352,12 +356,6 @@ namespace Parsek.Rendering
             return IsFinite(worldPos);
         }
 
-        private static bool TryFindBoundaryShadowSample(
-            List<TrajectoryPoint> shadow, double boundaryUT, AnchorSide side, out TrajectoryPoint pt)
-        {
-            return TryFindBoundaryFrameSample(shadow, boundaryUT, side, out pt);
-        }
-
         internal static bool TryResolveRelativeBoundaryShadowWorldPos(
             Recording rec,
             TrackSection relSection,
@@ -369,13 +367,18 @@ namespace Parsek.Rendering
             worldPos = default;
             if (rec == null)
                 return false;
-            if (rec.RecordingFormatVersion < RecordingStore.RelativeAbsoluteShadowFormatVersion)
+            if (rec.RecordingFormatVersion < RecordingStore.RelativeBodyFixedPrimaryFormatVersion)
                 return false;
-            if (relSection.absoluteFrames == null || relSection.absoluteFrames.Count == 0)
+            if (relSection.bodyFixedFrames == null || relSection.bodyFixedFrames.Count == 0)
                 return false;
             if (absoluteWorldPositionResolver == null)
                 return false;
-            if (!TryFindBoundaryShadowSample(relSection.absoluteFrames, boundaryUT, side, out TrajectoryPoint shadow))
+            if (!TryFindExactBoundaryFrameSample(
+                    relSection.bodyFixedFrames,
+                    boundaryUT,
+                    side,
+                    emitLog: true,
+                    pt: out TrajectoryPoint shadow))
                 return false;
 
             try
@@ -389,6 +392,46 @@ namespace Parsek.Rendering
             }
 
             return IsFinite(worldPos);
+        }
+
+        private static bool TryFindExactBoundaryFrameSample(
+            List<TrajectoryPoint> samples,
+            double boundaryUT,
+            AnchorSide side,
+            bool emitLog,
+            out TrajectoryPoint pt)
+        {
+            pt = default;
+            if (samples == null || samples.Count == 0)
+                return false;
+
+            const double epsilonSeconds = DebrisRelativeCoveragePrimitives.UtEpsilon;
+            int best = -1;
+            double bestDist = double.PositiveInfinity;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                double dist = Math.Abs(samples[i].ut - boundaryUT);
+                if (dist <= epsilonSeconds && dist < bestDist)
+                {
+                    best = i;
+                    bestDist = dist;
+                }
+            }
+
+            if (best < 0)
+                return false;
+
+            pt = samples[best];
+            if (emitLog)
+            {
+                ParsekLog.Verbose("Pipeline-Smoothing", string.Format(CultureInfo.InvariantCulture,
+                    "boundary body-fixed sample selected: side={0} ut={1} sampleUT={2} delta={3}",
+                    side,
+                    boundaryUT.ToString("R", CultureInfo.InvariantCulture),
+                    pt.ut.ToString("R", CultureInfo.InvariantCulture),
+                    (pt.ut - boundaryUT).ToString("R", CultureInfo.InvariantCulture)));
+            }
+            return true;
         }
 
         private static bool TryFindBoundaryFrameSample(
@@ -476,7 +519,8 @@ namespace Parsek.Rendering
                 pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
                 bodyWorldRotationResolver: ResolveBodyWorldRotation,
-                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose);
+                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose,
+                tryResolveLiveAnchorTransform: ParsekFlight.TryGetLiveAnchorTransformDelegate());
             return true;
         }
 

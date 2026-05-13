@@ -335,11 +335,11 @@ namespace Parsek
             }
 
             if (section.referenceFrame == ReferenceFrame.Relative
-                && section.absoluteFrames != null
-                && section.absoluteFrames.Count > 0)
+                && section.bodyFixedFrames != null
+                && section.bodyFixedFrames.Count > 0)
             {
                 frameSource = "relative-absolute-shadow";
-                return section.absoluteFrames;
+                return section.bodyFixedFrames;
             }
 
             frameSource = null;

@@ -91,6 +91,9 @@ namespace Parsek
 
         // Debris TTL: stop recording debris after this many seconds
         internal const double DebrisTTLSeconds = 60.0;
+        internal const double DebrisFullFidelityProximityRangeMeters = 250.0;
+        internal const double DebrisHalfFidelityProximityRangeMeters = 500.0;
+        internal const double DebrisRelativeSectionExitMeters = 550.0;
 
         // Cascade depth cap. Background vessel splits whose parent recording is at
         // Generation >= MaxRecordingGeneration are skipped entirely — the parent's
@@ -262,6 +265,9 @@ namespace Parsek
             public string currentAnchorRecordingId;
             public RecordingAnchorCandidate currentAnchorCandidate;
             public bool hasCurrentAnchorCandidate;
+            public ProximitySamplingTier debrisProximityTier = ProximitySamplingTier.None;
+            public double debrisProximityDistanceMeters = double.NaN;
+            public string debrisProximityReason;
 
             // Phase 7: per-SurfaceMobile-section ground-clearance accumulators
             // (background side mirror of FlightRecorder's foreground state).
@@ -1019,18 +1025,18 @@ namespace Parsek
         {
             int flatRemoved = TrimTrajectoryPointsAfterUT(parentRec?.Points, branchUT);
             int sectionFramesRemoved = 0;
-            int absoluteFramesRemoved = 0;
+            int bodyFixedFramesRemoved = 0;
             if (parentLoaded != null && parentLoaded.trackSectionActive)
             {
                 sectionFramesRemoved = TrimTrajectoryPointsAfterUT(
                     parentLoaded.currentTrackSection.frames, branchUT);
-                absoluteFramesRemoved = TrimTrajectoryPointsAfterUT(
-                    parentLoaded.currentTrackSection.absoluteFrames, branchUT);
-                if (sectionFramesRemoved > 0 || absoluteFramesRemoved > 0)
+                bodyFixedFramesRemoved = TrimTrajectoryPointsAfterUT(
+                    parentLoaded.currentTrackSection.bodyFixedFrames, branchUT);
+                if (sectionFramesRemoved > 0 || bodyFixedFramesRemoved > 0)
                     RecomputeCurrentTrackSectionAltitudeRange(parentLoaded);
             }
 
-            int removed = flatRemoved + sectionFramesRemoved + absoluteFramesRemoved;
+            int removed = flatRemoved + sectionFramesRemoved + bodyFixedFramesRemoved;
             if (removed == 0) return;
 
             if (parentRec != null)
@@ -1044,13 +1050,13 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "CloseParentRecording: trimmed post-branch parent samples " +
                     "parentPid={0} recId={1} branchUT={2:R} flatRemoved={3} " +
-                    "sectionFramesRemoved={4} absoluteFramesRemoved={5}",
+                    "sectionFramesRemoved={4} bodyFixedFramesRemoved={5}",
                     parentPid,
                     parentRec?.RecordingId ?? "<null>",
                     branchUT,
                     flatRemoved,
                     sectionFramesRemoved,
-                    absoluteFramesRemoved));
+                    bodyFixedFramesRemoved));
         }
 
         private static int TrimTrajectoryPointsAfterUT(List<TrajectoryPoint> points, double maxUT)
@@ -1103,7 +1109,7 @@ namespace Parsek
         /// and BackgroundMap, initializes tracking state, and sets TTL for debris children.
         ///
         /// Per plan §3b §"Primary creation sites — invocation and ordering" (PR 3b),
-        /// `IsDebris` and the v12+ <see cref="Recording.DebrisParentRecordingId"/> contract
+        /// `IsDebris` and the v13 <see cref="Recording.DebrisParentRecordingId"/> contract
         /// are set on the Recording BEFORE <see cref="RecordingTree.AddOrReplaceRecording"/>
         /// and BEFORE <see cref="OnVesselBackgrounded"/>. The seed-point orchestration in
         /// <see cref="InitializeLoadedState"/> reads these fields to decide whether to open
@@ -1241,7 +1247,7 @@ namespace Parsek
                     IsDebris = !newVesselInfos[i].hasController,
                     Generation = parentGeneration + 1
                 };
-                // PR 3b: stamp the v12+ debris parent-anchor contract on the new
+                // PR 3b: stamp the v13 debris parent-anchor contract on the new
                 // child Recording adjacent to the IsDebris assignment. String
                 // overload because this static factory is invoked with the
                 // parent recording id.
@@ -1328,7 +1334,7 @@ namespace Parsek
                     continue;
                 }
 
-                // PR 3b §"Parent on-rails hook" (Decision §10): for v12+ debris
+                // PR 3b §"Parent on-rails hook" (Decision §10): for v13 debris
                 // carrying the parent-anchor contract, end the debris recording when
                 // the parent's recorded data is gone or the parent vessel is no
                 // longer live. Three end-conditions, one for each failure mode.
@@ -1370,7 +1376,7 @@ namespace Parsek
                 // can validate the truth table. Do NOT regress to
                 // parentRec.ExplicitEndUT < currentUT — active background recordings
                 // update ExplicitEndUT only at sample boundaries, so that signal
-                // lags by the sample interval and would end every v12 debris on
+                // lags by the sample interval and would end every v13 debris on
                 // the next TTL tick.
                 if (DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree))
                 {
@@ -1585,6 +1591,66 @@ namespace Parsek
         {
             return FlightRecorder.ShouldEmitSurfaceClearance(
                 trackSectionActive, frame, env, hasPqsController);
+        }
+
+        /// <summary>
+        /// Pure gate predicate for the body-fixed-shadow clearance path
+        /// (v13 follow-up). Mirrors
+        /// <see cref="ShouldEmitBackgroundSurfaceClearance"/> but forces
+        /// <see cref="ReferenceFrame.Absolute"/> -- the shadow carries
+        /// genuine body-fixed lat/lon/alt regardless of the active
+        /// section's frame. The remaining three conditions
+        /// (<c>trackSectionActive</c>, surface env, PQS) still apply.
+        /// </summary>
+        internal static bool ShouldEmitBackgroundBodyFixedShadowClearance(
+            bool trackSectionActive,
+            SegmentEnvironment env,
+            bool hasPqsController)
+        {
+            return FlightRecorder.ShouldEmitSurfaceClearance(
+                trackSectionActive,
+                ReferenceFrame.Absolute,
+                env,
+                hasPqsController);
+        }
+
+        /// <summary>
+        /// v13 follow-up: apply v9 surface clearance to the body-fixed shadow
+        /// copy that gets stored in <c>TrackSection.bodyFixedFrames</c>
+        /// alongside a RELATIVE section. The in-frames <c>point</c> stays
+        /// NaN-clearance because anchor-local metre offsets in
+        /// <c>lat/lon/alt</c> are not body-fixed coordinates -- but the shadow
+        /// carries genuine body-fixed lat/lon/alt and the v13 body-fixed
+        /// primary playback path applies terrain correction via
+        /// <c>recordedGroundClearance</c>. Without this helper, parent-
+        /// anchored surface debris recorded inside a parent-relative section
+        /// would replay at raw recorded altitude and bury or pop on terrain
+        /// differences.
+        ///
+        /// <para>Per-section stats (<c>surfaceMobileMin/MaxClearanceThisSection</c>,
+        /// etc.) are intentionally NOT updated here: those track the
+        /// section's own primary <c>frames</c> samples, not the parallel
+        /// body-fixed shadow store.</para>
+        /// </summary>
+        private static void ApplySurfaceClearanceToBodyFixedShadow(
+            BackgroundVesselState state,
+            Vessel bgVessel,
+            ref TrajectoryPoint shadow)
+        {
+            bool hasPqs = bgVessel != null && bgVessel.mainBody != null
+                && bgVessel.mainBody.pqsController != null;
+            if (!ShouldEmitBackgroundBodyFixedShadowClearance(
+                    state != null && state.trackSectionActive,
+                    state != null && state.trackSectionActive
+                        ? state.currentTrackSection.environment
+                        : SegmentEnvironment.SurfaceMobile,
+                    hasPqs))
+            {
+                return;
+            }
+            double terrainHeight = bgVessel.mainBody.TerrainAltitude(
+                shadow.latitude, shadow.longitude, true);
+            shadow.recordedGroundClearance = shadow.altitude - terrainHeight;
         }
 
         private static void ApplySurfaceClearanceToPoint(
@@ -1858,25 +1924,6 @@ namespace Parsek
 
             double ut = Planetarium.GetUniversalTime();
 
-            // PR 3b §"Re-Fly settle window hook" (Decision §11): when this is a
-            // v12+ debris recording whose parent is the focus recorder's settle
-            // target, skip the per-frame sample. Parent's recording is suppressed
-            // during the ~1–2 s post-load settle window — writing a Relative
-            // section against a suppressed parent would leave the resolver
-            // unable to walk back to a parent pose. The debris recording's
-            // first emitted Relative section starts at parent-settle-release UT.
-            if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
-                && ShouldSuppressParentDebrisForReFlySettle(treeRec, FlightRecorder.GetFrameCount()))
-            {
-                ParsekLog.VerboseRateLimited("BgRecorder",
-                    "debris-parent-settle-suppressed|" + treeRec.RecordingId,
-                    $"RELATIVE sample suppressed (parent in Re-Fly settle): pid={pid} " +
-                    $"recordingId={treeRec.RecordingId} parentRecId={treeRec.DebrisParentRecordingId} " +
-                    $"sampleUT={ut.ToString("F2", CultureInfo.InvariantCulture)}",
-                    2.0);
-                return;
-            }
-
             // Poll part events (always, regardless of sampling rate)
             PollPartEvents(bgVessel, state, treeRec, ut);
             RefreshFinalizationCacheForVessel(bgVessel, recordingId, FinalizationCacheOwner.BackgroundLoaded,
@@ -1911,6 +1958,8 @@ namespace Parsek
                 }
             }
 
+            ProximitySamplingTier debrisTier = UpdateDebrisProximityState(state, treeRec, bgVessel);
+
             UpdateBackgroundAnchorDetection(state, bgVessel, treeRec, ut);
 
             // Compute distance to focused vessel and determine proximity-based sample interval
@@ -1918,7 +1967,6 @@ namespace Parsek
             double rawProximityInterval = ProximityRateSelector.GetSampleInterval(distance);
             double proximityInterval = ResolveDebrisAwareSampleInterval(rawProximityInterval, treeRec);
             bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(state, ut, distance);
-
             // Log when sample rate changes for this vessel
             if (proximityInterval != state.currentSampleInterval)
             {
@@ -1938,8 +1986,10 @@ namespace Parsek
             }
 
             // Skip trajectory sampling if out of range
-            if (proximityInterval >= ProximityRateSelector.OutOfRangeInterval
-                && !highFidelityActive)
+            if (ShouldSkipTrajectorySamplingForProximity(
+                    proximityInterval,
+                    highFidelityActive,
+                    debrisTier))
             {
                 return;
             }
@@ -1955,16 +2005,28 @@ namespace Parsek
             float minSampleInterval = ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
             float velocityDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
             float speedChangeThreshold = (ParsekSettings.Current?.speedChangeThreshold ?? ParsekSettings.GetSpeedChangeThreshold(SamplingDensity.Medium)) / 100f;
-            float effectiveMinSampleInterval = highFidelityActive
-                ? FlightRecorder.ResolveEffectiveMinSampleInterval(true, minSampleInterval)
-                : (float)proximityInterval;
+            float effectiveMinSampleInterval = debrisTier != ProximitySamplingTier.None
+                ? FlightRecorder.ResolveEffectiveMinSampleInterval(
+                    ProximitySamplingTier.None,
+                    debrisTier,
+                    highFidelityActive,
+                    minSampleInterval,
+                    maxSampleInterval)
+                : highFidelityActive
+                    ? FlightRecorder.ResolveEffectiveMinSampleInterval(true, minSampleInterval)
+                    : (float)proximityInterval;
             float effectiveMaxSampleInterval = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                ProximitySamplingTier.None,
+                debrisTier,
                 highFidelityActive,
                 maxSampleInterval,
                 minSampleInterval);
-            effectiveMaxSampleInterval = ResolveDebrisAwareMaxSampleInterval(
-                effectiveMaxSampleInterval,
-                treeRec);
+            if (debrisTier == ProximitySamplingTier.None)
+            {
+                effectiveMaxSampleInterval = ResolveDebrisAwareMaxSampleInterval(
+                    effectiveMaxSampleInterval,
+                    treeRec);
+            }
 
             bool motionTriggered = TrajectoryMath.ShouldRecordPoint(currentVelocity, state.lastRecordedVelocity,
                 ut, state.lastRecordedUT,
@@ -2020,6 +2082,17 @@ namespace Parsek
             // Non-surface / RELATIVE-frame / missing-PQS keep NaN, the
             // sentinel for the legacy altitude path.
             ApplySurfaceClearanceToPoint(state, bgVessel, ref point);
+            // v13 follow-up: when the active section is RELATIVE, also apply
+            // surface clearance to the body-fixed shadow that gets persisted
+            // in bodyFixedFrames. The shadow carries body-fixed lat/lon/alt
+            // and the v13 body-fixed-primary playback path needs
+            // recordedGroundClearance for v9 terrain correction; without
+            // this, parent-anchored surface debris replays at raw recorded
+            // altitude.
+            if (relativeApplied)
+            {
+                ApplySurfaceClearanceToBodyFixedShadow(state, bgVessel, ref absolutePoint);
+            }
 
             treeRec.Points.Add(point);
             treeRec.MarkFilesDirty();
@@ -2041,15 +2114,6 @@ namespace Parsek
                 $"Background point sampled: pid={pid} pts={treeRec.Points.Count} " +
                 $"alt={bgVessel.altitude:F0} dist={distance:F0}m interval={FormatInterval(proximityInterval)} " +
                 $"highFidelity={highFidelityActive} reason={state.highFidelitySamplingReason ?? "(none)"}", 5.0);
-        }
-
-        internal static bool ShouldSuppressParentDebrisForReFlySettle(Recording treeRec, int frame)
-        {
-            return treeRec != null
-                && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
-                && FlightRecorder.IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(
-                    treeRec.DebrisParentRecordingId,
-                    frame);
         }
 
         /// <summary>
@@ -3356,20 +3420,44 @@ namespace Parsek
             bool debrisSeedOpened = false;
             if (debrisContractApplies)
             {
-                Recording parentRec = null;
-                tree.Recordings.TryGetValue(treeRecForDebris.DebrisParentRecordingId, out parentRec);
-                Vessel parentVessel = parentRec != null
-                    ? FlightRecorder.FindVesselByPid(parentRec.VesselPersistentId)
-                    : null;
-                if (parentRec == null || parentVessel == null)
+                double seedParentDistance = ResolveDebrisParentDistanceMeters(
+                    treeRecForDebris,
+                    v,
+                    out Recording parentRec,
+                    out Vessel parentVessel);
+                bool seedWithinRelativeRange = IsFinite(seedParentDistance)
+                    && seedParentDistance <= DebrisHalfFidelityProximityRangeMeters;
+                state.debrisProximityDistanceMeters = seedParentDistance;
+                state.debrisProximityTier = ProximitySamplingCadence.Resolve(
+                    seedParentDistance,
+                    DebrisFullFidelityProximityRangeMeters,
+                    DebrisHalfFidelityProximityRangeMeters,
+                    out state.debrisProximityReason);
+                LogDebrisProximityTierTransition(
+                    state.vesselPid,
+                    treeRecForDebris,
+                    ProximitySamplingTier.None,
+                    state.debrisProximityTier,
+                    seedParentDistance,
+                    state.debrisProximityReason,
+                    "InitializeLoadedState");
+                if (parentRec == null
+                    || parentVessel == null
+                    || !parentVessel.loaded
+                    || parentVessel.packed
+                    || !seedWithinRelativeRange)
                 {
                     pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
                     ParsekLog.Warn("BgRecorder",
-                        $"InitializeLoadedState: debris contract applies but parent unavailable, " +
+                        $"InitializeLoadedState: debris contract uses Absolute seed, " +
                         $"falling back to Absolute seed: pid={vesselPid} recId={recordingId} " +
                         $"parentRecId={treeRecForDebris.DebrisParentRecordingId} " +
                         $"parentRecResolved={parentRec != null} " +
                         $"parentVesselResolved={parentVessel != null} " +
+                        $"parentVesselLoaded={parentVessel != null && parentVessel.loaded} " +
+                        $"parentVesselPacked={parentVessel != null && parentVessel.packed} " +
+                        $"parentDistance={seedParentDistance.ToString("F1", CultureInfo.InvariantCulture)}m " +
+                        $"relativeEntryRange={DebrisHalfFidelityProximityRangeMeters.ToString("F1", CultureInfo.InvariantCulture)}m " +
                         $"initUT={ut.ToString("F3", CultureInfo.InvariantCulture)} " +
                         $"seed={DescribeTrajectoryPointForDiagnostics(initialTrajectoryPoint)} " +
                         $"{DescribeVesselRootForDiagnostics("child", v)}");
@@ -3502,10 +3590,30 @@ namespace Parsek
                         state,
                         initialTrajectoryPoint.ut,
                         "initial-trajectory-point-debris");
+                    // v9 surface clearance must reach the very first
+                    // body-fixed shadow frame too -- otherwise surface debris
+                    // replays its seed at raw recorded altitude while every
+                    // subsequent shadow frame gets terrain correction,
+                    // producing a one-frame visual hop at terrain transitions.
+                    // The in-frames point is anchor-local metres under a
+                    // Relative section, so ApplySurfaceClearanceToPoint
+                    // correctly gate-skips it (the helper's frame gate
+                    // rejects Relative). Mirrors the periodic-sample wiring
+                    // at OnBackgroundPhysicsFrame and the structural-event
+                    // flush wiring -- those previously got the body-fixed
+                    // shadow clearance, but the seed path did not.
+                    ApplySurfaceClearanceToPoint(state, v, ref initialTrajectoryPoint);
+                    if (seedRelativeApplied)
+                    {
+                        ApplySurfaceClearanceToBodyFixedShadow(
+                            state, v, ref absoluteSeedPoint);
+                    }
                     if (hasTreeRecording)
-                        ApplyInitialTrajectoryPoint(state, treeRecForSeed, initialTrajectoryPoint);
+                        ApplyInitialTrajectoryPoint(
+                            state, treeRecForSeed, initialTrajectoryPoint, absoluteSeedPoint);
                     else
-                        AppendFrameToCurrentTrackSection(state, initialTrajectoryPoint);
+                        AppendFrameToCurrentTrackSection(
+                            state, initialTrajectoryPoint, absoluteSeedPoint);
                     debrisSeedOpened = true;
 
                     ParsekLog.Info("BgRecorder",
@@ -4121,7 +4229,7 @@ namespace Parsek
 
         internal static bool ShouldPreferRootPartSurfacePoseForBackgroundSample(Recording treeRec)
         {
-            // v12+ parent-anchored debris snapshots and seed samples are root-part based.
+            // Parent-anchored debris snapshots and seed samples are root-part based.
             // Keep periodic background samples on the same pose contract so the ghost root
             // does not jump from a root-part seed to a vessel-origin ordinary sample.
             return treeRec != null && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId);
@@ -4162,7 +4270,7 @@ namespace Parsek
             if (preferRootPartSurfacePose)
                 TryResolveRootPartSurfacePose(v, out latitude, out longitude, out altitude, out rotation);
 
-            return new TrajectoryPoint
+            TrajectoryPoint pt = new TrajectoryPoint
             {
                 ut = ut,
                 latitude = latitude,
@@ -4177,6 +4285,44 @@ namespace Parsek
                 // Phase 7: NaN sentinel for non-surface points.
                 recordedGroundClearance = double.NaN
             };
+            // ---- Trace-Sep: log every BG per-tick + structural-event sample ----
+            if (v != null && (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive))
+            {
+                Vector3d worldPos = v.mainBody != null
+                    ? v.mainBody.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
+                    : Vector3d.zero;
+                Vector3d transformPos = v.transform != null ? (Vector3d)v.transform.position : Vector3d.zero;
+                // tickSinceBreak parity with FG BuildTP. See
+                // FlightRecorder.BuildTrajectoryPoint trace comment for the
+                // diagnostic value of this field.
+                double lastBreak = TraceSeparation.LastRecordingTriggerUT;
+                double tickSinceBreak = double.NaN;
+                if (!double.IsNaN(lastBreak))
+                {
+                    float dt = Time.fixedDeltaTime;
+                    if (dt > 0f && !float.IsNaN(dt) && !float.IsInfinity(dt))
+                        tickSinceBreak = (ut - lastBreak) / dt;
+                }
+                TraceSeparation.RecordLog("BG_CreateAbs",
+                    "pid=" + v.persistentId +
+                    " name='" + v.vesselName + "'" +
+                    " ut=" + ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " tickSinceBreak=" + (double.IsNaN(tickSinceBreak) ? "NaN" : tickSinceBreak.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " packed=" + v.packed +
+                    " explicitVel=" + explicitVelocity.HasValue +
+                    " preferRoot=" + preferRootPartSurfacePose +
+                    " LLA=(" + pt.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    "," + pt.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    "," + pt.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")" +
+                    " worldFromLLA=" + TraceSeparation.FormatVector3d(worldPos) +
+                    " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
+                    " transformVsLLAdelta=" + TraceSeparation.FormatVector3d(transformPos - worldPos) +
+                    " |delta|=" + (transformPos - worldPos).magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                    " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " srfVel=" + TraceSeparation.FormatVector3(v.srf_velocity) + " |sv|=" + v.srf_velocity.magnitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            // ---- /Trace-Sep ----
+            return pt;
         }
 
         private static bool TryCanonicalizeBackgroundReFlyRecordingPoint(
@@ -4292,13 +4438,14 @@ namespace Parsek
             if (state == null || bgVessel == null || treeRec == null)
                 return;
 
-            // PR 3b (Decision §5, Option C): when the recording carries the debris
-            // parent-anchor contract, bypass the candidate-list / nearest-search
-            // entirely and pin the anchor to the parent recording. The recorder
-            // unconditionally writes Relative for the debris's lifetime.
+            // When the recording carries the debris parent-anchor contract,
+            // bypass the generic candidate-list / nearest-search entirely and
+            // pin the anchor to the parent recording. v13 still decides
+            // Absolute-vs-Relative sections by parent proximity; the parent id is
+            // ownership, not a generic live-anchor candidate.
             if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId))
             {
-                ApplyDebrisAnchorContractToState(state, treeRec, ut);
+                ApplyDebrisAnchorContractToState(state, treeRec, bgVessel, ut);
                 return;
             }
 
@@ -4462,11 +4609,24 @@ namespace Parsek
                     continue;
                 }
 
+                // Use vesselTransform.position to stay symmetric with
+                // vessel.transform.rotation -- mixing GetWorldPos3D (CoM) with
+                // vesselTransform rotation systematically shifts the recorded
+                // offset by the CoM-to-vesselTransform vector (the v0.9 radial-
+                // booster ~10 m forward bug). Falls back to CoM only when the
+                // Unity transform is unavailable (mid-teardown fake-null).
+                Transform candidateTransform = vessel.transform;
+                Vector3d candidatePos = candidateTransform != null
+                    ? (Vector3d)candidateTransform.position
+                    : vessel.GetWorldPos3D();
+                Quaternion candidateRot = candidateTransform != null
+                    ? candidateTransform.rotation
+                    : Quaternion.identity;
                 if (AnchorDetector.TryCreateRecordingAnchorCandidate(
                         focusRecording,
                         candidateRecording,
-                        vessel.GetWorldPos3D(),
-                        vessel.transform.rotation,
+                        candidatePos,
+                        candidateRot,
                         AnchorCandidateSource.Live,
                         vessel.persistentId,
                         -1,
@@ -4590,7 +4750,7 @@ namespace Parsek
         /// <summary>
         /// PR 3b (Decision §5 + plan §3b §"Per-frame anchor write" / §"Structural-event
         /// seam"): pins <paramref name="state"/>'s anchor to the parent recording id
-        /// carried by the v12+ <see cref="Recording.DebrisParentRecordingId"/> contract.
+        /// carried by the v13 <see cref="Recording.DebrisParentRecordingId"/> contract.
         /// Skips the candidate-list / nearest-search and lets
         /// <see cref="ApplyBackgroundCurrentAnchorToTrackSection"/> propagate the anchor
         /// id into <see cref="TrackSection.anchorRecordingId"/>. Builds a Live anchor
@@ -4600,11 +4760,31 @@ namespace Parsek
         private void ApplyDebrisAnchorContractToState(
             BackgroundVesselState state,
             Recording treeRec,
+            Vessel bgVessel,
             double ut)
         {
             if (state == null || treeRec == null) return;
             string parentRecId = treeRec.DebrisParentRecordingId;
             if (string.IsNullOrEmpty(parentRecId)) return;
+
+            if (!ShouldUseDebrisRelativeSection(state))
+            {
+                if (state.isRelativeMode
+                    || (state.trackSectionActive
+                        && state.currentTrackSection.referenceFrame == ReferenceFrame.Relative))
+                {
+                    ExitBackgroundRelativeMode(
+                        state,
+                        bgVessel,
+                        ut,
+                        "debris-parent-proximity-exit");
+                }
+                else
+                {
+                    ClearBackgroundCurrentAnchor(state);
+                }
+                return;
+            }
 
             string previousAnchorRecordingId = state.currentAnchorRecordingId;
             bool wasRelative = state.isRelativeMode;
@@ -4624,10 +4804,27 @@ namespace Parsek
 
             if (parentVessel != null && parentVessel.loaded)
             {
+                // Use vesselTransform.position (NOT GetWorldPos3D / CoM) to stay
+                // symmetric with parentVessel.transform.rotation and with the
+                // recorder's seed-time anchor capture (which writes
+                // v.latitude/longitude/altitude derived from vesselTransform via
+                // KSP's UpdatePosVel). Mixing CoM position with vesselTransform
+                // rotation was the v0.9 radial-booster ~10 m forward offset bug
+                // -- body-fixed primary masks the inconsistency for normal v13
+                // rendering, but the live candidate also leaks into diagnostics,
+                // fallback paths, and future anchor-based render logic. Falls
+                // back to CoM when transform is null (mid-teardown fake-null).
+                Transform parentTransform = parentVessel.transform;
+                Vector3d parentAnchorPos = parentTransform != null
+                    ? (Vector3d)parentTransform.position
+                    : parentVessel.GetWorldPos3D();
+                Quaternion parentAnchorRot = parentTransform != null
+                    ? parentTransform.rotation
+                    : Quaternion.identity;
                 var liveCandidate = new RecordingAnchorCandidate(
                     parentRecId,
-                    parentVessel.GetWorldPos3D(),
-                    parentVessel.transform.rotation,
+                    parentAnchorPos,
+                    parentAnchorRot,
                     AnchorCandidateSource.Live,
                     diagnosticPid: parentVessel.persistentId,
                     ghostIndex: -1,
@@ -4647,23 +4844,20 @@ namespace Parsek
                 state.hasCurrentAnchorCandidate = false;
             }
 
-            // If we just transitioned into the contract or swapped anchors, close
+            // If we just transitioned into the relative surface or swapped anchors, close
             // the Absolute section we opened (or re-open) and start a Relative one.
-            // The contract is "always Relative for debris's lifetime" so any non-
-            // Relative active section needs to flip.
+            // The contract is proximity-scoped: parent-local Relative sections are
+            // only opened while the parent remains in the debris relative range.
             bool needsSectionFlip = state.trackSectionActive
                 && state.currentTrackSection.referenceFrame != ReferenceFrame.Relative;
             bool anchorChanged = !wasRelative
                 || !string.Equals(previousAnchorRecordingId, parentRecId, StringComparison.Ordinal);
             if (needsSectionFlip || anchorChanged)
             {
-                if (state.trackSectionActive)
-                    CloseBackgroundTrackSection(state, ut);
                 SegmentEnvironment env = state.environmentHysteresis != null
                     ? state.environmentHysteresis.CurrentEnvironment
                     : SegmentEnvironment.Atmospheric;
-                StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
-                ApplyBackgroundCurrentAnchorToTrackSection(state);
+                StartDebrisParentRelativeTrackSection(state, env, ut);
                 if (anchorChanged)
                 {
                     string transition = previousAnchorRecordingId == null ? "entered" : "switched";
@@ -4682,6 +4876,42 @@ namespace Parsek
             {
                 ApplyBackgroundCurrentAnchorToTrackSection(state);
             }
+        }
+
+        private void StartDebrisParentRelativeTrackSection(
+            BackgroundVesselState state,
+            SegmentEnvironment env,
+            double ut)
+        {
+            if (state.trackSectionActive)
+                CloseBackgroundTrackSection(state, ut);
+            StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
+            ApplyBackgroundCurrentAnchorToTrackSection(state);
+            ForceNextBackgroundTrajectorySample(
+                state,
+                ut,
+                "debris-parent-relative-enter");
+        }
+
+        private static void ForceNextBackgroundTrajectorySample(
+            BackgroundVesselState state,
+            double ut,
+            string reason)
+        {
+            if (state == null)
+                return;
+
+            // TrajectoryMath.ShouldRecordPoint treats negative lastRecordedUT as
+            // the first-sample case, bypassing min/max interval gates.
+            state.lastRecordedUT = -1.0;
+            state.hasLastWorldRotation = false;
+            ActivateBackgroundHighFidelitySampling(
+                state,
+                ut,
+                reason ?? "force-immediate-sample");
+            ParsekLog.Verbose("BgRecorder",
+                $"Immediate background trajectory sample forced: pid={state.vesselPid} " +
+                $"reason={reason ?? "unknown"} ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         private static void ClearBackgroundCurrentAnchor(BackgroundVesselState state)
@@ -4715,7 +4945,7 @@ namespace Parsek
 
             // PR 3b §"Structural-event seam": the structural-event snapshot path
             // bypasses UpdateBackgroundAnchorDetection, so the debris contract must
-            // be enforced here too. For v12+ debris, pin state to the parent
+            // be enforced here too. For v13 debris, pin state to the parent
             // recording id before any pose resolution. Re-runs of the periodic path
             // hit the same helper but it's idempotent when the contract is already
             // applied (anchorChanged=false → no log spam, no section flip).
@@ -4724,7 +4954,8 @@ namespace Parsek
                 tree?.Recordings?.TryGetValue(state.recordingId, out treeRec);
             if (treeRec != null && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId))
             {
-                ApplyDebrisAnchorContractToState(state, treeRec, ut);
+                UpdateDebrisProximityState(state, treeRec, vessel);
+                ApplyDebrisAnchorContractToState(state, treeRec, vessel, ut);
             }
 
             if (!state.isRelativeMode)
@@ -4805,6 +5036,17 @@ namespace Parsek
                 return false;
             }
 
+            // Apply v9 surface clearance to both stores. The in-frames
+            // relativePoint goes into a Relative section so the helper's
+            // frame gate correctly skips it (anchor-local metres in
+            // lat/lon/alt would corrupt terrain math), but the body-fixed
+            // shadow carries genuine lat/lon/alt and the v13 body-fixed
+            // primary playback path applies terrain correction via
+            // recordedGroundClearance. Mirrors the periodic-sample,
+            // structural-event, and debris-seed wirings.
+            ApplySurfaceClearanceToPoint(state, vessel, ref relativePoint);
+            ApplySurfaceClearanceToBodyFixedShadow(state, vessel, ref absolutePoint);
+
             AddFrameToActiveTrackSection(state, relativePoint, absolutePoint);
             ParsekLog.Verbose("BgRecorder",
                 $"RELATIVE boundary seeded: pid={state.vesselPid} " +
@@ -4833,7 +5075,16 @@ namespace Parsek
                     vessel,
                     out Vector3d focusWorldPos))
             {
-                focusWorldPos = vessel.GetWorldPos3D();
+                // Fall back to vesselTransform.position (NOT GetWorldPos3D / CoM)
+                // to stay symmetric with the rotation fallback below at
+                // vessel.transform.rotation. Both pieces must come from the same
+                // frame or the recorded offset is shifted by the CoM-to-
+                // vesselTransform vector. CoM remains as the last-resort fallback
+                // if the Unity transform is mid-teardown (fake-null).
+                Transform focusTransform = vessel.transform;
+                focusWorldPos = focusTransform != null
+                    ? (Vector3d)focusTransform.position
+                    : vessel.GetWorldPos3D();
             }
             Vector3d offset = TrajectoryMath.ComputeRelativeLocalOffset(
                 focusWorldPos,
@@ -4855,6 +5106,37 @@ namespace Parsek
                 anchorPose.WorldRotation);
 
             ApplyBackgroundCurrentAnchorToTrackSection(state);
+
+            // ---- Trace-Sep: log both parent-vs-debris distance measurements ----
+            // recorded-relative = |offset|, the magnitude of the anchor-local
+            // Cartesian offset just written into frames[].latitude/longitude/altitude.
+            // recorded-absolute = |focusWorldPos - anchorPose.WorldPos|, the
+            // ground-truth world-space distance between the live debris and
+            // the live anchor at this same instant. These two MUST match
+            // exactly (the relative offset only rotates the world vector into
+            // the anchor's frame, magnitude is preserved). A mismatch here is
+            // a smoking gun for ComputeRelativeLocalOffset doing more than
+            // rotation (scale, axis-swap, mis-applied anchor rotation, etc.)
+            // and would mean the recorded anchor-local distance does not
+            // correspond to the real ground-truth distance.
+            if (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive)
+            {
+                Vector3d worldDelta = focusWorldPos - anchorPose.WorldPos;
+                double recordedRelativeDist = offset.magnitude;
+                double recordedAbsoluteDist = worldDelta.magnitude;
+                TraceSeparation.RecordLog("BG_ApplyRel",
+                    "vesselPid=" + state.vesselPid +
+                    " anchorRecId=" + (anchorRecordingId ?? "<null>") +
+                    " ut=" + point.ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " focusWorldPos=" + TraceSeparation.FormatVector3d(focusWorldPos) +
+                    " anchorWorldPos=" + TraceSeparation.FormatVector3d(anchorPose.WorldPos) +
+                    " worldDelta=" + TraceSeparation.FormatVector3d(worldDelta) +
+                    " offset=" + TraceSeparation.FormatVector3d(offset) +
+                    " recordedRelativeDist=" + recordedRelativeDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " recordedAbsoluteDist=" + recordedAbsoluteDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " distMismatch=" + System.Math.Abs(recordedRelativeDist - recordedAbsoluteDist).ToString("F3", CultureInfo.InvariantCulture));
+            }
+            // ---- /Trace-Sep ----
 
             if (logSample)
             {
@@ -5221,7 +5503,7 @@ namespace Parsek
                     proximityDistanceMeters);
         }
 
-        // Predicate gate for the v12+ debris parent-anchored sampling caps below.
+        // Predicate gate for the v13 debris parent-anchored sampling caps below.
         // Both the proximity-tier (min) cap and the configured-max backstop cap
         // share this gate so they always engage or disengage together.
         internal static bool IsDebrisAwareSampleCapEligible(Recording treeRec)
@@ -5231,16 +5513,164 @@ namespace Parsek
                 && !string.IsNullOrEmpty(treeRec.DebrisParentRecordingId);
         }
 
-        // For v12+ debris recordings whose parent recording id is known, cap the
+        private double ResolveDebrisParentDistanceMeters(Recording debrisRecording, Vessel debrisVessel)
+        {
+            if (!IsDebrisAwareSampleCapEligible(debrisRecording)
+                || debrisVessel == null)
+            {
+                return double.NaN;
+            }
+
+            return ResolveDebrisParentDistanceMeters(
+                debrisRecording,
+                debrisVessel,
+                out _,
+                out _);
+        }
+
+        private double ResolveDebrisParentDistanceMeters(
+            Recording debrisRecording,
+            Vessel debrisVessel,
+            out Recording parentRecording,
+            out Vessel parentVessel)
+        {
+            parentRecording = null;
+            parentVessel = null;
+
+            if (debrisRecording == null
+                || debrisVessel == null
+                || tree?.Recordings == null
+                || string.IsNullOrEmpty(debrisRecording.DebrisParentRecordingId))
+            {
+                return double.NaN;
+            }
+
+            if (!tree.Recordings.TryGetValue(
+                    debrisRecording.DebrisParentRecordingId,
+                    out parentRecording)
+                || parentRecording == null
+                || parentRecording.VesselPersistentId == 0u)
+            {
+                return double.NaN;
+            }
+
+            parentVessel = FlightRecorder.FindVesselByPid(parentRecording.VesselPersistentId);
+            if (parentVessel == null || !parentVessel.loaded || parentVessel.packed)
+                return double.NaN;
+
+            // Use CoM (GetWorldPos3D) rather than vesselTransform.position here.
+            // Pose composition deliberately uses vesselTransform to stay symmetric
+            // with the recorded lat/lon/alt frame (CoM-to-vesselTransform vector is
+            // ~10 m for radial boosters), but for the cadence-tier thresholds
+            // (250 / 500 / 550 m) the CoM vs vesselTransform delta is well below
+            // the boundary resolution and CoM is the cheaper, more conventional
+            // proximity metric.
+            Vector3d parentWorldPos = parentVessel.GetWorldPos3D();
+            Vector3d debrisWorldPos = debrisVessel.GetWorldPos3D();
+            if (!IsFinite(parentWorldPos) || !IsFinite(debrisWorldPos))
+                return double.NaN;
+
+            return Vector3d.Distance(parentWorldPos, debrisWorldPos);
+        }
+
+        private ProximitySamplingTier UpdateDebrisProximityState(
+            BackgroundVesselState state,
+            Recording treeRec,
+            Vessel debrisVessel)
+        {
+            if (state == null)
+                return ProximitySamplingTier.None;
+
+            ProximitySamplingTier previousTier = state.debrisProximityTier;
+            double distance = ResolveDebrisParentDistanceMeters(treeRec, debrisVessel);
+            ProximitySamplingTier tier = ProximitySamplingTier.None;
+            string reason = null;
+            if (IsDebrisAwareSampleCapEligible(treeRec))
+            {
+                tier = ProximitySamplingCadence.Resolve(
+                    distance,
+                    DebrisFullFidelityProximityRangeMeters,
+                    DebrisHalfFidelityProximityRangeMeters,
+                    out reason);
+            }
+
+            if (previousTier != tier)
+            {
+                LogDebrisProximityTierTransition(
+                    state.vesselPid,
+                    treeRec,
+                    previousTier,
+                    tier,
+                    distance,
+                    reason,
+                    "UpdateDebrisProximityState");
+            }
+
+            state.debrisProximityTier = tier;
+            state.debrisProximityDistanceMeters = distance;
+            state.debrisProximityReason = reason;
+            return tier;
+        }
+
+        private static void LogDebrisProximityTierTransition(
+            uint vesselPid,
+            Recording treeRec,
+            ProximitySamplingTier previousTier,
+            ProximitySamplingTier newTier,
+            double distance,
+            string reason,
+            string site)
+        {
+            if (previousTier == newTier)
+                return;
+
+            ParsekLog.Info(
+                "Anchor",
+                $"debris-proximity-tier-transition: site={site ?? "(unknown)"} " +
+                $"pid={vesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                $"recId={treeRec?.RecordingId ?? "(none)"} " +
+                $"parentRecId={treeRec?.DebrisParentRecordingId ?? "(none)"} " +
+                $"old={previousTier} new={newTier} " +
+                $"distance={(IsFinite(distance) ? distance.ToString("F1", CultureInfo.InvariantCulture) : "NaN")}m " +
+                $"reason={reason ?? "ineligible"}");
+        }
+
+        private static bool ShouldUseDebrisRelativeSection(BackgroundVesselState state)
+        {
+            if (state == null)
+                return false;
+
+            bool alreadyRelative = state.isRelativeMode
+                || (state.trackSectionActive
+                    && state.currentTrackSection.referenceFrame == ReferenceFrame.Relative);
+            return ShouldUseDebrisRelativeSectionForDistance(
+                state.debrisProximityDistanceMeters,
+                alreadyRelative);
+        }
+
+        internal static bool ShouldUseDebrisRelativeSectionForDistance(
+            double distanceMeters,
+            bool alreadyRelative)
+        {
+            if (!IsFinite(distanceMeters))
+                return false;
+
+            double threshold = alreadyRelative
+                ? DebrisRelativeSectionExitMeters
+                : DebrisHalfFidelityProximityRangeMeters;
+            return distanceMeters <= threshold;
+        }
+
+        // For v13 debris recordings whose parent recording id is known, cap the
         // proximity-derived sample interval (the adaptive sampler's MIN floor)
         // at MidInterval (0.5 s) regardless of distance from the focused vessel.
         // Without this cap, radial debris that flies past 1000 m of its parent
         // during high-velocity breakup falls into the FarRange tier (2.0 s gap),
         // producing visibly choppy trajectory rendering.
         //
-        // Out-of-range tier (vessel exited the physics bubble) is preserved as-is
-        // — the early-return at the OutOfRangeInterval check is the correct path
-        // when the BG vessel is no longer loaded. Legacy v11 debris (no
+        // Out-of-range tier is preserved as-is; the later proximity skip is
+        // bypassed only when the parent-proximity debris tier is active. Legacy
+        // v11 debris (no
         // DebrisParentRecordingId) and non-debris BG vessels keep the unaltered
         // tier table.
         internal static double ResolveDebrisAwareSampleInterval(
@@ -5250,6 +5680,16 @@ namespace Parsek
             if (!IsDebrisAwareSampleCapEligible(treeRec)) return tierInterval;
             if (tierInterval >= ProximityRateSelector.OutOfRangeInterval) return tierInterval;
             return Math.Min(tierInterval, ProximityRateSelector.MidInterval);
+        }
+
+        internal static bool ShouldSkipTrajectorySamplingForProximity(
+            double proximityInterval,
+            bool highFidelityActive,
+            ProximitySamplingTier debrisTier)
+        {
+            return proximityInterval >= ProximityRateSelector.OutOfRangeInterval
+                && !highFidelityActive
+                && debrisTier == ProximitySamplingTier.None;
         }
 
         // Companion to ResolveDebrisAwareSampleInterval that bounds the adaptive
@@ -5716,7 +6156,7 @@ namespace Parsek
                     : null,
                 anchorVesselId = 0u,
                 frames = new List<TrajectoryPoint>(),
-                absoluteFrames = refFrame == ReferenceFrame.Relative
+                bodyFixedFrames = refFrame == ReferenceFrame.Relative
                     ? new List<TrajectoryPoint>()
                     : null,
                 checkpoints = new List<OrbitSegment>(),
@@ -5740,14 +6180,14 @@ namespace Parsek
         private static void AppendFrameToCurrentTrackSection(
             BackgroundVesselState state,
             TrajectoryPoint point,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (state == null || !state.trackSectionActive || state.currentTrackSection.frames == null)
                 return;
 
             state.currentTrackSection.frames.Add(point);
-            if (absoluteShadowPoint.HasValue && state.currentTrackSection.absoluteFrames != null)
-                state.currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+            if (bodyFixedPrimaryPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
+                state.currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             if (float.IsNaN(state.currentTrackSection.minAltitude)
                 || point.altitude < state.currentTrackSection.minAltitude)
             {
@@ -5761,7 +6201,10 @@ namespace Parsek
         }
 
         private static void ApplyInitialTrajectoryPoint(
-            BackgroundVesselState state, Recording treeRec, TrajectoryPoint point)
+            BackgroundVesselState state,
+            Recording treeRec,
+            TrajectoryPoint point,
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             // Bug #419: ApplyTrajectoryPointToRecording rejects non-monotonic appends. If
             // the flat-points append was rejected, the seed must NOT enter the track
@@ -5780,7 +6223,7 @@ namespace Parsek
                 return;
             }
 
-            AppendFrameToCurrentTrackSection(state, point);
+            AppendFrameToCurrentTrackSection(state, point, bodyFixedPrimaryPoint);
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
 
@@ -5868,14 +6311,14 @@ namespace Parsek
         private static void AddFrameToActiveTrackSection(
             BackgroundVesselState state,
             TrajectoryPoint point,
-            TrajectoryPoint? absoluteShadowPoint = null)
+            TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
             if (!state.trackSectionActive || state.currentTrackSection.frames == null)
                 return;
 
             state.currentTrackSection.frames.Add(point);
-            if (absoluteShadowPoint.HasValue && state.currentTrackSection.absoluteFrames != null)
-                state.currentTrackSection.absoluteFrames.Add(absoluteShadowPoint.Value);
+            if (bodyFixedPrimaryPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
+                state.currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             if (float.IsNaN(state.currentTrackSection.minAltitude)
                 || point.altitude < state.currentTrackSection.minAltitude)
             {
@@ -6883,29 +7326,6 @@ namespace Parsek
                     continue;
                 }
 
-                // PR 3b review follow-up §"Re-Fly settle window hook" (Decision §11):
-                // mirror the periodic path's settle skip on the structural-event
-                // seam too. If a v12+ debris vessel emits a structural event during
-                // its parent's Re-Fly post-load settle window (e.g. a deploy event
-                // coincident with the settle release), the snapshot would land in
-                // a Relative section anchored to a parent recording whose own
-                // samples are suppressed for the same window — the resolver could
-                // not walk back to a parent pose. Skip this vessel's snapshot;
-                // subsequent samples after settle release will reopen the section.
-                if (!string.IsNullOrEmpty(treeRec.DebrisParentRecordingId)
-                    && ShouldSuppressParentDebrisForReFlySettle(treeRec, FlightRecorder.GetFrameCount()))
-                {
-                    ParsekLog.VerboseRateLimited("BgRecorder",
-                        "debris-parent-settle-suppressed-struct|" + treeRec.RecordingId,
-                        $"Structural-event snapshot suppressed (parent in Re-Fly settle): " +
-                        $"pid={pid} recordingId={treeRec.RecordingId} " +
-                        $"parentRecId={treeRec.DebrisParentRecordingId} " +
-                        $"eventType={eventType ?? "unknown"} " +
-                        $"eventUT={eventUT.ToString("F2", CultureInfo.InvariantCulture)}",
-                        2.0);
-                    continue;
-                }
-
                 Vector3 velocity = v.packed
                     ? (Vector3)v.obt_velocity
                     : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
@@ -6922,6 +7342,12 @@ namespace Parsek
                 TrajectoryPoint absolutePoint = point;
                 bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, v, eventUT);
                 ApplySurfaceClearanceToPoint(state, v, ref point);
+                // v13 follow-up: body-fixed shadow gets clearance too when
+                // the active section is RELATIVE (see helper docstring).
+                if (relativeApplied)
+                {
+                    ApplySurfaceClearanceToBodyFixedShadow(state, v, ref absolutePoint);
+                }
 
                 if (!ApplyTrajectoryPointToRecording(treeRec, point))
                 {
@@ -7533,7 +7959,10 @@ namespace Parsek
         /// </summary>
         internal void InjectLoadedStateWithEnvironmentForTesting(
             uint vesselPid, string recordingId, SegmentEnvironment initialEnv, double ut,
-            TrajectoryPoint? initialPoint = null)
+            TrajectoryPoint? initialPoint = null,
+            ReferenceFrame initialReferenceFrame = ReferenceFrame.Absolute,
+            string anchorRecordingId = null,
+            TrajectoryPoint? bodyFixedInitialPoint = null)
         {
             var state = new BackgroundVesselState
             {
@@ -7541,15 +7970,35 @@ namespace Parsek
                 recordingId = recordingId,
             };
             state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
-            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
+            if (initialReferenceFrame == ReferenceFrame.Relative
+                && !string.IsNullOrWhiteSpace(anchorRecordingId))
+            {
+                SetBackgroundCurrentAnchor(
+                    state,
+                    new RecordingAnchorCandidate(
+                        anchorRecordingId,
+                        Vector3d.zero,
+                        Quaternion.identity,
+                        AnchorCandidateSource.Ghost));
+            }
+            StartBackgroundTrackSection(state, initialEnv, initialReferenceFrame,
                 initialPoint.HasValue ? initialPoint.Value.ut : ut);
+            if (initialReferenceFrame == ReferenceFrame.Relative)
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
             if (initialPoint.HasValue)
             {
                 Recording treeRec;
                 if (tree != null && tree.Recordings.TryGetValue(recordingId, out treeRec))
-                    ApplyInitialTrajectoryPoint(state, treeRec, initialPoint.Value);
+                    ApplyInitialTrajectoryPoint(
+                        state,
+                        treeRec,
+                        initialPoint.Value,
+                        bodyFixedInitialPoint);
                 else
-                    AppendFrameToCurrentTrackSection(state, initialPoint.Value);
+                    AppendFrameToCurrentTrackSection(
+                        state,
+                        initialPoint.Value,
+                        bodyFixedInitialPoint);
             }
             loadedStates[vesselPid] = state;
         }
@@ -7614,6 +8063,24 @@ namespace Parsek
 
             StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
             ApplyBackgroundCurrentAnchorToTrackSection(state);
+            loadedStates[vesselPid] = state;
+        }
+
+        internal void StartDebrisParentRelativeTrackSectionForTesting(
+            uint vesselPid,
+            string parentRecordingId,
+            SegmentEnvironment env,
+            double ut)
+        {
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state))
+                return;
+
+            state.isRelativeMode = true;
+            state.currentAnchorRecordingId = parentRecordingId;
+            state.currentAnchorCandidate = default;
+            state.hasCurrentAnchorCandidate = false;
+            StartDebrisParentRelativeTrackSection(state, env, ut);
             loadedStates[vesselPid] = state;
         }
 

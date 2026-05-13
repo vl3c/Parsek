@@ -145,6 +145,80 @@ namespace Parsek.Tests
             return rec;
         }
 
+        static Recording MakeKscParentAnchoredDebrisRecording(bool includeBodyFixedPrimary)
+        {
+            var rec = MakeKscRelativeRecording();
+            rec.RecordingId = "debris-rec";
+            rec.VesselName = "ParentDebrisKsc";
+            rec.IsDebris = true;
+            rec.DebrisParentRecordingId = "parent-rec";
+            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            if (includeBodyFixedPrimary)
+            {
+                TrackSection section = rec.TrackSections[0];
+                section.bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100,
+                        latitude = 1,
+                        longitude = 2,
+                        altitude = 3,
+                        bodyName = "Kerbin",
+                        rotation = new Quaternion(0, 0, 0, 1),
+                        velocity = Vector3.zero
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110,
+                        latitude = 11,
+                        longitude = 12,
+                        altitude = 13,
+                        bodyName = "Kerbin",
+                        rotation = new Quaternion(0, 0, 0, 1),
+                        velocity = Vector3.zero
+                    }
+                };
+                rec.TrackSections[0] = section;
+            }
+            return rec;
+        }
+
+        static RecordingTree MakeLoopAnchoredDebrisTree(Recording child)
+        {
+            var tree = new RecordingTree
+            {
+                Id = "ksc-loop-tree",
+                TreeName = "KSC Loop Tree",
+                RootRecordingId = "parent-rec",
+                ActiveRecordingId = child.RecordingId
+            };
+            tree.Recordings[child.RecordingId] = child;
+            tree.Recordings["parent-rec"] = new Recording
+            {
+                RecordingId = "parent-rec",
+                VesselName = "Parent",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                LoopAnchorVesselId = 77u,
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        referenceFrame = ReferenceFrame.Relative,
+                        startUT = 100,
+                        endUT = 110,
+                        anchorRecordingId = "loop-root-rec",
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100 },
+                            new TrajectoryPoint { ut = 110 }
+                        }
+                    }
+                }
+            };
+            return tree;
+        }
+
         static Recording MakeKscAbsoluteSectionRecording()
         {
             var before = new TrajectoryPoint
@@ -323,6 +397,99 @@ namespace Parsek.Tests
                 line.Contains("[KSCGhost]") &&
                 line.Contains("RELATIVE KSC playback skipped") &&
                 line.Contains("anchorRec=anchor-rec"));
+        }
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_ParentAnchoredDebris_UsesBodyFixedPrimary()
+        {
+            var rec = MakeKscParentAnchoredDebrisRecording(includeBodyFixedPrimary: true);
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            int surfaceCalls = 0;
+            bool anchorCalled = false;
+            ParsekKSC.KscRecordedAnchorLookup anchorLookup = (
+                Recording rec, TrackSection section, int sectionIndex, double targetUT,
+                out ParsekKSC.KscAnchorFrame anchor) =>
+            {
+                anchorCalled = true;
+                anchor = default(ParsekKSC.KscAnchorFrame);
+                return false;
+            };
+
+            bool resolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                105,
+                SurfaceLookupFromLatLonAlt(() => surfaceCalls++),
+                anchorLookup,
+                out ParsekKSC.KscPoseResolution pose);
+
+            Assert.True(resolved);
+            Assert.False(anchorCalled);
+            Assert.Equal(2, surfaceCalls);
+            Assert.Equal("body-fixed-primary", pose.Branch);
+            Assert.Equal(600.0, pose.WorldPos.x, 6);
+            Assert.Equal(700.0, pose.WorldPos.y, 6);
+            Assert.Equal(8.0, pose.WorldPos.z, 6);
+        }
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_ParentAnchoredDebrisWithoutBodyFixedPrimary_FailsClosed()
+        {
+            var rec = MakeKscParentAnchoredDebrisRecording(includeBodyFixedPrimary: false);
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            bool anchorCalled = false;
+            ParsekKSC.KscRecordedAnchorLookup anchorLookup = (
+                Recording rec, TrackSection section, int sectionIndex, double targetUT,
+                out ParsekKSC.KscAnchorFrame anchor) =>
+            {
+                anchorCalled = true;
+                anchor = default(ParsekKSC.KscAnchorFrame);
+                return false;
+            };
+
+            bool resolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                105,
+                SurfaceLookupFromLatLonAlt(),
+                anchorLookup,
+                out ParsekKSC.KscPoseResolution pose);
+
+            Assert.False(resolved);
+            Assert.False(anchorCalled);
+            Assert.Equal("body-fixed-primary", pose.Branch);
+            Assert.Equal("relative-only-without-body-fixed-primary", pose.FailureReason);
+        }
+
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_LoopAnchoredDebrisChain_UsesRelativeFrames()
+        {
+            var rec = MakeKscParentAnchoredDebrisRecording(includeBodyFixedPrimary: false);
+            RecordingStore.AddCommittedTreeForTesting(MakeLoopAnchoredDebrisTree(rec));
+            int cachedIndex = 0;
+            int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            bool surfaceCalled = false;
+
+            bool resolved = ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref cachedIndex,
+                ref cachedFrameSourceKey,
+                105,
+                SurfaceLookupFromLatLonAlt(() => surfaceCalled = true),
+                AnchorLookup("anchor-rec", new Vector3d(1000, 2000, 3000)),
+                out ParsekKSC.KscPoseResolution pose);
+
+            Assert.True(resolved);
+            Assert.False(surfaceCalled);
+            Assert.Equal("relative", pose.Branch);
+            Assert.Equal("anchor-rec", pose.AnchorRecordingId);
+            Assert.Equal(1020.0, pose.WorldPos.x, 6);
+            Assert.Equal(2030.0, pose.WorldPos.y, 6);
+            Assert.Equal(3040.0, pose.WorldPos.z, 6);
         }
 
         [Fact]

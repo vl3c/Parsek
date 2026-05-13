@@ -107,7 +107,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_UsesLastAbsoluteShadowPoint()
+        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_UsesLastBodyFixedPrimaryPoint()
         {
             var rec = new Recording { RecordingId = "scene-exit-tail-reseed" };
             rec.Points.Add(new TrajectoryPoint
@@ -136,7 +136,7 @@ namespace Parsek.Tests
                         velocity = new Vector3(1f, 1f, 1f)
                     }
                 },
-                absoluteFrames = new List<TrajectoryPoint>
+                bodyFixedFrames = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint
                     {
@@ -180,7 +180,7 @@ namespace Parsek.Tests
             Assert.Equal(110.0, segments[0].startUT, precision: 3);
             Assert.Equal(500.0, segments[0].endUT, precision: 3);
             Assert.Equal(812345.0, segments[0].semiMajorAxis, precision: 3);
-            Assert.Equal("TrackSection[0].absoluteFrames", diagnostics.AnchorSource);
+            Assert.Equal("TrackSection[0].bodyFixedFrames", diagnostics.AnchorSource);
             Assert.Equal(2.0, diagnostics.GapSeconds, precision: 3);
             Assert.Equal(40.0, diagnostics.RawOffsetMeters, precision: 3);
             Assert.Equal(0.25, diagnostics.ResidualOffsetMeters, precision: 3);
@@ -1476,7 +1476,7 @@ namespace Parsek.Tests
                 startUT = 500.0,
                 endUT = 500.0,
                 frames = new List<TrajectoryPoint> { relativePoint },
-                absoluteFrames = new List<TrajectoryPoint>()
+                bodyFixedFrames = new List<TrajectoryPoint>()
             });
 
             bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(rec, out IncompleteBallisticFinalizationResult result);
@@ -1490,7 +1490,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RelativeAbsoluteFrameCanSuppressSubSurfaceDestroyed()
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RelativebodyFixedFrameCanSuppressSubSurfaceDestroyed()
         {
             var rec = new Recording
             {
@@ -1522,7 +1522,7 @@ namespace Parsek.Tests
                 startUT = 500.0,
                 endUT = 500.0,
                 frames = new List<TrajectoryPoint> { relativePoint },
-                absoluteFrames = new List<TrajectoryPoint> { absolutePoint }
+                bodyFixedFrames = new List<TrajectoryPoint> { absolutePoint }
             });
 
             bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(rec, out IncompleteBallisticFinalizationResult result);
@@ -1532,7 +1532,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("suppressing sub-surface Destroyed")
                 && l.Contains("scene-exit-null-solver-relative-absolute-frame")
-                && l.Contains("source=TrackSection[0].absoluteFrames"));
+                && l.Contains("source=TrackSection[0].bodyFixedFrames"));
         }
 
         [Fact]

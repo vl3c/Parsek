@@ -321,7 +321,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-dock";
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(12345u, loaded.DockTargetVesselPid);
         }
@@ -334,7 +334,7 @@ namespace Parsek.Tests
 
             var loaded = new Recording();
             loaded.RecordingId = "test-legacy-dock";
-            ParsekScenario.LoadRecordingMetadata(node, loaded);
+            ParsekScenario.LoadRecordingMetadataForTests(node, loaded);
 
             Assert.Equal(0u, loaded.DockTargetVesselPid);
         }

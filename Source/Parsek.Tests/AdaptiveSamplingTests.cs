@@ -516,13 +516,13 @@ namespace Parsek.Tests
         [Fact]
         public void HighFidelityProximity_RejectsInvalidOrOutsideRange()
         {
-            Assert.Equal(200.0, FlightRecorder.HighFidelityProximityRangeMeters);
-            Assert.False(FlightRecorder.IsHighFidelityProximityActive(200.1));
+            Assert.Equal(250.0, FlightRecorder.HighFidelityProximityRangeMeters);
+            Assert.False(FlightRecorder.IsHighFidelityProximityActive(250.1));
             Assert.False(FlightRecorder.IsHighFidelityProximityActive(double.NaN));
             Assert.False(FlightRecorder.IsHighFidelitySamplingActive(
                 currentUT: 150.0,
                 highFidelityUntilUT: 100.0,
-                proximityDistanceMeters: 250.0));
+                proximityDistanceMeters: 250.1));
         }
 
         [Fact]
@@ -535,7 +535,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-root",
             };
 
-            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+            ProximitySamplingTier cadence =
                 FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
                     activeRecordingId: "rec-optimizer-successor",
                     activeTreeId: "tree-1",
@@ -545,16 +545,18 @@ namespace Parsek.Tests
                     out string reason);
             float min = FlightRecorder.ResolveEffectiveMinSampleInterval(
                 cadence,
+                ProximitySamplingTier.None,
                 highFidelityActive: false,
                 configuredMin: 0.2f,
                 configuredMax: 3.0f);
             float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
                 cadence,
+                ProximitySamplingTier.None,
                 highFidelityActive: false,
                 configuredMax: 3.0f,
                 configuredMin: 0.2f);
 
-            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.Full, cadence);
+            Assert.Equal(ProximitySamplingTier.Full, cadence);
             Assert.Equal("active-refly-tree-full", reason);
             Assert.Equal(0.2f, min);
             Assert.Equal(0.2f, max);
@@ -570,7 +572,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-root",
             };
 
-            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+            ProximitySamplingTier cadence =
                 FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
                     activeRecordingId: "rec-optimizer-successor",
                     activeTreeId: "tree-1",
@@ -580,16 +582,18 @@ namespace Parsek.Tests
                     out string reason);
             float min = FlightRecorder.ResolveEffectiveMinSampleInterval(
                 cadence,
+                ProximitySamplingTier.None,
                 highFidelityActive: false,
                 configuredMin: 0.2f,
                 configuredMax: 3.0f);
             float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
                 cadence,
+                ProximitySamplingTier.None,
                 highFidelityActive: false,
                 configuredMax: 3.0f,
                 configuredMin: 0.2f);
 
-            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.Half, cadence);
+            Assert.Equal(ProximitySamplingTier.Half, cadence);
             Assert.Equal("active-refly-tree-half", reason);
             Assert.Equal(0.4f, min);
             Assert.Equal(0.4f, max);
@@ -605,7 +609,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-root",
             };
 
-            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+            ProximitySamplingTier cadence =
                 FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
                     activeRecordingId: "rec-optimizer-successor",
                     activeTreeId: "tree-1",
@@ -615,16 +619,18 @@ namespace Parsek.Tests
                     out string reason);
             float min = FlightRecorder.ResolveEffectiveMinSampleInterval(
                 cadence,
+                ProximitySamplingTier.None,
                 highFidelityActive: false,
                 configuredMin: 0.2f,
                 configuredMax: 3.0f);
             float max = FlightRecorder.ResolveEffectiveMaxSampleInterval(
                 cadence,
+                ProximitySamplingTier.None,
                 highFidelityActive: false,
                 configuredMax: 3.0f,
                 configuredMin: 0.2f);
 
-            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.None, cadence);
+            Assert.Equal(ProximitySamplingTier.None, cadence);
             Assert.Equal("proximity-out-of-range", reason);
             Assert.Equal(0.2f, min);
             Assert.Equal(3.0f, max);
@@ -633,7 +639,7 @@ namespace Parsek.Tests
         [Fact]
         public void ActiveReFlyTreeSampling_RejectsNormalRecordingWithoutMarker()
         {
-            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+            ProximitySamplingTier cadence =
                 FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
                     activeRecordingId: "rec-normal",
                     activeTreeId: "tree-1",
@@ -642,7 +648,7 @@ namespace Parsek.Tests
                     proximityDistanceMeters: 100.0,
                     out string reason);
 
-            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.None, cadence);
+            Assert.Equal(ProximitySamplingTier.None, cadence);
             Assert.Equal("marker-missing", reason);
         }
 
@@ -656,7 +662,7 @@ namespace Parsek.Tests
                 ActiveReFlyRecordingId = "rec-root",
             };
 
-            FlightRecorder.ReFlyTreeSamplingCadence cadence =
+            ProximitySamplingTier cadence =
                 FlightRecorder.ResolveActiveReFlyTreeSamplingCadence(
                     activeRecordingId: "rec-other",
                     activeTreeId: "tree-normal",
@@ -665,8 +671,120 @@ namespace Parsek.Tests
                     proximityDistanceMeters: 100.0,
                     out string reason);
 
-            Assert.Equal(FlightRecorder.ReFlyTreeSamplingCadence.None, cadence);
+            Assert.Equal(ProximitySamplingTier.None, cadence);
             Assert.Equal("tree-mismatch", reason);
+        }
+
+        [Fact]
+        public void ProximitySamplingCadence_ResolvesDebrisTierBoundaries()
+        {
+            Assert.Equal(
+                ProximitySamplingTier.Full,
+                ProximitySamplingCadence.Resolve(
+                    250.0,
+                    BackgroundRecorder.DebrisFullFidelityProximityRangeMeters,
+                    BackgroundRecorder.DebrisHalfFidelityProximityRangeMeters,
+                    out string fullReason));
+            Assert.Equal("full", fullReason);
+
+            Assert.Equal(
+                ProximitySamplingTier.Half,
+                ProximitySamplingCadence.Resolve(
+                    500.0,
+                    BackgroundRecorder.DebrisFullFidelityProximityRangeMeters,
+                    BackgroundRecorder.DebrisHalfFidelityProximityRangeMeters,
+                    out string halfReason));
+            Assert.Equal("half", halfReason);
+
+            Assert.Equal(
+                ProximitySamplingTier.None,
+                ProximitySamplingCadence.Resolve(
+                    500.1,
+                    BackgroundRecorder.DebrisFullFidelityProximityRangeMeters,
+                    BackgroundRecorder.DebrisHalfFidelityProximityRangeMeters,
+                    out string outOfRangeReason));
+            Assert.Equal("out-of-range", outOfRangeReason);
+        }
+
+        [Theory]
+        [InlineData(double.NaN, "distance-missing")]
+        [InlineData(double.PositiveInfinity, "distance-missing")]
+        [InlineData(-1.0, "distance-invalid")]
+        public void ProximitySamplingCadence_InvalidDistance_ReturnsNone(
+            double distanceMeters,
+            string expectedReason)
+        {
+            Assert.Equal(
+                ProximitySamplingTier.None,
+                ProximitySamplingCadence.Resolve(
+                    distanceMeters,
+                    BackgroundRecorder.DebrisFullFidelityProximityRangeMeters,
+                    BackgroundRecorder.DebrisHalfFidelityProximityRangeMeters,
+                    out string reason));
+            Assert.Equal(expectedReason, reason);
+        }
+
+        [Theory]
+        [InlineData((int)ProximitySamplingTier.Full)]
+        [InlineData((int)ProximitySamplingTier.Half)]
+        public void ProximitySamplingCadence_ZeroConfiguredMin_HonorsDefensiveFloor(int tier)
+        {
+            // configuredMin == 0 is degenerate (no production caller produces
+            // it today; ParsekSettings.GetMinSampleInterval is positive). The
+            // helper must not collapse to 0 and record every physics frame.
+            float interval = ProximitySamplingCadence.ResolveSampleInterval(
+                (ProximitySamplingTier)tier,
+                configuredMin: 0f,
+                configuredMax: 3.0f);
+
+            Assert.True(
+                interval >= ProximitySamplingCadence.MinimumSampleIntervalSeconds,
+                $"interval={interval} must respect the defensive floor "
+                    + $"({ProximitySamplingCadence.MinimumSampleIntervalSeconds})");
+        }
+
+        [Theory]
+        [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.None, 3.0f)]
+        [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.Full, 0.2f)]
+        [InlineData((int)ProximitySamplingTier.None, (int)ProximitySamplingTier.Half, 0.4f)]
+        [InlineData((int)ProximitySamplingTier.Full, (int)ProximitySamplingTier.None, 0.2f)]
+        [InlineData((int)ProximitySamplingTier.Full, (int)ProximitySamplingTier.Full, 0.2f)]
+        [InlineData((int)ProximitySamplingTier.Full, (int)ProximitySamplingTier.Half, 0.2f)]
+        [InlineData((int)ProximitySamplingTier.Half, (int)ProximitySamplingTier.None, 0.4f)]
+        [InlineData((int)ProximitySamplingTier.Half, (int)ProximitySamplingTier.Full, 0.4f)]
+        [InlineData((int)ProximitySamplingTier.Half, (int)ProximitySamplingTier.Half, 0.4f)]
+        public void EffectiveMaxSampleInterval_ReFlyTierWinsThenDebrisTier(
+            int reFlyTier,
+            int debrisTier,
+            float expected)
+        {
+            float actual = FlightRecorder.ResolveEffectiveMaxSampleInterval(
+                (ProximitySamplingTier)reFlyTier,
+                (ProximitySamplingTier)debrisTier,
+                highFidelityActive: false,
+                configuredMax: 3.0f,
+                configuredMin: 0.2f);
+
+            Assert.Equal(expected, actual);
+        }
+
+        [Theory]
+        [InlineData(499.0, false, true)]
+        [InlineData(500.0, false, true)]
+        [InlineData(500.1, false, false)]
+        [InlineData(549.0, true, true)]
+        [InlineData(550.0, true, true)]
+        [InlineData(550.1, true, false)]
+        public void DebrisRelativeSectionRange_UsesEnterAndRetainBoundaries(
+            double distanceMeters,
+            bool alreadyRelative,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                BackgroundRecorder.ShouldUseDebrisRelativeSectionForDistance(
+                    distanceMeters,
+                    alreadyRelative));
         }
 
         [Fact]

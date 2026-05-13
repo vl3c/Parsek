@@ -37,7 +37,7 @@ namespace Parsek.Tests
             {
                 VesselName = recNode.GetValue("vesselName") ?? "Unknown"
             };
-            ParsekScenario.LoadRecordingMetadata(recNode, rec);
+            ParsekScenario.LoadRecordingMetadataForTests(recNode, rec);
 
             // Load points
             var ptNodes = recNode.GetNodes("POINT");

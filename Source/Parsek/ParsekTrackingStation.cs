@@ -1379,7 +1379,9 @@ namespace Parsek
                 && sectionIdx < recording.TrackSections.Count)
             {
                 if (TrySelectTrackingStationFocusFramesFromSection(
+                        recording,
                         recording.TrackSections[sectionIdx],
+                        sampleUT,
                         out frames,
                         out reason,
                         out bool blockedBySection))
@@ -1396,7 +1398,9 @@ namespace Parsek
                 out TrackSection nearestSection))
             {
                 if (TrySelectTrackingStationFocusFramesFromSection(
+                        recording,
                         nearestSection,
+                        sampleUT,
                         out frames,
                         out reason,
                         out bool blockedByNearestSection))
@@ -1419,7 +1423,9 @@ namespace Parsek
         }
 
         private static bool TrySelectTrackingStationFocusFramesFromSection(
+            Recording recording,
             TrackSection section,
+            double sampleUT,
             out List<TrajectoryPoint> frames,
             out string reason,
             out bool blocked)
@@ -1437,14 +1443,20 @@ namespace Parsek
 
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
-                if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+                // TryResolveRecordingWorldPosition consumes the selected list as
+                // body-fixed lat/lon/alt. v13 Relative frames are anchor-local
+                // metre offsets, so Tracking Station focus/icon positioning must
+                // use the body-fixed primary surface unless this path grows a
+                // real relative world-pose resolver.
+                if (!ParsekFlight.BodyFixedPrimaryCoversPlaybackUT(
+                        section, sampleUT, out _, out _))
                 {
-                    reason = "relative-without-absolute-shadow";
+                    reason = "relative-body-fixed-primary-out-of-range";
                     blocked = true;
                     return false;
                 }
 
-                frames = section.absoluteFrames;
+                frames = section.bodyFixedFrames;
                 return true;
             }
 

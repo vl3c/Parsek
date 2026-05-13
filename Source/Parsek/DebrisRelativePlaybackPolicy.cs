@@ -4,11 +4,10 @@ using System.Collections.Generic;
 namespace Parsek
 {
     /// <summary>
-    /// Playback policy for v12+ debris that carries the explicit
-    /// parent-recording anchor contract. The recorded parent is authoritative:
-    /// playback retires outside recorded Relative coverage and may transiently
-    /// hide frames whose parent rotation interpolation is unreliable for a
-    /// large child offset.
+    /// Playback policy for debris that carries the explicit parent-recording
+    /// anchor contract. The v13 render contract uses body-fixed primary data
+    /// for ordinary debris and only relies on anchor-local replay for
+    /// loop-anchored chains.
     /// </summary>
     internal static class DebrisRelativePlaybackPolicy
     {
@@ -19,12 +18,12 @@ namespace Parsek
             internal double SectionEndUT;
             internal double FirstRelativeFrameUT;
             internal double LastRelativeFrameUT;
-            internal double FirstAbsoluteFrameUT;
-            internal double LastAbsoluteFrameUT;
+            internal double FirstBodyFixedFrameUT;
+            internal double LastBodyFixedFrameUT;
             internal string AnchorRecordingId;
             internal string Reason;
             internal bool RelativeFramesCoverUT;
-            internal bool AbsoluteFramesCoverUT;
+            internal bool BodyFixedFramesCoverUT;
 
             internal static ParentAnchoredDebrisCoverageDiagnostic Create(string reason)
             {
@@ -35,24 +34,24 @@ namespace Parsek
                     SectionEndUT = double.NaN,
                     FirstRelativeFrameUT = double.NaN,
                     LastRelativeFrameUT = double.NaN,
-                    FirstAbsoluteFrameUT = double.NaN,
-                    LastAbsoluteFrameUT = double.NaN,
+                    FirstBodyFixedFrameUT = double.NaN,
+                    LastBodyFixedFrameUT = double.NaN,
                     AnchorRecordingId = null,
                     Reason = reason,
                     RelativeFramesCoverUT = false,
-                    AbsoluteFramesCoverUT = false,
+                    BodyFixedFramesCoverUT = false,
                 };
             }
         }
 
         /// <summary>
         /// Parent-anchored debris should disappear when its recorded parent
-        /// anchor cannot be resolved. The v7 absolute shadow is not an
+        /// anchor cannot be resolved. The v7 body-fixed primary is not an
         /// independent fallback for this case because it can continue stale
         /// motion after the debris has left the parent's resolvable range.
         /// A non-null parent id is enough to select this contract; an empty
-        /// serialized id is malformed v12+ data and should fail closed rather
-        /// than be treated as legacy v11 debris.
+        /// serialized id is malformed current-schema data and should fail
+        /// closed rather than be treated as non-parent-anchored debris.
         /// </summary>
         internal static bool ShouldRetireOnRecordedParentAnchorMiss(
             IPlaybackTrajectory traj)
@@ -76,6 +75,13 @@ namespace Parsek
             return ShouldRetireFromDiagnostic(diagnostic);
         }
 
+        /// <summary>
+        /// Ordinary parent-anchored debris must not route through recorded
+        /// Relative playback once v13 body-fixed primary data is the authored
+        /// render surface. A true result means callers should skip the
+        /// recorded-relative resolver and either use body-fixed primary or
+        /// fail closed.
+        /// </summary>
         internal static bool ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
             IPlaybackTrajectory traj,
             double playbackUT,
@@ -92,14 +98,14 @@ namespace Parsek
                 return true;
 
             return diagnostic.SectionIndex >= 0
-                && diagnostic.Reason != "non-relative-section"
-                && !diagnostic.RelativeFramesCoverUT;
+                && diagnostic.Reason != "non-relative-section";
         }
 
         internal static bool RelativeFramesCoverUT(
             IPlaybackTrajectory traj,
             TrackSection section,
-            double playbackUT)
+            double playbackUT,
+            DebrisRelativeCoverageMode mode = DebrisRelativeCoverageMode.PlaybackCompatible)
         {
             List<TrajectoryPoint> frames = ResolveRelativeFrames(traj, section);
             return DebrisRelativeCoveragePrimitives.RelativeFramesCoverUT(
@@ -107,15 +113,15 @@ namespace Parsek
                 section.startUT,
                 section.endUT,
                 playbackUT,
-                DebrisRelativeCoverageMode.PlaybackCompatible);
+                mode);
         }
 
-        internal static bool AbsoluteShadowFramesCoverUT(
+        internal static bool BodyFixedPrimaryFramesCoverUT(
             TrackSection section,
             double playbackUT)
         {
-            return DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
-                section.absoluteFrames,
+            return DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT(
+                section.bodyFixedFrames,
                 playbackUT);
         }
 
@@ -158,9 +164,9 @@ namespace Parsek
                 out diagnostic.FirstRelativeFrameUT,
                 out diagnostic.LastRelativeFrameUT);
             DebrisRelativeCoveragePrimitives.SetFrameRange(
-                section.absoluteFrames,
-                out diagnostic.FirstAbsoluteFrameUT,
-                out diagnostic.LastAbsoluteFrameUT);
+                section.bodyFixedFrames,
+                out diagnostic.FirstBodyFixedFrameUT,
+                out diagnostic.LastBodyFixedFrameUT);
 
             if (section.referenceFrame != ReferenceFrame.Relative)
             {
@@ -174,16 +180,16 @@ namespace Parsek
                 section.endUT,
                 playbackUT,
                 DebrisRelativeCoverageMode.PlaybackCompatible);
-            diagnostic.AbsoluteFramesCoverUT = DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
-                section.absoluteFrames,
+            diagnostic.BodyFixedFramesCoverUT = DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT(
+                section.bodyFixedFrames,
                 playbackUT);
 
-            if (diagnostic.RelativeFramesCoverUT)
-                diagnostic.Reason = "covered-by-relative-frames";
-            else if (diagnostic.AbsoluteFramesCoverUT)
-                diagnostic.Reason = "covered-by-absolute-shadow";
+            if (diagnostic.BodyFixedFramesCoverUT)
+                diagnostic.Reason = "covered-by-body-fixed-primary";
+            else if (diagnostic.RelativeFramesCoverUT)
+                diagnostic.Reason = "relative-only-without-body-fixed-primary";
             else
-                diagnostic.Reason = "relative-and-shadow-frames-out-of-range";
+                diagnostic.Reason = "relative-and-body-fixed-frames-out-of-range";
 
             return diagnostic;
         }
@@ -194,8 +200,8 @@ namespace Parsek
             return diagnostic.Reason == "parent-recording-id-empty"
                 || diagnostic.Reason == "no-track-sections"
                 || diagnostic.Reason == "no-covering-section"
-                || diagnostic.Reason == "non-relative-section"
-                || diagnostic.Reason == "relative-and-shadow-frames-out-of-range";
+                || diagnostic.Reason == "relative-only-without-body-fixed-primary"
+                || diagnostic.Reason == "relative-and-body-fixed-frames-out-of-range";
         }
 
         private static List<TrajectoryPoint> ResolveRelativeFrames(
@@ -224,7 +230,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// v12+ parent-anchored debris can start with a structural seed point
+        /// Parent-anchored debris can start with a structural seed point
         /// at the separation origin, followed by the first ordinary sampled
         /// relative offset several frames later. Hide that initial seed bridge
         /// instead of showing the debris sliding from seed to sample.

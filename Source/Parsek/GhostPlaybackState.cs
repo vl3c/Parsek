@@ -13,6 +13,15 @@ namespace Parsek
     internal class GhostPlaybackState
     {
         public string vesselName;
+        // Stamped at state creation in GhostPlaybackEngine.CreatePendingSpawnState
+        // from the trajectory's RecordingId. Pure diagnostic plumbing: lets
+        // TraceSeparation playback traces look up a sibling ghost (e.g. a
+        // debris's parent) by recording id via
+        // GhostPlaybackEngine.TryGetGhostWorldByRecordingId so the parent-vs-
+        // debris rendered distance can be logged alongside the
+        // recorded-data-derived distance. Empty string when no recording id
+        // is available (legacy / pending states with null traj).
+        public string recordingId;
         public GameObject ghost;
         public List<Material> materials;
         public int playbackIndex;
@@ -73,30 +82,6 @@ namespace Parsek
         // engine resets it at the top of the next per-frame render pass for
         // this state.
         public bool anchorRetiredThisFrame;
-        // FX-suppression bit for the smooth-shadow route. PR #803: the
-        // shadow render itself fires unconditionally for v12+ parent-anchored
-        // debris when shadow data covers (regardless of whether the
-        // tumbling-parent gate fires), so this flag is NOT a "shadow was
-        // used this frame" signal -- it is the gate's per-frame fire bit AND
-        // shadow was used. The router (TryRouteAnchorRotationToShadow) sets
-        // it to fxSuppress only on shadow-route success, so the four post-
-        // position FX-flag readers (RenderInRangeGhost non-loop and the
-        // three loop / overlap branches) suppress plumes / RCS / audio on
-        // real-tumble frames (mode=gated) and keep them playing during
-        // steady-state always-shadow (mode=always). Pre-PR-803 this flag
-        // was set unconditionally to true on shadow-route success because
-        // shadow ONLY fired when the gate also fired -- the conjunction
-        // collapsed to "shadow was used"; PR #803's always-shadow path
-        // breaks that conjunction so the flag now carries the gate-fire-
-        // bit explicitly. One-frame scope: cleared at the top of the next
-        // per-frame render pass alongside anchorRetiredThisFrame.
-        public bool anchorRotationShadowRoutedThisFrame;
-        // Runtime-only defensive visibility guard for v12+ parent-anchored
-        // debris whose current playback UT is outside recorded Relative
-        // coverage. The deterministic predicate over (trajectory, playbackUT)
-        // remains the source of truth; generic visual cleanup must not clear
-        // this flag because it lacks playback-UT context.
-        public bool parentAnchoredDebrisCoverageRetired;
         internal bool positionedThisFrame;
         public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
         public Transform horizonProxy; // child of cameraPivot; horizon-aligned rotation for locked camera mode
@@ -149,11 +134,6 @@ namespace Parsek
             simplified = false;
             deferVisibilityUntilPlaybackSync = false;
             anchorRetiredThisFrame = false;
-            anchorRotationShadowRoutedThisFrame = false;
-            // Do not clear parentAnchoredDebrisCoverageRetired here. Visual
-            // cleanup/rebuild has no trajectory + playbackUT context; only the
-            // deterministic coverage helper can prove the debris is covered
-            // again and safely clear the guard.
             positionedThisFrame = false;
             cameraPivot = null;
             horizonProxy = null;

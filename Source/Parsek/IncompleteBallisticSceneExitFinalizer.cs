@@ -727,8 +727,8 @@ namespace Parsek
                     else if (section.referenceFrame == ReferenceFrame.Relative)
                     {
                         InspectRecordedSurfacePoints(
-                            section.absoluteFrames,
-                            "TrackSection[" + i.ToString(CultureInfo.InvariantCulture) + "].absoluteFrames",
+                            section.bodyFixedFrames,
+                            "TrackSection[" + i.ToString(CultureInfo.InvariantCulture) + "].bodyFixedFrames",
                             targetUT,
                             bodyName,
                             subSurfaceThreshold,
@@ -947,8 +947,8 @@ namespace Parsek
                     else if (section.referenceFrame == ReferenceFrame.Relative)
                     {
                         InspectPredictedTailAnchorCandidates(
-                            section.absoluteFrames,
-                            "TrackSection[" + i.ToString(CultureInfo.InvariantCulture) + "].absoluteFrames",
+                            section.bodyFixedFrames,
+                            "TrackSection[" + i.ToString(CultureInfo.InvariantCulture) + "].bodyFixedFrames",
                             segment,
                             maxGapSeconds,
                             ref found,

@@ -829,9 +829,6 @@ namespace Parsek
             new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
         private readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
             new HashSet<string>(StringComparer.Ordinal);
-        private Dictionary<AnchorRotationHysteresisKey, AnchorRotationHysteresisState>
-            anchorRotationHysteresis =
-                new Dictionary<AnchorRotationHysteresisKey, AnchorRotationHysteresisState>();
         private int reFlySettlePoseLogActiveFrame = -1;
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
         private static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
@@ -2029,14 +2026,12 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedRecordedRelativeStart.Clear();
-            loggedRelativeAbsoluteShadowStart?.Clear();
+            loggedRelativeBodyFixedPrimaryStart?.Clear();
             loggedAnchorNotFound.Clear();
             reFlyDenseAbsolutePlaybackFrameCache.Clear();
             loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
             unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
-            anchorRotationHysteresis?.Clear();
-
             ui?.Cleanup();
         }
 
@@ -2084,7 +2079,6 @@ namespace Parsek
             // ground clearances at the destination scene's lat/lon.
             Parsek.Rendering.TerrainCacheBuckets.Clear();
             InvalidateTailLiftPlanCache();
-            anchorRotationHysteresis?.Clear();
 
             // Stamp the pre-transition UT so ParsekScenario.OnLoad can detect
             // F5/F9 quickloads (UT regresses across the transition) and
@@ -5288,7 +5282,7 @@ namespace Parsek
                 IsDebris = isDebris,
                 Generation = parentGeneration + 1
             };
-            // PR 3b: stamp the v12+ debris parent-anchor contract on the new child
+            // PR 3b: stamp the v13 debris parent-anchor contract on the new child
             // Recording. The breakup branch point's ParentRecordingIds list can have
             // multiple parents in chain-merge cases, so passing parentRecordingId
             // explicitly avoids ambiguity — the focused recording is the right anchor.
@@ -9536,6 +9530,42 @@ namespace Parsek
                             newVessel, splitUT, preferRootPartSurfacePose: true);
                     seedSource = "new-vessel-root-part";
                 }
+                // ---- Trace-Sep: log seed source + new-vessel state at split ----
+                if (TraceSeparation.RecordingWindowActive)
+                {
+                    Vessel original = originalVessel;
+                    CelestialBody body = newVessel.mainBody ?? original?.mainBody;
+                    Vector3d newLlaWorld = body != null
+                        ? body.GetWorldSurfacePosition(newVessel.latitude, newVessel.longitude, newVessel.altitude)
+                        : Vector3d.zero;
+                    Vector3d newTransformPos = newVessel.transform != null
+                        ? (Vector3d)newVessel.transform.position : Vector3d.zero;
+                    Vector3d originalLlaWorld = body != null && original != null
+                        ? body.GetWorldSurfacePosition(original.latitude, original.longitude, original.altitude)
+                        : Vector3d.zero;
+                    Vector3 newSrfVel = newVessel.srf_velocity;
+                    Vector3 originalSrfVel = original != null ? original.srf_velocity : Vector3.zero;
+                    float dt = Time.fixedDeltaTime;
+                    Vector3d newWorldDelta = newTransformPos - newLlaWorld;
+                    TraceSeparation.RecordLog("DecoupleSeed",
+                        "newPid=" + newVessel.persistentId +
+                        " name='" + newVessel.vesselName + "'" +
+                        " seedSource=" + seedSource +
+                        " splitUT=" + splitUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        " newLLA=(" + newVessel.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        "," + newVessel.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        "," + newVessel.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")" +
+                        " newLLAWorld=" + TraceSeparation.FormatVector3d(newLlaWorld) +
+                        " newTransformPos=" + TraceSeparation.FormatVector3d(newTransformPos) +
+                        " newTransformVsLLA=" + TraceSeparation.FormatVector3d(newWorldDelta) +
+                        " |newDelta|=" + newWorldDelta.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                        " originalLLAWorld=" + TraceSeparation.FormatVector3d(originalLlaWorld) +
+                        " newVsOriginalLLA=" + TraceSeparation.FormatVector3d(newLlaWorld - originalLlaWorld) +
+                        " newSrfVel=" + TraceSeparation.FormatVector3(newSrfVel) + " |vs|=" + newSrfVel.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                        " predictedNewSrfStep=" + (newSrfVel.magnitude * dt).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                        " originalSrfVel=" + TraceSeparation.FormatVector3(originalSrfVel) + " |ovs|=" + originalSrfVel.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+                }
+                // ---- /Trace-Sep ----
             }
             else if (decoupleCreatedTrajectoryPoints != null
                      && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
@@ -12040,10 +12070,10 @@ namespace Parsek
                 }
             }
 
-            if (TryGetLastAbsoluteShadowPoint(section, out TrajectoryPoint absoluteShadowPoint)
-                && !string.IsNullOrEmpty(absoluteShadowPoint.bodyName))
+            if (TryGetLastBodyFixedPrimaryPoint(section, out TrajectoryPoint bodyFixedPrimaryPoint)
+                && !string.IsNullOrEmpty(bodyFixedPrimaryPoint.bodyName))
             {
-                bodyName = absoluteShadowPoint.bodyName;
+                bodyName = bodyFixedPrimaryPoint.bodyName;
                 source = "relative-absolute-shadow-environment";
                 return true;
             }
@@ -12126,15 +12156,15 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryGetLastAbsoluteShadowPoint(
+        private static bool TryGetLastBodyFixedPrimaryPoint(
             TrackSection section,
             out TrajectoryPoint point)
         {
             point = default(TrajectoryPoint);
-            if (section.absoluteFrames == null || section.absoluteFrames.Count == 0)
+            if (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
                 return false;
 
-            point = section.absoluteFrames[section.absoluteFrames.Count - 1];
+            point = section.bodyFixedFrames[section.bodyFixedFrames.Count - 1];
             return true;
         }
 
@@ -12175,7 +12205,7 @@ namespace Parsek
 
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
-                if (TryGetLastAbsoluteShadowPoint(section, out point))
+                if (TryGetLastBodyFixedPrimaryPoint(section, out point))
                 {
                     source = "relative-absolute-shadow-point";
                     return true;
@@ -15603,135 +15633,11 @@ namespace Parsek
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
-                    tryEvaluateAnchorRotationReliability =
-                        ShouldEvaluateAnchorRotationReliability(rec)
-                            ? TryEvaluateAnchorRotationReliability
-                            : null,
                     anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
             LogReFlyAnchorHoldTransitions(frame);
             return flags;
-        }
-
-        internal static bool ShouldEvaluateAnchorRotationReliabilityForTesting(Recording rec)
-            => ShouldEvaluateAnchorRotationReliability(rec);
-
-        private static bool ShouldEvaluateAnchorRotationReliability(Recording rec)
-        {
-            // PR #803: also exclude live-anchor loop recordings. The resolver
-            // (RelativeAnchorResolver.cs:288-297) already short-circuits on
-            // `LoopAnchorVesselId != 0` with `loop-anchor-out-of-scope`, so
-            // PR #800's gate behaviour is unchanged (the evaluator returned
-            // false for those recordings either way). The check matters for
-            // PR #803's always-shadow path: without it, the new router
-            // would keep going past the failed evaluator into
-            // `TryRouteAnchorRotationToShadow` and route a live-anchor loop
-            // recording's debris through the recorded shadow track, which
-            // breaks the live-anchor contract (debris must follow the live
-            // parent, not the recorded world position frozen at recording
-            // time). The gate predicate is the right place to gate both
-            // paths.
-            return rec != null
-                && rec.IsDebris
-                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
-                && rec.LoopAnchorVesselId == 0u;
-        }
-
-        private bool TryEvaluateAnchorRotationReliability(
-            int index,
-            IPlaybackTrajectory traj,
-            double playbackUT,
-            string playbackScope,
-            out AnchorRotationReliabilityDecision decision)
-        {
-            decision = default;
-            Recording rec = traj as Recording;
-            if (!ShouldEvaluateAnchorRotationReliability(rec))
-                return false;
-
-            string recordingId = !string.IsNullOrEmpty(rec.RecordingId)
-                ? rec.RecordingId
-                : "idx-" + index.ToString(CultureInfo.InvariantCulture);
-            if (!TryFindRelativeAnchorFocusTree(recordingId, out RecordingTree focusTree))
-                return false;
-
-            var context = BuildFlightRelativeAnchorResolverContext(
-                focusTree,
-                recordingId,
-                ParsekScenario.Instance?.ActiveReFlySessionMarker);
-
-            HashSet<string> visited = recordedRelativeAnchorVisited;
-            visited.Clear();
-            bool resolved;
-            try
-            {
-                resolved = RelativeAnchorResolver.TryEvaluateRecordingAnchorRotationReliability(
-                    context,
-                    rec,
-                    playbackUT,
-                    visited,
-                    out decision);
-            }
-            finally
-            {
-                visited.Clear();
-            }
-
-            if (!resolved)
-                return false;
-
-            string anchorRecordingId = !string.IsNullOrEmpty(decision.AnchorRecordingId)
-                ? decision.AnchorRecordingId
-                : rec.DebrisParentRecordingId;
-            if (anchorRotationHysteresis == null)
-            {
-                anchorRotationHysteresis =
-                    new Dictionary<AnchorRotationHysteresisKey, AnchorRotationHysteresisState>();
-            }
-
-            var key = new AnchorRotationHysteresisKey(recordingId, anchorRecordingId, playbackScope);
-            anchorRotationHysteresis.TryGetValue(key, out AnchorRotationHysteresisState state);
-            bool wasHeld = state.Held;
-            int heldFramesBefore = state.HeldFrames;
-            bool held = TumblingParentInterpolationGate.UpdateHysteresis(decision, ref state);
-            if (held)
-                anchorRotationHysteresis[key] = state;
-            else if (wasHeld)
-                anchorRotationHysteresis.Remove(key);
-
-            if (!wasHeld && held)
-            {
-                ParsekLog.Info(
-                    "Anchor",
-                    "anchor-rotation-interp-hold-engaged: "
-                    + "recording=#" + index.ToString(CultureInfo.InvariantCulture) + " "
-                    + "recordingId=" + recordingId + " "
-                    + "anchorRecordingId=" + (anchorRecordingId ?? "(none)") + " "
-                    + "scope=" + (playbackScope ?? "(none)") + " "
-                    + "playbackUT=" + playbackUT.ToString("R", CultureInfo.InvariantCulture) + " "
-                    + "bracketDeg=" + decision.BracketDegrees.ToString("F2", CultureInfo.InvariantCulture) + " "
-                    + "rateDegPerSec=" + decision.RateDegreesPerSecond.ToString("F1", CultureInfo.InvariantCulture) + " "
-                    + "offsetMeters=" + decision.OffsetMeters.ToString("F1", CultureInfo.InvariantCulture));
-            }
-            else if (wasHeld && !held)
-            {
-                ParsekLog.Info(
-                    "Anchor",
-                    "anchor-rotation-interp-hold-released: "
-                    + "recording=#" + index.ToString(CultureInfo.InvariantCulture) + " "
-                    + "recordingId=" + recordingId + " "
-                    + "anchorRecordingId=" + (anchorRecordingId ?? "(none)") + " "
-                    + "scope=" + (playbackScope ?? "(none)") + " "
-                    + "playbackUT=" + playbackUT.ToString("R", CultureInfo.InvariantCulture) + " "
-                    + "heldFrames=" + heldFramesBefore.ToString(CultureInfo.InvariantCulture) + " "
-                    + "bracketDeg=" + decision.BracketDegrees.ToString("F2", CultureInfo.InvariantCulture) + " "
-                    + "rateDegPerSec=" + decision.RateDegreesPerSecond.ToString("F1", CultureInfo.InvariantCulture) + " "
-                    + "offsetMeters=" + decision.OffsetMeters.ToString("F1", CultureInfo.InvariantCulture));
-            }
-
-            decision = decision.WithUnreliable(held);
-            return true;
         }
 
         /// <summary>
@@ -15977,7 +15883,37 @@ namespace Parsek
                 pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ResolveAnchorResolverBodyWorldRotation,
-                orbitalCheckpointPoseResolver: TryResolveFlightOrbitalAnchorPose);
+                orbitalCheckpointPoseResolver: TryResolveFlightOrbitalAnchorPose,
+                tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate());
+        }
+
+        private static readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> LiveAnchorTransformDelegate =
+            TryResolveLiveAnchorTransformForResolver;
+
+        internal static Func<uint, string, double, (Vector3d pos, Quaternion rot)?> TryGetLiveAnchorTransformDelegate()
+        {
+            return LiveAnchorTransformDelegate;
+        }
+
+        private static (Vector3d pos, Quaternion rot)? TryResolveLiveAnchorTransformForResolver(
+            uint anchorVesselId,
+            string victimRecordingId,
+            double targetUT)
+        {
+            ParsekFlight instance = Instance;
+            if (instance == null)
+                return null;
+
+            if (!instance.TryResolveLoopLiveAnchorPose(
+                    anchorVesselId,
+                    victimRecordingId,
+                    targetUT,
+                    out RelativeAnchorPose pose))
+            {
+                return null;
+            }
+
+            return (pose.worldPos, pose.worldRotation);
         }
 
         private static Vector3d ResolveAnchorResolverPointWorldPosition(TrajectoryPoint point)
@@ -16243,11 +16179,10 @@ namespace Parsek
             notifiedSpawnRecordingIds.Clear();
             loggedRelativeStart.Clear();
             loggedRecordedRelativeStart.Clear();
-            loggedRelativeAbsoluteShadowStart?.Clear();
+            loggedRelativeBodyFixedPrimaryStart?.Clear();
             loggedAnchorNotFound.Clear();
             unknownFrameTagWarned.Clear();
             ClearGhostSkipReasonLogState();
-            anchorRotationHysteresis?.Clear();
         }
 
         /// <summary>
@@ -16966,7 +16901,6 @@ namespace Parsek
         private static bool ShouldAutoActivateGhost(GhostPlaybackState state)
         {
             if (state == null) return true;
-            if (state.parentAnchoredDebrisCoverageRetired) return false;
             if (state.deferVisibilityUntilPlaybackSync) return false;
             return true;
         }
@@ -17077,7 +17011,7 @@ namespace Parsek
             if (splineSectionIdx >= 0
                 && TryGetAbsoluteSectionPlaybackFrames(
                     traj.TrackSections[splineSectionIdx],
-                    out List<TrajectoryPoint> absoluteFrames))
+                    out List<TrajectoryPoint> bodyFixedFrames))
             {
                 string pointFrameSource = "section-frames";
                 if (TryGetAbsoluteSectionPlaybackFramesForPlayback(
@@ -17086,14 +17020,14 @@ namespace Parsek
                         out List<TrajectoryPoint> bridgedFrames,
                         out string bridgedFrameSource))
                 {
-                    absoluteFrames = bridgedFrames;
+                    bodyFixedFrames = bridgedFrames;
                     pointFrameSource = bridgedFrameSource;
                 }
 
                 int absolutePlaybackIdx = playbackIdx;
                 InterpolateAndPosition(
                     state.ghost,
-                    absoluteFrames,
+                    bodyFixedFrames,
                     null,
                     ref absolutePlaybackIdx,
                     ut,
@@ -17173,37 +17107,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Position the ghost from the recording's `absoluteFrames` shadow track
-        /// for v12+ parent-anchored debris. Routes through the same
-        /// `InterpolateAndPosition` path the legacy v11 shadow gate uses
-        /// (`TryUseRelativeAbsoluteShadowFallback` at `:22711-22722`), so body /
+        /// Position the ghost from the recording's `bodyFixedFrames` primary
+        /// track for parent-anchored debris. Routes through the same
+        /// `InterpolateAndPosition` path as absolute sections, so body /
         /// altitude / GhostPosEntry FloatingOrigin reapply / InterpolationResult
         /// population are reused.
         /// </summary>
         /// <remarks>
-        /// PR #803 contract: this is the rendering surface for v12+
-        /// parent-anchored debris (`IsDebris && DebrisParentRecordingId != null
-        /// && LoopAnchorVesselId == 0`) whenever the active Relative section's
-        /// `absoluteFrames` covers the playback UT, regardless of whether the
-        /// tumbling-parent gate (PR #793) is firing this frame. The gate's
-        /// per-frame fire bit drives only the FX-suppression flag
-        /// (`state.anchorRotationShadowRoutedThisFrame`) -- shadow render is
-        /// always-on for in-coverage frames, while FX suppression is gated to
-        /// real-tumble windows so steady-state plumes / RCS / audio play
-        /// normally. The router (`GhostPlaybackEngine.TryRouteAnchorRotationUnreliable`)
-        /// is the only caller; non-v12 / live-anchor cases never reach this
-        /// helper because the host predicate
-        /// `ShouldEvaluateAnchorRotationReliability` excludes them upstream.
+        /// Format v13 contract: this is the primary rendering surface for
+        /// parent-anchored debris whenever the active Relative section's
+        /// `bodyFixedFrames` covers the playback UT. Loop-anchored chains still
+        /// try relative replay first and use this as the recorded fallback when
+        /// the loop anchor cannot be resolved.
         ///
-        /// Phase D boundary: this path is recorded-data-only, never a substitute
-        /// for live anchors. The legacy v11 gate's retire-first guard in
-        /// `TryUseRelativeAbsoluteShadowFallback` is intentionally NOT applied
-        /// here -- the v12 retire-on-anchor-miss path is for legacy debris that
-        /// lost its parent at runtime, and the always-shadow contract for v12+
-        /// debris with covering shadow data is a separate, recorded-only
-        /// rendering surface.
+        /// This path is recorded-data-only, never a substitute for live anchors.
         /// </remarks>
-        bool IGhostPositioner.TryPositionFromRelativeAbsoluteShadow(
+        bool IGhostPositioner.TryPositionFromBodyFixedPrimary(
             int index,
             IPlaybackTrajectory traj,
             GhostPlaybackState state,
@@ -17215,40 +17134,25 @@ namespace Parsek
             bracketBeforeUT = double.NaN;
             bracketAfterUT = double.NaN;
 
+            double firstBodyFixedUT;
+            double lastBodyFixedUT;
             if (state?.ghost == null
-                || target.Section.referenceFrame != ReferenceFrame.Relative
-                || target.Section.absoluteFrames == null
-                || target.Section.absoluteFrames.Count < 2)
+                || !BodyFixedPrimaryCoversPlaybackUT(
+                    target.Section,
+                    playbackUT,
+                    out firstBodyFixedUT,
+                    out lastBodyFixedUT))
             {
-                // Single-sample shadow is rejected: InterpolateAndPosition
+                // Single-sample body-fixed primary data is rejected: InterpolateAndPosition
                 // would snap to that one point and we'd render a stale pose
-                // for the rest of the unstable window. Caller falls back to
-                // the Hidden route.
-                return false;
-            }
-
-            // Reject playback UTs outside the shadow's covered range. Without
-            // this guard InterpolateAndPosition / TrajectoryMath.InterpolatePoints
-            // would clamp at the nearest endpoint and the ghost would silently
-            // freeze at a stale shadow sample for the rest of the window. The
-            // router falls back to Hidden when this returns false. Compare
-            // against the actual absoluteFrames endpoint UTs (NOT the section's
-            // startUT/endUT) because the recorder may have written shadow
-            // samples that don't span the full section bounds.
-            int lastAbsoluteIdx = target.Section.absoluteFrames.Count - 1;
-            double firstShadowUT = target.Section.absoluteFrames[0].ut;
-            double lastShadowUT = target.Section.absoluteFrames[lastAbsoluteIdx].ut;
-            const double shadowCoverageEpsilon = 1e-6;
-            if (playbackUT + shadowCoverageEpsilon < firstShadowUT
-                || playbackUT - shadowCoverageEpsilon > lastShadowUT)
-            {
+                // for the rest of the window.
                 return false;
             }
 
             // Bracket UTs are reported back to the caller for the
             // [Anchor] anchor-rotation-shadow-route log line.
-            ResolveAbsoluteShadowBracketUTs(
-                target.Section.absoluteFrames, playbackUT,
+            ResolveBodyFixedPrimaryBracketUTs(
+                target.Section.bodyFixedFrames, playbackUT,
                 out bracketBeforeUT, out bracketAfterUT);
 
             int playbackIdx = state.playbackIndex;
@@ -17258,9 +17162,33 @@ namespace Parsek
             // failure paths, which call ghost.SetActive(false) and write
             // InterpolationResult.Zero. See ParsekFlight.cs:17226-17256.
             bool ghostWasActive = state.ghost.activeSelf;
+            // ---- Trace-Sep: open playback window on first parent-anchored debris render ----
+            bool traceEnabled = ParsekSettings.Current?.ghostRenderTracing == true;
+            int bodyFixedCount = target.Section.bodyFixedFrames != null
+                ? target.Section.bodyFixedFrames.Count : 0;
+            bool firstPlaybackRender = state.appearanceCount == 0;
+            // Pre-call ghost world snapshot so the playback trace can log the
+            // per-frame world step (pre → post) that the lerp produces. This
+            // captures the user-visible "slide" instant: on the first
+            // playback frame the ghost transform.position is whatever the
+            // spawner / previous frame left it; after InterpolateAndPosition
+            // runs it jumps to the lerp output. Distance between the two is
+            // exactly the slide. Gated on traceEnabled so production runs
+            // pay nothing for the snapshot.
+            Vector3d ghostWorldBefore = Vector3d.zero;
+            if (traceEnabled && state.ghost?.transform != null)
+                ghostWorldBefore = (Vector3d)state.ghost.transform.position;
+            if (traceEnabled
+                && firstPlaybackRender && traj != null && traj.IsDebris
+                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+            {
+                TraceSeparation.OpenPlaybackWindow(
+                    "first debris ghost render recId=" + (target.RecordingId ?? "<null>"));
+            }
+            // ---- /Trace-Sep ----
             InterpolateAndPosition(
                 state.ghost,
-                target.Section.absoluteFrames,
+                target.Section.bodyFixedFrames,
                 null,
                 ref absolutePlaybackIdx,
                 playbackUT,
@@ -17271,6 +17199,192 @@ namespace Parsek
                 recordingId: target.RecordingId,
                 sectionIndex: target.SectionIndex);
             state.playbackIndex = absolutePlaybackIdx;
+            // ---- Trace-Sep: log debris playback positioning + bracketing samples ----
+            if (traceEnabled
+                && TraceSeparation.PlaybackWindowActive
+                && traj != null && traj.IsDebris
+                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+            {
+                Vector3d ghostWorld = state.ghost.transform != null
+                    ? (Vector3d)state.ghost.transform.position : Vector3d.zero;
+                TrajectoryPoint? beforeFrame = null;
+                TrajectoryPoint? afterFrame = null;
+                if (target.Section.bodyFixedFrames != null && target.Section.bodyFixedFrames.Count > 0)
+                {
+                    int beforeIdx = -1;
+                    int afterIdx = -1;
+                    for (int j = 0; j < target.Section.bodyFixedFrames.Count; j++)
+                    {
+                        if (target.Section.bodyFixedFrames[j].ut <= playbackUT)
+                            beforeIdx = j;
+                        if (target.Section.bodyFixedFrames[j].ut >= playbackUT && afterIdx < 0)
+                            afterIdx = j;
+                    }
+                    if (beforeIdx >= 0) beforeFrame = target.Section.bodyFixedFrames[beforeIdx];
+                    if (afterIdx >= 0) afterFrame = target.Section.bodyFixedFrames[afterIdx];
+                }
+                string beforeStr = beforeFrame.HasValue
+                    ? ("ut=" + beforeFrame.Value.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + " lla=(" + beforeFrame.Value.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + "," + beforeFrame.Value.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + "," + beforeFrame.Value.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")")
+                    : "<none>";
+                string afterStr = afterFrame.HasValue
+                    ? ("ut=" + afterFrame.Value.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + " lla=(" + afterFrame.Value.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + "," + afterFrame.Value.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                        + "," + afterFrame.Value.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")")
+                    : "<none>";
+                // Lerp alpha + manually-predicted ghost world position. The
+                // lerp alpha is what InterpolateAndPosition computed
+                // implicitly from playbackUT / bracket UTs; we reconstruct it
+                // here so the log row carries the interpolation factor
+                // explicitly. The predicted world position is a body-fixed
+                // linear blend of the bracketing LLAs (each resolved via
+                // body.GetWorldSurfacePosition independently then linearly
+                // blended in world-space). If `ghostWorld` differs from
+                // `predictedWorld` by more than rounding, the discrepancy is
+                // playback-math; if they match but the ghost is still
+                // slipping forward relative to truth, the discrepancy lives
+                // in the recorded LLAs themselves (recorder-side phase
+                // offset).
+                double lerpAlpha = double.NaN;
+                Vector3d predictedWorld = Vector3d.zero;
+                if (beforeFrame.HasValue && afterFrame.HasValue)
+                {
+                    lerpAlpha = TraceSeparation.ComputeLerpAlpha(
+                        beforeFrame.Value.ut, afterFrame.Value.ut, playbackUT);
+                    CelestialBody body = !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
+                        ? FlightGlobals.Bodies?.Find(b => b.name == beforeFrame.Value.bodyName)
+                        : null;
+                    if (body != null && !double.IsNaN(lerpAlpha))
+                    {
+                        Vector3d worldBefore = body.GetWorldSurfacePosition(
+                            beforeFrame.Value.latitude,
+                            beforeFrame.Value.longitude,
+                            beforeFrame.Value.altitude);
+                        Vector3d worldAfter = body.GetWorldSurfacePosition(
+                            afterFrame.Value.latitude,
+                            afterFrame.Value.longitude,
+                            afterFrame.Value.altitude);
+                        predictedWorld = worldBefore + (worldAfter - worldBefore) * lerpAlpha;
+                    }
+                }
+                Vector3d worldStep = ghostWorld - ghostWorldBefore;
+                Vector3d predictedVsActual = ghostWorld - predictedWorld;
+                // Parent ghost world position (rendered) so we can log the
+                // RENDERED parent-vs-debris distance on screen. Looked up via
+                // the engine's recordingId mapping; returns false when the
+                // parent ghost hasn't materialized yet (in which case the
+                // distance fields stay NaN in the log).
+                Vector3d parentGhostWorld = Vector3d.zero;
+                bool parentGhostFound = engine != null
+                    && engine.TryGetGhostWorldByRecordingId(
+                        traj.DebrisParentRecordingId, out parentGhostWorld);
+                double renderedParentDist = parentGhostFound
+                    ? (ghostWorld - parentGhostWorld).magnitude
+                    : double.NaN;
+                // Recorded anchor-local distance at the bracketing
+                // before-frame: in Relative sections the `frames[]` entries
+                // store anchor-local Cartesian metres in `latitude/longitude/altitude`,
+                // so the offset magnitude IS the parent-vs-debris distance the
+                // recorder captured. Compare this to renderedParentDist:
+                // matching values mean playback faithfully reproduces the
+                // recorded offset; divergence means playback math diverges
+                // from recorded data (or the parent ghost is being placed
+                // from a different bracketing sample).
+                double recordedAnchorLocalDist = double.NaN;
+                if (target.Section.referenceFrame == ReferenceFrame.Relative
+                    && target.Section.frames != null
+                    && target.Section.frames.Count > 0)
+                {
+                    int beforeIdx = -1;
+                    for (int j = 0; j < target.Section.frames.Count; j++)
+                    {
+                        if (target.Section.frames[j].ut <= playbackUT)
+                            beforeIdx = j;
+                        else break;
+                    }
+                    if (beforeIdx >= 0)
+                    {
+                        TrajectoryPoint relFrame = target.Section.frames[beforeIdx];
+                        Vector3d localOffset = new Vector3d(
+                            relFrame.latitude, relFrame.longitude, relFrame.altitude);
+                        recordedAnchorLocalDist = localOffset.magnitude;
+                    }
+                }
+                // Recorded body-fixed distance: subtract the parent's
+                // body-fixed primary world position at the bracketing UT from
+                // the debris's body-fixed primary world. Computed
+                // independently of playback math — ghost transforms drop out
+                // entirely. Reflects what the recorder wrote into the two
+                // independent body-fixed streams. If this doesn't match the
+                // recorded anchor-local distance, the two recording surfaces
+                // disagree about parent-vs-debris geometry.
+                double recordedBodyFixedDist = double.NaN;
+                if (beforeFrame.HasValue && !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
+                    && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                {
+                    CelestialBody body = FlightGlobals.Bodies?.Find(
+                        b => b.name == beforeFrame.Value.bodyName);
+                    Recording parentRec = RecordingStore.TryFindCommittedRecordingById(
+                        traj.DebrisParentRecordingId);
+                    if (body != null
+                        && parentRec != null
+                        && parentRec.TrackSections != null)
+                    {
+                        // Find the parent's body-fixed primary sample bracketing playbackUT.
+                        TrajectoryPoint? parentBefore = null;
+                        for (int s = 0; s < parentRec.TrackSections.Count; s++)
+                        {
+                            var ps = parentRec.TrackSections[s];
+                            if (ps.bodyFixedFrames == null || ps.bodyFixedFrames.Count == 0)
+                                continue;
+                            for (int j = 0; j < ps.bodyFixedFrames.Count; j++)
+                            {
+                                if (ps.bodyFixedFrames[j].ut <= playbackUT)
+                                    parentBefore = ps.bodyFixedFrames[j];
+                                else break;
+                            }
+                        }
+                        if (parentBefore.HasValue)
+                        {
+                            Vector3d parentBodyFixedWorld = body.GetWorldSurfacePosition(
+                                parentBefore.Value.latitude,
+                                parentBefore.Value.longitude,
+                                parentBefore.Value.altitude);
+                            Vector3d debrisBodyFixedWorld = body.GetWorldSurfacePosition(
+                                beforeFrame.Value.latitude,
+                                beforeFrame.Value.longitude,
+                                beforeFrame.Value.altitude);
+                            recordedBodyFixedDist =
+                                (debrisBodyFixedWorld - parentBodyFixedWorld).magnitude;
+                        }
+                    }
+                }
+                TraceSeparation.PlaybackLog("PositionDebris",
+                    "recId=" + (target.RecordingId ?? "<null>") +
+                    " parentRecId=" + (traj.DebrisParentRecordingId ?? "<null>") +
+                    " playbackUT=" + playbackUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " bodyFixedCount=" + bodyFixedCount +
+                    " first=" + firstPlaybackRender +
+                    " bracketBefore=[" + beforeStr + "]" +
+                    " bracketAfter=[" + afterStr + "]" +
+                    " lerpAlpha=" + (double.IsNaN(lerpAlpha) ? "NaN" : lerpAlpha.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " ghostWorldBefore=" + TraceSeparation.FormatVector3d(ghostWorldBefore) +
+                    " ghostWorld=" + TraceSeparation.FormatVector3d(ghostWorld) +
+                    " worldStep=" + TraceSeparation.FormatVector3d(worldStep) +
+                    " |worldStep|=" + worldStep.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                    " predictedWorld=" + TraceSeparation.FormatVector3d(predictedWorld) +
+                    " predictedVsActual=" + TraceSeparation.FormatVector3d(predictedVsActual) +
+                    " |predDelta|=" + predictedVsActual.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                    " parentGhostFound=" + parentGhostFound +
+                    " parentGhostWorld=" + (parentGhostFound ? TraceSeparation.FormatVector3d(parentGhostWorld) : "<unresolved>") +
+                    " renderedParentDist=" + (double.IsNaN(renderedParentDist) ? "NaN" : renderedParentDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " recordedAnchorLocalDist=" + (double.IsNaN(recordedAnchorLocalDist) ? "NaN" : recordedAnchorLocalDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " recordedBodyFixedDist=" + (double.IsNaN(recordedBodyFixedDist) ? "NaN" : recordedBodyFixedDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)));
+            }
+            // ---- /Trace-Sep ----
             // Fail closed when InterpolateAndPosition could not produce a
             // valid pose. See GhostPlaybackEngine.IsInterpolationResultValid
             // for the bodyName-null sentinel rationale. Without this guard
@@ -17299,46 +17413,73 @@ namespace Parsek
             return true;
         }
 
+        internal static bool BodyFixedPrimaryCoversPlaybackUT(
+            TrackSection section,
+            double playbackUT,
+            out double firstBodyFixedUT,
+            out double lastBodyFixedUT)
+        {
+            firstBodyFixedUT = double.NaN;
+            lastBodyFixedUT = double.NaN;
+            if (section.referenceFrame != ReferenceFrame.Relative
+                || section.bodyFixedFrames == null
+                || section.bodyFixedFrames.Count < 2)
+            {
+                return false;
+            }
+
+            int lastIdx = section.bodyFixedFrames.Count - 1;
+            firstBodyFixedUT = section.bodyFixedFrames[0].ut;
+            lastBodyFixedUT = section.bodyFixedFrames[lastIdx].ut;
+
+            // Reject playback UTs outside the body-fixed primary's covered range.
+            // Without this guard InterpolateAndPosition / TrajectoryMath.InterpolatePoints
+            // would clamp at the nearest endpoint and silently freeze stale debris.
+            const double coverageEpsilon = 1e-6;
+            return playbackUT + coverageEpsilon >= firstBodyFixedUT
+                && playbackUT - coverageEpsilon <= lastBodyFixedUT;
+        }
+
         /// <summary>
-        /// Find the absoluteFrames bracket [before, after] that brackets the
+        /// Find the bodyFixedFrames bracket [before, after] that brackets the
         /// playback UT. Endpoints clamp at the first / last sample. NaN is
         /// returned when the section has zero or one frames (the caller's
         /// log line will report no usable bracket).
         /// </summary>
-        private static void ResolveAbsoluteShadowBracketUTs(
-            System.Collections.Generic.List<TrajectoryPoint> absoluteFrames,
+        private static void ResolveBodyFixedPrimaryBracketUTs(
+            System.Collections.Generic.List<TrajectoryPoint> bodyFixedFrames,
             double playbackUT,
             out double bracketBeforeUT,
             out double bracketAfterUT)
         {
             bracketBeforeUT = double.NaN;
             bracketAfterUT = double.NaN;
-            if (absoluteFrames == null || absoluteFrames.Count < 2)
+            if (bodyFixedFrames == null || bodyFixedFrames.Count < 2)
                 return;
             // Linear scan is fine -- shadow lists are typically <200 frames per
             // section and this is only called on gate-fired frames.
-            for (int i = 0; i < absoluteFrames.Count - 1; i++)
+            for (int i = 0; i < bodyFixedFrames.Count - 1; i++)
             {
-                if (absoluteFrames[i].ut <= playbackUT
-                    && absoluteFrames[i + 1].ut >= playbackUT)
+                if (bodyFixedFrames[i].ut <= playbackUT
+                    && bodyFixedFrames[i + 1].ut >= playbackUT)
                 {
-                    bracketBeforeUT = absoluteFrames[i].ut;
-                    bracketAfterUT = absoluteFrames[i + 1].ut;
+                    bracketBeforeUT = bodyFixedFrames[i].ut;
+                    bracketAfterUT = bodyFixedFrames[i + 1].ut;
                     return;
                 }
             }
             // Out of coverage: endpoints. Surface the closest pair so the log
             // still records what coverage we tried against.
-            if (playbackUT < absoluteFrames[0].ut)
+            if (playbackUT < bodyFixedFrames[0].ut)
             {
-                bracketBeforeUT = absoluteFrames[0].ut;
-                bracketAfterUT = absoluteFrames[1].ut;
+                bracketBeforeUT = bodyFixedFrames[0].ut;
+                bracketAfterUT = bodyFixedFrames[1].ut;
             }
             else
             {
-                int last = absoluteFrames.Count - 1;
-                bracketBeforeUT = absoluteFrames[last - 1].ut;
-                bracketAfterUT = absoluteFrames[last].ut;
+                int last = bodyFixedFrames.Count - 1;
+                bracketBeforeUT = bodyFixedFrames[last - 1].ut;
+                bracketAfterUT = bodyFixedFrames[last].ut;
             }
         }
 
@@ -18394,11 +18535,17 @@ namespace Parsek
             Recording rec = ResolveRecordingById(recordingId);
             if (rec == null) return false;
             if (rec.Points == null || rec.Points.Count == 0) return false;
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+            if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     rec,
                     ut,
-                    out _))
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic retireDiagnostic))
             {
+                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
+                    rec,
+                    ut,
+                    "TryComputeStandaloneWorldPositionForRecording",
+                    "body-fixed-primary-unavailable",
+                    retireDiagnostic);
                 return false;
             }
 
@@ -18409,7 +18556,7 @@ namespace Parsek
             // body.GetWorldSurfacePosition(metre, metre, metre) silently
             // produces a position deep inside the planet. The fallback path
             // below handles ABSOLUTE sections; for RELATIVE we route through
-            // the existing instance helpers (TryUseAbsoluteShadowFor… for
+            // the existing instance helpers (TryUseBodyFixedPrimaryFor… for
             // active-re-fly cases, TryResolveRelativeWorldPosition for the
             // anchor-bound common case). Checkpoint sections aren't relevant
             // for primary's P_render(t) — return false with a Verbose so
@@ -18532,7 +18679,9 @@ namespace Parsek
         /// <c>longitude</c>/<c>altitude</c>; reading them as lat/lon/alt
         /// would land deep inside the planet. v11 sections resolve through
         /// <see cref="RelativeAnchorResolver"/> by <c>anchorRecordingId</c>,
-        /// with caller-owned absolute-shadow fallback on resolver miss.
+        /// except ordinary parent-anchored debris, where v13 makes
+        /// <c>bodyFixedFrames</c> the primary render surface and a primary miss
+        /// fails closed instead of falling through to recorded Relative replay.
         /// v5-and-older recordings keep their older lat/lon/alt contract.
         /// </summary>
         private static bool TryComputeStandaloneRelativeWorldPosition(
@@ -18549,6 +18698,27 @@ namespace Parsek
                 return TryComputeStandaloneAbsoluteFallbackWorldPosition(rec, ut, out worldPos);
             }
 
+            bool ordinaryParentAnchoredDebris =
+                GhostPlaybackEngine.ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(rec, ut);
+            if (ordinaryParentAnchoredDebris)
+            {
+                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    rec,
+                    ut,
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic coverageDiagnostic);
+
+                if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
+                    return true;
+
+                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
+                    rec,
+                    ut,
+                    "TryComputeStandaloneRelativeWorldPosition",
+                    "body-fixed-primary-position-failed",
+                    coverageDiagnostic);
+                return false;
+            }
+
             if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
             {
                 string reason = rec.RecordingFormatVersion >= RecordingStore.RecordingAnchorChainFormatVersion
@@ -18562,28 +18732,34 @@ namespace Parsek
                         rec.RecordingId,
                         ut.ToString("R", CultureInfo.InvariantCulture)),
                     5.0);
-                if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+                if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
                     return true;
                 return false;
             }
 
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
-                    rec,
-                    ut,
-                    out _))
-            {
-                return false;
-            }
-
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
             bool skipRecordedRelativeResolver =
-                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
                     rec,
                     ut,
-                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
+                    out diagnostic);
             if (skipRecordedRelativeResolver)
             {
-                return diagnostic.AbsoluteFramesCoverUT
-                    && TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos);
+                if (diagnostic.BodyFixedFramesCoverUT
+                    && TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
+                {
+                    return true;
+                }
+
+                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
+                    rec,
+                    ut,
+                    "TryComputeStandaloneRelativeWorldPosition",
+                    diagnostic.BodyFixedFramesCoverUT
+                        ? "body-fixed-primary-position-failed"
+                        : "body-fixed-primary-unavailable",
+                    diagnostic);
+                return false;
             }
 
             RelativeAnchorResolveFailure failure = default;
@@ -18602,7 +18778,7 @@ namespace Parsek
                 return true;
             }
 
-            if (TryComputeStandaloneAbsoluteShadowWorldPosition(rec, section, ut, out worldPos))
+            if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
                 return true;
 
             string failureReason = RelativeAnchorResolveFailure.ReasonOrFallback(
@@ -18619,6 +18795,76 @@ namespace Parsek
                     failureReason),
                 5.0);
             return false;
+        }
+
+        private static void LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
+            Recording rec,
+            double ut,
+            string callsite,
+            string routeReason,
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            string recordingId = rec?.RecordingId ?? "(none)";
+            string key = "standalone-parent-debris-body-fixed-failed-closed|"
+                + recordingId + "|" + (callsite ?? "(unknown)");
+            ParsekLog.WarnRateLimited(
+                "Pipeline-CoBubble",
+                key,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: body-fixed primary failed closed for parent-anchored debris; recorded-relative fallback suppressed recording={1} ut={2} routeReason={3} coverageReason={4} sectionIndex={5} sectionUT={6} relativeFrames={7} bodyFixedFrames={8} anchorRec={9}",
+                    callsite ?? "(unknown)",
+                    recordingId,
+                    ut.ToString("R", CultureInfo.InvariantCulture),
+                    routeReason ?? "(unknown)",
+                    diagnostic.Reason ?? "(unknown)",
+                    diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture),
+                    FormatStandaloneCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstBodyFixedFrameUT, diagnostic.LastBodyFixedFrameUT),
+                    diagnostic.AnchorRecordingId ?? "(none)"),
+                5.0);
+        }
+
+        private static string FormatStandaloneCoverageRange(double startUT, double endUT)
+        {
+            if (double.IsNaN(startUT) || double.IsNaN(endUT))
+                return "(none)";
+            return "[" + startUT.ToString("R", CultureInfo.InvariantCulture)
+                + "," + endUT.ToString("R", CultureInfo.InvariantCulture) + "]";
+        }
+
+        private static void LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed(
+            IPlaybackTrajectory traj,
+            int recordingIndex,
+            double playbackUT,
+            string callsite,
+            string routeReason,
+            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            string recordingId = traj?.RecordingId ?? "(none)";
+            string key = "playback-world-parent-debris-body-fixed-failed-closed|"
+                + recordingId + "|" + recordingIndex.ToString(CultureInfo.InvariantCulture)
+                + "|" + (callsite ?? "(unknown)");
+            ParsekLog.WarnRateLimited(
+                "Playback",
+                key,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: body-fixed primary failed closed for parent-anchored debris; recorded-relative fallback suppressed recording=#{1} recordingId={2} vessel=\"{3}\" playbackUT={4} routeReason={5} coverageReason={6} sectionIndex={7} sectionUT={8} relativeFrames={9} bodyFixedFrames={10} anchorRec={11}",
+                    callsite ?? "(unknown)",
+                    recordingIndex.ToString(CultureInfo.InvariantCulture),
+                    recordingId,
+                    traj?.VesselName ?? "(unknown)",
+                    playbackUT.ToString("R", CultureInfo.InvariantCulture),
+                    routeReason ?? "(unknown)",
+                    diagnostic.Reason ?? "(unknown)",
+                    diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture),
+                    FormatStandaloneCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT),
+                    FormatStandaloneCoverageRange(diagnostic.FirstBodyFixedFrameUT, diagnostic.LastBodyFixedFrameUT),
+                    diagnostic.AnchorRecordingId ?? "(none)"),
+                5.0);
         }
 
         /// <summary>
@@ -18680,17 +18926,34 @@ namespace Parsek
         /// <summary>
         /// P1-C: standalone resolver for active-re-fly RELATIVE primaries
         /// that bypasses the live anchor by linear-interpolating
-        /// <see cref="TrackSection.absoluteFrames"/> (the v7+ absolute
-        /// shadow). Returns false when the section has no shadow or the
-        /// body cannot be resolved — the caller surfaces the failure as
-        /// HR-9 visible-failure.
+        /// <see cref="TrackSection.bodyFixedFrames"/>. Returns false when
+        /// the body-fixed primary has no authored coverage for the target
+        /// UT or the body cannot be resolved — the caller surfaces the
+        /// failure as HR-9 visible-failure.
         /// </summary>
-        private static bool TryComputeStandaloneAbsoluteShadowWorldPosition(
+        private static bool TryComputeStandaloneBodyFixedPrimaryWorldPosition(
             Recording rec, TrackSection section, double ut, out Vector3d worldPos)
         {
             worldPos = default;
-            List<TrajectoryPoint> shadow = section.absoluteFrames;
-            if (shadow == null || shadow.Count == 0) return false;
+            List<TrajectoryPoint> shadow = section.bodyFixedFrames;
+            if (!BodyFixedPrimaryCoversPlaybackUT(
+                    section, ut, out _, out _))
+            {
+                if (shadow != null
+                    && shadow.Count > 0
+                    && ut > shadow[shadow.Count - 1].ut + 1e-6)
+                {
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "primary-active-refly-shadow-past-end",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "body-fixed primary exhausted: recording={0} ut={1} lastShadowUT={2}",
+                            rec.RecordingId,
+                            ut.ToString("R", CultureInfo.InvariantCulture),
+                            shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                        5.0);
+                }
+                return false;
+            }
 
             int idx = -1;
             for (int i = 0; i < shadow.Count; i++)
@@ -18699,19 +18962,16 @@ namespace Parsek
             }
             TrajectoryPoint before, after;
             float t;
-            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
-            // from at/before-start (idx == 0). The pre-fix idx <= 0 lumped
-            // both cases into "clamp to shadow[0]" — when ut > last shadow
-            // sample, that produced a position from the FIRST sample
-            // instead of the last, jumping the primary backwards in time.
             // Past end is HR-9 visible failure: fail closed and emit a
-            // rate-limited Verbose so tuning is observable.
+            // rate-limited Verbose so tuning is observable. Normal callers
+            // are pre-gated by BodyFixedPrimaryCoversPlaybackUT, so this
+            // branch only catches malformed or unsorted frame lists.
             if (idx == -1)
             {
                 ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
                     "primary-active-refly-shadow-past-end",
                     string.Format(CultureInfo.InvariantCulture,
-                        "Absolute shadow exhausted: recording={0} ut={1} lastShadowUT={2}",
+                        "body-fixed primary exhausted: recording={0} ut={1} lastShadowUT={2}",
                         rec.RecordingId,
                         ut.ToString("R", CultureInfo.InvariantCulture),
                         shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
@@ -18766,7 +19026,7 @@ namespace Parsek
             float t;
             // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
             // from at/before-start (idx == 0). See sibling comment in
-            // TryComputeStandaloneAbsoluteShadowWorldPosition.
+            // TryComputeStandaloneBodyFixedPrimaryWorldPosition.
             if (idx == -1)
             {
                 ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
@@ -19884,16 +20144,17 @@ namespace Parsek
                     TrackSection section = traj.TrackSections[sectionIdx];
                     if (section.referenceFrame == ReferenceFrame.Relative)
                     {
-                        if (section.absoluteFrames != null && section.absoluteFrames.Count > 0)
+                        if (BodyFixedPrimaryCoversPlaybackUT(
+                                section, anchorUT, out _, out _))
                         {
                             int absoluteCachedIndex = 0;
                             if (TryResolvePointWorldPosition(
-                                    section.absoluteFrames,
+                                    section.bodyFixedFrames,
                                     ref absoluteCachedIndex,
                                     anchorUT,
                                     out anchorWorld))
                             {
-                                source = "relative-absolute-shadow";
+                                source = "relative-body-fixed-primary";
                                 return true;
                             }
                         }
@@ -19906,12 +20167,12 @@ namespace Parsek
                         && TryGetAbsoluteSectionPlaybackFramesForPlayback(
                             traj.TrackSections,
                             sectionIdx,
-                            out List<TrajectoryPoint> absoluteFrames,
+                            out List<TrajectoryPoint> bodyFixedFrames,
                             out _))
                     {
                         int absoluteCachedIndex = 0;
                         if (TryResolvePointWorldPosition(
-                                absoluteFrames,
+                                bodyFixedFrames,
                                 ref absoluteCachedIndex,
                                 anchorUT,
                                 out anchorWorld))
@@ -20108,7 +20369,7 @@ namespace Parsek
         private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
         private readonly HashSet<string> loggedRecordedRelativeStart =
             new HashSet<string>(StringComparer.Ordinal);
-        private readonly HashSet<string> loggedRelativeAbsoluteShadowStart =
+        private readonly HashSet<string> loggedRelativeBodyFixedPrimaryStart =
             new HashSet<string>(StringComparer.Ordinal);
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
@@ -20705,22 +20966,29 @@ namespace Parsek
                 return false;
 
             int cachedIndex = state != null ? state.playbackIndex : 0;
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+            if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     traj,
                     playbackUT,
-                    out _))
+                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic retireDiagnostic))
             {
+                LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed(
+                    traj,
+                    index,
+                    playbackUT,
+                    "TryResolvePlaybackWorldPosition",
+                    "body-fixed-primary-unavailable",
+                    retireDiagnostic);
                 return false;
             }
 
             bool skipRecordedRelativeResolverForAuthoredFrameGap =
-                DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
                     traj,
                     playbackUT,
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic);
             bool authoredGapHasShadow =
                 skipRecordedRelativeResolverForAuthoredFrameGap
-                && diagnostic.AbsoluteFramesCoverUT;
+                && diagnostic.BodyFixedFramesCoverUT;
 
             if (!authoredGapHasShadow
                 && TryResolveOrbitTailWorldPosition(
@@ -20751,17 +21019,40 @@ namespace Parsek
                         {
                             return true;
                         }
-                        if (section.absoluteFrames != null
-                            && section.absoluteFrames.Count > 0
-                            && (!skipRecordedRelativeResolverForAuthoredFrameGap
-                                || diagnostic.AbsoluteFramesCoverUT))
+                        if ((!skipRecordedRelativeResolverForAuthoredFrameGap
+                                || diagnostic.BodyFixedFramesCoverUT)
+                            && BodyFixedPrimaryCoversPlaybackUT(
+                                section, playbackUT, out _, out _))
                         {
                             int absoluteCachedIndex = 0;
-                            return TryResolvePointWorldPosition(
-                                section.absoluteFrames,
+                            bool bodyFixedResolved = TryResolvePointWorldPosition(
+                                section.bodyFixedFrames,
                                 ref absoluteCachedIndex,
                                 playbackUT,
                                 out worldPos);
+                            if (!bodyFixedResolved && skipRecordedRelativeResolverForAuthoredFrameGap)
+                            {
+                                LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed(
+                                    traj,
+                                    index,
+                                    playbackUT,
+                                    "TryResolvePlaybackWorldPosition",
+                                    "body-fixed-primary-position-failed",
+                                    diagnostic);
+                            }
+                            return bodyFixedResolved;
+                        }
+                        if (skipRecordedRelativeResolverForAuthoredFrameGap)
+                        {
+                            LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed(
+                                traj,
+                                index,
+                                playbackUT,
+                                "TryResolvePlaybackWorldPosition",
+                                diagnostic.BodyFixedFramesCoverUT
+                                    ? "body-fixed-primary-position-failed"
+                                    : "body-fixed-primary-unavailable",
+                                diagnostic);
                         }
                         // Relative sections store metre offsets in the
                         // lat/lon/alt fields. If their anchor cannot resolve,
@@ -20784,7 +21075,7 @@ namespace Parsek
                     else if (TryGetAbsoluteSectionPlaybackFramesForPlayback(
                         traj.TrackSections,
                         sectionIdx,
-                        out List<TrajectoryPoint> absoluteFrames,
+                        out List<TrajectoryPoint> bodyFixedFrames,
                         out _))
                     {
                         // Section-local absolute frames are authoritative at
@@ -20793,7 +21084,7 @@ namespace Parsek
                         // those as lat/lon/alt causes planet-scale spikes.
                         int sectionCachedIndex = 0;
                         return TryResolvePointWorldPosition(
-                            absoluteFrames,
+                            bodyFixedFrames,
                             ref sectionCachedIndex,
                             playbackUT,
                             out worldPos);
@@ -21022,7 +21313,7 @@ namespace Parsek
             if (section.referenceFrame == ReferenceFrame.Absolute)
                 return section.frames;
             if (section.referenceFrame == ReferenceFrame.Relative)
-                return section.absoluteFrames;
+                return section.bodyFixedFrames;
             return null;
         }
 
@@ -21119,7 +21410,7 @@ namespace Parsek
                     cacheKey,
                     out ReFlyDenseAbsolutePlaybackFrameCacheEntry entry))
             {
-                denseFrames = BuildDenseAbsoluteFramesForSection(
+                denseFrames = BuildDensebodyFixedFramesForSection(
                     traj.TrackSections,
                     sectionIdx,
                     section,
@@ -21234,7 +21525,7 @@ namespace Parsek
                 return false;
             }
 
-            denseFrameCount = CountDenseAbsoluteFramesForSection(
+            denseFrameCount = CountDensebodyFixedFramesForSection(
                 trackSections,
                 sectionIdx,
                 section,
@@ -21282,7 +21573,7 @@ namespace Parsek
             return true;
         }
 
-        private static List<TrajectoryPoint> BuildDenseAbsoluteFramesForSection(
+        private static List<TrajectoryPoint> BuildDensebodyFixedFramesForSection(
             List<TrackSection> trackSections,
             int sectionIdx,
             TrackSection section,
@@ -21302,7 +21593,7 @@ namespace Parsek
             return frames;
         }
 
-        private static int CountDenseAbsoluteFramesForSection(
+        private static int CountDensebodyFixedFramesForSection(
             List<TrackSection> trackSections,
             int sectionIdx,
             TrackSection section,
@@ -21711,8 +22002,12 @@ namespace Parsek
             // the recorder fix removed, but inverted at playback time. Use
             // anchor.transform explicitly (not GetTransform(), which follows
             // ReferenceTransform / "Control From Here").
-            Vector3d anchorWorld = anchor.transform != null
-                ? (Vector3d)anchor.transform.position
+            Transform anchorTransform = anchor.transform;
+            Quaternion anchorRotation = anchorTransform != null
+                ? anchorTransform.rotation
+                : Quaternion.identity;
+            Vector3d anchorWorld = anchorTransform != null
+                ? (Vector3d)anchorTransform.position
                 : anchor.GetWorldPos3D();
             if (!IsFiniteVector3d(anchorWorld))
             {
@@ -21728,14 +22023,14 @@ namespace Parsek
                     success: false,
                     fromRecordedTrajectory: false,
                     anchorPosition: anchorWorld,
-                    anchorRotation: anchor.transform.rotation,
+                    anchorRotation: anchorRotation,
                     localOffset: Vector3d.zero,
                     outputPosition: Vector3d.zero);
                 return false;
             }
 
             pose.worldPos = anchorWorld;
-            pose.worldRotation = anchor.transform.rotation;
+            pose.worldRotation = anchorRotation;
             pose.fromRecordedTrajectory = false;
             GhostRenderTrace.EmitRelativeResolver(
                 victimRecordingId,
@@ -21755,50 +22050,50 @@ namespace Parsek
             return true;
         }
 
-        internal static List<TrajectoryPoint> ResolveAbsoluteShadowPlaybackFrames(
+        internal static List<TrajectoryPoint> ResolveBodyFixedPrimaryPlaybackFrames(
             IPlaybackTrajectory trajectory,
             TrackSection section,
             double targetUT)
         {
-            List<TrajectoryPoint> absoluteFrames = section.absoluteFrames;
-            if (absoluteFrames == null || absoluteFrames.Count == 0)
-                return absoluteFrames;
-            if (RecordedAnchorPointListCoversUT(absoluteFrames, targetUT))
-                return absoluteFrames;
-            if (targetUT >= absoluteFrames[0].ut)
-                return absoluteFrames;
+            List<TrajectoryPoint> bodyFixedFrames = section.bodyFixedFrames;
+            if (bodyFixedFrames == null || bodyFixedFrames.Count == 0)
+                return bodyFixedFrames;
+            if (RecordedAnchorPointListCoversUT(bodyFixedFrames, targetUT))
+                return bodyFixedFrames;
+            if (targetUT >= bodyFixedFrames[0].ut)
+                return bodyFixedFrames;
 
             TrajectoryPoint bridge;
-            if (!TryFindAbsoluteShadowBridgeFrame(trajectory, section, targetUT, out bridge))
-                return absoluteFrames;
-            if (bridge.ut >= absoluteFrames[0].ut - 0.0001)
-                return absoluteFrames;
+            if (!TryFindBodyFixedPrimaryBridgeFrame(trajectory, section, targetUT, out bridge))
+                return bodyFixedFrames;
+            if (bridge.ut >= bodyFixedFrames[0].ut - 0.0001)
+                return bodyFixedFrames;
 
-            var bridged = new List<TrajectoryPoint>(absoluteFrames.Count + 1);
+            var bridged = new List<TrajectoryPoint>(bodyFixedFrames.Count + 1);
             bridged.Add(bridge);
-            bridged.AddRange(absoluteFrames);
+            bridged.AddRange(bodyFixedFrames);
             ParsekLog.WarnRateLimited(
                 "Playback",
                 string.Concat(
-                    "absolute-shadow-bridge|",
+                    "body-fixed-primary-bridge|",
                     trajectory?.RecordingId ?? "(none)",
                     "|",
                     section.startUT.ToString("R", CultureInfo.InvariantCulture)),
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "RELATIVE absolute shadow bridge inserted: recording={0} targetUT={1:F2} " +
+                    "RELATIVE body-fixed primary bridge inserted: recording={0} targetUT={1:F2} " +
                     "bridgeUT={2:F2} firstShadowUT={3:F2} sectionUT=[{4:F2},{5:F2}]",
                     ShortRecordingId(trajectory?.RecordingId),
                     targetUT,
                     bridge.ut,
-                    absoluteFrames[0].ut,
+                    bodyFixedFrames[0].ut,
                     section.startUT,
                     section.endUT),
                 30.0);
             return bridged;
         }
 
-        internal static bool TryFindAbsoluteShadowBridgeFrame(
+        internal static bool TryFindBodyFixedPrimaryBridgeFrame(
             IPlaybackTrajectory trajectory,
             TrackSection relativeSection,
             double targetUT,
@@ -22678,7 +22973,7 @@ namespace Parsek
             bool allowActivation,
             out InterpolationResult interpResult)
         {
-            if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
+            if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     traj,
                     targetUT,
                     out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic))
@@ -22692,7 +22987,26 @@ namespace Parsek
                     "InterpolateAndPositionRecordedRelative",
                     resolverReason:
                         "parent-anchored-debris-outside-relative-coverage coverageReason="
-                        + (diagnostic.Reason ?? "relative-and-shadow-frames-out-of-range"));
+                        + (diagnostic.Reason ?? "relative-and-body-fixed-frames-out-of-range"));
+                interpResult = InterpolationResult.Zero;
+                return;
+            }
+
+            if (GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
+                    traj,
+                    targetUT,
+                    out diagnostic))
+            {
+                RetireUnresolvedRecordedRelative(
+                    ghost,
+                    recordingIndex,
+                    recordingVesselName,
+                    target,
+                    retireSignalState,
+                    "InterpolateAndPositionRecordedRelative",
+                    resolverReason:
+                        "body-fixed-primary-required; recorded-relative fallback suppressed coverageReason="
+                        + (diagnostic.Reason ?? "covered-by-body-fixed-primary"));
                 interpResult = InterpolationResult.Zero;
                 return;
             }
@@ -22708,23 +23022,6 @@ namespace Parsek
 
             if (indexBefore < 0)
             {
-                // PR 3c (plan §3c): legacy v11 debris with absolute shadow
-                // bypasses the resolver chain — its `anchorRecordingId` was
-                // chosen by nearest-vessel-at-sample-time and is often wrong
-                // (the resolver "succeeds" with the wrong anchor and never
-                // reaches the existing post-failure shadow path). v12+
-                // debris fails condition #2 and falls through.
-                if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
-                    && TryUseLegacyDebrisShadowFallback(
-                            recordingIndex,
-                            traj,
-                            retireSignalState,
-                            target,
-                            targetUT,
-                            ref cachedIndex,
-                            out interpResult))
-                    return;
-
                 if (TryPositionGhostRecordedRelativeAt(
                         ghost,
                         frames[0],
@@ -22741,7 +23038,7 @@ namespace Parsek
                     return;
                 }
 
-                if (TryUseRelativeAbsoluteShadowFallback(
+                if (TryUseRelativeBodyFixedPrimaryFallback(
                         recordingIndex,
                         traj,
                         retireSignalState,
@@ -22771,19 +23068,6 @@ namespace Parsek
             double segmentDuration = after.ut - before.ut;
             if (segmentDuration <= 0.0001)
             {
-                // PR 3c (plan §3c): legacy v11 debris with absolute shadow
-                // bypasses the resolver chain. See pre-range branch above.
-                if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
-                    && TryUseLegacyDebrisShadowFallback(
-                            recordingIndex,
-                            traj,
-                            retireSignalState,
-                            target,
-                            targetUT,
-                            ref cachedIndex,
-                            out interpResult))
-                    return;
-
                 if (TryPositionGhostRecordedRelativeAt(
                         ghost,
                         before,
@@ -22800,7 +23084,7 @@ namespace Parsek
                     return;
                 }
 
-                if (TryUseRelativeAbsoluteShadowFallback(
+                if (TryUseRelativeBodyFixedPrimaryFallback(
                         recordingIndex,
                         traj,
                         retireSignalState,
@@ -22861,30 +23145,13 @@ namespace Parsek
 
             if (allowActivation && !ghost.activeSelf) ghost.SetActive(true);
 
-            // PR 3c (plan §3c): legacy v11 debris with absolute shadow
-            // bypasses the resolver chain BEFORE the resolver attempt — the
-            // resolver "succeeds" with the wrong nearest-vessel-at-sample-time
-            // anchor and never reaches the post-failure shadow path. v12+
-            // debris (DebrisParentRecordingId set) fails condition #2 and
-            // falls through to the resolver per Decision §7.
-            if (LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible(traj, target.Section)
-                && TryUseLegacyDebrisShadowFallback(
-                        recordingIndex,
-                        traj,
-                        retireSignalState,
-                        target,
-                        targetUT,
-                        ref cachedIndex,
-                        out interpResult))
-                return;
-
             if (!TryResolveRecordedRelativeAnchorPose(
                     target,
                     targetUT,
                     out RelativeAnchorPose anchorPose,
                     out RelativeAnchorResolveFailure anchorFailure))
             {
-                if (TryUseRelativeAbsoluteShadowFallback(
+                if (TryUseRelativeBodyFixedPrimaryFallback(
                         recordingIndex,
                         traj,
                         retireSignalState,
@@ -23437,98 +23704,7 @@ namespace Parsek
             return false;
         }
 
-        /// <summary>
-        /// Wraps <see cref="TryUseRelativeAbsoluteShadowFallback"/> for the
-        /// PR 3c legacy-debris gate (`LegacyDebrisShadowGate`). The wrapper
-        /// emits a distinct rate-limited log line so legacy-debris
-        /// dispatches are diagnosable independently of the existing
-        /// resolver-failure shadow path (which keeps emitting
-        /// `RELATIVE recorded-anchor fallback to absolute shadow` for
-        /// non-debris recordings).
-        ///
-        /// Caller must guard with
-        /// <see cref="LegacyDebrisShadowGate.IsLegacyDebrisShadowEligible"/>
-        /// before calling — this helper does not re-check the predicate.
-        /// </summary>
-        private bool TryUseLegacyDebrisShadowFallback(
-            int recordingIndex,
-            IPlaybackTrajectory trajectory,
-            GhostPlaybackState state,
-            RelativeSectionPlaybackTarget target,
-            double targetUT,
-            ref int playbackIdx,
-            out InterpolationResult interpResult)
-        {
-            // PR 3c review follow-up: pass `suppressFallbackWarn: true` so the
-            // legacy-debris path does NOT emit
-            // [WARN][Playback] RELATIVE recorded-anchor fallback to absolute shadow —
-            // that warning is one of the plan's zero-count validation targets, and
-            // for legacy v11 debris the shadow path is the INTENDED dispatch (not a
-            // resolver-failure recovery). The legacy path's distinct
-            // `Playback: legacy debris path — preferring absoluteFrames shadow`
-            // verbose log below is the diagnostic signal for this case.
-            if (!TryUseRelativeAbsoluteShadowFallback(
-                    recordingIndex,
-                    trajectory,
-                    state,
-                    target,
-                    targetUT,
-                    ref playbackIdx,
-                    out interpResult,
-                    suppressFallbackWarn: true))
-            {
-                return false;
-            }
-
-            // Mirror the post-failure fallback's per-(recording, section) dedupe
-            // window, but with a distinct key prefix so legacy-debris dispatches
-            // are filterable independently.
-            string key = string.Concat(
-                "legacy-debris-shadow-preferred|",
-                target.RecordingId ?? "(none)",
-                "|",
-                target.SectionIndex.ToString(CultureInfo.InvariantCulture));
-            ParsekLog.VerboseRateLimited(
-                "Playback",
-                key,
-                "Playback: legacy debris path — preferring absoluteFrames shadow " +
-                $"(recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
-                $"recordingId={ShortRecordingId(target.RecordingId)} " +
-                $"sectionIndex={target.SectionIndex.ToString(CultureInfo.InvariantCulture)} " +
-                $"shadowFrames={target.Section.absoluteFrames.Count.ToString(CultureInfo.InvariantCulture)})",
-                5.0);
-            return true;
-        }
-
-        private bool TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
-            GameObject ghost,
-            int recordingIndex,
-            string recordingVesselName,
-            IPlaybackTrajectory trajectory,
-            RelativeSectionPlaybackTarget target,
-            GhostPlaybackState retireSignalState,
-            RelativeAnchorResolveFailure resolverFailure,
-            out InterpolationResult interpResult)
-        {
-            interpResult = InterpolationResult.Zero;
-            if (!DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(trajectory))
-                return false;
-
-            string resolverOutcome = resolverFailure.HasFailure ? resolverFailure.Outcome.ToString() : null;
-            string resolverReason = RelativeAnchorResolveFailure.ReasonOrFallback(resolverFailure, null);
-            RetireUnresolvedRecordedRelative(
-                ghost,
-                recordingIndex,
-                recordingVesselName,
-                target,
-                retireSignalState,
-                "InterpolateAndPositionRecordedRelative.parent-anchored-debris",
-                resolverOutcome,
-                resolverReason);
-            return true;
-        }
-
-        private bool TryUseRelativeAbsoluteShadowFallback(
+        private bool TryUseRelativeBodyFixedPrimaryFallback(
             int recordingIndex,
             IPlaybackTrajectory trajectory,
             GhostPlaybackState state,
@@ -23540,34 +23716,23 @@ namespace Parsek
             RelativeAnchorResolveFailure resolverFailure = default(RelativeAnchorResolveFailure))
         {
             interpResult = InterpolationResult.Zero;
-            // Parent-anchored v12+ debris has a strict recorded-relative
-            // contract: a parent-anchor miss hides the debris instead of
-            // replaying stale absolute-shadow frames. Keeping this guard inside
-            // the fallback helper prevents future callers from accidentally
-            // bypassing the retire path.
-            if (TryRetireParentAnchoredDebrisOnRecordedAnchorMiss(
-                    state?.ghost,
-                    recordingIndex,
-                    trajectory?.VesselName,
-                    trajectory,
-                    target,
-                    state,
-                    resolverFailure,
-                    out interpResult))
-                return true;
-
+            double firstBodyFixedUT;
+            double lastBodyFixedUT;
             if (state?.ghost == null
-                || target.Section.referenceFrame != ReferenceFrame.Relative
-                || target.Section.absoluteFrames == null
-                || target.Section.absoluteFrames.Count == 0)
+                || !BodyFixedPrimaryCoversPlaybackUT(
+                    target.Section,
+                    targetUT,
+                    out firstBodyFixedUT,
+                    out lastBodyFixedUT))
             {
                 return false;
             }
 
             int absolutePlaybackIdx = playbackIdx;
+            bool ghostWasActive = state.ghost.activeSelf;
             InterpolateAndPosition(
                 state.ghost,
-                target.Section.absoluteFrames,
+                target.Section.bodyFixedFrames,
                 null,
                 ref absolutePlaybackIdx,
                 targetUT,
@@ -23577,6 +23742,14 @@ namespace Parsek
                 skipOrbitSegments: true,
                 recordingId: target.RecordingId,
                 sectionIndex: target.SectionIndex);
+
+            if (!GhostPlaybackEngine.IsInterpolationResultValid(interpResult))
+            {
+                if (state.ghost != null && state.ghost.activeSelf != ghostWasActive)
+                    state.ghost.SetActive(ghostWasActive);
+                return false;
+            }
+
             playbackIdx = absolutePlaybackIdx;
 
             // PR 3c review follow-up: skip the [WARN] entirely (don't even
@@ -23595,14 +23768,14 @@ namespace Parsek
                     target.AnchorRecordingId ?? "(missing)",
                     "|",
                     target.SectionIndex.ToString(CultureInfo.InvariantCulture));
-                if (loggedRelativeAbsoluteShadowStart.Add(key))
+                if (loggedRelativeBodyFixedPrimaryStart.Add(key))
                 {
                     ParsekLog.Warn("Playback",
-                        $"RELATIVE recorded-anchor fallback to absolute shadow: " +
+                        $"RELATIVE recorded-anchor fallback to body-fixed primary: " +
                         $"recording #{recordingIndex} \"{trajectory?.VesselName}\" " +
                         $"recordingId={ShortRecordingId(target.RecordingId)} " +
                         $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
-                        $"frames={target.Section.absoluteFrames.Count} " +
+                        $"frames={target.Section.bodyFixedFrames.Count} " +
                         $"sectionUT=[{target.Section.startUT:F1},{target.Section.endUT:F1}]");
                 }
             }

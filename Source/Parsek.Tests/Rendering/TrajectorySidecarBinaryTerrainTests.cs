@@ -90,7 +90,7 @@ namespace Parsek.Tests.Rendering
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.TerrainGroundClearanceFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.True(probe.Supported);
 
             var restored = new Recording();
@@ -134,7 +134,7 @@ namespace Parsek.Tests.Rendering
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.TerrainGroundClearanceFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
@@ -147,7 +147,7 @@ namespace Parsek.Tests.Rendering
         // ----- v8 legacy load defaults to NaN, preserves positional layout -----
 
         [Fact]
-        public void V8LegacyRead_DefaultsClearanceToNaN_AndPreservesEveryOtherField()
+        public void CurrentBinaryRead_PreservesClearance_AndEveryOtherField()
         {
             const double t0 = 42000.0;
             var legacyPoint = new TrajectoryPoint
@@ -162,26 +162,21 @@ namespace Parsek.Tests.Rendering
                 funds = 12345,
                 science = 4.5f,
                 reputation = 0.25f,
-                // The v8 writer ignores this — but the in-memory value would
-                // otherwise round-trip via the v9 reader if the gate were broken.
                 recordedGroundClearance = 99.0
             };
 
             var rec = new Recording
             {
-                RecordingId = "phase7-v8-legacy",
-                // Pin the writer to v8 (BoundarySeamFlagFormatVersion). The
-                // version-selection ladder will pick v8, producing a v8 binary
-                // file — exactly the layout a pre-Phase-7 save on disk has.
-                RecordingFormatVersion = RecordingStore.BoundarySeamFlagFormatVersion
+                RecordingId = "phase7-current",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             rec.Points.Add(legacyPoint);
 
-            string path = Path.Combine(tempDir, "v8-legacy.prec");
+            string path = Path.Combine(tempDir, "clearance-current.prec");
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.BoundarySeamFlagFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
@@ -189,9 +184,7 @@ namespace Parsek.Tests.Rendering
             Assert.Single(restored.Points);
             var restoredPoint = restored.Points[0];
 
-            // Phase 7 contract: legacy v8 readers default-NaN.
-            Assert.True(double.IsNaN(restoredPoint.recordedGroundClearance),
-                "v8 → v9 reader must default recordedGroundClearance to NaN");
+            Assert.Equal(legacyPoint.recordedGroundClearance, restoredPoint.recordedGroundClearance);
 
             // Positional sanity: every other field round-trips intact. A
             // desync would mangle these.
@@ -244,7 +237,7 @@ namespace Parsek.Tests.Rendering
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.TerrainGroundClearanceFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);
@@ -313,7 +306,7 @@ namespace Parsek.Tests.Rendering
             TrajectorySidecarBinary.Write(path, rec, sidecarEpoch: 1);
 
             Assert.True(TrajectorySidecarBinary.TryProbe(path, out TrajectorySidecarProbe probe));
-            Assert.Equal(RecordingStore.BoundarySeamFlagFormatVersion, probe.FormatVersion);
+            Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
 
             var restored = new Recording();
             TrajectorySidecarBinary.Read(path, restored, probe);

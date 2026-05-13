@@ -3374,7 +3374,7 @@ namespace Parsek
             Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
                 launchFrame.Value.latitude, launchFrame.Value.longitude, launchFrame.Value.altitude);
             double maxDist = 0;
-            int absoluteFrameCount = 0;
+            int bodyFixedFrameCount = 0;
             int skippedSections = 0;
             for (int s = 0; s < rec.TrackSections.Count; s++)
             {
@@ -3393,13 +3393,13 @@ namespace Parsek
                     Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
                     double d = Vector3d.Distance(launchPos, ptPos);
                     if (d > maxDist) maxDist = d;
-                    absoluteFrameCount++;
+                    bodyFixedFrameCount++;
                 }
             }
             rec.MaxDistanceFromLaunch = maxDist;
             ParsekLog.Verbose("Spawner",
                 $"BackfillMaxDistanceAbsoluteOnly: rec={rec.RecordingId} maxDist={maxDist:F0}m " +
-                $"from {absoluteFrameCount} Absolute frames (skipped {skippedSections} non-Absolute sections)");
+                $"from {bodyFixedFrameCount} Absolute frames (skipped {skippedSections} non-Absolute sections)");
         }
 
         /// <summary>
@@ -5034,7 +5034,7 @@ namespace Parsek
         /// Walks <see cref="Recording.TrackSections"/> in reverse, picking the
         /// latest <see cref="ReferenceFrame.Absolute"/> /
         /// <see cref="SegmentEnvironment.ExoBallistic"/> frame on the spawn body.
-        /// Honors v7+ <see cref="TrackSection.absoluteFrames"/> shadow on Relative
+        /// Honors v7+ <see cref="TrackSection.bodyFixedFrames"/> shadow on Relative
         /// sections. Skips Surface / Atmospheric / ExoPropulsive / Approach
         /// environments — those produce sub-orbital or transitional osculating
         /// orbits that are not meaningful as the recording's "terminal" orbit.

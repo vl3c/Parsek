@@ -24,12 +24,9 @@ namespace Parsek
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
-        // Set on debris recordings (v12+) to the parent recording's id; null on legacy v11
-        // debris and on non-debris. PR 3a schema only — populated by PR 3b at recording
-        // time (BackgroundRecorder / ParsekFlight breakup paths) and consumed by PR 3c
-        // playback gate to dispatch legacy v11 debris through the absolute-shadow path
-        // when this id is null. See docs/dev/plans/recording-and-ghost-policies-refactor-plan.md
-        // §"3a. Schema (PR 3a)".
+        // Set on parent-anchored debris recordings to the parent recording's id;
+        // null on non-debris. The v13 debris-frame contract uses this field to
+        // choose parent-owned recording and playback paths.
         public string DebrisParentRecordingId;
 
         // True if this recording was created via the Gloops Flight Recorder (manual ghost-only).
@@ -595,7 +592,7 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
-            // Propagate the v12+ debris parent-anchor contract alongside IsDebris.
+            // Propagate the v13 debris parent-anchor contract alongside IsDebris.
             // Without this, every cloned debris recording would silently lose the
             // contract — see plan §"`IsDebris` propagation surface" site #4.
             DebrisParentRecordingId = source.DebrisParentRecordingId;
@@ -870,7 +867,7 @@ namespace Parsek
                 var s = source[i];
                 var copy = s;
                 copy.frames = s.frames != null ? new List<TrajectoryPoint>(s.frames) : null;
-                copy.absoluteFrames = s.absoluteFrames != null ? new List<TrajectoryPoint>(s.absoluteFrames) : null;
+                copy.bodyFixedFrames = s.bodyFixedFrames != null ? new List<TrajectoryPoint>(s.bodyFixedFrames) : null;
                 copy.checkpoints = s.checkpoints != null ? new List<OrbitSegment>(s.checkpoints) : null;
                 result.Add(copy);
             }
@@ -878,7 +875,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Stamps the v12+ debris parent-anchor contract on <paramref name="child"/>:
+        /// Stamps the v13 debris parent-anchor contract on <paramref name="child"/>:
         /// when the child is debris, sets <see cref="DebrisParentRecordingId"/> to the
         /// supplied parent's recording id; otherwise no-op. Idempotent on non-debris
         /// recordings so callers can invoke unconditionally adjacent to their existing

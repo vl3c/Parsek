@@ -38,13 +38,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AbsoluteShadowFramesCoverUT_RequiresTwoPoints()
+        public void BodyFixedPrimaryFramesCoverUT_RequiresTwoPoints()
         {
-            Assert.False(DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
+            Assert.False(DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT(
                 new List<TrajectoryPoint> { new TrajectoryPoint { ut = 100.0 } },
                 100.0));
 
-            Assert.True(DebrisRelativeCoveragePrimitives.AbsoluteShadowFramesCoverUT(
+            Assert.True(DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT(
                 new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 100.0 },
@@ -62,7 +62,7 @@ namespace Parsek.Tests
                     new TrajectoryPoint { ut = 100.0 },
                     new TrajectoryPoint { ut = 110.0 }
                 },
-                absoluteFrames: new List<TrajectoryPoint>
+                bodyFixedFrames: new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 100.0 },
                     new TrajectoryPoint { ut = 130.0 }
@@ -76,7 +76,7 @@ namespace Parsek.Tests
 
             Assert.True(result);
             Assert.Equal(130.0, coverageEndUT);
-            Assert.Equal("absolute-shadow", coverageReason);
+            Assert.Equal("body-fixed-primary", coverageReason);
         }
     }
 }
