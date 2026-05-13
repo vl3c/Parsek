@@ -1332,7 +1332,12 @@ namespace Parsek
                     branch,
                     frameSelectionFailureReason ?? "no-points",
                     targetSection.HasValue ? NormalizeKscAnchorRecordingId(targetSection.Value) : null);
-                ParsekLog.Verbose("KSCGhost",
+                // Rate-limit per recording: synthetic recordings with no
+                // sampled points trigger this branch every KSC ghost frame
+                // and the unrate-limited Verbose used to emit ~120 lines/sec
+                // per offending recording.
+                ParsekLog.VerboseRateLimited("KSCGhost",
+                    $"ksc-no-points-{rec.RecordingId}",
                     $"KSC pose interpolation skipped: no points recording={rec.DebugName} " +
                     $"targetUT={targetUT:F2} sections={rec.TrackSections?.Count ?? 0}");
                 return false;

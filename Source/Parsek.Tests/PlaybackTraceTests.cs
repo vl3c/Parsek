@@ -311,6 +311,118 @@ namespace Parsek.Tests
                 && l.Contains("sectionCrossed"));
         }
 
+        // ============ Loop-wraparound dedup ============
+
+        [Fact]
+        public void MaybeEmitFrame_LoopWraparound_SuppressesRepeatEventWindow()
+        {
+            // First window across event UT 10 emits multiple frames as
+            // currentUT advances monotonically inside [10, 15). When the
+            // ghost loops and currentUT jumps back to before the event,
+            // re-entering the same window must not retrace the event:
+            // exactly one trace per unique (recId, ghostIdx, eventUT).
+            var traj = MakeTrajWithStructuralEvent("rec-loop", 10.0);
+
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // First window: three frames inside the 5-second window.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.0,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 11.0,
+                    renderedPos: new Vector3(1, 0, 0));
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.9,
+                    renderedPos: new Vector3(5, 0, 0));
+
+                int firstWindowLines = logLines.FindAll(
+                    l => l.Contains("[PlaybackTrace]")).Count;
+                Assert.Equal(3, firstWindowLines);
+
+                // Loop wraparound — currentUT jumps backwards into the
+                // same event window. The dedup keys on `currentUT <
+                // prev.lastEmittedUT`, so frames at UTs strictly below
+                // the previous-pass high-water (14.9) are suppressed in
+                // full. In real playback the second pass is bounded by
+                // wall-clock advance per frame, so only the at-most-one
+                // frame that lands exactly at or just past the prior
+                // high-water leaks — orders of magnitude less spam than
+                // the unbounded retracing the bug exhibited.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.0,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 11.0,
+                    renderedPos: new Vector3(1, 0, 0));
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.0,
+                    renderedPos: new Vector3(4, 0, 0));
+            }
+            finally { ParsekLog.ResetTestOverrides(); ParsekLog.SuppressLogging = true; }
+
+            // No additional emissions across the second wraparound pass.
+            int totalLines = logLines.FindAll(
+                l => l.Contains("[PlaybackTrace]")).Count;
+            Assert.Equal(3, totalLines);
+        }
+
+        [Fact]
+        public void MaybeEmitFrame_LoopWraparound_NewEventStillEmits()
+        {
+            // Two structural events at UT 10 and UT 100. After fully tracing
+            // the first event and looping back through it (suppressed by the
+            // wraparound guard), the second event must still emit because
+            // its event UT differs from the cursor's lastTracedEventUT.
+            var traj = new MockTrajectory { RecordingId = "rec-two-events" };
+            traj.Points.Add(MakeFlaggedPoint(10.0));
+            traj.Points.Add(MakeFlaggedPoint(100.0));
+
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // Trace the first event window forward up to UT 14.0.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.0,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.0,
+                    renderedPos: new Vector3(4, 0, 0));
+                Assert.Equal(2, logLines.FindAll(
+                    l => l.Contains("[PlaybackTrace]")).Count);
+
+                // Wraparound — currentUT jumps backwards into the first
+                // event's window. Same lastTracedEventUT, lower UT → guard
+                // suppresses.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.5,
+                    renderedPos: Vector3.zero);
+                Assert.Equal(2, logLines.FindAll(
+                    l => l.Contains("[PlaybackTrace]")).Count);
+
+                // Move forward into the second event's window. Different
+                // event UT → guard inert, emit a fresh trace.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 100.5,
+                    renderedPos: new Vector3(50, 0, 0));
+                Assert.Equal(3, logLines.FindAll(
+                    l => l.Contains("[PlaybackTrace]")).Count);
+            }
+            finally { ParsekLog.ResetTestOverrides(); ParsekLog.SuppressLogging = true; }
+        }
+
+        [Fact]
+        public void MaybeEmitFrame_LoopWraparound_StateRecordsLastEventUT()
+        {
+            // The cursor's lastTracedEventUT must equal the most recent
+            // structural event UT after the first emission — this is
+            // the field the loop-wraparound guard keys on.
+            var traj = MakeTrajWithStructuralEvent("rec-cursor", 42.0);
+
+            ParsekLog.SuppressLogging = true; // suppress emission noise
+            PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 3, currentUT: 42.5,
+                renderedPos: Vector3.zero);
+
+            double traced = PlaybackTrace.GetLastTracedEventUTForTesting(
+                "rec-cursor", ghostIdx: 3);
+            Assert.Equal(42.0, traced);
+        }
+
         [Fact]
         public void MaybeEmitFrame_NoTrackSections_EmitsWithUnknownSection()
         {

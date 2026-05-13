@@ -67,6 +67,15 @@ namespace Parsek
             public double lastEmittedUT;
             public Vector3 lastRenderedPos;
             public int lastSectionIdx;
+            // UT of the structural event whose window the last emitted frame
+            // belonged to. Used to suppress loop-wraparound re-entry: once
+            // the 5-second window for an event has fully played out (or the
+            // ghost loops back to before the event), further frames for the
+            // same event UT are skipped — one trace per unique event is
+            // enough to diagnose separation jitter, and looping showcase
+            // recordings would otherwise multiply the INFO line count
+            // unboundedly.
+            public double lastTracedEventUT;
         }
 
         /// <summary>
@@ -162,7 +171,17 @@ namespace Parsek
             string recId = traj.RecordingId;
             if (string.IsNullOrEmpty(recId)) return;
 
-            if (!IsInPostStructuralEventWindow(traj, currentUT)) return;
+            // Resolve the most-recent structural event UT for the gate
+            // and per-event de-dup. Mirrors IsInPostStructuralEventWindow
+            // but keeps the resolved value so the loop-wraparound guard
+            // below can key on it.
+            List<double> events = GetOrBuildStructuralEventUTs(traj);
+            if (events == null || events.Count == 0) return;
+            int eIdx = events.BinarySearch(currentUT);
+            if (eIdx < 0) eIdx = ~eIdx - 1;
+            if (eIdx < 0) return;
+            double mostRecentEventUT = events[eIdx];
+            if ((currentUT - mostRecentEventUT) > PostEventWindowSeconds) return;
 
             // Resolve current section (if any) for context. Out-of-range UT
             // returns -1 from FindTrackSectionForUT; we still emit the line
@@ -186,6 +205,22 @@ namespace Parsek
 
             string stateKey = recId + "|" + ghostIdx.ToString(CultureInfo.InvariantCulture);
             bool hadPrev = traceStates.TryGetValue(stateKey, out TraceState prev);
+
+            // Loop-wraparound dedup: when the gate reopens on the same
+            // event UT after the previous frame's window has aged out
+            // (or after currentUT jumps backwards on loop restart),
+            // suppress further emissions for this event. The first
+            // window across the event still emits in full because
+            // consecutive frames stay monotonically forward within the
+            // 5-second PostEventWindow, so the gap check below remains
+            // false until the recording loops.
+            if (hadPrev
+                && prev.lastTracedEventUT == mostRecentEventUT
+                && (currentUT < prev.lastEmittedUT
+                    || (currentUT - prev.lastEmittedUT) > PostEventWindowSeconds))
+            {
+                return;
+            }
 
             float deltaMeters = 0f;
             float deltaSpeedMps = 0f;
@@ -223,6 +258,7 @@ namespace Parsek
                 lastEmittedUT = currentUT,
                 lastRenderedPos = renderedPos,
                 lastSectionIdx = sectionIdx,
+                lastTracedEventUT = mostRecentEventUT,
             };
         }
 
@@ -244,6 +280,20 @@ namespace Parsek
                 && structuralEventUTCache.TryGetValue(recordingId, out List<double> uts)
                 ? uts
                 : null;
+        }
+
+        /// <summary>
+        /// Test-only: returns the last structural-event UT a trace was
+        /// emitted for under the given (recordingId, ghostIdx), or NaN
+        /// when no trace has been recorded yet for that pair.
+        /// </summary>
+        internal static double GetLastTracedEventUTForTesting(string recordingId, int ghostIdx)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return double.NaN;
+            string stateKey = recordingId + "|" + ghostIdx.ToString(CultureInfo.InvariantCulture);
+            return traceStates.TryGetValue(stateKey, out TraceState state)
+                ? state.lastTracedEventUT
+                : double.NaN;
         }
     }
 }

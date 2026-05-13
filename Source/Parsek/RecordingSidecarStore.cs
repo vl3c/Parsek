@@ -905,8 +905,17 @@ namespace Parsek
         {
             summary = default(TrajectoryPersistenceSummary);
 
+            // Suppress the routine Verbose probe + ReadBinary lines around the
+            // diagnostic re-read: this preflight runs on every save and feeds
+            // only the trajectory-shrinkage warning. Without suppression each
+            // save emits two extra Verbose lines per recording, which during
+            // bulk CommitTree merges piles up to >500 lines/sec. The error
+            // WARN in catch is gated on the caller's original SuppressLogging
+            // intent so genuine failures still surface.
+            bool previousSuppress = RecordingStore.SuppressLogging;
             try
             {
+                RecordingStore.SuppressLogging = true;
                 TrajectorySidecarProbe probe;
                 if (!RecordingStore.TryProbeTrajectorySidecar(precPath, out probe) || !probe.Supported)
                     return false;
@@ -931,13 +940,18 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                if (!RecordingStore.SuppressLogging)
+                if (!previousSuppress)
                 {
+                    RecordingStore.SuppressLogging = false;
                     ParsekLog.Warn("RecordingStore",
                         $"SaveRecordingFiles: unable to evaluate trajectory shrink diagnostic for {rec?.RecordingId ?? "<null>"} " +
                         $"path='{FormatPathForSidecarLog(precPath)}' error={FormatExceptionForSidecarLog(ex)}");
                 }
                 return false;
+            }
+            finally
+            {
+                RecordingStore.SuppressLogging = previousSuppress;
             }
         }
 
