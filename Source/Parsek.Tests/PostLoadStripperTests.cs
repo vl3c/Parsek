@@ -425,7 +425,11 @@ namespace Parsek.Tests
             Assert.True(capsule.Died);
             Assert.False(flag.Died);
             Assert.Contains(101u, result.StrippedPids);
+            // Pin the bypass placement: the flag's pid is NOT stripped, NOT
+            // counted in LeftAlone, and IS surfaced via PreservedFlagPids.
             Assert.DoesNotContain(200u, result.StrippedPids);
+            Assert.Equal(0, result.LeftAlone);
+            Assert.DoesNotContain(result.LeftAlonePidNames, t => t.pid == 200u);
             Assert.NotNull(result.PreservedFlagPids);
             Assert.Single(result.PreservedFlagPids);
             Assert.Contains(200u, result.PreservedFlagPids);
@@ -477,10 +481,21 @@ namespace Parsek.Tests
         [Fact]
         public void Strip_FlagPreserved_RegardlessOfSlotMapMembership()
         {
-            // Contract: VesselType.Flag bypasses strip BEFORE the slot-map
-            // match, so even a flag whose PID happens to collide with a
-            // PidSlotMap entry (extremely unlikely in practice) is preserved.
-            // The flag's contract is the vessel type, not the situation.
+            // Defense-in-depth pin: VesselType.Flag is checked BEFORE the
+            // slot-map match, so a flag pid is preserved regardless of
+            // slot-map membership.
+            //
+            // In production this collision is impossible by construction
+            // — slot maps are built from recorded Parsek vessels, and
+            // planted flags are never tracked by the recorder — but the
+            // ordering invariant is the load-bearing claim: the preserve
+            // bypass cannot be reordered after slot-map matching without
+            // breaking the "flag is durable career milestone, not a re-fly
+            // sibling" contract. This test fails if a future refactor
+            // accidentally folds the preserve branch into the
+            // already-matched-vessel iteration loop and ends up stripping
+            // flag pids that happen to share a numeric value with an
+            // unrelated rewind-point slot entry.
             var rp = MakeRp(new Dictionary<uint, int>
             {
                 { 100u, 0 }, // selected probe

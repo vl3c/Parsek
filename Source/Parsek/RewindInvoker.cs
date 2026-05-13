@@ -2471,6 +2471,80 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds the protected-pid set passed to
+        /// <see cref="ResolveInPlaceContinuationDebrisToKill"/> at the
+        /// in-place continuation strip-supplement seam. Three sources:
+        /// <list type="bullet">
+        ///   <item><description><see cref="PostLoadStripResult.SelectedPid"/>
+        ///     — #573 contract, the actively re-flown vessel.</description></item>
+        ///   <item><description>The marker's active recording's
+        ///     <see cref="Recording.VesselPersistentId"/> from
+        ///     <paramref name="committedRecs"/>. Same pid as Selected for
+        ///     in-place continuation today, but kept as belt-and-suspenders
+        ///     against a future code path that diverges them.</description></item>
+        ///   <item><description><see cref="PostLoadStripResult.PreservedFlagPids"/>
+        ///     — #fix-refly-preserve-flag-vessels follow-up: planted-flag
+        ///     vessels the stripper deliberately left alone must also be
+        ///     immune to the secondary kill walk, otherwise a flag whose
+        ///     <c>vesselName</c> collides with a recording's
+        ///     <c>VesselName</c> (player-typed labels, or KSP's default
+        ///     kerbal-name-derived label clashing with an EVA recording)
+        ///     would still be despawned by <c>Vessel.Die()</c>, silently
+        ///     erasing the FlagPlant career milestone.</description></item>
+        /// </list>
+        /// Pure static so tests can pin the contract without a live KSP scene.
+        /// </summary>
+        internal static HashSet<uint> BuildProtectedPidsForInPlaceContinuation(
+            PostLoadStripResult stripResult,
+            ReFlySessionMarker marker,
+            IReadOnlyList<Recording> committedRecs)
+        {
+            var protectedPids = new HashSet<uint>();
+            if (stripResult.SelectedPid != 0u)
+                protectedPids.Add(stripResult.SelectedPid);
+            if (marker != null && committedRecs != null
+                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+            {
+                for (int i = 0; i < committedRecs.Count; i++)
+                {
+                    var rec = committedRecs[i];
+                    if (rec == null) continue;
+                    if (string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
+                            StringComparison.Ordinal))
+                    {
+                        if (rec.VesselPersistentId != 0u)
+                            protectedPids.Add(rec.VesselPersistentId);
+                        break;
+                    }
+                }
+            }
+
+            int flagsAddedCount = 0;
+            if (stripResult.PreservedFlagPids != null)
+            {
+                for (int i = 0; i < stripResult.PreservedFlagPids.Count; i++)
+                {
+                    uint flagPid = stripResult.PreservedFlagPids[i];
+                    if (flagPid == 0u) continue;
+                    if (protectedPids.Add(flagPid)) flagsAddedCount++;
+                }
+            }
+
+            if (flagsAddedCount > 0 && !ParsekLog.SuppressLogging)
+            {
+                ParsekLog.Info(InvokeTag,
+                    $"BuildProtectedPidsForInPlaceContinuation: shielded " +
+                    $"{flagsAddedCount} preserved flag pid(s) from in-place " +
+                    $"continuation kill walk (treeId='{marker?.TreeId ?? "<null>"}', " +
+                    $"activeRec='{marker?.ActiveReFlyRecordingId ?? "<null>"}') " +
+                    $"-- planted-flag career milestones immune to name-collision " +
+                    $"Die() even when their vesselName matches an in-scope recording");
+            }
+
+            return protectedPids;
+        }
+
+        /// <summary>
         /// Bug #587: production caller for <see cref="ResolveInPlaceContinuationDebrisToKill"/>.
         /// Runs after <see cref="AtomicMarkerWrite"/> (so the marker is set + the
         /// re-fly-active short-circuit in <c>RunSpawnDeathChecks</c> is engaged) and
@@ -2514,28 +2588,14 @@ namespace Parsek
             }
 
             // Protect the selected slot vessel + the marker's active recording's pid
-            // (#573 contract: never kill the actively re-flown vessel).
-            var protectedPids = new HashSet<uint>();
-            if (stripResult.SelectedPid != 0u)
-                protectedPids.Add(stripResult.SelectedPid);
-            // Also resolve the active recording's vessel pid from the committed list
-            // -- same pid as Selected for in-place continuation, but defensive against
-            // a future code-path that diverges them.
-            var committedRecs = RecordingStore.CommittedRecordings;
-            if (committedRecs != null && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-            {
-                for (int i = 0; i < committedRecs.Count; i++)
-                {
-                    var rec = committedRecs[i];
-                    if (rec == null) continue;
-                    if (string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
-                    {
-                        if (rec.VesselPersistentId != 0u)
-                            protectedPids.Add(rec.VesselPersistentId);
-                        break;
-                    }
-                }
-            }
+            // (#573 contract: never kill the actively re-flown vessel) + every
+            // VesselType.Flag pid the stripper preserved (#fix-refly-preserve-flag-vessels
+            // follow-up: the strip leaves flags alone but does not register them in
+            // StrippedPids/SelectedPid, so without this they would slip into
+            // leftAlonePidNames and a name-collision with an in-scope recording
+            // would let Die() run on the planted-flag career milestone).
+            var protectedPids = BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker, RecordingStore.CommittedRecordings);
 
             // Bug #587 follow-up: also broaden the kill set to recording names in
             // the session-suppressed subtree (recordings being superseded by this

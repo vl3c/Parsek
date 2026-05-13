@@ -405,6 +405,18 @@ namespace Parsek
             {
                 get
                 {
+                    // Defensive: KSP's Vessel getter walks managed Unity
+                    // state and (rarely) throws when the vessel's
+                    // GameObject has been torn down mid-strip. The null /
+                    // catch fallback to Unknown means
+                    // ShouldPreserveVesselType returns false, so the flag
+                    // bypass never engages on a half-destroyed vessel —
+                    // we fall through to the slot-map / strict-strip path
+                    // and behave as before this branch existed. Exercised
+                    // only in live KSP runtime; covered by the
+                    // PostLoadStripperTests stub interface contract
+                    // (`StubVessel.VesselType` defaulting to Ship matches
+                    // the pre-branch behavior).
                     try { return vessel != null ? vessel.vesselType : VesselType.Unknown; }
                     catch { return VesselType.Unknown; }
                 }

@@ -1055,5 +1055,287 @@ namespace Parsek.Tests
 
             Assert.Empty(kill);
         }
+
+        // ============================================================
+        // #fix-refly-preserve-flag-vessels follow-up review: the
+        // first-pass fix preserved flags inside PostLoadStripper.Strip
+        // but left them exposed to the second kill walk in
+        // RewindInvoker.StripPreExistingDebrisForInPlaceContinuation.
+        // That secondary path enumerates FlightGlobals AFTER Strip,
+        // builds leftAlonePidNames excluding only StrippedPids +
+        // SelectedPid (so preserved flags slip in), and then matches
+        // vesselName against Destroyed-terminal / session-suppressed
+        // / parent-chain recording names. A flag with a colliding
+        // name (player-typed labels, default kerbal-name-derived
+        // labels clashing with an EVA recording) would have Die()
+        // called on it -- silently erasing the FlagPlant career
+        // milestone the first-pass fix was meant to preserve.
+        //
+        // The fix factors the protected-pids construction into
+        // RewindInvoker.BuildProtectedPidsForInPlaceContinuation,
+        // adds PreservedFlagPids to the set, and logs a one-shot
+        // Info summary when flags are shielded.
+        // ============================================================
+
+        [Fact]
+        public void BuildProtectedPids_EmptyStripResult_NullMarker_ReturnsEmpty()
+        {
+            var stripResult = new PostLoadStripResult
+            {
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint>(),
+            };
+            var pids = RewindInvoker.BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker: null, committedRecs: null);
+
+            Assert.NotNull(pids);
+            Assert.Empty(pids);
+        }
+
+        [Fact]
+        public void BuildProtectedPids_SelectedPidAndActiveRecPid_BothAdded()
+        {
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint>(),
+            };
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec-booster",
+                VesselName = "Kerbal X Probe",
+                VesselPersistentId = 201u, // distinct from SelectedPid to prove both paths run
+                TreeId = "tree-1",
+            };
+
+            var pids = RewindInvoker.BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker, new List<Recording> { rec });
+
+            Assert.Contains(200u, pids);
+            Assert.Contains(201u, pids);
+        }
+
+        [Fact]
+        public void BuildProtectedPids_PreservedFlagPids_AddedAndLogged()
+        {
+            // Blocker fix pin: PreservedFlagPids must be added to the
+            // protected set so the second kill walk cannot revive a flag's
+            // name-collision Die().
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint> { 7001u, 7002u },
+            };
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+
+            var pids = RewindInvoker.BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker, committedRecs: null);
+
+            Assert.Contains(200u, pids);
+            Assert.Contains(7001u, pids);
+            Assert.Contains(7002u, pids);
+
+            // The Info summary must surface the shielded count + tree/active
+            // context so playtest logs can prove the new branch ran.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][Rewind]") &&
+                l.Contains("BuildProtectedPidsForInPlaceContinuation") &&
+                l.Contains("shielded 2 preserved flag pid(s)") &&
+                l.Contains("tree-1") &&
+                l.Contains("rec-booster"));
+        }
+
+        [Fact]
+        public void BuildProtectedPids_NoPreservedFlags_NoFlagShieldLog()
+        {
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint>(),
+            };
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+
+            var pids = RewindInvoker.BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker, committedRecs: null);
+
+            Assert.Contains(200u, pids);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("BuildProtectedPidsForInPlaceContinuation") &&
+                l.Contains("shielded"));
+        }
+
+        [Fact]
+        public void BuildProtectedPids_NullPreservedFlagPidsList_NoThrow_NoLog()
+        {
+            // Defensive: a future code path that hands us a struct with a
+            // null PreservedFlagPids list must not NRE the helper, and the
+            // shield log must not fire (nothing to shield).
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = null,
+            };
+
+            var pids = RewindInvoker.BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker: null, committedRecs: null);
+
+            Assert.Contains(200u, pids);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("BuildProtectedPidsForInPlaceContinuation") &&
+                l.Contains("shielded"));
+        }
+
+        [Fact]
+        public void BuildProtectedPids_ZeroFlagPid_Skipped()
+        {
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint> { 0u, 7001u },
+            };
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+
+            var pids = RewindInvoker.BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker, committedRecs: null);
+
+            Assert.DoesNotContain(0u, pids);
+            Assert.Contains(7001u, pids);
+            Assert.Contains(logLines, l =>
+                l.Contains("BuildProtectedPidsForInPlaceContinuation") &&
+                l.Contains("shielded 1 preserved flag pid(s)"));
+        }
+
+        [Fact]
+        public void ResolveDebris_PreservedFlagPid_NotKilled_EvenWhenNameCollidesWithDestroyedRec()
+        {
+            // End-to-end pin for the blocker: a preserved flag whose
+            // vesselName collides with a Destroyed-terminal recording in
+            // the marker's tree (player-typed flag label, or KSP's default
+            // kerbal-name-derived flag label clashing with an EVA
+            // recording) would otherwise be killed by
+            // ResolveInPlaceContinuationDebrisToKill. With the flag pid in
+            // protectedPids (as BuildProtectedPidsForInPlaceContinuation
+            // arranges) the flag must survive while a non-flag debris
+            // sharing the same name still dies.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_flag_secondary_kill",
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    // EVA-named recording -- terminal Destroyed (Bill Kerman
+                    // died on EVA), in the same tree. A planted flag whose
+                    // vesselName is "Bill Kerman's Flag" (or KSP's default
+                    // "Bill Kerman" label depending on the locale-derived
+                    // pattern) would collide. We exercise the explicit
+                    // collision path: the flag vessel is in scene with
+                    // vesselName "Kerbal X Debris" (a colliding name) and
+                    // must NOT be killed.
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            var leftAlone = new List<(uint, string)>
+            {
+                (7001u, "Kerbal X Debris"), // FLAG with colliding name -- must survive
+                (101u,  "Kerbal X Debris"), // genuine debris -- must be killed
+            };
+            // Build protectedPids via the production helper so the test
+            // pins the integration: a PostLoadStripResult with the flag
+            // pid in PreservedFlagPids feeds through to the kill walk
+            // unscathed.
+            var stripResult = new PostLoadStripResult
+            {
+                SelectedPid = 200u,
+                StrippedPids = new List<uint>(),
+                LeftAlonePidNames = new List<(uint, string)>(),
+                PreservedFlagPids = new List<uint> { 7001u },
+            };
+            var protectedPids = RewindInvoker.BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker, committedRecs: null);
+
+            var kill = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, protectedPids);
+
+            Assert.Single(kill);
+            Assert.Contains(101u, kill);
+            Assert.DoesNotContain(7001u, kill);
+        }
+
+        [Fact]
+        public void ResolveDebris_WithoutFlagProtection_NameCollidingFlagWouldDie_RegressionGuard()
+        {
+            // Companion to the previous test: this proves the kill
+            // predicate WOULD have fired without the new protection.
+            // With protectedPids empty (no flag shielding), the same
+            // flag pid 7001u is killed because its vesselName matches
+            // a Destroyed-terminal recording. This pins that the
+            // blocker fix is actually load-bearing -- if a future
+            // refactor accidentally drops the PreservedFlagPids branch
+            // from BuildProtectedPidsForInPlaceContinuation, the
+            // previous test still flags the regression because the
+            // kill set changes.
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec-booster",
+                OriginChildRecordingId = "rec-booster",
+                TreeId = "tree-1",
+                InPlaceContinuation = true,
+            };
+            var trees = new List<RecordingTree>
+            {
+                MakeTree("tree-1",
+                    ("rec-booster", "Kerbal X Probe", TerminalState.Orbiting, 200u),
+                    ("rec-debris", "Kerbal X Debris", TerminalState.Destroyed, 0u))
+            };
+            var leftAlone = new List<(uint, string)>
+            {
+                (7001u, "Kerbal X Debris"),
+                (101u,  "Kerbal X Debris"),
+            };
+
+            var killWithoutProtection = RewindInvoker.ResolveInPlaceContinuationDebrisToKill(
+                marker, trees, leftAlone, protectedPids: null);
+
+            Assert.Equal(2, killWithoutProtection.Count);
+            Assert.Contains(7001u, killWithoutProtection);
+            Assert.Contains(101u, killWithoutProtection);
+        }
     }
 }
