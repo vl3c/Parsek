@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Planted flags now survive Re-Fly. The post-load strip used to delete flag vessels along with other unmatched siblings, silently erasing the FlagPlant career milestone; the stripper now preserves any `VesselType.Flag` vessel regardless of slot-map membership.
 - Re-Fly now re-spawns prior-committed sibling vessels (e.g. a landed capsule from an earlier mission) at their terminal endpoint instead of leaving them permanently un-materialized after the Re-Fly load strip removes them from the save.
 - Re-Fly fork ghosts no longer flame their booster engines at full throttle when the recorded engine was shut down. Chain-promotion seed emission now scopes narrowly to engine sentinels, fires only when the active recording lacks any engine events, and anchors the sentinel UT at the recording's StartUT when the recording has real trajectory data (including sandbox-epoch starts at UT 0) and current UT for genuinely fresh forks, so the ghost playback orphan-engine heuristic stays correct without poisoning boring-tail trim.
 - Ghosts that finalize past their last recorded sample now keep rendering along the predicted orbit tail instead of freezing at the last flat-point pair. The session merger now anchors its predicted-tail floor on the resolved payload end (`max(rebuilt last point UT, rebuilt last orbit segment endUT)`), so reseeded predicted segments that meet the playback hand-off bound are preserved while segments anchored at stale or truncated source UTs are still rejected.

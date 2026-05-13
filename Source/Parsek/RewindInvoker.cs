@@ -2532,6 +2532,214 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds the protected-pid set passed to
+        /// <see cref="ResolveInPlaceContinuationDebrisToKill"/> at the
+        /// in-place continuation strip-supplement seam. Three sources:
+        /// <list type="bullet">
+        ///   <item><description><see cref="PostLoadStripResult.SelectedPid"/>
+        ///     — #573 contract, the actively re-flown vessel.</description></item>
+        ///   <item><description>The marker's active recording's
+        ///     <see cref="Recording.VesselPersistentId"/> from
+        ///     <paramref name="committedRecs"/>. Same pid as Selected for
+        ///     in-place continuation today, but kept as belt-and-suspenders
+        ///     against a future code path that diverges them.</description></item>
+        ///   <item><description><see cref="PostLoadStripResult.PreservedFlagPids"/>
+        ///     — #fix-refly-preserve-flag-vessels follow-up: planted-flag
+        ///     vessels the stripper deliberately left alone must also be
+        ///     immune to the secondary kill walk, otherwise a flag whose
+        ///     <c>vesselName</c> collides with a recording's
+        ///     <c>VesselName</c> (player-typed labels, or KSP's default
+        ///     kerbal-name-derived label clashing with an EVA recording)
+        ///     would still be despawned by <c>Vessel.Die()</c>, silently
+        ///     erasing the FlagPlant career milestone.</description></item>
+        /// </list>
+        /// Pure static so tests can pin the contract without a live KSP scene.
+        /// </summary>
+        internal static HashSet<uint> BuildProtectedPidsForInPlaceContinuation(
+            PostLoadStripResult stripResult,
+            ReFlySessionMarker marker,
+            IReadOnlyList<Recording> committedRecs)
+        {
+            var protectedPids = new HashSet<uint>();
+            if (stripResult.SelectedPid != 0u)
+                protectedPids.Add(stripResult.SelectedPid);
+            if (marker != null && committedRecs != null
+                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+            {
+                for (int i = 0; i < committedRecs.Count; i++)
+                {
+                    var rec = committedRecs[i];
+                    if (rec == null) continue;
+                    if (string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId,
+                            StringComparison.Ordinal))
+                    {
+                        if (rec.VesselPersistentId != 0u)
+                            protectedPids.Add(rec.VesselPersistentId);
+                        break;
+                    }
+                }
+            }
+
+            int flagsAddedCount = 0;
+            if (stripResult.PreservedFlagPids != null)
+            {
+                for (int i = 0; i < stripResult.PreservedFlagPids.Count; i++)
+                {
+                    uint flagPid = stripResult.PreservedFlagPids[i];
+                    if (flagPid == 0u) continue;
+                    if (protectedPids.Add(flagPid)) flagsAddedCount++;
+                }
+            }
+
+            if (flagsAddedCount > 0 && !ParsekLog.SuppressLogging)
+            {
+                ParsekLog.Info(InvokeTag,
+                    $"BuildProtectedPidsForInPlaceContinuation: shielded " +
+                    $"{flagsAddedCount} preserved flag pid(s) from in-place " +
+                    $"continuation kill walk (treeId='{marker?.TreeId ?? "<null>"}', " +
+                    $"activeRec='{marker?.ActiveReFlyRecordingId ?? "<null>"}') " +
+                    $"-- planted-flag career milestones immune to name-collision " +
+                    $"Die() even when their vesselName matches an in-scope recording");
+            }
+
+            return protectedPids;
+        }
+
+        /// <summary>
+        /// #fix-refly-preserve-flag-vessels survey-level skip predicate. Returns
+        /// true when a live vessel must be excluded from the
+        /// <c>leftAlonePidNames</c> list built by
+        /// <see cref="StripPreExistingDebrisForInPlaceContinuation"/>. Currently
+        /// only <see cref="VesselType.Flag"/>: planted flags are durable
+        /// FlagPlant career milestones that
+        /// <see cref="PostLoadStripper.ShouldPreserveVesselType"/> already
+        /// bypasses at the primary strip path, and that the secondary kill walk
+        /// must NOT silently Die() on a name-collision with an in-scope
+        /// recording. Keyed on actual <c>VesselType</c> (not on
+        /// <see cref="PostLoadStripResult.PreservedFlagPids"/> membership) so
+        /// the skip is robust against any future divergence between strip
+        /// bookkeeping and live vessel state. Pure / static so unit tests can
+        /// pin it against the <see cref="IStrippableVessel"/> contract.
+        /// </summary>
+        internal static bool ShouldSkipFromLeftAloneSurvey(IStrippableVessel v)
+        {
+            if (v == null) return false;
+            VesselType type;
+            // Mirror LiveVesselAdapter.VesselType's defensive try/catch: KSP's
+            // Vessel getter walks managed Unity state and can throw on a
+            // half-destroyed GameObject mid-strip. On throw we fall through to
+            // the conservative "don't skip" branch so a defective vessel still
+            // gets the kill-set protection layer.
+            try { type = v.VesselType; }
+            catch { return false; }
+            return type == VesselType.Flag;
+        }
+
+        /// <summary>
+        /// #fix-refly-preserve-flag-vessels survey-level filter: builds the
+        /// <c>(pid, name)</c> pairs of live vessels that
+        /// <see cref="PostLoadStripper"/> left in scene, EXCLUDING entries that
+        /// must be shielded from the secondary in-place continuation kill walk.
+        ///
+        /// <para>Exclusion order (every skip increments a counter for the one-shot
+        /// summary log):</para>
+        /// <list type="bullet">
+        ///   <item><description>Zero or null pid / name.</description></item>
+        ///   <item><description>Ghost-map ProtoVessels (Parsek-owned).</description></item>
+        ///   <item><description>Pids in <see cref="PostLoadStripResult.StrippedPids"/>
+        ///     (already dead, only present if the Die() event hasn't drained
+        ///     from <c>FlightGlobals</c> yet).</description></item>
+        ///   <item><description><see cref="PostLoadStripResult.SelectedPid"/>
+        ///     (#573 contract: the actively re-flown vessel).</description></item>
+        ///   <item><description><see cref="VesselType.Flag"/> vessels
+        ///     (<see cref="ShouldSkipFromLeftAloneSurvey"/>): the user-requested
+        ///     belt-and-suspenders that resolves the original review note at
+        ///     the source — a preserved flag must never enter the leftAlone
+        ///     survey, even if its <c>vesselName</c> happens to collide with a
+        ///     Destroyed-terminal / session-suppressed / parent-chain
+        ///     recording.</description></item>
+        /// </list>
+        /// Returns an empty list (never null) on null/empty input. Pure /
+        /// static so tests can pin the contract against
+        /// <c>IStrippableVessel</c> stubs.
+        /// </summary>
+        internal static List<(uint pid, string name)> BuildLeftAlonePidNamesForInPlaceContinuation(
+            IList<IStrippableVessel> liveVessels,
+            PostLoadStripResult stripResult,
+            Func<uint, bool> isGhostMapVessel)
+        {
+            var result = new List<(uint pid, string name)>();
+            if (liveVessels == null || liveVessels.Count == 0) return result;
+            Func<uint, bool> ghostCheck = isGhostMapVessel ?? (_ => false);
+
+            int skippedFlags = 0;
+            int skippedGhostMap = 0;
+            int skippedStripped = 0;
+            int skippedSelected = 0;
+            int includedCount = 0;
+            // First flag's identifiers captured for the one-shot Verbose log,
+            // so playtest log readers can confirm the skip ran without spamming
+            // a line per vessel.
+            uint firstFlagPid = 0u;
+            string firstFlagName = null;
+
+            for (int i = 0; i < liveVessels.Count; i++)
+            {
+                var v = liveVessels[i];
+                if (v == null) continue;
+                uint pid;
+                try { pid = v.PersistentId; }
+                catch { continue; }
+                if (pid == 0u) continue;
+                if (ghostCheck(pid)) { skippedGhostMap++; continue; }
+                if (stripResult.StrippedPids != null
+                    && stripResult.StrippedPids.Contains(pid))
+                {
+                    skippedStripped++;
+                    continue;
+                }
+                if (stripResult.SelectedPid == pid)
+                {
+                    skippedSelected++;
+                    continue;
+                }
+                // Survey-level flag skip -- the user-requested upstream defense
+                // alongside BuildProtectedPidsForInPlaceContinuation's
+                // PreservedFlagPids branch.
+                if (ShouldSkipFromLeftAloneSurvey(v))
+                {
+                    if (skippedFlags == 0)
+                    {
+                        firstFlagPid = pid;
+                        try { firstFlagName = v.VesselName; }
+                        catch { firstFlagName = null; }
+                    }
+                    skippedFlags++;
+                    continue;
+                }
+                string name;
+                try { name = v.VesselName; }
+                catch { name = null; }
+                if (string.IsNullOrEmpty(name)) continue;
+                result.Add((pid, name));
+                includedCount++;
+            }
+
+            if (skippedFlags > 0 && !ParsekLog.SuppressLogging)
+            {
+                string safeName = string.IsNullOrEmpty(firstFlagName) ? "<unnamed>" : firstFlagName;
+                ParsekLog.Verbose(InvokeTag,
+                    $"Strip post-supplement: skipping flag v={firstFlagPid} name='{safeName}' " +
+                    $"from leftAlone survey -- preserved by PostLoadStripper " +
+                    $"(totalFlagsSkipped={skippedFlags} included={includedCount} " +
+                    $"skippedGhostMap={skippedGhostMap} skippedStripped={skippedStripped} " +
+                    $"skippedSelected={skippedSelected})");
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// Bug #587: production caller for <see cref="ResolveInPlaceContinuationDebrisToKill"/>.
         /// Runs after <see cref="AtomicMarkerWrite"/> (so the marker is set + the
         /// re-fly-active short-circuit in <c>RunSpawnDeathChecks</c> is engaged) and
@@ -2539,6 +2747,39 @@ namespace Parsek
         /// Each <c>Vessel.Die()</c> runs inside a <see cref="SuppressionGuard.Crew"/>
         /// to mirror <c>PostLoadStripper.StripVessel</c>'s silent-removal contract --
         /// no CrewKilled / CrewRemoved fanout into the ledger from this cleanup.
+        ///
+        /// <para>#fix-refly-preserve-flag-vessels protects preserved
+        /// <see cref="VesselType.Flag"/> vessels through THREE coexisting
+        /// layers — belt-and-suspenders for the planted-flag career
+        /// milestone:</para>
+        /// <list type="number">
+        ///   <item><description><b>Primary strip bypass:</b>
+        ///     <see cref="PostLoadStripper.ShouldPreserveVesselType"/>
+        ///     short-circuits the strip BEFORE the slot-map / strict-unmatched
+        ///     paths, so the flag is never recorded in
+        ///     <see cref="PostLoadStripResult.StrippedPids"/> and never
+        ///     receives a <c>Vessel.Die()</c> from <c>PostLoadStripper</c>.</description></item>
+        ///   <item><description><b>Survey-level skip:</b>
+        ///     <see cref="BuildLeftAlonePidNamesForInPlaceContinuation"/> filters
+        ///     <see cref="VesselType.Flag"/> entries out of the
+        ///     <c>leftAlonePidNames</c> list at the survey step, so a
+        ///     name-colliding flag never even enters the kill-set construction.
+        ///     This is the user-requested layer that resolves the original
+        ///     review note's concern at the source: a preserved flag must not
+        ///     reach the resolver in the first place.</description></item>
+        ///   <item><description><b>Kill-set protection:</b>
+        ///     <see cref="BuildProtectedPidsForInPlaceContinuation"/> still adds
+        ///     <see cref="PostLoadStripResult.PreservedFlagPids"/> to the
+        ///     <c>protectedPids</c> set passed to
+        ///     <see cref="ResolveInPlaceContinuationDebrisToKill"/>. Redundant
+        ///     given (2) today, kept as a safety net so a future refactor that
+        ///     accidentally drops the survey-level skip (e.g., a change to the
+        ///     adapter's vessel-type fallback, or a new survey path that
+        ///     bypasses the helper) cannot silently regress flag preservation.</description></item>
+        /// </list>
+        /// Both (2) and (3) are exercised independently by
+        /// <c>Bug587StripPreExistingDebrisTests</c> regression guards so a
+        /// future refactor cannot drop one layer unnoticed.
         /// </summary>
         internal static void StripPreExistingDebrisForInPlaceContinuation(
             PostLoadStripResult stripResult)
@@ -2551,52 +2792,39 @@ namespace Parsek
             // Build the leftAlone (pid, name) pairs from live FlightGlobals because
             // the strip result only retains names; we need pids to issue Die() calls.
             // The strip already enumerated FlightGlobals, but did not pair pid+name
-            // in the public surface. Re-enumerate.
+            // in the public surface. Re-enumerate via the same IStrippableVessel
+            // abstraction PostLoadStripper uses so the VesselType-aware skip
+            // (#fix-refly-preserve-flag-vessels survey-level layer) runs against
+            // the production-adapter's defensive vessel-type access. We also retain
+            // the raw IList<Vessel> for SnapshotKillTargets downstream (which
+            // operates on the live Vessel objects to issue Die() calls).
             IList<Vessel> liveVessels;
             try { liveVessels = FlightGlobals.Vessels; }
             catch { liveVessels = null; }
             if (liveVessels == null || liveVessels.Count == 0) return;
 
-            var leftAlonePidNames = new List<(uint, string)>();
-            for (int i = 0; i < liveVessels.Count; i++)
+            var liveStrippable = new List<IStrippableVessel>();
+            foreach (var sv in DefaultVesselEnumeration.Instance.EnumerateVessels())
             {
-                var v = liveVessels[i];
-                if (v == null) continue;
-                uint pid = v.persistentId;
-                if (pid == 0u) continue;
-                if (GhostMapPresence.IsGhostMapVessel(pid)) continue;
-                // Skip vessels we just stripped (already dead) or selected.
-                if (stripResult.StrippedPids != null
-                    && stripResult.StrippedPids.Contains(pid)) continue;
-                if (stripResult.SelectedPid == pid) continue;
-                string name = v.vesselName;
-                if (string.IsNullOrEmpty(name)) continue;
-                leftAlonePidNames.Add((pid, name));
+                if (sv == null) continue;
+                liveStrippable.Add(sv);
             }
+            if (liveStrippable.Count == 0) return;
+
+            var leftAlonePidNames = BuildLeftAlonePidNamesForInPlaceContinuation(
+                liveStrippable, stripResult, GhostMapPresence.IsGhostMapVessel);
 
             // Protect the selected slot vessel + the marker's active recording's pid
-            // (#573 contract: never kill the actively re-flown vessel).
-            var protectedPids = new HashSet<uint>();
-            if (stripResult.SelectedPid != 0u)
-                protectedPids.Add(stripResult.SelectedPid);
-            // Also resolve the active recording's vessel pid from the committed list
-            // -- same pid as Selected for in-place continuation, but defensive against
-            // a future code-path that diverges them.
-            var committedRecs = RecordingStore.CommittedRecordings;
-            if (committedRecs != null && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-            {
-                for (int i = 0; i < committedRecs.Count; i++)
-                {
-                    var rec = committedRecs[i];
-                    if (rec == null) continue;
-                    if (string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
-                    {
-                        if (rec.VesselPersistentId != 0u)
-                            protectedPids.Add(rec.VesselPersistentId);
-                        break;
-                    }
-                }
-            }
+            // (#573 contract: never kill the actively re-flown vessel) + every
+            // VesselType.Flag pid the stripper preserved (#fix-refly-preserve-flag-vessels
+            // follow-up: belt-and-suspenders alongside the survey-level skip above.
+            // Even though BuildLeftAlonePidNamesForInPlaceContinuation now filters
+            // VesselType.Flag entries at the source, this kill-set protection stays
+            // as a redundant safety net so a future refactor that accidentally
+            // bypasses the survey helper cannot silently revive name-collision
+            // Die() on a planted-flag career milestone).
+            var protectedPids = BuildProtectedPidsForInPlaceContinuation(
+                stripResult, marker, RecordingStore.CommittedRecordings);
 
             // Bug #587 follow-up: also broaden the kill set to recording names in
             // the session-suppressed subtree (recordings being superseded by this
