@@ -8512,39 +8512,7 @@ namespace Parsek
                 ParsekLog.Verbose("Flight",
                     $"Scene entry active vessel pid={RecordingStore.SceneEntryActiveVesselPid}");
 
-            // Handle pending tree: show tree merge dialog.
-            // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
-            // Reaching here means either a revert or a fallback (auto-commit missed).
-            // #293: skip when restore coroutine is running — it owns the pending tree and
-            // will either resume recording or leave it in Limbo. Without this guard, the
-            // fallback fires in the same frame as StartCoroutine (before the coroutine pops
-            // the tree), auto-merging it and leaving the vessel with no active recorder.
-            // Re-Fly guard: skip when an active Re-Fly session owns the pending tree
-            // (initial invoke or Retry-from-RP). The merge decision belongs to the
-            // scene-exit path once the attempt actually finishes, not to the moment the
-            // user just started flying it.
-            bool reFlySessionActive = ParsekScenario.IsReFlySessionActiveForQuickloadDiscard();
-            if (ShouldShowOnFlightReadyMergeDialog(
-                    hasPendingTree: RecordingStore.HasPendingTree,
-                    restoringActiveTree: restoringActiveTree,
-                    reFlySessionActive: reFlySessionActive))
-            {
-                var pt = RecordingStore.PendingTree;
-                ParsekLog.Warn("Flight", $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
-                MergeDialog.ShowTreeDialog(pt);
-            }
-            else if (RecordingStore.HasPendingTree && restoringActiveTree)
-            {
-                ParsekLog.Info("Flight",
-                    $"Pending tree '{RecordingStore.PendingTree.TreeName}' skipped — " +
-                    "restore coroutine in progress (#293)");
-            }
-            else if (RecordingStore.HasPendingTree && reFlySessionActive)
-            {
-                ParsekLog.Info("Flight",
-                    $"Pending tree '{RecordingStore.PendingTree.TreeName}' reached OnFlightReady — " +
-                    "skipping merge dialog: active Re-Fly session owns the pending tree (Retry/initial invoke)");
-            }
+            MaybeShowPendingTreeMergeDialogOnFlightReady();
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
@@ -10817,6 +10785,52 @@ namespace Parsek
             return hasPendingTree
                 && !restoringActiveTree
                 && !reFlySessionActive;
+        }
+
+        /// <summary>
+        /// OnFlightReady fallback that dispatches the tree merge dialog or
+        /// logs the appropriate skip line. Extracted so the in-game test
+        /// harness can drive the wiring directly via reflection without
+        /// having to fire <see cref="GameEvents.onFlightReady"/> and pull in
+        /// the rest of OnFlightReady's side effects.
+        ///
+        /// <para>
+        /// On non-revert scene changes, pending trees are auto-committed by
+        /// <see cref="ParsekScenario"/>. Reaching here means either a revert
+        /// or a fallback (auto-commit missed). #293: skip when restore
+        /// coroutine is running — it owns the pending tree and will either
+        /// resume recording or leave it in Limbo. Re-Fly guard: skip when an
+        /// active Re-Fly session owns the pending tree (initial invoke or
+        /// Retry-from-RP); the merge decision belongs to the scene-exit path
+        /// once the attempt actually finishes, not to the moment the user
+        /// just started flying it.
+        /// </para>
+        /// </summary>
+        internal void MaybeShowPendingTreeMergeDialogOnFlightReady()
+        {
+            bool reFlySessionActive = ParsekScenario.IsReFlySessionActiveForQuickloadDiscard();
+            if (ShouldShowOnFlightReadyMergeDialog(
+                    hasPendingTree: RecordingStore.HasPendingTree,
+                    restoringActiveTree: restoringActiveTree,
+                    reFlySessionActive: reFlySessionActive))
+            {
+                var pt = RecordingStore.PendingTree;
+                ParsekLog.Warn("Flight",
+                    $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
+                MergeDialog.ShowTreeDialog(pt);
+            }
+            else if (RecordingStore.HasPendingTree && restoringActiveTree)
+            {
+                ParsekLog.Info("Flight",
+                    $"Pending tree '{RecordingStore.PendingTree.TreeName}' skipped — " +
+                    "restore coroutine in progress (#293)");
+            }
+            else if (RecordingStore.HasPendingTree && reFlySessionActive)
+            {
+                ParsekLog.Info("Flight",
+                    $"Pending tree '{RecordingStore.PendingTree.TreeName}' reached OnFlightReady — " +
+                    "skipping merge dialog: active Re-Fly session owns the pending tree (Retry/initial invoke)");
+            }
         }
 
         internal static bool ShouldAttemptCommittedSpawnedRestoreInUpdate(

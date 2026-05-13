@@ -5201,7 +5201,23 @@ namespace Parsek
                 yield break;
             }
 
-            // Show the tree merge dialog
+            // Show the tree merge dialog.
+            //
+            // Note: unlike the OnFlightReady fallback (ParsekFlight.cs), this
+            // deferred coroutine does NOT need the active-Re-Fly skip guard.
+            // The OnFlightReady fallback fires the moment the player enters
+            // FLIGHT after Re-Fly invocation or Retry-from-RP — i.e. when the
+            // user just started flying a fresh attempt and the dialog would
+            // be wrong-timing. The deferred coroutine, by contrast, only
+            // fires in a non-FLIGHT scene (call sites at 1862, 1888, 2211
+            // all gate on leaving / having left FLIGHT), which means the
+            // Re-Fly attempt is already concluded by the player's scene
+            // change. Surfacing the merge decision there is the correct
+            // recovery path when SceneExitInterceptor missed the
+            // pre-transition catch. MergeDialog.ShowTreeDialog already
+            // detects ActiveReFlySessionMarker != null and renders the
+            // Re-Fly-specific message + suppressed-subtree closure, so the
+            // dialog presented here is semantically correct.
             ParsekLog.Info("Scenario",
                 $"Showing deferred tree merge dialog in {HighLogic.LoadedScene}");
             MergeDialog.ShowTreeDialog(RecordingStore.PendingTree);
