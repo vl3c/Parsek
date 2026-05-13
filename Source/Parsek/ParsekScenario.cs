@@ -5804,6 +5804,48 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds the post-strip survivor PID set from the raw
+        /// <c>flightState.protoVessels</c> PID enumeration minus
+        /// <see cref="PostLoadStripResult.StrippedPids"/>. Pure function
+        /// extracted for direct xUnit coverage — the production input shape
+        /// (raw <c>List&lt;ProtoVessel&gt;</c> from KSP) cannot be constructed
+        /// outside KSP, but the PID-level subtraction logic can be.
+        ///
+        /// <para>
+        /// The Re-Fly post-load contract requires this subtraction:
+        /// <see cref="PostLoadStripper.Strip"/> removes vessels via
+        /// <see cref="Vessel.Die"/> but does NOT remove the matching
+        /// <see cref="ProtoVessel"/> from
+        /// <c>HighLogic.CurrentGame.flightState.protoVessels</c>. That list is
+        /// the save-shape mirror and is not auto-synchronized with
+        /// <c>Vessel.Die()</c>. Without subtracting <c>StrippedPids</c>, a
+        /// recording's stale <c>SpawnedVesselPersistentId</c> still appears
+        /// "alive" and the reconcile silently leaves <c>VesselSpawned=true</c>.
+        /// </para>
+        /// </summary>
+        internal static HashSet<uint> ComputeSurvivorsFromProtoVesselPids(
+            IEnumerable<uint> protoVesselPids, IEnumerable<uint> strippedPids)
+        {
+            var stripped = new HashSet<uint>();
+            if (strippedPids != null)
+            {
+                foreach (uint p in strippedPids)
+                    stripped.Add(p);
+            }
+
+            var survivors = new HashSet<uint>();
+            if (protoVesselPids == null)
+                return survivors;
+
+            foreach (uint pid in protoVesselPids)
+            {
+                if (!stripped.Contains(pid))
+                    survivors.Add(pid);
+            }
+            return survivors;
+        }
+
+        /// <summary>
         /// Saves versioned recording metadata and ghost-geometry metadata.
         /// Extracted for testability.
         /// </summary>
