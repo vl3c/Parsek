@@ -99,6 +99,31 @@ Same PR #829 audit. `GhostPlaybackLogic.cs:4924-4952` is named/typed like a pure
 
 ---
 
+## Open - post-staging debris forward slide observability extended, fix shape contingent
+
+Watch-mode playback of a parent-anchored debris ghost shows a visible ~2 m forward slide on the first lerp interval after a staging joint-break: "ghost appears in the right position then immediately slides about 2 metres in front." A previous attempt (PR 824 commits `140c1a5` / `1c85380` / `00b0df2`, all reverted in `8f57842` / `e7ccdcd` / `686a0e3`) tried to back-step every recorded sample by `Time.fixedDeltaTime * v_inertial` on the hypothesis that KSP's joint-break callbacks fire post-PhysX with `Planetarium.GetUniversalTime()` still at start-of-tick. The fix didn't kill the slide and was reverted along with all three commits.
+
+This PR ships extended observability on top of the existing `TraceSeparation` window so the next investigation cycle can pick the right hypothesis without rebuilding between repros. New fields:
+
+- `inFixed=` on every trace line — distinguishes FixedUpdate (pre-PhysX) capture sites from post-PhysX callbacks (`OnPartJointBreak`, `OnDecoupleNewVesselComplete`). If `inFixed=T` at a `JointBreak` row, the post-PhysX-callback hypothesis is wrong.
+- `PARENT_AT_BREAK predictedSrfStep` and `predictedInertialStep` vs `|observedDelta|` — picks the right velocity frame for any back-step. If `|observedDelta|` matches `predictedSrfStep` (≈ |srfVel|·dt) but `predictedInertialStep` overshoots, the reverted fix was correcting in the wrong frame.
+- `CHILD_PART_AT_BREAK childVsParentLLA / alongParentSrfVel` — signed projection of child part transform vs parent's stale-LLA reference along the parent's velocity direction. Positive value (in m) is the on-tick lead of the joint-child seed.
+- `PartOriginSeed partVsVesselLLA / |observedDelta| / predictedSrfStep / predictedInertialStep` — same shape on the foreground joint-child seed site that the reverted fix patched.
+- `DecoupleSeed` (new row at `OnDecoupleNewVesselDuringSplitCheck`) — observes the `new-vessel-root-part` fallback path's seed-vs-LLA delta and the new-vs-original parent LLA-world delta at the split UT.
+- `BuildTP tickSinceBreak / |delta|` and `BG_CreateAbs tickSinceBreak / |delta|` — grep `tickSinceBreak=1.` to pick out the first per-tick sample after the joint break, and read `|delta|` to see whether per-tick samples have a `v·dt` offset (commit 3's hypothesis) or stay near zero (per-tick samples are in-phase, only structural-event sites need correction).
+- `PositionDebris lerpAlpha / ghostWorldBefore / worldStep / |worldStep| / predictedWorld / predictedVsActual` — reconstructs InterpolateAndPosition's lerp output, captures the per-frame world jump (the visible slide), and compares the actual ghost world position against a manual bracket-LLA lerp so playback-math bugs can be distinguished from recorder-side LLA errors.
+
+**Next step (investigation):** enable `Settings → Diagnostics → Ghost render tracing`, fly a stage-separation in flight with watch-mode debris visible, then walk the resulting `[Trace-Sep]` log lines through these decision points:
+1. At the `JointBreak` row, is `inFixed` `T` or `F`?
+2. Does `|observedDelta|` match `predictedSrfStep`, `predictedInertialStep`, or neither?
+3. At the `PartOriginSeed` row, what is `|observedDelta|` for the joint-child seed?
+4. At consecutive `BuildTP` rows with `tickSinceBreak=0.something` then `tickSinceBreak=1.something`, does `|delta|` jump or stay flat?
+5. At the first `PositionDebris` row (`first=True`), what is `|worldStep|`, and is `|predDelta|` ≈ 0 (math matches) or non-trivial (math diverges)?
+
+Based on the answers, the fix shape is one of: back-step only `part.transform.position`-using seed sites with `srf_velocity`; correct an upstream KSP timing assumption; or address a playback-side anchor-vs-frame mismatch. Do not re-land any version of the reverted fix without a log bundle answering all five questions.
+
+---
+
 ## Open - controlled-vessel ghost initial slide observability landed, fix shape contingent
 
 Watch-mode playback of an Absolute-section non-debris controlled-vessel ghost (e.g. Kerbal X Probe in `logs/2026-05-10_1713`) shows a brief visible slide on the first frame after activation. The position is correct after the slide; the user-perceived issue is the visible transition.

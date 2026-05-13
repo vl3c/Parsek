@@ -4292,10 +4292,22 @@ namespace Parsek
                     ? v.mainBody.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
                     : Vector3d.zero;
                 Vector3d transformPos = v.transform != null ? (Vector3d)v.transform.position : Vector3d.zero;
+                // tickSinceBreak parity with FG BuildTP. See
+                // FlightRecorder.BuildTrajectoryPoint trace comment for the
+                // diagnostic value of this field.
+                double lastBreak = TraceSeparation.LastRecordingTriggerUT;
+                double tickSinceBreak = double.NaN;
+                if (!double.IsNaN(lastBreak))
+                {
+                    float dt = Time.fixedDeltaTime;
+                    if (dt > 0f && !float.IsNaN(dt) && !float.IsInfinity(dt))
+                        tickSinceBreak = (ut - lastBreak) / dt;
+                }
                 TraceSeparation.RecordLog("BG_CreateAbs",
                     "pid=" + v.persistentId +
                     " name='" + v.vesselName + "'" +
                     " ut=" + ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    " tickSinceBreak=" + (double.IsNaN(tickSinceBreak) ? "NaN" : tickSinceBreak.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
                     " packed=" + v.packed +
                     " explicitVel=" + explicitVelocity.HasValue +
                     " preferRoot=" + preferRootPartSurfacePose +
@@ -4305,6 +4317,7 @@ namespace Parsek
                     " worldFromLLA=" + TraceSeparation.FormatVector3d(worldPos) +
                     " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
                     " transformVsLLAdelta=" + TraceSeparation.FormatVector3d(transformPos - worldPos) +
+                    " |delta|=" + (transformPos - worldPos).magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
                     " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
                     " srfVel=" + TraceSeparation.FormatVector3(v.srf_velocity) + " |sv|=" + v.srf_velocity.magnitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
             }
