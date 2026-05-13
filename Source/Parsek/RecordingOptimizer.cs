@@ -2155,10 +2155,18 @@ namespace Parsek
         /// Log-suppression-aware overload. When <paramref name="logUnstableRefusal"/>
         /// is false, the dedicated `refused trim for unstable terminal` Verbose line
         /// is suppressed and the caller learns through <paramref name="unstableTerminal"/>
-        /// whether the refusal was an unstable-terminal carve-out vs. a stable-terminal
-        /// shape-match failure. Used by the bulk optimization pass so a save with
-        /// hundreds of Destroyed / Recovered / Boarded boring-tail leaves doesn't
-        /// emit one log line per recording per pass.
+        /// whether the refusal was a non-spawnable-terminal carve-out vs. a
+        /// spawnable-terminal shape-match failure. Used by the bulk optimization
+        /// pass so a save with hundreds of non-spawnable boring-tail leaves
+        /// doesn't emit one log line per recording per pass.
+        ///
+        /// Trim is only safe when the finalizer classified the recording with a
+        /// terminal that ShouldSpawnAtRecordingEnd would actually spawn — i.e.
+        /// Landed/Splashed/Orbiting (see GhostPlaybackLogic.IsSpawnableTerminal).
+        /// For SubOrbital, Destroyed, Recovered, Docked, Boarded — and anything
+        /// the finalizer leaves unclassified — no real vessel takes over from
+        /// the trim UT, so the boring tail IS the only playback the player sees
+        /// and must be preserved.
         /// </summary>
         internal static bool TailPreservesTerminalSpawnStateInternal(
             Recording rec, double trimUT, bool logUnstableRefusal, out bool unstableTerminal)
@@ -2167,37 +2175,33 @@ namespace Parsek
             if (rec == null || !rec.TerminalStateValue.HasValue)
                 return true;
 
-            switch (rec.TerminalStateValue.Value)
+            var ts = rec.TerminalStateValue.Value;
+
+            // Single source of truth with the spawn policy: if
+            // ShouldSpawnAtRecordingEnd wouldn't spawn a real vessel at the
+            // terminal, the recording's tail is the final playback. Refuse to
+            // trim regardless of orbit-shape match.
+            if (!GhostPlaybackLogic.IsSpawnableTerminal(ts))
             {
-                // Stable terminals: vessel reached a settled trajectory or surface
-                // pose. Tail past lastInterestingUT is genuinely idle filler — safe
-                // to trim once the spawn-state shape check confirms the surviving
-                // payload still matches the terminal.
+                unstableTerminal = true;
+                if (logUnstableRefusal)
+                    LogUnstableTerminalTrimRefusal(rec, trimUT);
+                return false;
+            }
+
+            switch (ts)
+            {
                 case TerminalState.Orbiting:
-                case TerminalState.SubOrbital:
-                case TerminalState.Docked:
                     return TailMatchesTerminalOrbit(rec, trimUT);
 
                 case TerminalState.Landed:
                 case TerminalState.Splashed:
                     return TailMatchesTerminalSurfaceState(rec, trimUT);
 
-                // Outcome-bearing terminals: the trailing payload itself carries
-                // the meaningful content (predicted ballistic-to-impact for
-                // Destroyed, the boarding/recovery moment for Boarded/Recovered).
-                // Refuse to trim — the "boring environment" classification is
-                // misleading here. Trimming a Destroyed recording's predicted
-                // orbit tail collapses the ghost at the chain-segment boundary
-                // instead of riding the predicted impact arc.
-                case TerminalState.Destroyed:
-                case TerminalState.Recovered:
-                case TerminalState.Boarded:
-                    unstableTerminal = true;
-                    if (logUnstableRefusal)
-                        LogUnstableTerminalTrimRefusal(rec, trimUT);
-                    return false;
-
                 default:
+                    // IsSpawnableTerminal accepts only the three cases above;
+                    // any future spawnable terminal needs its own shape check
+                    // wired up here.
                     unstableTerminal = true;
                     if (logUnstableRefusal)
                         LogUnstableTerminalTrimRefusal(rec, trimUT);
@@ -2209,17 +2213,7 @@ namespace Parsek
         {
             if (!terminal.HasValue)
                 return false;
-            switch (terminal.Value)
-            {
-                case TerminalState.Orbiting:
-                case TerminalState.SubOrbital:
-                case TerminalState.Docked:
-                case TerminalState.Landed:
-                case TerminalState.Splashed:
-                    return false;
-                default:
-                    return true;
-            }
+            return !GhostPlaybackLogic.IsSpawnableTerminal(terminal.Value);
         }
 
         private static void LogUnstableTerminalTrimRefusal(Recording rec, double trimUT)
@@ -2229,8 +2223,9 @@ namespace Parsek
                     CultureInfo.InvariantCulture,
                     "TailPreservesTerminalSpawnState: refused trim for unstable terminal " +
                     "rec='{0}' terminal={1} trimUT={2:F1} explicitEndUT={3:F1} " +
-                    "(unstable terminals carry meaningful tail payload — see " +
-                    "RecordingOptimizer.TailPreservesTerminalSpawnState)",
+                    "(non-spawnable terminal — ShouldSpawnAtRecordingEnd would not " +
+                    "replace the ghost with a real vessel, so the boring tail is the " +
+                    "only playback the player sees; see GhostPlaybackLogic.IsSpawnableTerminal)",
                     rec?.RecordingId ?? "(null)",
                     rec?.TerminalStateValue?.ToString() ?? "(null)",
                     trimUT,
@@ -2703,14 +2698,16 @@ namespace Parsek
                 return false; // boring tail is shorter than buffer
             }
 
-            // Two distinct skip flavors live behind this gate. The unstable-terminal
-            // carve-out (Destroyed/Boarded/Recovered/default) has its own dedicated
-            // `refused trim for unstable terminal` log line that the gate emits when
-            // logging is allowed; we route that through the same `logSkipReason` flag
-            // so the bulk pass stays silent on per-recording lines for that bucket
-            // too. The stable-terminal shape-match failure path keeps its own
-            // per-recording log because the divergence numbers (ecc/inc/LAN deltas)
-            // don't aggregate cleanly into a summary line.
+            // Two distinct skip flavors live behind this gate. The non-spawnable-
+            // terminal carve-out (every TerminalState that GhostPlaybackLogic
+            // .IsSpawnableTerminal refuses — SubOrbital/Destroyed/Docked/Recovered/
+            // Boarded/default) has its own dedicated `refused trim for unstable
+            // terminal` log line that the gate emits when logging is allowed; we
+            // route that through the same `logSkipReason` flag so the bulk pass
+            // stays silent on per-recording lines for that bucket too. The
+            // spawnable-terminal (Landed/Splashed/Orbiting) shape-match failure
+            // path keeps its own per-recording log because the divergence numbers
+            // (ecc/inc/LAN deltas) don't aggregate cleanly into a summary line.
             if (!TailPreservesTerminalSpawnStateInternal(
                 rec, trimUT, logUnstableRefusal: logSkipReason, unstableTerminal: out bool unstableTerminal))
             {

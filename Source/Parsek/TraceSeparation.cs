@@ -191,6 +191,82 @@ namespace Parsek
             return (playbackUT - beforeUT) / span;
         }
 
+        /// <summary>
+        /// Pure helper: returns the magnitude of the anchor-local offset vector
+        /// at <paramref name="playbackUT"/> linearly interpolated between the
+        /// bracketing entries of <paramref name="frames"/>. In v13 Relative
+        /// debris sections, <c>frames[i].latitude/longitude/altitude</c> are
+        /// anchor-local Cartesian metres (NOT body-fixed lat/lon/alt), so the
+        /// magnitude of the lerped vector is the parent-vs-debris distance the
+        /// recorder authored for the current playback UT.
+        ///
+        /// Unlike the existing <c>recordedAnchorLocalDist</c> trace field (which
+        /// reads only the bracketing-before entry's magnitude), this helper
+        /// follows the recorded geometry across the bracket so a reader can
+        /// tell whether the rendered distance is tracking the recorded
+        /// relative motion or actually diverging from it.
+        ///
+        /// Returns NaN when the input is null/empty, when playbackUT is before
+        /// the first sample, or when a one-sample list is provided (we cannot
+        /// interpolate without two real samples; clamping to a single sample
+        /// would lie about coverage). When playbackUT is at or after the last
+        /// sample we return the last sample's magnitude (clamp-on-overrun is
+        /// safe — the caller already passes the section's `frames` and knows
+        /// the bracket ends).
+        ///
+        /// Assumes the caller passes a UT-monotonic `frames` list; the
+        /// bracket-finder mirrors the existing `recordedAnchorLocalDist`
+        /// loop in `ParsekFlight.cs` (early-break on the first
+        /// `frames[j].ut &gt; playbackUT`) so the two trace fields always pick
+        /// the same bracket on well-formed input. On pathological
+        /// non-monotonic input the bracket is whatever this contract says,
+        /// not whatever an alternative full-list scan would have produced.
+        /// </summary>
+        internal static double InterpolateAnchorLocalOffsetMagnitude(
+            IReadOnlyList<TrajectoryPoint> frames, double playbackUT)
+        {
+            if (frames == null || frames.Count < 2)
+                return double.NaN;
+            if (double.IsNaN(playbackUT) || double.IsInfinity(playbackUT))
+                return double.NaN;
+
+            int beforeIdx = -1;
+            for (int j = 0; j < frames.Count; j++)
+            {
+                if (frames[j].ut <= playbackUT)
+                    beforeIdx = j;
+                else
+                    break;
+            }
+
+            if (beforeIdx < 0)
+                return double.NaN; // playbackUT before first sample
+            if (beforeIdx >= frames.Count - 1)
+            {
+                // playbackUT at-or-past the last sample. Clamp to the last
+                // sample's magnitude — the caller's bracket has ended and a
+                // NaN here would hide the real number from the log row.
+                TrajectoryPoint last = frames[frames.Count - 1];
+                return new Vector3d(last.latitude, last.longitude, last.altitude).magnitude;
+            }
+
+            TrajectoryPoint b = frames[beforeIdx];
+            TrajectoryPoint a = frames[beforeIdx + 1];
+            double alpha = ComputeLerpAlpha(b.ut, a.ut, playbackUT);
+            if (double.IsNaN(alpha))
+            {
+                // Degenerate bracket (zero/negative span — typically a
+                // duplicate UT pair). Fall back to the bracketing-before
+                // magnitude rather than producing a NaN log value.
+                return new Vector3d(b.latitude, b.longitude, b.altitude).magnitude;
+            }
+
+            Vector3d offB = new Vector3d(b.latitude, b.longitude, b.altitude);
+            Vector3d offA = new Vector3d(a.latitude, a.longitude, a.altitude);
+            Vector3d interp = offB + (offA - offB) * alpha;
+            return interp.magnitude;
+        }
+
         internal static string FormatVector3d(Vector3d v)
         {
             return string.Format(CultureInfo.InvariantCulture,

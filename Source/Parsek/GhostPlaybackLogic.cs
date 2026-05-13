@@ -4753,6 +4753,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Terminal states that produce a real vessel via ShouldSpawnAtRecordingEnd
+        /// when no other suppression applies. The set is intentionally narrow:
+        /// every other terminal (SubOrbital, Destroyed, Recovered, Docked, Boarded,
+        /// and any future addition) means the ghost playback is the final visible
+        /// trajectory — nothing replaces it.
+        ///
+        /// Used both here (gating spawn) and in
+        /// RecordingOptimizer.TailPreservesTerminalSpawnState (gating tail trim):
+        /// trimming the boring tail is only safe when a spawned vessel takes over
+        /// from the trim UT onward. For non-spawnable terminals the tail IS the
+        /// playback the player sees, so it must be preserved.
+        /// </summary>
+        internal static bool IsSpawnableTerminal(TerminalState ts)
+        {
+            switch (ts)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.Landed:
+                case TerminalState.Splashed:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// Pure decision logic for whether a recording's vessel should be spawned
         /// at the end of its ghost playback (the "spawn-at-recording-end" feature).
         /// Extracted from ParsekFlight.UpdateTimelinePlayback for testability.
@@ -4850,10 +4876,8 @@ namespace Parsek
             // continuation). If no child shares this vessel's PID, the recording IS the
             // effective leaf and should be spawnable. Only applies to non-debris recordings
             // with a spawnable terminal state (Landed/Splashed/Orbiting). (#224)
-            bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue &&
-                (rec.TerminalStateValue.Value == TerminalState.Landed ||
-                 rec.TerminalStateValue.Value == TerminalState.Splashed ||
-                 rec.TerminalStateValue.Value == TerminalState.Orbiting);
+            bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue
+                && IsSpawnableTerminal(rec.TerminalStateValue.Value);
             bool effectiveLeaf = rec.ChildBranchPointId != null
                 && !rec.IsDebris
                 && hasSpawnableTerminal
@@ -4884,28 +4908,23 @@ namespace Parsek
 
             // Terminal states: destroyed/recovered/docked/boarded/suborbital should not spawn
             // SubOrbital includes FLYING and ESCAPING — vessel would materialize mid-air and crash (#45)
-            if (rec.TerminalStateValue.HasValue)
+            if (rec.TerminalStateValue.HasValue
+                && !IsSpawnableTerminal(rec.TerminalStateValue.Value))
             {
-                var ts = rec.TerminalStateValue.Value;
-                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                    || ts == TerminalState.Docked || ts == TerminalState.Boarded
-                    || ts == TerminalState.SubOrbital)
-                {
-                    return (false, $"terminal state {ts}");
-                }
+                return (false, $"terminal state {rec.TerminalStateValue.Value}");
             }
 
             // Snapshot situation check: if the snapshot's sit field is FLYING or SUB_ORBITAL,
             // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
             // This catches cases where TerminalState is null/Landed but the snapshot was
             // captured mid-flight. (#114)
-            // Override: if terminal state is Landed/Splashed/Orbiting, the vessel DID reach
-            // a safe state — the snapshot's sit field may be stale from recording start.
-            // Orbiting: vessel captured during ascent (FLYING) but achieved orbit. The spawn
-            // path corrects the snapshot situation before spawning. (#169, #EVA-spawn)
-            bool terminalOverridesUnsafe = rec.TerminalStateValue == TerminalState.Landed ||
-                rec.TerminalStateValue == TerminalState.Splashed ||
-                rec.TerminalStateValue == TerminalState.Orbiting;
+            // Override: if the terminal is spawnable (Landed/Splashed/Orbiting), the
+            // vessel DID reach a safe state — the snapshot's sit field may be stale
+            // from recording start. Orbiting: vessel captured during ascent (FLYING)
+            // but achieved orbit. The spawn path corrects the snapshot situation
+            // before spawning. (#169, #EVA-spawn)
+            bool terminalOverridesUnsafe = rec.TerminalStateValue.HasValue
+                && IsSpawnableTerminal(rec.TerminalStateValue.Value);
             if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
