@@ -5245,15 +5245,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldHoldInitialActivationHiddenThisFrame_ActiveReFlyControlledFlatPoints_SkipsActivationSettle()
+        public void ShouldHoldInitialActivationHiddenThisFrame_ActiveReFlyControlledUnsectionedFlatPoints_SkipsActivationSettle()
         {
-            // Companion case to the Absolute-section test: a trajectory with
-            // no TrackSections but whose flat Points list spans the
-            // activation UT also has a deterministic first-position resolve
-            // (the activation start clamps to Points[0] or a Points
-            // interpolation), so the carve-out applies during a re-fly.
+            // Unsectioned (no TrackSections) recording with flat Points
+            // covering activationStartUT: playback resolves first-position
+            // from Points alone, no anchor dependency, carve-out applies.
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
-            // No TrackSections -- flat Points coverage path.
+            // Deliberately empty TrackSections -- exercises the
+            // HasUnsectionedFlatPointsCoverageAtActivationUT branch.
+            Assert.Empty(traj.TrackSections);
             var state = new GhostPlaybackState
             {
                 deferVisibilityUntilPlaybackSync = true,
@@ -5265,6 +5265,68 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
                 traj, state, 100.25, out string reason));
             Assert.Null(reason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ActiveReFlyControlledNonRelativeSectionWithFlatPoints_SkipsActivationSettle()
+        {
+            // Non-Relative sectioned recording (here OrbitalCheckpoint, the
+            // only non-{Absolute,Relative} ReferenceFrame today) with flat
+            // Points covering activationStartUT: exercises the
+            // HasNonRelativeSectionWithFlatPointsCoverageAtActivationUT
+            // branch. No live-anchor dependency, carve-out applies.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => true;
+
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string reason));
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ActiveReFlyControlledRelativeSectionWithFlatPoints_StillTakesHide()
+        {
+            // Load-bearing regression cover: a Relative section at
+            // activationStartUT MUST block the carve-out even when the flat
+            // Points list also covers the UT. Without this gate, any
+            // Relative-anchored ghost during a re-fly outside the 0.08 s
+            // relative-start window would skip the activation-settle hide
+            // and lose its anchor-resolution-race protection.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0
+            };
+
+            GhostPlaybackEngine.ActiveReFlySessionInProgressProbe = () => true;
+
+            // playbackUT 100.25 is OUTSIDE the 0.08 s relative-start UT
+            // window, so the relative-start hide does not short-circuit
+            // before the carve-out runs. The carve-out must NOT fire here
+            // because the section is Relative, so the activation-settle
+            // fallback should still hold the ghost hidden.
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string reason));
+            Assert.Equal("activation-settle", reason);
         }
 
         [Fact]

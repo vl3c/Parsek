@@ -5621,20 +5621,35 @@ namespace Parsek
 
         /// <summary>
         /// Activation-settle carve-out for non-debris controlled ghosts whose
-        /// first rendered position is deterministic from recorded Absolute or
-        /// flat data while an active re-fly session is in progress. The hide
-        /// otherwise advances <c>playbackUT</c> by 2 physics ticks (~0.04 s)
-        /// before the ghost becomes visible, and the first-visible world
-        /// position is then offset from the recorded activation-start position
-        /// by <c>v_recorded × 0.04 s</c> — ~80 m at orbital re-fly ascent
-        /// velocities. The carve-out only fires during re-fly because that's
-        /// the moment fresh non-debris activations are visually salient and
-        /// the hide serves no purpose: with Absolute (or flat) coverage at
-        /// <c>activationStartUT</c> there is no anchor-resolution race for the
-        /// settle frames to mask, and the first frame's recorded position is
-        /// available immediately. Outside re-fly the hide is left intact so
-        /// other settle-sensitive paths (loop restarts, watch-mode anchoring)
-        /// keep their existing behavior.
+        /// first rendered position is deterministic (no live-anchor dependency)
+        /// while an active re-fly session is in progress. The hide otherwise
+        /// advances <c>playbackUT</c> by 2 physics ticks (~0.04 s) before the
+        /// ghost becomes visible, and the first-visible world position is then
+        /// offset from the recorded activation-start position by
+        /// <c>v_recorded × 0.04 s</c> — ~80 m at orbital re-fly ascent
+        /// velocities.
+        /// <para>
+        /// Behavioral contract: <b>Relative is the boundary.</b> If the active
+        /// section at <c>activationStartUT</c> is <see cref="ReferenceFrame.Relative"/>,
+        /// first-frame position depends on the live anchor's pose at that UT,
+        /// which is exactly what the activation-settle hide is designed to mask
+        /// — the carve-out must not fire. For every other case (Absolute
+        /// section, OrbitalCheckpoint section with flat-Points back-up, or no
+        /// sections at all with covering flat Points) the first frame resolves
+        /// from recorded data alone with no live race.
+        /// </para>
+        /// <para>
+        /// The carve-out fires only during a re-fly session because that's the
+        /// moment fresh non-debris activations are visually salient and the
+        /// hide serves no purpose. Outside re-fly the predicate returns false
+        /// and the hide is left intact so other settle-sensitive paths (loop
+        /// restarts, watch-mode anchoring) keep their existing behavior.
+        /// During a re-fly session the predicate also fires for non-debris
+        /// activations from watch-sync / loop-cycle entry — see
+        /// <c>SynchronizeLoadedGhostForWatch</c> at line 5096 — because those
+        /// share the same first-frame deterministic-resolve property and the
+        /// same v×0.04 s slide failure mode.
+        /// </para>
         /// </summary>
         internal static bool IsActiveReFlyControlledTrajectoryWithDeterministicActivationStart(
             IPlaybackTrajectory traj)
@@ -5645,7 +5660,10 @@ namespace Parsek
 
             double activationStartUT = ResolveGhostActivationStartUT(traj);
             return HasAbsoluteSectionAtActivationUT(traj, activationStartUT)
-                || HasFlatPointsCoverageAtActivationUT(traj, activationStartUT);
+                || HasNonRelativeSectionWithFlatPointsCoverageAtActivationUT(
+                    traj, activationStartUT)
+                || HasUnsectionedFlatPointsCoverageAtActivationUT(
+                    traj, activationStartUT);
         }
 
         private static bool IsActiveReFlySessionInProgress()
@@ -5655,15 +5673,65 @@ namespace Parsek
             try { return probe(); }
             catch (Exception ex)
             {
-                ParsekLog.Warn("Engine",
-                    $"ActiveReFlySessionInProgressProbe threw {ex.GetType().Name}: {ex.Message}");
+                // Per-frame, per-ghost call site — rate-limit so a defective
+                // host probe can't flood the log. Defensive: the production
+                // probe (ParsekScenario.OnAwake lambda) cannot throw.
+                ParsekLog.WarnRateLimited("Engine", "refly-probe-threw",
+                    $"ActiveReFlySessionInProgressProbe threw {ex.GetType().Name}: {ex.Message}",
+                    10.0);
                 return false;
             }
         }
 
+        // Active section at activationStartUT is Absolute. Absolute frames are
+        // body-fixed lat/lon/alt + attitude; the first frame is fully
+        // deterministic from the section's own data with no Points back-up
+        // required and no live-anchor dependency.
         private static bool HasAbsoluteSectionAtActivationUT(
             IPlaybackTrajectory traj, double activationStartUT)
         {
+            if (!TryGetActiveSectionFrame(traj, activationStartUT, out var refFrame))
+                return false;
+            return refFrame == ReferenceFrame.Absolute;
+        }
+
+        // Active section at activationStartUT is non-Relative (Absolute or
+        // OrbitalCheckpoint today) AND the recording's flat Points list spans
+        // activationStartUT. The Points-coverage requirement exists so that
+        // section types whose internal frame list may be sparse or empty (e.g.
+        // an OrbitalCheckpoint with only its anchor checkpoint) still have a
+        // deterministic first-frame source available before the carve-out
+        // fires. Future deterministic ReferenceFrame additions get this path
+        // for free as long as the playback resolver also reads them. The
+        // Relative gate is the load-bearing rule: a Relative-anchored ghost's
+        // first frame depends on live anchor pose, which is exactly what
+        // activation-settle is designed to mask.
+        private static bool HasNonRelativeSectionWithFlatPointsCoverageAtActivationUT(
+            IPlaybackTrajectory traj, double activationStartUT)
+        {
+            if (!TryGetActiveSectionFrame(traj, activationStartUT, out var refFrame))
+                return false;
+            if (refFrame == ReferenceFrame.Relative)
+                return false;
+            return HasFlatPointsCoverage(traj, activationStartUT);
+        }
+
+        // No TrackSections at all (e.g. legacy / unsectioned recordings) AND
+        // the flat Points list spans activationStartUT. With no section table,
+        // playback resolves first-frame position from Points alone, which has
+        // no anchor dependency.
+        private static bool HasUnsectionedFlatPointsCoverageAtActivationUT(
+            IPlaybackTrajectory traj, double activationStartUT)
+        {
+            if (traj?.TrackSections != null && traj.TrackSections.Count > 0)
+                return false;
+            return HasFlatPointsCoverage(traj, activationStartUT);
+        }
+
+        private static bool TryGetActiveSectionFrame(
+            IPlaybackTrajectory traj, double activationStartUT, out ReferenceFrame refFrame)
+        {
+            refFrame = ReferenceFrame.Absolute;
             if (traj?.TrackSections == null || traj.TrackSections.Count == 0)
                 return false;
             int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
@@ -5673,10 +5741,11 @@ namespace Parsek
                     traj.TrackSections, activationStartUT);
             if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
                 return false;
-            return traj.TrackSections[sectionIndex].referenceFrame == ReferenceFrame.Absolute;
+            refFrame = traj.TrackSections[sectionIndex].referenceFrame;
+            return true;
         }
 
-        private static bool HasFlatPointsCoverageAtActivationUT(
+        private static bool HasFlatPointsCoverage(
             IPlaybackTrajectory traj, double activationStartUT)
         {
             var points = traj?.Points;
