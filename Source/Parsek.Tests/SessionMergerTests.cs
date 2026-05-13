@@ -1400,9 +1400,18 @@ namespace Parsek.Tests
             // TryReseedFirstPredictedTailSegmentFromRecordedAnchor then moves the first
             // predicted segment's startUT back to that last-frame UT. Before the fix the
             // merger floor was maxTrackSectionEndUT and silently dropped the reseeded
-            // segment because its startUT < that floor. The playback hand-off bound is the
-            // last recorded source point UT, so the merger now uses
-            // min(lastRecordedPointUT, maxTrackSectionEndUT) as the floor.
+            // segment because its startUT < that floor. The merger now anchors the floor
+            // on the resolved payload it is about to write to target — predictedTailFloor
+            // = max(rebuiltPoints.Last().ut, rebuiltOrbitSegments.Last().endUT), falling
+            // back to sectionEndUT only when both rebuilds are empty (defensively
+            // unreachable given the upstream HasCompleteTrackSectionPayloadForFlatSync
+            // gate). That bound is exactly the playback hand-off boundary
+            // (GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment reads
+            // Points[Points.Count - 1].ut after the merger writes target.Points), so a
+            // predicted segment whose startUT meets the floor is a legitimate finalizer
+            // suffix. In this test the section's last frame UT is 156.43 < section.endUT
+            // 158.47, so rebuiltPoints.Last().ut = 156.43 (the anchor) and the reseeded
+            // segment at startUT=156.43 is preserved.
             const double anchorPointUT = 156.43;
             const double sectionEndUT = 158.47; // 2.04 s settle tail past anchor frame
             const double secondPredictedStartUT = 1382.97;
