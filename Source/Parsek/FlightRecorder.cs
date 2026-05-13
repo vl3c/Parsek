@@ -8686,12 +8686,31 @@ namespace Parsek
         /// </summary>
         internal static TrajectoryPoint BuildTrajectoryPoint(Vessel v, Vector3 velocity, double ut)
         {
+            // Derive lat/lon/alt from v.transform.position rather than reading
+            // v.latitude/longitude/altitude directly. Those fields lag the
+            // transform by exactly one fixedDeltaTime for loaded/unpacked
+            // vessels: Vessel.LateUpdate's LLA refresh runs after PhysX has
+            // already moved the transform, so v.latitude reflects the
+            // PREVIOUS tick's CoM while v.transform.position reflects the
+            // current tick. Every per-tick FG sample written from the stale
+            // path stored a position ~velocity*0.02s behind ground truth
+            // (~4.3 m at 215 m/s), invisible until separation made it visible
+            // as a forward slide of debris ghosts against the parent ghost
+            // (the parent stayed on the stale FG path while the debris seed
+            // and subsequent BG samples used fresh transform-derived LLA).
+            // PR 832 trace evidence pinned the staleness vector as exactly
+            // velocity*fixedDeltaTime, perfectly parallel to velocity
+            // (cos=0.999999), matching the predicted one-tick step to within
+            // 5 mm. body.GetLatitude/Longitude/Altitude is the inverse of
+            // body.GetWorldSurfacePosition, so this produces the LLA that
+            // round-trips back to the live transform position.
+            Vector3d freshWorldPos = v.transform.position;
             TrajectoryPoint pt = new TrajectoryPoint
             {
                 ut = ut,
-                latitude = v.latitude,
-                longitude = v.longitude,
-                altitude = v.altitude,
+                latitude = v.mainBody.GetLatitude(freshWorldPos),
+                longitude = v.mainBody.GetLongitude(freshWorldPos),
+                altitude = v.mainBody.GetAltitude(freshWorldPos),
                 rotation = v.srfRelRotation,
                 velocity = velocity,
                 bodyName = v.mainBody.name,
