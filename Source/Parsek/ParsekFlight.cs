@@ -11840,7 +11840,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(activeRec.ChildBranchPointId))
                 return false;
             if (!activeRec.TerminalStateValue.HasValue
-                || !IsStableSpawnTerminal(activeRec.TerminalStateValue.Value))
+                || !GhostPlaybackLogic.IsSpawnableTerminal(activeRec.TerminalStateValue.Value))
                 return false;
 
             return GhostPlaybackLogic.IsEffectiveLeafForVessel(activeRec, tree);
@@ -12604,7 +12604,7 @@ namespace Parsek
                 && finalizeVesselFound)
             {
                 var ts = rec.TerminalStateValue.Value;
-                if (IsStableSpawnTerminal(ts))
+                if (GhostPlaybackLogic.IsSpawnableTerminal(ts))
                     vesselAccess.TryRefreshStableTerminalSnapshot(
                         rec,
                         finalizeVessel,
@@ -13002,13 +13002,6 @@ namespace Parsek
             {
                 // FlightGlobals not available (unit tests)
             }
-        }
-
-        private static bool IsStableSpawnTerminal(TerminalState state)
-        {
-            return state == TerminalState.Landed
-                || state == TerminalState.Splashed
-                || state == TerminalState.Orbiting;
         }
 
         private static bool UsesTerminalOrbitMetadata(TerminalState state)

@@ -2155,10 +2155,10 @@ namespace Parsek
         /// Log-suppression-aware overload. When <paramref name="logUnstableRefusal"/>
         /// is false, the dedicated `refused trim for unstable terminal` Verbose line
         /// is suppressed and the caller learns through <paramref name="unstableTerminal"/>
-        /// whether the refusal was an unstable-terminal carve-out vs. a stable-terminal
-        /// shape-match failure. Used by the bulk optimization pass so a save with
-        /// hundreds of non-spawnable boring-tail leaves doesn't emit one log line
-        /// per recording per pass.
+        /// whether the refusal was a non-spawnable-terminal carve-out vs. a
+        /// spawnable-terminal shape-match failure. Used by the bulk optimization
+        /// pass so a save with hundreds of non-spawnable boring-tail leaves
+        /// doesn't emit one log line per recording per pass.
         ///
         /// Trim is only safe when the finalizer classified the recording with a
         /// terminal that ShouldSpawnAtRecordingEnd would actually spawn — i.e.
@@ -2698,14 +2698,16 @@ namespace Parsek
                 return false; // boring tail is shorter than buffer
             }
 
-            // Two distinct skip flavors live behind this gate. The unstable-terminal
-            // carve-out (Destroyed/Boarded/Recovered/default) has its own dedicated
-            // `refused trim for unstable terminal` log line that the gate emits when
-            // logging is allowed; we route that through the same `logSkipReason` flag
-            // so the bulk pass stays silent on per-recording lines for that bucket
-            // too. The stable-terminal shape-match failure path keeps its own
-            // per-recording log because the divergence numbers (ecc/inc/LAN deltas)
-            // don't aggregate cleanly into a summary line.
+            // Two distinct skip flavors live behind this gate. The non-spawnable-
+            // terminal carve-out (every TerminalState that GhostPlaybackLogic
+            // .IsSpawnableTerminal refuses — SubOrbital/Destroyed/Docked/Recovered/
+            // Boarded/default) has its own dedicated `refused trim for unstable
+            // terminal` log line that the gate emits when logging is allowed; we
+            // route that through the same `logSkipReason` flag so the bulk pass
+            // stays silent on per-recording lines for that bucket too. The
+            // spawnable-terminal (Landed/Splashed/Orbiting) shape-match failure
+            // path keeps its own per-recording log because the divergence numbers
+            // (ecc/inc/LAN deltas) don't aggregate cleanly into a summary line.
             if (!TailPreservesTerminalSpawnStateInternal(
                 rec, trimUT, logUnstableRefusal: logSkipReason, unstableTerminal: out bool unstableTerminal))
             {

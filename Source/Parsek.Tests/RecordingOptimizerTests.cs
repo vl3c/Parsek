@@ -3872,18 +3872,25 @@ namespace Parsek.Tests
                     rec, isActiveChainMember: false, isChainLooping: false);
                 if (spawnable)
                 {
-                    // Policy may still suppress for non-terminal reasons (snapshot
-                    // safety, dedup) but never on terminal-state grounds.
-                    Assert.False(reason != null
-                        && reason.StartsWith("terminal state "),
+                    // Recording is built to clear every non-terminal gate (no
+                    // ChildBranchPointId, not debris, not ghost-only, branch=0,
+                    // VesselSnapshot present with safe ORBITING sit, no prior
+                    // spawned PID). With a spawnable terminal it MUST reach
+                    // needsSpawn=true — otherwise IsSpawnableTerminal disagrees
+                    // with the spawn policy on this terminal in some other branch.
+                    Assert.True(needsSpawn,
                         "IsSpawnableTerminal(" + ts + ")=true but ShouldSpawnAtRecordingEnd " +
-                        "refused on terminal-state grounds: " + reason);
+                        "refused spawn (reason='" + reason + "').");
                 }
                 else
                 {
                     Assert.False(needsSpawn,
                         "IsSpawnableTerminal(" + ts + ")=false but ShouldSpawnAtRecordingEnd " +
                         "allowed spawn (reason='" + reason + "').");
+                    // The refusal must specifically cite the terminal state — not
+                    // a downstream gate — so any future spawn-policy edit that
+                    // forgets to consult IsSpawnableTerminal trips this assertion.
+                    Assert.StartsWith("terminal state ", reason);
                 }
 
                 // Optimizer must agree: non-spawnable terminals always refuse trim.

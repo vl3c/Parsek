@@ -4918,13 +4918,13 @@ namespace Parsek
             // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
             // This catches cases where TerminalState is null/Landed but the snapshot was
             // captured mid-flight. (#114)
-            // Override: if terminal state is Landed/Splashed/Orbiting, the vessel DID reach
-            // a safe state — the snapshot's sit field may be stale from recording start.
-            // Orbiting: vessel captured during ascent (FLYING) but achieved orbit. The spawn
-            // path corrects the snapshot situation before spawning. (#169, #EVA-spawn)
-            bool terminalOverridesUnsafe = rec.TerminalStateValue == TerminalState.Landed ||
-                rec.TerminalStateValue == TerminalState.Splashed ||
-                rec.TerminalStateValue == TerminalState.Orbiting;
+            // Override: if the terminal is spawnable (Landed/Splashed/Orbiting), the
+            // vessel DID reach a safe state — the snapshot's sit field may be stale
+            // from recording start. Orbiting: vessel captured during ascent (FLYING)
+            // but achieved orbit. The spawn path corrects the snapshot situation
+            // before spawning. (#169, #EVA-spawn)
+            bool terminalOverridesUnsafe = rec.TerminalStateValue.HasValue
+                && IsSpawnableTerminal(rec.TerminalStateValue.Value);
             if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
