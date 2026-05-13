@@ -811,6 +811,19 @@ namespace Parsek
                 // VesselSpawned=true and ShouldSpawnAtRecordingEnd's PID dedup
                 // gate blocks the engine from re-spawning the ghost at its
                 // terminal endpoint.
+                //
+                // Survivor-set contract: PostLoadStripper.Strip removes vessels
+                // via Vessel.Die() but does NOT remove the matching ProtoVessel
+                // from HighLogic.CurrentGame.flightState.protoVessels — that
+                // list is the save-shape mirror and does not auto-sync with
+                // Vessel.Die(). So a survivor set built from protoVessels alone
+                // still contains every stripped capsule's PID, which masks the
+                // bug ShouldResetSpawnState is supposed to detect. The fix is
+                // to subtract stripResult.StrippedPids explicitly here before
+                // calling the reconcile helper. Keeping the helper itself
+                // unchanged — its other callers (revert path at
+                // ParsekScenario.cs:1701, defense-in-depth at :2405) may have
+                // different invariants and are out of scope for this PR.
                 try
                 {
                     var fsReconcile = HighLogic.CurrentGame?.flightState;
@@ -819,8 +832,27 @@ namespace Parsek
                         var committed = RecordingStore.CommittedRecordings;
                         if (committed != null && committed.Count > 0)
                         {
-                            ParsekScenario.ReconcileSpawnStateAfterStrip(
-                                fsReconcile.protoVessels, committed);
+                            var protoVesselPids = new List<uint>();
+                            int protoCount = 0;
+                            if (fsReconcile.protoVessels != null)
+                            {
+                                protoCount = fsReconcile.protoVessels.Count;
+                                for (int i = 0; i < protoCount; i++)
+                                    protoVesselPids.Add(fsReconcile.protoVessels[i].persistentId);
+                            }
+
+                            int strippedCount = stripResult.StrippedPids != null
+                                ? stripResult.StrippedPids.Count
+                                : 0;
+
+                            var survivors = ParsekScenario.ComputeSurvivorsFromProtoVesselPids(
+                                protoVesselPids, stripResult.StrippedPids);
+
+                            ParsekLog.Info(InvokeTag,
+                                $"Post-strip reconcile: strippedPids={strippedCount} " +
+                                $"protoVesselsRemaining={protoCount} survivorPidCount={survivors.Count}");
+
+                            ParsekScenario.ReconcileSpawnStateAfterStrip(survivors, committed);
                         }
                     }
                 }
