@@ -9530,6 +9530,42 @@ namespace Parsek
                             newVessel, splitUT, preferRootPartSurfacePose: true);
                     seedSource = "new-vessel-root-part";
                 }
+                // ---- Trace-Sep: log seed source + new-vessel state at split ----
+                if (TraceSeparation.RecordingWindowActive)
+                {
+                    Vessel original = originalVessel;
+                    CelestialBody body = newVessel.mainBody ?? original?.mainBody;
+                    Vector3d newLlaWorld = body != null
+                        ? body.GetWorldSurfacePosition(newVessel.latitude, newVessel.longitude, newVessel.altitude)
+                        : Vector3d.zero;
+                    Vector3d newTransformPos = newVessel.transform != null
+                        ? (Vector3d)newVessel.transform.position : Vector3d.zero;
+                    Vector3d originalLlaWorld = body != null && original != null
+                        ? body.GetWorldSurfacePosition(original.latitude, original.longitude, original.altitude)
+                        : Vector3d.zero;
+                    Vector3 newSrfVel = newVessel.srf_velocity;
+                    Vector3 originalSrfVel = original != null ? original.srf_velocity : Vector3.zero;
+                    float dt = Time.fixedDeltaTime;
+                    Vector3d newWorldDelta = newTransformPos - newLlaWorld;
+                    TraceSeparation.RecordLog("DecoupleSeed",
+                        "newPid=" + newVessel.persistentId +
+                        " name='" + newVessel.vesselName + "'" +
+                        " seedSource=" + seedSource +
+                        " splitUT=" + splitUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        " newLLA=(" + newVessel.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        "," + newVessel.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        "," + newVessel.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")" +
+                        " newLLAWorld=" + TraceSeparation.FormatVector3d(newLlaWorld) +
+                        " newTransformPos=" + TraceSeparation.FormatVector3d(newTransformPos) +
+                        " newTransformVsLLA=" + TraceSeparation.FormatVector3d(newWorldDelta) +
+                        " |newDelta|=" + newWorldDelta.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                        " originalLLAWorld=" + TraceSeparation.FormatVector3d(originalLlaWorld) +
+                        " newVsOriginalLLA=" + TraceSeparation.FormatVector3d(newLlaWorld - originalLlaWorld) +
+                        " newSrfVel=" + TraceSeparation.FormatVector3(newSrfVel) + " |vs|=" + newSrfVel.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                        " predictedNewSrfStep=" + (newSrfVel.magnitude * dt).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                        " originalSrfVel=" + TraceSeparation.FormatVector3(originalSrfVel) + " |ovs|=" + originalSrfVel.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture));
+                }
+                // ---- /Trace-Sep ----
             }
             else if (decoupleCreatedTrajectoryPoints != null
                      && decoupleCreatedTrajectoryPoints.ContainsKey(newVessel.persistentId))
@@ -17131,6 +17167,17 @@ namespace Parsek
             int bodyFixedCount = target.Section.bodyFixedFrames != null
                 ? target.Section.bodyFixedFrames.Count : 0;
             bool firstPlaybackRender = state.appearanceCount == 0;
+            // Pre-call ghost world snapshot so the playback trace can log the
+            // per-frame world step (pre → post) that the lerp produces. This
+            // captures the user-visible "slide" instant: on the first
+            // playback frame the ghost transform.position is whatever the
+            // spawner / previous frame left it; after InterpolateAndPosition
+            // runs it jumps to the lerp output. Distance between the two is
+            // exactly the slide. Gated on traceEnabled so production runs
+            // pay nothing for the snapshot.
+            Vector3d ghostWorldBefore = Vector3d.zero;
+            if (traceEnabled && state.ghost?.transform != null)
+                ghostWorldBefore = (Vector3d)state.ghost.transform.position;
             if (traceEnabled
                 && firstPlaybackRender && traj != null && traj.IsDebris
                 && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
@@ -17188,14 +17235,154 @@ namespace Parsek
                         + "," + afterFrame.Value.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
                         + "," + afterFrame.Value.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")")
                     : "<none>";
+                // Lerp alpha + manually-predicted ghost world position. The
+                // lerp alpha is what InterpolateAndPosition computed
+                // implicitly from playbackUT / bracket UTs; we reconstruct it
+                // here so the log row carries the interpolation factor
+                // explicitly. The predicted world position is a body-fixed
+                // linear blend of the bracketing LLAs (each resolved via
+                // body.GetWorldSurfacePosition independently then linearly
+                // blended in world-space). If `ghostWorld` differs from
+                // `predictedWorld` by more than rounding, the discrepancy is
+                // playback-math; if they match but the ghost is still
+                // slipping forward relative to truth, the discrepancy lives
+                // in the recorded LLAs themselves (recorder-side phase
+                // offset).
+                double lerpAlpha = double.NaN;
+                Vector3d predictedWorld = Vector3d.zero;
+                if (beforeFrame.HasValue && afterFrame.HasValue)
+                {
+                    lerpAlpha = TraceSeparation.ComputeLerpAlpha(
+                        beforeFrame.Value.ut, afterFrame.Value.ut, playbackUT);
+                    CelestialBody body = !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
+                        ? FlightGlobals.Bodies?.Find(b => b.name == beforeFrame.Value.bodyName)
+                        : null;
+                    if (body != null && !double.IsNaN(lerpAlpha))
+                    {
+                        Vector3d worldBefore = body.GetWorldSurfacePosition(
+                            beforeFrame.Value.latitude,
+                            beforeFrame.Value.longitude,
+                            beforeFrame.Value.altitude);
+                        Vector3d worldAfter = body.GetWorldSurfacePosition(
+                            afterFrame.Value.latitude,
+                            afterFrame.Value.longitude,
+                            afterFrame.Value.altitude);
+                        predictedWorld = worldBefore + (worldAfter - worldBefore) * lerpAlpha;
+                    }
+                }
+                Vector3d worldStep = ghostWorld - ghostWorldBefore;
+                Vector3d predictedVsActual = ghostWorld - predictedWorld;
+                // Parent ghost world position (rendered) so we can log the
+                // RENDERED parent-vs-debris distance on screen. Looked up via
+                // the engine's recordingId mapping; returns false when the
+                // parent ghost hasn't materialized yet (in which case the
+                // distance fields stay NaN in the log).
+                Vector3d parentGhostWorld = Vector3d.zero;
+                bool parentGhostFound = engine != null
+                    && engine.TryGetGhostWorldByRecordingId(
+                        traj.DebrisParentRecordingId, out parentGhostWorld);
+                double renderedParentDist = parentGhostFound
+                    ? (ghostWorld - parentGhostWorld).magnitude
+                    : double.NaN;
+                // Recorded anchor-local distance at the bracketing
+                // before-frame: in Relative sections the `frames[]` entries
+                // store anchor-local Cartesian metres in `latitude/longitude/altitude`,
+                // so the offset magnitude IS the parent-vs-debris distance the
+                // recorder captured. Compare this to renderedParentDist:
+                // matching values mean playback faithfully reproduces the
+                // recorded offset; divergence means playback math diverges
+                // from recorded data (or the parent ghost is being placed
+                // from a different bracketing sample).
+                double recordedAnchorLocalDist = double.NaN;
+                if (target.Section.referenceFrame == ReferenceFrame.Relative
+                    && target.Section.frames != null
+                    && target.Section.frames.Count > 0)
+                {
+                    int beforeIdx = -1;
+                    for (int j = 0; j < target.Section.frames.Count; j++)
+                    {
+                        if (target.Section.frames[j].ut <= playbackUT)
+                            beforeIdx = j;
+                        else break;
+                    }
+                    if (beforeIdx >= 0)
+                    {
+                        TrajectoryPoint relFrame = target.Section.frames[beforeIdx];
+                        Vector3d localOffset = new Vector3d(
+                            relFrame.latitude, relFrame.longitude, relFrame.altitude);
+                        recordedAnchorLocalDist = localOffset.magnitude;
+                    }
+                }
+                // Recorded body-fixed distance: subtract the parent's
+                // body-fixed primary world position at the bracketing UT from
+                // the debris's body-fixed primary world. Computed
+                // independently of playback math — ghost transforms drop out
+                // entirely. Reflects what the recorder wrote into the two
+                // independent body-fixed streams. If this doesn't match the
+                // recorded anchor-local distance, the two recording surfaces
+                // disagree about parent-vs-debris geometry.
+                double recordedBodyFixedDist = double.NaN;
+                if (beforeFrame.HasValue && !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
+                    && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                {
+                    CelestialBody body = FlightGlobals.Bodies?.Find(
+                        b => b.name == beforeFrame.Value.bodyName);
+                    Recording parentRec = RecordingStore.TryFindCommittedRecordingById(
+                        traj.DebrisParentRecordingId);
+                    if (body != null
+                        && parentRec != null
+                        && parentRec.TrackSections != null)
+                    {
+                        // Find the parent's body-fixed primary sample bracketing playbackUT.
+                        TrajectoryPoint? parentBefore = null;
+                        for (int s = 0; s < parentRec.TrackSections.Count; s++)
+                        {
+                            var ps = parentRec.TrackSections[s];
+                            if (ps.bodyFixedFrames == null || ps.bodyFixedFrames.Count == 0)
+                                continue;
+                            for (int j = 0; j < ps.bodyFixedFrames.Count; j++)
+                            {
+                                if (ps.bodyFixedFrames[j].ut <= playbackUT)
+                                    parentBefore = ps.bodyFixedFrames[j];
+                                else break;
+                            }
+                        }
+                        if (parentBefore.HasValue)
+                        {
+                            Vector3d parentBodyFixedWorld = body.GetWorldSurfacePosition(
+                                parentBefore.Value.latitude,
+                                parentBefore.Value.longitude,
+                                parentBefore.Value.altitude);
+                            Vector3d debrisBodyFixedWorld = body.GetWorldSurfacePosition(
+                                beforeFrame.Value.latitude,
+                                beforeFrame.Value.longitude,
+                                beforeFrame.Value.altitude);
+                            recordedBodyFixedDist =
+                                (debrisBodyFixedWorld - parentBodyFixedWorld).magnitude;
+                        }
+                    }
+                }
                 TraceSeparation.PlaybackLog("PositionDebris",
                     "recId=" + (target.RecordingId ?? "<null>") +
+                    " parentRecId=" + (traj.DebrisParentRecordingId ?? "<null>") +
                     " playbackUT=" + playbackUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
                     " bodyFixedCount=" + bodyFixedCount +
                     " first=" + firstPlaybackRender +
                     " bracketBefore=[" + beforeStr + "]" +
                     " bracketAfter=[" + afterStr + "]" +
-                    " ghostWorld=" + TraceSeparation.FormatVector3d(ghostWorld));
+                    " lerpAlpha=" + (double.IsNaN(lerpAlpha) ? "NaN" : lerpAlpha.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " ghostWorldBefore=" + TraceSeparation.FormatVector3d(ghostWorldBefore) +
+                    " ghostWorld=" + TraceSeparation.FormatVector3d(ghostWorld) +
+                    " worldStep=" + TraceSeparation.FormatVector3d(worldStep) +
+                    " |worldStep|=" + worldStep.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                    " predictedWorld=" + TraceSeparation.FormatVector3d(predictedWorld) +
+                    " predictedVsActual=" + TraceSeparation.FormatVector3d(predictedVsActual) +
+                    " |predDelta|=" + predictedVsActual.magnitude.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) +
+                    " parentGhostFound=" + parentGhostFound +
+                    " parentGhostWorld=" + (parentGhostFound ? TraceSeparation.FormatVector3d(parentGhostWorld) : "<unresolved>") +
+                    " renderedParentDist=" + (double.IsNaN(renderedParentDist) ? "NaN" : renderedParentDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " recordedAnchorLocalDist=" + (double.IsNaN(recordedAnchorLocalDist) ? "NaN" : recordedAnchorLocalDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)) +
+                    " recordedBodyFixedDist=" + (double.IsNaN(recordedBodyFixedDist) ? "NaN" : recordedBodyFixedDist.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)));
             }
             // ---- /Trace-Sep ----
             // Fail closed when InterpolateAndPosition could not produce a

@@ -29,7 +29,22 @@ namespace Parsek
         private static readonly List<string> ringBuffer = new List<string>();
         private static double recordingWindowEndUT = double.NegativeInfinity;
         private static double playbackWindowEndUT = double.NegativeInfinity;
+        private static double lastRecordingTriggerUT = double.NaN;
         private static readonly object gate = new object();
+
+        /// <summary>
+        /// UT of the most recent OpenRecordingWindow trigger (typically a
+        /// joint-break). Per-tick recorder traces can use this to compute
+        /// `tickSinceBreak` so a log reader can identify the first
+        /// post-PhysX per-tick sample after the structural event without
+        /// having to grep for the JointBreak line and count subsequent
+        /// per-tick samples manually. NaN when no recording window has been
+        /// opened in this session.
+        /// </summary>
+        internal static double LastRecordingTriggerUT
+        {
+            get { lock (gate) { return lastRecordingTriggerUT; } }
+        }
 
         /// <summary>
         /// Add a line to the pre-event ring buffer. Cheap unless the buffer
@@ -61,6 +76,7 @@ namespace Parsek
                 toFlush = new List<string>(ringBuffer);
                 ringBuffer.Clear();
                 recordingWindowEndUT = eventUT + RecordingWindowSeconds;
+                lastRecordingTriggerUT = eventUT;
             }
             ParsekLog.Info("Trace-Sep",
                 "=============== RECORDING WINDOW OPEN ===============");
@@ -142,16 +158,37 @@ namespace Parsek
         private static string FormatLine(string subsystem, string msg)
         {
             double ut;
-            float ft, fdt, fixedT;
+            float fdt, fixedT;
             int fc;
+            string inFixed;
             try { ut = Planetarium.GetUniversalTime(); } catch { ut = double.NaN; }
-            try { ft = Time.time; } catch { ft = float.NaN; }
             try { fdt = Time.fixedDeltaTime; } catch { fdt = float.NaN; }
             try { fixedT = Time.fixedTime; } catch { fixedT = float.NaN; }
             try { fc = Time.frameCount; } catch { fc = -1; }
+            // Time.inFixedTimeStep distinguishes the FixedUpdate phase (where
+            // VesselPrecalculate.CalculatePhysicsStats and our per-tick recorder
+            // postfix run, pre-PhysX) from the post-physics callback phase
+            // (where OnJointBreak / OnCollision fire after PhysX has advanced
+            // transform.position by one tick). Pinning this on every trace
+            // line lets log readers see at a glance whether a capture site
+            // saw start-of-tick or end-of-tick vessel state.
+            try { inFixed = Time.inFixedTimeStep ? "T" : "F"; } catch { inFixed = "?"; }
             return string.Format(CultureInfo.InvariantCulture,
-                "[{0}] ut={1:R} fixedT={2:R} dt={3:R} frame={4} | {5}",
-                subsystem, ut, fixedT, fdt, fc, msg);
+                "[{0}] ut={1:R} fixedT={2:R} dt={3:R} frame={4} inFixed={5} | {6}",
+                subsystem, ut, fixedT, fdt, fc, inFixed, msg);
+        }
+
+        /// <summary>
+        /// Manual lerp-alpha helper used by playback traces to log the
+        /// interpolation factor InterpolateAndPosition computed implicitly.
+        /// Returns NaN for degenerate brackets so the log row stays parseable.
+        /// </summary>
+        internal static double ComputeLerpAlpha(double beforeUT, double afterUT, double playbackUT)
+        {
+            double span = afterUT - beforeUT;
+            if (double.IsNaN(span) || double.IsInfinity(span) || span <= 0.0)
+                return double.NaN;
+            return (playbackUT - beforeUT) / span;
         }
 
         internal static string FormatVector3d(Vector3d v)

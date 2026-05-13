@@ -1108,6 +1108,23 @@ namespace Parsek
             // ---- Trace-Sep ----
             if (TraceSeparation.RecordingWindowActive)
             {
+                // Parent-vessel reference position derived from the stale-LLA
+                // path. At joint-break callback time VesselPrecalculate has
+                // already run pre-PhysX, so v.latitude/longitude/altitude
+                // reflect start-of-tick state while part.transform.position
+                // reflects end-of-tick PhysX state. The delta is the candidate
+                // offset that the reverted fix tried to back-step out of the
+                // seed; logging both the delta and what predicted-back-step
+                // magnitudes look like at this vessel's velocities lets the
+                // log reader confirm direction and frame before re-attempting
+                // any correction.
+                Vector3d vesselLlaWorld = body.GetWorldSurfacePosition(
+                    vessel.latitude, vessel.longitude, vessel.altitude);
+                Vector3 srfVel = vessel.srf_velocity;
+                float dt = Time.fixedDeltaTime;
+                double predictedSrfStep = srfVel.magnitude * dt;
+                double predictedInertialStep = velocity.magnitude * dt;
+                double observedDelta = (worldPos - vesselLlaWorld).magnitude;
                 TraceSeparation.RecordLog("PartOriginSeed",
                     "vesselPid=" + vessel.persistentId +
                     " partPid=" + part.persistentId +
@@ -1118,10 +1135,16 @@ namespace Parsek
                     "," + point.longitude.ToString("R", CultureInfo.InvariantCulture) +
                     "," + point.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
                     " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", CultureInfo.InvariantCulture) +
+                    " srfVel=" + TraceSeparation.FormatVector3(srfVel) + " |sv|=" + srfVel.magnitude.ToString("R", CultureInfo.InvariantCulture) +
                     " vesselTransformPos=" + (vessel.transform != null ? TraceSeparation.FormatVector3d(vessel.transform.position) : "<null>") +
                     " vesselLLA=(" + vessel.latitude.ToString("R", CultureInfo.InvariantCulture) +
                     "," + vessel.longitude.ToString("R", CultureInfo.InvariantCulture) +
-                    "," + vessel.altitude.ToString("R", CultureInfo.InvariantCulture) + ")");
+                    "," + vessel.altitude.ToString("R", CultureInfo.InvariantCulture) + ")" +
+                    " vesselLLAWorld=" + TraceSeparation.FormatVector3d(vesselLlaWorld) +
+                    " partVsVesselLLA=" + TraceSeparation.FormatVector3d(worldPos - vesselLlaWorld) +
+                    " |observedDelta|=" + observedDelta.ToString("F3", CultureInfo.InvariantCulture) +
+                    " predictedSrfStep=" + predictedSrfStep.ToString("F3", CultureInfo.InvariantCulture) +
+                    " predictedInertialStep=" + predictedInertialStep.ToString("F3", CultureInfo.InvariantCulture));
             }
             // ---- /Trace-Sep ----
             return true;
@@ -1186,6 +1209,19 @@ namespace Parsek
                     Vector3 surfaceVel = parentVessel.srf_velocity;
                     Vector3d transformPos = parentVessel.transform != null
                         ? parentVessel.transform.position : Vector3d.zero;
+                    // Predicted one-tick back-step magnitudes for the two
+                    // candidate velocity frames. If the reverted fix's
+                    // inertial-velocity hypothesis is right, |predictedInertialStep|
+                    // should match |worldDeltaTransformVsLLA| at the joint-break
+                    // instant. If body-rotation contamination is the culprit
+                    // (per the critical-analysis path) |predictedSrfStep| matches
+                    // and inertial overshoots by `omega_body x position * dt`
+                    // (~3.5 m at Kerbin equator). Logging both lets the log
+                    // reader pick the winning frame without rerunning.
+                    float dt = Time.fixedDeltaTime;
+                    double predictedSrfStep = surfaceVel.magnitude * dt;
+                    double predictedInertialStep = inertialVel.magnitude * dt;
+                    double observedDelta = (transformPos - livePos).magnitude;
                     TraceSeparation.RecordLog("JointBreak",
                         "PARENT_AT_BREAK pid=" + parentVessel.persistentId +
                         " name='" + parentVessel.vesselName + "' breakForce=" + breakForce.ToString("F2", CultureInfo.InvariantCulture) +
@@ -1195,16 +1231,40 @@ namespace Parsek
                         " livePos=" + TraceSeparation.FormatVector3d(livePos) +
                         " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
                         " worldDeltaTransformVsLLA=" + TraceSeparation.FormatVector3d(transformPos - livePos) +
+                        " |observedDelta|=" + observedDelta.ToString("F3", CultureInfo.InvariantCulture) +
                         " inertialVel=" + TraceSeparation.FormatVector3(inertialVel) + " |v|=" + inertialVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
                         " surfaceVel=" + TraceSeparation.FormatVector3(surfaceVel) + " |vs|=" + surfaceVel.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                        " predictedSrfStep=" + predictedSrfStep.ToString("F3", CultureInfo.InvariantCulture) +
+                        " predictedInertialStep=" + predictedInertialStep.ToString("F3", CultureInfo.InvariantCulture) +
                         " packed=" + parentVessel.packed);
                 }
                 if (joint.Child != null && joint.Child.transform != null)
                 {
+                    // Compare the child part's PhysX transform.position
+                    // (end-of-tick state) to the parent vessel's
+                    // body.GetWorldSurfacePosition(LLA) (stale pre-PhysX LLA
+                    // updated by VesselPrecalculate.CalculatePhysicsStats in
+                    // this same FixedUpdate). The signed delta in the parent's
+                    // velocity direction is the smoking-gun debris-side offset:
+                    // if it is positive and matches |srfVel|*dt at the parent's
+                    // surface velocity, the joint-child part-origin seed needs
+                    // a back-step; if it is near zero, the seed is in-phase.
+                    Vector3d childPos = joint.Child.transform.position;
+                    Vector3d childVsParentLla = parentVessel != null && parentVessel.mainBody != null
+                        ? (childPos - parentVessel.mainBody.GetWorldSurfacePosition(
+                            parentVessel.latitude, parentVessel.longitude, parentVessel.altitude))
+                        : Vector3d.zero;
+                    Vector3 parentSrfVel = parentVessel != null ? parentVessel.srf_velocity : Vector3.zero;
+                    double childVsParentAlongVel = parentSrfVel.sqrMagnitude > 0f
+                        ? Vector3d.Dot(childVsParentLla, (Vector3d)parentSrfVel.normalized)
+                        : 0.0;
                     TraceSeparation.RecordLog("JointBreak",
                         "CHILD_PART_AT_BREAK pid=" + joint.Child.persistentId +
                         " name='" + (joint.Child.partInfo?.name ?? joint.Child.name) + "'" +
-                        " transformPos=" + TraceSeparation.FormatVector3d(joint.Child.transform.position));
+                        " transformPos=" + TraceSeparation.FormatVector3d(childPos) +
+                        " childVsParentLLA=" + TraceSeparation.FormatVector3d(childVsParentLla) +
+                        " |delta|=" + childVsParentLla.magnitude.ToString("F3", CultureInfo.InvariantCulture) +
+                        " alongParentSrfVel=" + childVsParentAlongVel.ToString("F3", CultureInfo.InvariantCulture));
                 }
             }
             // ---- /Trace-Sep ----
@@ -7452,6 +7512,13 @@ namespace Parsek
             bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
                 recordingFormatVersion);
             Vector3d offset;
+            // Capture focus world position outside the branches so the
+            // Trace-Sep recording-side distance comparison below can read it
+            // regardless of which contract path produced the offset. In the
+            // v13 path this is the (vesselTransform-aligned) world position
+            // used as the rotated relative-offset source; in the legacy path
+            // it is the body.GetWorldSurfacePosition(LLA) result.
+            Vector3d focusWorldPosCaptured = Vector3d.zero;
             if (useLocalContract)
             {
                 if (!TryResolveAbsolutePointWorldForRelativeOffset(
@@ -7461,6 +7528,7 @@ namespace Parsek
                 {
                     focusWorldPos = v.GetWorldPos3D();
                 }
+                focusWorldPosCaptured = focusWorldPos;
                 offset = TrajectoryMath.ComputeRelativeLocalOffset(
                     focusWorldPos,
                     anchorPose.WorldPos,
@@ -7485,6 +7553,7 @@ namespace Parsek
                     focusPos = v.mainBody.GetWorldSurfacePosition(
                         v.latitude, v.longitude, v.altitude);
                 }
+                focusWorldPosCaptured = focusPos;
                 offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPose.WorldPos);
             }
 
@@ -7492,6 +7561,36 @@ namespace Parsek
             point.longitude = offset.y;
             point.altitude = offset.z;
             ApplyCurrentRecordingAnchorToCurrentTrackSection();
+
+            // ---- Trace-Sep: log both parent-vs-debris distance measurements ----
+            // recorded-relative = |offset| (= magnitude of the anchor-local
+            // Cartesian offset just written into frames[].latitude/longitude/altitude).
+            // recorded-absolute = |focusWorldPosCaptured - anchorPose.WorldPos|
+            // (= ground-truth world-space distance at this instant). These
+            // MUST agree exactly under the v13 contract (rotation alone
+            // preserves magnitude). Divergence indicates the rotation path
+            // introduces unexpected scaling / mis-applied anchor frame and
+            // would mean the recorded anchor-local distance does not
+            // correspond to the real ground-truth distance.
+            if (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive)
+            {
+                Vector3d worldDelta = focusWorldPosCaptured - anchorPose.WorldPos;
+                double recordedRelativeDist = offset.magnitude;
+                double recordedAbsoluteDist = worldDelta.magnitude;
+                TraceSeparation.RecordLog("FG_ApplyRel",
+                    "vesselPid=" + (v?.persistentId ?? 0u) +
+                    " anchorRecId=" + (anchorRecordingId ?? "<null>") +
+                    " ut=" + point.ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " focusWorldPos=" + TraceSeparation.FormatVector3d(focusWorldPosCaptured) +
+                    " anchorWorldPos=" + TraceSeparation.FormatVector3d(anchorPose.WorldPos) +
+                    " worldDelta=" + TraceSeparation.FormatVector3d(worldDelta) +
+                    " offset=" + TraceSeparation.FormatVector3d(offset) +
+                    " recordedRelativeDist=" + recordedRelativeDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " recordedAbsoluteDist=" + recordedAbsoluteDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " distMismatch=" + System.Math.Abs(recordedRelativeDist - recordedAbsoluteDist).ToString("F3", CultureInfo.InvariantCulture) +
+                    " contract=" + (useLocalContract ? "local" : "legacy"));
+            }
+            // ---- /Trace-Sep ----
 
             if (logSample)
             {
@@ -8587,12 +8686,31 @@ namespace Parsek
         /// </summary>
         internal static TrajectoryPoint BuildTrajectoryPoint(Vessel v, Vector3 velocity, double ut)
         {
+            // Derive lat/lon/alt from v.transform.position rather than reading
+            // v.latitude/longitude/altitude directly. Those fields lag the
+            // transform by exactly one fixedDeltaTime for loaded/unpacked
+            // vessels: Vessel.LateUpdate's LLA refresh runs after PhysX has
+            // already moved the transform, so v.latitude reflects the
+            // PREVIOUS tick's CoM while v.transform.position reflects the
+            // current tick. Every per-tick FG sample written from the stale
+            // path stored a position ~velocity*0.02s behind ground truth
+            // (~4.3 m at 215 m/s), invisible until separation made it visible
+            // as a forward slide of debris ghosts against the parent ghost
+            // (the parent stayed on the stale FG path while the debris seed
+            // and subsequent BG samples used fresh transform-derived LLA).
+            // PR 832 trace evidence pinned the staleness vector as exactly
+            // velocity*fixedDeltaTime, perfectly parallel to velocity
+            // (cos=0.999999), matching the predicted one-tick step to within
+            // 5 mm. body.GetLatitude/Longitude/Altitude is the inverse of
+            // body.GetWorldSurfacePosition, so this produces the LLA that
+            // round-trips back to the live transform position.
+            Vector3d freshWorldPos = v.transform.position;
             TrajectoryPoint pt = new TrajectoryPoint
             {
                 ut = ut,
-                latitude = v.latitude,
-                longitude = v.longitude,
-                altitude = v.altitude,
+                latitude = v.mainBody.GetLatitude(freshWorldPos),
+                longitude = v.mainBody.GetLongitude(freshWorldPos),
+                altitude = v.mainBody.GetAltitude(freshWorldPos),
                 rotation = v.srfRelRotation,
                 velocity = velocity,
                 bodyName = v.mainBody.name,
@@ -8611,10 +8729,31 @@ namespace Parsek
                     ? v.mainBody.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
                     : Vector3d.zero;
                 Vector3d transformPos = v.transform != null ? (Vector3d)v.transform.position : Vector3d.zero;
+                // tickSinceBreak: which post-PhysX physics tick this sample is
+                // on, relative to the most recent recording-window trigger.
+                // tickSinceBreak ~= 0 is the same-tick BuildTP that fires from
+                // the joint break's own FixedUpdate cycle (pre-PhysX
+                // VesselPrecalculate postfix). tickSinceBreak ~= 1 is the next
+                // FixedUpdate's pre-PhysX postfix, AFTER PhysX in the
+                // intervening frame has moved transform.position by one tick.
+                // If the per-tick BuildTP sample really has a +dt phase offset
+                // (as commit 3's hypothesis claimed), the transformVsLLAdelta
+                // magnitude here would jump at tickSinceBreak=1 relative to
+                // the surrounding cadence; if not, it stays near zero across
+                // all per-tick samples and the hypothesis is wrong.
+                double lastBreak = TraceSeparation.LastRecordingTriggerUT;
+                double tickSinceBreak = double.NaN;
+                if (!double.IsNaN(lastBreak))
+                {
+                    float dt = Time.fixedDeltaTime;
+                    if (dt > 0f && !float.IsNaN(dt) && !float.IsInfinity(dt))
+                        tickSinceBreak = (ut - lastBreak) / dt;
+                }
                 TraceSeparation.RecordLog("BuildTP",
                     "pid=" + v.persistentId +
                     " name='" + v.vesselName + "'" +
                     " ut=" + ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " tickSinceBreak=" + (double.IsNaN(tickSinceBreak) ? "NaN" : tickSinceBreak.ToString("F3", CultureInfo.InvariantCulture)) +
                     " packed=" + v.packed +
                     " LLA=(" + pt.latitude.ToString("R", CultureInfo.InvariantCulture) +
                     "," + pt.longitude.ToString("R", CultureInfo.InvariantCulture) +
@@ -8622,6 +8761,7 @@ namespace Parsek
                     " worldFromLLA=" + TraceSeparation.FormatVector3d(worldPos) +
                     " transformPos=" + TraceSeparation.FormatVector3d(transformPos) +
                     " transformVsLLAdelta=" + TraceSeparation.FormatVector3d(transformPos - worldPos) +
+                    " |delta|=" + (transformPos - worldPos).magnitude.ToString("F3", CultureInfo.InvariantCulture) +
                     " velIn=" + TraceSeparation.FormatVector3(velocity) + " |v|=" + velocity.magnitude.ToString("R", CultureInfo.InvariantCulture) +
                     " srfVel=" + TraceSeparation.FormatVector3(v.srf_velocity) + " |sv|=" + v.srf_velocity.magnitude.ToString("R", CultureInfo.InvariantCulture));
             }
