@@ -801,6 +801,35 @@ namespace Parsek
                     return;
                 }
 
+                // Reconcile committed recordings whose SpawnedVesselPersistentId
+                // points at a vessel the strip just removed (#168 analogue for
+                // the Re-Fly load path). A prior merge can leave a sibling
+                // recording stamped with a persisted-vessel PID that survived
+                // into the save; Re-Fly's PostLoadStripper.Strip then deletes
+                // that vessel along with every other non-selected sibling, but
+                // without this reconcile pass the recording stays
+                // VesselSpawned=true and ShouldSpawnAtRecordingEnd's PID dedup
+                // gate blocks the engine from re-spawning the ghost at its
+                // terminal endpoint.
+                try
+                {
+                    var fsReconcile = HighLogic.CurrentGame?.flightState;
+                    if (fsReconcile != null)
+                    {
+                        var committed = RecordingStore.CommittedRecordings;
+                        if (committed != null && committed.Count > 0)
+                        {
+                            ParsekScenario.ReconcileSpawnStateAfterStrip(
+                                fsReconcile.protoVessels, committed);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Post-strip spawn-state reconcile threw (non-fatal): {ex.Message}");
+                }
+
                 // Step 4: §6.3 step 4 phases 1 + 2 — atomic provisional + marker write.
                 // NO yield, NO await between checkpoints A and B.
                 try

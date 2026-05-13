@@ -245,5 +245,79 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l => l.Contains("ReconcileSpawnStateAfterStrip"));
         }
+
+        // --- Re-Fly invocation scenario (matches the 2026-05-13 playtest repro) ---
+        // A prior merge committed a sibling recording with a real persistent vessel
+        // (e.g. the empty Kerbal X capsule, terminal=Landed, SpawnedVesselPersistentId
+        // pointed at PID 2708531065). When the player invokes Re-Fly on the Probe
+        // slot, PostLoadStripper.Strip removes every non-selected sibling vessel —
+        // including the capsule — but leaves the active Probe (pid 3215646968) alive.
+        // Without ReconcileSpawnStateAfterStrip running on the Re-Fly load path, the
+        // capsule's recording stays VesselSpawned=true and ghost playback at the
+        // terminal endpoint logs "Spawn suppressed: already spawned (VesselSpawned=true)"
+        // forever.
+
+        [Fact]
+        public void Reconcile_ReFlyStripScenario_ResetsAllSiblingsAbsentFromSurvivingSet()
+        {
+            const uint activeProbePid = 3215646968u;
+            const uint capsulePid = 2708531065u;
+            const uint otherSiblingPid = 1234567890u;
+
+            var capsule = new Recording
+            {
+                VesselName = "Kerbal X",
+                SpawnedVesselPersistentId = capsulePid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var otherSibling = new Recording
+            {
+                VesselName = "Kerbal X Booster",
+                SpawnedVesselPersistentId = otherSiblingPid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var activeProbe = new Recording
+            {
+                VesselName = "Kerbal X Probe",
+                SpawnedVesselPersistentId = activeProbePid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var recordings = new List<Recording> { capsule, otherSibling, activeProbe };
+
+            // After PostLoadStripper.Strip only the active Probe survives.
+            var survivingPids = new HashSet<uint> { activeProbePid };
+
+            int reconciled = ParsekScenario.ReconcileSpawnStateAfterStrip(survivingPids, recordings);
+
+            Assert.Equal(2, reconciled);
+
+            // Capsule and other-sibling are reset so the engine can re-spawn them
+            // at their terminal endpoints.
+            Assert.Equal(0u, capsule.SpawnedVesselPersistentId);
+            Assert.False(capsule.VesselSpawned);
+            Assert.Equal(0, capsule.SpawnAttempts);
+            Assert.Equal(0, capsule.SpawnDeathCount);
+
+            Assert.Equal(0u, otherSibling.SpawnedVesselPersistentId);
+            Assert.False(otherSibling.VesselSpawned);
+            Assert.Equal(0, otherSibling.SpawnAttempts);
+            Assert.Equal(0, otherSibling.SpawnDeathCount);
+
+            // Active Probe survives the strip; its spawn state is preserved.
+            Assert.Equal(activeProbePid, activeProbe.SpawnedVesselPersistentId);
+            Assert.True(activeProbe.VesselSpawned);
+            Assert.Equal(1, activeProbe.SpawnAttempts);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]")
+                && l.Contains($"pid={capsulePid}")
+                && l.Contains("Kerbal X"));
+            Assert.Contains(logLines, l =>
+                l.Contains("ReconcileSpawnStateAfterStrip")
+                && l.Contains("reset 2 recording(s)"));
+        }
     }
 }
