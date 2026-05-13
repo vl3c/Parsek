@@ -17294,8 +17294,7 @@ namespace Parsek
                 // from recorded data (or the parent ghost is being placed
                 // from a different bracketing sample).
                 double recordedAnchorLocalDist = double.NaN;
-                if (target.Section != null
-                    && target.Section.referenceFrame == ReferenceFrame.Relative
+                if (target.Section.referenceFrame == ReferenceFrame.Relative
                     && target.Section.frames != null
                     && target.Section.frames.Count > 0)
                 {
@@ -17339,7 +17338,7 @@ namespace Parsek
                         for (int s = 0; s < parentRec.TrackSections.Count; s++)
                         {
                             var ps = parentRec.TrackSections[s];
-                            if (ps?.bodyFixedFrames == null || ps.bodyFixedFrames.Count == 0)
+                            if (ps.bodyFixedFrames == null || ps.bodyFixedFrames.Count == 0)
                                 continue;
                             for (int j = 0; j < ps.bodyFixedFrames.Count; j++)
                             {
