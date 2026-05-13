@@ -8454,6 +8454,31 @@ namespace Parsek
             //   - Quickload (existing path): name-match against active vessel and resume.
             //   - VesselSwitch (#266 / #546): tree was pre-transitioned at stash time, just
             //     reinstall it and arm the post-switch watcher for the new active vessel.
+            //
+            // Re-Fly retry carve-out: when the previous Re-Fly attempt was
+            // post-destruction finalized before the player clicked Retry from
+            // Rewind Point, OnLoad's TryRestoreActiveTreeNode keeps the pending
+            // tree in Finalized state (#290d) so no Quickload restore was
+            // scheduled — but AtomicMarkerWrite still attached a fresh in-place
+            // fork to that tree and the live vessel needs a recorder bound to
+            // it. Schedule the same Quickload path here; RestoreActiveTreeFromPending's
+            // own carve-out (accept Finalized when Re-Fly session is active)
+            // does the pop / recorder setup the same way it would for a Limbo
+            // tree.
+            if (ShouldUpgradeRestoreModeForReFlyRetry(
+                    restoreMode,
+                    hasPendingTree: RecordingStore.HasPendingTree,
+                    pendingTreeIsFinalized:
+                        RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized,
+                    reFlySessionActive:
+                        ParsekScenario.IsReFlySessionActiveForQuickloadDiscard()))
+            {
+                ParsekLog.Info("Flight",
+                    "OnFlightReady: scheduling Quickload restore for Re-Fly retry " +
+                    $"(pending tree '{RecordingStore.PendingTree?.TreeName}' is Finalized; " +
+                    "AtomicMarkerWrite attached a fresh fork that needs a live recorder)");
+                restoreMode = ParsekScenario.ActiveTreeRestoreMode.Quickload;
+            }
             if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None)
             {
                 ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
@@ -10166,12 +10191,38 @@ namespace Parsek
             {
             // NOTE: body intentionally not re-indented to minimize diff
             ParsekLog.RecState("Restore:start", CaptureRecorderState());
+            // Re-Fly retry carve-out: when the previous Re-Fly attempt was
+            // post-destruction finalized before the player clicked Esc >
+            // Revert > Retry from Rewind Point, the in-memory pending tree
+            // is in Finalized state (set by ShowPostDestructionTreeMergeDialog
+            // / CommitTreeSceneExit). TryRestoreActiveTreeNode keeps the
+            // Finalized tree as-is (#290d) and no Quickload restore gets
+            // scheduled, so the new in-place fork that AtomicMarkerWrite
+            // just attached to the same tree has no recorder bound. Accept
+            // the Finalized state here when a Re-Fly session is active so
+            // the marker-swap path below picks up the new fork and binds a
+            // recorder to it. Without this carve-out, the OnFlightReady
+            // merge-dialog skip leaves the player in a "fresh" attempt with
+            // no recording happening at all.
+            bool acceptFinalizedForReFly = ShouldAcceptFinalizedPendingTreeForReFlyRetry(
+                hasPendingTree: RecordingStore.HasPendingTree,
+                pendingTreeIsFinalized:
+                    RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized,
+                reFlySessionActive: ParsekScenario.IsReFlySessionActiveForQuickloadDiscard());
             if (!RecordingStore.HasPendingTree
-                || RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo)
+                || (RecordingStore.PendingTreeStateValue != PendingTreeState.Limbo
+                    && !acceptFinalizedForReFly))
             {
                 ParsekLog.Verbose("Flight",
                     "RestoreActiveTreeFromPending: no pending-Limbo tree, skipping");
                 yield break;
+            }
+            if (acceptFinalizedForReFly)
+            {
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPending: accepting Finalized pending tree " +
+                    $"'{RecordingStore.PendingTree?.TreeName}' — active Re-Fly session " +
+                    "needs a recorder bound to the freshly-attached fork");
             }
 
             var tree = RecordingStore.PendingTree;
@@ -10785,6 +10836,57 @@ namespace Parsek
             return hasPendingTree
                 && !restoringActiveTree
                 && !reFlySessionActive;
+        }
+
+        /// <summary>
+        /// Pure decision: should OnFlightReady upgrade
+        /// <paramref name="restoreMode"/> from None to Quickload because a
+        /// Re-Fly retry left a freshly-attached fork on a Finalized pending
+        /// tree that no other code path will bind a recorder to.
+        ///
+        /// <para>
+        /// The full Re-Fly retry path: the previous attempt was finalized
+        /// post-destruction (via <c>ShowPostDestructionTreeMergeDialog</c>
+        /// or <c>CommitTreeSceneExit</c>) before the player clicked Retry
+        /// from Rewind Point. <c>TryRestoreActiveTreeNode</c> sees the
+        /// in-memory Finalized tree and skips the .sfs replacement (#290d),
+        /// so no Quickload schedule lands on <see cref="ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady"/>.
+        /// <c>AtomicMarkerWrite</c> still attaches the new fork to that
+        /// tree and sets <see cref="ParsekScenario.ActiveReFlySessionMarker"/>,
+        /// but without a Quickload schedule the live vessel has no recorder
+        /// bound to the new fork — the OnFlightReady merge-dialog skip then
+        /// hides the symptom (no dialog) without resolving the underlying
+        /// state.
+        /// </para>
+        /// </summary>
+        internal static bool ShouldUpgradeRestoreModeForReFlyRetry(
+            ParsekScenario.ActiveTreeRestoreMode restoreMode,
+            bool hasPendingTree,
+            bool pendingTreeIsFinalized,
+            bool reFlySessionActive)
+        {
+            return restoreMode == ParsekScenario.ActiveTreeRestoreMode.None
+                && hasPendingTree
+                && pendingTreeIsFinalized
+                && reFlySessionActive;
+        }
+
+        /// <summary>
+        /// Pure decision: should <see cref="RestoreActiveTreeFromPending"/>
+        /// accept a Finalized pending tree (its usual gate is Limbo only)
+        /// because the active Re-Fly session needs the recorder bound to
+        /// the freshly-attached fork. Paired with
+        /// <see cref="ShouldUpgradeRestoreModeForReFlyRetry"/> in the
+        /// OnFlightReady dispatch.
+        /// </summary>
+        internal static bool ShouldAcceptFinalizedPendingTreeForReFlyRetry(
+            bool hasPendingTree,
+            bool pendingTreeIsFinalized,
+            bool reFlySessionActive)
+        {
+            return hasPendingTree
+                && pendingTreeIsFinalized
+                && reFlySessionActive;
         }
 
         /// <summary>
