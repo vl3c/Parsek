@@ -623,6 +623,15 @@ namespace Parsek.Tests
             // owner-skip, seenRetiredIds, and StartUT guards — exercised by the
             // tests above. This test isolates the helper so each branch is
             // covered without scaffolding the entire rollback flow.
+            //
+            // Note: in production the "helper returns true" branch of Pass 2 is
+            // effectively unreachable — Immutable forks reach DroppedRelations
+            // only via demotion (whose priorTip is itself in seenRetiredIds and
+            // is therefore short-circuited before the helper runs) or via
+            // forced self-rewind (which the helper explicitly excludes). The
+            // helper's Case 3 / Case 8 below cover the logic directly so a
+            // future code path that introduces a new way to drop Immutable
+            // forks is not silently ignored.
             var liveById = new Dictionary<string, Recording>(StringComparer.Ordinal);
             void AddRec(string id, MergeState state)
             {
