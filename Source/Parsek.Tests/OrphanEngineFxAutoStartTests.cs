@@ -450,5 +450,105 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Quickload trim x gate interaction
+
+        // P2 round 4: the empty-engine gate must see the POST-trim active recording.
+        // StartRecording calls PrepareQuickloadResumeStateIfNeeded (which calls
+        // ParsekScenario.TrimRecordingPastUT) BEFORE ResetPartEventTrackingState so
+        // engine events from the abandoned future (past the quickload cutoff UT) are
+        // removed before the gate counts them. If the order were reversed the gate
+        // could count an abandoned-future EngineIgnited, skip emission, and then the
+        // trim would strip that event — leaving the resumed recording with zero
+        // engine events and re-tripping the playback orphan-engine auto-start. This
+        // tests the gate's contract on a recording that has been through that trim.
+
+        [Fact]
+        public void Trim_ThenGate_ResumedForkWithAbandonedFutureEngineEvents_EmitsSeeds()
+        {
+            // Scenario: a Re-Fly fork has accumulated trajectory points and an
+            // EngineIgnited event during the abandoned future of the player's
+            // earlier flight. The quickload resume cutoff lands BEFORE that engine
+            // event. After TrimRecordingPastUT, the recording has no engine events
+            // and the gate must decide to emit sentinels.
+            var resumedFork = new Recording { RecordingId = "rec_abandoned_future_engine" };
+            resumedFork.Points.Add(new TrajectoryPoint { ut = 128.27 });
+            resumedFork.Points.Add(new TrajectoryPoint { ut = 158.46 });
+            resumedFork.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            // Future EngineIgnited that the player abandoned at quickload time
+            resumedFork.PartEvents.Add(new PartEvent
+            {
+                ut = 175.0,
+                partPersistentId = 2485666303,
+                eventType = PartEventType.EngineIgnited,
+                value = 1.0f
+            });
+
+            // Pre-trim: gate would (incorrectly) see the future engine event
+            bool preTrimShouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                resumedFork, out int preTrimEngineCount, out _);
+            Assert.False(preTrimShouldEmit);
+            Assert.Equal(1, preTrimEngineCount);
+
+            // Trim at cutoff = quickload resume UT, dropping the future EngineIgnited
+            const double cutoffUT = 160.0;
+            bool mutated = ParsekScenario.TrimRecordingPastUT(resumedFork, cutoffUT);
+            Assert.True(mutated);
+
+            // Post-trim: gate correctly sees zero engine events and emits
+            bool postTrimShouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                resumedFork, out int postTrimEngineCount, out _);
+            Assert.True(postTrimShouldEmit);
+            Assert.Equal(0, postTrimEngineCount);
+
+            // And the seed UT correctly anchors at the recording's actual StartUT
+            // (128.27 — the surviving first trajectory point), not at the resume UT.
+            double seedUT = FlightRecorder.ResolveChainPromotionSeedUT(
+                resumedFork, currentUT: 5000.0);
+            Assert.Equal(128.27, seedUT);
+        }
+
+        [Fact]
+        public void Trim_PreservesPreCutoffEngineEvents_GateStillSkips()
+        {
+            // Counterpart: when the abandoned future was preceded by a genuine
+            // engine event INSIDE the surviving cutoff window, trim leaves that
+            // event in place and the gate correctly takes the skip branch — no
+            // late sentinels needed.
+            var resumedRec = new Recording { RecordingId = "rec_preserved_engine_event" };
+            resumedRec.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            resumedRec.Points.Add(new TrajectoryPoint { ut = 150.0 });
+            resumedRec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            // Real engine event from pre-quicksave flight (BEFORE cutoff)
+            resumedRec.PartEvents.Add(new PartEvent
+            {
+                ut = 130.0,
+                partPersistentId = 2485666303,
+                eventType = PartEventType.EngineIgnited,
+                value = 0.75f
+            });
+            // Abandoned-future engine event (AFTER cutoff)
+            resumedRec.PartEvents.Add(new PartEvent
+            {
+                ut = 175.0,
+                partPersistentId = 2485666303,
+                eventType = PartEventType.EngineShutdown,
+                value = 0f
+            });
+
+            ParsekScenario.TrimRecordingPastUT(resumedRec, cutoffUT: 160.0);
+
+            // The pre-cutoff EngineIgnited survives; the post-cutoff EngineShutdown is gone
+            Assert.Single(resumedRec.PartEvents);
+            Assert.Equal(PartEventType.EngineIgnited, resumedRec.PartEvents[0].eventType);
+
+            bool shouldEmit = FlightRecorder.ChainPromotionShouldEmitEngineSeeds(
+                resumedRec, out int engineCount, out int totalCount);
+            Assert.False(shouldEmit);
+            Assert.Equal(1, engineCount);
+            Assert.Equal(1, totalCount);
+        }
+
+        #endregion
     }
 }

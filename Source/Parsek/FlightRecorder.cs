@@ -5806,8 +5806,21 @@ namespace Parsek
             PartEvents.Clear();
             FlagEvents.Clear();
             SegmentEvents.Clear();
-            ResetPartEventTrackingState(v, emitSeedEvents: !isPromotion);
+            // PrepareQuickloadResumeStateIfNeeded must run BEFORE
+            // ResetPartEventTrackingState so the chain-promotion empty-engine gate
+            // (inside ResetPartEventTrackingState) sees the POST-TRIM active recording.
+            // If the gate runs first, it can count engine events from the abandoned
+            // future (state recorded between the quicksave UT and the live UT at
+            // load time), skip sentinel emission, and then PrepareQuickloadResumeStateIfNeeded
+            // trims those future events away — leaving the resumed recording with zero
+            // engine events and re-tripping the playback orphan-engine auto-start.
+            // The two helpers are otherwise independent: PrepareQuickloadResumeStateIfNeeded
+            // touches only the tree's active recording (Points/PartEvents/etc. past
+            // cutoffUT) and the recorder's pendingRestoreEnvironmentResync flag, while
+            // ResetPartEventTrackingState rebuilds in-memory tracking sets from the
+            // current live vessel.
             PrepareQuickloadResumeStateIfNeeded();
+            ResetPartEventTrackingState(v, emitSeedEvents: !isPromotion);
             MaybeUpgradeActiveRecordingRelativeContract(
                 isPromotion ? "resume-or-promotion" : "fresh-start");
 
