@@ -647,6 +647,24 @@ namespace Parsek
 
             string precPath = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+            string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+            string ghostPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            return AreRecordingFilesCurrentAtPaths(
+                rec, precPath, vesselPath, ghostPath, out reason);
+        }
+
+        internal static bool AreRecordingFilesCurrentAtPaths(
+            Recording rec, string precPath, string vesselPath, string ghostPath, out string reason)
+        {
+            reason = null;
+            if (rec == null)
+            {
+                reason = "recording-null";
+                return false;
+            }
+
             if (string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
             {
                 reason = "trajectory-missing";
@@ -687,8 +705,18 @@ namespace Parsek
                 return false;
             }
 
-            string vesselPath = RecordingPaths.ResolveSaveScopedPath(
-                RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+            // Header probe accepts a .prec truncated past the header. Run
+            // a full-payload validation read into a throwaway Recording so
+            // a corrupt payload trips the save gate, forces the caller to
+            // rewrite from the in-memory recording, and avoids certifying
+            // a sidecar the next load would mark SidecarLoadFailed.
+            if (!TrajectorySidecarBinary.TryValidatePayload(
+                    precPath, trajectoryProbe, out string trajectoryPayloadReason))
+            {
+                reason = "trajectory-payload-invalid: " + (trajectoryPayloadReason ?? "<unknown>");
+                return false;
+            }
+
             if (!IsSnapshotSidecarCurrentForSave(
                     vesselPath,
                     rec.VesselSnapshot != null,
@@ -698,8 +726,6 @@ namespace Parsek
                 return false;
             }
 
-            string ghostPath = RecordingPaths.ResolveSaveScopedPath(
-                RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
             bool ghostExpected = RecordingStore.GetExpectedGhostSnapshotMode(rec) == GhostSnapshotMode.Separate
                 && rec.GhostVisualSnapshot != null;
             if (!IsSnapshotSidecarCurrentForSave(
@@ -731,8 +757,18 @@ namespace Parsek
                 return false;
             }
 
+            // Header probe accepts a .craft / .pcrf with valid magic+version
+            // but a corrupt compressed payload or bad CRC32. Use TryLoad
+            // (which decompresses and verifies CRC32 — see
+            // SnapshotSidecarCodec.TryLoad) so a payload-corrupt snapshot
+            // trips the save gate and forces the caller to rewrite from
+            // the in-memory rec instead of certifying a sidecar that the
+            // next load would mark SidecarLoadFailed.
             SnapshotSidecarProbe probe;
-            if (!RecordingStore.TryProbeSnapshotSidecar(path, out probe))
+            ConfigNode scratchNode;
+            bool loadOk = RecordingStore.TryLoadSnapshotSidecar(path, out scratchNode, out probe);
+
+            if (!probe.Success)
             {
                 reason = $"snapshot-{label}-invalid";
                 return false;
@@ -743,6 +779,14 @@ namespace Parsek
                 reason = string.IsNullOrEmpty(probe.FailureReason)
                     ? $"snapshot-{label}-unsupported"
                     : probe.FailureReason;
+                return false;
+            }
+
+            if (!loadOk || scratchNode == null)
+            {
+                reason = string.IsNullOrEmpty(probe.FailureReason)
+                    ? $"snapshot-{label}-payload-invalid"
+                    : $"snapshot-{label}-payload-invalid: " + probe.FailureReason;
                 return false;
             }
 

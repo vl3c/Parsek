@@ -6189,6 +6189,13 @@ namespace Parsek
             return RecordingSidecarStore.AreRecordingFilesCurrentForSave(rec, out reason);
         }
 
+        internal static bool AreRecordingFilesCurrentAtPathsForTesting(
+            Recording rec, string precPath, string vesselPath, string ghostPath, out string reason)
+        {
+            return RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
+                rec, precPath, vesselPath, ghostPath, out reason);
+        }
+
         internal static void ReconcileReadableSidecarMirrorsForKnownRecordings()
         {
             RecordingSidecarStore.ReconcileReadableSidecarMirrorsForKnownRecordings(

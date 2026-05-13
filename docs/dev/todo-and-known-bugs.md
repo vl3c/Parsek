@@ -284,6 +284,8 @@ Based on the answers, the fix shape is one of: back-step only `part.transform.po
 
 **Status:** IN PROGRESS 2026-05-11. Production build is green; the stale-version grep is clean outside the intentionally excluded `DefaultCareer` fixture; full xUnit is blocked locally by missing .NET Framework 4.7.2 reference assemblies; fixture rebake and runtime validation remain.
 
+**P2 follow-up (2026-05-13):** review caught that `AreRecordingFilesCurrentForSave` certified header-only sidecars as safe — a `.prec` truncated past its header or a `.craft` with a valid header but bad payload checksum passed the probe and the next load would drop the recording via SidecarLoadFailed. The save gate now runs full-payload validation (trajectory: scratch read into a throwaway `Recording`; snapshot: existing `TryLoad` which decompresses + verifies CRC32 in `SnapshotSidecarCodec.cs:180`). Failure surfaces as `trajectory-payload-invalid` / `snapshot-{label}-payload-invalid` so `ParsekScenario.EnsureRecordingFilesCurrentForSave` rewrites from the in-memory rec instead. Covered by `SaveGateDeepValidationTests`.
+
 ---
 
 ## Active - v0.9.2 Re-Fly cleanup and v0 reset

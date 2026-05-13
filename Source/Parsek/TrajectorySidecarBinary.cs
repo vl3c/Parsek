@@ -160,6 +160,54 @@ namespace Parsek
             }
         }
 
+        // Full-payload validation. The header probe (TryProbe) above stops
+        // after reading magic+version+epoch+recordingId; a .prec truncated
+        // past the header still satisfies that. Run the full Read into a
+        // throwaway Recording and surface any exception as a structured
+        // failure reason. The binary trajectory codec has no payload
+        // checksum, so the only signal that the payload is corrupt is the
+        // reader throwing (EndOfStream, FormatException, ArgumentException,
+        // IOException). A subtle mid-payload bit flip that happens to
+        // parse will still slip through — accepted limitation; the header
+        // probe + post-rewrite second pass keep the contract closed-form
+        // for the common truncation/missing-payload case.
+        internal static bool TryValidatePayload(
+            string path, TrajectorySidecarProbe probe, out string failureReason)
+        {
+            failureReason = null;
+            if (!probe.Success || !probe.Supported)
+            {
+                failureReason = "probe-not-supported";
+                return false;
+            }
+            try
+            {
+                Recording scratch = new Recording();
+                Read(path, scratch, probe);
+                return true;
+            }
+            catch (EndOfStreamException ex)
+            {
+                failureReason = "payload-truncated: " + ex.Message;
+                return false;
+            }
+            catch (FormatException ex)
+            {
+                failureReason = "payload-format-invalid: " + ex.Message;
+                return false;
+            }
+            catch (ArgumentException ex)
+            {
+                failureReason = "payload-argument-invalid: " + ex.Message;
+                return false;
+            }
+            catch (IOException ex)
+            {
+                failureReason = "payload-io-error: " + ex.Message;
+                return false;
+            }
+        }
+
         internal static void Write(string path, Recording rec, int sidecarEpoch)
         {
             if (rec == null)
