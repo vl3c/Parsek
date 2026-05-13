@@ -3419,12 +3419,18 @@ namespace Parsek
                 return false;
 
             if (ShouldSkipCommittedTreeRestoreForFreshLaunch(
-                    activeVesselPid, freshlyLaunchedActiveVesselPid))
+                    activeVesselPid,
+                    freshlyLaunchedActiveVesselPid,
+                    activeVessel.situation,
+                    activeVessel.missionTime))
             {
+                bool armedMatch = activeVesselPid == freshlyLaunchedActiveVesselPid;
                 ParsekLog.Info("Flight",
                     $"TryRestoreCommittedTreeForSpawnedActiveVessel: skipping for freshly-launched " +
                     $"vessel '{activeVessel.vesselName}' pid={activeVesselPid} " +
-                    $"(matches GameEvents.onLaunch pid) — new mission gets its own tree");
+                    $"(reason={(armedMatch ? "onLaunch-armed-pid-match" : "PRELAUNCH+missionTime<1s")} " +
+                    $"situation={activeVessel.situation} missionTime={activeVessel.missionTime:F3}) " +
+                    "— new mission gets its own tree");
                 return false;
             }
 
@@ -8381,11 +8387,7 @@ namespace Parsek
             chainManager.CommitBoundarySplit(recorder, completedPhase, bodyName);
         }
 
-        // KSP fires onLaunch for VAB/SPH launches only — load-from-save and
-        // tracking-station resumes do not. Recording the launched vessel's pid here
-        // lets TryRestoreCommittedTreeForSpawnedActiveVessel reject committed-tree
-        // restores triggered by a fresh launch whose .craft-derived pid happens to
-        // equal a prior recording's SpawnedVesselPersistentId.
+        // Arms the fresh-launch restore guard. See ShouldSkipCommittedTreeRestoreForFreshLaunch.
         void OnLaunch(EventReport report)
         {
             Vessel v = FlightGlobals.ActiveVessel;
@@ -10800,11 +10802,32 @@ namespace Parsek
         // (RecordingStore.PreserveLiveRuntimeFieldsOnReplace). Without this gate,
         // a fresh VAB/SPH launch would silently attach to the prior committed tree
         // and merge two distinct missions under one auto-generated group.
+        //
+        // Two independent signals so the gate fires even if onLaunch races
+        // HandleMissedVesselSwitchRecovery: (1) the onLaunch-armed pid, the
+        // most reliable signal when it arrives in time, and (2) a PRELAUNCH
+        // vessel with sub-second missionTime, a sufficient stand-in when
+        // onLaunch hasn't fired yet. The PRELAUNCH check is safe against
+        // saved-on-pad reloads because those route the prior tree through
+        // ParsekScenario's ACTIVE_TREE restore path before Update() can call
+        // the committed-tree dispatcher (activeTree != null short-circuits).
+        internal const double FreshLaunchPrelaunchMissionTimeThresholdSeconds = 1.0;
+
         internal static bool ShouldSkipCommittedTreeRestoreForFreshLaunch(
-            uint activeVesselPid, uint freshlyLaunchedActiveVesselPid)
+            uint activeVesselPid,
+            uint armedFreshLaunchPid,
+            Vessel.Situations activeVesselSituation,
+            double activeVesselMissionTime)
         {
-            return activeVesselPid != 0
-                && activeVesselPid == freshlyLaunchedActiveVesselPid;
+            if (activeVesselPid == 0) return false;
+            if (activeVesselPid == armedFreshLaunchPid) return true;
+            if (activeVesselSituation == Vessel.Situations.PRELAUNCH
+                && activeVesselMissionTime >= 0
+                && activeVesselMissionTime < FreshLaunchPrelaunchMissionTimeThresholdSeconds)
+            {
+                return true;
+            }
+            return false;
         }
 
         internal static bool TryFindCommittedTreeForSpawnedVessel(
