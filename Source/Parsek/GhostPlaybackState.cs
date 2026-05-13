@@ -13,6 +13,15 @@ namespace Parsek
     internal class GhostPlaybackState
     {
         public string vesselName;
+        // Stamped at state creation in GhostPlaybackEngine.CreatePendingSpawnState
+        // from the trajectory's RecordingId. Pure diagnostic plumbing: lets
+        // TraceSeparation playback traces look up a sibling ghost (e.g. a
+        // debris's parent) by recording id via
+        // GhostPlaybackEngine.TryGetGhostWorldByRecordingId so the parent-vs-
+        // debris rendered distance can be logged alongside the
+        // recorded-data-derived distance. Empty string when no recording id
+        // is available (legacy / pending states with null traj).
+        public string recordingId;
         public GameObject ghost;
         public List<Material> materials;
         public int playbackIndex;

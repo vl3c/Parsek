@@ -7512,6 +7512,13 @@ namespace Parsek
             bool useLocalContract = RecordingStore.UsesRelativeLocalFrameContract(
                 recordingFormatVersion);
             Vector3d offset;
+            // Capture focus world position outside the branches so the
+            // Trace-Sep recording-side distance comparison below can read it
+            // regardless of which contract path produced the offset. In the
+            // v13 path this is the (vesselTransform-aligned) world position
+            // used as the rotated relative-offset source; in the legacy path
+            // it is the body.GetWorldSurfacePosition(LLA) result.
+            Vector3d focusWorldPosCaptured = Vector3d.zero;
             if (useLocalContract)
             {
                 if (!TryResolveAbsolutePointWorldForRelativeOffset(
@@ -7521,6 +7528,7 @@ namespace Parsek
                 {
                     focusWorldPos = v.GetWorldPos3D();
                 }
+                focusWorldPosCaptured = focusWorldPos;
                 offset = TrajectoryMath.ComputeRelativeLocalOffset(
                     focusWorldPos,
                     anchorPose.WorldPos,
@@ -7545,6 +7553,7 @@ namespace Parsek
                     focusPos = v.mainBody.GetWorldSurfacePosition(
                         v.latitude, v.longitude, v.altitude);
                 }
+                focusWorldPosCaptured = focusPos;
                 offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPose.WorldPos);
             }
 
@@ -7552,6 +7561,36 @@ namespace Parsek
             point.longitude = offset.y;
             point.altitude = offset.z;
             ApplyCurrentRecordingAnchorToCurrentTrackSection();
+
+            // ---- Trace-Sep: log both parent-vs-debris distance measurements ----
+            // recorded-relative = |offset| (= magnitude of the anchor-local
+            // Cartesian offset just written into frames[].latitude/longitude/altitude).
+            // recorded-absolute = |focusWorldPosCaptured - anchorPose.WorldPos|
+            // (= ground-truth world-space distance at this instant). These
+            // MUST agree exactly under the v13 contract (rotation alone
+            // preserves magnitude). Divergence indicates the rotation path
+            // introduces unexpected scaling / mis-applied anchor frame and
+            // would mean the recorded anchor-local distance does not
+            // correspond to the real ground-truth distance.
+            if (TraceSeparation.RecordingWindowActive || TraceSeparation.PlaybackWindowActive)
+            {
+                Vector3d worldDelta = focusWorldPosCaptured - anchorPose.WorldPos;
+                double recordedRelativeDist = offset.magnitude;
+                double recordedAbsoluteDist = worldDelta.magnitude;
+                TraceSeparation.RecordLog("FG_ApplyRel",
+                    "vesselPid=" + (v?.persistentId ?? 0u) +
+                    " anchorRecId=" + (anchorRecordingId ?? "<null>") +
+                    " ut=" + point.ut.ToString("R", CultureInfo.InvariantCulture) +
+                    " focusWorldPos=" + TraceSeparation.FormatVector3d(focusWorldPosCaptured) +
+                    " anchorWorldPos=" + TraceSeparation.FormatVector3d(anchorPose.WorldPos) +
+                    " worldDelta=" + TraceSeparation.FormatVector3d(worldDelta) +
+                    " offset=" + TraceSeparation.FormatVector3d(offset) +
+                    " recordedRelativeDist=" + recordedRelativeDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " recordedAbsoluteDist=" + recordedAbsoluteDist.ToString("F3", CultureInfo.InvariantCulture) +
+                    " distMismatch=" + System.Math.Abs(recordedRelativeDist - recordedAbsoluteDist).ToString("F3", CultureInfo.InvariantCulture) +
+                    " contract=" + (useLocalContract ? "local" : "legacy"));
+            }
+            // ---- /Trace-Sep ----
 
             if (logSample)
             {
