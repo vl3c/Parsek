@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -16,9 +17,37 @@ namespace Parsek.Tests
     ///
     /// The format helpers are pure static so the contract can be pinned
     /// without any KSP-runtime dependency.
+    ///
+    /// Log-sink tests in this class mutate <see cref="ParsekLog.TestSinkForTesting"/>
+    /// and the shared rate-limit map; they need <see cref="System.IDisposable"/>
+    /// + <c>[Collection("Sequential")]</c> per <c>.claude/CLAUDE.md</c>.
     /// </summary>
-    public class EngineIterTraceTests
+    [Collection("Sequential")]
+    public class EngineIterTraceTests : IDisposable
     {
+        private readonly List<string> logLines = new List<string>();
+
+        public EngineIterTraceTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            // Per-test fresh clock so the rate-limit map's `lastEmitSeconds`
+            // for the `Engine|engine-frame-iter` composite key starts in a
+            // known state. The first VerboseRateLimited call always emits
+            // (cold key), so we don't need to clear the map between tests
+            // for the assertions below, but the override keeps the test
+            // self-contained against neighbour fixtures.
+            ParsekLog.ClockOverrideForTesting = () => 0.0;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
         [Fact]
         public void FormatRecordingIdShort_Truncates_To_First_Eight_Characters()
         {
@@ -173,6 +202,75 @@ namespace Parsek.Tests
             {
                 System.Threading.Thread.CurrentThread.CurrentCulture = prev;
             }
+        }
+
+        // --- Rendered-line contract (closes the PR #837 P2 bug where the
+        // `engine-frame-iter` token only lived in the rate-limit key and was
+        // invisible in KSP.log). The docs' next-repro grep
+        // `[Engine] engine-frame-iter` must match the actual rendered line.
+
+        [Fact]
+        public void FormatEngineIterMessage_Prefixes_Token_To_Entries()
+        {
+            string sampleEntries =
+                "[i=9 rec=rec_1524 skip=None aru=F hd=T hs=T endUT=1740.4]";
+
+            string rendered = GhostPlaybackEngine.FormatEngineIterMessage(sampleEntries);
+
+            Assert.Equal("engine-frame-iter " + sampleEntries, rendered);
+            Assert.StartsWith("engine-frame-iter ", rendered);
+        }
+
+        [Fact]
+        public void FormatEngineIterMessage_Empty_Entries_Returns_Bare_Token()
+        {
+            Assert.Equal("engine-frame-iter", GhostPlaybackEngine.FormatEngineIterMessage(""));
+            Assert.Equal("engine-frame-iter", GhostPlaybackEngine.FormatEngineIterMessage(null));
+        }
+
+        [Fact]
+        public void EmitEngineIterTrace_Rendered_Line_Contains_Token_And_Engine_Tag()
+        {
+            // The docs in CHANGELOG.md and docs/dev/todo-and-known-bugs.md
+            // tell investigators to grep `[Engine] engine-frame-iter` in the
+            // KSP.log. ParsekLog.VerboseRateLimited uses the `key` argument
+            // only as a rate-limit composite-key suffix (ParsekLog.cs:176)
+            // — only the `message` argument is rendered into the log line
+            // via Write (ParsekLog.cs:194, ParsekLog.cs:406). Without the
+            // PR #837 P2 fix the rendered line would be
+            // `[Parsek][VERBOSE][Engine] [i=...]` (missing the token); the
+            // grep would not match and the new instrumentation would be
+            // effectively invisible. This test pins the end-to-end contract.
+            string sampleEntries =
+                "[i=9 rec=rec_1524 skip=None aru=F hd=T hs=T endUT=1740.4],"
+                + "[i=10 rec=rec_bc0c skip=no-renderable-data aru=F hd=F hs=F endUT=128.3]";
+
+            GhostPlaybackEngine.EmitEngineIterTrace(sampleEntries);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("engine-frame-iter")
+                && l.Contains("rec_1524")
+                && l.Contains("rec_bc0c"));
+            // Pin the full grep pattern the docs reference so a future
+            // refactor that drops the literal substring fails this test
+            // rather than silently breaking the next-repro workflow.
+            Assert.Contains(logLines, l => l.Contains("[Engine] engine-frame-iter"));
+        }
+
+        [Fact]
+        public void EmitEngineIterTrace_Subsystem_Tag_Is_Engine_Not_Engine_FrameIter()
+        {
+            // Defensive: confirm we never split the subsystem column the way
+            // the older `[Parsek][VERBOSE][Engine|engine-frame-iter] ...`
+            // composite-key style would have. The subsystem column must
+            // remain `[Engine]` so existing engine-tag greps keep working.
+            GhostPlaybackEngine.EmitEngineIterTrace(
+                "[i=0 rec=test123 skip=None aru=F hd=T hs=T endUT=10.0]");
+
+            Assert.Contains(logLines, l => l.Contains("[Engine] "));
+            Assert.DoesNotContain(logLines, l => l.Contains("[Engine|"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[engine-frame-iter]"));
         }
     }
 }

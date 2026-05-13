@@ -263,6 +263,32 @@ namespace Parsek
                 : recordingId;
         }
 
+        // The literal `engine-frame-iter` token must appear in the rendered
+        // message body, not just the rate-limit key. ParsekLog.VerboseRateLimited
+        // uses the key purely for compositeKey lookup (ParsekLog.cs:176) — only
+        // the message argument is written via Write (ParsekLog.cs:194,
+        // ParsekLog.cs:406). The next-repro grep `[Engine] engine-frame-iter`
+        // documented in CHANGELOG.md and docs/dev/todo-and-known-bugs.md
+        // depends on this token being in the rendered line, not just the
+        // hidden rate-limit composite key.
+        internal const string EngineFrameIterMessagePrefix = "engine-frame-iter";
+
+        internal static string FormatEngineIterMessage(string entries)
+        {
+            if (string.IsNullOrEmpty(entries))
+                return EngineFrameIterMessagePrefix;
+            return EngineFrameIterMessagePrefix + " " + entries;
+        }
+
+        internal static void EmitEngineIterTrace(string entries)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Engine",
+                "engine-frame-iter",
+                FormatEngineIterMessage(entries),
+                1.0);
+        }
+
         internal GhostPlaybackEngine(IGhostPositioner positioner)
         {
             this.positioner = positioner;
@@ -895,11 +921,7 @@ namespace Parsek
             // 1.0s to keep steady-state cost negligible.
             if (engineIterBuilder != null && engineIterBuilder.Length > 0)
             {
-                ParsekLog.VerboseRateLimited(
-                    "Engine",
-                    "engine-frame-iter",
-                    engineIterBuilder.ToString(),
-                    1.0);
+                EmitEngineIterTrace(engineIterBuilder.ToString());
             }
 
             // Post-loop: batch summary
