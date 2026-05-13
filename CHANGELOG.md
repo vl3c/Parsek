@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Retry-from-Rewind-Point during a Re-Fly now drops you into a fresh recording attempt with no extra dialog. Previously the tree merge/discard dialog popped on top of the new attempt AND the underlying recorder was never bound to the freshly-created fork, so users had to discard everything via the dialog to recover — "Retry" effectively did nothing.
 - Ghosts whose recording finalized as SubOrbital, Destroyed, Docked, Recovered, or Boarded no longer disappear partway through their final coast/predicted tail. `RecordingOptimizer.TrimBoringTail` now refuses to chop any recording whose terminal is not one the spawn policy would actually replace with a real vessel (Landed, Splashed, Orbiting), so non-spawnable leaves keep their full on-rails / extrapolated trajectory instead of collapsing 10 s past their last `lastInterestingUT` event. The optimizer and `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` now share `IsSpawnableTerminal` so the two contracts can no longer drift.
 - Planted flags now survive Re-Fly. The post-load strip used to delete flag vessels along with other unmatched siblings, silently erasing the FlagPlant career milestone; the stripper now preserves any `VesselType.Flag` vessel regardless of slot-map membership.
 - Re-Fly now re-spawns prior-committed sibling vessels (e.g. a landed capsule from an earlier mission) at their terminal endpoint instead of leaving them permanently un-materialized after the Re-Fly load strip removes them from the save.
