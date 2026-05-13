@@ -8519,7 +8519,15 @@ namespace Parsek
             // will either resume recording or leave it in Limbo. Without this guard, the
             // fallback fires in the same frame as StartCoroutine (before the coroutine pops
             // the tree), auto-merging it and leaving the vessel with no active recorder.
-            if (RecordingStore.HasPendingTree && !restoringActiveTree)
+            // Re-Fly guard: skip when an active Re-Fly session owns the pending tree
+            // (initial invoke or Retry-from-RP). The merge decision belongs to the
+            // scene-exit path once the attempt actually finishes, not to the moment the
+            // user just started flying it.
+            bool reFlySessionActive = ParsekScenario.IsReFlySessionActiveForQuickloadDiscard();
+            if (ShouldShowOnFlightReadyMergeDialog(
+                    hasPendingTree: RecordingStore.HasPendingTree,
+                    restoringActiveTree: restoringActiveTree,
+                    reFlySessionActive: reFlySessionActive))
             {
                 var pt = RecordingStore.PendingTree;
                 ParsekLog.Warn("Flight", $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
@@ -8530,6 +8538,12 @@ namespace Parsek
                 ParsekLog.Info("Flight",
                     $"Pending tree '{RecordingStore.PendingTree.TreeName}' skipped — " +
                     "restore coroutine in progress (#293)");
+            }
+            else if (RecordingStore.HasPendingTree && reFlySessionActive)
+            {
+                ParsekLog.Info("Flight",
+                    $"Pending tree '{RecordingStore.PendingTree.TreeName}' reached OnFlightReady — " +
+                    "skipping merge dialog: active Re-Fly session owns the pending tree (Retry/initial invoke)");
             }
 
             // Swap reserved crew out of the active vessel so the player
@@ -10783,6 +10797,26 @@ namespace Parsek
 
             return activeVesselTrackedInBackground
                 && !activeVesselAlreadyArmedForPostSwitchAutoRecord;
+        }
+
+        /// <summary>
+        /// Pure decision for the OnFlightReady fallback that opens the tree
+        /// merge dialog. Returns <c>true</c> when the dialog should be shown:
+        /// a pending tree exists, no restore coroutine owns it (#293), and no
+        /// active Re-Fly session owns it. The Re-Fly guard prevents the
+        /// fallback from firing immediately after an initial Re-Fly invocation
+        /// or a Retry-from-Rewind-Point — those cases have a fresh fork
+        /// attached to the pending tree, and the merge decision belongs to
+        /// the scene-exit path once the attempt actually finishes.
+        /// </summary>
+        internal static bool ShouldShowOnFlightReadyMergeDialog(
+            bool hasPendingTree,
+            bool restoringActiveTree,
+            bool reFlySessionActive)
+        {
+            return hasPendingTree
+                && !restoringActiveTree
+                && !reFlySessionActive;
         }
 
         internal static bool ShouldAttemptCommittedSpawnedRestoreInUpdate(
