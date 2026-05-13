@@ -252,12 +252,6 @@ namespace Parsek
         private float nextCommittedSpawnedRestoreRetryAt;
         private MissedVesselSwitchRecoveryDiagnosticContext currentVesselSwitchRecoveryDiagnosticContext;
 
-        // Set by GameEvents.onLaunch (VAB/SPH only — resume-from-save does not fire it).
-        // Read by TryRestoreCommittedTreeForSpawnedActiveVessel to skip restore when
-        // a re-launched .craft's pid collides with a prior recording's stale
-        // SpawnedVesselPersistentId. Instance-scoped: a new ParsekFlight starts at 0.
-        private uint freshlyLaunchedActiveVesselPid;
-
         // Deferred watch target after fast-forward — the ghost needs one frame
         // to be positioned after the time jump before we can enter watch mode.
         // Uses recording ID (not index) to be safe against list reordering.
@@ -1047,7 +1041,6 @@ namespace Parsek
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
-            GameEvents.onLaunch.Add(OnLaunch);
             MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
             GameEvents.onGamePause.Add(OnGamePause);
@@ -2065,7 +2058,6 @@ namespace Parsek
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
-            GameEvents.onLaunch.Remove(OnLaunch);
             MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
             GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
             GameEvents.onGamePause.Remove(OnGamePause);
@@ -3418,23 +3410,13 @@ namespace Parsek
             if (activeVesselPid == 0 || GhostMapPresence.IsGhostMapVessel(activeVesselPid))
                 return false;
 
-            if (ShouldSkipCommittedTreeRestoreForFreshLaunch(
-                    activeVesselPid,
-                    freshlyLaunchedActiveVesselPid,
-                    activeVessel.situation,
-                    activeVessel.missionTime))
+            FlightDriver.StartupBehaviours startupBehaviour = FlightDriver.StartupBehaviour;
+            if (ShouldSkipCommittedTreeRestoreForFreshLaunch(activeVesselPid, startupBehaviour))
             {
-                bool prelaunchFresh = activeVessel.situation == Vessel.Situations.PRELAUNCH
-                    && activeVessel.missionTime >= 0
-                    && activeVessel.missionTime < FreshLaunchPrelaunchMissionTimeThresholdSeconds;
-                string reason = prelaunchFresh
-                    ? "PRELAUNCH+missionTime<1s"
-                    : "onLaunch-armed-pid-match";
                 ParsekLog.Info("Flight",
                     $"TryRestoreCommittedTreeForSpawnedActiveVessel: skipping for freshly-launched " +
                     $"vessel '{activeVessel.vesselName}' pid={activeVesselPid} " +
-                    $"(reason={reason} situation={activeVessel.situation} " +
-                    $"missionTime={activeVessel.missionTime:F3}) — new mission gets its own tree");
+                    $"(FlightDriver.StartupBehaviour={startupBehaviour}) — new mission gets its own tree");
                 return false;
             }
 
@@ -8391,21 +8373,6 @@ namespace Parsek
             chainManager.CommitBoundarySplit(recorder, completedPhase, bodyName);
         }
 
-        // Arms the fresh-launch restore guard. See ShouldSkipCommittedTreeRestoreForFreshLaunch.
-        void OnLaunch(EventReport report)
-        {
-            Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null)
-            {
-                ParsekLog.Warn("Flight",
-                    "OnLaunch: no FlightGlobals.ActiveVessel — fresh-launch restore guard is unarmed for this scene");
-                return;
-            }
-            freshlyLaunchedActiveVesselPid = v.persistentId;
-            ParsekLog.Info("Flight",
-                $"OnLaunch: armed fresh-launch restore guard for vessel '{v.vesselName}' pid={freshlyLaunchedActiveVesselPid}");
-        }
-
         void OnFlightReady()
         {
             Log("Flight ready. Checking for pending recordings...");
@@ -10807,47 +10774,28 @@ namespace Parsek
         // a fresh VAB/SPH launch would silently attach to the prior committed tree
         // and merge two distinct missions under one auto-generated group.
         //
-        // Two complementary signals because GameEvents.onLaunch is fired by
-        // KSP.UI.Screens.StageManager on FIRST STAGE ACTIVATION, not on rollout
-        // from VAB/SPH (verified in Assembly-CSharp: StageManager.cs:3379). The
-        // documented restore runs from HandleMissedVesselSwitchRecovery in
-        // Update() within ~63 ms of Parsek Flight Start(), well before the
-        // player presses space — see logs/2026-05-13_1850_kerbal-x-merge-bug.
-        //
-        // (1) PRELAUNCH situation + sub-second missionTime — the PRIMARY guard
-        //     for the documented bug. A fresh VAB/SPH rollout sits on the pad
-        //     in PRELAUNCH with launchTime≈current-UT until the player stages.
-        //     Safe against saved-on-pad reloads: those route the prior tree
-        //     through ParsekScenario's ACTIVE_TREE restore before Update() can
-        //     call the committed-tree dispatcher (activeTree != null
-        //     short-circuits at the top of TryRestoreCommittedTreeForSpawnedActiveVessel).
-        //
-        // (2) onLaunch-armed pid — supplementary coverage for the rare
-        //     post-staging restore window (vessel has already transitioned out
-        //     of PRELAUNCH, auto-record is disabled or has not yet armed a
-        //     recorder, activeTree is still null, HandleMissedVesselSwitchRecovery's
-        //     1-second retry fires another TryRestore). KSP's onLaunch will
-        //     have armed the pid by then because staging fires it.
-        internal const double FreshLaunchPrelaunchMissionTimeThresholdSeconds = 1.0;
-
+        // FlightDriver.StartupBehaviour is KSP's own authoritative scene-startup
+        // mode: set by the editor's Launch handler / save-loader / revert path
+        // before the FLIGHT scene transitions in, and stable for the entire
+        // scene's lifetime (no missionTime expiry, no event-firing race against
+        // HandleMissedVesselSwitchRecovery's 1-second retry, no need to subscribe).
+        // - NEW_FROM_FILE / NEW_FROM_CRAFT_NODE: fresh rollout from editor or
+        //   inline craft config. Skip restore — the new mission gets its own tree.
+        // - RESUME_SAVED_FILE: load from .sfs (tracking station, F9 quickload).
+        //   Do not skip — the player resumed an existing vessel.
+        // - RESUME_SAVED_CACHE: revert to launch / cached game state restore.
+        //   Do not skip — the reverted vessel is the same vessel as before.
+        // Verified against the repro at logs/2026-05-13_1850_kerbal-x-merge-bug:
+        // KSP.log line 53466-53467 shows the VAB craft loader running ("Loading
+        // ship from file: ...Auto-Saved Ship.craft"), which is FlightDriver's
+        // NEW_FROM_FILE branch (Assembly-CSharp/FlightDriver.cs:334-345).
         internal static bool ShouldSkipCommittedTreeRestoreForFreshLaunch(
             uint activeVesselPid,
-            uint armedFreshLaunchPid,
-            Vessel.Situations activeVesselSituation,
-            double activeVesselMissionTime)
+            FlightDriver.StartupBehaviours startupBehaviour)
         {
             if (activeVesselPid == 0) return false;
-            // Primary: PRELAUNCH + sub-second missionTime — the only signal
-            // that arms in time for the documented Update()-tick restore race.
-            if (activeVesselSituation == Vessel.Situations.PRELAUNCH
-                && activeVesselMissionTime >= 0
-                && activeVesselMissionTime < FreshLaunchPrelaunchMissionTimeThresholdSeconds)
-            {
-                return true;
-            }
-            // Supplementary: post-staging coverage.
-            if (activeVesselPid == armedFreshLaunchPid) return true;
-            return false;
+            return startupBehaviour == FlightDriver.StartupBehaviours.NEW_FROM_FILE
+                || startupBehaviour == FlightDriver.StartupBehaviours.NEW_FROM_CRAFT_NODE;
         }
 
         internal static bool TryFindCommittedTreeForSpawnedVessel(
