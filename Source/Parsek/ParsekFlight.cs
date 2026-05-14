@@ -19568,11 +19568,34 @@ namespace Parsek
             // actually is — the peer drifts off by the re-fly divergence.
             // HR-15 still holds: the provisional is a recording, so this
             // reads recorded points, not live KSP Vessel state.
-            recordingId = Parsek.Rendering.RenderSessionState
+            string aliasedRecordingId = Parsek.Rendering.RenderSessionState
                 .ResolveInPlaceReFlyActiveAlias(recordingId);
-
-            Recording rec = ResolveRecordingById(recordingId);
+            Recording rec = ResolveRecordingById(aliasedRecordingId);
+            if (rec == null
+                && !string.Equals(aliasedRecordingId, recordingId, StringComparison.Ordinal))
+            {
+                // The alias target (the live provisional) is not in the
+                // committed recordings list. This is the documented normal
+                // state after a mid-Re-Fly F5/F9 reload — the fork is
+                // rehydrated into the active tree's Recordings dict, not back
+                // into RecordingStore.CommittedRecordings (see
+                // ReconcileInPlaceForkIntoTreeIfNeeded). ResolveRecordingById
+                // is committed-list-only, so fall back to the committed
+                // origin rather than failing the co-bubble lookup outright,
+                // which would drop the peer ghost to a standalone position.
+                // This degrades to the pre-alias behaviour for that window;
+                // it never regresses below it.
+                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                    "refly-alias-target-unresolved",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "In-place Re-Fly alias target unresolved, falling back to committed origin: " +
+                        "aliasTarget={0} origin={1}", aliasedRecordingId, recordingId),
+                    5.0);
+                aliasedRecordingId = recordingId;
+                rec = ResolveRecordingById(aliasedRecordingId);
+            }
             if (rec == null) return false;
+            recordingId = aliasedRecordingId;
             if (rec.Points == null || rec.Points.Count == 0) return false;
             if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     rec,

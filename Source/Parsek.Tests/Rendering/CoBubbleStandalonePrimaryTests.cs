@@ -31,10 +31,12 @@ namespace Parsek.Tests.Rendering
 
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            RenderSessionState.ResetForTesting();
         }
 
         public void Dispose()
         {
+            RenderSessionState.ResetForTesting();
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
@@ -660,6 +662,83 @@ namespace Parsek.Tests.Rendering
             {
                 ParsekScenario.SetInstanceForTesting(null);
             }
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyAlias_FallsBackToCommittedOriginWhenForkUnresolvable()
+        {
+            // Post-#734 in-place Re-Fly aliases the committed origin id to the
+            // live provisional fork. After a normal mid-Re-Fly F5/F9 reload
+            // the fork is rehydrated into the active tree's Recordings dict
+            // but NOT back into RecordingStore.CommittedRecordings (see
+            // ReconcileInPlaceForkIntoTreeIfNeeded), so ResolveRecordingById —
+            // committed-list-only — cannot resolve the alias target. The
+            // helper must fall back to the committed origin rather than miss
+            // outright (which would drop the peer ghost to a standalone
+            // position). This pins the fallback path.
+            var rOrigin = new Recording
+            {
+                RecordingId = "committed-origin",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 1.0, longitude = 2.0, altitude = 3.0,
+                        bodyName = "Kerbin", rotation = Quaternion.identity,
+                        velocity = Vector3.zero,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110.0, latitude = 1.1, longitude = 2.1, altitude = 3.1,
+                        bodyName = "Kerbin", rotation = Quaternion.identity,
+                        velocity = Vector3.zero,
+                    },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    // RELATIVE + no anchorRecordingId: the helper fails closed
+                    // AFTER it has resolved the recording — so the downstream
+                    // "anchor-recording-id-missing" log proves we proceeded
+                    // past the rec==null gate via the origin fallback.
+                    new TrackSection
+                    {
+                        startUT = 100.0, endUT = 110.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        source = TrackSectionSource.Active,
+                        anchorVesselId = 0u,
+                    }
+                }
+            };
+            RecordingStore.AddCommittedInternal(rOrigin);
+
+            // Alias committed-origin -> a provisional that is NOT in the
+            // committed list (the F5/F9 reload state).
+            RenderSessionState.RegisterInPlaceReFlyAlias(new ReFlySessionMarker
+            {
+                SessionId = "f5f9-sess",
+                InPlaceContinuation = true,
+                OriginChildRecordingId = "committed-origin",
+                ActiveReFlyRecordingId = "provisional-not-in-committed-list",
+            });
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                "committed-origin", 105.0, fallbackBody: null, out _);
+
+            // The fallback fired...
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("In-place Re-Fly alias target unresolved, falling back to committed origin")
+                && l.Contains("origin=committed-origin"));
+            // ...and the helper proceeded PAST the rec==null gate using the
+            // committed origin (evidenced by the downstream RELATIVE-section
+            // diagnostic, which only fires once a recording is resolved).
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("anchor-recording-id-missing")
+                && l.Contains("committed-origin"));
+            // The RELATIVE-no-anchor section still fails closed (HR-9) — the
+            // point of the test is that the fallback RESOLVED, not that this
+            // particular section produces a position.
+            Assert.False(ok);
         }
     }
 }

@@ -91,7 +91,24 @@ namespace Parsek.Rendering
             }
 
             string activeReFlyId = marker?.ActiveReFlyRecordingId;
-            var liveAnchored = ComputeLiveAnchoredSet(recordings, activeReFlyId);
+            // In a post-#734 fork-shaped in-place Re-Fly the committed origin
+            // recording is the SAME physical vessel as the live provisional —
+            // and every stored co-bubble trace pair is keyed to the COMMITTED
+            // origin id, not the provisional (which has no traces of its own).
+            // So the origin must count as live for Rule 1; otherwise a pair
+            // (child, origin) can hand primary to the child via Rule 3/4/5,
+            // the child renders standalone, and the in-place Re-Fly alias on
+            // the origin's standalone position is never exercised.
+            string inPlaceOriginId = null;
+            if (marker != null
+                && ReFlySessionMarker.IsInPlaceContinuation(marker)
+                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && !string.Equals(marker.OriginChildRecordingId, activeReFlyId,
+                    StringComparison.Ordinal))
+            {
+                inPlaceOriginId = marker.OriginChildRecordingId;
+            }
+            var liveAnchored = ComputeLiveAnchoredSet(recordings, activeReFlyId, inPlaceOriginId);
             var hopCounts = ComputeHopCountsToLive(byId, liveAnchored);
 
             // Walk the trace map: enumerate every (recording, peer) pair
@@ -127,10 +144,15 @@ namespace Parsek.Rendering
         }
 
         private static HashSet<string> ComputeLiveAnchoredSet(
-            IReadOnlyList<Recording> recordings, string activeReFlyId)
+            IReadOnlyList<Recording> recordings, string activeReFlyId,
+            string inPlaceOriginId)
         {
             var live = new HashSet<string>(StringComparer.Ordinal);
             if (!string.IsNullOrEmpty(activeReFlyId)) live.Add(activeReFlyId);
+            // Fork-shaped in-place Re-Fly: the committed origin is the live
+            // vessel's pre-fork identity and owns the co-bubble traces, so it
+            // is treated as live alongside the provisional (see Resolve).
+            if (!string.IsNullOrEmpty(inPlaceOriginId)) live.Add(inPlaceOriginId);
             for (int i = 0; i < recordings.Count; i++)
             {
                 Recording r = recordings[i];
