@@ -20037,7 +20037,6 @@ namespace Parsek
             }
             TrajectoryPoint before, after;
             float t;
-            bool extrapolatingPastEnd = false;
             // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
             // from at/before-start (idx == 0). The pre-fix idx <= 0
             // collapse clamped both cases to rec.Points[0] — past end
@@ -20053,7 +20052,55 @@ namespace Parsek
                         out after,
                         out t))
                 {
-                    extrapolatingPastEnd = true;
+                    if (rec.TrackSections != null && rec.TrackSections.Count > 0)
+                    {
+                        if (!TryFindTrackSectionForPastEndExtrapolation(
+                                rec,
+                                after.ut,
+                                ut,
+                                maxPastEndExtrapolationSeconds,
+                                out int pastEndSectionIndex,
+                                out TrackSection pastEndSection))
+                        {
+                            ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                                "active-refly-primary-past-end-section-missing|" + (recordingId ?? "(none)"),
+                                string.Format(CultureInfo.InvariantCulture,
+                                    "Active Re-Fly origin primary tail extrapolation skipped: no section covers last recorded sample recording={0} ut={1} lastPointUT={2}",
+                                    recordingId,
+                                    ut.ToString("R", CultureInfo.InvariantCulture),
+                                    after.ut.ToString("R", CultureInfo.InvariantCulture)),
+                                5.0);
+                            return false;
+                        }
+
+                        if (pastEndSection.referenceFrame == ReferenceFrame.Relative)
+                        {
+                            return TryComputeActiveReFlyRelativePastEndWorldPosition(
+                                rec,
+                                pastEndSection,
+                                pastEndSectionIndex,
+                                ut,
+                                before,
+                                after,
+                                t,
+                                out worldPos,
+                                relativeFocusTreeOverride,
+                                relativeRecordingOverlay);
+                        }
+
+                        if (pastEndSection.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                        {
+                            ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                                "active-refly-primary-past-end-checkpoint-skip|" + (recordingId ?? "(none)"),
+                                string.Format(CultureInfo.InvariantCulture,
+                                    "Active Re-Fly origin primary tail extrapolation skipped: checkpoint section recording={0} ut={1} sectionIndex={2}",
+                                    recordingId,
+                                    ut.ToString("R", CultureInfo.InvariantCulture),
+                                    pastEndSectionIndex),
+                                5.0);
+                            return false;
+                        }
+                    }
                 }
                 else
                 {
@@ -20098,9 +20145,7 @@ namespace Parsek
                 after.ut, recordingId);
             Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, altBefore);
             Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, altAfter);
-            Vector3d pos = extrapolatingPastEnd
-                ? posBefore + (posAfter - posBefore) * t
-                : Vector3d.Lerp(posBefore, posAfter, t);
+            Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
 
             // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
             // through the Phase 5 blender — primaries always render
@@ -20523,6 +20568,211 @@ namespace Parsek
                     rec.Points.Count),
                 5.0);
             return true;
+        }
+
+        private static bool TryFindTrackSectionForPastEndExtrapolation(
+            Recording rec,
+            double lastPointUT,
+            double requestedUT,
+            double maxPastEndExtrapolationSeconds,
+            out int sectionIndex,
+            out TrackSection section)
+        {
+            sectionIndex = -1;
+            section = default;
+            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+                return false;
+
+            int containingLastPoint = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, lastPointUT);
+            if (containingLastPoint >= 0 && containingLastPoint < rec.TrackSections.Count)
+            {
+                TrackSection candidate = rec.TrackSections[containingLastPoint];
+                double lastPayloadUT = LastTrackSectionPayloadUT(candidate);
+                if (!double.IsNaN(lastPayloadUT)
+                    && requestedUT - lastPayloadUT <= maxPastEndExtrapolationSeconds + ActiveReFlyReadModelUtEpsilon)
+                {
+                    sectionIndex = containingLastPoint;
+                    section = candidate;
+                    return true;
+                }
+            }
+
+            double bestPayloadUT = double.NaN;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection candidate = rec.TrackSections[i];
+                double lastPayloadUT = LastTrackSectionPayloadUT(candidate);
+                if (double.IsNaN(lastPayloadUT))
+                    continue;
+                if (lastPayloadUT > lastPointUT + ActiveReFlyReadModelUtEpsilon)
+                    continue;
+                if (requestedUT - lastPayloadUT > maxPastEndExtrapolationSeconds + ActiveReFlyReadModelUtEpsilon)
+                    continue;
+                if (!double.IsNaN(bestPayloadUT) && lastPayloadUT <= bestPayloadUT)
+                    continue;
+
+                bestPayloadUT = lastPayloadUT;
+                sectionIndex = i;
+                section = candidate;
+            }
+
+            return sectionIndex >= 0;
+        }
+
+        private static bool TryComputeActiveReFlyRelativePastEndWorldPosition(
+            Recording rec,
+            TrackSection sourceSection,
+            int sourceSectionIndex,
+            double ut,
+            TrajectoryPoint before,
+            TrajectoryPoint after,
+            float t,
+            out Vector3d worldPos,
+            RecordingTree relativeFocusTreeOverride,
+            IReadOnlyDictionary<string, Recording> relativeRecordingOverlay)
+        {
+            worldPos = default;
+            if (rec == null || sourceSectionIndex < 0)
+                return false;
+
+            TrajectoryPoint extrapolated = ExtrapolateTrajectoryPoint(before, after, ut, t);
+            Recording extended = CopyRecordingForActivePastEndReadModel(
+                rec,
+                sourceSection,
+                sourceSectionIndex,
+                extrapolated);
+            if (extended?.TrackSections == null
+                || sourceSectionIndex >= extended.TrackSections.Count)
+            {
+                return false;
+            }
+
+            IReadOnlyDictionary<string, Recording> overlay =
+                BuildOverlayWithReplacement(relativeRecordingOverlay, extended);
+            return TryComputeStandaloneRelativeWorldPosition(
+                extended,
+                extended.TrackSections[sourceSectionIndex],
+                ut,
+                out worldPos,
+                relativeFocusTreeOverride,
+                overlay);
+        }
+
+        private static TrajectoryPoint ExtrapolateTrajectoryPoint(
+            TrajectoryPoint before,
+            TrajectoryPoint after,
+            double ut,
+            float t)
+        {
+            TrajectoryPoint point = after;
+            point.ut = ut;
+            point.latitude = before.latitude + (after.latitude - before.latitude) * t;
+            point.longitude = before.longitude + (after.longitude - before.longitude) * t;
+            point.altitude = before.altitude + (after.altitude - before.altitude) * t;
+            return point;
+        }
+
+        private static Recording CopyRecordingForActivePastEndReadModel(
+            Recording source,
+            TrackSection sourceSection,
+            int sourceSectionIndex,
+            TrajectoryPoint extrapolated)
+        {
+            if (source == null)
+                return null;
+
+            var points = source.Points != null
+                ? new List<TrajectoryPoint>(source.Points)
+                : new List<TrajectoryPoint>();
+            AppendOrReplaceLastPoint(points, extrapolated);
+
+            var sections = new List<TrackSection>();
+            if (source.TrackSections != null)
+            {
+                for (int i = 0; i < source.TrackSections.Count; i++)
+                {
+                    TrackSection copy = i == sourceSectionIndex
+                        ? CopyTrackSectionForActiveReadModel(sourceSection, normalizeOpenSection: false)
+                        : CopyTrackSectionForActiveReadModel(source.TrackSections[i], normalizeOpenSection: false);
+                    if (i == sourceSectionIndex)
+                    {
+                        if (copy.frames == null)
+                            copy.frames = new List<TrajectoryPoint>();
+                        AppendOrReplaceLastPoint(copy.frames, extrapolated);
+                        if (double.IsNaN(copy.endUT) || copy.endUT < extrapolated.ut)
+                            copy.endUT = extrapolated.ut;
+                    }
+                    sections.Add(copy);
+                }
+            }
+
+            var snapshot = new Recording
+            {
+                RecordingId = source.RecordingId,
+                RecordingFormatVersion = source.RecordingFormatVersion,
+                RecordingSchemaGeneration = source.RecordingSchemaGeneration,
+                Points = points,
+                OrbitSegments = source.OrbitSegments != null
+                    ? new List<OrbitSegment>(source.OrbitSegments)
+                    : new List<OrbitSegment>(),
+                TrackSections = sections,
+                VesselName = source.VesselName,
+                VesselPersistentId = source.VesselPersistentId,
+                TreeId = source.TreeId,
+                TreeOrder = source.TreeOrder,
+                ChainId = source.ChainId,
+                ChainIndex = source.ChainIndex,
+                ChainBranch = source.ChainBranch,
+                IsDebris = source.IsDebris,
+                DebrisParentRecordingId = source.DebrisParentRecordingId,
+                LoopAnchorVesselId = source.LoopAnchorVesselId,
+                LoopAnchorBodyName = source.LoopAnchorBodyName,
+                LoopPlayback = source.LoopPlayback,
+                LoopIntervalSeconds = source.LoopIntervalSeconds,
+                LoopTimeUnit = source.LoopTimeUnit,
+                LoopStartUT = source.LoopStartUT,
+                LoopEndUT = source.LoopEndUT,
+            };
+            snapshot.CopyStartLocationFrom(source);
+            return snapshot;
+        }
+
+        private static void AppendOrReplaceLastPoint(
+            List<TrajectoryPoint> points,
+            TrajectoryPoint point)
+        {
+            if (points == null)
+                return;
+            if (points.Count > 0)
+            {
+                int lastIndex = points.Count - 1;
+                double lastUT = points[lastIndex].ut;
+                if (Math.Abs(lastUT - point.ut) <= ActiveReFlyReadModelUtEpsilon)
+                {
+                    points[lastIndex] = point;
+                    return;
+                }
+                if (lastUT > point.ut)
+                    return;
+            }
+            points.Add(point);
+        }
+
+        private static IReadOnlyDictionary<string, Recording> BuildOverlayWithReplacement(
+            IReadOnlyDictionary<string, Recording> existing,
+            Recording replacement)
+        {
+            if (replacement == null || string.IsNullOrEmpty(replacement.RecordingId))
+                return existing;
+
+            var merged = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            if (existing != null)
+            {
+                foreach (KeyValuePair<string, Recording> kv in existing)
+                    merged[kv.Key] = kv.Value;
+            }
+            merged[replacement.RecordingId] = replacement;
+            return merged;
         }
 
         private static void AppendTrackSectionCopies(

@@ -760,7 +760,7 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ExtrapolatesShortRecordedTailGaps()
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ExtrapolatesShortAbsoluteTailGaps()
         {
             CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
             const string originId = "committed-origin-live-tail-gap";
@@ -819,6 +819,97 @@ namespace Parsek.Tests.Rendering
             Vector3d expected = beforeWorld + (lastWorld - beforeWorld) * 1.5;
             Assert.True(ok, string.Join("\n", logLines));
             Assert.True(Vector3d.Distance(expected, worldPos) < 0.001);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Active Re-Fly origin primary extrapolated from recorded tail")
+                && l.Contains(activeId));
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ExtrapolatesShortRelativeTailGapsInRelativeFrame()
+        {
+            ParsekFlight.AnchorResolverWorldPositionResolverForTesting =
+                point => new Vector3d(1000.0, 0.0, 0.0);
+            FlightRecorder.FrameCountProviderForTesting = () => 25;
+            const string originId = "committed-origin-relative-tail-gap";
+            const string activeId = "active-provisional-relative-tail-gap";
+            const string anchorId = "anchor-recording-relative-tail-gap";
+
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = originId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    AbsolutePoint(100.0, 0.0, 0.0, 0.0, "NoSuchBody"),
+                },
+            });
+
+            TrajectoryPoint anchorA = AbsolutePoint(100.0, 0.0, 0.0, 1000.0);
+            TrajectoryPoint anchorB = AbsolutePoint(110.0, 0.0, 0.0, 1000.0);
+            var anchorRec = new Recording
+            {
+                RecordingId = anchorId,
+                TreeId = "tree-relative-tail-gap",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint> { anchorA, anchorB },
+                TrackSections = new List<TrackSection>
+                {
+                    AbsoluteSection(anchorA, anchorB),
+                },
+            };
+
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                AbsolutePoint(100.0, 100.0, 0.0, 0.0),
+                AbsolutePoint(100.2, 120.0, 0.0, 0.0),
+            };
+            var activeRec = new Recording
+            {
+                RecordingId = activeId,
+                TreeId = "tree-relative-tail-gap",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>(relativeFrames),
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 100.2,
+                        referenceFrame = ReferenceFrame.Relative,
+                        anchorRecordingId = anchorId,
+                        frames = relativeFrames,
+                    },
+                },
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-relative-tail-gap",
+                ActiveRecordingId = activeId,
+            };
+            tree.AddOrReplaceRecording(anchorRec);
+            tree.AddOrReplaceRecording(activeRec);
+            InstallFlightInstanceForReadModel(tree);
+
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-relative-tail-gap",
+                    ActiveReFlyRecordingId = activeId,
+                    OriginChildRecordingId = originId,
+                    SupersedeTargetId = originId,
+                    InPlaceContinuation = true,
+                },
+            });
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                100.3,
+                fallbackBody: null,
+                out Vector3d worldPos);
+
+            Assert.True(ok, string.Join("\n", logLines));
+            Assert.True(Vector3d.Distance(new Vector3d(1130.0, 0.0, 0.0), worldPos) < 0.001);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
                 && l.Contains("Active Re-Fly origin primary extrapolated from recorded tail")
                 && l.Contains(activeId));
