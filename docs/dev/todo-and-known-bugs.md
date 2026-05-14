@@ -26,6 +26,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Suppressed scene-exit discard leaked debris persistence override
+
+- ~~When Parsek raised KSP's max persistent debris setting for recording, the suppressed scene-exit discard path stopped the in-memory tree without calling the same debris-setting restore used by ordinary recording teardown. A cancelled/suppressed tree commit, including the fresh-EVA runtime canary cleanup path, could therefore leave the player's global debris limit at Parsek's temporary recording value.~~
+
+**Fix:** `DiscardActiveTreeForSuppressedSceneExit` now calls `RestoreDebrisPersistence()` before stopping the active recorder and dropping the tree, matching `StopRecording` and other teardown paths.
+
+**Coverage:** `ParsekFlightDebrisPersistenceTests.DiscardActiveTreeForSuppressedSceneExit_RestoresDebrisPersistenceOverride` seeds the private override state, invokes the suppressed-discard path, and asserts the debris setter receives the saved value, `debrisOverrideActive` is cleared, and the active tree is discarded.
+
+**Status:** CLOSED 2026-05-14.
+
+---
+
 ## Done - v0.9.2 Deferred EVA auto-record from second EVA orphaned tree recording
 
 - ~~When a recording tree's active vessel was flushed to background during a scene/change focus transition, `HandleTreeBackgroundFlush` cleared `ActiveRecordingId` while leaving the parent capsule tracked in `BackgroundMap`. A later second EVA from that capsule arrived with no live recorder, so `OnCrewOnEva` fell through to deferred auto-record. `StartRecording` then created a `FlightRecorder` under the existing tree without a valid active tree head, and `FlushRecorderToTreeRecording` dropped the captured EVA data at scene exit because `tree.ActiveRecordingId` was still null.~~

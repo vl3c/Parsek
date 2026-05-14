@@ -10619,6 +10619,14 @@ namespace Parsek
         // Cached reflection field for KSP's maxPersistentDebris setting
         private static System.Reflection.FieldInfo debrisField;
         private static bool debrisFieldSearched;
+        internal static Func<int?> GetMaxPersistentDebrisOverrideForTesting;
+        internal static Action<int> SetMaxPersistentDebrisOverrideForTesting;
+
+        internal static void ResetDebrisPersistenceOverridesForTesting()
+        {
+            GetMaxPersistentDebrisOverrideForTesting = null;
+            SetMaxPersistentDebrisOverrideForTesting = null;
+        }
 
         void EnforceMinDebrisPersistence()
         {
@@ -10668,6 +10676,9 @@ namespace Parsek
         /// </summary>
         static int? GetMaxPersistentDebris()
         {
+            if (GetMaxPersistentDebrisOverrideForTesting != null)
+                return GetMaxPersistentDebrisOverrideForTesting();
+
             var field = FindDebrisField();
             if (field != null)
                 return (int)field.GetValue(null);
@@ -10676,6 +10687,12 @@ namespace Parsek
 
         static void SetMaxPersistentDebris(int value)
         {
+            if (SetMaxPersistentDebrisOverrideForTesting != null)
+            {
+                SetMaxPersistentDebrisOverrideForTesting(value);
+                return;
+            }
+
             var field = FindDebrisField();
             if (field != null)
                 field.SetValue(null, value);
