@@ -117,7 +117,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CanStartRecorderWithActiveTreeHead_ZeroActivePid_RejectsStart()
+        public void CanStartRecorderWithActiveTreeHead_ZeroActivePid_AllowsStartBecausePidIsUnknown()
         {
             var tree = MakeTree("rec-active");
             tree.Recordings["rec-active"] = MakeRecording("rec-active", 123);
@@ -127,12 +127,12 @@ namespace Parsek.Tests
                 activeVesselPid: 0,
                 out string reason);
 
-            Assert.False(result);
-            Assert.Equal("active-vessel-pid-missing", reason);
+            Assert.True(result);
+            Assert.Null(reason);
         }
 
         [Fact]
-        public void CanStartRecorderWithActiveTreeHead_ZeroRecordingPid_RejectsStart()
+        public void CanStartRecorderWithActiveTreeHead_ZeroRecordingPid_AllowsStartBecausePidIsUnknown()
         {
             var tree = MakeTree("rec-active");
             tree.Recordings["rec-active"] = MakeRecording("rec-active", 0);
@@ -142,8 +142,58 @@ namespace Parsek.Tests
                 activeVesselPid: 123,
                 out string reason);
 
-            Assert.False(result);
-            Assert.Equal("active-recording-pid-missing:rec-active", reason);
+            Assert.True(result);
+            Assert.Null(reason);
+        }
+
+        [Theory]
+        [InlineData(true, false, true, true, true, true, true, ParsekFlight.EvaBackgroundParentRouteDecision.NotHandled)]
+        [InlineData(false, false, false, true, false, false, false, ParsekFlight.EvaBackgroundParentRouteDecision.NotHandled)]
+        [InlineData(false, false, true, false, false, false, false, ParsekFlight.EvaBackgroundParentRouteDecision.NotHandled)]
+        [InlineData(false, true, true, true, false, false, false, ParsekFlight.EvaBackgroundParentRouteDecision.HandledSkipPendingSplit)]
+        [InlineData(false, false, true, true, false, false, false, ParsekFlight.EvaBackgroundParentRouteDecision.HandledUntrackedSource)]
+        [InlineData(false, false, true, true, true, false, true, ParsekFlight.EvaBackgroundParentRouteDecision.HandledInvalidMapEntry)]
+        [InlineData(false, false, true, true, true, true, false, ParsekFlight.EvaBackgroundParentRouteDecision.HandledMissingCrewName)]
+        [InlineData(false, false, true, true, true, true, true, ParsekFlight.EvaBackgroundParentRouteDecision.StartDeferredBackgroundParentBranch)]
+        public void DecideEvaBackgroundParentRoute_ReturnsExpectedDecision(
+            bool isRecording,
+            bool pendingSplitInProgress,
+            bool hasActiveTree,
+            bool hasSourceVessel,
+            bool trackedParentResolved,
+            bool mappedRecordingExists,
+            bool hasCrewName,
+            ParsekFlight.EvaBackgroundParentRouteDecision expected)
+        {
+            var result = ParsekFlight.DecideEvaBackgroundParentRoute(
+                isRecording,
+                pendingSplitInProgress,
+                hasActiveTree,
+                hasSourceVessel,
+                trackedParentResolved,
+                mappedRecordingExists,
+                hasCrewName);
+
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData(200, 200, 100, ParsekFlight.EvaBackgroundParentFocusDecision.EvaKerbalActive)]
+        [InlineData(100, 200, 100, ParsekFlight.EvaBackgroundParentFocusDecision.SourceVesselActive)]
+        [InlineData(300, 200, 100, ParsekFlight.EvaBackgroundParentFocusDecision.Invalid)]
+        [InlineData(0, 200, 100, ParsekFlight.EvaBackgroundParentFocusDecision.Invalid)]
+        public void DecideEvaBackgroundParentFocus_ReturnsExpectedDecision(
+            uint currentActivePid,
+            uint evaPid,
+            uint sourceVesselPid,
+            ParsekFlight.EvaBackgroundParentFocusDecision expected)
+        {
+            var result = ParsekFlight.DecideEvaBackgroundParentFocus(
+                currentActivePid,
+                evaPid,
+                sourceVesselPid);
+
+            Assert.Equal(expected, result);
         }
 
         [Fact]

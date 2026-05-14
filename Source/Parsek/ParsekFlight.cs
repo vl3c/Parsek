@@ -51,6 +51,23 @@ namespace Parsek
             ResumeActiveRecording
         }
 
+        public enum EvaBackgroundParentRouteDecision
+        {
+            NotHandled,
+            HandledSkipPendingSplit,
+            HandledUntrackedSource,
+            HandledInvalidMapEntry,
+            HandledMissingCrewName,
+            StartDeferredBackgroundParentBranch
+        }
+
+        public enum EvaBackgroundParentFocusDecision
+        {
+            Invalid,
+            EvaKerbalActive,
+            SourceVesselActive
+        }
+
         internal enum PostSwitchAutoRecordStartDecision
         {
             None,
@@ -4030,7 +4047,8 @@ namespace Parsek
                 return false;
             }
 
-            if (tree.BackgroundMap.TryGetValue(sourceVesselPid, out recordingId))
+            if (tree.BackgroundMap != null
+                && tree.BackgroundMap.TryGetValue(sourceVesselPid, out recordingId))
             {
                 diagnostic = "background-map-hit";
                 return true;
@@ -4039,7 +4057,8 @@ namespace Parsek
             if (string.IsNullOrEmpty(tree.ActiveRecordingId))
             {
                 tree.RebuildBackgroundMap();
-                if (tree.BackgroundMap.TryGetValue(sourceVesselPid, out recordingId))
+                if (tree.BackgroundMap != null
+                    && tree.BackgroundMap.TryGetValue(sourceVesselPid, out recordingId))
                 {
                     diagnostic = "background-map-hit-after-rebuild";
                     return true;
@@ -4070,26 +4089,16 @@ namespace Parsek
             }
 
             Recording activeRecording;
-            if (!tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRecording) || activeRecording == null)
+            if (tree.Recordings == null
+                || !tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRecording)
+                || activeRecording == null)
             {
                 reason = $"active-recording-not-found:{tree.ActiveRecordingId}";
                 return false;
             }
 
-            if (activeVesselPid == 0)
-            {
-                reason = "active-vessel-pid-missing";
-                return false;
-            }
-
             uint activeRecordingPid = ResolveLiveTreeRecordingPidForRestore(activeRecording);
-            if (activeRecordingPid == 0)
-            {
-                reason = $"active-recording-pid-missing:{tree.ActiveRecordingId}";
-                return false;
-            }
-
-            if (activeRecordingPid != activeVesselPid)
+            if (activeVesselPid != 0 && activeRecordingPid != 0 && activeRecordingPid != activeVesselPid)
             {
                 reason = string.Format(CultureInfo.InvariantCulture,
                     "active-recording-pid-mismatch:{0}!={1}",
@@ -4099,6 +4108,45 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        internal static EvaBackgroundParentRouteDecision DecideEvaBackgroundParentRoute(
+            bool isRecording,
+            bool pendingSplitInProgress,
+            bool hasActiveTree,
+            bool hasSourceVessel,
+            bool trackedParentResolved,
+            bool mappedRecordingExists,
+            bool hasCrewName)
+        {
+            if (isRecording || !hasActiveTree || !hasSourceVessel)
+                return EvaBackgroundParentRouteDecision.NotHandled;
+
+            if (pendingSplitInProgress)
+                return EvaBackgroundParentRouteDecision.HandledSkipPendingSplit;
+
+            if (!trackedParentResolved)
+                return EvaBackgroundParentRouteDecision.HandledUntrackedSource;
+
+            if (!mappedRecordingExists)
+                return EvaBackgroundParentRouteDecision.HandledInvalidMapEntry;
+
+            if (!hasCrewName)
+                return EvaBackgroundParentRouteDecision.HandledMissingCrewName;
+
+            return EvaBackgroundParentRouteDecision.StartDeferredBackgroundParentBranch;
+        }
+
+        internal static EvaBackgroundParentFocusDecision DecideEvaBackgroundParentFocus(
+            uint currentActivePid,
+            uint evaPid,
+            uint sourceVesselPid)
+        {
+            if (currentActivePid != 0 && evaPid != 0 && currentActivePid == evaPid)
+                return EvaBackgroundParentFocusDecision.EvaKerbalActive;
+            if (currentActivePid != 0 && sourceVesselPid != 0 && currentActivePid == sourceVesselPid)
+                return EvaBackgroundParentFocusDecision.SourceVesselActive;
+            return EvaBackgroundParentFocusDecision.Invalid;
         }
 
         internal static string BuildInvalidActiveTreeHeadRateLimitKey(
@@ -4514,6 +4562,7 @@ namespace Parsek
             activeTree.AddOrReplaceRecording(bgChild);
             activeTree.ActiveRecordingId = activeChild.RecordingId;
 
+            // The source parent is now either the active or background child, depending on KSP focus.
             activeTree.BackgroundMap.Remove(activeVessel.persistentId);
             activeTree.BackgroundMap.Remove(backgroundVessel.persistentId);
             SegmentEnvironment? initialBackgroundEnvOverride = null;
@@ -5231,37 +5280,28 @@ namespace Parsek
                 Vessel currentActive = FlightGlobals.ActiveVessel;
                 Vessel activeChild;
                 Vessel backgroundChild;
+                uint currentActivePid = currentActive?.persistentId ?? 0u;
+                switch (DecideEvaBackgroundParentFocus(currentActivePid, evaPid, sourceVesselPid))
+                {
+                    case EvaBackgroundParentFocusDecision.EvaKerbalActive:
+                        activeChild = evaVessel;
+                        backgroundChild = shipVessel;
+                        ParsekLog.Verbose("Flight",
+                            $"DeferredEvaBranchFromBackgroundParent: EVA kerbal is active, evaPid={evaPid}");
+                        break;
 
-                if (currentActive != null && currentActive.persistentId == evaPid)
-                {
-                    activeChild = evaVessel;
-                    backgroundChild = shipVessel;
-                    ParsekLog.Verbose("Flight",
-                        $"DeferredEvaBranchFromBackgroundParent: EVA kerbal is active, evaPid={evaPid}");
-                }
-                else if (currentActive != null && currentActive.persistentId == sourceVesselPid)
-                {
-                    activeChild = shipVessel;
-                    backgroundChild = evaVessel;
-                    ParsekLog.Verbose("Flight",
-                        $"DeferredEvaBranchFromBackgroundParent: source vessel is still active, sourcePid={sourceVesselPid}");
-                }
-                else
-                {
-                    activeChild = evaVessel;
-                    backgroundChild = shipVessel;
-                    ParsekLog.Verbose("Flight",
-                        $"DeferredEvaBranchFromBackgroundParent: ambiguous active vessel, defaulting to EVA " +
-                        $"(flightActivePid={currentActive?.persistentId ?? 0u}, evaPid={evaPid}, sourcePid={sourceVesselPid})");
-                }
+                    case EvaBackgroundParentFocusDecision.SourceVesselActive:
+                        activeChild = shipVessel;
+                        backgroundChild = evaVessel;
+                        ParsekLog.Verbose("Flight",
+                            $"DeferredEvaBranchFromBackgroundParent: source vessel is still active, sourcePid={sourceVesselPid}");
+                        break;
 
-                if (currentActive == null || currentActive.persistentId != activeChild.persistentId)
-                {
-                    ParsekLog.Warn("Flight",
-                        $"DeferredEvaBranchFromBackgroundParent: refusing to branch because active child does not match " +
-                        $"FlightGlobals.ActiveVessel (activeChildPid={activeChild.persistentId}, " +
-                        $"flightActivePid={currentActive?.persistentId ?? 0u})");
-                    yield break;
+                    default:
+                        ParsekLog.Warn("Flight",
+                            $"DeferredEvaBranchFromBackgroundParent: refusing to branch because active vessel is neither " +
+                            $"EVA nor source (flightActivePid={currentActivePid}, evaPid={evaPid}, sourcePid={sourceVesselPid})");
+                        yield break;
                 }
 
                 CreateSplitBranchFromBackgroundParent(
@@ -6831,7 +6871,19 @@ namespace Parsek
             uint sourcePid = data.from?.vessel?.persistentId ?? 0u;
             uint targetPid = data.to?.vessel?.persistentId ?? 0u;
 
-            if (pendingSplitInProgress)
+            var initialDecision = DecideEvaBackgroundParentRoute(
+                isRecording: IsRecording,
+                pendingSplitInProgress: pendingSplitInProgress,
+                hasActiveTree: activeTree != null,
+                hasSourceVessel: data.from?.vessel != null,
+                trackedParentResolved: false,
+                mappedRecordingExists: false,
+                hasCrewName: false);
+
+            if (initialDecision == EvaBackgroundParentRouteDecision.NotHandled)
+                return false;
+
+            if (initialDecision == EvaBackgroundParentRouteDecision.HandledSkipPendingSplit)
             {
                 LogSplitSkip(
                     "OnCrewOnEva",
@@ -6843,16 +6895,28 @@ namespace Parsek
             }
 
             Vessel sourceVessel = data.from?.vessel;
-            if (activeTree == null || sourceVessel == null)
-                return false;
-
             string parentRecordingId;
             string diagnostic;
-            if (!TryResolveTrackedBackgroundParentRecording(
+            bool trackedParentResolved = TryResolveTrackedBackgroundParentRecording(
                     activeTree,
                     sourceVessel.persistentId,
                     out parentRecordingId,
-                    out diagnostic))
+                    out diagnostic);
+            bool mappedRecordingExists = !string.IsNullOrEmpty(parentRecordingId)
+                && activeTree.Recordings != null
+                && activeTree.Recordings.ContainsKey(parentRecordingId);
+            string kerbalName = ExtractEvaKerbalName(data);
+
+            var decision = DecideEvaBackgroundParentRoute(
+                isRecording: false,
+                pendingSplitInProgress: false,
+                hasActiveTree: true,
+                hasSourceVessel: true,
+                trackedParentResolved: trackedParentResolved,
+                mappedRecordingExists: mappedRecordingExists,
+                hasCrewName: !string.IsNullOrEmpty(kerbalName));
+
+            if (decision == EvaBackgroundParentRouteDecision.HandledUntrackedSource)
             {
                 ParsekLog.Warn("Flight",
                     $"OnCrewOnEva: source vessel pid={sourceVessel.persistentId} is not the live recorder " +
@@ -6861,8 +6925,7 @@ namespace Parsek
                 return true;
             }
 
-            if (string.IsNullOrEmpty(parentRecordingId)
-                || !activeTree.Recordings.ContainsKey(parentRecordingId))
+            if (decision == EvaBackgroundParentRouteDecision.HandledInvalidMapEntry)
             {
                 ParsekLog.Warn("Flight",
                     $"OnCrewOnEva: background parent map entry is invalid " +
@@ -6872,8 +6935,7 @@ namespace Parsek
                 return true;
             }
 
-            string kerbalName = ExtractEvaKerbalName(data);
-            if (string.IsNullOrEmpty(kerbalName))
+            if (decision == EvaBackgroundParentRouteDecision.HandledMissingCrewName)
             {
                 ParsekLog.Warn("Flight",
                     $"OnCrewOnEva: source vessel pid={sourceVessel.persistentId} is tracked in background " +
@@ -6881,6 +6943,9 @@ namespace Parsek
                 ClearPendingEvaAutoRecordState();
                 return true;
             }
+
+            if (decision != EvaBackgroundParentRouteDecision.StartDeferredBackgroundParentBranch)
+                return false;
 
             ClearPendingEvaAutoRecordState();
             pendingSplitInProgress = true;
@@ -6960,7 +7025,7 @@ namespace Parsek
                 return;
             }
 
-            if (TryStartEvaBranchFromBackgroundParent(data))
+            if (!IsRecording && TryStartEvaBranchFromBackgroundParent(data))
                 return;
 
             bool hasSourceVessel = data.from?.vessel != null;

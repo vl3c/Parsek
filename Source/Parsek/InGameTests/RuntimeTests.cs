@@ -53,6 +53,15 @@ namespace Parsek.InGameTests
                 null,
                 new[] { typeof(ProtoCrewMember), typeof(Part), typeof(Transform), typeof(bool) },
                 null);
+        private static readonly MethodInfo FlightGlobalsSetActiveVesselMethod =
+            typeof(FlightGlobals).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(m =>
+                {
+                    if (m.Name != "SetActiveVessel")
+                        return false;
+                    var parameters = m.GetParameters();
+                    return parameters.Length == 1 && parameters[0].ParameterType == typeof(Vessel);
+                });
         private static readonly FieldInfo PartAirlockField =
             typeof(Part).GetField("airlock",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
@@ -1370,6 +1379,113 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test forces two crew EVAs and switches active vessel focus. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Second EVA from a backgrounded tree parent creates another EVA branch instead of orphan auto-recording")]
+        public IEnumerator EvaTwiceFromSameCapsuleProducesTwoBranches()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a crewed source vessel, got EVA");
+                yield break;
+            }
+            if (CountCrewInParts(vessel) < 2)
+            {
+                InGameAssert.Skip($"requires at least two crew in the active vessel, got {CountCrewInParts(vessel)}");
+                yield break;
+            }
+            if (!TryResolveFlightEva(out object flightEva, out string flightEvaSkipReason))
+            {
+                InGameAssert.Skip(flightEvaSkipReason);
+                yield break;
+            }
+            if (!TryGetEvaSource(vessel, out Part firstSourcePart, out ProtoCrewMember firstCrew,
+                out Transform firstAirlock, out string evaSourceSkipReason))
+            {
+                InGameAssert.Skip(evaSourceSkipReason);
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current?.autoRecordOnEva ?? true;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+
+            try
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnEva = true;
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                if (!flight.IsRecording)
+                {
+                    flight.StartRecording(suppressStartScreenMessage: true);
+                    yield return WaitForFlightRecordingStart(5f, "initial source vessel recording");
+                }
+
+                RecordingTree tree = flight.ActiveTreeForSerialization;
+                InGameAssert.IsNotNull(tree, "ActiveTreeForSerialization should exist after initial recording starts");
+                int initialEvaBranches = CountEvaBranches(tree);
+
+                InvokeSpawnEvaOrFail(flightEva, firstCrew, firstSourcePart, firstAirlock);
+                yield return WaitForEvaBranchCount(tree, initialEvaBranches + 1, 10f, "first EVA branch");
+
+                Vessel sourceVessel = firstSourcePart?.vessel ?? vessel;
+                if (!TrySetActiveVesselForTest(sourceVessel, out string switchSkipReason))
+                {
+                    InGameAssert.Skip(switchSkipReason);
+                    yield break;
+                }
+
+                yield return WaitForActiveVesselPid(sourceVessel.persistentId, 10f);
+                yield return new WaitForSeconds(0.5f);
+
+                if (!TryGetEvaSource(sourceVessel, out Part secondSourcePart, out ProtoCrewMember secondCrew,
+                    out Transform secondAirlock, out string secondEvaSourceSkipReason))
+                {
+                    InGameAssert.Skip(secondEvaSourceSkipReason);
+                    yield break;
+                }
+
+                InvokeSpawnEvaOrFail(flightEva, secondCrew, secondSourcePart, secondAirlock);
+                yield return WaitForEvaBranchCount(tree, initialEvaBranches + 2, 10f, "second EVA branch");
+
+                InGameAssert.IsTrue(
+                    captured.Any(l => l.Contains("[Flight]") && l.Contains("Tree branch created: type=EVA") && l.Contains("path=background-parent")),
+                    "Expected second EVA to use the background-parent branch path");
+                InGameAssert.IsFalse(
+                    captured.Any(l => l.Contains("FlushRecorderToTreeRecording: dropping recorder data")),
+                    "No recorder data should be dropped during second-EVA branch setup");
+                InGameAssert.IsFalse(
+                    captured.Any(l => l.Contains($"vessel=\"{secondCrew.name}\"") && l.Contains("treeRec=-")),
+                    "Second EVA recorder should start with a valid tree recording");
+
+                ParsekLog.Info("TestRunner",
+                    $"EvaTwiceFromSameCapsuleProducesTwoBranches: source='{sourceVessel.vesselName}' " +
+                    $"first='{firstCrew.name}' second='{secondCrew.name}' " +
+                    $"evaBranches={CountEvaBranches(tree)} activeRec={tree.ActiveRecordingId ?? "<none>"}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnEva = originalAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test simulates an idle post-switch watch on the active landed vessel and nudges the craft to verify the LANDED-motion trigger. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Post-switch landed motion auto-record starts exactly once while the vessel stays LANDED")]
         public IEnumerator AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce()
@@ -1889,6 +2005,125 @@ namespace Parsek.InGameTests
                 $"isRecording={timedOutFlight?.IsRecording == true}, " +
                 $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
                 $"isEva={timedOutVessel?.isEVA == true})");
+        }
+
+        private static IEnumerator WaitForFlightRecordingStart(float timeoutSeconds, string context)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (ParsekFlight.Instance?.IsRecording == true)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForFlightRecordingStart timed out after {timeoutSeconds:F0}s ({context})");
+        }
+
+        private static IEnumerator WaitForEvaBranchCount(
+            RecordingTree tree,
+            int expectedCount,
+            float timeoutSeconds,
+            string context)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (CountEvaBranches(tree) >= expectedCount)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForEvaBranchCount timed out after {timeoutSeconds:F0}s ({context}); " +
+                $"expected>={expectedCount} actual={CountEvaBranches(tree)}");
+        }
+
+        private static IEnumerator WaitForActiveVesselPid(uint expectedPid, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FlightGlobals.ActiveVessel != null
+                    && FlightGlobals.ActiveVessel.persistentId == expectedPid)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForActiveVesselPid timed out after {timeoutSeconds:F0}s " +
+                $"expected={expectedPid} active={FlightGlobals.ActiveVessel?.persistentId ?? 0u}");
+        }
+
+        private static int CountEvaBranches(RecordingTree tree)
+        {
+            if (tree?.BranchPoints == null)
+                return 0;
+
+            return tree.BranchPoints.Count(bp => bp != null && bp.Type == BranchPointType.EVA);
+        }
+
+        private static int CountCrewInParts(Vessel vessel)
+        {
+            if (vessel?.parts == null)
+                return 0;
+
+            int count = 0;
+            foreach (Part part in vessel.parts)
+                count += part?.protoModuleCrew?.Count ?? 0;
+            return count;
+        }
+
+        private static void InvokeSpawnEvaOrFail(
+            object flightEva,
+            ProtoCrewMember crewMember,
+            Part sourcePart,
+            Transform airlock)
+        {
+            try
+            {
+                FlightEvaSpawnMethod.Invoke(flightEva, new object[] { crewMember, sourcePart, airlock, true });
+            }
+            catch (TargetInvocationException ex)
+            {
+                InGameAssert.Fail(
+                    $"FlightEVA.spawnEVA threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}");
+            }
+        }
+
+        private static bool TrySetActiveVesselForTest(Vessel vessel, out string skipReason)
+        {
+            skipReason = null;
+            if (vessel == null)
+            {
+                skipReason = "cannot switch active vessel: target vessel is null";
+                return false;
+            }
+            if (FlightGlobalsSetActiveVesselMethod == null)
+            {
+                skipReason = "FlightGlobals.SetActiveVessel(Vessel) is not reflectable";
+                return false;
+            }
+
+            try
+            {
+                FlightGlobalsSetActiveVesselMethod.Invoke(null, new object[] { vessel });
+                return true;
+            }
+            catch (TargetInvocationException ex)
+            {
+                skipReason =
+                    $"FlightGlobals.SetActiveVessel threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}";
+                return false;
+            }
         }
 
         private static bool TrySimulatePostSwitchArm(ParsekFlight flight, Vessel vessel, out string skipReason)
