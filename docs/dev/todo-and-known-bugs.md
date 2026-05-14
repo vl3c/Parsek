@@ -78,7 +78,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Coverage (for the two fixes that shipped):** `AnchorPropagationTests.Run_PropagatesAcrossBreakupEdge_ControlledChildOnly_SkipsDebris` (controlled child anchored, debris child not, `Edge propagated … bpType=Breakup` logged); `RenderSessionStateLoggingTests.InPlaceContinuationForkShape_RootReFly_PropagatesBreakupEdgeToChild` (in-place continuation path drives the propagator, the Breakup edge is actually visited — `edgesVisited=1 edgesPropagated=1` — and the child anchor is written); `CoBubbleBlenderTests.TryEvaluateOffset_PeerIsPrimaryElsewhereButAlsoAPeer_PassesPairSpecificGuard`. Full suite verified (11641 / 11641).
 
-**Status:** CLOSED 2026-05-14.
+**Status:** PARTIAL.
+- Root causes 1 and 2 (Breakup-edge propagation; pair-specific co-bubble recursion guard) — **CLOSED 2026-05-14**, shipped in PR #852.
+- Root cause 3 (peer ghosts co-bubble against the frozen committed origin instead of the live re-flown vessel — the actual drift) — **OPEN**. The alias attempt was implemented and reverted (flawed premise + regression, see above); a real fix needs the recorder-buffer approach in "Next approach" plus in-game validation.
 
 ---
 
