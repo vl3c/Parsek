@@ -690,6 +690,91 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ProductionPathUsesRecorderTailAndOpenSection()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            FlightRecorder.FrameCountProviderForTesting = () => 15;
+            const string originId = "committed-origin-open-tail";
+            const string activeId = "active-provisional-open-tail";
+
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = originId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    AbsolutePoint(100.0, 0.0, 0.0, 0.0, "NoSuchBody"),
+                },
+            });
+
+            var activeRec = new Recording
+            {
+                RecordingId = activeId,
+                TreeId = "tree-open-tail",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    AbsolutePoint(100.0, 10.0, 20.0, 1000.0),
+                    AbsolutePoint(101.0, 10.0, 20.0, 1000.0),
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    AbsoluteSection(
+                        AbsolutePoint(100.0, 10.0, 20.0, 1000.0),
+                        AbsolutePoint(101.0, 10.0, 20.0, 1000.0)),
+                },
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-open-tail",
+                ActiveRecordingId = activeId,
+            };
+            tree.AddOrReplaceRecording(activeRec);
+
+            var recorder = new FlightRecorder
+            {
+                ActiveTree = tree,
+                IsRecording = true,
+            };
+            TrajectoryPoint tail = AbsolutePoint(102.0, 10.0, 20.0, 1000.0);
+            TrajectoryPoint openAhead = AbsolutePoint(103.0, 10.0, 20.0, 1000.0);
+            recorder.Recording.Add(tail);
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 102.0);
+            TrackSection current = recorder.CurrentTrackSectionForTesting;
+            current.frames.Add(tail);
+            current.frames.Add(openAhead);
+
+            ParsekFlight host = InstallFlightInstanceForReadModel(tree, recorder);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-open-tail",
+                    ActiveReFlyRecordingId = activeId,
+                    OriginChildRecordingId = originId,
+                    SupersedeTargetId = originId,
+                    InPlaceContinuation = true,
+                },
+            });
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                102.5,
+                kerbin,
+                out Vector3d worldPos);
+
+            Assert.True(ok, string.Join("\n", logLines));
+            Assert.False(double.IsNaN(worldPos.x));
+            Assert.Equal(1, host.ActiveReFlyPrimaryReadModelCacheBuildCountForTesting);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Active Re-Fly origin primary resolved from live recorded trajectory")
+                && l.Contains("treePoints=2")
+                && l.Contains("recorderPoints=1")
+                && l.Contains("openSectionPoints=2")
+                && l.Contains("snapshotPoints=4"));
+        }
+
+        [Fact]
         public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ProductionPathCachesReadModelPerFrame()
         {
             CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
@@ -859,6 +944,23 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void ShouldUseActiveInPlaceReFlyPrimaryReadModel_MatchesSupersedeTargetWithoutOriginMatch()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-supersede-target",
+                ActiveReFlyRecordingId = "active-provisional-supersede",
+                OriginChildRecordingId = "origin-child-other",
+                SupersedeTargetId = "supersede-target-only",
+                InPlaceContinuation = true,
+            };
+
+            Assert.True(ParsekFlight.ShouldUseActiveInPlaceReFlyPrimaryReadModel(
+                "supersede-target-only",
+                marker));
+        }
+
+        [Fact]
         public void ActiveInPlaceReFlyPrimarySnapshot_MergesTreePrefixRecorderTailAndOpenSection()
         {
             const string activeId = "active-provisional-snapshot";
@@ -936,13 +1038,13 @@ namespace Parsek.Tests.Rendering
 
             Assert.True(ok, reason);
             Assert.Equal(activeId, snapshot.RecordingId);
-            Assert.Equal(new[] { 100.0, 101.0, 102.0 }, snapshot.Points.ConvertAll(p => p.ut));
+            Assert.Equal(new[] { 100.0, 101.0, 102.0, 103.0 }, snapshot.Points.ConvertAll(p => p.ut));
             Assert.Equal(3, snapshot.TrackSections.Count);
             Assert.Equal(103.0, snapshot.TrackSections[2].endUT);
             Assert.Equal(2, stats.TreePointCount);
             Assert.Equal(2, stats.RecorderPointCount);
             Assert.Equal(2, stats.OpenSectionPointCount);
-            Assert.Equal(3, stats.SnapshotPointCount);
+            Assert.Equal(4, stats.SnapshotPointCount);
         }
 
         [Fact]

@@ -19726,6 +19726,9 @@ namespace Parsek
             worldPos = default;
             if (rec == null) return false;
             string recordingId = rec.RecordingId;
+            // Active in-place Re-Fly read models intentionally use the
+            // active provisional id for spline/anchor lookups; the committed
+            // origin id is only the public co-bubble primary key.
             if (rec.Points == null || rec.Points.Count == 0) return false;
             if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     rec,
@@ -20111,8 +20114,12 @@ namespace Parsek
                     openTrackSection.Value,
                     normalizeOpenSection: true);
                 stats.OpenSectionPointCount = CountTrackSectionPayloadPoints(open);
-                if (stats.RecorderPointCount == 0)
-                    AppendChronologicalPoints(points, open.frames);
+                // CommitRecordedPoint dual-writes to FlightRecorder.Recording
+                // before currentTrackSection.frames, so the open section should
+                // not be ahead of the flat recorder tail. Save-time flushes can
+                // still clear the flat tail while the open section keeps its
+                // frames, and appending here is harmless for duplicated UTs.
+                AppendChronologicalPoints(points, open.frames);
                 sections.Add(open);
             }
 
@@ -20175,6 +20182,10 @@ namespace Parsek
                 if (destination.Count > 0)
                 {
                     double lastUT = destination[destination.Count - 1].ut;
+                    // Sources are expected to arrive in chronological
+                    // tree-prefix -> recorder-tail -> open-section order.
+                    // Duplicate boundary samples and stale pre-flush open
+                    // frames are dropped rather than re-sorted.
                     if (point.ut <= lastUT + ActiveReFlyReadModelUtEpsilon)
                         continue;
                 }
