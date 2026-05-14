@@ -4568,7 +4568,7 @@ namespace Parsek
             activeTree.AddOrReplaceRecording(bgChild);
             activeTree.ActiveRecordingId = activeChild.RecordingId;
 
-            // The source parent is now either the active or background child, depending on KSP focus.
+            // The source vessel is now either the active or background child, depending on KSP focus.
             activeTree.BackgroundMap.Remove(activeVessel.persistentId);
             activeTree.BackgroundMap.Remove(backgroundVessel.persistentId);
             SegmentEnvironment? initialBackgroundEnvOverride = null;
@@ -6877,6 +6877,7 @@ namespace Parsek
             uint sourcePid = data.from?.vessel?.persistentId ?? 0u;
             uint targetPid = data.to?.vessel?.persistentId ?? 0u;
 
+            // Only the structural preconditions matter before we can safely dereference activeTree/sourceVessel.
             var initialDecision = DecideEvaBackgroundParentRoute(
                 isRecording: IsRecording,
                 pendingSplitInProgress: pendingSplitInProgress,
