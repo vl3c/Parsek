@@ -216,6 +216,28 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void TryEvaluateOffset_InCrossfadeTail_ExposesFullOffsetAndBlendFactor()
+        {
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            CoBubbleOffsetTrace trace = MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A", trace);
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A",
+                109.5,
+                out Vector3d offset,
+                out CoBubbleBlendStatus status,
+                out string primary,
+                out double blendFactor);
+
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.HitCrossfade, status);
+            Assert.Equal("primary-B", primary);
+            Assert.Equal(3.0, offset.x, 5);
+            Assert.InRange(blendFactor, 0.32, 0.34);
+        }
+
+        [Fact]
         public void TryEvaluateOffset_PastWindowEnd_ReturnsMissCrossfadeOut()
         {
             RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");

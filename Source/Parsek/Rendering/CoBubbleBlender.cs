@@ -81,9 +81,30 @@ namespace Parsek.Rendering
             out Vector3d worldOffset, out CoBubbleBlendStatus status,
             out string primaryRecordingId)
         {
+            bool ok = TryEvaluateOffset(
+                peerRecordingId, ut,
+                out worldOffset, out status, out primaryRecordingId,
+                out double blendFactor);
+            if (ok)
+                worldOffset *= blendFactor;
+            return ok;
+        }
+
+        /// <summary>
+        /// Variant for callers that need to blend the complete co-bubble pose
+        /// back to the peer's standalone pose during the tail. Returns the
+        /// full world-frame offset plus the tail blend factor; the legacy
+        /// overload above preserves the old scaled-offset contract.
+        /// </summary>
+        internal static bool TryEvaluateOffset(
+            string peerRecordingId, double ut,
+            out Vector3d worldOffset, out CoBubbleBlendStatus status,
+            out string primaryRecordingId, out double blendFactor)
+        {
             worldOffset = Vector3d.zero;
             status = CoBubbleBlendStatus.MissNotInTrace;
             primaryRecordingId = null;
+            blendFactor = 0.0;
 
             if (string.IsNullOrEmpty(peerRecordingId))
             {
@@ -196,7 +217,12 @@ namespace Parsek.Rendering
             // re-emission when subsequent samples enter the steady region.
             RenderSessionState.NotifyCoBubbleWindowEnter(peerRecordingId, primaryRecordingId, match.StartUT);
 
-            // Within-window blend factor (crossfade at exit).
+            // Within-window blend factor (crossfade at exit). This method
+            // returns the full trace offset and exposes the factor separately
+            // so the renderer can blend the final composed co-bubble pose
+            // back to the peer's standalone pose. Scaling only the offset
+            // would collapse the peer onto the primary before the window exit
+            // and then snap back to standalone on the next frame.
             double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
             double blend = 1.0;
             bool isCrossfade = false;
@@ -258,7 +284,8 @@ namespace Parsek.Rendering
                     primaryFrameOffset, body, ut);
             }
 
-            worldOffset = worldFrameOffset * blend;
+            worldOffset = worldFrameOffset;
+            blendFactor = blend;
             status = isCrossfade ? CoBubbleBlendStatus.HitCrossfade : CoBubbleBlendStatus.Hit;
 
             // P2-D: per §19.2 Stage 5, log every crossfade frame at Verbose

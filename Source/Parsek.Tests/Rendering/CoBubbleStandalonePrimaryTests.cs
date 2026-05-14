@@ -36,6 +36,9 @@ namespace Parsek.Tests.Rendering
             ParsekFlight.AnchorResolverWorldPositionResolverForTesting = null;
             ParsekFlight.AnchorResolverBodyResolverForTesting = null;
             FlightRecorder.FrameCountProviderForTesting = null;
+            RenderSessionState.ResetForTesting();
+            SectionAnnotationStore.ResetForTesting();
+            SmoothingPipeline.ResetForTesting();
             ParsekFlight.SetInstanceForTesting(null);
         }
 
@@ -47,6 +50,9 @@ namespace Parsek.Tests.Rendering
             ParsekFlight.AnchorResolverWorldPositionResolverForTesting = null;
             ParsekFlight.AnchorResolverBodyResolverForTesting = null;
             FlightRecorder.FrameCountProviderForTesting = null;
+            SmoothingPipeline.ResetForTesting();
+            SectionAnnotationStore.ResetForTesting();
+            RenderSessionState.ResetForTesting();
             ParsekFlight.SetInstanceForTesting(null);
             ParsekScenario.SetInstanceForTesting(null);
             TestBodyRegistry.Reset();
@@ -90,6 +96,28 @@ namespace Parsek.Tests.Rendering
                 endUT = frames[frames.Length - 1].ut,
                 referenceFrame = ReferenceFrame.Absolute,
                 frames = new List<TrajectoryPoint>(frames),
+            };
+        }
+
+        private static CoBubbleOffsetTrace CoBubbleTrace(
+            string primaryId,
+            double startUT,
+            double endUT,
+            Vector3d offset)
+        {
+            return new CoBubbleOffsetTrace
+            {
+                PeerRecordingId = primaryId,
+                PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                PeerSidecarEpoch = 0,
+                StartUT = startUT,
+                EndUT = endUT,
+                FrameTag = 0,
+                PrimaryDesignation = 0,
+                UTs = new[] { startUT, endUT },
+                Dx = new[] { (float)offset.x, (float)offset.x },
+                Dy = new[] { (float)offset.y, (float)offset.y },
+                Dz = new[] { (float)offset.z, (float)offset.z },
             };
         }
 
@@ -535,6 +563,104 @@ namespace Parsek.Tests.Rendering
             Assert.True(ok, string.Join("\n", logLines));
             Assert.False(double.IsNaN(worldPos.x));
             Assert.False(double.IsInfinity(worldPos.x));
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Active Re-Fly origin primary resolved from live recorded trajectory")
+                && l.Contains(originId)
+                && l.Contains(activeId));
+        }
+
+        [Fact]
+        public void CoBubbleResolvedWorldPosition_MultiTierPrimaryUsesActiveInPlaceReFlyOrigin()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            const string originId = "origin-root";
+            const string activeId = "active-root";
+            const string middleId = "middle-stage";
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+
+            TrajectoryPoint originFrozen = AbsolutePoint(100.0, 0.0, 0.0, 0.0);
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = originId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint> { originFrozen, AbsolutePoint(110.0, 0.0, 0.0, 0.0) },
+                TrackSections = new List<TrackSection>
+                {
+                    AbsoluteSection(originFrozen, AbsolutePoint(110.0, 0.0, 0.0, 0.0)),
+                },
+            });
+
+            TrajectoryPoint middleA = AbsolutePoint(100.0, 1.0, 1.0, 0.0);
+            TrajectoryPoint middleB = AbsolutePoint(110.0, 1.0, 1.0, 0.0);
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = middleId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint> { middleA, middleB },
+                TrackSections = new List<TrackSection>
+                {
+                    AbsoluteSection(middleA, middleB),
+                },
+            });
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-multitier-primary",
+                ActiveReFlyRecordingId = activeId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                InPlaceContinuation = true,
+            };
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = marker,
+            });
+
+            var requestedIds = new List<string>();
+            ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting =
+                (string requestedRecordingId, ReFlySessionMarker activeMarker, double ut,
+                    out Recording recording,
+                    out ParsekFlight.ActiveReFlyPrimaryReadModelStats stats,
+                    out string reason) =>
+                {
+                    requestedIds.Add(requestedRecordingId);
+                    reason = null;
+                    stats = new ParsekFlight.ActiveReFlyPrimaryReadModelStats
+                    {
+                        OriginRecordingId = activeMarker.OriginChildRecordingId,
+                        ActiveRecordingId = activeMarker.ActiveReFlyRecordingId,
+                        SnapshotPointCount = 2,
+                    };
+                    TrajectoryPoint liveA = AbsolutePoint(100.0, 10.0, 20.0, 1000.0);
+                    TrajectoryPoint liveB = AbsolutePoint(110.0, 10.0, 20.0, 1000.0);
+                    recording = new Recording
+                    {
+                        RecordingId = activeId,
+                        RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                        Points = new List<TrajectoryPoint> { liveA, liveB },
+                        TrackSections = new List<TrackSection>
+                        {
+                            AbsoluteSection(liveA, liveB),
+                        },
+                    };
+                    return true;
+                };
+
+            RenderSessionState.PutPrimaryAssignmentForTesting(middleId, originId);
+            SectionAnnotationStore.PutCoBubbleTrace(
+                middleId,
+                CoBubbleTrace(originId, 100.0, 110.0, new Vector3d(12.0, 0.0, 0.0)));
+
+            bool ok = ParsekFlight.TryComputeCoBubbleResolvedWorldPositionForRecording(
+                middleId,
+                105.0,
+                kerbin,
+                out Vector3d worldPos);
+
+            Vector3d expectedOriginWorld = kerbin.GetWorldSurfacePosition(10.0, 20.0, 1000.0);
+            Assert.True(ok, string.Join("\n", logLines));
+            Assert.Contains(originId, requestedIds);
+            Assert.True(Vector3d.Distance(expectedOriginWorld + new Vector3d(12.0, 0.0, 0.0), worldPos) < 0.001);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
                 && l.Contains("Active Re-Fly origin primary resolved from live recorded trajectory")
                 && l.Contains(originId)
