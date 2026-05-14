@@ -585,8 +585,20 @@ namespace Parsek
             // code path that retired Immutable forks; the Pass 1/Pass 2
             // predicate-classifier added in this PR keeps new saves clean, but
             // we still need to scrub legacy state on load.
+            //
+            // recordingIdToTreeId maps every live committed recording to its
+            // owning tree. The legacy non-Immutable old-side sweep below is
+            // TREE-SCOPED: it must defer only the trees actually carrying the
+            // pre-canon-forks multi-old-side-to-one-Immutable-fork shape, not
+            // every save that happens to have a healthy Immutable supersede
+            // elsewhere. The fan-in shape is inherently tree-local (the rewind
+            // walked one tree's subtree), so the priorTip's tree id is the
+            // correct scoping key. Recordings with a null/empty TreeId are
+            // standalone/pre-tree and cannot carry the tree-rewind fan-in
+            // shape — they map to no tree.
             var committed = RecordingStore.CommittedRecordings;
             var immutableRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            var recordingIdToTreeId = new Dictionary<string, string>(StringComparer.Ordinal);
             if (committed != null)
             {
                 for (int i = 0; i < committed.Count; i++)
@@ -595,12 +607,19 @@ namespace Parsek
                     if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
                     if (rec.MergeState == MergeState.Immutable)
                         immutableRecordingIds.Add(rec.RecordingId);
+                    if (!string.IsNullOrEmpty(rec.TreeId))
+                        recordingIdToTreeId[rec.RecordingId] = rec.TreeId;
                 }
             }
 
             int removed = 0;
             int removedImmutableRetirements = 0;
             int retainedWithMissingRestored = 0;
+            // Trees from which a legacy Immutable fork retirement was removed
+            // THIS load (the deferImmediate signal — covers load 1 including
+            // the reconstruction-failed case where no durable signal exists).
+            var treesWithRemovedImmutableForkRetirement =
+                new HashSet<string>(StringComparer.Ordinal);
             for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
             {
                 var retirement = scenario.RecordingRewindRetirements[i];
@@ -704,6 +723,16 @@ namespace Parsek
                     scenario.RecordingRewindRetirements.RemoveAt(i);
                     removed++;
                     removedImmutableRetirements++;
+                    // Tree-scope the deferImmediate signal: record the tree this
+                    // Immutable fork belongs to so the second pass only defers
+                    // old-side rows in the SAME tree.
+                    string removedForkTreeId;
+                    if (recordingIdToTreeId.TryGetValue(
+                            retirement.RecordingId, out removedForkTreeId)
+                        && !string.IsNullOrEmpty(removedForkTreeId))
+                    {
+                        treesWithRemovedImmutableForkRetirement.Add(removedForkTreeId);
+                    }
                     continue;
                 }
 
@@ -739,47 +768,60 @@ namespace Parsek
             // re-expose the un-reconstructed priorTips — the exact regression
             // PR #807 fixed.
             //
-            // The guard must be DURABLE across loads. The fork retirement
-            // itself is a one-shot signal: the per-row loop above removes it
-            // and the save persists without it, so a guard keyed on the fork
-            // retirement would defer on load 1 and then wrongly sweep on
-            // load 2. Instead the guard keys on signals that survive the save:
+            // The guard must be DURABLE across loads AND TREE-SCOPED. The fork
+            // retirement itself is a one-shot signal: the per-row loop above
+            // removes it and the save persists without it, so a guard keyed on
+            // the fork retirement would defer on load 1 and then wrongly sweep
+            // on load 2. And a GLOBAL signal over-defers: a save carrying the
+            // user's stale CommittedProvisional priorTip row PLUS an unrelated
+            // healthy Immutable Re-Fly elsewhere would never sweep the stale
+            // row. The fan-in shape is tree-local (the rewind walked one tree's
+            // subtree), so the guard is keyed per-tree on two survivable
+            // signals:
             //
-            //   - deferImmediate: the per-row loop just removed at least one
-            //     legacy Immutable fork retirement THIS load. Covers load 1
-            //     including the case where TryRestoreLegacyImmutableSupersede
-            //     could not reconstruct the relation (no durable signal would
-            //     then exist, so this load is the only chance to defer).
+            //   - treesWithRemovedImmutableForkRetirement: a tree from which
+            //     the per-row loop just removed a legacy Immutable fork
+            //     retirement THIS load. Covers load 1 including the case where
+            //     TryRestoreLegacyImmutableSupersede could not reconstruct the
+            //     relation (no durable signal would then exist, so this load
+            //     is the only chance to defer).
             //
-            //   - hasSurvivingImmutableSupersede: a RecordingSupersedeRelation
-            //     whose NewRecordingId resolves to a live Immutable recording.
-            //     On load 1 (success) this is the relation the per-row loop
-            //     just reconstructed; on load 2+ it is the same relation,
-            //     persisted. This is the durable signal.
+            //   - treesWithSurvivingImmutableSupersede: a tree containing a
+            //     RecordingSupersedeRelation whose NewRecordingId resolves to a
+            //     live Immutable recording. On load 1 (success) this includes
+            //     the relation the per-row loop just reconstructed; on load 2+
+            //     it is the same relation, persisted. This is the durable
+            //     signal.
             //
-            // Either signal defers the entire second pass. Residual gap: a
-            // load-2+ visit of a save whose load-1 reconstruction FAILED has
-            // neither signal — but that save is already degraded (load 1
-            // logged "priorTip may render alongside canon, investigate"), so
-            // sweeping is not making a healthy save worse.
+            // An old-side row is deferred only when its priorTip's tree is in
+            // either set. Residual gap: a load-2+ visit of a save whose load-1
+            // reconstruction FAILED leaves that tree in neither set — but the
+            // tree is already degraded (load 1 logged "priorTip may render
+            // alongside canon, investigate"), so sweeping is not making a
+            // healthy tree worse.
             int removedLegacyNonImmutableOldSideRetirements = 0;
-            bool deferLegacyOldSideSweep = removedImmutableRetirements > 0;
-            if (!deferLegacyOldSideSweep && scenario.RecordingSupersedes != null)
+            var treesWithSurvivingImmutableSupersede =
+                new HashSet<string>(StringComparer.Ordinal);
+            if (scenario.RecordingSupersedes != null)
             {
                 for (int i = 0; i < scenario.RecordingSupersedes.Count; i++)
                 {
                     var rel = scenario.RecordingSupersedes[i];
-                    if (rel != null
-                        && !string.IsNullOrEmpty(rel.NewRecordingId)
-                        && immutableRecordingIds.Contains(rel.NewRecordingId))
+                    if (rel == null
+                        || string.IsNullOrEmpty(rel.NewRecordingId)
+                        || !immutableRecordingIds.Contains(rel.NewRecordingId))
+                        continue;
+                    string immForkTreeId;
+                    if (recordingIdToTreeId.TryGetValue(rel.NewRecordingId, out immForkTreeId)
+                        && !string.IsNullOrEmpty(immForkTreeId))
                     {
-                        deferLegacyOldSideSweep = true;
-                        break;
+                        treesWithSurvivingImmutableSupersede.Add(immForkTreeId);
                     }
                 }
             }
 
             int legacyOldSideCandidates = 0;
+            int legacyOldSideDeferred = 0;
             for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
             {
                 var retirement = scenario.RecordingRewindRetirements[i];
@@ -795,8 +837,23 @@ namespace Parsek
                 // (Orphan priorTips were already removed by the per-row loop's
                 // !retiredResolved branch, so anything reaching here is live.)
                 legacyOldSideCandidates++;
-                if (deferLegacyOldSideSweep)
+
+                // Tree-scoped deferral: only defer when the priorTip's OWN tree
+                // carries the pre-canon-forks Immutable canon state. A null/
+                // empty TreeId is a standalone/pre-tree recording that cannot
+                // be part of a tree-rewind fan-in — it is never deferred.
+                string priorTipTreeId;
+                bool resolvedTree = recordingIdToTreeId.TryGetValue(
+                    retirement.RecordingId, out priorTipTreeId)
+                    && !string.IsNullOrEmpty(priorTipTreeId);
+                bool deferThisRow = resolvedTree
+                    && (treesWithRemovedImmutableForkRetirement.Contains(priorTipTreeId)
+                        || treesWithSurvivingImmutableSupersede.Contains(priorTipTreeId));
+                if (deferThisRow)
+                {
+                    legacyOldSideDeferred++;
                     continue;
+                }
 
                 ParsekLog.Info(SupersedeTag,
                     $"Removing legacy rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
@@ -809,12 +866,13 @@ namespace Parsek
                 removedLegacyNonImmutableOldSideRetirements++;
             }
 
-            if (deferLegacyOldSideSweep && legacyOldSideCandidates > 0)
+            if (legacyOldSideDeferred > 0)
             {
                 ParsekLog.Info(SweepTag,
                     $"[LoadSweep] Legacy non-Immutable old-side sweep deferred: " +
+                    $"{legacyOldSideDeferred.ToString(CultureInfo.InvariantCulture)} of " +
                     $"{legacyOldSideCandidates.ToString(CultureInfo.InvariantCulture)} candidate row(s) " +
-                    "retained because the save carries Immutable canon supersede state " +
+                    "retained because their tree carries Immutable canon supersede state " +
                     "(reconstructed or surviving). Removing them could expose " +
                     "multi-old-side-to-one-Immutable-fork priorTips kept hidden by their " +
                     "per-row retirements. Rows stay until a future rewind reseals them.");

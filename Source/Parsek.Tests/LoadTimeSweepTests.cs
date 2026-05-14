@@ -1116,6 +1116,70 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LegacyOldSideSweep_RecoversStaleRow_WhenUnrelatedTreeHasCanonReFly()
+        {
+            // The deferral guard is TREE-SCOPED. A save can carry BOTH:
+            //   - tree-user:  the user's stale CommittedProvisional priorTip
+            //     RewoundOutOldSideReason row (the bug being fixed); and
+            //   - tree-other: a completely unrelated, healthy successful Re-Fly
+            //     with a surviving Immutable supersede relation.
+            // A GLOBAL guard would see the Immutable supersede in tree-other and
+            // wrongly defer the sweep of the tree-user stale row — leaving the
+            // user's Watch ghost hidden forever. The tree-scoped guard only
+            // defers rows whose OWN tree carries the Immutable canon state, so
+            // the tree-user stale row is still swept and the user recovers.
+            InstallTree("tree-user",
+                new List<Recording>
+                {
+                    // Rec() defaults treeId to "tree_1"; pass it explicitly so
+                    // the two trees are genuinely distinct in recordingIdToTreeId.
+                    Rec("kerbal-x-probe", MergeState.CommittedProvisional,
+                        treeId: "tree-user")
+                },
+                new List<BranchPoint>());
+            InstallTree("tree-other",
+                new List<Recording>
+                {
+                    Rec("other-priorTip", MergeState.CommittedProvisional,
+                        treeId: "tree-other"),
+                    Rec("other-canon", MergeState.Immutable,
+                        treeId: "tree-other")
+                },
+                new List<BranchPoint>());
+            var staleOldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_user_stale",
+                RecordingId = "kerbal-x-probe",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation>
+                {
+                    // Healthy canon supersede in the UNRELATED tree-other.
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_other",
+                        OldRecordingId = "other-priorTip",
+                        NewRecordingId = "other-canon"
+                    }
+                },
+                retirements: new List<RecordingRewindRetirement> { staleOldSide });
+
+            LoadTimeSweep.Run();
+
+            // The tree-user stale row IS swept — its tree carries no Immutable
+            // canon state, so the unrelated tree-other supersede does not block it.
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "kerbal-x-probe");
+            Assert.Contains(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement=rrt_user_stale")
+                && l.Contains("recording=kerbal-x-probe"));
+            // The unrelated healthy supersede is untouched.
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("other-canon", scenario.RecordingSupersedes[0].NewRecordingId);
+        }
+
+        [Fact]
         public void LegacyOldSideRetirement_SweepIsIdempotent()
         {
             // First load removes the stale row; subsequent loads have nothing

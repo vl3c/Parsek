@@ -288,40 +288,44 @@ The existing `LoadTimeSweep.RetirementPointingAtImmutable_RemovedAndSupersedeRes
 
 If the new non-Immutable old-side sweep removes those rows, `P2` and `P3` become visible as "Destroyed" outcomes — re-introducing the exact regression PR #807 fixed.
 
-**First attempt (rejected by the second review): non-durable guard.** A pre-loop scan for any `DefaultReason` fork retirement on a live Immutable recording. This was non-durable — the same per-row loop that follows the scan *removes* that fork retirement, so after the save persists, the next load's scan finds nothing and the new sweep wrongly fires, removing `P2`/`P3`'s rows.
+**First attempt (rejected by review 2): non-durable guard.** A pre-loop scan for any `DefaultReason` fork retirement on a live Immutable recording. This was non-durable — the same per-row loop that follows the scan *removes* that fork retirement, so after the save persists, the next load's scan finds nothing and the new sweep wrongly fires, removing `P2`/`P3`'s rows.
 
-**Final design — durable two-signal guard, second-pass structure.** The new non-Immutable old-side sweep runs as a separate second pass *after* the per-row loop completes (and after the legacy-Immutable cleanup has reconstructed `F→P1`). The guard `deferLegacyOldSideSweep` keys on signals that survive the save:
+**Second attempt (rejected by review 3): durable but global.** Two survivable signals (`removedImmutableRetirements > 0` plus "any surviving `RecordingSupersedeRelation` with an Immutable `NewRecordingId`"). Durable across loads, but *global* — a save carrying the user's stale `CommittedProvisional` priorTip row *plus an unrelated healthy successful Re-Fly elsewhere* would see the unrelated Immutable supersede and defer the user's sweep forever. The user's Watch ghost would stay hidden.
 
-1. **`deferImmediate`** — `removedImmutableRetirements > 0`: the per-row loop *just removed* at least one legacy Immutable fork retirement this load. Covers load 1, including the case where `TryRestoreLegacyImmutableSupersede` could not reconstruct the relation (no durable signal would then exist, so load 1 is the only chance to defer).
-2. **`hasSurvivingImmutableSupersede`** — a `RecordingSupersedeRelation` whose `NewRecordingId` resolves to a live `MergeState.Immutable` recording. On load 1 (reconstruction success) this is the `F→P1` relation the per-row loop just reconstructed; on load 2+ it is the same relation, persisted. **This is the durable signal.**
+**Final design: durable AND tree-scoped, second-pass structure.** The new non-Immutable old-side sweep runs as a separate second pass after the per-row loop completes (and after the legacy-Immutable cleanup has reconstructed `F`-to-`P1`). The fan-in shape is inherently tree-local (the rewind that produced it walked one tree's subtree), so the guard is keyed per-tree on two survivable signals:
 
-Either signal defers the entire second pass.
+1. **`treesWithRemovedImmutableForkRetirement`** — a tree from which the per-row loop just removed a legacy Immutable fork retirement this load (the removed retirement's `RecordingId` is the Immutable fork; its `TreeId` is the key). Covers load 1, including the case where `TryRestoreLegacyImmutableSupersede` could not reconstruct the relation (no durable signal would then exist, so load 1 is the only chance to defer that tree).
+2. **`treesWithSurvivingImmutableSupersede`** — a tree containing a `RecordingSupersedeRelation` whose `NewRecordingId` resolves to a live `MergeState.Immutable` recording. On load 1 (reconstruction success) this includes the `F`-to-`P1` relation the per-row loop just reconstructed; on load 2+ it is the same relation, persisted. **This is the durable signal.**
+
+An old-side row is deferred only when its priorTip's own `TreeId` is in either set. A `recordingIdToTreeId` map is built once from `committedRecordings`. Recordings with a null/empty `TreeId` are standalone/pre-tree and cannot carry the tree-rewind fan-in shape — they are never deferred.
 
 ```csharp
-bool deferLegacyOldSideSweep = removedImmutableRetirements > 0;
-if (!deferLegacyOldSideSweep && scenario.RecordingSupersedes != null)
-    foreach (rel in scenario.RecordingSupersedes)
-        if (rel?.NewRecordingId resolves to a live Immutable recording)
-        { deferLegacyOldSideSweep = true; break; }
-
-// second pass over RewoundOutOldSideReason rows on live non-Immutable priorTips
-foreach (retirement reverse)
-    if (deferLegacyOldSideSweep) { count candidate; continue; }
-    else { remove; }
+// per-row loop also records: when an Immutable fork retirement is removed,
+//   treesWithRemovedImmutableForkRetirement.Add(recordingIdToTreeId[fork])
+// second pass:
+treesWithSurvivingImmutableSupersede = { recordingIdToTreeId[rel.NewRecordingId]
+    | rel in scenario.RecordingSupersedes, rel.NewRecordingId is live Immutable }
+foreach (RewoundOutOldSideReason row on a live non-Immutable priorTip P)
+    treeId = recordingIdToTreeId[P]
+    if (treeId in treesWithRemovedImmutableForkRetirement
+        || treeId in treesWithSurvivingImmutableSupersede)
+        defer;          // tree carries the canon fan-in shape
+    else
+        remove;         // stale pre-fix row -- sweep it
 ```
 
-**Residual gap (documented, accepted):** a load-2+ visit of a save whose load-1 reconstruction *failed* (`MissingMetadata` / `RestoredRecordingMissing`) has neither signal. But that save is already degraded — load 1 logged `priorTip may render alongside canon, investigate` — so the second pass sweeping is not making a healthy save worse. There is no per-row fork metadata on `RewoundOutOldSideReason` rows to do better; recording it would be a schema change out of scope here.
+**Residual gap (documented, accepted):** a load-2+ visit of a save whose load-1 reconstruction *failed* (`MissingMetadata` / `RestoredRecordingMissing`) leaves that tree in neither set. But the tree is already degraded (load 1 logged `priorTip may render alongside canon, investigate`), so the second pass sweeping is not making a healthy tree worse. There is no per-row fork metadata on `RewoundOutOldSideReason` rows to do better; recording it would be a schema change out of scope here.
 
-Post-fix saves never produce a legacy `DefaultReason` retirement on an Immutable recording (canon-forks routes Immutable forks to `pendingImmutablePreservations` instead of `pendingDrops`), so the `deferImmediate` signal is effectively legacy-save-only. The `hasSurvivingImmutableSupersede` signal *can* fire on a healthy post-fix save with a legitimate Immutable supersede — but such a save has zero `RewoundOutOldSideReason` rows to sweep (the new Pass-2 write site is unreachable in production), so deferral is a harmless no-op there.
+Post-fix saves never produce a legacy `DefaultReason` retirement on an Immutable recording (canon-forks routes Immutable forks to `pendingImmutablePreservations` instead of `pendingDrops`), so the first signal is effectively legacy-save-only. The second signal *can* fire for a healthy post-fix tree with a legitimate Immutable supersede — but such a tree has zero `RewoundOutOldSideReason` rows to sweep (the new Pass-2 write site is unreachable in production), so deferring that tree is a harmless no-op.
 
-The user's reproduction scenario (`logs/2026-05-13_2335`) has only a `CommittedProvisional` fork whose relation was *dropped* by the rewind — no Immutable retirements, no surviving Immutable supersede — so neither signal fires and the user's bug recovers cleanly on every load.
+The user's reproduction scenario (`logs/2026-05-13_2335`) has only a `CommittedProvisional` fork whose relation was *dropped* by the rewind — no Immutable retirements, no surviving Immutable supersede in the priorTip's tree — so neither signal fires for that tree and the user's bug recovers cleanly on every load, *even if the save also contains an unrelated successful Re-Fly in another tree*.
 
-A `[LoadSweep] Legacy non-Immutable old-side sweep deferred: N candidate row(s) retained …` Info line records when the guard kicks in (only when there were actually candidate rows to consider).
+A `[LoadSweep] Legacy non-Immutable old-side sweep deferred: N of M candidate row(s) retained ...` Info line records when the guard kicks in.
 
-**Test #14**: `LegacyOldSideSweep_DeferredAndDurableForMultiOldSideToImmutableForkShape` constructs the exact `F→{P1,P2,P3}` multi-old shape and runs the sweep **twice** on the same scenario object (a faithful load-1 / load-2 simulation, since the first run mutates `RecordingSupersedes` + `RecordingRewindRetirements` in place):
+**Tests:**
 
-- Load 1: `deferImmediate` fires (`F`'s retirement was just removed). `F`'s retirement gone, `F→P1` reconstructed, `P1`/`P2`/`P3` rows survive, deferral log fires.
-- Load 2: `F`'s retirement is already gone; `hasSurvivingImmutableSupersede` fires on the persisted `F→P1` relation. `P1`/`P2`/`P3` rows **still** survive — no `Removing legacy …` line for them. This is the regression the durable guard prevents.
+- **`LegacyOldSideSweep_DeferredAndDurableForMultiOldSideToImmutableForkShape`** — constructs the `F`-to-`{P1,P2,P3}` multi-old shape (all in one tree) and runs the sweep **twice** on the same scenario object (a faithful load-1 / load-2 simulation, since the first run mutates `RecordingSupersedes` + `RecordingRewindRetirements` in place). Load 1: the removed-Immutable-fork-retirement signal fires; `F`'s retirement gone, `F`-to-`P1` reconstructed, `P1`/`P2`/`P3` rows survive. Load 2: `F`'s retirement is already gone; the surviving-relation signal fires; `P1`/`P2`/`P3` rows **still** survive. This is the regression the durable signal prevents.
+- **`LegacyOldSideSweep_RecoversStaleRow_WhenUnrelatedTreeHasCanonReFly`** — `tree-user` carries the user's stale `CommittedProvisional` priorTip row; `tree-other` carries a completely unrelated healthy Immutable supersede. The tree-scoped guard sweeps the `tree-user` row (its tree has no Immutable canon state) and leaves `tree-other`'s supersede untouched. This is the regression the tree-scoping prevents.
 
 ## CHANGELOG / docs
 
