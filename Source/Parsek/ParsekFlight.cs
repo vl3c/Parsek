@@ -2866,7 +2866,13 @@ namespace Parsek
                  newVessel.situation == Vessel.Situations.SPLASHED))
             {
                 lastLandedUT = Planetarium.GetUniversalTime();
-                ParsekLog.Verbose("Flight",
+                // Rate-limit per vessel pid: the per-frame missed-switch recovery
+                // (Update → ReplayVesselSwitchCompleteForMissedSwitchRecovery)
+                // re-invokes this path every frame when the recovery loop is
+                // stuck, and the unrate-limited Verbose used to emit ~120 lines
+                // per second per landed vessel.
+                ParsekLog.VerboseRateLimited("Flight",
+                    $"seeded-landed-ut-{newVessel.persistentId}",
                     $"OnVesselSwitchComplete: seeded lastLandedUT={lastLandedUT:F1} (vessel '{newVessel.vesselName}' already {newVessel.situation})");
             }
 

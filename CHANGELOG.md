@@ -4,7 +4,7 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 0.10.0
+## 0.9.2
 
 ### Breaking Changes
 
@@ -16,13 +16,16 @@ All notable changes to Parsek are documented here.
 - Trajectory `.prec` reader now bounds every list-count int32 read from the file against the remaining stream size before any per-element loop or `List<T>` allocation. Corrupted counts -- including large-but-allocatable values like 100M that would previously succeed `new List<T>(count)`, consume hundreds of MB, and only fail far later mid-read -- are rejected up front with `InvalidDataException` carrying the bound-violation detail. Negative counts are similarly rejected at the same gate. This closes the OOM-allocation hazard that the post-probe payload validator's exception catch could not handle in time.
 - Current-magic sidecar probes now fail closed on malformed binary headers, and `InjectAllRecordings` explicitly excludes the frozen pre-reset `DefaultCareer` corpus until it is rebaked to v0/generation-1 files instead of copying unloadable legacy sidecars into runtime smoke saves.
 
----
+### UI
 
-## 0.9.2
+- The "Ghost render tracing" diagnostics toggle (both the Parsek settings window and the stock difficulty-settings entry) now reads "Ghost render tracing (Warning: huge logs)" so the log-volume cost is visible before enabling it.
+- The readable sidecar mirrors toggle (both the Parsek settings window and the stock difficulty-settings entry) now carries a "(Warning: extra disk usage)" suffix so the on-disk cost is visible before enabling it.
 
 ### Bug Fixes
 
 - Second EVA from a backgrounded parent vessel now records as a proper branch instead of being silently dropped at scene exit. Blocked EVA/tree-head recorder starts now show diagnostics instead of silently orphaning data.
+- Rewinding the tree-root recording after a Re-Fly with a Crashed/Destroyed outcome (a `CommittedProvisional` fork) now keeps the original priorTip ghost visible during Watch playback. Previously the rewind permanently retired both the re-fly fork *and* the original recording it superseded — so entering Watch on the parent showed neither version of the priorTip. The new old-side retirement gate retires the priorTip only when the dropped supersede's fork was a non-self-rewound `Immutable` (canon) — provisional / not-committed forks are treated as rolled-back attempts and their priorTip becomes visible again so spawn-at-endpoint can replay it. Saves authored under the prior buggy code get a one-shot load-time sweep that drops stale `RewoundOutOldSideReason` rows pointing at live non-Immutable priorTips; the sweep is durably and per-tree deferred for trees carrying the legacy multi-old-side-to-one-Immutable-fork shape (one canon fork superseded several priorTips pre-canon-forks; removing those rows would re-expose the priorTips the load-time legacy-Immutable cleanup can't reconstruct relations for), while still recovering stale rows in unrelated trees. See `docs/dev/plans/fix-tree-rewind-supersede-old-side.md`.
+- Re-flying the launch root of a recording tree (e.g. the Kerbal X upper stage) now keeps decoupled child ghosts — like a separated probe or booster — at the correct distance from the re-flown vessel. The anchor-propagation pass that resolves child ghosts relative to the live vessel was skipped on the root re-fly path, so those ghosts played back at stale absolute coordinates and drifted away.
 - Retry-from-Rewind-Point during a Re-Fly now drops you into a fresh recording attempt with no extra dialog. Previously the tree merge/discard dialog popped on top of the new attempt AND the underlying recorder was never bound to the freshly-created fork, so users had to discard everything via the dialog to recover — "Retry" effectively did nothing.
 - Ghosts whose recording finalized as SubOrbital, Destroyed, Docked, Recovered, or Boarded no longer disappear partway through their final coast/predicted tail. `RecordingOptimizer.TrimBoringTail` now refuses to chop any recording whose terminal is not one the spawn policy would actually replace with a real vessel (Landed, Splashed, Orbiting), so non-spawnable leaves keep their full on-rails / extrapolated trajectory instead of collapsing 10 s past their last `lastInterestingUT` event. The optimizer and `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` now share `IsSpawnableTerminal` so the two contracts can no longer drift.
 - Planted flags now survive Re-Fly. The post-load strip used to delete flag vessels along with other unmatched siblings, silently erasing the FlagPlant career milestone; the stripper now preserves any `VesselType.Flag` vessel regardless of slot-map membership.
