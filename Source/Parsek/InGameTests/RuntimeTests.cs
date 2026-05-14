@@ -13265,10 +13265,8 @@ namespace Parsek.InGameTests
 
             var selection = new StrategySelectionResult();
             yield return WaitForStableActivatableStockStrategy(selection);
-            var strategy = selection.Strategy;
-            var configName = selection.ConfigName;
 
-            if (strategy == null || string.IsNullOrEmpty(configName))
+            if (selection.Strategy == null || string.IsNullOrEmpty(selection.ConfigName))
             {
                 DestroyHiddenAdministrationCanvasForTest(
                     selection,
@@ -13284,133 +13282,214 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            var strategyConfig = strategy.Config;
-            InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
-            InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
-                "Selected strategy must have a non-empty Config.Name");
+            // Not every stock strategy short-circuits an already-active Activate():
+            // some (e.g. BailoutGrant) re-run and return true. Probing only the
+            // stabilized pick would silently disable the __result==false regression
+            // guard whenever a re-activatable strategy happens to sort first. Walk
+            // every activatable stock strategy instead, stop on the first one whose
+            // second Activate() returns false, and only skip when none can.
+            var candidates = CollectActivatableStockStrategiesForFailedPath(
+                selection.Strategy, selection.ConfigName);
 
-            // Snapshot financials — the first (successful) Activate below will
-            // spend setup costs that we must restore in teardown.
-            var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
-
-            // Snapshot event and ledger-action counts for cleanup. Set before
-            // the try so the finally always sees a valid baseline (matches
-            // pre-activation state, so truncation purges BOTH the first
-            // Activate and the failed second Activate from the save).
-            int preTestEventCount = GameStateStore.EventCount;
-            int preTestLedgerCount = Ledger.Actions.Count;
+            bool exercisedFailedPath = false;
+            int reactivatableCount = 0;
+            string lastReactivatableName = null;
 
             try
             {
-                // Activate the strategy FIRST so the second Activate hits the
-                // already-active short-circuit and returns false.
-                for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
-                    yield return null;
+                foreach (var candidate in candidates)
+                {
+                    var strategy = candidate.Strategy;
+                    var configName = candidate.ConfigName;
 
-                bool firstActivate;
-                try
-                {
-                    firstActivate = strategy.Activate();
-                }
-                catch (System.Exception ex)
-                {
+                    var strategyConfig = strategy.Config;
+                    if (strategyConfig == null || string.IsNullOrEmpty(strategyConfig.Name))
+                        continue; // probe data went stale — try the next candidate
+
+                    // Snapshot financials + event/ledger counts BEFORE this
+                    // candidate's first Activate so teardown can purge both
+                    // activations and restore setup costs regardless of outcome.
+                    var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                    int preTestEventCount = GameStateStore.EventCount;
+                    int preTestLedgerCount = Ledger.Actions.Count;
+
+                    // Activate FIRST so the second Activate hits the already-active
+                    // path.
+                    for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                        yield return null;
+
+                    bool firstActivate;
+                    try
+                    {
+                        firstActivate = strategy.Activate();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                        GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                        Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                        InGameAssert.Fail(
+                            $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
+                        yield break;
+                    }
+                    if (!firstActivate)
+                    {
+                        // Could not activate this candidate — restore and move on.
+                        RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                        GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                        Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                        continue;
+                    }
+
+                    int eventCountBefore = GameStateStore.EventCount;
+
+                    // Second Activate — KSP short-circuits when IsActive is true and
+                    // returns false. The postfix should detect __result=false and skip.
+                    bool ok;
+                    try
+                    {
+                        ok = strategy.Activate();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        if (strategy.IsActive)
+                        {
+                            try { strategy.Deactivate(); }
+                            catch (System.Exception deEx)
+                            {
+                                ParsekLog.Warn("TestRunner",
+                                    $"FailedActivation_DoesNotEmitEvent second-activate-throw Deactivate threw: {deEx}");
+                            }
+                        }
+                        RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                        GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                        Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                        InGameAssert.Fail(
+                            $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
+                        yield break;
+                    }
+
+                    if (ok)
+                    {
+                        // Re-activatable: Activate() returns true even when already
+                        // active, so it cannot exercise the __result==false filter.
+                        // Tear it down and keep probing the remaining strategies.
+                        if (strategy.IsActive)
+                        {
+                            try { strategy.Deactivate(); }
+                            catch (System.Exception ex)
+                            {
+                                ParsekLog.Warn("TestRunner",
+                                    $"FailedActivation_DoesNotEmitEvent re-activatable teardown Deactivate threw: {ex}");
+                            }
+                        }
+                        RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                        GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                        Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                        reactivatableCount++;
+                        lastReactivatableName = configName;
+                        continue;
+                    }
+
+                    // ok == false: the failed-path filter is now exercisable.
+                    // Walk the tail slice — must find NO StrategyActivated events
+                    // with matching key.
+                    for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
+                    {
+                        var evt = GameStateStore.Events[i];
+                        if (evt.eventType == GameStateEventType.StrategyActivated
+                            && evt.key == configName)
+                        {
+                            InGameAssert.Fail(
+                                $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
+                                $"(found StrategyActivated at tail index {i} for key='{configName}')");
+                        }
+                    }
+
+                    ParsekLog.Verbose("TestRunner",
+                        $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
+                        $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount}); " +
+                        $"reactivatableCandidatesProbed={reactivatableCount}");
+                    exercisedFailedPath = true;
+
+                    // Teardown this candidate.
+                    if (strategy.IsActive)
+                    {
+                        try { strategy.Deactivate(); }
+                        catch (System.Exception ex)
+                        {
+                            ParsekLog.Warn("TestRunner",
+                                $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
+                        }
+                    }
                     RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                    // Purge test-generated events and ledger actions so the save
+                    // stays save-neutral across repeated category runs. See
+                    // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
+                    // teardown for the same pattern.
                     GameStateStore.TruncateEventsForTesting(preTestEventCount);
                     Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "initial-activate-throw");
-                    InGameAssert.Fail(
-                        $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
-                    yield break;
-                }
-                if (!firstActivate)
-                {
-                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "initial-activate-false");
-                    InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
-                    yield break;
+                    break;
                 }
 
-                int eventCountBefore = GameStateStore.EventCount;
-
-                // Second Activate — KSP short-circuits when IsActive is true and
-                // returns false. The postfix should detect __result=false and skip.
-                bool ok;
-                try
-                {
-                    ok = strategy.Activate();
-                }
-                catch (System.Exception ex)
-                {
-                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "second-activate-throw");
-                    InGameAssert.Fail(
-                        $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
-                    yield break;
-                }
-                // Not every stock strategy short-circuits an already-active
-                // Activate() — some (e.g. BailoutGrant) re-run and return true.
-                // Those cannot exercise the __result==false filter this test
-                // pins, so skip rather than fail. The finally still tears down
-                // both activations (truncate + financial restore).
-                if (ok)
+                if (!exercisedFailedPath)
                 {
                     InGameAssert.Skip(
-                        $"selected strategy '{configName}' is re-activatable — its Activate() " +
-                        $"returns true even when already active, so the failed-path " +
-                        $"(__result==false) filter cannot be exercised with this strategy");
-                    yield break;
+                        $"no available stock strategy returns false on a second Activate() — " +
+                        $"{reactivatableCount} re-activatable candidate(s) probed " +
+                        $"(last='{lastReactivatableName ?? "(none)"}'); the failed-path " +
+                        $"(__result==false) filter cannot be exercised on this save");
                 }
-
-                // Walk the tail slice — must find NO StrategyActivated events
-                // with matching key.
-                for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
-                {
-                    var evt = GameStateStore.Events[i];
-                    if (evt.eventType == GameStateEventType.StrategyActivated
-                        && evt.key == configName)
-                    {
-                        InGameAssert.Fail(
-                            $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
-                            $"(found StrategyActivated at tail index {i} for key='{configName}')");
-                    }
-                }
-
-                ParsekLog.Verbose("TestRunner",
-                    $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
-                    $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
             }
             finally
             {
-                if (strategy.IsActive)
-                {
-                    try { strategy.Deactivate(); }
-                    catch (System.Exception ex)
-                    {
-                        ParsekLog.Warn("TestRunner",
-                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
-                    }
-                }
-                RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                // Purge test-generated events and ledger actions so the save
-                // stays save-neutral across repeated category runs. See
-                // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
-                // teardown for the same pattern.
-                GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                Ledger.TruncateActionsForTesting(preTestLedgerCount);
                 DestroyHiddenAdministrationCanvasForTest(
                     selection,
                     "failed-activation-teardown");
             }
+        }
+
+        // Collects every activatable stock strategy for FailedActivation_DoesNotEmitEvent,
+        // with the stabilized readiness pick first. The test walks this list so a
+        // re-activatable strategy sorting first cannot silently disable the
+        // __result==false regression guard.
+        private static List<(Strategies.Strategy Strategy, string ConfigName)>
+            CollectActivatableStockStrategiesForFailedPath(
+                Strategies.Strategy stabilizedPick,
+                string stabilizedConfigName)
+        {
+            var candidates = new List<(Strategies.Strategy Strategy, string ConfigName)>();
+            if (stabilizedPick != null && !string.IsNullOrEmpty(stabilizedConfigName))
+                candidates.Add((stabilizedPick, stabilizedConfigName));
+
+            var system = Strategies.StrategySystem.Instance;
+            var list = system?.Strategies;
+            if (list == null)
+                return candidates;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var s = list[i];
+                if (s == null || ReferenceEquals(s, stabilizedPick))
+                    continue;
+                try
+                {
+                    if (s.IsActive)
+                        continue;
+                    var config = s.Config;
+                    if (config == null || string.IsNullOrEmpty(config.Name))
+                        continue;
+                    if (!s.CanBeActivated(out _))
+                        continue;
+                    candidates.Add((s, config.Name));
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Verbose("TestRunner",
+                        $"FailedActivation candidate-probe exception: index={i} {ex}");
+                }
+            }
+            return candidates;
         }
 
         #endregion
