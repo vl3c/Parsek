@@ -321,41 +321,6 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void PrimarySelection_ForkShapedInPlaceReFly_CommittedOriginTreatedAsLive()
-        {
-            // Post-#734 fork shape: the marker's ActiveReFlyRecordingId is a
-            // fresh provisional distinct from the committed OriginChildRecordingId,
-            // and the provisional has no co-bubble traces of its own — every
-            // trace pair is keyed to the committed origin id. The origin must
-            // therefore count as live (Rule 1) so it wins primary selection
-            // for the (child, origin) pair. Without this the origin loses on
-            // the ordinal tiebreaker here ("rec-a-child" < "rec-z-origin"),
-            // the child becomes primary + renders standalone, and the
-            // in-place Re-Fly alias on the origin is never exercised.
-            var rChild = new Recording { RecordingId = "rec-a-child" };
-            var rOrigin = new Recording { RecordingId = "rec-z-origin" };
-            SectionAnnotationStore.PutCoBubbleTrace("rec-a-child",
-                MakeTrace("rec-z-origin", 100.0, 110.0, new Vector3d(1, 0, 0)));
-            SectionAnnotationStore.PutCoBubbleTrace("rec-z-origin",
-                MakeTrace("rec-a-child", 100.0, 110.0, new Vector3d(-1, 0, 0)));
-            var marker = new ReFlySessionMarker
-            {
-                SessionId = "fork-sess",
-                InPlaceContinuation = true,
-                ActiveReFlyRecordingId = "rec-provisional-active", // not in recordings
-                OriginChildRecordingId = "rec-z-origin",
-            };
-
-            Dictionary<string, string> map = CoBubblePrimarySelector.Resolve(
-                new List<Recording> { rChild, rOrigin }, marker);
-
-            // Origin is primary, child is the peer — the inverse of the
-            // pre-fix ordinal-tiebreak outcome.
-            Assert.Equal("rec-z-origin", map["rec-a-child"]);
-            Assert.False(map.ContainsKey("rec-z-origin"));
-        }
-
-        [Fact]
         public void Recursion_PrimariesAreGuarded()
         {
             // Even if a primary somehow has its own trace stored, the

@@ -130,22 +130,6 @@ namespace Parsek.Rendering
         private static readonly HashSet<string> PrimaryRecordingIdsInternal
             = new HashSet<string>(StringComparer.Ordinal);
 
-        // In-place Re-Fly provisional alias (post-#734 fork shape). During an
-        // in-place continuation the player flies a fresh NotCommitted
-        // provisional recording (ReFlySessionMarker.ActiveReFlyRecordingId)
-        // that supersedes a committed origin recording
-        // (ReFlySessionMarker.OriginChildRecordingId). Co-bubble traces,
-        // primary-map entries and AnchorPropagator edges are all keyed on the
-        // COMMITTED origin id, but the only recording that carries the live
-        // post-re-fly trajectory is the provisional. These two fields record
-        // originId -> activeId so render-time standalone-position lookups can
-        // resolve the committed origin to its live provisional continuation.
-        // Both null when there is no active in-place re-fly or when the
-        // marker uses the legacy active==origin shape (alias would be a
-        // no-op). Guarded by Lock; cleared everywhere PrimaryByPeerInternal is.
-        private static string s_inPlaceReFlyOriginId;
-        private static string s_inPlaceReFlyActiveId;
-
         /// <summary>Number of anchors in the current session map.</summary>
         internal static int Count
         {
@@ -284,7 +268,6 @@ namespace Parsek.Rendering
                 sessionId = s_currentSessionId;
                 Anchors.Clear();
                 PrimaryByPeerInternal.Clear(); PrimaryRecordingIdsInternal.Clear();
-                s_inPlaceReFlyOriginId = null; s_inPlaceReFlyActiveId = null;
                 s_currentSessionId = null;
                 ResetSessionDedupSetsLocked();
             }
@@ -299,7 +282,6 @@ namespace Parsek.Rendering
             {
                 Anchors.Clear();
                 PrimaryByPeerInternal.Clear(); PrimaryRecordingIdsInternal.Clear();
-                s_inPlaceReFlyOriginId = null; s_inPlaceReFlyActiveId = null;
                 s_currentSessionId = null;
                 ResetSessionDedupSetsLocked();
             }
@@ -344,72 +326,6 @@ namespace Parsek.Rendering
             {
                 return PrimaryRecordingIdsInternal.Contains(recordingId);
             }
-        }
-
-        /// <summary>
-        /// Records the in-place Re-Fly provisional alias from
-        /// <paramref name="marker"/>. When the marker is an in-place
-        /// continuation with the post-#734 fork shape (a fresh provisional
-        /// <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/> distinct
-        /// from the committed <see cref="ReFlySessionMarker.OriginChildRecordingId"/>),
-        /// the (origin → active) pair is stored so render-time standalone
-        /// lookups can resolve the committed origin to its live provisional
-        /// continuation (see <see cref="ResolveInPlaceReFlyActiveAlias"/>).
-        /// Any other marker shape — non-in-place, or the legacy
-        /// active==origin shape where the alias would be a no-op — clears the
-        /// alias so a stale pair from a previous session cannot leak.
-        /// </summary>
-        internal static void RegisterInPlaceReFlyAlias(ReFlySessionMarker marker)
-        {
-            string origin = marker?.OriginChildRecordingId;
-            string active = marker?.ActiveReFlyRecordingId;
-            bool register = IsInPlaceContinuationMarker(marker)
-                && !string.IsNullOrEmpty(origin)
-                && !string.IsNullOrEmpty(active)
-                && !string.Equals(origin, active, StringComparison.Ordinal);
-            lock (Lock)
-            {
-                if (register)
-                {
-                    s_inPlaceReFlyOriginId = origin;
-                    s_inPlaceReFlyActiveId = active;
-                }
-                else
-                {
-                    s_inPlaceReFlyOriginId = null;
-                    s_inPlaceReFlyActiveId = null;
-                }
-            }
-            if (register)
-            {
-                ParsekLog.Verbose("Pipeline-Anchor",
-                    $"In-place Re-Fly alias registered: originRecordingId={origin} " +
-                    $"activeReFlyRecordingId={active} sessionId={marker.SessionId ?? "<no-id>"}");
-            }
-        }
-
-        /// <summary>
-        /// Resolves a recording id through the active in-place Re-Fly alias.
-        /// Returns <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
-        /// when <paramref name="recordingId"/> is the aliased committed
-        /// origin; otherwise returns <paramref name="recordingId"/>
-        /// unchanged. Render-time standalone-position lookups call this so a
-        /// co-bubble primary that resolved to the superseded committed origin
-        /// is evaluated against the live provisional's recorded trajectory
-        /// instead of the frozen pre-re-fly one.
-        /// </summary>
-        internal static string ResolveInPlaceReFlyActiveAlias(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return recordingId;
-            lock (Lock)
-            {
-                if (s_inPlaceReFlyOriginId != null
-                    && string.Equals(recordingId, s_inPlaceReFlyOriginId, StringComparison.Ordinal))
-                {
-                    return s_inPlaceReFlyActiveId;
-                }
-            }
-            return recordingId;
         }
 
         /// <summary>
@@ -793,16 +709,6 @@ namespace Parsek.Rendering
                 Clear("marker-null");
                 return;
             }
-
-            // Record (or clear) the in-place Re-Fly provisional alias before
-            // any session install. Done up-front so every install path —
-            // sibling, no-siblings, and the empty in-place continuation —
-            // keeps the freshly-registered alias (those paths clear Anchors
-            // and the primary map inline but deliberately do NOT touch the
-            // alias). The Clear()-based guard-failure exits below re-clear
-            // it, which is harmless: RegisterInPlaceReFlyAlias is
-            // unconditional and idempotent, so no stale pair can leak.
-            RegisterInPlaceReFlyAlias(marker);
 
             if (recordings == null || recordings.Count == 0)
             {

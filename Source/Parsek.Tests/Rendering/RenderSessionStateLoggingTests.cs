@@ -415,10 +415,6 @@ namespace Parsek.Tests.Rendering
                 _ => new RecordingTreeContext(tree, null),
                 _ => new Vector3d(1, 2, 3));
 
-            // Fork-shape alias registered for the post-#734 marker.
-            Assert.Contains(logLines, l =>
-                l.Contains("[Pipeline-Anchor]")
-                && l.Contains("In-place Re-Fly alias registered"));
             // The Breakup edge was actually walked and the controlled stage
             // half received a propagated DockOrMerge anchor.
             Assert.Contains(logLines, l =>

@@ -19559,57 +19559,8 @@ namespace Parsek
             worldPos = default;
             if (string.IsNullOrEmpty(recordingId)) return false;
 
-            // In-place Re-Fly alias: a co-bubble primary that resolved to the
-            // committed origin recording must be evaluated against the live
-            // provisional that supersedes it during the re-fly. Without this
-            // the primary's P_render(t) reads the frozen pre-re-fly
-            // trajectory and every peer ghost holds its offset relative to
-            // where the origin WAS recorded, not where the re-flown vessel
-            // actually is — the peer drifts off by the re-fly divergence.
-            // HR-15 still holds: the provisional is a recording, so this
-            // reads recorded points, not live KSP Vessel state.
-            string aliasedRecordingId = Parsek.Rendering.RenderSessionState
-                .ResolveInPlaceReFlyActiveAlias(recordingId);
-            Recording rec;
-            if (string.Equals(aliasedRecordingId, recordingId, StringComparison.Ordinal))
-            {
-                // No alias active (or identity alias) — ordinary committed lookup.
-                rec = ResolveRecordingById(recordingId);
-            }
-            else
-            {
-                // Alias active. The live provisional fork is normally in
-                // RecordingStore.CommittedRecordings, but after a mid-Re-Fly
-                // F5/F9 reload it is rehydrated into the active/pending tree's
-                // Recordings dict and intentionally NOT re-added to the
-                // committed list (see ReconcileInPlaceForkIntoTreeIfNeeded).
-                // ResolveRecordingByIdAcrossTrees resolves through the
-                // committed list AND the trees so the fork's live trajectory
-                // is used even in that window. Fall back to the committed
-                // origin only when the fork is genuinely unusable — not found
-                // anywhere, or carrying no recorded points yet — degrading to
-                // (never below) the pre-alias behaviour.
-                Recording fork = ResolveRecordingByIdAcrossTrees(aliasedRecordingId);
-                if (fork != null && fork.Points != null && fork.Points.Count > 0)
-                {
-                    rec = fork;
-                }
-                else
-                {
-                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                        "refly-alias-target-unusable",
-                        string.Format(CultureInfo.InvariantCulture,
-                            "In-place Re-Fly alias target unusable, falling back to committed origin: " +
-                            "aliasTarget={0} origin={1} forkFound={2}",
-                            aliasedRecordingId, recordingId,
-                            fork != null ? "true" : "false"),
-                        5.0);
-                    aliasedRecordingId = recordingId;
-                    rec = ResolveRecordingById(recordingId);
-                }
-            }
+            Recording rec = ResolveRecordingById(recordingId);
             if (rec == null) return false;
-            recordingId = aliasedRecordingId;
             if (rec.Points == null || rec.Points.Count == 0) return false;
             if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     rec,
@@ -20144,93 +20095,6 @@ namespace Parsek
             catch
             {
                 // Mid-load mutation; treat as missing.
-            }
-            return null;
-        }
-
-        /// <summary>
-        /// Test seam for <see cref="ResolveRecordingByIdAcrossTrees"/>'s live
-        /// active-tree source. <c>ParsekFlight.Instance</c> has a private
-        /// setter and is a MonoBehaviour, so xUnit cannot stand up the
-        /// <c>Instance.ActiveTreeForSerialization</c> branch directly — this
-        /// seam supplies the active tree instead. Production callers leave it
-        /// null and the resolver reads <c>Instance?.ActiveTreeForSerialization</c>.
-        /// Reset via <see cref="ResetReFlyAliasTreeResolverForTesting"/>.
-        /// </summary>
-        internal static Func<RecordingTree> ActiveTreeForReFlyAliasResolverForTesting;
-
-        /// <summary>Test-only: clears <see cref="ActiveTreeForReFlyAliasResolverForTesting"/>.</summary>
-        internal static void ResetReFlyAliasTreeResolverForTesting()
-        {
-            ActiveTreeForReFlyAliasResolverForTesting = null;
-        }
-
-        /// <summary>
-        /// Resolves a recording id across the committed recordings list AND
-        /// every in-memory tree that could own an in-place Re-Fly fork. Used
-        /// only by the in-place Re-Fly alias path in
-        /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>: after a
-        /// mid-Re-Fly F5/F9 reload the provisional fork is rehydrated into a
-        /// tree but intentionally absent from the committed list (see
-        /// <c>ReconcileInPlaceForkIntoTreeIfNeeded</c>), so the
-        /// committed-list-only <see cref="ResolveRecordingById"/> cannot see
-        /// it. The committed list wins on a tie — once the fork is reconciled
-        /// back in, that is the canonical instance and the tree slot is
-        /// overwritten to match it. The tree search mirrors
-        /// <see cref="RewindInvoker.FindTreeForReFlyFork"/>: <c>CommittedTrees</c>,
-        /// <c>PendingTree</c>, the active-restore Limbo tree, AND the live
-        /// <c>ParsekFlight.Instance.ActiveTreeForSerialization</c> — the
-        /// last is the steady post-F5/F9 state where <c>RestoreActiveTreeFromPending</c>
-        /// has already popped the pending tree into <c>activeTree</c>, so the
-        /// fork lives only there.
-        /// </summary>
-        private static Recording ResolveRecordingByIdAcrossTrees(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return null;
-            Recording committed = ResolveRecordingById(recordingId);
-            if (committed != null) return committed;
-            try
-            {
-                List<RecordingTree> trees = RecordingStore.CommittedTrees;
-                if (trees != null)
-                {
-                    for (int i = 0; i < trees.Count; i++)
-                    {
-                        RecordingTree t = trees[i];
-                        if (t?.Recordings != null
-                            && t.Recordings.TryGetValue(recordingId, out Recording tr)
-                            && tr != null)
-                            return tr;
-                    }
-                }
-                RecordingTree pending = RecordingStore.PendingTree;
-                if (pending?.Recordings != null
-                    && pending.Recordings.TryGetValue(recordingId, out Recording pr)
-                    && pr != null)
-                    return pr;
-                RecordingTree limbo = RecordingStore.SavedPendingTreeDuringActiveRestore;
-                if (limbo?.Recordings != null
-                    && limbo.Recordings.TryGetValue(recordingId, out Recording lr)
-                    && lr != null)
-                    return lr;
-                // Steady post-F5/F9 Re-Fly: the pending tree has already been
-                // popped into ParsekFlight's live activeTree, so the fork no
-                // longer lives in PendingTree and was pulled from CommittedTrees
-                // by TryRestoreActiveTreeNode. ParsekFlight.Instance is null
-                // outside flight scenes / in tests that do not set it up — the
-                // test seam supplies the active tree in that case.
-                RecordingTree active = ActiveTreeForReFlyAliasResolverForTesting != null
-                    ? ActiveTreeForReFlyAliasResolverForTesting()
-                    : Instance?.ActiveTreeForSerialization;
-                if (active?.Recordings != null
-                    && active.Recordings.TryGetValue(recordingId, out Recording ar)
-                    && ar != null)
-                    return ar;
-            }
-            catch
-            {
-                // Mid-load mutation — treat as not found; the alias path
-                // falls back to the committed origin.
             }
             return null;
         }
