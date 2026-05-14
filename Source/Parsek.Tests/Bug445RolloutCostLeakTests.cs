@@ -125,6 +125,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnVesselRolloutSpending_WithFutureLedgerActions_RecalculatesAtRolloutUt()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 153.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "future-altitude",
+                MilestoneFundsAwarded = 5600f,
+                RecordingId = "future-rec"
+            });
+
+            RecordRollout(
+                ut: 129.0,
+                cost: 3805.0,
+                vesselPersistentId: 101u,
+                vesselName: "Pad Hopper",
+                launchSiteName: "Launch Pad");
+
+            Assert.Equal(21195.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Live-event recalc decision") &&
+                l.Contains("reason=vessel-rollout") &&
+                l.Contains("hasFutureLedgerActions=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("RecalculateAndPatch: actionsTotal=3") &&
+                l.Contains("actionsAfterCutoff=2") &&
+                l.Contains("cutoffUT=129"));
+        }
+
+        [Fact]
         public void OnVesselRolloutSpending_NonPositiveCost_Skipped()
         {
             // Defensive: a zero or negative "cost" (refund-style FundsChanged) is not

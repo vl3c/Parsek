@@ -42,13 +42,14 @@ namespace Parsek
             IReadOnlyCollection<string> targetTechIds = null,
             bool authoritativeRepeatableRecordState = false,
             double? techUtCutoff = null,
-            double? techBaselineUt = null)
+            double? techBaselineUt = null,
+            bool suppressSuspiciousDrawdownWarnings = false)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
-                PatchScience(science);
+                PatchScience(science, suppressSuspiciousDrawdownWarnings);
                 PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt);
-                PatchFunds(funds);
+                PatchFunds(funds, suppressSuspiciousDrawdownWarnings);
                 PatchReputation(reputation);
                 PatchFacilities(facilities);
                 PatchMilestones(milestones, authoritativeRepeatableRecordState);
@@ -63,7 +64,9 @@ namespace Parsek
         /// Uses AddScience with a computed delta to reach the target value.
         /// No-op if ResearchAndDevelopment.Instance is null (sandbox mode).
         /// </summary>
-        internal static void PatchScience(ScienceModule science)
+        internal static void PatchScience(
+            ScienceModule science,
+            bool suppressSuspiciousDrawdownWarnings = false)
         {
             if (science == null)
             {
@@ -102,7 +105,7 @@ namespace Parsek
             else
             {
                 // #402 parity: WARN when science drawdown >10% of a non-trivial pool.
-                if (IsSuspiciousDrawdown(delta, currentScience))
+                if (!suppressSuspiciousDrawdownWarnings && IsSuspiciousDrawdown(delta, currentScience))
                 {
                     ParsekLog.Warn(Tag,
                         $"PatchScience: suspicious drawdown delta={delta.ToString("F1", IC)} " +
@@ -550,7 +553,9 @@ namespace Parsek
         /// Uses AddFunds with a computed delta to reach the target value.
         /// No-op if Funding.Instance is null (sandbox mode).
         /// </summary>
-        internal static void PatchFunds(FundsModule funds)
+        internal static void PatchFunds(
+            FundsModule funds,
+            bool suppressSuspiciousDrawdownWarnings = false)
         {
             if (funds == null)
             {
@@ -590,7 +595,7 @@ namespace Parsek
             // the live funds pool. Legitimate walks can subtract large amounts after a
             // revert, so this is log-only (never aborts the patch) — but a >10% drop
             // alongside a small pool (>1000F) is the shape of missing-earnings bugs.
-            if (IsSuspiciousDrawdown(delta, currentFunds))
+            if (!suppressSuspiciousDrawdownWarnings && IsSuspiciousDrawdown(delta, currentFunds))
             {
                 ParsekLog.Warn(Tag,
                     $"PatchFunds: suspicious drawdown delta={delta.ToString("F1", IC)} " +

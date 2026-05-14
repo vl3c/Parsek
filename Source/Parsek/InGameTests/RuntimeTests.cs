@@ -10215,7 +10215,7 @@ namespace Parsek.InGameTests
                 yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(previousFlightInstanceId, 20f);
                 yield return WaitForCapturedLogLine(
                     captured,
-                    "post-rewind FLIGHT recalc using current-UT cutoff",
+                    "post-rewind scene-load recalc using current-UT cutoff",
                     10f);
                 yield return new WaitForSeconds(0.5f);
 
@@ -10225,13 +10225,13 @@ namespace Parsek.InGameTests
                 double postFunds = Funding.Instance.Funds;
                 int postActiveContracts = LedgerOrchestrator.Contracts.GetActiveContractCount();
                 bool sawDecisionInputs = captured.Any(
-                    line => line.Contains("post-rewind FLIGHT cutoff decision")
+                    line => line.Contains("post-rewind current-UT cutoff decision")
                         && line.Contains("useCurrentUtCutoff=True")
                         && line.Contains("hasFutureLedgerActions=True"));
 
                 InGameAssert.IsTrue(
                     sawDecisionInputs,
-                    "Expected OnLoad to log the post-rewind FLIGHT cutoff decision inputs");
+                    "Expected OnLoad to log the post-rewind current-UT cutoff decision inputs");
                 InGameAssert.IsTrue(
                     System.Math.Abs(postFunds - fundsBeforeFutureActions) < 1.0,
                     $"Post-rewind funds should stay at the pre-future baseline until replay catches up " +

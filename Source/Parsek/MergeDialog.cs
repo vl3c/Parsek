@@ -894,7 +894,9 @@ namespace Parsek
             ReFlyRevertButtonGate.Apply("MergeDialog:discard-refly-attempt");
             SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
 
-            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
+                "merge-dialog-discard-refly");
             ClearPendingFlag();
             bool durableSaved = SaveDiscardedReFlyStateDurably(sessionId);
 

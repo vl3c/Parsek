@@ -736,6 +736,100 @@ asserts only 2 emits total.
 
 # Known Bugs
 
+## 438. KSC timeline clock does not replay ledger resources as committed action UTs mature
+
+**Source:** audit of `logs/2026-05-14_2009_game-actions-audit` after the game-actions / ledger playtest. After rewinding in Space Center, the ledger correctly patched the game back to the adjusted rewind UT, but normal KSC time passing and time warp did not keep applying committed resource actions as their UTs were crossed.
+
+**Evidence:**
+
+- `KSP.log:16986` / `KSP.log:17064` rebuild the ledger at `cutoffUT=19.039999999999722` after rewind and patch funds/science to the current-time state: funds `49366.7 -> 21195.0`, science `4.8 -> 0.0`, reputation `3.07 -> 0.00`.
+- The player then stayed in Space Center until launch at UT `129.0`. Between `KSP.log:17064` and `KSP.log:17350`, there is no `RecalculateAndPatch` call despite crossing committed action UTs `21.2`, `23.4`, `31.3`, `35.0`, `36.6`, `43.5`, `52.7`, `69.9`, `86.8`, `94.1`, `106.5`, `110.1`, and `114.7`.
+- `ParsekKSC.Update` (`Source/Parsek/ParsekKSC.cs:316-458`) polls `Planetarium.GetUniversalTime()` and `TimeWarp.CurrentRate` for ghost playback only. It has no resource-ledger advancement observer and never calls `LedgerOrchestrator.RecalculateAndPatchForTimeJump` / `RecalculateAndPatchForPostRewindFlightLoad`.
+- Direct forward jumps from the Timeline do the right thing through `TimeJumpManager.RecalculateLedgerAfterTimeJump` -> `LedgerOrchestrator.RecalculateAndPatchForTimeJump(postJumpUT)` (`Source/Parsek/TimeJumpManager.cs:61-75`). Normal KSC time warp does not use that path.
+- `KspStatePatcher` does mutate KSP's actual resource singletons through `ResearchAndDevelopment.Instance.AddScience` and `Funding.Instance.AddFunds` (`Source/Parsek/GameActions/KspStatePatcher.cs:113`, `:602`), and the log shows the resulting resource events fire and are only suppressed for Parsek re-capture (`KSP.log:17020`, `KSP.log:17022`). The top-bar symptom is therefore primarily that no KSC-time recalculation is scheduled after the rewind patch, not that the ledger math failed.
+
+**Desired behavior:**
+
+- While in `GameScenes.SPACECENTER`, Parsek should keep the live KSP resource singletons at the ledger projection for the current UT. As normal time and time warp cross committed action UTs, funds/science/reputation/contracts/milestones should be reapplied once at the correct UT and the stock resource widgets should reflect the new values.
+- The KSC clock observer should be event-threshold driven, not per-frame full-walk spam. Track the last applied cutoff, find the next relevant ledger action UT, and call a cutoff-preserving recalc only when `Planetarium.GetUniversalTime()` reaches the next action boundary or a discrete time jump/rewind changes the current UT.
+- High warp can skip across many actions in one frame; the observer should apply one recalc at the post-skip UT, not N recalc calls.
+- The observer must not run while `RecordingStore.RewindUTAdjustmentPending` is true, while KSP resource singletons are not ready, or while a live/pending tree should defer patching.
+- After patching, verify the stock top bar / KSC resource widgets redraw. If KSP's widget does not repaint from `AddFunds` / `AddScience` events in Space Center, add an explicit UI-refresh shim with logging rather than relying on Parsek's stock-screen overlay controller (that controller only decorates R&D / Astronaut / Mission Control rows).
+
+**Files likely to touch:**
+
+- `Source/Parsek/ParsekKSC.cs` - add the KSC current-UT ledger advancement observer beside ghost playback.
+- `Source/Parsek/GameActions/LedgerOrchestrator.cs` - expose a single cutoff-preserving "current timeline UT" recalculation entry point shared by post-rewind scene load, time jump, and KSC clock advancement.
+- `Source/Parsek/GameActions/KspStatePatcher.cs` - add a focused stock resource-widget refresh hook if in-game verification shows `AddFunds` / `AddScience` does not repaint Space Center widgets.
+- `Source/Parsek.Tests/` - pure tests for next-action-boundary selection, warp skip coalescing, and no-op when current UT remains before the next committed action.
+- `Source/Parsek/InGameTests/RuntimeTests.cs` - runtime verification that Space Center time warp across a committed funds/science action changes the visible stock resource values.
+
+**Tests:** `KscLedgerAdvancementTests` covers no-op before the next action, exact-boundary advancement, high-warp skip coalescing, backward clock movement, and no-op when no future action exists.
+
+**Fix implemented:** `ParsekKSC.Update` now observes the Space Center clock even when no ghosts are committed. It tracks the last ledger cutoff, caches the next non-seed ledger action UT until the ledger version or cutoff changes, and runs the shared current-UT recalculation only when the live KSC clock reaches that action boundary or moves backward. High warp coalesces skipped actions into one cutoff walk at the post-skip UT. Stock resource widgets should repaint from the existing KSP `AddFunds` / `AddScience` / `SetReputation` events emitted by `KspStatePatcher`; no separate widget shim was needed in the headless audit because the missing piece was the absent KSC recalculation.
+
+**Status:** Fixed in `game-actions-audit-todos`; pending in-game UI verification. Size: M-L. Correctness + UX. This is the direct explanation for the observed "KSC top bar did not update live while I time-warped" symptom.
+
+---
+
+## 437. Post-rewind live KSC/flight events drop the current-UT cutoff and credit future ledger rewards early
+
+**Source:** audit of `logs/2026-05-14_2009_game-actions-audit`. The ledger calculation itself is consistent, but a live event recorded after rewind calls the generic no-cutoff recalculation path and reapplies future rewards immediately.
+
+**Evidence:**
+
+- At FLIGHT load after rewind, `KSP.log:17348` correctly detects `hasFutureLedgerActions=True` at loaded UT `129.00963378905871` and uses a current-UT cutoff.
+- `KSP.log:17350` walks 31 of 33 actions at `cutoffUT=129.00963378905871`. The patch is correct: science `0.0 -> 4.8`, funds `21195.0 -> 43766.7`, reputation `0.00 -> 2.07` (`KSP.log:17420`, `KSP.log:17436`, `KSP.log:17438`).
+- Immediately after rollout, `KSP.log:17587` records a new `FundsChanged(VesselRollout)` at UT `129.3`. `LedgerRolloutAdoption.RecordVesselRolloutSpending` invokes the callback passed from `LedgerOrchestrator.OnVesselRolloutSpending`, which is currently `() => RecalculateAndPatch()` (`Source/Parsek/GameActions/LedgerOrchestrator.cs:2765-2771`, `:2792-2798`).
+- `KSP.log:17592` then walks all 34 actions with `cutoffUT=null`, credits future milestones at UT `153.1` and `184.2`, and patches funds `39961.7 -> 45561.7` plus reputation `2.07 -> 3.07` (`KSP.log:17640-17648`) even though live UT is still `129.3`.
+
+**Desired behavior:**
+
+- Any live event recorded while the current game UT is behind surviving future ledger actions must recalculate with the current timeline UT cutoff, not with `cutoffUT=null`.
+- Centralize this decision in `LedgerOrchestrator` instead of hand-patching only rollout. The same risk exists for `OnKscSpending`, `TryRecordKscScienceSubject`, `OnVesselRecoveryFunds`, recovery science, milestone enrichment, and any future direct KSC ledger-write path that currently ends in `RecalculateAndPatch()`.
+- Full no-cutoff walks should remain for intentional full-timeline operations: normal commit finalization, initial full-load seeding, tombstone finalization, and explicit "project full committed timeline" UI calculations.
+
+**Tests:**
+
+- `Bug445RolloutCostLeakTests.OnVesselRolloutSpending_WithFutureLedgerActions_RecalculatesAtRolloutUt` covers a post-rewind future-ledger state where a new rollout spending at UT `< nextFutureActionUT` preserves the current-UT cutoff and does not credit later milestone/science/funds actions.
+- `RewindUtCutoffTests.LiveTimelineEventCurrentUtCutoff_*` covers the shared helper decision for live event recalculation both before and at the timeline tip.
+- `GameStateRecorderLedgerTests.OnKscSpending_WithFutureLedgerActions_RecalculatesAtEventUt`, `KscScienceSubjectLedgerTests.TryRecordKscScienceSubject_WithFutureLedgerActions_RecalculatesAtSubjectUt`, and `GameStateRecorderLedgerTests.OnRecoveryFundsEventRecorded_DeferredPair_RecalculatesAtMatchedEventUt` cover the direct KSC spending/science/recovery writers.
+
+**Fix implemented:** `LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent` now centralizes the decision: if any non-seed ledger action remains after the live event UT, it runs the cutoff-preserving current-UT path; otherwise it keeps the existing full walk. Rollout spending, direct KSC spending, direct KSC science, and vessel recovery payouts now route through that helper. Deferred tree-resolution recalculations use the same current-timeline cutoff helper when future actions remain, so a patch that was deferred behind a pending/live tree does not fall back to a full future walk when the defer reason clears. Deferred vessel-recovery pairing recalculates at the matched `FundsChanged(VesselRecovery)` event UT, not the earlier recovery callback UT, so the newly-added payout is included while later rewards remain filtered. Cutoff walks also suppress the old "suspicious drawdown" warning so legitimate rewind/current-UT resource reductions do not look like missing earning channels.
+
+**Status:** Fixed in `game-actions-audit-todos`; pending in-game verification. Size: M. Correctness bug; can over-credit funds/reputation and mark future milestones achieved early.
+
+---
+
+## 436. Space Center scene load excludes KSC from post-rewind current-UT cutoff
+
+**Source:** audit of `logs/2026-05-14_2009_game-actions-audit`. The post-rewind scene-load safeguard is named and gated as a FLIGHT-only path, so loading Space Center at a UT before future committed actions can still run a full no-cutoff ledger patch.
+
+**Evidence:**
+
+- `LedgerOrchestrator.RecalculateAndPatchForPostRewindFlightLoad` is explicitly a current-UT cutoff path, but its call-site predicate is keyed on `loadedSceneIsFlight`.
+- `KSP.log:20508` loads Space Center at `loadedUT=168.90963378907912` with `hasFutureLedgerActions=True`, but logs `loadedSceneIsFlight=False` and `useCurrentUtCutoff=False`.
+- The resulting recalc is no-cutoff (`KSP.log:20587`) and leaves resources at the full future target (`PatchFunds: no change needed current=45561.7, target=45561.7`, `KSP.log:20589`) even though the `Kerbin/Landing` milestone action is at UT `184.1953686523571`, still in the future.
+
+**Desired behavior:**
+
+- Rename the FLIGHT-specific path to a scene-neutral current-timeline-load path and allow it for `SPACECENTER` when the loaded UT is behind future ledger actions and there is no live recorder / pending tree / active uncommitted tree that should defer patching.
+- Preserve the existing safety intent: normal latest-persistent Space Center loads with no future ledger actions can still perform a full no-cutoff recalc.
+- Log the scene-neutral decision with the scene, loaded UT, next future action UT, and selected cutoff so this is auditable from `KSP.log`.
+
+**Tests:**
+
+- `RewindUtCutoffTests.CurrentUtCutoffSupportedScene_AcceptsFlightAndSpaceCenterOnly` covers the expanded scene eligibility.
+- The existing post-rewind cutoff decision tests cover the no-future-action inverse path, where the scene-load code continues using the full recalculation.
+- `GameStateRecorderLedgerTests.OnKspLoad_WithFutureLedgerActionsAndCurrentUtCutoff_RecalculatesAtLoadUt` covers the cold-start load path.
+- `LedgerTests.Reconcile_PreserveFutureTimelineActions_*` covers preserving future contract lifecycle/spending rows while still pruning invalid recording ids.
+
+**Fix implemented:** the scene-load predicate now treats `FLIGHT` and `SPACECENTER` as current-UT cutoff-capable scenes, logs the scene-neutral decision, and calls the shared current-UT recalculation path when the loaded UT is behind future ledger actions. Cold-start `OnKspLoad` preserves future committed timeline actions during reconcile, including contract lifecycle rows and spendings, then uses the same cutoff behavior so those rows survive but do not affect live KSP state until their UT matures. The delayed initial resource seeding pass also uses the cutoff behavior when loading behind future actions, so a correct load-time cutoff is not later undone. `HandleRewindOnLoad` prunes stale future baselines before the rewind patch, preserving the earliest seed baseline while deleting post-cutoff baseline sidecars when possible.
+
+**Status:** Fixed in `game-actions-audit-todos`; pending in-game verification. Size: S-M. Correctness bug; related to #437 and #438 but independently reproducible on Space Center load.
+
+---
+
 ## 435. Multi-recording Gloops trees (main + debris + crew children, no vessel spawn)
 
 **Source:** world-model conversation on #432 (2026-04-17). The aspirational design for Gloops: when the player records a Gloops flight that stages or EVAs, the capture produces a **tree of ghost-only recordings** — main + debris children + crew children — all flagged `IsGhostOnly`, all grouped under a per-flight Gloops parent in the Recordings Manager, and none of them spawning a real vessel at ghost-end. Structurally the same as the normal Parsek recording tree (decouple → debris background recording, EVA → linked crew child), with the ghost-only flag applied uniformly and the vessel-spawn-at-end path skipped.
