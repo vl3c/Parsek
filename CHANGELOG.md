@@ -164,6 +164,7 @@ All notable changes to Parsek are documented here.
 - `BgGrazingPeriapsisInvariantTest` now allows `OrbitalCheckpoint` bridge sections (expected from packed on-rails closes) and only fails on per-frame `Absolute`/`Relative` env-classified sections, so the S16 invariant guard no longer trips on the intended checkpoint-bridge behaviour.
 - `FailedActivation_DoesNotEmitEvent` now probes every activatable stock strategy for one whose second `Activate()` returns false and only skips when none can exercise the failed-path event filter, so a re-activatable strategy (e.g. `BailoutGrant`) sorting first no longer silently disables the regression guard.
 - The Astronaut Complex, R&D, and Mission Control overlay in-game tests now wait for the building canvas to be destroyed before entering and after closing, so a canvas left mid-teardown by a prior test no longer leaves stacked or empty building windows.
+- Follow-up in-game harness fixes keep the test suite aligned with current runtime behaviour: isolated FLIGHT baseline validation now unwraps normal `GAME` save nodes before looking for `FLIGHTSTATE`; the stock scene-exit merge/discard canaries expect the pre-transition FLIGHT dialog instead of the old deferred Space Center timing; Mission Control overlay tests pick visible contract rows from the open UI and wait for row population before skipping; and the circular terminal-orbit canary builds its synthetic velocity from the live body transform rather than a stale historical rotation phase.
 
 ---
 
