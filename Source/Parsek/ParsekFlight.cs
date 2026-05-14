@@ -2362,7 +2362,9 @@ namespace Parsek
             // No pending tree was stashed (we discard pre-finalize).
             // Roll back any in-flight ledger entries from the aborted
             // recording.
-            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
+                "suppressed-scene-exit-discard");
         }
 
         private void FinalizeTreeOnSceneChangeCore(
@@ -10846,6 +10848,10 @@ namespace Parsek
             }
             recorder = null;
             lastPlaybackIndex = 0;
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
+                "flight-tree-commit");
 
             Log($"CommitTreeFlight: committed tree \"{treeName}\" — {spawnCount} vessel(s) spawned");
             if (spawnCount > 0)

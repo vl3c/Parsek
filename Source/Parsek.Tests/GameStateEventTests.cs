@@ -1080,6 +1080,45 @@ namespace Parsek.Tests
             Assert.Equal(0, GameStateStore.BaselineCount);
         }
 
+        [Fact]
+        public void PruneBaselinesAfterUT_RemovesFutureBaselinesAndPreservesEarliest()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = 0.0, funds = 25000 });
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = 73.4, funds = 42795 });
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = 186.5, funds = 49366 });
+
+            int removed = GameStateStore.PruneBaselinesAfterUT(
+                cutoffUT: 19.0,
+                preserveEarliest: true,
+                deleteFiles: false);
+
+            Assert.Equal(2, removed);
+            Assert.Equal(1, GameStateStore.BaselineCount);
+            Assert.Equal(0.0, GameStateStore.Baselines[0].ut, 3);
+        }
+
+        [Fact]
+        public void PruneBaselinesAfterUT_KeepsBaselinesAtOrBeforeCutoff()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = 0.0 });
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = 19.0 });
+            GameStateStore.AddBaseline(new GameStateBaseline { ut = 20.0 });
+
+            int removed = GameStateStore.PruneBaselinesAfterUT(
+                cutoffUT: 19.0,
+                preserveEarliest: true,
+                deleteFiles: false);
+
+            Assert.Equal(1, removed);
+            Assert.Equal(2, GameStateStore.BaselineCount);
+            Assert.Contains(GameStateStore.Baselines, b => b.ut == 0.0);
+            Assert.Contains(GameStateStore.Baselines, b => b.ut == 19.0);
+        }
+
         #endregion
 
         #region Contract Snapshot Edge Cases

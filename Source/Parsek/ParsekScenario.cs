@@ -94,6 +94,19 @@ namespace Parsek
         internal static void ResetInstanceForTesting()
         {
             s_instance = null;
+            CurrentTimelineUTProviderForTesting = null;
+        }
+
+        internal static Func<double> CurrentTimelineUTProviderForTesting;
+
+        internal static double GetCurrentTimelineUTForLedgerRecalc()
+        {
+            if (CurrentTimelineUTProviderForTesting != null)
+                return CurrentTimelineUTProviderForTesting();
+
+            return Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : double.MaxValue;
         }
 
         internal static void SetCachedAutoMergeForTesting(bool value)
@@ -256,12 +269,14 @@ namespace Parsek
 
             ParsekLog.Verbose("Scenario", $"DiscardPendingTree recalc path: {reason}");
             RecordingStore.DiscardPendingTree();
-            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                GetCurrentTimelineUTForLedgerRecalc(),
+                "pending-tree-discard");
         }
 
         internal static bool ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
             bool isRevert,
-            bool loadedSceneIsFlight,
+            bool loadedSceneSupportsCurrentUtCutoff,
             bool planetariumReady,
             bool hasPendingTree,
             ActiveTreeRestoreMode restoreMode,
@@ -270,7 +285,7 @@ namespace Parsek
             bool hasFutureLedgerActions)
         {
             return !isRevert
-                && loadedSceneIsFlight
+                && loadedSceneSupportsCurrentUtCutoff
                 && planetariumReady
                 && !hasPendingTree
                 && restoreMode == ActiveTreeRestoreMode.None
@@ -279,15 +294,20 @@ namespace Parsek
                 && hasFutureLedgerActions;
         }
 
+        internal static bool IsCurrentUtCutoffSupportedScene(GameScenes scene)
+        {
+            return scene == GameScenes.FLIGHT || scene == GameScenes.SPACECENTER;
+        }
+
         /// <summary>
-        /// Scene-load follow-up recalculation for the specific post-rewind FLIGHT
+        /// Scene-load follow-up recalculation for post-rewind current-timeline
         /// case where the loaded UT is still behind future committed actions.
         /// Filters the walk to the already-captured loaded UT while preserving the
         /// normal patch-deferral and same-branch repeatable-record behavior.
         /// </summary>
         internal static void RecalculateAndPatchForPostRewindFlightLoad(double loadedUT)
         {
-            LedgerOrchestrator.RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(loadedUT, "post-rewind-load");
         }
 
         /// <summary>
@@ -2002,7 +2022,9 @@ namespace Parsek
                         }
                     }
 
-                    bool loadedSceneIsFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
+                    GameScenes loadedScene = HighLogic.LoadedScene;
+                    bool loadedSceneSupportsCurrentUtCutoff =
+                        IsCurrentUtCutoffSupportedScene(loadedScene);
                     bool hasPendingTree = RecordingStore.HasPendingTree;
                     ActiveTreeRestoreMode restoreMode = ScheduleActiveTreeRestoreOnFlightReady;
                     bool hasLiveRecorder = GameStateRecorder.HasLiveRecorder();
@@ -2012,7 +2034,7 @@ namespace Parsek
                     bool useCurrentUtCutoffForPostRewindFlightLoad =
                         ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
                             isRevert,
-                            loadedSceneIsFlight,
+                            loadedSceneSupportsCurrentUtCutoff,
                             planetariumReady,
                             hasPendingTree,
                             restoreMode,
@@ -2020,9 +2042,10 @@ namespace Parsek
                             hasActiveUncommittedTree,
                             hasFutureLedgerActions);
                     ParsekLog.Info("Scenario",
-                        $"OnLoad: post-rewind FLIGHT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
+                        $"OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff={useCurrentUtCutoffForPostRewindFlightLoad} " +
                         $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"isRevert={isRevert} loadedSceneIsFlight={loadedSceneIsFlight} " +
+                        $"isRevert={isRevert} loadedScene={loadedScene} " +
+                        $"loadedSceneSupportsCurrentUtCutoff={loadedSceneSupportsCurrentUtCutoff} " +
                         $"planetariumReady={planetariumReady} hasPendingTree={hasPendingTree} " +
                         $"restoreMode={restoreMode} hasLiveRecorder={hasLiveRecorder} " +
                         $"hasActiveUncommittedTree={hasActiveUncommittedTree} " +
@@ -2030,7 +2053,7 @@ namespace Parsek
                     if (useCurrentUtCutoffForPostRewindFlightLoad)
                     {
                         ParsekLog.Info("Scenario",
-                            $"OnLoad: post-rewind FLIGHT recalc using current-UT cutoff {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"OnLoad: post-rewind scene-load recalc using current-UT cutoff {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
                             "to keep future funds/contracts filtered until replay catches up");
                         RecalculateAndPatchForPostRewindFlightLoad(loadedUT);
                     }
@@ -2163,7 +2186,11 @@ namespace Parsek
                 loadPhase = "ledger-load";
                 var validIds = BuildValidRecordingIdsForKspLoad();
                 double reconcileUT = Planetarium.GetUniversalTime();
-                LedgerOrchestrator.OnKspLoad(validIds, reconcileUT);
+                LedgerOrchestrator.OnKspLoad(
+                    validIds,
+                    reconcileUT,
+                    useCurrentUtCutoffForFutureActions:
+                        IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene));
 
                 // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
                 // may exist but have not loaded their save data yet (KSP loads scenarios in
@@ -2540,7 +2567,10 @@ namespace Parsek
             // EndRewind() below clears it. The deferred coroutine captures the
             // same value into a local BEFORE its yield so its second call is
             // independent of RewindContext state.
-            LedgerOrchestrator.RecalculateAndPatch(RewindContext.RewindAdjustedUT);
+            GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT);
+            LedgerOrchestrator.RecalculateAndPatch(
+                RewindContext.RewindAdjustedUT,
+                suppressSuspiciousDrawdownWarnings: true);
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
             ParsekLog.Info("Rewind",
@@ -5525,9 +5555,18 @@ namespace Parsek
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
                 $"Rep={(Reputation.Instance != null ? Reputation.Instance.reputation.ToString("F1", ic) : "null")}");
 
-            // Audited for #527: this initial-load-only reseed runs before any rewind
-            // context exists, so it intentionally stays full-ledger.
-            LedgerOrchestrator.RecalculateAndPatch();
+            double currentUT = Planetarium.GetUniversalTime();
+            if (IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene)
+                && LedgerOrchestrator.HasActionsAfterUT(currentUT))
+            {
+                LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(
+                    currentUT,
+                    "deferred-seed");
+            }
+            else
+            {
+                LedgerOrchestrator.RecalculateAndPatch();
+            }
         }
 
         #endregion
@@ -5621,7 +5660,9 @@ namespace Parsek
             // this coroutine resumes, so we cannot read from RewindContext here.
             // The cutoff applies to career resources; crew reservations are rebuilt
             // from the full committed timeline inside LedgerOrchestrator.
-            LedgerOrchestrator.RecalculateAndPatch(adjustedUT);
+            LedgerOrchestrator.RecalculateAndPatch(
+                adjustedUT,
+                suppressSuspiciousDrawdownWarnings: true);
 
             // Belt-and-suspenders guard: if some future refactor accidentally schedules
             // the normal revert budget-deduction coroutine during this rewind load, it

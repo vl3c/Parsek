@@ -574,7 +574,7 @@ namespace Parsek
             Func<RecoveredVesselIdentity, double, string> pickRecoveryRecordingId,
             Func<int> allocateKscSequence,
             IReadOnlyList<GameAction> actions,
-            Action recalculateAndPatch)
+            Action<double> recalculateAndPatch)
         {
             if (!TryFindRecoveryFundsEvent(
                     GameStateStore.Events,
@@ -631,7 +631,7 @@ namespace Parsek
                 $"ut={matched.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"recordingId={recordingId ?? "(none)"} fromTrackingStation={fromTrackingStation}");
 
-            recalculateAndPatch();
+            recalculateAndPatch(matched.ut);
             return true;
         }
 

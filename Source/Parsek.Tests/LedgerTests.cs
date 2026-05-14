@@ -463,6 +463,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Reconcile_PreserveFutureTimelineActions_KeepsFutureSpendings()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 18000.0,
+                Type = GameActionType.ScienceSpending,
+                NodeId = "advRocketry"
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 19000.0,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 500f
+            });
+
+            var valid = new HashSet<string>();
+            Ledger.Reconcile(
+                valid,
+                maxUT: 17500.0,
+                preserveFutureTimelineActions: true);
+
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ScienceSpending);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.FundsSpending);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedSpendings=0")
+                && l.Contains("preserveFutureTimelineActions=True"));
+        }
+
+        [Fact]
         public void Reconcile_KeepsCurrentSpendings()
         {
             Ledger.AddAction(new GameAction
@@ -517,6 +548,41 @@ namespace Parsek.Tests
             Assert.Empty(Ledger.Actions);
             Assert.Contains(logLines, l =>
                 l.Contains("[Ledger]") && l.Contains("prunedSpendingsByRecordingId=1"));
+        }
+
+        [Fact]
+        public void Reconcile_PreserveFutureTimelineActions_StillPrunesInvalidRecordingId()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = GameActionType.ScienceSpending,
+                RecordingId = "rec_deleted",
+                NodeId = "advRocketry",
+                Cost = 50f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20100.0,
+                Type = GameActionType.ContractComplete,
+                RecordingId = "rec_deleted",
+                ContractId = "contract-deleted",
+                FundsReward = 1000f
+            });
+
+            var valid = new HashSet<string> { "rec_current" };
+            Ledger.Reconcile(
+                valid,
+                maxUT: 18000.0,
+                preserveFutureTimelineActions: true);
+
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedSpendingsByRecordingId=1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedContractLifecycle=1"));
         }
 
         [Fact]
@@ -691,6 +757,45 @@ namespace Parsek.Tests
                 l.Contains("[Ledger]")
                 && l.Contains("prunedEarnings=1")
                 && l.Contains("prunedOther=1"));
+        }
+
+        [Fact]
+        public void Reconcile_PreserveFutureTimelineActions_KeepsFutureContractLifecycle()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20000.0,
+                Type = GameActionType.ContractAccept,
+                RecordingId = null,
+                ContractId = "contract-future-ksc",
+                AdvanceFunds = 5000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 20100.0,
+                Type = GameActionType.ContractComplete,
+                RecordingId = "rec_future",
+                ContractId = "contract-future-rec",
+                FundsReward = 10000f
+            });
+
+            var valid = new HashSet<string> { "rec_future" };
+            Ledger.Reconcile(
+                valid,
+                maxUT: 18000.0,
+                preserveFutureTimelineActions: true);
+
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractAccept
+                && a.ContractId == "contract-future-ksc");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractComplete
+                && a.ContractId == "contract-future-rec");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedContractLifecycle=0")
+                && l.Contains("preserveFutureTimelineActions=True"));
         }
 
         [Theory]

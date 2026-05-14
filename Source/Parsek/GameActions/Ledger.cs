@@ -464,12 +464,17 @@ namespace Parsek
         ///   recording-set check — e.g. milestones achieved at recovery or KSC-side
         ///   purchases).
         /// - Spending actions and contract lifecycle rows whose UT is strictly after maxUT
-        ///   are removed regardless of their RecordingId.
+        ///   are removed unless <paramref name="preserveFutureTimelineActions"/> is true.
+        ///   Current-UT load/replay paths preserve future committed rows and let the
+        ///   recalculation cutoff filter their live effects until the game clock catches up.
         /// Earnings and spendings are classified by <see cref="RecalculationEngine.IsEarningType"/>
         /// and <see cref="RecalculationEngine.IsSpendingType"/>.
         /// FundsInitial actions are always kept.
         /// </summary>
-        internal static void Reconcile(HashSet<string> validRecordingIds, double maxUT)
+        internal static void Reconcile(
+            HashSet<string> validRecordingIds,
+            double maxUT,
+            bool preserveFutureTimelineActions = false)
         {
             if (validRecordingIds == null)
             {
@@ -507,7 +512,7 @@ namespace Parsek
                 // pruned while its future completion survives as an earning.
                 if (IsContractLifecycleType(action.Type))
                 {
-                    if (action.UT > maxUT)
+                    if (!preserveFutureTimelineActions && action.UT > maxUT)
                     {
                         IncrementContractLifecyclePrunedCounter(action.Type,
                             ref prunedEarnings,
@@ -570,7 +575,7 @@ namespace Parsek
                 // spendings that outlive any individual recording.
                 if (RecalculationEngine.IsSpendingType(action.Type))
                 {
-                    if (action.UT > maxUT)
+                    if (!preserveFutureTimelineActions && action.UT > maxUT)
                     {
                         prunedSpendings++;
                         ParsekLog.Verbose("Ledger",
@@ -614,7 +619,7 @@ namespace Parsek
                             $"UT={action.UT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
                 }
-                else if (action.UT <= maxUT)
+                else if (preserveFutureTimelineActions || action.UT <= maxUT)
                 {
                     surviving.Add(action);
                     kept++;
@@ -641,6 +646,7 @@ namespace Parsek
                 $"prunedContractLifecycle={prunedContractLifecycle}, " +
                 $"prunedOther={prunedOther}, " +
                 $"maxUT={maxUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                $"preserveFutureTimelineActions={preserveFutureTimelineActions}, " +
                 $"validRecordingIds={validRecordingIds.Count}");
         }
 
