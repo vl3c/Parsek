@@ -1544,6 +1544,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeIndividualRecording_SuppressedEvaSubSurface_FinalizesLandedWithSnapshot()
+        {
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = commitUT,
+                        extrapolationFailureReason = ExtrapolationFailureReason.SubSurfaceStart,
+                        subSurfaceDestroyedBodyName = "Kerbin",
+                        subSurfaceDestroyedAltitude = -599652.6,
+                        subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude
+                    };
+                    return false;
+                };
+
+            Recording parent = MakeParentRecordingWithStructuralPoint(
+                recordingId: "eva-positive-parent",
+                pointUT: 500.0,
+                altitude: 65.0);
+            Recording sibling = MakeTreeRecording("eva-positive-sibling");
+            Recording evaChild = MakeEvaChildRecording(
+                recordingId: "eva-positive-child",
+                siblingRecordingId: sibling.RecordingId,
+                parentBranchPointId: "bp-eva-positive");
+            evaChild.VesselPersistentId = 4242u;
+            evaChild.VesselSnapshot = MakeSnapshotWithPart("LANDED");
+            evaChild.GhostVisualSnapshot = MakeSnapshotWithPart("LANDED");
+            var surfacePoint = new TrajectoryPoint
+            {
+                ut = 500.02,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 65.0
+            };
+            evaChild.Points.Add(surfacePoint);
+            evaChild.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 500.0,
+                endUT = 500.02,
+                environment = SegmentEnvironment.SurfaceStationary,
+                frames = new List<TrajectoryPoint> { surfacePoint }
+            });
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva-positive");
+
+            bool suppliedSnapshot = ParsekFlight.FinalizeIndividualRecording(
+                evaChild,
+                commitUT: 500.05,
+                isSceneExit: true,
+                treeContext: tree,
+                findVesselByPid: _ => null,
+                liveVesselAccess: new ParsekFlight.FinalizationLiveVesselAccess(isFound: _ => false));
+
+            Assert.False(suppliedSnapshot);
+            Assert.Equal(TerminalState.Landed, evaChild.TerminalStateValue);
+            Assert.True(evaChild.TerminalPosition.HasValue);
+            Assert.Equal(SurfaceSituation.Landed, evaChild.TerminalPosition.Value.situation);
+            Assert.NotNull(evaChild.VesselSnapshot);
+            Assert.NotNull(evaChild.GhostVisualSnapshot);
+            Assert.Equal(1, CountPartNodes(evaChild.VesselSnapshot));
+            Assert.Equal(1, CountPartNodes(evaChild.GhostVisualSnapshot));
+            Assert.Contains(logLines, l =>
+                l.Contains("not found on scene exit for recording 'eva-positive-child'")
+                && l.Contains("inferred Landed from trajectory"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("classified Destroyed by sub-surface path")
+                && l.Contains("eva-positive-child"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("marking Destroyed")
+                && l.Contains("eva-positive-child"));
+        }
+
+        [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_SuppressionWarnsPerRecording()
         {
             var first = new Recording
@@ -3084,6 +3160,20 @@ namespace Parsek.Tests
             var node = new ConfigNode("VESSEL");
             node.AddValue("sit", sit);
             return node;
+        }
+
+        private static ConfigNode MakeSnapshotWithPart(string sit)
+        {
+            ConfigNode node = MakeSnapshot(sit);
+            ConfigNode part = node.AddNode("PART");
+            part.AddValue("name", "kerbalEVA");
+            part.AddValue("persistentId", "100000");
+            return node;
+        }
+
+        private static int CountPartNodes(ConfigNode snapshot)
+        {
+            return snapshot?.GetNodes("PART")?.Length ?? 0;
         }
 
         private static OrbitSegment MakePredictedSegmentForReseedTest(
