@@ -4267,9 +4267,12 @@ namespace Parsek
             double longitude = v.longitude;
             double altitude = v.altitude;
             Quaternion rotation = v.srfRelRotation;
+            string llaSource = "vessel-fields";
             if (preferRootPartSurfacePose)
             {
-                TryResolveRootPartSurfacePose(v, out latitude, out longitude, out altitude, out rotation);
+                llaSource = TryResolveRootPartSurfacePose(v, out latitude, out longitude, out altitude, out rotation)
+                    ? "root-part"
+                    : "root-part-fallback-vessel-fields";
             }
             else if (!v.packed && v.mainBody != null && v.transform != null)
             {
@@ -4280,6 +4283,7 @@ namespace Parsek
                 latitude = v.mainBody.GetLatitude(freshWorldPos);
                 longitude = v.mainBody.GetLongitude(freshWorldPos);
                 altitude = v.mainBody.GetAltitude(freshWorldPos);
+                llaSource = "transform";
             }
 
             TrajectoryPoint pt = new TrajectoryPoint
@@ -4323,6 +4327,7 @@ namespace Parsek
                     " packed=" + v.packed +
                     " explicitVel=" + explicitVelocity.HasValue +
                     " preferRoot=" + preferRootPartSurfacePose +
+                    " llaSource=" + llaSource +
                     " LLA=(" + pt.latitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
                     "," + pt.longitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
                     "," + pt.altitude.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")" +

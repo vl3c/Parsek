@@ -20,6 +20,7 @@ namespace Parsek.InGameTests
         internal const float TimeScalePositiveThreshold = 0.01f;
         internal const int TimeScalePositiveProbeFrames = 8;
         internal const float TimeJumpLaunchAutoRecordTransientTimeoutSeconds = 3f;
+        internal const double BackgroundLoadedSampleRoundTripToleranceMeters = 0.5;
 
         internal enum TimeScalePositiveProbeOutcome
         {
@@ -3345,12 +3346,15 @@ namespace Parsek.InGameTests
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            bool originalGhostRenderTracing = ParsekSettings.Current?.ghostRenderTracing ?? false;
             bool startedByTest = false;
 
             try
             {
                 ParsekLog.VerboseOverrideForTesting = true;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.ghostRenderTracing = true;
 
                 flight.StartRecording();
                 startedByTest = flight.IsRecording;
@@ -3396,14 +3400,40 @@ namespace Parsek.InGameTests
                 InGameAssert.IsFalse(decisionLine.Contains("propagatedResidual=n/a"),
                     "Seed decision log should include a numeric propagated residual");
 
+                string bgSampleLine = null;
+                double bgSampleDeltaMeters = double.NaN;
+                deadline = Time.time + 5f;
+                while (Time.time < deadline)
+                {
+                    if (TryFindLoadedBackgroundAbsoluteSampleLog(captured, out bgSampleLine, out bgSampleDeltaMeters))
+                        break;
+
+                    yield return new WaitForFixedUpdate();
+                }
+
+                if (bgSampleLine == null)
+                {
+                    InGameAssert.Skip(
+                        "controlled child seed observed but no ordinary loaded/unpacked BG_CreateAbs trace sample was observed");
+                    yield break;
+                }
+
+                InGameAssert.Contains(bgSampleLine, "llaSource=transform",
+                    "Loaded/unpacked ordinary background samples should derive LLA from transform.position");
+                InGameAssert.IsLessThan(bgSampleDeltaMeters, BackgroundLoadedSampleRoundTripToleranceMeters,
+                    $"Loaded background sample should round-trip near the live transform; delta={bgSampleDeltaMeters:F3} line='{bgSampleLine}'");
+
                 ParsekLog.Info("TestRunner",
                     $"Controlled child seed residual decision observed: commandModules={commandModuleCount} " +
-                    $"decouplers={decouplerCount} line='{decisionLine}'");
+                    $"decouplers={decouplerCount} bgSampleDelta={bgSampleDeltaMeters:F3}m " +
+                    $"line='{decisionLine}' bgLine='{bgSampleLine}'");
             }
             finally
             {
                 if (FlightInputHandler.state != null)
                     FlightInputHandler.state.mainThrottle = originalThrottle;
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.ghostRenderTracing = originalGhostRenderTracing;
                 ParsekLog.TestObserverForTesting = priorObserver;
                 ParsekLog.VerboseOverrideForTesting = priorVerbose;
 
@@ -3479,6 +3509,69 @@ namespace Parsek.InGameTests
             return line != null
                 && line.Contains("[Coalescer]")
                 && line.Contains("Controlled child initial seed");
+        }
+
+        private static bool TryFindLoadedBackgroundAbsoluteSampleLog(
+            List<string> lines,
+            out string line,
+            out double deltaMeters)
+        {
+            line = null;
+            deltaMeters = double.NaN;
+            if (lines == null)
+                return false;
+
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                string candidate = lines[i];
+                if (candidate == null
+                    || !candidate.Contains("[BG_CreateAbs]")
+                    || !candidate.Contains(" packed=False")
+                    || !candidate.Contains(" preferRoot=False"))
+                {
+                    continue;
+                }
+
+                if (!TryExtractTraceDeltaMeters(candidate, out double parsedDelta))
+                    continue;
+
+                line = candidate;
+                deltaMeters = parsedDelta;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryExtractTraceDeltaMeters(string line, out double deltaMeters)
+        {
+            deltaMeters = double.NaN;
+            if (string.IsNullOrEmpty(line))
+                return false;
+
+            const string marker = " |delta|=";
+            int start = line.IndexOf(marker);
+            if (start < 0)
+                return false;
+
+            start += marker.Length;
+            int end = start;
+            while (end < line.Length)
+            {
+                char c = line[end];
+                if (!(char.IsDigit(c) || c == '-' || c == '+' || c == '.' || c == 'E' || c == 'e'))
+                    break;
+                end++;
+            }
+
+            if (end <= start)
+                return false;
+
+            return double.TryParse(
+                line.Substring(start, end - start),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out deltaMeters);
         }
 
         #endregion

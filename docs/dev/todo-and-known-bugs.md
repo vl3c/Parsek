@@ -82,7 +82,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** Loaded/unpacked ordinary background samples now match the foreground recorder and derive LLA from `vessel.transform.position` through `body.GetLatitude/Longitude/Altitude`. Packed/on-rails samples keep the Vessel-field fallback, and parent-anchored debris still uses the root-part surface-pose path so the debris visual-root contract is unchanged.
 
-**Coverage:** Headless build and the existing recorder contracts cover the compile-time surface. In-game validation must use a fresh original recording; already-written `.prec` sidecars from the May 14 repro contain the stale child points and cannot be corrected by changing playback alone.
+**Coverage:** Headless build and the existing recorder contracts cover the compile-time surface. `RuntimeTests.ControlledChildBreakupSeed_LogsLiveResidualDecision` now temporarily enables Trace-Sep during its isolated staging run and asserts that the first ordinary loaded/unpacked `BG_CreateAbs` sample reports `llaSource=transform` with a sub-0.5 m transform round-trip delta. Fresh-recording in-game validation is still required before merging; already-written `.prec` sidecars from the May 14 repro contain the stale child points and cannot be corrected by changing playback alone.
 
 **Status:** CODED 2026-05-15; awaiting review and fresh-recording in-game validation.
 
