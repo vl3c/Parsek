@@ -19717,7 +19717,8 @@ namespace Parsek
                         out worldPos,
                         suppressAnchorCorrection,
                         TryFindActiveInPlaceReFlyFocusTree(activeReFlyStats.ActiveRecordingId),
-                        BuildSingleRecordingOverlay(activeReFlyReadModel)))
+                        BuildSingleRecordingOverlay(activeReFlyReadModel),
+                        ComputeActiveReFlyPrimaryPastEndExtrapolationSeconds(activeReFlyReadModel.Points)))
                 {
                     LogActiveInPlaceReFlyPrimaryReadModelHit(activeReFlyStats, ut);
                     return true;
@@ -19747,7 +19748,8 @@ namespace Parsek
                 out worldPos,
                 suppressAnchorCorrection,
                 null,
-                null);
+                null,
+                0.0);
         }
 
         private const int MaxCoBubblePrimaryResolutionDepth = 16;
@@ -19958,7 +19960,8 @@ namespace Parsek
             out Vector3d worldPos,
             bool suppressAnchorCorrection,
             RecordingTree relativeFocusTreeOverride,
-            IReadOnlyDictionary<string, Recording> relativeRecordingOverlay)
+            IReadOnlyDictionary<string, Recording> relativeRecordingOverlay,
+            double maxPastEndExtrapolationSeconds = 0.0)
         {
             worldPos = default;
             if (rec == null) return false;
@@ -20034,6 +20037,7 @@ namespace Parsek
             }
             TrajectoryPoint before, after;
             float t;
+            bool extrapolatingPastEnd = false;
             // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
             // from at/before-start (idx == 0). The pre-fix idx <= 0
             // collapse clamped both cases to rec.Points[0] — past end
@@ -20041,17 +20045,30 @@ namespace Parsek
             // backwards in time when ut > rec.Points last UT.
             if (idx == -1)
             {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-absolute-past-end",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "ABSOLUTE-frame standalone past last point: recording={0} ut={1} lastPointUT={2}",
-                        recordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
+                if (TrySelectActiveReFlyPastEndExtrapolationBracket(
+                        rec,
+                        ut,
+                        maxPastEndExtrapolationSeconds,
+                        out before,
+                        out after,
+                        out t))
+                {
+                    extrapolatingPastEnd = true;
+                }
+                else
+                {
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "standalone-absolute-past-end",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "ABSOLUTE-frame standalone past last point: recording={0} ut={1} lastPointUT={2}",
+                            recordingId,
+                            ut.ToString("R", CultureInfo.InvariantCulture),
+                            rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
+                        5.0);
+                    return false;
+                }
             }
-            if (idx == 0)
+            else if (idx == 0)
             {
                 before = rec.Points[0];
                 after = before;
@@ -20081,7 +20098,9 @@ namespace Parsek
                 after.ut, recordingId);
             Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, altBefore);
             Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, altAfter);
-            Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
+            Vector3d pos = extrapolatingPastEnd
+                ? posBefore + (posAfter - posBefore) * t
+                : Vector3d.Lerp(posBefore, posAfter, t);
 
             // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
             // through the Phase 5 blender — primaries always render
@@ -20400,6 +20419,9 @@ namespace Parsek
         }
 
         private const double ActiveReFlyReadModelUtEpsilon = 1e-6;
+        private const double ActiveReFlyReadModelMinimumPastEndExtrapolationSeconds = 0.35;
+        private const double ActiveReFlyReadModelMaximumPastEndExtrapolationSeconds = 1.0;
+        private const double ActiveReFlyReadModelPastEndSampleSpanMultiplier = 1.5;
 
         private static double LastPointUT(IReadOnlyList<TrajectoryPoint> points)
         {
@@ -20428,6 +20450,79 @@ namespace Parsek
                 }
                 destination.Add(point);
             }
+        }
+
+        internal static double ComputeActiveReFlyPrimaryPastEndExtrapolationSeconds(
+            IReadOnlyList<TrajectoryPoint> points)
+        {
+            if (points == null || points.Count < 2)
+                return ActiveReFlyReadModelMinimumPastEndExtrapolationSeconds;
+
+            double span = points[points.Count - 1].ut - points[points.Count - 2].ut;
+            if (double.IsNaN(span) || double.IsInfinity(span) || span <= ActiveReFlyReadModelUtEpsilon)
+                return ActiveReFlyReadModelMinimumPastEndExtrapolationSeconds;
+
+            double dynamicWindow = span * ActiveReFlyReadModelPastEndSampleSpanMultiplier;
+            if (dynamicWindow < ActiveReFlyReadModelMinimumPastEndExtrapolationSeconds)
+                dynamicWindow = ActiveReFlyReadModelMinimumPastEndExtrapolationSeconds;
+            if (dynamicWindow > ActiveReFlyReadModelMaximumPastEndExtrapolationSeconds)
+                dynamicWindow = ActiveReFlyReadModelMaximumPastEndExtrapolationSeconds;
+            return dynamicWindow;
+        }
+
+        private static bool TrySelectActiveReFlyPastEndExtrapolationBracket(
+            Recording rec,
+            double ut,
+            double maxPastEndExtrapolationSeconds,
+            out TrajectoryPoint before,
+            out TrajectoryPoint after,
+            out float t)
+        {
+            before = default;
+            after = default;
+            t = 0f;
+            if (maxPastEndExtrapolationSeconds <= 0.0 || rec?.Points == null || rec.Points.Count == 0)
+                return false;
+
+            int lastIndex = rec.Points.Count - 1;
+            TrajectoryPoint last = rec.Points[lastIndex];
+            double overshootSeconds = ut - last.ut;
+            if (overshootSeconds < -ActiveReFlyReadModelUtEpsilon
+                || overshootSeconds > maxPastEndExtrapolationSeconds + ActiveReFlyReadModelUtEpsilon)
+            {
+                return false;
+            }
+
+            if (lastIndex == 0)
+            {
+                before = last;
+                after = last;
+                t = 0f;
+            }
+            else
+            {
+                before = rec.Points[lastIndex - 1];
+                after = last;
+                double span = after.ut - before.ut;
+                t = span > ActiveReFlyReadModelUtEpsilon
+                    ? (float)((ut - before.ut) / span)
+                    : 0f;
+            }
+
+            ParsekLog.VerboseRateLimited(
+                "Pipeline-CoBubble",
+                "active-refly-primary-past-end-extrapolate|" + (rec.RecordingId ?? "(none)"),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Active Re-Fly origin primary extrapolated from recorded tail: active={0} ut={1} lastPointUT={2} overshootS={3:F3} maxOvershootS={4:F3} pointCount={5}",
+                    rec.RecordingId ?? "(none)",
+                    ut.ToString("R", CultureInfo.InvariantCulture),
+                    last.ut.ToString("R", CultureInfo.InvariantCulture),
+                    overshootSeconds,
+                    maxPastEndExtrapolationSeconds,
+                    rec.Points.Count),
+                5.0);
+            return true;
         }
 
         private static void AppendTrackSectionCopies(

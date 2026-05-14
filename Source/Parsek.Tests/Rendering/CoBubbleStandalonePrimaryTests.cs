@@ -760,6 +760,134 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ExtrapolatesShortRecordedTailGaps()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            const string originId = "committed-origin-live-tail-gap";
+            const string activeId = "active-provisional-live-tail-gap";
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-live-tail-gap",
+                ActiveReFlyRecordingId = activeId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                InPlaceContinuation = true,
+            };
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = marker,
+            });
+
+            TrajectoryPoint before = AbsolutePoint(100.0, 10.0, 20.0, 1000.0);
+            TrajectoryPoint last = AbsolutePoint(100.2, 10.0, 20.001, 1000.0);
+            ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting =
+                (string requestedRecordingId, ReFlySessionMarker activeMarker, double ut,
+                    out Recording recording,
+                    out ParsekFlight.ActiveReFlyPrimaryReadModelStats stats,
+                    out string reason) =>
+                {
+                    reason = null;
+                    stats = new ParsekFlight.ActiveReFlyPrimaryReadModelStats
+                    {
+                        OriginRecordingId = activeMarker.OriginChildRecordingId,
+                        ActiveRecordingId = activeMarker.ActiveReFlyRecordingId,
+                        RecorderPointCount = 2,
+                        SnapshotPointCount = 2,
+                    };
+                    recording = new Recording
+                    {
+                        RecordingId = activeId,
+                        RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                        Points = new List<TrajectoryPoint> { before, last },
+                        TrackSections = new List<TrackSection>
+                        {
+                            AbsoluteSection(before, last),
+                        },
+                    };
+                    return true;
+                };
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                100.3,
+                kerbin,
+                out Vector3d worldPos);
+
+            Vector3d beforeWorld = kerbin.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
+            Vector3d lastWorld = kerbin.GetWorldSurfacePosition(last.latitude, last.longitude, last.altitude);
+            Vector3d expected = beforeWorld + (lastWorld - beforeWorld) * 1.5;
+            Assert.True(ok, string.Join("\n", logLines));
+            Assert.True(Vector3d.Distance(expected, worldPos) < 0.001);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Active Re-Fly origin primary extrapolated from recorded tail")
+                && l.Contains(activeId));
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_FailsClosedPastTailExtrapolationWindow()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            const string originId = "committed-origin-live-tail-too-far";
+            const string activeId = "active-provisional-live-tail-too-far";
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-live-tail-too-far",
+                ActiveReFlyRecordingId = activeId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                InPlaceContinuation = true,
+            };
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = marker,
+            });
+
+            TrajectoryPoint before = AbsolutePoint(100.0, 10.0, 20.0, 1000.0);
+            TrajectoryPoint last = AbsolutePoint(100.2, 10.0, 20.001, 1000.0);
+            ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting =
+                (string requestedRecordingId, ReFlySessionMarker activeMarker, double ut,
+                    out Recording recording,
+                    out ParsekFlight.ActiveReFlyPrimaryReadModelStats stats,
+                    out string reason) =>
+                {
+                    reason = null;
+                    stats = new ParsekFlight.ActiveReFlyPrimaryReadModelStats
+                    {
+                        OriginRecordingId = activeMarker.OriginChildRecordingId,
+                        ActiveRecordingId = activeMarker.ActiveReFlyRecordingId,
+                        RecorderPointCount = 2,
+                        SnapshotPointCount = 2,
+                    };
+                    recording = new Recording
+                    {
+                        RecordingId = activeId,
+                        RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                        Points = new List<TrajectoryPoint> { before, last },
+                        TrackSections = new List<TrackSection>
+                        {
+                            AbsoluteSection(before, last),
+                        },
+                    };
+                    return true;
+                };
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                100.8,
+                kerbin,
+                out Vector3d worldPos);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, worldPos.x);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Active Re-Fly origin primary live trajectory unavailable")
+                && l.Contains("live-read-model-position-failed")
+                && l.Contains(activeId));
+        }
+
+        [Fact]
         public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_LiveMissFailsClosed()
         {
             CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
