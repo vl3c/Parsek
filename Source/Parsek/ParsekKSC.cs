@@ -50,6 +50,7 @@ namespace Parsek
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
         private HashSet<string> loggedPlaybackDisabledPastEndSpawnAttempts = new HashSet<string>();
         private bool pauseMenuOpen;
+        private double lastKscLedgerCutoffUT = double.NaN;
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
         internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
         internal static Func<int> PauseExplosionOneShotAudioAction = GhostPlaybackLogic.PauseExplosionOneShotAudio;
@@ -62,6 +63,7 @@ namespace Parsek
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
         private const float GhostCullDistanceSq = DistanceThresholds.KscGhosts.CullDistanceSq;
+        private const double KscLedgerAdvanceEpsilonSeconds = 0.05;
         // KSC playback is a Kerbin-surface scene; do not read GhostPlaybackState.atmosphereFactor
         // here because flight's per-frame atmosphere refresh does not run in KSC.
         private const float KscExplosionAtmosphereFactor = 1f;
@@ -323,11 +325,13 @@ namespace Parsek
             // [ERS-exempt] reason: same as constructor — ParsekKSC keys ghost
             // state by committed recording index. See TODO(phase 6+) above.
             var committed = RecordingStore.CommittedRecordings;
+            double currentUT = Planetarium.GetUniversalTime();
+            AdvanceCareerLedgerForKscUT(currentUT);
+
             if (committed.Count == 0) return;
+
             var supersedes = CurrentRecordingSupersedes();
             var retirements = CurrentRecordingRewindRetirements();
-
-            double currentUT = Planetarium.GetUniversalTime();
 
             float warpRate = TimeWarp.CurrentRate;
             bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(warpRate);
@@ -455,6 +459,51 @@ namespace Parsek
                         warpRate, suppressGhosts, suppressVisualFx);
                 }
             }
+        }
+
+        internal static bool ShouldAdvanceCareerLedgerForKscUT(
+            double currentUT,
+            double lastAppliedUT,
+            double nextActionUT,
+            double epsilon)
+        {
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+                return false;
+            if (double.IsNaN(lastAppliedUT) || double.IsInfinity(lastAppliedUT))
+                return false;
+            if (currentUT < lastAppliedUT - epsilon)
+                return true;
+            if (double.IsNaN(nextActionUT) || double.IsInfinity(nextActionUT))
+                return false;
+            return currentUT >= nextActionUT;
+        }
+
+        private void AdvanceCareerLedgerForKscUT(double currentUT)
+        {
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+                return;
+
+            if (double.IsNaN(lastKscLedgerCutoffUT))
+            {
+                lastKscLedgerCutoffUT = currentUT;
+                return;
+            }
+
+            if (!LedgerOrchestrator.TryGetNextActionUTAfter(lastKscLedgerCutoffUT, out double nextActionUT))
+                nextActionUT = double.PositiveInfinity;
+
+            if (!ShouldAdvanceCareerLedgerForKscUT(
+                    currentUT,
+                    lastKscLedgerCutoffUT,
+                    nextActionUT,
+                    KscLedgerAdvanceEpsilonSeconds))
+                return;
+
+            string reason = currentUT < lastKscLedgerCutoffUT - KscLedgerAdvanceEpsilonSeconds
+                ? "ksc-clock-backward"
+                : "ksc-clock";
+            LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent(currentUT, reason);
+            lastKscLedgerCutoffUT = currentUT;
         }
 
         private void RebuildAutoLoopLaunchScheduleCache(IReadOnlyList<Recording> recordings)

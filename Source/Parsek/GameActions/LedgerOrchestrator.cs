@@ -1310,19 +1310,35 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Post-rewind FLIGHT-load follow-up recalculation that filters the walk to
-        /// the currently loaded UT without opting into rewind-only patch side
-        /// effects. Unlike the normal explicit-cutoff path, this preserves
+        /// Current-timeline recalculation that filters the walk to the supplied live UT
+        /// without opting into rewind-only patch side effects. This preserves
         /// pending/live-tree patch deferral and same-branch repeatable-record
-        /// preservation.
+        /// preservation while keeping resources/contracts/facilities at the live
+        /// game clock instead of the full future timeline.
         /// </summary>
-        internal static void RecalculateAndPatchForPostRewindFlightLoad(double utCutoff)
+        internal static void RecalculateAndPatchForCurrentTimelineUT(
+            double utCutoff,
+            string reason = null)
         {
+            if (!string.IsNullOrEmpty(reason))
+            {
+                ParsekLog.Info(Tag,
+                    $"Current-UT ledger recalculation: reason={reason} cutoffUT={utCutoff.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: false,
                 authoritativeRepeatableRecordState: false,
                 techPatchCutoff: utCutoff);
+        }
+
+        /// <summary>
+        /// Back-compat wrapper for existing post-rewind scene-load call sites/tests.
+        /// </summary>
+        internal static void RecalculateAndPatchForPostRewindFlightLoad(double utCutoff)
+        {
+            RecalculateAndPatchForCurrentTimelineUT(utCutoff, "post-rewind-load");
         }
 
         /// <summary>
@@ -1334,11 +1350,31 @@ namespace Parsek
         /// </summary>
         internal static void RecalculateAndPatchForTimeJump(double utCutoff)
         {
-            RecalculateAndPatchCore(
-                utCutoff,
-                bypassPatchDeferral: false,
-                authoritativeRepeatableRecordState: false,
-                techPatchCutoff: utCutoff);
+            RecalculateAndPatchForCurrentTimelineUT(utCutoff, "time-jump");
+        }
+
+        /// <summary>
+        /// Recalculates after a live KSC/flight event has just been written to the
+        /// ledger. If committed actions still exist after the event UT, keep the walk
+        /// cutoff at that live UT so future rewards are not patched into KSP early.
+        /// </summary>
+        internal static void RecalculateAndPatchForLiveTimelineEvent(
+            double eventUT,
+            string reason)
+        {
+            string safeReason = string.IsNullOrEmpty(reason) ? "live-event" : reason;
+            bool hasFuture = HasActionsAfterUT(eventUT);
+            ParsekLog.Verbose(Tag,
+                $"Live-event recalc decision: reason={safeReason} eventUT={eventUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"hasFutureLedgerActions={hasFuture}");
+
+            if (hasFuture)
+            {
+                RecalculateAndPatchForCurrentTimelineUT(eventUT, safeReason);
+                return;
+            }
+
+            RecalculateAndPatch();
         }
 
         /// <summary>
@@ -1811,7 +1847,8 @@ namespace Parsek
                 targetTechIds,
                 authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
                 techUtCutoff: techPatchCutoff,
-                techBaselineUt: techBaselineUt);
+                techBaselineUt: techBaselineUt,
+                suppressSuspiciousDrawdownWarnings: utCutoff.HasValue);
         }
 
         internal static HashSet<string> BuildTombstonedFacilityIdsForPatch()
@@ -1933,14 +1970,31 @@ namespace Parsek
 
         internal static bool HasActionsAfterUT(double ut)
         {
+            return TryGetNextActionUTAfter(ut, out _);
+        }
+
+        internal static bool TryGetNextActionUTAfter(double ut, out double nextActionUT)
+        {
+            nextActionUT = double.PositiveInfinity;
+            bool found = false;
             for (int i = 0; i < Ledger.Actions.Count; i++)
             {
                 var action = Ledger.Actions[i];
-                if (action != null && action.UT > ut)
-                    return true;
+                if (action == null)
+                    continue;
+                if (RecalculationEngine.IsSeedType(action.Type))
+                    continue;
+                if (action.UT <= ut)
+                    continue;
+
+                if (!found || action.UT < nextActionUT)
+                {
+                    nextActionUT = action.UT;
+                    found = true;
+                }
             }
 
-            return false;
+            return found;
         }
 
         private static string GetKspPatchDeferralReason()
@@ -2082,7 +2136,15 @@ namespace Parsek
         /// </summary>
         /// <param name="validRecordingIds">Set of recording IDs present in the loaded save.</param>
         /// <param name="maxUT">Current UT — future spendings and contract lifecycle rows after this are pruned.</param>
-        internal static void OnKspLoad(HashSet<string> validRecordingIds, double maxUT)
+        /// <param name="useCurrentUtCutoffForFutureActions">
+        /// When true, keep the live KSP state at <paramref name="maxUT"/> if the
+        /// surviving ledger still contains later actions. This is needed for loading
+        /// older saves/quicksaves behind already-committed recording rewards.
+        /// </param>
+        internal static void OnKspLoad(
+            HashSet<string> validRecordingIds,
+            double maxUT,
+            bool useCurrentUtCutoffForFutureActions = false)
         {
             Initialize();
 
@@ -2169,7 +2231,15 @@ namespace Parsek
                     $"TryRecoverBrokenLedgerOnLoad failed during OnKspLoad: {ex.GetType().Name}: {ex.Message}");
             }
 
-            RecalculateAndPatch();
+            if (useCurrentUtCutoffForFutureActions && HasActionsAfterUT(maxUT))
+            {
+                RecalculateAndPatchForCurrentTimelineUT(maxUT, "ksp-load");
+            }
+            else
+            {
+                RecalculateAndPatch();
+            }
+
             KerbalLoadRepairDiagnostics.EmitAndReset();
         }
 
@@ -2639,7 +2709,7 @@ namespace Parsek
             // transformed rewards.
             ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
 
-            RecalculateAndPatch();
+            RecalculateAndPatchForLiveTimelineEvent(evt.ut, "ksc-spending");
         }
 
         /// <summary>
@@ -2715,7 +2785,7 @@ namespace Parsek
                 $"method={scienceActions[0].Method} ut={subject.captureUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"recordingId={recordingId ?? "(none)"} vessel='{vesselName ?? ""}'");
 
-            RecalculateAndPatch();
+            RecalculateAndPatchForLiveTimelineEvent(subject.captureUT, "ksc-science");
             return true;
         }
 
@@ -2768,7 +2838,7 @@ namespace Parsek
                 context,
                 AllocateKscSequence,
                 (action, actionUt) => ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, actionUt),
-                () => RecalculateAndPatch());
+                () => RecalculateAndPatchForLiveTimelineEvent(ut, "vessel-rollout"));
         }
 
         /// <summary>
@@ -2795,7 +2865,7 @@ namespace Parsek
                 context,
                 AllocateKscSequence,
                 (action, actionUt) => ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, actionUt),
-                () => RecalculateAndPatch());
+                () => RecalculateAndPatchForLiveTimelineEvent(ut, "vessel-rollout"));
         }
 
         /// <summary>
@@ -3035,7 +3105,7 @@ namespace Parsek
                 PickRecoveryRecordingId,
                 AllocateKscSequence,
                 Ledger.Actions,
-                () => RecalculateAndPatch());
+                actionUt => RecalculateAndPatchForLiveTimelineEvent(actionUt, "vessel-recovery"));
         }
 
         /// <summary>

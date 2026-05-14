@@ -23,6 +23,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Career ledger replay now stays pinned to the live timeline in Space Center and after post-rewind live events. Space Center loads can use the same current-UT cutoff as Flight loads, KSC time warp advances resources only when committed action UTs mature, rollout/KSC/recovery writes no longer credit future rewards early, stale future baselines are pruned on rewind, and intentional cutoff drawdowns no longer emit the missing-earnings warning.
 - Fresh EVA branch recordings no longer get poisoned as `Destroyed` before the kerbal has recorded its first samples, so EVA ghosts keep their vessel snapshots for playback. Destroyed debris still follows the old `Destroyed` path when there is no contradictory recorded surface evidence.
 - Suppressed scene-exit discards now restore KSP's persistent-debris setting after Parsek temporarily raises it for recording, so cancelled scene-exit commits and isolated runtime tests do not leave the player's debris limit changed.
 - Second EVA from a backgrounded parent vessel now records as a proper branch instead of being silently dropped at scene exit. Blocked EVA/tree-head recorder starts now show diagnostics instead of silently orphaning data.
