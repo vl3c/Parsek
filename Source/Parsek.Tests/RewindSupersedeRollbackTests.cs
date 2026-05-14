@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
@@ -267,8 +268,12 @@ namespace Parsek.Tests
             // Two supersedes (A→C and B→C) collapse to one fork retirement for
             // C (RetiredForkRecordingIds dedupes by hash). Owner A stays
             // restored (StartUT == rewindAdjustedUT). B is an old-side with
-            // StartUT > rewindAdjustedUT, so it gains its own retirement under
-            // the old-side pass.
+            // StartUT > rewindAdjustedUT and used to gain its own retirement
+            // under PR #807. Under fix-tree-rewind-supersede-old-side the
+            // priorTip is only retired when the dropped relation's fork is
+            // Immutable (and not a forced self-rewind). Here C uses the
+            // MakeRec default MergeState=NotCommitted, so B stays visible and
+            // the row count is 1 (fork only).
             var a = MakeRec("A", startUT: 6.5);
             var b = MakeRec("B", startUT: 31.5);
             var c = MakeRec("C", startUT: 50.0);
@@ -288,35 +293,45 @@ namespace Parsek.Tests
 
             Assert.Equal(2, dropped);
             Assert.Empty(scenario.RecordingSupersedes);
-            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
-
-            RecordingRewindRetirement forkRetirement = scenario.RecordingRewindRetirements
-                .Single(r => r.Reason == RecordingRewindRetirement.DefaultReason);
+            // Single fork retirement; B is no longer retired (non-Immutable fork).
+            RecordingRewindRetirement forkRetirement = Assert.Single(scenario.RecordingRewindRetirements);
             Assert.Equal("C", forkRetirement.RecordingId);
+            Assert.Equal(RecordingRewindRetirement.DefaultReason, forkRetirement.Reason);
             Assert.Equal("A", forkRetirement.RestoredRecordingId);
 
-            RecordingRewindRetirement oldSideRetirement = scenario.RecordingRewindRetirements
-                .Single(r => r.Reason == RecordingRewindRetirement.RewoundOutOldSideReason);
-            Assert.Equal("B", oldSideRetirement.RecordingId);
-            Assert.Null(oldSideRetirement.RestoredRecordingId);
-            Assert.Null(oldSideRetirement.SourceSupersedeRelationId);
-
-            // Owner A stays visible (rewind target; not in retirement set).
+            // Owner A and old-side B both stay visible.
             Assert.DoesNotContain(scenario.RecordingRewindRetirements,
-                r => r.RecordingId == "A");
+                r => r.RecordingId == "A" || r.RecordingId == "B");
+            Assert.False(EffectiveState.IsRewindRetired(b, scenario.RecordingRewindRetirements));
+
+            // Per-skip Verbose log captures B (the non-owner old-side skipped).
+            Assert.Contains(logLines, line =>
+                line.Contains("[Rewind]")
+                && line.Contains("Old-side retirement skipped for rec=B")
+                && line.Contains("reason=fork-non-immutable"));
         }
 
         [Fact]
-        public void LiveRollback_RetiresOldSides_WhenAllStartAfterRewindUT()
+        public void LiveRollback_DoesNotRetireOldSides_WhenForksAreNotCommitted()
         {
-            // Mirrors logs/2026-05-10_1713 — owner is the Kerbal X main rocket
-            // recording (StartUT=302) at the launch pad; rewindAdjustedUT=287
-            // accounts for RewindToLaunchLeadTimeSeconds. The Re-Fly fork (F)
-            // and the three originals it superseded (P_atmo, P_destroyed,
-            // P_continuation) all start AFTER the rewind boundary, so they all
-            // need to be hidden after rollback. Without the old-side retirement
-            // pass, P_destroyed re-appears in the recordings table when the
-            // supersede relation is dropped.
+            // This test used to be LiveRollback_RetiresOldSides_WhenAllStartAfterRewindUT,
+            // claiming to model logs/2026-05-10_1713. In that playtest the fork's
+            // actual MergeState was Immutable (Re-Fly reached Orbiting), so under
+            // fix-rewind-canon-forks the supersede relations would now be
+            // PRESERVED in pendingImmutablePreservations and never reach Pass 2.
+            // The original test bypassed that by relying on MakeRec's
+            // MergeState=NotCommitted default — a synthetic shape that no real
+            // production save authors.
+            //
+            // Under fix-tree-rewind-supersede-old-side the old-side priorTip is
+            // only retired when at least one dropped relation has a non-self-rewound
+            // Immutable fork (see AnyDroppedRelationRetiresPriorTipPermanently).
+            // With NotCommitted forks the helper returns false for every
+            // priorTip and Pass 2 writes zero rows. The priorTips stay visible
+            // so spawn-at-endpoint replays them once the active vessel reaches
+            // their endpoints — see LiveRollback_DoesNotRetireOldSide_WhenForkIsCommittedProvisional
+            // for the current canonical playtest regression guard
+            // (logs/2026-05-13_2335_kerbal-x-booster-ghost-missing).
             var owner = MakeRec("rocket", startUT: 302.0);
             var probeAtmo = MakeRec("P_atmo", startUT: 456.0);
             var probeDestroyed = MakeRec("P_destroyed", startUT: 466.0);
@@ -340,31 +355,20 @@ namespace Parsek.Tests
 
             Assert.Equal(3, dropped);
             Assert.Empty(scenario.RecordingSupersedes);
-            // 1 fork retirement + 3 old-side retirements.
-            Assert.Equal(4, scenario.RecordingRewindRetirements.Count);
-
-            RecordingRewindRetirement forkRetirement = scenario.RecordingRewindRetirements
-                .Single(r => r.Reason == RecordingRewindRetirement.DefaultReason);
+            // Single fork retirement (F), no old-side retirements under the new rule.
+            RecordingRewindRetirement forkRetirement = Assert.Single(scenario.RecordingRewindRetirements);
             Assert.Equal("F", forkRetirement.RecordingId);
+            Assert.Equal(RecordingRewindRetirement.DefaultReason, forkRetirement.Reason);
 
-            var oldSideRetirements = scenario.RecordingRewindRetirements
-                .Where(r => r.Reason == RecordingRewindRetirement.RewoundOutOldSideReason)
-                .ToList();
-            Assert.Equal(3, oldSideRetirements.Count);
-            Assert.Contains(oldSideRetirements, r => r.RecordingId == "P_atmo");
-            Assert.Contains(oldSideRetirements, r => r.RecordingId == "P_destroyed");
-            Assert.Contains(oldSideRetirements, r => r.RecordingId == "P_continuation");
-            Assert.All(oldSideRetirements, r =>
-            {
-                Assert.Null(r.RestoredRecordingId);
-                Assert.Null(r.SourceSupersedeRelationId);
-                Assert.Equal(287.0, r.RewindUT);
-            });
-
-            // P_destroyed is the playtest's smoking-gun "Destroyed" outcome —
-            // EffectiveState.IsRewindRetired must hide it after rollback.
-            Assert.True(EffectiveState.IsRewindRetired(
+            // P_destroyed is the original "Destroyed" outcome. Intentionally
+            // left visible so the user can Watch it after Rewinding the parent
+            // — the priorTip is the un-superseded canonical state.
+            Assert.False(EffectiveState.IsRewindRetired(
                 probeDestroyed, scenario.RecordingRewindRetirements));
+            Assert.False(EffectiveState.IsRewindRetired(
+                probeAtmo, scenario.RecordingRewindRetirements));
+            Assert.False(EffectiveState.IsRewindRetired(
+                probeContinuation, scenario.RecordingRewindRetirements));
 
             // Owner stays visible.
             Assert.DoesNotContain(scenario.RecordingRewindRetirements,
@@ -372,14 +376,18 @@ namespace Parsek.Tests
             Assert.False(EffectiveState.IsRewindRetired(
                 owner, scenario.RecordingRewindRetirements));
 
-            // Summary log captures the new field; per-row log captures each old side.
+            // Summary log captures the new skippedNonImmutableOldSides counter and
+            // retiredOldSides drops to zero; per-skip Verbose log captures each
+            // priorTip the new gate refused to retire.
             Assert.Contains(logLines, line =>
                 line.Contains("[Rewind]")
                 && line.Contains("Rewind supersede rollback")
-                && line.Contains("retiredOldSides=3"));
+                && line.Contains("retiredOldSides=0")
+                && line.Contains("skippedNonImmutableOldSides=3"));
             Assert.Equal(3, logLines.Count(line =>
                 line.Contains("[Rewind]")
-                && line.Contains("Retired rewound-out old-side rec=")));
+                && line.Contains("Old-side retirement skipped for rec=")
+                && line.Contains("reason=fork-non-immutable")));
         }
 
         [Fact]
@@ -389,6 +397,15 @@ namespace Parsek.Tests
             // supersede (rewindAdjustedUT < owner.StartUT due to launch lead).
             // The owner-skip in the old-side pass keeps owner out of the
             // retirement list even though it lives in RestoredRecordingIds.
+            //
+            // After fix-tree-rewind-supersede-old-side the helper
+            // AnyDroppedRelationRetiresPriorTipPermanently short-circuits before
+            // the owner-skip log fires when the fork is non-Immutable (which is
+            // the case with the MakeRec default). The owner-skip itself is
+            // therefore defense-in-depth — exercised directly by the helper
+            // truth-table test below. This test continues to assert the
+            // user-visible invariant: the owner of a rewind whose own
+            // supersede gets dropped is never retired.
             var owner = MakeRec("owner", startUT: 302.0);
             var fork = MakeRec("F", startUT: 320.0);
             InstallCommittedTreeForTesting("tree-owner-oldside", owner, fork);
@@ -411,9 +428,276 @@ namespace Parsek.Tests
             Assert.Equal(RecordingRewindRetirement.DefaultReason, retirement.Reason);
 
             Assert.False(EffectiveState.IsRewindRetired(owner, scenario.RecordingRewindRetirements));
+        }
+
+        // ----------------------------------------------------------------
+        // fix-tree-rewind-supersede-old-side: regression guards for the
+        // 2026-05-13 playtest (Kerbal X probe Crashed → Re-Fly Crashed,
+        // user rewinds tree-root after seal, expects original probe to
+        // re-appear during Watch). The new Pass-2 gate skips old-side
+        // retirement when the dropped supersede's fork is non-Immutable
+        // or forced-self-rewound.
+        // ----------------------------------------------------------------
+
+        [Fact]
+        public void LiveRollback_DoesNotRetireOldSide_WhenForkIsCommittedProvisional()
+        {
+            // Mirrors logs/2026-05-13_2335_kerbal-x-booster-ghost-missing.
+            // Owner Kerbal X (rocket) at StartUT=7.44, rewindAdjustedUT=0.0
+            // (the lead-time gap pulls adjusted UT before owner.StartUT).
+            // PriorTip 'B' is the Kerbal X Probe (CommittedProvisional after
+            // CommitTree promoted the Crashed terminal — Recording.cs Recording
+            // default Immutable is overridden by UnfinishedFlights promotion at
+            // RecordingStore.cs:903). Fork rec_3c0f is CommittedProvisional too.
+            // The user expects B's ghost to be visible in Watch after rewind so
+            // spawn-at-endpoint can replay it.
+            var owner = MakeRec("kerbal-x", startUT: 7.44);
+            var priorTip = MakeRecWithMergeState("kerbal-x-probe", startUT: 23.6,
+                state: MergeState.CommittedProvisional);
+            var fork = MakeRecWithMergeState("rec_3c0f", startUT: 24.42,
+                state: MergeState.CommittedProvisional);
+            InstallCommittedTreeForTesting("tree-kerbal-x", owner, priorTip, fork);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("kerbal-x-probe", "rec_3c0f")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(owner, 0.0);
+
+            Assert.Equal(1, dropped);
+            Assert.Empty(scenario.RecordingSupersedes);
+            // 1 fork retirement (rec_3c0f) and 0 old-side retirements.
+            RecordingRewindRetirement forkRetirement = Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("rec_3c0f", forkRetirement.RecordingId);
+            Assert.Equal(RecordingRewindRetirement.DefaultReason, forkRetirement.Reason);
+
+            // PriorTip stays visible — this is the key behavior the playtest fix is about.
+            Assert.False(EffectiveState.IsRewindRetired(
+                priorTip, scenario.RecordingRewindRetirements));
+
+            // Summary log has skippedNonImmutableOldSides=1, retiredOldSides=0.
             Assert.Contains(logLines, line =>
                 line.Contains("[Rewind]")
-                && line.Contains("Old-side retirement skipped for owner rec=owner"));
+                && line.Contains("Rewind supersede rollback")
+                && line.Contains("retiredOldSides=0")
+                && line.Contains("skippedNonImmutableOldSides=1"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Rewind]")
+                && line.Contains("Old-side retirement skipped for rec=kerbal-x-probe")
+                && line.Contains("reason=fork-non-immutable"));
+        }
+
+        [Fact]
+        public void LiveRollback_NoOldSideRetirement_InDemotedImmutableChain()
+        {
+            // Real production chain: A (owner) → B(CommittedProvisional) → C(Immutable).
+            // Pure pass 1 puts A→B into pendingDrops (non-Immutable) and B→C
+            // into pendingImmutablePreservations. Pure pass 2's demotion fixpoint
+            // notices B is in pendingRetiredNewIds and demotes B→C to a drop
+            // (DemotedImmutablePreservationIds += C). Live Pass 1 retires both
+            // B (non-Immutable, no defense) and C (intentional drop). The
+            // priorTip iteration in Live Pass 2 sees A (owner-skipped) and B
+            // (in seenRetiredIds → short-circuited before the new helper).
+            // No old-side retirement is written.
+            var a = MakeRec("A", startUT: 6.5);
+            var b = MakeRecWithMergeState("B", startUT: 30.0,
+                state: MergeState.CommittedProvisional);
+            var c = MakeRecWithMergeState("C", startUT: 50.0,
+                state: MergeState.Immutable);
+            InstallCommittedTreeForTesting("tree-demoted-chain", a, b, c);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("A", "B"),
+                    MakeRel("B", "C")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(a, 6.5);
+
+            Assert.Equal(2, dropped);
+            Assert.Empty(scenario.RecordingSupersedes);
+            // Two fork retirements (B with DefaultReason, C with DemotedCanonReason),
+            // zero old-side retirements.
+            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "B" && r.Reason == RecordingRewindRetirement.DefaultReason);
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "C" && r.Reason == RecordingRewindRetirement.DemotedCanonReason);
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.Reason == RecordingRewindRetirement.RewoundOutOldSideReason);
+        }
+
+        [Fact]
+        public void LiveRollback_OrphanRelation_DoesNotRetireOldSide()
+        {
+            // Orphan-fallback: a supersede relation whose fork is missing from
+            // the live committed store. Pure pass 1 drops it (no MergeState to
+            // check). Live Pass 1 writes no fork retirement (no live record to
+            // retire). Live Pass 2's new helper looks up the fork, sees null,
+            // returns false → priorTip stays visible. Conservative choice: an
+            // orphan supersede has already lost its replacement, so the priorTip
+            // is the only remaining candidate.
+            var owner = MakeRec("owner", startUT: 5.0);
+            var priorTip = MakeRec("oldB", startUT: 30.0);
+            InstallCommittedTreeForTesting("tree-orphan", owner, priorTip);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        OldRecordingId = "oldB",
+                        NewRecordingId = "missing-fork",
+                        UT = 31.0
+                    }
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(owner, 4.0);
+
+            Assert.Equal(1, dropped);
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.False(EffectiveState.IsRewindRetired(priorTip, scenario.RecordingRewindRetirements));
+        }
+
+        [Fact]
+        public void LiveRollback_SelfRewindOnCanon_DoesNotRetireOldSide()
+        {
+            // User clicks Rewind on the canon fork itself (not its parent).
+            // Pure pass 1 detects newIsSelfRewind (owner.RecordingId ==
+            // rel.NewRecordingId), forces the drop, and tags ForcedSelfRewindDropIds.
+            // Live Pass 1 retires the canon fork as wasForcedSelfRewindDrop.
+            // Live Pass 2 reaches the priorTip; the new helper finds the
+            // relation but its NewRecordingId is in ForcedSelfRewindDropIds →
+            // helper returns false → priorTip stays visible. The user's intent
+            // (undo the canon) is honored: priorTip becomes the new canonical
+            // state.
+            var priorTip = MakeRec("priorTip", startUT: 10.0);
+            // Use Immutable for the canon fork; without canon-forks the test would
+            // also pass, but real self-rewind on canon happens against Immutable.
+            var canon = MakeRecWithMergeState("canon", startUT: 30.0,
+                state: MergeState.Immutable);
+            InstallCommittedTreeForTesting("tree-self-rewind", priorTip, canon);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    MakeRel("priorTip", "canon")
+                },
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>()
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            // Self-rewind: owner of the rewind == fork id.
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistence(canon, 15.0);
+
+            Assert.Equal(1, dropped);
+            Assert.Empty(scenario.RecordingSupersedes);
+            RecordingRewindRetirement retirement = Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("canon", retirement.RecordingId);
+            Assert.Equal(RecordingRewindRetirement.SelfRewoundCanonReason, retirement.Reason);
+
+            // PriorTip stays visible — the user explicitly undid the canon, so
+            // priorTip is the new canonical state.
+            Assert.False(EffectiveState.IsRewindRetired(
+                priorTip, scenario.RecordingRewindRetirements));
+        }
+
+        [Fact]
+        public void AnyDroppedRelationRetiresPriorTipPermanently_TruthTable()
+        {
+            // Direct truth-table coverage for the new helper. The live entry
+            // point (DropSupersedesRewoundOutOfExistence) integrates this with
+            // owner-skip, seenRetiredIds, and StartUT guards — exercised by the
+            // tests above. This test isolates the helper so each branch is
+            // covered without scaffolding the entire rollback flow.
+            //
+            // Note: in production the "helper returns true" branch of Pass 2 is
+            // effectively unreachable — Immutable forks reach DroppedRelations
+            // only via demotion (whose priorTip is itself in seenRetiredIds and
+            // is therefore short-circuited before the helper runs) or via
+            // forced self-rewind (which the helper explicitly excludes). The
+            // helper's Case 3 / Case 8 below cover the logic directly so a
+            // future code path that introduces a new way to drop Immutable
+            // forks is not silently ignored.
+            var liveById = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            void AddRec(string id, MergeState state)
+            {
+                var rec = MakeRecWithMergeState(id, startUT: 100.0, state: state);
+                liveById[id] = rec;
+            }
+            AddRec("forkImm", MergeState.Immutable);
+            AddRec("forkProv", MergeState.CommittedProvisional);
+            AddRec("forkNotCommitted", MergeState.NotCommitted);
+
+            // Case 1: empty DroppedRelations → false.
+            var emptyRollback = new RecordingStore.RewindSupersedeRollbackResult();
+            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", emptyRollback, liveById));
+
+            // Case 2: relation pointing at a different old-side → false.
+            var otherRollback = new RecordingStore.RewindSupersedeRollbackResult();
+            otherRollback.DroppedRelations.Add(MakeRel("X", "forkImm"));
+            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", otherRollback, liveById));
+
+            // Case 3: Immutable fork targeting B, not self-rewound → true.
+            var immRollback = new RecordingStore.RewindSupersedeRollbackResult();
+            immRollback.DroppedRelations.Add(MakeRel("B", "forkImm"));
+            Assert.True(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", immRollback, liveById));
+
+            // Case 4: Immutable fork, marked as ForcedSelfRewindDrop → false.
+            var selfRewindRollback = new RecordingStore.RewindSupersedeRollbackResult();
+            selfRewindRollback.DroppedRelations.Add(MakeRel("B", "forkImm"));
+            selfRewindRollback.ForcedSelfRewindDropIds.Add("forkImm");
+            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", selfRewindRollback, liveById));
+
+            // Case 5: CommittedProvisional fork → false.
+            var provRollback = new RecordingStore.RewindSupersedeRollbackResult();
+            provRollback.DroppedRelations.Add(MakeRel("B", "forkProv"));
+            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", provRollback, liveById));
+
+            // Case 6: NotCommitted fork → false.
+            var ncRollback = new RecordingStore.RewindSupersedeRollbackResult();
+            ncRollback.DroppedRelations.Add(MakeRel("B", "forkNotCommitted"));
+            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", ncRollback, liveById));
+
+            // Case 7: fork missing from liveRecordingsById → false.
+            var orphanRollback = new RecordingStore.RewindSupersedeRollbackResult();
+            orphanRollback.DroppedRelations.Add(MakeRel("B", "missing"));
+            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", orphanRollback, liveById));
+
+            // Case 8: multiple relations targeting B; any Immutable non-self-rewound → true.
+            var fanInRollback = new RecordingStore.RewindSupersedeRollbackResult();
+            fanInRollback.DroppedRelations.Add(MakeRel("B", "forkProv"));
+            fanInRollback.DroppedRelations.Add(MakeRel("B", "forkImm"));
+            Assert.True(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", fanInRollback, liveById));
+
+            // Case 9: null oldSideId → false.
+            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                null, immRollback, liveById));
+
+            // Case 10: null rollback → false.
+            Assert.False(RecordingStore.AnyDroppedRelationRetiresPriorTipPermanently(
+                "B", null, liveById));
         }
 
         [Fact]
@@ -461,9 +745,14 @@ namespace Parsek.Tests
         public void ReapplyRewindSupersedeDropAfterLoad_Idempotent_DoesNotDuplicateOldSideRetirements()
         {
             // Cross-LoadScene re-apply is the second call site of the same
-            // rollback. After the first call retires the old side, the second
+            // rollback. After the first call retires the fork, the second
             // call must early-out via the existing-id guard (the first run
             // already dropped the supersedes; the second sees an empty list).
+            //
+            // Under fix-tree-rewind-supersede-old-side the old-side priorTip
+            // ("old") is not retired (fork F is non-Immutable), so the
+            // retirement list has 1 row after the first pass and stays at 1
+            // after the second.
             var owner = MakeRec("rocket", startUT: 302.0);
             var oldSide = MakeRec("old", startUT: 456.0);
             var fork = MakeRec("F", startUT: 457.0);
@@ -483,13 +772,13 @@ namespace Parsek.Tests
 
             int firstDropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
             Assert.Equal(1, firstDropped);
-            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            Assert.Single(scenario.RecordingRewindRetirements);
 
             int secondDropped = RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
-            // Second pass drops nothing (supersede list is empty) but more
-            // importantly does not duplicate the existing retirements.
+            // Second pass drops nothing (supersede list is empty) and does not
+            // duplicate the existing retirement.
             Assert.Equal(0, secondDropped);
-            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
+            Assert.Single(scenario.RecordingRewindRetirements);
         }
 
         [Fact]
@@ -1210,12 +1499,12 @@ namespace Parsek.Tests
             //
             //   Owner is the rewind owner (StartUT == rewindUT, stays visible).
             //   Sibling X is in the rewound subtree; X→Y(Provisional) is a
-            //     supersede relation (so Y retires as a fork, X retires as
-            //     old-side).
+            //     supersede relation (so Y retires as a fork; X stays visible
+            //     under fix-tree-rewind-supersede-old-side because Y is
+            //     non-Immutable).
             //   Sibling A is in the rewound subtree; A→C(Immutable) is a
-            //     supersede relation (so C preserves as canon, A is hidden by
-            //     the surviving relation — NOT old-side retired because A is
-            //     not in RestoredRecordingIds).
+            //     supersede relation (so C preserves as canon, A stays hidden
+            //     by the surviving relation — never reaches old-side pass).
             //
             // Pass 1: X→Y drops (Y Prov), A→C tentatively preserves (C Imm).
             // Pass 2 fixpoint: pendingRetiredNewIds={Y}; A→C's Old=A ∉ {Y} →
@@ -1226,10 +1515,10 @@ namespace Parsek.Tests
             //
             // EnsureRewindRetirementsForRollback:
             //   Pass 1 (forks={Y}): Y retires (DefaultReason).
-            //   Pass 2 (old-side={X}): X != Owner, X.StartUT > rewindUT →
-            //     retires (RewoundOutOldSideReason).
+            //   Pass 2 (old-side={X}): helper(X) finds X→Y with non-Immutable
+            //     Y → returns false. X stays visible.
             //
-            // Outcome: 1 drop, 2 retirements (1 fork + 1 old-side), 1 canon
+            // Outcome: 1 drop, 1 retirement (fork Y only), 1 canon
             // preservation. A→C survives in supersedes.
             var owner = MakeRec("Owner", startUT: 0.0);
             var x = MakeRec("X", startUT: 10.0);
@@ -1257,26 +1546,23 @@ namespace Parsek.Tests
             Assert.Single(scenario.RecordingSupersedes);
             Assert.Equal("A", scenario.RecordingSupersedes[0].OldRecordingId);
             Assert.Equal("C", scenario.RecordingSupersedes[0].NewRecordingId);
-            // Retirements: Y as fork (default), X as old-side. C preserved.
-            // A NOT retired — its supersede A→C survives, so A is hidden by
-            // the relation rather than by retirement.
-            Assert.Equal(2, scenario.RecordingRewindRetirements.Count);
-            var yRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "Y");
-            var xRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "X");
-            var aRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "A");
-            var cRetirement = scenario.RecordingRewindRetirements.Find(r => r.RecordingId == "C");
-            Assert.NotNull(yRetirement);
-            Assert.NotNull(xRetirement);
-            Assert.Null(aRetirement);
-            Assert.Null(cRetirement);
+            // Retirement: Y as fork (default). X is NOT retired (non-Immutable
+            // fork). C preserved. A hidden by surviving A→C relation.
+            RecordingRewindRetirement yRetirement = Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.Equal("Y", yRetirement.RecordingId);
             Assert.Equal(RecordingRewindRetirement.DefaultReason, yRetirement.Reason);
-            Assert.Equal(RecordingRewindRetirement.RewoundOutOldSideReason, xRetirement.Reason);
-            // Summary log captures all relevant counters.
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "X" || r.RecordingId == "A" || r.RecordingId == "C");
+            // X stays visible (helper returned false for non-Immutable fork Y).
+            Assert.False(EffectiveState.IsRewindRetired(x, scenario.RecordingRewindRetirements));
+            // Summary log captures retiredOldSides=0, skippedNonImmutableOldSides=1,
+            // and the Immutable preservation count.
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") &&
                 l.Contains("dropped=1") &&
                 l.Contains("retiredForks=1") &&
-                l.Contains("retiredOldSides=1") &&
+                l.Contains("retiredOldSides=0") &&
+                l.Contains("skippedNonImmutableOldSides=1") &&
                 l.Contains("skippedImmutable=1"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") &&
