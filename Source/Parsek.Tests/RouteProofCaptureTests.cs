@@ -51,21 +51,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void InventoryPayloadIdentityHash_IsCanonicalForValueOrder()
+        public void InventoryPayloadIdentityHash_IgnoresSlotAndQuantityButIncludesPayload()
         {
             ConfigNode first = new ConfigNode("STOREDPART");
+            first.AddValue("slotIndex", "0");
             first.AddValue("partName", "evaJetpack");
             first.AddValue("variantName", "white");
             first.AddValue("quantity", "1");
 
             ConfigNode second = new ConfigNode("STOREDPART");
-            second.AddValue("quantity", "1");
+            second.AddValue("quantity", "3");
+            second.AddValue("slotIndex", "4");
             second.AddValue("variantName", "white");
             second.AddValue("partName", "evaJetpack");
 
-            Assert.Equal(
-                VesselSpawner.ComputeInventoryPayloadIdentityHash(first),
-                VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
+            string firstHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(first);
+            string secondHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(second);
+            Assert.Equal(firstHash, secondHash);
+
+            second.SetValue("variantName", "orange", true);
+            Assert.NotEqual(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
+        }
+
+        [Fact]
+        public void ExtractInventoryPayloadItems_GroupsStacksByPayloadIdentity()
+        {
+            ConfigNode first = MakeStoredPart("evaRepairKit", null, 2);
+            first.AddValue("slotIndex", "0");
+            ConfigNode second = MakeStoredPart("evaRepairKit", null, 3);
+            second.AddValue("slotIndex", "1");
+            ConfigNode vessel = MakeVessel(
+                MakePart(100, "cargoBay", MakeInventoryModule(first, second)));
+
+            List<InventoryPayloadItem> payload =
+                VesselSpawner.ExtractInventoryPayloadItems(vessel, new List<uint> { 100 });
+
+            Assert.NotNull(payload);
+            Assert.Single(payload);
+            Assert.Equal("evaRepairKit", payload[0].PartName);
+            Assert.Equal(5, payload[0].Quantity);
+            Assert.Equal(2, payload[0].SlotsTaken);
         }
 
         [Fact]
@@ -129,6 +154,56 @@ namespace Parsek.Tests
             Assert.Null(window.UndockTransportInventory);
             Assert.Single(window.UndockEndpointInventory);
             Assert.Equal("evaJetpack", window.UndockEndpointInventory[0].PartName);
+        }
+
+        [Fact]
+        public void CompleteRouteConnectionWindowAtUndock_MissingEndpointPart_DoesNotMarkComplete()
+        {
+            var window = new RouteConnectionWindow
+            {
+                WindowId = "window",
+                DockUT = 100.0,
+                TransferTargetVesselPid = 9001,
+                TransportPartPersistentIds = new List<uint> { 100 },
+                EndpointPartPersistentIds = new List<uint> { 200 }
+            };
+            ConfigNode onlyTransport = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 30.0, 100.0)));
+
+            Assert.False(RouteProofCapture.CompleteRouteConnectionWindowAtUndock(
+                window,
+                160.0,
+                onlyTransport));
+
+            Assert.False(window.IsComplete);
+            Assert.True(double.IsNaN(window.UndockUT));
+        }
+
+        [Fact]
+        public void CompleteRouteConnectionWindowAtUndock_RouteSetsStillDocked_DoesNotMarkComplete()
+        {
+            var window = new RouteConnectionWindow
+            {
+                WindowId = "window",
+                DockUT = 100.0,
+                TransferTargetVesselPid = 9001,
+                TransportPartPersistentIds = new List<uint> { 100 },
+                EndpointPartPersistentIds = new List<uint> { 200 }
+            };
+            ConfigNode routePairStillDocked = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 30.0, 100.0)),
+                MakePart(200, "endpointTank", MakeResource("LiquidFuel", 50.0, 200.0)));
+            ConfigNode unrelatedUndockedCraft = MakeVessel(
+                MakePart(300, "thirdCraft", MakeResource("Ore", 1.0, 10.0)));
+
+            Assert.False(RouteProofCapture.CompleteRouteConnectionWindowAtUndock(
+                window,
+                160.0,
+                routePairStillDocked,
+                unrelatedUndockedCraft));
+
+            Assert.False(window.IsComplete);
+            Assert.True(double.IsNaN(window.UndockUT));
         }
 
         private static ConfigNode MakeVessel(params ConfigNode[] parts)

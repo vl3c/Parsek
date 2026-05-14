@@ -495,7 +495,7 @@ namespace Parsek
                 return null;
 
             StringBuilder canonical = new StringBuilder();
-            AppendCanonicalConfigNode(storedPart, canonical);
+            AppendCanonicalConfigNode(storedPart, canonical, ignoreStoredPartSlotAndQuantity: true);
 
             using (SHA256 sha = SHA256.Create())
             {
@@ -617,7 +617,10 @@ namespace Parsek
             }
         }
 
-        private static void AppendCanonicalConfigNode(ConfigNode node, StringBuilder output)
+        private static void AppendCanonicalConfigNode(
+            ConfigNode node,
+            StringBuilder output,
+            bool ignoreStoredPartSlotAndQuantity = false)
         {
             if (node == null || output == null)
                 return;
@@ -630,6 +633,14 @@ namespace Parsek
                 for (int i = 0; i < node.values.Count; i++)
                 {
                     ConfigNode.Value value = node.values[i];
+                    if (ShouldSkipStoredPartIdentityValue(
+                            node,
+                            value.name,
+                            ignoreStoredPartSlotAndQuantity))
+                    {
+                        continue;
+                    }
+
                     values.Add((value.name ?? "") + "\x1F" + (value.value ?? ""));
                 }
             }
@@ -643,13 +654,33 @@ namespace Parsek
                 for (int i = 0; i < node.nodes.Count; i++)
                 {
                     StringBuilder child = new StringBuilder();
-                    AppendCanonicalConfigNode(node.nodes[i], child);
+                    AppendCanonicalConfigNode(
+                        node.nodes[i],
+                        child,
+                        ignoreStoredPartSlotAndQuantity);
                     children.Add(child.ToString());
                 }
             }
             children.Sort(StringComparer.Ordinal);
             for (int i = 0; i < children.Count; i++)
                 output.Append(children[i]);
+        }
+
+        private static bool ShouldSkipStoredPartIdentityValue(
+            ConfigNode node,
+            string valueName,
+            bool ignoreStoredPartSlotAndQuantity)
+        {
+            if (!ignoreStoredPartSlotAndQuantity ||
+                node == null ||
+                node.name != "STOREDPART" ||
+                string.IsNullOrEmpty(valueName))
+            {
+                return false;
+            }
+
+            return string.Equals(valueName, "slotIndex", StringComparison.Ordinal)
+                || string.Equals(valueName, "quantity", StringComparison.Ordinal);
         }
 
         /// <summary>

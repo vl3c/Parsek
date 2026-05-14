@@ -30,6 +30,16 @@ namespace Parsek
             if (endpointPids == null || endpointPids.Count == 0)
                 return null;
 
+            if (!SnapshotContainsAnyPartPersistentId(dockedSnapshot, transportPids) ||
+                !SnapshotContainsAnyPartPersistentId(dockedSnapshot, endpointPids))
+            {
+                ParsekLog.Warn("Flight",
+                    $"Route window dock capture failed: docked snapshot does not contain " +
+                    $"transport/endpoint part PID sets targetPid={transferTargetVesselPid} " +
+                    $"transportParts={transportPids.Count} endpointParts={endpointPids.Count}");
+                return null;
+            }
+
             var window = new RouteConnectionWindow
             {
                 WindowId = BuildWindowId(dockUT, transferTargetVesselPid),
@@ -110,6 +120,18 @@ namespace Parsek
                 return false;
             }
 
+            if (!TryVerifyRoutePartSetsSeparated(
+                    undockSnapshots,
+                    window.TransportPartPersistentIds,
+                    window.EndpointPartPersistentIds))
+            {
+                ParsekLog.Warn("Flight",
+                    $"Route window undock completion failed: split snapshots do not separate " +
+                    $"transport/endpoint part PID sets window={window.WindowId ?? "<none>"} " +
+                    $"targetPid={window.TransferTargetVesselPid}");
+                return false;
+            }
+
             window.UndockUT = undockUT;
             window.UndockTransportResources = ExtractResourceManifestFromSnapshots(
                 undockSnapshots,
@@ -133,6 +155,60 @@ namespace Parsek
                 $"endpointInv={window.UndockEndpointInventory?.Count ?? 0}");
 
             return true;
+        }
+
+        private static bool TryVerifyRoutePartSetsSeparated(
+            ConfigNode[] snapshots,
+            ICollection<uint> transportPartPersistentIds,
+            ICollection<uint> endpointPartPersistentIds)
+        {
+            if (snapshots == null ||
+                transportPartPersistentIds == null || transportPartPersistentIds.Count == 0 ||
+                endpointPartPersistentIds == null || endpointPartPersistentIds.Count == 0)
+            {
+                return false;
+            }
+
+            int transportSnapshotCount = 0;
+            int endpointSnapshotCount = 0;
+            for (int i = 0; i < snapshots.Length; i++)
+            {
+                bool hasTransport = SnapshotContainsAnyPartPersistentId(
+                    snapshots[i],
+                    transportPartPersistentIds);
+                bool hasEndpoint = SnapshotContainsAnyPartPersistentId(
+                    snapshots[i],
+                    endpointPartPersistentIds);
+
+                if (hasTransport && hasEndpoint)
+                    return false;
+                if (hasTransport)
+                    transportSnapshotCount++;
+                if (hasEndpoint)
+                    endpointSnapshotCount++;
+            }
+
+            return transportSnapshotCount == 1 && endpointSnapshotCount == 1;
+        }
+
+        private static bool SnapshotContainsAnyPartPersistentId(
+            ConfigNode snapshot,
+            ICollection<uint> partPersistentIds)
+        {
+            if (snapshot == null || partPersistentIds == null || partPersistentIds.Count == 0)
+                return false;
+
+            ConfigNode[] parts = snapshot.GetNodes("PART");
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (VesselSpawner.TryGetPartPersistentId(parts[i], out uint pid) &&
+                    partPersistentIds.Contains(pid))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static string BuildWindowId(double dockUT, uint transferTargetVesselPid)

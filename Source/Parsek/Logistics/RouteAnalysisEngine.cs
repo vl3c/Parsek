@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek.Logistics
 {
@@ -8,7 +9,9 @@ namespace Parsek.Logistics
         Eligible = 0,
         MissingRouteProof = 1,
         MultipleConnectionWindows = 2,
-        NoDeliveryManifest = 3
+        NoDeliveryManifest = 3,
+        MixedPickupDelivery = 4,
+        MissingEndpointProof = 5
     }
 
     internal sealed class RouteAnalysisResult
@@ -31,11 +34,17 @@ namespace Parsek.Logistics
             if (tree?.Recordings == null || tree.Recordings.Count == 0)
                 return MissingProof();
 
+            HashSet<string> sourcePathIds = CollectSourcePathRecordingIds(tree);
+            if (sourcePathIds == null || sourcePathIds.Count == 0)
+                return MissingProof();
+
             Recording source = null;
             RouteConnectionWindow window = null;
 
-            foreach (Recording rec in tree.Recordings.Values)
+            foreach (string recordingId in sourcePathIds)
             {
+                if (!tree.Recordings.TryGetValue(recordingId, out Recording rec))
+                    continue;
                 if (rec?.RouteConnectionWindows == null)
                     continue;
 
@@ -98,6 +107,32 @@ namespace Parsek.Logistics
             Recording source,
             RouteConnectionWindow window)
         {
+            if (!HasEndpointProof(window))
+            {
+                ParsekLog.Verbose("Logistics",
+                    $"RouteAnalysis: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
+                    $"window={window.WindowId ?? "<none>"}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.MissingEndpointProof,
+                    SourceRecording = source,
+                    ConnectionWindow = window
+                };
+            }
+
+            if (HasMixedPickupDelivery(window))
+            {
+                ParsekLog.Verbose("Logistics",
+                    $"RouteAnalysis: mixed pickup/delivery rejected source={source?.RecordingId ?? "<none>"} " +
+                    $"window={window.WindowId ?? "<none>"}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.MixedPickupDelivery,
+                    SourceRecording = source,
+                    ConnectionWindow = window
+                };
+            }
+
             Dictionary<string, double> resources = BuildResourceDeliveryManifest(window);
             List<InventoryPayloadItem> inventory = BuildInventoryDeliveryManifest(window);
 
@@ -134,6 +169,68 @@ namespace Parsek.Logistics
         {
             ParsekLog.Verbose("Logistics", "RouteAnalysis: missing route proof");
             return new RouteAnalysisResult { Status = RouteAnalysisStatus.MissingRouteProof };
+        }
+
+        private static bool HasEndpointProof(RouteConnectionWindow window)
+        {
+            return window != null
+                && window.TransferTargetVesselPid != 0
+                && window.TransferKind != RouteConnectionKind.None
+                && window.EndpointAtDock.HasValue
+                && window.TransferEndpointSituation >= 0;
+        }
+
+        private static bool HasMixedPickupDelivery(RouteConnectionWindow window)
+        {
+            return HasResourcePickup(window) || HasInventoryPickup(window);
+        }
+
+        private static bool HasResourcePickup(RouteConnectionWindow window)
+        {
+            var keys = new Dictionary<string, double>();
+            AddResourceDeliveryKeys(keys, window.DockEndpointResources);
+            AddResourceDeliveryKeys(keys, window.UndockEndpointResources);
+            AddResourceDeliveryKeys(keys, window.DockTransportResources);
+            AddResourceDeliveryKeys(keys, window.UndockTransportResources);
+
+            foreach (string name in keys.Keys)
+            {
+                double endpointLoss =
+                    GetResourceAmount(window.DockEndpointResources, name) -
+                    GetResourceAmount(window.UndockEndpointResources, name);
+                double transportGain =
+                    GetResourceAmount(window.UndockTransportResources, name) -
+                    GetResourceAmount(window.DockTransportResources, name);
+
+                if (endpointLoss > ResourceEpsilon || transportGain > ResourceEpsilon)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasInventoryPickup(RouteConnectionWindow window)
+        {
+            Dictionary<string, InventoryPayloadItem> identities =
+                BuildInventoryMap(window.DockEndpointInventory);
+            AddInventoryKeys(identities, window.UndockEndpointInventory);
+            AddInventoryKeys(identities, window.DockTransportInventory);
+            AddInventoryKeys(identities, window.UndockTransportInventory);
+
+            foreach (string identity in identities.Keys)
+            {
+                int endpointLoss =
+                    GetInventoryQuantity(window.DockEndpointInventory, identity) -
+                    GetInventoryQuantity(window.UndockEndpointInventory, identity);
+                int transportGain =
+                    GetInventoryQuantity(window.UndockTransportInventory, identity) -
+                    GetInventoryQuantity(window.DockTransportInventory, identity);
+
+                if (endpointLoss > 0 || transportGain > 0)
+                    return true;
+            }
+
+            return false;
         }
 
         private static Dictionary<string, double> BuildResourceDeliveryManifest(
@@ -221,14 +318,12 @@ namespace Parsek.Logistics
                 int endpointSlotsGain =
                     GetInventorySlots(window.UndockEndpointInventory, identity) -
                     GetInventorySlots(window.DockEndpointInventory, identity);
-                int transportSlotsLoss =
-                    GetInventorySlots(window.DockTransportInventory, identity) -
-                    GetInventorySlots(window.UndockTransportInventory, identity);
 
                 InventoryPayloadItem source = deliveredByIdentity[identity];
                 InventoryPayloadItem item = source.DeepClone();
                 item.Quantity = delivered;
-                item.SlotsTaken = Math.Max(0, Math.Min(endpointSlotsGain, transportSlotsLoss));
+                item.SlotsTaken = Math.Max(0, endpointSlotsGain);
+                SetStoredPartQuantity(item.StoredPartSnapshot, delivered);
                 delivery.Add(item);
             }
 
@@ -294,6 +389,68 @@ namespace Parsek.Logistics
                     total += item.SlotsTaken;
             }
             return total;
+        }
+
+        private static void SetStoredPartQuantity(ConfigNode storedPart, int quantity)
+        {
+            if (storedPart == null)
+                return;
+
+            storedPart.SetValue(
+                "quantity",
+                quantity.ToString(CultureInfo.InvariantCulture),
+                true);
+        }
+
+        private static HashSet<string> CollectSourcePathRecordingIds(RecordingTree tree)
+        {
+            if (tree?.Recordings == null || tree.Recordings.Count == 0)
+                return null;
+
+            string leafId = !string.IsNullOrEmpty(tree.ActiveRecordingId)
+                ? tree.ActiveRecordingId
+                : tree.RootRecordingId;
+            if (string.IsNullOrEmpty(leafId))
+                return null;
+
+            var branchPointsById = new Dictionary<string, BranchPoint>();
+            if (tree.BranchPoints != null)
+            {
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    BranchPoint bp = tree.BranchPoints[i];
+                    if (bp != null && !string.IsNullOrEmpty(bp.Id))
+                        branchPointsById[bp.Id] = bp;
+                }
+            }
+
+            var path = new HashSet<string>();
+            var pending = new Stack<string>();
+            pending.Push(leafId);
+
+            while (pending.Count > 0)
+            {
+                string recId = pending.Pop();
+                if (string.IsNullOrEmpty(recId) || !path.Add(recId))
+                    continue;
+
+                if (!tree.Recordings.TryGetValue(recId, out Recording rec))
+                    continue;
+
+                if (string.IsNullOrEmpty(rec.ParentBranchPointId))
+                    continue;
+
+                if (!branchPointsById.TryGetValue(rec.ParentBranchPointId, out BranchPoint bp) ||
+                    bp.ParentRecordingIds == null)
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+                    pending.Push(bp.ParentRecordingIds[i]);
+            }
+
+            return path;
         }
     }
 }

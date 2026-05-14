@@ -206,7 +206,7 @@ internal class InventoryPayloadItem
 
 Inventory route manifests use exact stored-part payload snapshots, not part-name counts. Two stored parts with different variants, resource contents, module state, or stock snapshot data are different payload items. `Quantity` may compress identical snapshots only after the canonical `STOREDPART` payload is equal. `StoredPartSnapshot` must preserve the stock node identity as `STOREDPART`; wrapper nodes used by Parsek serialization must be stripped before hashing or reconstructing inventory.
 
-`IdentityHash` is computed from a deterministic canonical form, not from `ConfigNode.ToString()` directly. Canonicalization must include the node name, sorted value entries by key then value, and child nodes sorted by node name then canonical payload. Numeric values that logistics writes must use `ToString("R", CultureInfo.InvariantCulture)` before hashing. Existing stock string values are preserved as strings. The hash input must exclude transient ordering, whitespace, and comments so a save/load round trip or mod load-order difference does not change payload identity.
+`IdentityHash` is computed from a deterministic canonical form, not from `ConfigNode.ToString()` directly. Canonicalization must include the node name, sorted value entries by key then value, and child nodes sorted by node name then canonical payload. Numeric values that logistics writes must use `ToString("R", CultureInfo.InvariantCulture)` before hashing. Existing stock string values are preserved as strings. The hash input must exclude transient ordering, whitespace, comments, `slotIndex`, and stack `quantity` so a save/load round trip, slot move, stack split, or mod load-order difference does not change payload identity. Slot usage and quantity remain separate manifest fields.
 
 ### 4.3 RouteEndpoint
 
@@ -607,7 +607,7 @@ Route creation uses an automatic post-commit prompt on an eligible Supply Run. A
 
 **Input:** a committed `RecordingTree`, or a deterministic projection from that tree into the route source path. This can come from an explicit route-intended session marker, the just-committed tree, or a "Create Supply Route" action on an existing recording tree.
 
-Current implementation prep has the first read-only analyzer slice: it scans committed tree recordings for exactly one completed `RouteConnectionWindow`, rejects old recordings that only have aggregate Phase 11 manifests, rejects multi-window/multi-stop candidates for v0, and derives resource/inventory delivery manifests only when endpoint gains are matched by transport losses. It does not yet create route entities, persist route store data, prompt the user, schedule dispatches, or mutate stock resources.
+Current implementation prep has the first read-only analyzer slice: it scans the active source path for exactly one completed `RouteConnectionWindow`, rejects old recordings that only have aggregate Phase 11 manifests, ignores off-path windows, rejects multi-window/multi-stop candidates for v0, rejects mixed pickup/delivery windows, requires endpoint proof, and derives resource/inventory delivery manifests only when endpoint gains are matched by transport losses. It does not yet create route entities, persist route store data, prompt the user, schedule dispatches, or mutate stock resources.
 
 Always-tree mode means the analysis input is not just a flat chronological list. The engine must inspect:
 
