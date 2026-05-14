@@ -24,6 +24,7 @@ All notable changes to Parsek are documented here.
 - Added the first read-only route analysis pass over completed active-path connection windows, including explicit rejection for legacy/base-manifest-only recordings, v0 multi-stop runs, mixed pickup/delivery windows, and missing endpoint proof.
 - Inventory route payload identity now ignores stock slot location, stack quantity, and nested ProtoPart lifecycle noise while preserving resource/module payload state, so moved, split, or dock-transferred stacks can still match by payload.
 - Active-as-target dock route proof now restores endpoint coordinates from the dock event or absorbed background snapshot instead of looking up an already-merged-away vessel.
+- Added in-game logistics route-proof tests for dock endpoint PID/coordinate capture and live stock inventory payload identity moves.
 - Aligned the logistics transfer contract with stock behavior. Loaded tank edits should use stock `Part.TransferResource()` after explicit flow checks, while exact inventory delivery must preserve canonical `STOREDPART` payloads and avoid part-name-only removal helpers.
 
 ### UI
