@@ -45,11 +45,13 @@ namespace Parsek
     /// without dedup the INFO line count would multiply by the loop count.
     /// An event UT is retired into a per-ghost <c>completedEventUTs</c> set
     /// the moment its window can no longer be in its first pass — when a
-    /// gate-closed frame ages past it, when a frame for a different event
-    /// UT shows, when <c>currentUT</c> jumps backwards onto it (loop wrap
-    /// at the window edge), or when a frame lands before every flagged
-    /// event UT (the recording looped past the event start). Once retired,
-    /// every later frame for that event is suppressed. Retirement keys on
+    /// gate-closed frame finds <c>currentUT</c> outside the last-traced
+    /// event's window (aged forward past it, or dropped below it on a loop
+    /// wrap), when a frame for a different event UT shows, when
+    /// <c>currentUT</c> jumps backwards onto it (loop wrap at the window
+    /// edge), or when a frame lands before every flagged event UT (the
+    /// recording looped past the event start). Once retired, every later
+    /// frame for that event is suppressed. Retirement keys on
     /// set membership, not on a high-water UT, so the suppression holds
     /// even when a loop pass re-enters at or above the prior pass's
     /// last-emitted UT. The only residual is a ghost that stays hidden
@@ -257,26 +259,31 @@ namespace Parsek
 
             if (!gateOpen)
             {
-                // A gate-closed frame means currentUT is past some event's
-                // window. If this ghost has a traced event whose own window
-                // has aged out, retire it now so a later loop pass that
-                // re-enters that window is fully suppressed — including the
-                // case where the loop's first in-window frame lands at or
-                // above the prior pass's high-water UT (a high-water
-                // comparison alone would resume logging the tail there).
+                // On a gate-closed frame, currentUT is provably outside the
+                // last-traced event's window: if it were inside that window,
+                // the gate would be open (mostRecentEventUT would be that
+                // event with currentUT within 5 s, or a later event also
+                // within 5 s). So a gate-closed frame always means the
+                // last-traced event's first pass is over — either currentUT
+                // has aged forward past its window, OR currentUT has dropped
+                // below the event (the recording looped and the loop's first
+                // visible frame landed *between* structural events rather
+                // than before the first one, so the pre-event branch (d)
+                // never saw it). Retire the event in both cases so a later
+                // re-entry of its window is suppressed even when the loop's
+                // first in-window frame lands at or above the prior pass's
+                // high-water UT.
                 //
                 // Keyed on the *last traced* event, not on mostRecentEventUT:
                 // playback may have skipped a later structural event
                 // entirely (ghost hidden through its window), leaving
-                // lastTracedEventUT pointing at an earlier event that
-                // mostRecentEventUT no longer equals. The two coincide in
-                // the normal forward case (`currentUT - mostRecentEventUT >
-                // window` AND lastTracedEventUT == mostRecentEventUT), so
-                // this condition subsumes the narrower one. Idempotent
-                // HashSet.Add; no allocation on this common cruise path.
+                // lastTracedEventUT pointing at a different event than
+                // mostRecentEventUT. Idempotent HashSet.Add; no allocation
+                // on this common cruise path.
                 if (state != null
                     && !double.IsNaN(state.lastTracedEventUT)
-                    && (currentUT - state.lastTracedEventUT) > PostEventWindowSeconds)
+                    && ((currentUT - state.lastTracedEventUT) > PostEventWindowSeconds
+                        || currentUT < state.lastTracedEventUT))
                 {
                     state.completedEventUTs.Add(state.lastTracedEventUT);
                 }
