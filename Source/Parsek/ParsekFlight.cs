@@ -20149,17 +20149,40 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test seam for <see cref="ResolveRecordingByIdAcrossTrees"/>'s live
+        /// active-tree source. <c>ParsekFlight.Instance</c> has a private
+        /// setter and is a MonoBehaviour, so xUnit cannot stand up the
+        /// <c>Instance.ActiveTreeForSerialization</c> branch directly — this
+        /// seam supplies the active tree instead. Production callers leave it
+        /// null and the resolver reads <c>Instance?.ActiveTreeForSerialization</c>.
+        /// Reset via <see cref="ResetReFlyAliasTreeResolverForTesting"/>.
+        /// </summary>
+        internal static Func<RecordingTree> ActiveTreeForReFlyAliasResolverForTesting;
+
+        /// <summary>Test-only: clears <see cref="ActiveTreeForReFlyAliasResolverForTesting"/>.</summary>
+        internal static void ResetReFlyAliasTreeResolverForTesting()
+        {
+            ActiveTreeForReFlyAliasResolverForTesting = null;
+        }
+
+        /// <summary>
         /// Resolves a recording id across the committed recordings list AND
-        /// every committed/pending tree's <see cref="RecordingTree.Recordings"/>
-        /// dict. Used only by the in-place Re-Fly alias path in
+        /// every in-memory tree that could own an in-place Re-Fly fork. Used
+        /// only by the in-place Re-Fly alias path in
         /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>: after a
-        /// mid-Re-Fly F5/F9 reload the provisional fork is rehydrated into the
-        /// active/pending tree but intentionally absent from the committed
-        /// list (see <c>ReconcileInPlaceForkIntoTreeIfNeeded</c>), so the
+        /// mid-Re-Fly F5/F9 reload the provisional fork is rehydrated into a
+        /// tree but intentionally absent from the committed list (see
+        /// <c>ReconcileInPlaceForkIntoTreeIfNeeded</c>), so the
         /// committed-list-only <see cref="ResolveRecordingById"/> cannot see
         /// it. The committed list wins on a tie — once the fork is reconciled
         /// back in, that is the canonical instance and the tree slot is
-        /// overwritten to match it.
+        /// overwritten to match it. The tree search mirrors
+        /// <see cref="RewindInvoker.FindTreeForReFlyFork"/>: <c>CommittedTrees</c>,
+        /// <c>PendingTree</c>, the active-restore Limbo tree, AND the live
+        /// <c>ParsekFlight.Instance.ActiveTreeForSerialization</c> — the
+        /// last is the steady post-F5/F9 state where <c>RestoreActiveTreeFromPending</c>
+        /// has already popped the pending tree into <c>activeTree</c>, so the
+        /// fork lives only there.
         /// </summary>
         private static Recording ResolveRecordingByIdAcrossTrees(string recordingId)
         {
@@ -20190,6 +20213,19 @@ namespace Parsek
                     && limbo.Recordings.TryGetValue(recordingId, out Recording lr)
                     && lr != null)
                     return lr;
+                // Steady post-F5/F9 Re-Fly: the pending tree has already been
+                // popped into ParsekFlight's live activeTree, so the fork no
+                // longer lives in PendingTree and was pulled from CommittedTrees
+                // by TryRestoreActiveTreeNode. ParsekFlight.Instance is null
+                // outside flight scenes / in tests that do not set it up — the
+                // test seam supplies the active tree in that case.
+                RecordingTree active = ActiveTreeForReFlyAliasResolverForTesting != null
+                    ? ActiveTreeForReFlyAliasResolverForTesting()
+                    : Instance?.ActiveTreeForSerialization;
+                if (active?.Recordings != null
+                    && active.Recordings.TryGetValue(recordingId, out Recording ar)
+                    && ar != null)
+                    return ar;
             }
             catch
             {

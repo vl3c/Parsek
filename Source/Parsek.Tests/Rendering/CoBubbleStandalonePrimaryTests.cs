@@ -32,10 +32,12 @@ namespace Parsek.Tests.Rendering
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             RenderSessionState.ResetForTesting();
+            ParsekFlight.ResetReFlyAliasTreeResolverForTesting();
         }
 
         public void Dispose()
         {
+            ParsekFlight.ResetReFlyAliasTreeResolverForTesting();
             RenderSessionState.ResetForTesting();
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
@@ -742,6 +744,48 @@ namespace Parsek.Tests.Rendering
                 l.Contains("alias target unusable, falling back to committed origin"));
             // RELATIVE-no-anchor still fails closed (HR-9); the point of the
             // test is WHICH recording got resolved, not that it produced a pos.
+            Assert.False(ok);
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyAlias_ResolvesForkFromLiveActiveTree()
+        {
+            // Steady post-F5/F9 Re-Fly state: RestoreActiveTreeFromPending has
+            // already popped the pending tree into ParsekFlight's live
+            // activeTree, so the fork is no longer in PendingTree and was
+            // pulled from CommittedTrees by TryRestoreActiveTreeNode — it
+            // lives ONLY in ParsekFlight.Instance.ActiveTreeForSerialization
+            // (the same race RewindInvoker.FindTreeForReFlyFork guards). The
+            // alias resolver must search that tree too, or it falls back to
+            // the frozen committed origin and reintroduces the drift.
+            var rOrigin = MakeRelativeNoAnchorRecording("committed-origin");
+            var rFork = MakeRelativeNoAnchorRecording("provisional-fork");
+            RecordingStore.AddCommittedInternal(rOrigin);
+            // The fork lives ONLY in the live active tree — not the committed
+            // list, not CommittedTrees, not PendingTree.
+            var activeTree = new RecordingTree { Id = "live-active-refly-tree" };
+            activeTree.Recordings[rFork.RecordingId] = rFork;
+            ParsekFlight.ActiveTreeForReFlyAliasResolverForTesting = () => activeTree;
+
+            RenderSessionState.RegisterInPlaceReFlyAlias(new ReFlySessionMarker
+            {
+                SessionId = "f5f9-active-tree-sess",
+                InPlaceContinuation = true,
+                OriginChildRecordingId = "committed-origin",
+                ActiveReFlyRecordingId = "provisional-fork",
+            });
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                "committed-origin", 105.0, fallbackBody: null, out _);
+
+            // The fork WAS resolved from the live active tree — the
+            // RELATIVE-section diagnostic names the FORK, not the origin...
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("anchor-recording-id-missing")
+                && l.Contains("provisional-fork"));
+            // ...and the unusable-fallback path did NOT fire.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("alias target unusable, falling back to committed origin"));
             Assert.False(ok);
         }
 
