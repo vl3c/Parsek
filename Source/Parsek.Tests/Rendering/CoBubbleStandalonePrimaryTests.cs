@@ -570,6 +570,46 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void ComposeCoBubbleWorldPosition_CrossfadeBlendsComposedPoseToStandalone()
+        {
+            Vector3d standalone = new Vector3d(10.0, 0.0, 0.0);
+            Vector3d primary = new Vector3d(100.0, 0.0, 0.0);
+            Vector3d offset = new Vector3d(30.0, 0.0, 0.0);
+
+            Vector3d mid = ParsekFlight.ComposeCoBubbleWorldPosition(
+                haveStandaloneWorld: true,
+                standaloneWorld: standalone,
+                primaryWorld: primary,
+                fullWorldOffset: offset,
+                blendStatus: CoBubbleBlendStatus.HitCrossfade,
+                blendFactor: 0.25);
+
+            Assert.Equal(40.0, mid.x, 5);
+            Assert.Equal(0.0, mid.y, 5);
+            Assert.Equal(0.0, mid.z, 5);
+
+            Vector3d atEnd = ParsekFlight.ComposeCoBubbleWorldPosition(
+                haveStandaloneWorld: true,
+                standaloneWorld: standalone,
+                primaryWorld: primary,
+                fullWorldOffset: offset,
+                blendStatus: CoBubbleBlendStatus.HitCrossfade,
+                blendFactor: 0.0);
+
+            Assert.Equal(standalone.x, atEnd.x, 5);
+
+            Vector3d noStandalone = ParsekFlight.ComposeCoBubbleWorldPosition(
+                haveStandaloneWorld: false,
+                standaloneWorld: Vector3d.zero,
+                primaryWorld: primary,
+                fullWorldOffset: offset,
+                blendStatus: CoBubbleBlendStatus.HitCrossfade,
+                blendFactor: 0.0);
+
+            Assert.Equal(130.0, noStandalone.x, 5);
+        }
+
+        [Fact]
         public void CoBubbleResolvedWorldPosition_MultiTierPrimaryUsesActiveInPlaceReFlyOrigin()
         {
             CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
@@ -665,6 +705,58 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("Active Re-Fly origin primary resolved from live recorded trajectory")
                 && l.Contains(originId)
                 && l.Contains(activeId));
+        }
+
+        [Fact]
+        public void CoBubbleResolvedWorldPosition_CycleFailsClosedAndLogs()
+        {
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            RenderSessionState.PutPrimaryAssignmentForTesting("rec-A", "rec-B");
+            RenderSessionState.PutPrimaryAssignmentForTesting("rec-B", "rec-A");
+            SectionAnnotationStore.PutCoBubbleTrace(
+                "rec-A",
+                CoBubbleTrace("rec-B", 100.0, 110.0, new Vector3d(1.0, 0.0, 0.0)));
+            SectionAnnotationStore.PutCoBubbleTrace(
+                "rec-B",
+                CoBubbleTrace("rec-A", 100.0, 110.0, new Vector3d(-1.0, 0.0, 0.0)));
+
+            bool ok = ParsekFlight.TryComputeCoBubbleResolvedWorldPositionForRecording(
+                "rec-A",
+                105.0,
+                fallbackBody: null,
+                out Vector3d worldPos);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, worldPos.x);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Co-bubble primary chain resolution failed")
+                && l.Contains("reason=cycle"));
+        }
+
+        [Fact]
+        public void CoBubbleResolvedWorldPosition_DepthLimitFailsClosedAndLogs()
+        {
+            SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
+            for (int i = 0; i < 18; i++)
+            {
+                string peer = "rec-" + i.ToString("00");
+                string primary = "rec-" + (i + 1).ToString("00");
+                RenderSessionState.PutPrimaryAssignmentForTesting(peer, primary);
+                SectionAnnotationStore.PutCoBubbleTrace(
+                    peer,
+                    CoBubbleTrace(primary, 100.0, 110.0, new Vector3d(1.0, 0.0, 0.0)));
+            }
+
+            bool ok = ParsekFlight.TryComputeCoBubbleResolvedWorldPositionForRecording(
+                "rec-00",
+                105.0,
+                fallbackBody: null,
+                out _);
+
+            Assert.False(ok);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Co-bubble primary chain resolution failed")
+                && l.Contains("reason=depth-limit"));
         }
 
         [Fact]

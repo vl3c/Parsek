@@ -129,12 +129,12 @@ namespace Parsek.Rendering
             // standalone and dropped their own co-bubble offset. So only
             // short-circuit when the recording is a primary AND never itself
             // a peer (no designated primary of its own to blend against).
-            // This is not a cycle defense: a primary CYCLE in the assignment
-            // map (A→B and B→A) is structurally prevented upstream —
-            // CoBubblePrimarySelector writes exactly one (peer→primary) row
-            // per pair via a deterministic strict ordering, so the map is a
-            // DAG. The status enum keeps the legacy MissRecursionGuard name
-            // for log/dashboard continuity.
+            // This is not a cycle defense. CoBubblePrimarySelector is
+            // intended to write a DAG, but reload/test seams can still feed a
+            // bad assignment map into the renderer; the primary-chain
+            // resolver owns the explicit cycle/depth fail-closed guard. The
+            // status enum keeps the legacy MissRecursionGuard name for
+            // log/dashboard continuity.
             if (RenderSessionState.IsPrimary(peerRecordingId)
                 && !RenderSessionState.TryGetDesignatedPrimary(peerRecordingId, out _))
             {

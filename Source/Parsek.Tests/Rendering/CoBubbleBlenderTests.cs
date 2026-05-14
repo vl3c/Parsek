@@ -235,6 +235,20 @@ namespace Parsek.Tests.Rendering
             Assert.Equal("primary-B", primary);
             Assert.Equal(3.0, offset.x, 5);
             Assert.InRange(blendFactor, 0.32, 0.34);
+
+            ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A",
+                110.0,
+                out offset,
+                out status,
+                out primary,
+                out blendFactor);
+
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.HitCrossfade, status);
+            Assert.Equal("primary-B", primary);
+            Assert.Equal(3.0, offset.x, 5);
+            Assert.Equal(0.0, blendFactor, 5);
         }
 
         [Fact]

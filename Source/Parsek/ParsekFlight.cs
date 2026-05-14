@@ -1605,13 +1605,13 @@ namespace Parsek
                                 excludedPeerRecordingId: e.coBubblePeerRecordingId,
                                 suppressAnchorCorrection: false))
                         {
-                            Vector3d targetPos = primaryWorld + worldOffset;
-                            if (lateBlendStatus == Parsek.Rendering.CoBubbleBlendStatus.HitCrossfade
-                                && haveStandalone)
-                            {
-                                float blend = (float)Math.Max(0.0, Math.Min(1.0, lateBlendFactor));
-                                targetPos = Vector3d.Lerp(standalonePos, targetPos, blend);
-                            }
+                            Vector3d targetPos = ComposeCoBubbleWorldPosition(
+                                haveStandalone,
+                                standalonePos,
+                                primaryWorld,
+                                worldOffset,
+                                lateBlendStatus,
+                                lateBlendFactor);
                             ApplyGhostReapplyTransform(
                                 e,
                                 targetPos,
@@ -19218,16 +19218,13 @@ namespace Parsek
                         excludedPeerRecordingId: recordingId,
                         suppressAnchorCorrection: false))
                 {
-                    Vector3d coBubblePos = primaryWorld + coBubbleOffset;
-                    if (blendStatus == Parsek.Rendering.CoBubbleBlendStatus.HitCrossfade)
-                    {
-                        float blend = (float)Math.Max(0.0, Math.Min(1.0, coBubbleBlendFactor));
-                        interpolatedPos = Vector3d.Lerp(standaloneInterpolatedPos, coBubblePos, blend);
-                    }
-                    else
-                    {
-                        interpolatedPos = coBubblePos;
-                    }
+                    interpolatedPos = ComposeCoBubbleWorldPosition(
+                        haveStandaloneWorld: true,
+                        standaloneWorld: standaloneInterpolatedPos,
+                        primaryWorld: primaryWorld,
+                        fullWorldOffset: coBubbleOffset,
+                        blendStatus: blendStatus,
+                        blendFactor: coBubbleBlendFactor);
                     coBubbleHit = true;
                     coBubblePrimaryId = primaryRecordingId;
                     RecordCoBubbleEvalForLogging();
@@ -19644,6 +19641,25 @@ namespace Parsek
             return true;
         }
 
+        internal static Vector3d ComposeCoBubbleWorldPosition(
+            bool haveStandaloneWorld,
+            Vector3d standaloneWorld,
+            Vector3d primaryWorld,
+            Vector3d fullWorldOffset,
+            Parsek.Rendering.CoBubbleBlendStatus blendStatus,
+            double blendFactor)
+        {
+            Vector3d coBubbleWorld = primaryWorld + fullWorldOffset;
+            if (blendStatus != Parsek.Rendering.CoBubbleBlendStatus.HitCrossfade
+                || !haveStandaloneWorld)
+            {
+                return coBubbleWorld;
+            }
+
+            float blend = (float)Math.Max(0.0, Math.Min(1.0, blendFactor));
+            return Vector3d.Lerp(standaloneWorld, coBubbleWorld, blend);
+        }
+
         internal static bool allowSplinePositioningForPlayback(
             bool suppressSpline,
             bool allowNormalPlaybackSplinePositioning,
@@ -19735,6 +19751,9 @@ namespace Parsek
         }
 
         private const int MaxCoBubblePrimaryResolutionDepth = 16;
+        private static readonly List<string> s_coBubblePrimaryResolutionVisitedScratch =
+            new List<string>(MaxCoBubblePrimaryResolutionDepth + 2);
+        private static bool s_coBubblePrimaryResolutionVisitedScratchInUse;
 
         /// <summary>
         /// Computes a recording-derived world position for a co-bubble
@@ -19751,17 +19770,40 @@ namespace Parsek
             string excludedPeerRecordingId = null,
             bool suppressAnchorCorrection = false)
         {
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            if (!string.IsNullOrEmpty(excludedPeerRecordingId))
-                visited.Add(excludedPeerRecordingId);
-            return TryComputeCoBubbleResolvedWorldPositionForRecordingCore(
-                recordingId,
-                ut,
-                fallbackBody,
-                out worldPos,
-                suppressAnchorCorrection,
-                visited,
-                0);
+            List<string> visited;
+            bool useScratch = !s_coBubblePrimaryResolutionVisitedScratchInUse;
+            if (useScratch)
+            {
+                s_coBubblePrimaryResolutionVisitedScratchInUse = true;
+                s_coBubblePrimaryResolutionVisitedScratch.Clear();
+                visited = s_coBubblePrimaryResolutionVisitedScratch;
+            }
+            else
+            {
+                visited = new List<string>(MaxCoBubblePrimaryResolutionDepth + 2);
+            }
+
+            try
+            {
+                if (!string.IsNullOrEmpty(excludedPeerRecordingId))
+                    visited.Add(excludedPeerRecordingId);
+                return TryComputeCoBubbleResolvedWorldPositionForRecordingCore(
+                    recordingId,
+                    ut,
+                    fallbackBody,
+                    out worldPos,
+                    suppressAnchorCorrection,
+                    visited,
+                    0);
+            }
+            finally
+            {
+                if (useScratch)
+                {
+                    visited.Clear();
+                    s_coBubblePrimaryResolutionVisitedScratchInUse = false;
+                }
+            }
         }
 
         private static bool TryComputeCoBubbleResolvedWorldPositionForRecordingCore(
@@ -19770,7 +19812,7 @@ namespace Parsek
             CelestialBody fallbackBody,
             out Vector3d worldPos,
             bool suppressAnchorCorrection,
-            HashSet<string> visited,
+            List<string> visited,
             int depth)
         {
             worldPos = default;
@@ -19781,19 +19823,14 @@ namespace Parsek
                 return false;
             }
             if (visited == null)
-                visited = new HashSet<string>(StringComparer.Ordinal);
-            if (!visited.Add(recordingId))
+                visited = new List<string>(MaxCoBubblePrimaryResolutionDepth + 2);
+            if (ContainsCoBubblePrimaryResolutionVisit(visited, recordingId))
             {
                 LogCoBubblePrimaryChainFailure(recordingId, ut, "cycle");
                 return false;
             }
-
-            bool haveStandalone = TryComputeStandaloneWorldPositionForRecording(
-                recordingId,
-                ut,
-                fallbackBody,
-                out Vector3d standaloneWorld,
-                suppressAnchorCorrection);
+            int visitIndex = visited.Count;
+            visited.Add(recordingId);
 
             if (allowRenderCoBubbleBlend(
                     recordingId,
@@ -19815,35 +19852,86 @@ namespace Parsek
                         visited,
                         depth + 1))
                 {
-                    Vector3d coBubbleWorld = primaryWorld + offset;
+                    bool haveStandalone = false;
+                    Vector3d standaloneWorld = default;
                     if (status == Parsek.Rendering.CoBubbleBlendStatus.HitCrossfade
-                        && haveStandalone)
+                        && TryComputeStandaloneWorldPositionForRecording(
+                            recordingId,
+                            ut,
+                            fallbackBody,
+                            out standaloneWorld,
+                            suppressAnchorCorrection))
                     {
-                        float blend = (float)Math.Max(0.0, Math.Min(1.0, blendFactor));
-                        worldPos = Vector3d.Lerp(standaloneWorld, coBubbleWorld, blend);
+                        haveStandalone = true;
                     }
-                    else
-                    {
-                        worldPos = coBubbleWorld;
-                    }
-                    visited.Remove(recordingId);
+                    worldPos = ComposeCoBubbleWorldPosition(
+                        haveStandalone,
+                        standaloneWorld,
+                        primaryWorld,
+                        offset,
+                        status,
+                        blendFactor);
+                    RemoveCoBubblePrimaryResolutionVisit(visited, recordingId, visitIndex);
                     return true;
                 }
 
                 LogCoBubblePrimaryChainFailure(recordingId, ut, "primary-unavailable");
-                visited.Remove(recordingId);
+                RemoveCoBubblePrimaryResolutionVisit(visited, recordingId, visitIndex);
                 return false;
             }
 
-            if (haveStandalone)
+            if (TryComputeStandaloneWorldPositionForRecording(
+                    recordingId,
+                    ut,
+                    fallbackBody,
+                    out Vector3d standaloneOnlyWorld,
+                    suppressAnchorCorrection))
             {
-                worldPos = standaloneWorld;
-                visited.Remove(recordingId);
+                worldPos = standaloneOnlyWorld;
+                RemoveCoBubblePrimaryResolutionVisit(visited, recordingId, visitIndex);
                 return true;
             }
 
-            visited.Remove(recordingId);
+            RemoveCoBubblePrimaryResolutionVisit(visited, recordingId, visitIndex);
             return false;
+        }
+
+        private static bool ContainsCoBubblePrimaryResolutionVisit(
+            List<string> visited,
+            string recordingId)
+        {
+            if (visited == null || string.IsNullOrEmpty(recordingId))
+                return false;
+            for (int i = 0; i < visited.Count; i++)
+            {
+                if (string.Equals(visited[i], recordingId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        private static void RemoveCoBubblePrimaryResolutionVisit(
+            List<string> visited,
+            string recordingId,
+            int visitIndex)
+        {
+            if (visited == null)
+                return;
+            if (visitIndex >= 0
+                && visitIndex < visited.Count
+                && string.Equals(visited[visitIndex], recordingId, StringComparison.Ordinal))
+            {
+                visited.RemoveAt(visitIndex);
+                return;
+            }
+
+            for (int i = visited.Count - 1; i >= 0; i--)
+            {
+                if (!string.Equals(visited[i], recordingId, StringComparison.Ordinal))
+                    continue;
+                visited.RemoveAt(i);
+                return;
+            }
         }
 
         private static void LogCoBubblePrimaryChainFailure(
