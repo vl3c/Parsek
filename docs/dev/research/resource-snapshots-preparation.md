@@ -241,7 +241,7 @@ foreach (var entry in deliveryManifest)
 ### Edge cases to handle
 - **Destination tanks full** -- partial delivery; remainder lost or queued
 - **`flowState == false`** -- player disabled flow on a tank; skip it
-- **Destination vessel loaded** -- use `part.RequestResource()` instead of ProtoPartResourceSnapshot
+- **Destination vessel loaded** -- use stock `Part.TransferResource()` instead of ProtoPartResourceSnapshot
 - **Destination vessel destroyed/recovered** -- route should auto-disable
 - **Zero-capacity resources** -- guard against division by zero
 

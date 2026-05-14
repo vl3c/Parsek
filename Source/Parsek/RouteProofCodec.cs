@@ -8,6 +8,8 @@ namespace Parsek
     {
         private const string RouteOriginProofNode = "ROUTE_ORIGIN_PROOF";
         private const string RouteConnectionWindowsNode = "ROUTE_CONNECTION_WINDOWS";
+        private const string StoredPartSnapshotNode = "STOREDPART_SNAPSHOT";
+        private const string StockStoredPartNode = "STOREDPART";
 
         internal static void SerializeRouteProofMetadata(ConfigNode parent, Recording rec)
         {
@@ -15,31 +17,50 @@ namespace Parsek
                 return;
 
             var ic = CultureInfo.InvariantCulture;
+            bool wroteTargetPid = false;
+            bool wroteTransferKind = false;
+            bool wroteOriginProof = false;
+            int writtenWindows = 0;
+
             if (rec.TransferTargetVesselPid != 0)
+            {
                 parent.AddValue("transferTargetPid", rec.TransferTargetVesselPid.ToString(ic));
+                wroteTargetPid = true;
+            }
             if (rec.TransferKind != RouteConnectionKind.None)
+            {
                 parent.AddValue("transferKind", rec.TransferKind.ToString());
+                wroteTransferKind = true;
+            }
 
             if (HasOriginProofData(rec.RouteOriginProof))
+            {
                 SerializeOriginProof(parent.AddNode(RouteOriginProofNode), rec.RouteOriginProof);
+                wroteOriginProof = true;
+            }
 
             if (rec.RouteConnectionWindows != null && rec.RouteConnectionWindows.Count > 0)
             {
-                ConfigNode windowsNode = parent.AddNode(RouteConnectionWindowsNode);
-                int written = 0;
+                ConfigNode windowsNode = null;
                 for (int i = 0; i < rec.RouteConnectionWindows.Count; i++)
                 {
                     RouteConnectionWindow window = rec.RouteConnectionWindows[i];
                     if (window == null)
                         continue;
 
+                    if (windowsNode == null)
+                        windowsNode = parent.AddNode(RouteConnectionWindowsNode);
                     SerializeConnectionWindow(windowsNode.AddNode("WINDOW"), window);
-                    written++;
+                    writtenWindows++;
                 }
-
-                ParsekLog.Verbose("RecordingStore",
-                    $"SerializeRouteProofMetadata: wrote {written} connection window(s) for recording={rec.RecordingId}");
             }
+
+            if (wroteTargetPid || wroteTransferKind || wroteOriginProof || writtenWindows > 0)
+                ParsekLog.Verbose("RecordingStore",
+                    $"SerializeRouteProofMetadata: recording={rec.RecordingId} " +
+                    $"targetPid={(wroteTargetPid ? rec.TransferTargetVesselPid.ToString(ic) : "none")} " +
+                    $"kind={(wroteTransferKind ? rec.TransferKind.ToString() : "none")} " +
+                    $"originProof={wroteOriginProof} windows={writtenWindows}");
         }
 
         internal static void DeserializeRouteProofMetadata(ConfigNode parent, Recording rec)
@@ -359,7 +380,12 @@ namespace Parsek
 
                 SerializeResourceManifest(itemNode, "STORED_RESOURCES", item.StoredResources);
                 if (item.StoredPartSnapshot != null)
-                    itemNode.AddNode("STOREDPART_SNAPSHOT", item.StoredPartSnapshot.CreateCopy());
+                {
+                    ConfigNode snapshotWrapper = itemNode.AddNode(StoredPartSnapshotNode);
+                    ConfigNode snapshotCopy = item.StoredPartSnapshot.CreateCopy();
+                    snapshotCopy.name = StockStoredPartNode;
+                    snapshotWrapper.AddNode(snapshotCopy);
+                }
             }
         }
 
@@ -401,12 +427,23 @@ namespace Parsek
                     item.SlotsTaken = slotsTaken;
                 }
 
-                ConfigNode snapshotNode = itemNodes[i].GetNode("STOREDPART_SNAPSHOT");
-                item.StoredPartSnapshot = snapshotNode != null ? snapshotNode.CreateCopy() : null;
+                ConfigNode snapshotNode = itemNodes[i].GetNode(StoredPartSnapshotNode);
+                item.StoredPartSnapshot = DeserializeStoredPartSnapshot(snapshotNode);
                 items.Add(item);
             }
 
             return items.Count > 0 ? items : null;
+        }
+
+        private static ConfigNode DeserializeStoredPartSnapshot(ConfigNode snapshotNode)
+        {
+            if (snapshotNode == null)
+                return null;
+
+            ConfigNode storedPartNode = snapshotNode.GetNode(StockStoredPartNode);
+            ConfigNode result = (storedPartNode ?? snapshotNode).CreateCopy();
+            result.name = StockStoredPartNode;
+            return result;
         }
 
         private static void SerializeRouteEndpoint(ConfigNode node, RouteEndpoint endpoint)

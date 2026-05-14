@@ -204,7 +204,7 @@ internal class InventoryPayloadItem
 }
 ```
 
-Inventory route manifests use exact stored-part payload snapshots, not part-name counts. Two stored parts with different variants, resource contents, module state, or stock snapshot data are different payload items. `Quantity` may compress identical snapshots only after the canonical `STOREDPART` payload is equal.
+Inventory route manifests use exact stored-part payload snapshots, not part-name counts. Two stored parts with different variants, resource contents, module state, or stock snapshot data are different payload items. `Quantity` may compress identical snapshots only after the canonical `STOREDPART` payload is equal. `StoredPartSnapshot` must preserve the stock node identity as `STOREDPART`; wrapper nodes used by Parsek serialization must be stripped before hashing or reconstructing inventory.
 
 `IdentityHash` is computed from a deterministic canonical form, not from `ConfigNode.ToString()` directly. Canonicalization must include the node name, sorted value entries by key then value, and child nodes sorted by node name then canonical payload. Numeric values that logistics writes must use `ToString("R", CultureInfo.InvariantCulture)` before hashing. Existing stock string values are preserved as strings. The hash input must exclude transient ordering, whitespace, and comments so a save/load round trip or mod load-order difference does not change payload identity.
 
@@ -535,7 +535,7 @@ public uint TransferTargetVesselPid;       // PID of vessel connected to at this
 public RouteConnectionKind TransferKind;   // DockingPort only in v1; future-proofed for later producers
 ```
 
-For the first implementation, `TransferTargetVesselPid` can be populated from the existing docking-path capture that currently behaves like `DockTargetVesselPid` in legacy chain mode. Always-tree mode must be upgraded separately: `BranchPoint` already has `MergeCause` and `TargetVesselPersistentId`, but the current `BuildMergeBranchData` call path must explicitly populate them for dock merges. Route analysis should consume the generic `TransferTargetVesselPid` / `TransferKind` contract, not reach into legacy `DockTargetVesselPid` directly.
+For the first implementation, `TransferTargetVesselPid` is populated from the dock-merge path as the other vessel in the stock docking event, from the active recording's perspective. It must never fall back to the post-dock merged vessel PID: if the other vessel cannot be identified, store `0` and make route analysis reject the candidate as missing endpoint proof. Route analysis should consume the generic `TransferTargetVesselPid` / `TransferKind` contract, not reach into legacy `DockTargetVesselPid` directly.
 
 **Inventory manifests** (current Phase 11 base plus required Logistics extension):
 
@@ -558,7 +558,7 @@ The first implementation phase is not `RouteScheduler`. It is a recorder/data-co
 - Always-tree mode is canonical. A Supply Run should be analyzed from `RecordingStore.CommittedTrees`, `RecordingTree.Recordings`, and `RecordingTree.BranchPoints`, not from a standalone recording list.
 - `Recording.StartResources` / `EndResources` and `StartInventory` / `EndInventory` exist, and the tree codec serializes them. Tests must prove the committed always-tree path actually populates them after the active recorder flushes.
 - `Recording.DockTargetVesselPid` exists for legacy dock segments. Always-tree dock merges need route-facing metadata on the dock branch/window: target PID, connection kind, endpoint situation, endpoint coordinates, and the two part PID sets.
-- `BranchPoint.MergeCause` / `TargetVesselPersistentId` already serialize, but route implementation must ensure dock branch creation writes them.
+- `BranchPoint.MergeCause` / `TargetVesselPersistentId` already serialize. `TargetVesselPersistentId` also feeds `GhostChainWalker`, so logistics must leave it at `0` unless it has explicit, tested dock endpoint proof.
 - `TrajectoryPoint` has `latitude` / `longitude` / `altitude` / `bodyName`; `Recording` does not have `StartLatitude` or `StartLongitude` fields. Route origin/endpoint coordinates must come from the selected trajectory point or from `RouteConnectionWindow.EndpointAtDock`, not from nonexistent recording-level coordinate fields.
 - `GameActionType` has no route dispatch/delivery entries yet. v0 decision: live route effects must use explicit route action types plus recalculation/rollback support. Route-local persisted state may cache scheduler state, but it must not be the sole authority for stock funds/cargo mutation. Shipping hidden stock mutations outside the ledger contract is not allowed.
 
@@ -783,8 +783,8 @@ Routes do NOT use the per-recording loop toggle. The route scheduler owns all ti
 
 1. **Re-check source recordings.** If any `RecordingIds` entry is missing, set `Status = MissingSourceRecording`, create no delivery event, and abort. If any `SourceRefs` fingerprint no longer matches, set `Status = SourceChanged`, create no delivery event, and abort. No matching proof recording means no cargo transfer, even mid-transit.
 2. **Find endpoint vessel** at the route endpoint (section 7). If no vessel is found after dispatch, log a warning and create a ROUTE_DELIVERY_FAILED timeline event. Transit cost has already been paid; no cargo is conjured.
-3. **For each resource in the stop's `DeliveryManifest`:** apply to the endpoint vessel tanks, clamped to current `maxAmount`. v1 manifests contain positive delivery amounts only. For unloaded vessels: modify `ProtoPartResourceSnapshot.amount` directly, respect `flowState`. For loaded vessels: use `Part.RequestResource()`.
-4. **Deliver inventory** by reconstructing exact `InventoryPayloadItem.StoredPartSnapshot` payloads into stock `ModuleInventoryPart` slots. Items that do not fit remain undelivered and are reported in the route event/log.
+3. **For each resource in the stop's `DeliveryManifest`:** apply to endpoint vessel tanks, clamped to current `maxAmount`. v1 manifests contain positive delivery amounts only. For loaded vessels: pre-check `PartResource.flowState`/`flowMode`, then use `Part.TransferResource()` on the exact target `PartResource`. For unloaded vessels: modify `ProtoPartResourceSnapshot.amount` or its backing `RESOURCE` node through stock snapshot objects, preserving `flowState`/`flowMode`.
+4. **Deliver inventory** by reconstructing exact `InventoryPayloadItem.StoredPartSnapshot` payloads into stock `ModuleInventoryPart` slots. Loaded delivery may call `StoreCargoPartAtSlot(ProtoPartSnapshot, slot)` only after logistics has chosen a valid slot/stack target. Items that do not fit remain undelivered and are reported in the route event/log.
 5. **Create ROUTE_DELIVERED timeline event and apply through the ledger/applier path.** Record requested and actual amounts so the player can see partial fills instead of silent loss. The persisted event must contain enough target identity and before/after delta data for epoch recomputation or rollback to undo the physical cargo mutation.
 
 ### 6.4 Single-delivery execution
@@ -850,9 +850,9 @@ A compatible endpoint or origin fallback vessel must be a real stock vessel, not
 
 ### 7.4 Loaded vs unloaded vessels
 
-If the endpoint vessel is loaded (player is within physics range), use `Part.RequestResource()` for resource operations. If unloaded, use `ProtoPartResourceSnapshot.amount` directly. Both paths apply to origin (deduction) and destination (delivery).
+If the endpoint or origin vessel is loaded (player is within physics range), use stock `Part.TransferResource()` for endpoint tank mutation after explicit logistics eligibility checks. `Part.RequestResource()` is a resource-flow system API, not the stock PAW tank-transfer primitive, and should not be used for deterministic endpoint edits. If unloaded, use `ProtoPartResourceSnapshot.amount` / the backing `RESOURCE` node directly through snapshot objects. Both paths apply to origin deduction and destination delivery.
 
-Inventory delivery also has loaded and unloaded paths. For loaded vessels, use stock `ModuleInventoryPart` APIs to add/remove reconstructed `STOREDPART` payloads while respecting slot limits. For unloaded vessels, edit the relevant `ProtoPartModuleSnapshot` / `STOREDPARTS` ConfigNodes directly using the stored `InventoryPayloadItem.StoredPartSnapshot`, then update slot accounting. Both paths preserve the exact payload identity hash and report items that do not fit.
+Inventory delivery also has loaded and unloaded paths. For loaded vessels, use stock `ModuleInventoryPart` APIs to add reconstructed `STOREDPART` payloads after logistics validates slot limits, stack capacity, volume, mass, variant, and exact payload identity. For origin debit, remove or decrement the exact matching stored slot; do not use stock part-name-only removal helpers. For unloaded vessels, edit the relevant `ProtoPartModuleSnapshot` / `STOREDPARTS` ConfigNodes directly using the stored `InventoryPayloadItem.StoredPartSnapshot`, then update slot accounting. Both paths preserve the exact payload identity hash and report items that do not fit.
 
 ---
 
@@ -947,7 +947,7 @@ Future design intent:
 
 ### 10.11 Route dispatch while player is at destination
 **Scenario:** Player at Mun base when delivery arrives.
-**Behavior:** Destination loaded. Uses `Part.RequestResource()`. Resources appear in real-time.
+**Behavior:** Destination loaded. Uses `Part.TransferResource()` on eligible endpoint tanks. Resources appear in real-time.
 
 ### 10.12 Competing routes at same origin
 **Scenario:** Two routes share Minmus base. Base has enough for one, not both.
@@ -1058,11 +1058,11 @@ Resource delivery modifies vessels that are not part of the recording system —
 
 ```
 RouteDelivery.DeliverResources(endpointVessel, deliveryManifest)
-    if loaded:    part.RequestResource(name, -amount)      // KSP API
-    if unloaded:  protoPartResource.amount += amount       // direct field write
+    if loaded:    targetPart.TransferResource(resource, +amount, sourcePart)
+    if unloaded:  protoPartResource.amount += amount
 ```
 
-This is independent of Parsek's recording/playback/ghost systems, but not independent of the ledger. Every enabled mutation path must be driven by a route event that records target vessel identity, route id, cycle, resource/item amounts requested and actually applied, and enough before/after information for recalculation or rollback. Required modules:
+Loaded origin debits use the same primitive with a negative amount on the proven origin resource. Logistics pre-checks flow state/mode for both signs because stock PAW transfer does so before calling the primitive. This is independent of Parsek's recording/playback/ghost systems, but not independent of the ledger. Every enabled mutation path must be driven by a route event that records target vessel identity, route id, cycle, resource/item amounts requested and actually applied, and enough before/after information for recalculation or rollback. Required modules:
 
 - `RouteKscFundsModule`: applies/recomputes KSC Career dispatch charges.
 - `RouteOriginDebitModule`: applies/recomputes non-KSC origin resource and inventory deductions against the proven origin vessel.
@@ -1286,10 +1286,11 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 
 These complement the pure-logic visual-handoff tests in §16.1: unit tests prove the scheduler chooses the right recording-local offset, while in-game tests prove the live ghost playback and loaded-vessel stock APIs honor that decision.
 
-- Loaded-vessel resource delivery uses `Part.RequestResource()` and clamps to current tank capacity. *Catches: unloaded-only implementation passing unit tests.*
+- Loaded-vessel resource delivery uses `Part.TransferResource()`, clamps to current tank capacity, and respects `flowState`/`flowMode`. *Catches: unloaded-only implementation passing unit tests and accidental use of the resource-flow API.*
 - Unloaded-vessel resource delivery edits proto resource snapshots and survives save/load. *Catches: loaded-only delivery path.*
 - Loaded-vessel non-KSC origin deduction removes resources from the proven origin depot. *Catches: dispatch cost mutation hitting the wrong vessel.*
 - Unloaded non-KSC origin deduction edits the proven origin depot snapshots and survives save/load. *Catches: dispatch debit only working for loaded vessels.*
+- Always-tree dock merge records the other docked vessel PID as `TransferTargetVesselPid` for both active-as-target and active-as-initiator paths. *Catches: route proof accidentally pointing at the merged vessel or the transport itself.*
 - Loaded `ModuleInventoryPart` delivery reconstructs exact `STOREDPART` payloads and respects slot limits. *Catches: inventory slot accounting only working in serialized ConfigNodes.*
 - Unloaded inventory delivery edits `STOREDPARTS` ConfigNodes directly and survives scene reload. *Catches: fragile inventory ConfigNode mutation path.*
 - Flight-scene entry during an in-transit cycle starts/seeks the route ghost at scheduler elapsed time. *Catches: visual replay from the beginning after scene change.*
@@ -1344,8 +1345,8 @@ Implementation should proceed in dependency order. Do not enable the route-creat
 **Phase 4: endpoint and delivery primitives**
 
 - Implement endpoint resolution by PID with surface fallback only for surface endpoints.
-- Implement resource capacity checks and resource mutation for loaded/unloaded vessels.
-- Implement inventory fit/delivery only after exact payload reconstruction is proven.
+- Implement resource capacity checks and `Part.TransferResource()` / `ProtoPartResourceSnapshot` mutation for loaded/unloaded vessels.
+- Implement inventory fit/delivery only after exact payload reconstruction is proven, including loaded `ModuleInventoryPart` insertion and unloaded `STOREDPARTS` editing.
 - Keep physical mutation disabled until Phase 5 ledger modules can apply and reverse the same changes.
 
 **Phase 5: scheduler and timeline effects**

@@ -3855,7 +3855,7 @@ namespace Parsek
                     target.RouteConnectionWindows = new List<RouteConnectionWindow>();
 
                 for (int i = 0; i < source.RouteConnectionWindows.Count; i++)
-                    target.RouteConnectionWindows.Add(source.RouteConnectionWindows[i]?.DeepClone());
+                    UpsertRouteConnectionWindow(target.RouteConnectionWindows, source.RouteConnectionWindows[i]);
                 changed = true;
             }
 
@@ -3875,6 +3875,29 @@ namespace Parsek
         private static bool HasEntries<TKey, TValue>(Dictionary<TKey, TValue> dict)
         {
             return dict != null && dict.Count > 0;
+        }
+
+        private static void UpsertRouteConnectionWindow(
+            List<RouteConnectionWindow> target,
+            RouteConnectionWindow source)
+        {
+            if (target == null || source == null)
+                return;
+
+            RouteConnectionWindow clone = source.DeepClone();
+            if (!string.IsNullOrEmpty(clone.WindowId))
+            {
+                for (int i = 0; i < target.Count; i++)
+                {
+                    if (target[i] != null && target[i].WindowId == clone.WindowId)
+                    {
+                        target[i] = clone;
+                        return;
+                    }
+                }
+            }
+
+            target.Add(clone);
         }
 
         /// <summary>
@@ -4115,9 +4138,8 @@ namespace Parsek
         {
             string childId = Guid.NewGuid().ToString("N");
             string bpId = Guid.NewGuid().ToString("N");
-            uint routeTargetPid = targetVesselPersistentId != 0
-                ? targetVesselPersistentId
-                : mergedVesselPid;
+            uint routeTargetPid = targetVesselPersistentId;
+            uint branchTargetPid = targetVesselPersistentId;
 
             var bp = new BranchPoint
             {
@@ -4127,7 +4149,7 @@ namespace Parsek
                 ParentRecordingIds = new List<string>(parentRecordingIds),
                 ChildRecordingIds = new List<string> { childId },
                 MergeCause = GetMergeCauseForBranchType(branchType),
-                TargetVesselPersistentId = routeTargetPid
+                TargetVesselPersistentId = branchTargetPid
             };
 
             var mergedChild = new Recording
@@ -4139,12 +4161,23 @@ namespace Parsek
                 ParentBranchPointId = bpId,
                 ExplicitStartUT = mergeUT,
                 TransferTargetVesselPid = branchType == BranchPointType.Dock ? routeTargetPid : 0,
-                TransferKind = branchType == BranchPointType.Dock
+                TransferKind = branchType == BranchPointType.Dock && routeTargetPid != 0
                     ? (transferKind != RouteConnectionKind.None ? transferKind : RouteConnectionKind.DockingPort)
                     : RouteConnectionKind.None
             };
 
             return (bp, mergedChild);
+        }
+
+        internal static uint ResolveDockRouteTargetPid(
+            bool activeWasDockTarget,
+            uint mergedVesselPid,
+            uint absorbedVesselPid)
+        {
+            // On stock dock merge events, the surviving vessel PID is the dock target.
+            // Runtime coverage must verify both active-as-target and active-as-initiator
+            // paths before route creation consumes this as endpoint proof.
+            return activeWasDockTarget ? absorbedVesselPid : mergedVesselPid;
         }
 
         private static string GetMergeCauseForBranchType(BranchPointType branchType)
@@ -4504,8 +4537,9 @@ namespace Parsek
         /// Creates a tree merge branch point for a dock or board event.
         /// Ends parent recordings, creates child recording for the merged vessel,
         /// and starts a new FlightRecorder for the child.
-        /// Per Orchestrator Fix 3: absorbedVesselPid is NOT a parameter --
-        /// background vessel PID is derived from the background parent recording.
+        /// Per Orchestrator Fix 3: absorbedVesselPid is NOT a parent-selection
+        /// parameter -- background vessel PID is derived from the background parent
+        /// recording. routeTargetVesselPid is only the route-proof endpoint PID.
         /// </summary>
         void CreateMergeBranch(
             BranchPointType branchType,
@@ -4513,7 +4547,8 @@ namespace Parsek
             string activeParentRecordingId,      // from the active recorder (always present)
             string backgroundParentRecordingId,  // from BackgroundMap lookup (null for foreign vessel)
             double mergeUT,
-            FlightRecorder stoppedRecorder)
+            FlightRecorder stoppedRecorder,
+            uint routeTargetVesselPid = 0)
         {
             // 1. Build parent recording ID list
             var parentIds = new List<string>();
@@ -4556,7 +4591,9 @@ namespace Parsek
             // 5. Build merge branch data
             var (bp, mergedChild) = BuildMergeBranchData(
                 parentIds, activeTree.Id, mergeUT, branchType,
-                mergedVesselPid, mergedVesselName);
+                mergedVesselPid, mergedVesselName,
+                routeTargetVesselPid,
+                routeTargetVesselPid != 0 ? RouteConnectionKind.DockingPort : RouteConnectionKind.None);
 
             // 6. Take snapshot of merged vessel
             ConfigNode mergedSnapshot = (mergedVessel != null)
@@ -8185,6 +8222,7 @@ namespace Parsek
                     pendingTreeDockMerge = true;
                     pendingDockMergedPid = mergedPid;
                     pendingDockAbsorbedPid = absorbedPid;
+                    pendingDockAsTarget = isTarget;
                     dockConfirmFrames = 0;
 
                     // Race condition guard: prevent Task 6 from misclassifying absorption as destruction
@@ -8203,6 +8241,7 @@ namespace Parsek
                     pendingTreeDockMerge = true;
                     pendingDockMergedPid = mergedPid;
                     pendingDockAbsorbedPid = absorbedPid;
+                    pendingDockAsTarget = false;
                     dockConfirmFrames = 0;
 
                     // Clear DockMergePending to prevent chain handler
@@ -9122,6 +9161,10 @@ namespace Parsek
 
             var stoppedRecorder = recorder;
             recorder = null;
+            uint routeTargetPid = ResolveDockRouteTargetPid(
+                pendingDockAsTarget,
+                pendingDockMergedPid,
+                pendingDockAbsorbedPid);
 
             CreateMergeBranch(
                 BranchPointType.Dock,
@@ -9129,7 +9172,8 @@ namespace Parsek
                 activeParentId,
                 bgParentId,
                 mergeUT,
-                stoppedRecorder);
+                stoppedRecorder,
+                routeTargetPid);
 
             // Clean up
             if (pendingDockAbsorbedPid != 0)

@@ -47,9 +47,9 @@ namespace Parsek.Tests
             Assert.NotNull(bp.Id);
             Assert.NotEmpty(bp.Id);
             Assert.Equal("DOCK", bp.MergeCause);
-            Assert.Equal(100u, bp.TargetVesselPersistentId);
-            Assert.Equal(100u, mergedChild.TransferTargetVesselPid);
-            Assert.Equal(RouteConnectionKind.DockingPort, mergedChild.TransferKind);
+            Assert.Equal(0u, bp.TargetVesselPersistentId);
+            Assert.Equal(0u, mergedChild.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.None, mergedChild.TransferKind);
         }
 
         [Fact]
@@ -95,7 +95,7 @@ namespace Parsek.Tests
             Assert.Contains("vessel_rec", bp.ParentRecordingIds);
             Assert.Single(bp.ChildRecordingIds);
             Assert.Equal("BOARD", bp.MergeCause);
-            Assert.Equal(300u, bp.TargetVesselPersistentId);
+            Assert.Equal(0u, bp.TargetVesselPersistentId);
             Assert.Equal(0u, mergedChild.TransferTargetVesselPid);
             Assert.Equal(RouteConnectionKind.None, mergedChild.TransferKind);
         }
@@ -188,6 +188,40 @@ namespace Parsek.Tests
             Assert.Equal(999u, bp.TargetVesselPersistentId);
             Assert.Equal(999u, child.TransferTargetVesselPid);
             Assert.Equal(RouteConnectionKind.DockingPort, child.TransferKind);
+        }
+
+        [Fact]
+        public void BuildMergeBranchData_DockWithoutExplicitTarget_DoesNotInventRouteProof()
+        {
+            var parentIds = new List<string> { "p1", "p2" };
+            var (bp, child) = ParsekFlight.BuildMergeBranchData(
+                parentIds,
+                "tree",
+                3000.0,
+                BranchPointType.Dock,
+                mergedVesselPid: 60,
+                mergedVesselName: "Merged");
+
+            Assert.Equal(0u, bp.TargetVesselPersistentId);
+            Assert.Equal(0u, child.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.None, child.TransferKind);
+        }
+
+        [Fact]
+        public void ResolveDockRouteTargetPid_UsesOtherDockedVessel()
+        {
+            Assert.Equal(222u, ParsekFlight.ResolveDockRouteTargetPid(
+                activeWasDockTarget: true,
+                mergedVesselPid: 111,
+                absorbedVesselPid: 222));
+            Assert.Equal(111u, ParsekFlight.ResolveDockRouteTargetPid(
+                activeWasDockTarget: false,
+                mergedVesselPid: 111,
+                absorbedVesselPid: 222));
+            Assert.Equal(0u, ParsekFlight.ResolveDockRouteTargetPid(
+                activeWasDockTarget: true,
+                mergedVesselPid: 111,
+                absorbedVesselPid: 0));
         }
 
         #endregion

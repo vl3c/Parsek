@@ -16,6 +16,12 @@ All notable changes to Parsek are documented here.
 - Trajectory `.prec` reader now bounds every list-count int32 read from the file against the remaining stream size before any per-element loop or `List<T>` allocation. Corrupted counts -- including large-but-allocatable values like 100M that would previously succeed `new List<T>(count)`, consume hundreds of MB, and only fail far later mid-read -- are rejected up front with `InvalidDataException` carrying the bound-violation detail. Negative counts are similarly rejected at the same gate. This closes the OOM-allocation hazard that the post-probe payload validator's exception catch could not handle in time.
 - Current-magic sidecar probes now fail closed on malformed binary headers, and `InjectAllRecordings` explicitly excludes the frozen pre-reset `DefaultCareer` corpus until it is rebaked to v0/generation-1 files instead of copying unloadable legacy sidecars into runtime smoke saves.
 
+### Logistics
+
+- Added the route-proof recording metadata contracts for Supply Routes, including route-facing dock target PID/kind, origin proof, connection windows, exact inventory payload snapshots, and serialization/copy tests.
+- Dock merge metadata now refuses to synthesize endpoint proof from the post-dock merged vessel PID, and branch-point target PIDs stay `0` unless explicit endpoint proof exists so logistics prep does not change ghost-chain claiming.
+- Aligned the logistics transfer contract with stock behavior. Loaded tank edits should use stock `Part.TransferResource()` after explicit flow checks, while exact inventory delivery must preserve canonical `STOREDPART` payloads and avoid part-name-only removal helpers.
+
 ### UI
 
 - The "Ghost render tracing" diagnostics toggle (both the Parsek settings window and the stock difficulty-settings entry) now reads "Ghost render tracing (Warning: huge logs)" so the log-volume cost is visible before enabling it.

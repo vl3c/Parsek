@@ -36,7 +36,8 @@ namespace Parsek.Tests
             Assert.NotNull(loaded.RouteOriginProof);
             Assert.Equal(7007u, loaded.RouteOriginProof.StartDockedOriginVesselPid);
             Assert.Equal(120.0, loaded.RouteOriginProof.StartTransportResources["LiquidFuel"].amount);
-            Assert.Equal("probeCoreOcto", loaded.RouteOriginProof.StartTransportInventory[0].PartName);
+            Assert.Equal("evaJetpack", loaded.RouteOriginProof.StartTransportInventory[0].PartName);
+            Assert.Equal("STOREDPART", loaded.RouteOriginProof.StartTransportInventory[0].StoredPartSnapshot.name);
 
             Assert.NotNull(loaded.RouteConnectionWindows);
             Assert.Single(loaded.RouteConnectionWindows);
@@ -66,6 +67,7 @@ namespace Parsek.Tests
             Assert.Equal(1, payload.SlotsTaken);
             Assert.Equal(5.0, payload.StoredResources["MonoPropellant"].amount);
             Assert.NotNull(payload.StoredPartSnapshot);
+            Assert.Equal("STOREDPART", payload.StoredPartSnapshot.name);
             Assert.Equal("evaJetpack", payload.StoredPartSnapshot.GetValue("partName"));
         }
 

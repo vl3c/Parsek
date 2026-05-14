@@ -301,6 +301,9 @@ namespace Parsek.Tests
             Assert.Equal(789u, target.RouteOriginProof.StartDockedOriginVesselPid);
             Assert.Single(target.RouteConnectionWindows);
 
+            ParsekFlight.ApplyCapturedLogisticsMetadataToRecording(target, source, "repeat");
+            Assert.Single(target.RouteConnectionWindows);
+
             source.StartResources["LiquidFuel"] =
                 new ResourceAmount { amount = 1.0, maxAmount = 1.0 };
             source.RouteConnectionWindows[0].TransportPartPersistentIds.Add(99);
