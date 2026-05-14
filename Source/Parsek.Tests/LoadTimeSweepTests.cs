@@ -999,7 +999,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LegacyOldSideSweep_DeferredWhenSaveCarriesLegacyImmutableForkRetirement()
+        public void LegacyOldSideSweep_DeferredAndDurableForMultiOldSideToImmutableForkShape()
         {
             // Pre-canon-forks saves can carry the multi-old-side-to-one-Immutable
             // -fork shape PR #807 addressed: multiple priorTips (P1, P2, P3)
@@ -1009,12 +1009,22 @@ namespace Parsek.Tests
             // can reconstruct ONLY ONE priorTip→canon relation per fork
             // retirement (the one named in F's RestoredRecordingId metadata),
             // so the other priorTips were kept hidden by their own old-side
-            // rows. If the new non-Immutable old-side sweep removed those rows
-            // here, P2 and P3 would re-appear as "Destroyed" outcomes in the
+            // rows. If the new non-Immutable old-side sweep removed those rows,
+            // P2 and P3 would re-appear as "Destroyed" outcomes in the
             // recordings table — the exact regression PR #807 fixed.
             //
-            // The guard defers the new sweep entirely when any DefaultReason
-            // fork retirement points at a live Immutable recording.
+            // The guard must be DURABLE across loads. The fork retirement is a
+            // one-shot signal: the per-row loop removes it and the save
+            // persists without it, so a guard keyed on the fork retirement
+            // alone would defer on load 1 then wrongly sweep on load 2. The
+            // second-pass guard keys on (a) "an Immutable fork retirement was
+            // removed THIS load" — covers load 1 — OR (b) "a supersede relation
+            // whose NewRecordingId is a live Immutable recording survives" —
+            // the F→P1 relation reconstructed on load 1, persisted, and seen
+            // again on load 2+. This test runs the sweep TWICE on the same
+            // scenario object (a faithful load-1 / load-2 simulation, since the
+            // first run mutates RecordingSupersedes and RecordingRewindRetirements
+            // in place) and asserts P1/P2/P3 survive BOTH runs.
             InstallTree("tree-multi-old",
                 new List<Recording>
                 {
@@ -1057,6 +1067,7 @@ namespace Parsek.Tests
                     fRetirement, p1OldSide, p2OldSide, p3OldSide
                 });
 
+            // --- Load 1: deferImmediate signal (Immutable fork retirement removed). ---
             LoadTimeSweep.Run();
 
             // The existing legacy-Immutable sweep removes F's retirement and
@@ -1070,21 +1081,36 @@ namespace Parsek.Tests
             // The new non-Immutable old-side sweep is deferred: P1, P2, P3
             // old-side rows survive. P2 and P3 stay hidden via their own
             // retirements (the only remaining suppression mechanism for them).
-            Assert.Contains(scenario.RecordingRewindRetirements,
-                r => r.RecordingId == "P1");
-            Assert.Contains(scenario.RecordingRewindRetirements,
-                r => r.RecordingId == "P2");
-            Assert.Contains(scenario.RecordingRewindRetirements,
-                r => r.RecordingId == "P3");
-
-            // No "Removing legacy rewind-retirement" line for the non-Immutable
-            // old-side rows; the deferral log fires.
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P1");
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P2");
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P3");
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("Removing legacy rewind-retirement")
                 && (l.Contains("recording=P1")
                     || l.Contains("recording=P2")
                     || l.Contains("recording=P3")));
             Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Legacy non-Immutable old-side sweep deferred"));
+
+            // --- Load 2: F retirement is already gone; the durable signal is
+            //     the surviving F→P1 supersede relation. The sweep must STILL
+            //     defer — this is the regression the durable guard prevents. ---
+            int logCountAfterLoad1 = logLines.Count;
+            LoadTimeSweep.Run();
+
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P1");
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P2");
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P3");
+            int load2Removals = logLines
+                .Skip(logCountAfterLoad1)
+                .Count(l => l.Contains("Removing legacy rewind-retirement")
+                    && (l.Contains("recording=P1")
+                        || l.Contains("recording=P2")
+                        || l.Contains("recording=P3")));
+            Assert.Equal(0, load2Removals);
+            // The deferral log fires again on load 2 via the surviving-relation signal.
+            Assert.Contains(logLines.Skip(logCountAfterLoad1), l =>
                 l.Contains("[LoadSweep]")
                 && l.Contains("Legacy non-Immutable old-side sweep deferred"));
         }

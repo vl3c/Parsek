@@ -598,42 +598,8 @@ namespace Parsek
                 }
             }
 
-            // Detect legacy pre-canon-forks state: a DefaultReason fork
-            // retirement whose RecordingId resolves to a live Immutable
-            // recording is a row written by the buggy pre-canon-forks Pass-1
-            // (it retired Immutable forks as if they were non-canon). When
-            // present, the existing legacy-Immutable sweep below will
-            // reconstruct ONE priorTip→canon supersede relation from each
-            // fork retirement's RestoredRecordingId. In multi-old-side-to-one-
-            // Immutable shapes (one fork superseded multiple priorTips in the
-            // pre-fix save), the reconstructed relation covers only ONE of
-            // the priorTips; the others were kept hidden by their own
-            // RewoundOutOldSideReason rows. The new legacy non-Immutable
-            // old-side sweep below MUST NOT remove those rows in that shape —
-            // doing so would expose the un-reconstructed priorTips and
-            // re-introduce the "Destroyed re-appears after Re-Fly+Rewind"
-            // regression PR #807 fixed. Skip the new sweep when any legacy
-            // Immutable fork retirement is present.
-            bool hasLegacyImmutableForkRetirement = false;
-            for (int i = 0; i < scenario.RecordingRewindRetirements.Count; i++)
-            {
-                var r = scenario.RecordingRewindRetirements[i];
-                if (r == null
-                    || string.IsNullOrEmpty(r.RecordingId)
-                    || !string.Equals(r.Reason,
-                        RecordingRewindRetirement.DefaultReason,
-                        StringComparison.Ordinal))
-                    continue;
-                if (immutableRecordingIds.Contains(r.RecordingId))
-                {
-                    hasLegacyImmutableForkRetirement = true;
-                    break;
-                }
-            }
-
             int removed = 0;
             int removedImmutableRetirements = 0;
-            int removedLegacyNonImmutableOldSideRetirements = 0;
             int retainedWithMissingRestored = 0;
             for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
             {
@@ -653,51 +619,6 @@ namespace Parsek
                         $"recording={retirement.RecordingId}; removing");
                     scenario.RecordingRewindRetirements.RemoveAt(i);
                     removed++;
-                    continue;
-                }
-
-                // Pre-fix legacy old-side cleanup (this PR):
-                // RewoundOutOldSideReason rows targeting a NON-Immutable
-                // priorTip were authored by the deprecated Pass-2 code path
-                // that retired priorTips for every dropped supersede regardless
-                // of the fork's MergeState. The post-fix Pass 2 only writes
-                // such rows when the dropped relation had an Immutable fork
-                // (and isn't a forced self-rewind). In production demotion
-                // shapes the priorTip is itself a fork retirement, so it never
-                // reaches Pass 2's write site under the new rule — meaning any
-                // live-priorTip non-Immutable RewoundOutOldSideReason row in
-                // an existing save is pre-fix stale state. Sweep it so the
-                // priorTip becomes visible again and Watch playback can replay
-                // it. See docs/dev/plans/fix-tree-rewind-supersede-old-side.md.
-                //
-                // Guarded by hasLegacyImmutableForkRetirement: pre-canon-forks
-                // saves can carry the multi-old-side-to-one-Immutable-fork
-                // shape that PR #807 originally addressed (multiple priorTips
-                // superseded by a single canon fork; the buggy code dropped
-                // all relations and wrote per-priorTip RewoundOutOldSideReason
-                // rows). The existing legacy-Immutable sweep reconstructs only
-                // ONE priorTip→canon relation per fork retirement, so the
-                // RewoundOutOldSideReason rows for the *other* priorTips are
-                // the only remaining suppression. Removing them here would
-                // expose those priorTips and regress the bug PR #807 fixed.
-                // When any DefaultReason fork retirement names a live
-                // Immutable recording, defer the new sweep entirely.
-                bool isOldSideOnNonImmutablePriorTip =
-                    !immutableRecordingIds.Contains(retirement.RecordingId)
-                    && string.Equals(retirement.Reason,
-                        RecordingRewindRetirement.RewoundOutOldSideReason,
-                        StringComparison.Ordinal);
-                if (isOldSideOnNonImmutablePriorTip && !hasLegacyImmutableForkRetirement)
-                {
-                    ParsekLog.Info(SupersedeTag,
-                        $"Removing legacy rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
-                        $"recording={retirement.RecordingId} " +
-                        $"reason=fork-non-immutable-priortip-pre-fix " +
-                        "(pre-fix Pass-2 wrote this row before the new MergeState gate; " +
-                        "priorTip will be visible after sweep so spawn-at-endpoint can replay it)");
-                    scenario.RecordingRewindRetirements.RemoveAt(i);
-                    removed++;
-                    removedLegacyNonImmutableOldSideRetirements++;
                     continue;
                 }
 
@@ -792,15 +713,111 @@ namespace Parsek
                     retainedWithMissingRestored++;
             }
 
-            if (hasLegacyImmutableForkRetirement)
+            // --------------------------------------------------------------
+            // Second pass (this PR): legacy non-Immutable old-side cleanup.
+            //
+            // RewoundOutOldSideReason rows targeting a NON-Immutable priorTip
+            // were authored by the deprecated Pass-2 code path that retired
+            // priorTips for every dropped supersede regardless of the fork's
+            // MergeState. The post-fix Pass 2 only writes such a row when the
+            // dropped relation had an Immutable fork (and isn't a forced
+            // self-rewind); that path is in turn unreachable in production
+            // demotion shapes (the priorTip is itself a Pass-1 fork retirement
+            // shadowed by seenRetiredIds). So a live-priorTip non-Immutable
+            // RewoundOutOldSideReason row is pre-fix stale state: sweep it so
+            // the priorTip becomes visible and Watch playback can replay it.
+            //
+            // BUT: pre-canon-forks saves can carry the multi-old-side-to-one-
+            // Immutable-fork shape PR #807 originally addressed — one canon
+            // (Immutable) fork superseded several priorTips; the buggy code
+            // dropped every relation and wrote one DefaultReason fork
+            // retirement plus per-priorTip RewoundOutOldSideReason rows. The
+            // per-row legacy-Immutable cleanup above reconstructs ONLY ONE
+            // priorTip→canon relation (the one named in the fork retirement's
+            // RestoredRecordingId); the other priorTips stay hidden by their
+            // own RewoundOutOldSideReason rows. Removing those rows would
+            // re-expose the un-reconstructed priorTips — the exact regression
+            // PR #807 fixed.
+            //
+            // The guard must be DURABLE across loads. The fork retirement
+            // itself is a one-shot signal: the per-row loop above removes it
+            // and the save persists without it, so a guard keyed on the fork
+            // retirement would defer on load 1 and then wrongly sweep on
+            // load 2. Instead the guard keys on signals that survive the save:
+            //
+            //   - deferImmediate: the per-row loop just removed at least one
+            //     legacy Immutable fork retirement THIS load. Covers load 1
+            //     including the case where TryRestoreLegacyImmutableSupersede
+            //     could not reconstruct the relation (no durable signal would
+            //     then exist, so this load is the only chance to defer).
+            //
+            //   - hasSurvivingImmutableSupersede: a RecordingSupersedeRelation
+            //     whose NewRecordingId resolves to a live Immutable recording.
+            //     On load 1 (success) this is the relation the per-row loop
+            //     just reconstructed; on load 2+ it is the same relation,
+            //     persisted. This is the durable signal.
+            //
+            // Either signal defers the entire second pass. Residual gap: a
+            // load-2+ visit of a save whose load-1 reconstruction FAILED has
+            // neither signal — but that save is already degraded (load 1
+            // logged "priorTip may render alongside canon, investigate"), so
+            // sweeping is not making a healthy save worse.
+            int removedLegacyNonImmutableOldSideRetirements = 0;
+            bool deferLegacyOldSideSweep = removedImmutableRetirements > 0;
+            if (!deferLegacyOldSideSweep && scenario.RecordingSupersedes != null)
+            {
+                for (int i = 0; i < scenario.RecordingSupersedes.Count; i++)
+                {
+                    var rel = scenario.RecordingSupersedes[i];
+                    if (rel != null
+                        && !string.IsNullOrEmpty(rel.NewRecordingId)
+                        && immutableRecordingIds.Contains(rel.NewRecordingId))
+                    {
+                        deferLegacyOldSideSweep = true;
+                        break;
+                    }
+                }
+            }
+
+            int legacyOldSideCandidates = 0;
+            for (int i = scenario.RecordingRewindRetirements.Count - 1; i >= 0; i--)
+            {
+                var retirement = scenario.RecordingRewindRetirements[i];
+                if (retirement == null
+                    || string.IsNullOrEmpty(retirement.RecordingId)
+                    || !string.Equals(retirement.Reason,
+                        RecordingRewindRetirement.RewoundOutOldSideReason,
+                        StringComparison.Ordinal)
+                    || immutableRecordingIds.Contains(retirement.RecordingId))
+                    continue;
+
+                // Live non-Immutable priorTip carrying RewoundOutOldSideReason.
+                // (Orphan priorTips were already removed by the per-row loop's
+                // !retiredResolved branch, so anything reaching here is live.)
+                legacyOldSideCandidates++;
+                if (deferLegacyOldSideSweep)
+                    continue;
+
+                ParsekLog.Info(SupersedeTag,
+                    $"Removing legacy rewind-retirement={retirement.RetirementId ?? "<no-id>"} " +
+                    $"recording={retirement.RecordingId} " +
+                    $"reason=fork-non-immutable-priortip-pre-fix " +
+                    "(pre-fix Pass-2 wrote this row before the new MergeState gate; " +
+                    "priorTip will be visible after sweep so spawn-at-endpoint can replay it)");
+                scenario.RecordingRewindRetirements.RemoveAt(i);
+                removed++;
+                removedLegacyNonImmutableOldSideRetirements++;
+            }
+
+            if (deferLegacyOldSideSweep && legacyOldSideCandidates > 0)
             {
                 ParsekLog.Info(SweepTag,
-                    "[LoadSweep] Legacy non-Immutable old-side sweep deferred: " +
-                    "save carries at least one DefaultReason fork retirement on a live " +
-                    "Immutable recording (pre-canon-forks state). The new sweep would " +
-                    "expose multi-old-side-to-one-Immutable-fork priorTips kept hidden " +
-                    "by their per-row retirements. Old-side rows stay until a future " +
-                    "rewind under the post-fix code reseals them.");
+                    $"[LoadSweep] Legacy non-Immutable old-side sweep deferred: " +
+                    $"{legacyOldSideCandidates.ToString(CultureInfo.InvariantCulture)} candidate row(s) " +
+                    "retained because the save carries Immutable canon supersede state " +
+                    "(reconstructed or surviving). Removing them could expose " +
+                    "multi-old-side-to-one-Immutable-fork priorTips kept hidden by their " +
+                    "per-row retirements. Rows stay until a future rewind reseals them.");
             }
 
             int orphanOnly = removed
