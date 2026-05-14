@@ -664,21 +664,16 @@ namespace Parsek.Tests.Rendering
             }
         }
 
-        [Fact]
-        public void StandaloneWorldPosition_InPlaceReFlyAlias_FallsBackToCommittedOriginWhenForkUnresolvable()
+        // A RELATIVE-frame section with no anchorRecordingId: the standalone
+        // helper fails closed AFTER it has resolved the recording, so the
+        // downstream "anchor-recording-id-missing recording=<id>" log proves
+        // both WHICH recording was resolved and that we proceeded past the
+        // rec==null gate. Used by the in-place Re-Fly alias tests below.
+        private static Recording MakeRelativeNoAnchorRecording(string id)
         {
-            // Post-#734 in-place Re-Fly aliases the committed origin id to the
-            // live provisional fork. After a normal mid-Re-Fly F5/F9 reload
-            // the fork is rehydrated into the active tree's Recordings dict
-            // but NOT back into RecordingStore.CommittedRecordings (see
-            // ReconcileInPlaceForkIntoTreeIfNeeded), so ResolveRecordingById —
-            // committed-list-only — cannot resolve the alias target. The
-            // helper must fall back to the committed origin rather than miss
-            // outright (which would drop the peer ghost to a standalone
-            // position). This pins the fallback path.
-            var rOrigin = new Recording
+            return new Recording
             {
-                RecordingId = "committed-origin",
+                RecordingId = id,
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 Points = new List<TrajectoryPoint>
                 {
@@ -697,10 +692,6 @@ namespace Parsek.Tests.Rendering
                 },
                 TrackSections = new List<TrackSection>
                 {
-                    // RELATIVE + no anchorRecordingId: the helper fails closed
-                    // AFTER it has resolved the recording — so the downstream
-                    // "anchor-recording-id-missing" log proves we proceeded
-                    // past the rec==null gate via the origin fallback.
                     new TrackSection
                     {
                         startUT = 100.0, endUT = 110.0,
@@ -710,34 +701,85 @@ namespace Parsek.Tests.Rendering
                     }
                 }
             };
-            RecordingStore.AddCommittedInternal(rOrigin);
+        }
 
-            // Alias committed-origin -> a provisional that is NOT in the
-            // committed list (the F5/F9 reload state).
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyAlias_ResolvesForkFromTreeWhenAbsentFromCommittedList()
+        {
+            // After a normal mid-Re-Fly F5/F9 reload the provisional fork is
+            // rehydrated into the active/pending tree's Recordings dict but
+            // intentionally absent from RecordingStore.CommittedRecordings
+            // (see ReconcileInPlaceForkIntoTreeIfNeeded). The alias path must
+            // resolve the fork through the trees and use ITS trajectory — NOT
+            // miss outright, and NOT fall back to the frozen committed origin.
+            var rOrigin = MakeRelativeNoAnchorRecording("committed-origin");
+            var rFork = MakeRelativeNoAnchorRecording("provisional-fork");
+            RecordingStore.AddCommittedInternal(rOrigin);
+            // The fork lives ONLY in a tree, not the committed list — exactly
+            // the documented post-F5/F9 mid-Re-Fly hydration state.
+            var tree = new RecordingTree { Id = "refly-tree" };
+            tree.Recordings[rFork.RecordingId] = rFork;
+            RecordingStore.CommittedTrees.Add(tree);
+
             RenderSessionState.RegisterInPlaceReFlyAlias(new ReFlySessionMarker
             {
-                SessionId = "f5f9-sess",
+                SessionId = "f5f9-tree-sess",
                 InPlaceContinuation = true,
                 OriginChildRecordingId = "committed-origin",
-                ActiveReFlyRecordingId = "provisional-not-in-committed-list",
+                ActiveReFlyRecordingId = "provisional-fork",
             });
 
             bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
                 "committed-origin", 105.0, fallbackBody: null, out _);
 
-            // The fallback fired...
+            // The fork WAS resolved from the tree — the RELATIVE-section
+            // diagnostic names the FORK, not the origin...
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
-                && l.Contains("In-place Re-Fly alias target unresolved, falling back to committed origin")
-                && l.Contains("origin=committed-origin"));
+                && l.Contains("anchor-recording-id-missing")
+                && l.Contains("provisional-fork"));
+            // ...and the unusable-fallback path did NOT fire.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("alias target unusable, falling back to committed origin"));
+            // RELATIVE-no-anchor still fails closed (HR-9); the point of the
+            // test is WHICH recording got resolved, not that it produced a pos.
+            Assert.False(ok);
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyAlias_FallsBackToCommittedOriginWhenForkUnresolvable()
+        {
+            // When the alias target cannot be resolved from the committed
+            // list OR any committed/pending tree (genuinely missing fork),
+            // the helper falls back to the committed origin rather than
+            // missing outright — degrading to, never below, the pre-alias
+            // behaviour. This pins the fallback path.
+            var rOrigin = MakeRelativeNoAnchorRecording("committed-origin");
+            RecordingStore.AddCommittedInternal(rOrigin);
+
+            // Alias committed-origin -> a provisional that is in NEITHER the
+            // committed list NOR any tree.
+            RenderSessionState.RegisterInPlaceReFlyAlias(new ReFlySessionMarker
+            {
+                SessionId = "f5f9-sess",
+                InPlaceContinuation = true,
+                OriginChildRecordingId = "committed-origin",
+                ActiveReFlyRecordingId = "provisional-not-anywhere",
+            });
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                "committed-origin", 105.0, fallbackBody: null, out _);
+
+            // The fallback fired (fork found nowhere)...
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("In-place Re-Fly alias target unusable, falling back to committed origin")
+                && l.Contains("origin=committed-origin")
+                && l.Contains("forkFound=false"));
             // ...and the helper proceeded PAST the rec==null gate using the
             // committed origin (evidenced by the downstream RELATIVE-section
             // diagnostic, which only fires once a recording is resolved).
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
                 && l.Contains("anchor-recording-id-missing")
                 && l.Contains("committed-origin"));
-            // The RELATIVE-no-anchor section still fails closed (HR-9) — the
-            // point of the test is that the fallback RESOLVED, not that this
-            // particular section produces a position.
             Assert.False(ok);
         }
     }

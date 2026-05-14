@@ -19570,29 +19570,43 @@ namespace Parsek
             // reads recorded points, not live KSP Vessel state.
             string aliasedRecordingId = Parsek.Rendering.RenderSessionState
                 .ResolveInPlaceReFlyActiveAlias(recordingId);
-            Recording rec = ResolveRecordingById(aliasedRecordingId);
-            if (rec == null
-                && !string.Equals(aliasedRecordingId, recordingId, StringComparison.Ordinal))
+            Recording rec;
+            if (string.Equals(aliasedRecordingId, recordingId, StringComparison.Ordinal))
             {
-                // The alias target (the live provisional) is not in the
-                // committed recordings list. This is the documented normal
-                // state after a mid-Re-Fly F5/F9 reload — the fork is
-                // rehydrated into the active tree's Recordings dict, not back
-                // into RecordingStore.CommittedRecordings (see
-                // ReconcileInPlaceForkIntoTreeIfNeeded). ResolveRecordingById
-                // is committed-list-only, so fall back to the committed
-                // origin rather than failing the co-bubble lookup outright,
-                // which would drop the peer ghost to a standalone position.
-                // This degrades to the pre-alias behaviour for that window;
-                // it never regresses below it.
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "refly-alias-target-unresolved",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "In-place Re-Fly alias target unresolved, falling back to committed origin: " +
-                        "aliasTarget={0} origin={1}", aliasedRecordingId, recordingId),
-                    5.0);
-                aliasedRecordingId = recordingId;
-                rec = ResolveRecordingById(aliasedRecordingId);
+                // No alias active (or identity alias) — ordinary committed lookup.
+                rec = ResolveRecordingById(recordingId);
+            }
+            else
+            {
+                // Alias active. The live provisional fork is normally in
+                // RecordingStore.CommittedRecordings, but after a mid-Re-Fly
+                // F5/F9 reload it is rehydrated into the active/pending tree's
+                // Recordings dict and intentionally NOT re-added to the
+                // committed list (see ReconcileInPlaceForkIntoTreeIfNeeded).
+                // ResolveRecordingByIdAcrossTrees resolves through the
+                // committed list AND the trees so the fork's live trajectory
+                // is used even in that window. Fall back to the committed
+                // origin only when the fork is genuinely unusable — not found
+                // anywhere, or carrying no recorded points yet — degrading to
+                // (never below) the pre-alias behaviour.
+                Recording fork = ResolveRecordingByIdAcrossTrees(aliasedRecordingId);
+                if (fork != null && fork.Points != null && fork.Points.Count > 0)
+                {
+                    rec = fork;
+                }
+                else
+                {
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "refly-alias-target-unusable",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "In-place Re-Fly alias target unusable, falling back to committed origin: " +
+                            "aliasTarget={0} origin={1} forkFound={2}",
+                            aliasedRecordingId, recordingId,
+                            fork != null ? "true" : "false"),
+                        5.0);
+                    aliasedRecordingId = recordingId;
+                    rec = ResolveRecordingById(recordingId);
+                }
             }
             if (rec == null) return false;
             recordingId = aliasedRecordingId;
@@ -20130,6 +20144,57 @@ namespace Parsek
             catch
             {
                 // Mid-load mutation; treat as missing.
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves a recording id across the committed recordings list AND
+        /// every committed/pending tree's <see cref="RecordingTree.Recordings"/>
+        /// dict. Used only by the in-place Re-Fly alias path in
+        /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>: after a
+        /// mid-Re-Fly F5/F9 reload the provisional fork is rehydrated into the
+        /// active/pending tree but intentionally absent from the committed
+        /// list (see <c>ReconcileInPlaceForkIntoTreeIfNeeded</c>), so the
+        /// committed-list-only <see cref="ResolveRecordingById"/> cannot see
+        /// it. The committed list wins on a tie — once the fork is reconciled
+        /// back in, that is the canonical instance and the tree slot is
+        /// overwritten to match it.
+        /// </summary>
+        private static Recording ResolveRecordingByIdAcrossTrees(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            Recording committed = ResolveRecordingById(recordingId);
+            if (committed != null) return committed;
+            try
+            {
+                List<RecordingTree> trees = RecordingStore.CommittedTrees;
+                if (trees != null)
+                {
+                    for (int i = 0; i < trees.Count; i++)
+                    {
+                        RecordingTree t = trees[i];
+                        if (t?.Recordings != null
+                            && t.Recordings.TryGetValue(recordingId, out Recording tr)
+                            && tr != null)
+                            return tr;
+                    }
+                }
+                RecordingTree pending = RecordingStore.PendingTree;
+                if (pending?.Recordings != null
+                    && pending.Recordings.TryGetValue(recordingId, out Recording pr)
+                    && pr != null)
+                    return pr;
+                RecordingTree limbo = RecordingStore.SavedPendingTreeDuringActiveRestore;
+                if (limbo?.Recordings != null
+                    && limbo.Recordings.TryGetValue(recordingId, out Recording lr)
+                    && lr != null)
+                    return lr;
+            }
+            catch
+            {
+                // Mid-load mutation — treat as not found; the alias path
+                // falls back to the committed origin.
             }
             return null;
         }
