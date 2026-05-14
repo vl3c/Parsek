@@ -2494,6 +2494,8 @@ namespace Parsek
             if (logRecorderState)
                 ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-entry", CaptureRecorderState());
 
+            RestoreDebrisPersistence();
+
             if (recorder != null)
             {
                 if (recorder.IsRecording)

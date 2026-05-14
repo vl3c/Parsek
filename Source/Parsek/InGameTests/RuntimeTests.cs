@@ -83,6 +83,9 @@ namespace Parsek.InGameTests
         private static readonly MethodInfo ParsekFlightFinalizeTreeRecordingsMethod =
             typeof(ParsekFlight).GetMethod("FinalizeTreeRecordings",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ParsekFlightDiscardActiveTreeForSuppressedSceneExitMethod =
+            typeof(ParsekFlight).GetMethod("DiscardActiveTreeForSuppressedSceneExit",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo ParsekFlightDisarmPostSwitchAutoRecordMethod =
             typeof(ParsekFlight).GetMethod("DisarmPostSwitchAutoRecord",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
@@ -1406,6 +1409,11 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("ParsekFlight.FinalizeTreeRecordings reflection surface unavailable");
                 yield break;
             }
+            if (ParsekFlightDiscardActiveTreeForSuppressedSceneExitMethod == null)
+            {
+                InGameAssert.Skip("ParsekFlight.DiscardActiveTreeForSuppressedSceneExit reflection surface unavailable");
+                yield break;
+            }
             if (!TryResolveFlightEva(out object flightEva, out string flightEvaSkipReason))
             {
                 InGameAssert.Skip(flightEvaSkipReason);
@@ -1426,6 +1434,7 @@ namespace Parsek.InGameTests
             string evaRecordingId = null;
             int spawnedGhostIndex = -1;
             GhostPlaybackState spawnedGhostState = null;
+            GhostBuildResult directBuildResult = null;
 
             try
             {
@@ -1449,6 +1458,35 @@ namespace Parsek.InGameTests
                         $"FlightEVA.spawnEVA threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
                         $"{ex.InnerException?.Message ?? ex.Message}");
                 }
+
+                yield return WaitForActiveEvaBranchSnapshotBeforeFirstSample(crewMember.name, 10f);
+
+                flight = ParsekFlight.Instance;
+                RecordingTree earlyTree = flight?.ActiveTreeForSerialization;
+                InGameAssert.IsTrue(TryFindEvaRecording(earlyTree, crewMember.name, out Recording earlyEvaRecording),
+                    $"Expected active tree to contain an EVA recording for '{crewMember.name}' before first-sample cache check");
+                Vessel earlyEvaVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(earlyEvaVessel,
+                    "Active EVA vessel should exist before first-sample cache check");
+                InGameAssert.IsTrue(earlyEvaVessel.isEVA,
+                    $"Expected active vessel to be EVA before first-sample cache check, got '{earlyEvaVessel.vesselName}'");
+                var earlyEvaView = new ForcedBallisticLiveVesselViewForRuntimeTest(earlyEvaVessel);
+                bool earlyCacheBuilt = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                    earlyEvaRecording,
+                    earlyEvaView,
+                    Planetarium.GetUniversalTime(),
+                    FinalizationCacheOwner.ActiveRecorder,
+                    "runtime-eva-early-cache",
+                    hasMeaningfulThrust: false,
+                    earlyTree,
+                    out RecordingFinalizationCache earlyCache);
+                InGameAssert.IsFalse(earlyCacheBuilt,
+                    $"Pre-first-sample EVA cache refresh should decline through the sub-surface suppression guard " +
+                    $"(status={earlyCache.Status}, terminal={earlyCache.TerminalState?.ToString() ?? "none"}, " +
+                    $"decline={earlyCache.DeclineReason ?? "null"})");
+                InGameAssert.AreEqual("subsurface-destroyed-suppressed", earlyCache.DeclineReason,
+                    $"Pre-first-sample EVA cache refresh should exercise the NullSolver + SubSurfaceStart suppression path " +
+                    $"(status={earlyCache.Status}, terminal={earlyCache.TerminalState?.ToString() ?? "none"})");
 
                 yield return WaitForActiveEvaBranchRecording(crewMember.name, 10f);
                 yield return WaitForActiveEvaSurfaceSettled(crewMember.name, 10f);
@@ -1495,6 +1533,20 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(finalizedEva.TerminalPosition.HasValue,
                     $"EVA recording '{evaRecordingId}' should have a terminal surface position");
 
+                directBuildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    finalizedEva,
+                    "ParsekTest_EvaKerbalGhostHasVesselSnapshot");
+                InGameAssert.IsNotNull(directBuildResult,
+                    $"EVA recording '{evaRecordingId}' snapshot should build a real ghost visual");
+                InGameAssert.IsNotNull(directBuildResult.root,
+                    $"EVA recording '{evaRecordingId}' direct ghost build root should not be null");
+                Renderer[] directRenderers = directBuildResult.root
+                    .GetComponentsInChildren<Renderer>(true)
+                    .Where(r => r is MeshRenderer || r is SkinnedMeshRenderer)
+                    .ToArray();
+                InGameAssert.IsGreaterThan(directRenderers.Length, 0,
+                    $"EVA recording '{evaRecordingId}' snapshot should build mesh or skinned renderers without sphere fallback");
+
                 var engine = flight.Engine;
                 InGameAssert.IsNotNull(engine, "GhostPlaybackEngine should exist before spawning the EVA canary ghost");
                 IPlaybackTrajectory trajectory = finalizedEva as IPlaybackTrajectory;
@@ -1538,9 +1590,12 @@ namespace Parsek.InGameTests
                 ParsekLog.Info("TestRunner",
                     $"EvaKerbalGhostHasVesselSnapshot: tree={treeId} rec={evaRecordingId} " +
                     $"crew='{crewMember.name}' terminal={finalizedEva.TerminalStateValue} " +
+                    $"earlyCacheBuilt={earlyCacheBuilt} earlyCacheStatus={earlyCache.Status} " +
+                    $"earlyCacheTerminal={earlyCache.TerminalState?.ToString() ?? "none"} " +
+                    $"earlyCacheDecline={earlyCache.DeclineReason ?? "none"} " +
                     $"vesselParts={CountPartNodes(finalizedEva.VesselSnapshot)} " +
                     $"ghostParts={CountPartNodes(finalizedEva.GhostVisualSnapshot)} " +
-                    $"renderers={renderers.Length}");
+                    $"directRenderers={directRenderers.Length} spawnedRenderers={renderers.Length}");
             }
             finally
             {
@@ -1554,10 +1609,12 @@ namespace Parsek.InGameTests
                 }
                 if (spawnedGhostState?.ghost != null)
                     runner.TrackForCleanup(spawnedGhostState.ghost);
+                if (directBuildResult?.root != null)
+                    runner.TrackForCleanup(directBuildResult.root);
 
                 var cleanupFlight = ParsekFlight.Instance;
-                if (startedByTest && cleanupFlight != null && cleanupFlight.IsRecording)
-                    cleanupFlight.StopRecording();
+                if (startedByTest)
+                    DiscardActiveTreeForRuntimeTest(cleanupFlight, "EvaKerbalGhostHasVesselSnapshot cleanup");
                 RemoveCommittedTreeByIdForRuntimeTest(treeId);
             }
         }
@@ -2086,6 +2143,59 @@ namespace Parsek.InGameTests
                 $"isEva={timedOutVessel?.isEVA == true})");
         }
 
+        private static IEnumerator WaitForActiveEvaBranchSnapshotBeforeFirstSample(string expectedCrewName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                RecordingTree tree = flight?.ActiveTreeForSerialization;
+                bool hasPointEvidence = HasObservedActiveRecordingPoint(
+                    flight,
+                    out _,
+                    out _,
+                    out _);
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.isEVA
+                    && IsExpectedEvaVessel(vessel, expectedCrewName)
+                    && TryFindEvaRecording(tree, expectedCrewName, out Recording evaRecording)
+                    && string.Equals(tree?.ActiveRecordingId, evaRecording.RecordingId, System.StringComparison.Ordinal)
+                    && CountPartNodes(evaRecording.VesselSnapshot) > 0
+                    && CountPartNodes(evaRecording.GhostVisualSnapshot) > 0
+                    && !hasPointEvidence)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            RecordingTree timedOutTree = timedOutFlight?.ActiveTreeForSerialization;
+            TryFindEvaRecording(timedOutTree, expectedCrewName, out Recording timedOutEva);
+            HasObservedActiveRecordingPoint(
+                timedOutFlight,
+                out int treePointCount,
+                out int bufferedPointCount,
+                out double lastRecordedUT);
+            InGameAssert.Fail(
+                $"WaitForActiveEvaBranchSnapshotBeforeFirstSample timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeRecId={timedOutTree?.ActiveRecordingId ?? "null"}, " +
+                $"evaRecId={timedOutEva?.RecordingId ?? "null"}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"isEva={timedOutVessel?.isEVA == true}, " +
+                $"snapshotParts={CountPartNodes(timedOutEva?.VesselSnapshot)}, " +
+                $"ghostParts={CountPartNodes(timedOutEva?.GhostVisualSnapshot)}, " +
+                $"treePoints={treePointCount}, bufferedPoints={bufferedPointCount}, " +
+                $"lastRecordedUT={(double.IsNaN(lastRecordedUT) ? "NaN" : lastRecordedUT.ToString("F2", CultureInfo.InvariantCulture))})");
+        }
+
         private static IEnumerator WaitForActiveEvaBranchRecording(string expectedCrewName, float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
@@ -2202,6 +2312,98 @@ namespace Parsek.InGameTests
         private static int CountPartNodes(ConfigNode snapshot)
         {
             return snapshot?.GetNodes("PART")?.Length ?? 0;
+        }
+
+        private sealed class ForcedBallisticLiveVesselViewForRuntimeTest : IRecordingFinalizationVesselView
+        {
+            private readonly Vessel vessel;
+
+            internal ForcedBallisticLiveVesselViewForRuntimeTest(Vessel vessel)
+            {
+                this.vessel = vessel;
+            }
+
+            public uint PersistentId => vessel.persistentId;
+            public Vessel.Situations Situation => Vessel.Situations.FLYING;
+            public string BodyName => vessel.mainBody?.name
+                ?? vessel.orbit?.referenceBody?.name
+                ?? "(unknown-body)";
+            public bool IsInAtmosphere
+            {
+                get
+                {
+                    CelestialBody body = vessel.mainBody ?? vessel.orbit?.referenceBody;
+                    return body != null
+                        && body.atmosphere
+                        && vessel.altitude < body.atmosphereDepth;
+                }
+            }
+            public bool IsPacked => vessel.packed;
+            public bool IsLoaded => vessel.loaded;
+            public double Latitude => vessel.latitude;
+            public double Longitude => vessel.longitude;
+            public double Altitude => vessel.altitude;
+            public double HeightFromTerrain => vessel.heightFromTerrain;
+            public Quaternion SurfaceRelativeRotation => vessel.srfRelRotation;
+            public Vessel RawVessel => vessel;
+
+            public bool TryGetOrbit(out RecordingFinalizationOrbitView orbit)
+            {
+                orbit = default(RecordingFinalizationOrbitView);
+                CelestialBody body = vessel.mainBody ?? vessel.orbit?.referenceBody;
+                if (body == null)
+                    return false;
+
+                Orbit source = vessel.orbit;
+                orbit = new RecordingFinalizationOrbitView
+                {
+                    ReferenceBodyName = body.name,
+                    ReferenceBodyHasAtmosphere = body.atmosphere,
+                    ReferenceBodyAtmosphereDepth = body.atmosphereDepth,
+                    Inclination = source?.inclination ?? 0.0,
+                    Eccentricity = 1.0,
+                    SemiMajorAxis = source?.semiMajorAxis ?? body.Radius + System.Math.Max(0.0, vessel.altitude),
+                    LongitudeOfAscendingNode = source?.LAN ?? 0.0,
+                    ArgumentOfPeriapsis = source?.argumentOfPeriapsis ?? 0.0,
+                    MeanAnomalyAtEpoch = source?.meanAnomalyAtEpoch ?? 0.0,
+                    Epoch = source?.epoch ?? Planetarium.GetUniversalTime(),
+                    PeriapsisAltitude = -1.0
+                };
+                return true;
+            }
+        }
+
+        private static void DiscardActiveTreeForRuntimeTest(ParsekFlight flight, string reason)
+        {
+            if (flight == null)
+                return;
+
+            if (!flight.HasActiveTree)
+            {
+                if (flight.IsRecording)
+                    flight.StopRecording();
+                return;
+            }
+
+            try
+            {
+                ParsekFlightDiscardActiveTreeForSuppressedSceneExitMethod.Invoke(
+                    flight,
+                    new object[]
+                    {
+                        HighLogic.LoadedScene,
+                        Planetarium.GetUniversalTime(),
+                        reason ?? "runtime test cleanup",
+                        false
+                    });
+            }
+            catch (TargetInvocationException ex)
+            {
+                InGameAssert.Fail(
+                    $"DiscardActiveTreeForSuppressedSceneExit cleanup threw " +
+                    $"{ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}");
+            }
         }
 
         private static bool TrySimulatePostSwitchArm(ParsekFlight flight, Vessel vessel, out string skipReason)

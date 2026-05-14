@@ -1546,21 +1546,6 @@ namespace Parsek.Tests
         [Fact]
         public void FinalizeIndividualRecording_SuppressedEvaSubSurface_FinalizesLandedWithSnapshot()
         {
-            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
-                (Recording recording, Vessel vessel, double commitUT, out IncompleteBallisticFinalizationResult result) =>
-                {
-                    result = new IncompleteBallisticFinalizationResult
-                    {
-                        terminalState = TerminalState.Destroyed,
-                        terminalUT = commitUT,
-                        extrapolationFailureReason = ExtrapolationFailureReason.SubSurfaceStart,
-                        subSurfaceDestroyedBodyName = "Kerbin",
-                        subSurfaceDestroyedAltitude = -599652.6,
-                        subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude
-                    };
-                    return false;
-                };
-
             Recording parent = MakeParentRecordingWithStructuralPoint(
                 recordingId: "eva-positive-parent",
                 pointUT: 500.0,
@@ -1573,6 +1558,21 @@ namespace Parsek.Tests
             evaChild.VesselPersistentId = 4242u;
             evaChild.VesselSnapshot = MakeSnapshotWithPart("LANDED");
             evaChild.GhostVisualSnapshot = MakeSnapshotWithPart("LANDED");
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva-positive");
+
+            bool suppressed = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                evaChild,
+                tree,
+                out IncompleteBallisticFinalizationResult suppressionResult);
+
+            Assert.False(suppressed);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, suppressionResult.extrapolationFailureReason);
+            Assert.False(evaChild.TerminalStateValue.HasValue);
+            Assert.Contains(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("eva-positive-child")
+                && l.Contains("source=parent-structural-eva:eva-positive-parent:Points"));
+
             var surfacePoint = new TrajectoryPoint
             {
                 ut = 500.02,
@@ -1590,7 +1590,6 @@ namespace Parsek.Tests
                 environment = SegmentEnvironment.SurfaceStationary,
                 frames = new List<TrajectoryPoint> { surfacePoint }
             });
-            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva-positive");
 
             bool suppliedSnapshot = ParsekFlight.FinalizeIndividualRecording(
                 evaChild,
