@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using Parsek;
 using Parsek.Rendering;
 using UnityEngine;
@@ -32,6 +33,10 @@ namespace Parsek.Tests.Rendering
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting = null;
+            ParsekFlight.AnchorResolverWorldPositionResolverForTesting = null;
+            ParsekFlight.AnchorResolverBodyResolverForTesting = null;
+            FlightRecorder.FrameCountProviderForTesting = null;
+            ParsekFlight.SetInstanceForTesting(null);
         }
 
         public void Dispose()
@@ -39,10 +44,53 @@ namespace Parsek.Tests.Rendering
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting = null;
+            ParsekFlight.AnchorResolverWorldPositionResolverForTesting = null;
+            ParsekFlight.AnchorResolverBodyResolverForTesting = null;
+            FlightRecorder.FrameCountProviderForTesting = null;
+            ParsekFlight.SetInstanceForTesting(null);
             ParsekScenario.SetInstanceForTesting(null);
             TestBodyRegistry.Reset();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+        }
+
+        private static ParsekFlight InstallFlightInstanceForReadModel(
+            RecordingTree tree,
+            FlightRecorder recorder = null)
+        {
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            host.SetActiveReFlyPrimaryReadModelInputsForTesting(tree, recorder);
+            ParsekFlight.SetInstanceForTesting(host);
+            return host;
+        }
+
+        private static TrajectoryPoint AbsolutePoint(
+            double ut,
+            double latitude,
+            double longitude,
+            double altitude,
+            string bodyName = "Kerbin")
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = latitude,
+                longitude = longitude,
+                altitude = altitude,
+                bodyName = bodyName,
+                rotation = Quaternion.identity,
+            };
+        }
+
+        private static TrackSection AbsoluteSection(params TrajectoryPoint[] frames)
+        {
+            return new TrackSection
+            {
+                startUT = frames[0].ut,
+                endUT = frames[frames.Length - 1].ut,
+                referenceFrame = ReferenceFrame.Absolute,
+                frames = new List<TrajectoryPoint>(frames),
+            };
         }
 
         [Fact]
@@ -484,7 +532,7 @@ namespace Parsek.Tests.Rendering
                 kerbin,
                 out Vector3d worldPos);
 
-            Assert.True(ok);
+            Assert.True(ok, string.Join("\n", logLines));
             Assert.False(double.IsNaN(worldPos.x));
             Assert.False(double.IsInfinity(worldPos.x));
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
@@ -569,6 +617,245 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("live-recording-has-no-points")
                 && l.Contains(originId)
                 && l.Contains(activeId));
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ProductionPathUsesActiveTreePrefixAfterReload()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            FlightRecorder.FrameCountProviderForTesting = () => 10;
+            const string originId = "committed-origin-reload";
+            const string activeId = "active-provisional-reload";
+
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = originId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    AbsolutePoint(100.0, 0.0, 0.0, 0.0, "NoSuchBody"),
+                },
+            });
+
+            var activeRec = new Recording
+            {
+                RecordingId = activeId,
+                TreeId = "tree-reload",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    AbsolutePoint(100.0, 10.0, 20.0, 1000.0),
+                    AbsolutePoint(110.0, 10.0, 20.0, 1000.0),
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    AbsoluteSection(
+                        AbsolutePoint(100.0, 10.0, 20.0, 1000.0),
+                        AbsolutePoint(110.0, 10.0, 20.0, 1000.0)),
+                },
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-reload",
+                ActiveRecordingId = activeId,
+            };
+            tree.AddOrReplaceRecording(activeRec);
+            InstallFlightInstanceForReadModel(tree);
+
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-reload",
+                    ActiveReFlyRecordingId = activeId,
+                    OriginChildRecordingId = originId,
+                    SupersedeTargetId = originId,
+                    InPlaceContinuation = true,
+                },
+            });
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                105.0,
+                kerbin,
+                out Vector3d worldPos);
+
+            Assert.True(ok, string.Join("\n", logLines));
+            Assert.False(double.IsNaN(worldPos.x));
+            Assert.DoesNotContain(logLines, l => l.Contains("live-recording-has-no-points"));
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Active Re-Fly origin primary resolved from live recorded trajectory")
+                && l.Contains("treePoints=2")
+                && l.Contains("recorderPoints=0"));
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ProductionPathCachesReadModelPerFrame()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            int frame = 20;
+            FlightRecorder.FrameCountProviderForTesting = () => frame;
+            const string originId = "committed-origin-cache";
+            const string activeId = "active-provisional-cache";
+
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = originId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    AbsolutePoint(100.0, 0.0, 0.0, 0.0, "NoSuchBody"),
+                },
+            });
+
+            var activeRec = new Recording
+            {
+                RecordingId = activeId,
+                TreeId = "tree-cache",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    AbsolutePoint(100.0, 10.0, 20.0, 1000.0),
+                    AbsolutePoint(110.0, 10.0, 20.0, 1000.0),
+                },
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-cache",
+                ActiveRecordingId = activeId,
+            };
+            tree.AddOrReplaceRecording(activeRec);
+            ParsekFlight host = InstallFlightInstanceForReadModel(tree);
+
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-cache",
+                    ActiveReFlyRecordingId = activeId,
+                    OriginChildRecordingId = originId,
+                    SupersedeTargetId = originId,
+                    InPlaceContinuation = true,
+                },
+            });
+
+            bool firstOk = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                105.0,
+                kerbin,
+                out Vector3d firstWorld);
+
+            activeRec.Points[0] = AbsolutePoint(100.0, -10.0, -20.0, 2000.0);
+            activeRec.Points[1] = AbsolutePoint(110.0, -10.0, -20.0, 2000.0);
+
+            bool sameFrameOk = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                105.0,
+                kerbin,
+                out Vector3d sameFrameWorld);
+
+            frame++;
+            bool nextFrameOk = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                105.0,
+                kerbin,
+                out Vector3d nextFrameWorld);
+
+            Assert.True(firstOk, string.Join("\n", logLines));
+            Assert.True(sameFrameOk, string.Join("\n", logLines));
+            Assert.True(nextFrameOk, string.Join("\n", logLines));
+            Assert.Equal(2, host.ActiveReFlyPrimaryReadModelCacheBuildCountForTesting);
+            Assert.Equal(firstWorld.x, sameFrameWorld.x, precision: 6);
+            Assert.Equal(firstWorld.y, sameFrameWorld.y, precision: 6);
+            Assert.Equal(firstWorld.z, sameFrameWorld.z, precision: 6);
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_ProductionPathResolvesRelativeSection()
+        {
+            ParsekFlight.AnchorResolverWorldPositionResolverForTesting =
+                point => new Vector3d(1000.0, 0.0, 0.0);
+            FlightRecorder.FrameCountProviderForTesting = () => 30;
+            const string originId = "committed-origin-relative-live";
+            const string activeId = "active-provisional-relative-live";
+            const string anchorId = "anchor-recording-relative-live";
+
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = originId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    AbsolutePoint(100.0, 0.0, 0.0, 0.0, "NoSuchBody"),
+                },
+            });
+
+            TrajectoryPoint anchorA = AbsolutePoint(100.0, 0.0, 0.0, 1000.0);
+            TrajectoryPoint anchorB = AbsolutePoint(110.0, 0.0, 0.0, 1000.0);
+            var anchorRec = new Recording
+            {
+                RecordingId = anchorId,
+                TreeId = "tree-relative-live",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint> { anchorA, anchorB },
+                TrackSections = new List<TrackSection>
+                {
+                    AbsoluteSection(anchorA, anchorB),
+                },
+            };
+
+            var relativeFrames = new List<TrajectoryPoint>
+            {
+                AbsolutePoint(100.0, 100.0, 0.0, 0.0),
+                AbsolutePoint(110.0, 100.0, 0.0, 0.0),
+            };
+            var activeRec = new Recording
+            {
+                RecordingId = activeId,
+                TreeId = "tree-relative-live",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>(relativeFrames),
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 110.0,
+                        referenceFrame = ReferenceFrame.Relative,
+                        anchorRecordingId = anchorId,
+                        frames = relativeFrames,
+                    },
+                },
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-relative-live",
+                ActiveRecordingId = activeId,
+            };
+            tree.AddOrReplaceRecording(anchorRec);
+            tree.AddOrReplaceRecording(activeRec);
+            InstallFlightInstanceForReadModel(tree);
+
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-relative-live",
+                    ActiveReFlyRecordingId = activeId,
+                    OriginChildRecordingId = originId,
+                    SupersedeTargetId = originId,
+                    InPlaceContinuation = true,
+                },
+            });
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                105.0,
+                fallbackBody: null,
+                out Vector3d worldPos);
+
+            Assert.True(ok, string.Join("\n", logLines));
+            Assert.True(Vector3d.Distance(new Vector3d(1100.0, 0.0, 0.0), worldPos) < 0.001);
         }
 
         [Fact]

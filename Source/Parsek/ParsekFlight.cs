@@ -189,6 +189,7 @@ namespace Parsek
         }
 
         internal static ParsekFlight Instance { get; private set; }
+        private static ParsekFlight instanceOverrideForTesting;
 
         /// <summary>
         /// #431: returns the id of the currently-live recording for GameStateEvent tagging.
@@ -243,6 +244,8 @@ namespace Parsek
         private List<OrbitSegment> orbitSegments => recorder?.OrbitSegments ?? noOrbitSegments;
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
         private static readonly List<OrbitSegment> noOrbitSegments = new List<OrbitSegment>();
+        private ActiveReFlyPrimaryReadModelCacheEntry activeReFlyPrimaryReadModelCache;
+        private int activeReFlyPrimaryReadModelCacheBuildCountForTesting;
 
         // Auto-record from LANDED: tracks when the active vessel last entered LANDED state.
         // Only triggers auto-record if the vessel was settled for at least this long,
@@ -563,6 +566,26 @@ namespace Parsek
         /// buffered recorder data into the tree before writing.
         /// </summary>
         internal FlightRecorder ActiveRecorderForSerialization => recorder;
+
+        internal int ActiveReFlyPrimaryReadModelCacheBuildCountForTesting =>
+            activeReFlyPrimaryReadModelCacheBuildCountForTesting;
+
+        internal static void SetInstanceForTesting(ParsekFlight instance)
+        {
+            instanceOverrideForTesting = instance;
+            if (instance == null)
+                Instance = null;
+        }
+
+        internal void SetActiveReFlyPrimaryReadModelInputsForTesting(
+            RecordingTree tree,
+            FlightRecorder activeRecorder)
+        {
+            activeTree = tree;
+            recorder = activeRecorder;
+            activeReFlyPrimaryReadModelCache = null;
+            activeReFlyPrimaryReadModelCacheBuildCountForTesting = 0;
+        }
 
         /// <summary>
         /// Captures a structured snapshot of every recorder-relevant field at the
@@ -16923,8 +16946,53 @@ namespace Parsek
             public int SnapshotSectionCount;
         }
 
+        private struct ActiveReFlyPrimaryReadModelCacheSignature
+        {
+            public int Frame;
+            public string SessionId;
+            public string OriginRecordingId;
+            public string ActiveRecordingId;
+            public int TreePointCount;
+            public int RecorderPointCount;
+            public int OpenSectionPayloadCount;
+            public int TreeSectionCount;
+            public int RecorderSectionCount;
+            public double TreeLastPointUT;
+            public double RecorderLastPointUT;
+            public double OpenSectionLastPayloadUT;
+            public bool RecorderMatchesActive;
+
+            public bool Matches(ActiveReFlyPrimaryReadModelCacheSignature other)
+            {
+                return Frame == other.Frame
+                    && string.Equals(SessionId, other.SessionId, StringComparison.Ordinal)
+                    && string.Equals(OriginRecordingId, other.OriginRecordingId, StringComparison.Ordinal)
+                    && string.Equals(ActiveRecordingId, other.ActiveRecordingId, StringComparison.Ordinal)
+                    && TreePointCount == other.TreePointCount
+                    && RecorderPointCount == other.RecorderPointCount
+                    && OpenSectionPayloadCount == other.OpenSectionPayloadCount
+                    && TreeSectionCount == other.TreeSectionCount
+                    && RecorderSectionCount == other.RecorderSectionCount
+                    && TreeLastPointUT.Equals(other.TreeLastPointUT)
+                    && RecorderLastPointUT.Equals(other.RecorderLastPointUT)
+                    && OpenSectionLastPayloadUT.Equals(other.OpenSectionLastPayloadUT)
+                    && RecorderMatchesActive == other.RecorderMatchesActive;
+            }
+        }
+
+        private sealed class ActiveReFlyPrimaryReadModelCacheEntry
+        {
+            public ActiveReFlyPrimaryReadModelCacheSignature Signature;
+            public bool Resolved;
+            public Recording Recording;
+            public ActiveReFlyPrimaryReadModelStats Stats;
+            public string Reason;
+        }
+
         internal static TryResolveActiveInPlaceReFlyPrimaryReadModelDelegate
             ActiveInPlaceReFlyPrimaryReadModelResolverForTesting;
+        internal static Func<TrajectoryPoint, Vector3d> AnchorResolverWorldPositionResolverForTesting;
+        internal static Func<string, CelestialBody> AnchorResolverBodyResolverForTesting;
 
         internal static Func<uint, string, double, (Vector3d pos, Quaternion rot)?> TryGetLiveAnchorTransformDelegate()
         {
@@ -16954,6 +17022,9 @@ namespace Parsek
 
         private static Vector3d ResolveAnchorResolverPointWorldPosition(TrajectoryPoint point)
         {
+            if (AnchorResolverWorldPositionResolverForTesting != null)
+                return AnchorResolverWorldPositionResolverForTesting(point);
+
             CelestialBody body = FindBodyForAnchorResolver(point.bodyName);
             if (body == null)
                 return new Vector3d(double.NaN, double.NaN, double.NaN);
@@ -17029,9 +17100,13 @@ namespace Parsek
             if (string.IsNullOrEmpty(bodyName))
                 return null;
 
+            if (AnchorResolverBodyResolverForTesting != null)
+                return AnchorResolverBodyResolverForTesting(bodyName);
+
             try
             {
-                return FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+                return FlightGlobals.Bodies?.Find(b => b != null
+                    && (b.name == bodyName || b.bodyName == bodyName));
             }
             catch (TypeInitializationException)
             {
@@ -19817,6 +19892,11 @@ namespace Parsek
                     StringComparison.Ordinal);
         }
 
+        private static ParsekFlight ResolveActiveReFlyReadModelInstance()
+        {
+            return instanceOverrideForTesting ?? Instance;
+        }
+
         private static bool TryResolveActiveInPlaceReFlyPrimaryReadModel(
             string requestedRecordingId,
             double ut,
@@ -19855,8 +19935,8 @@ namespace Parsek
                 return resolved && recording != null;
             }
 
-            ParsekFlight instance = Instance;
-            if (instance == null)
+            ParsekFlight instance = ResolveActiveReFlyReadModelInstance();
+            if (object.ReferenceEquals(instance, null))
             {
                 reason = "flight-instance-missing";
                 return false;
@@ -19898,14 +19978,32 @@ namespace Parsek
             if (recorderMatchesActive)
             {
                 TrackSection current = liveRecorder.CurrentTrackSectionForTesting;
-                if ((current.frames != null && current.frames.Count > 0)
-                    || (current.bodyFixedFrames != null && current.bodyFixedFrames.Count > 0)
-                    || (current.checkpoints != null && current.checkpoints.Count > 0))
+                if (CountTrackSectionPayloadPoints(current) > 0)
                 {
                     openSection = current;
                 }
             }
 
+            ActiveReFlyPrimaryReadModelCacheSignature cacheSignature =
+                BuildActiveReFlyPrimaryReadModelCacheSignature(
+                    marker,
+                    activeTreeRecording,
+                    recorderPoints,
+                    recorderSections,
+                    openSection,
+                    recorderMatchesActive);
+
+            if (instance.activeReFlyPrimaryReadModelCache != null
+                && instance.activeReFlyPrimaryReadModelCache.Signature.Matches(cacheSignature))
+            {
+                ActiveReFlyPrimaryReadModelCacheEntry cached = instance.activeReFlyPrimaryReadModelCache;
+                recording = cached.Recording;
+                stats = cached.Stats;
+                reason = cached.Reason;
+                return cached.Resolved && recording != null;
+            }
+
+            instance.activeReFlyPrimaryReadModelCacheBuildCountForTesting++;
             if (!TryBuildActiveInPlaceReFlyPrimarySnapshot(
                     marker,
                     activeTreeRecording,
@@ -19916,10 +20014,56 @@ namespace Parsek
                     out stats,
                     out reason))
             {
+                instance.activeReFlyPrimaryReadModelCache = new ActiveReFlyPrimaryReadModelCacheEntry
+                {
+                    Signature = cacheSignature,
+                    Resolved = false,
+                    Recording = null,
+                    Stats = stats,
+                    Reason = reason,
+                };
                 return false;
             }
 
+            instance.activeReFlyPrimaryReadModelCache = new ActiveReFlyPrimaryReadModelCacheEntry
+            {
+                Signature = cacheSignature,
+                Resolved = true,
+                Recording = recording,
+                Stats = stats,
+                Reason = reason,
+            };
             return true;
+        }
+
+        private static ActiveReFlyPrimaryReadModelCacheSignature BuildActiveReFlyPrimaryReadModelCacheSignature(
+            ReFlySessionMarker marker,
+            Recording activeTreeRecording,
+            IReadOnlyList<TrajectoryPoint> recorderPoints,
+            IReadOnlyList<TrackSection> recorderSections,
+            TrackSection? openTrackSection,
+            bool recorderMatchesActive)
+        {
+            return new ActiveReFlyPrimaryReadModelCacheSignature
+            {
+                Frame = FlightRecorder.GetFrameCount(),
+                SessionId = marker?.SessionId,
+                OriginRecordingId = marker?.OriginChildRecordingId,
+                ActiveRecordingId = marker?.ActiveReFlyRecordingId,
+                TreePointCount = activeTreeRecording?.Points?.Count ?? 0,
+                RecorderPointCount = recorderPoints?.Count ?? 0,
+                OpenSectionPayloadCount = openTrackSection.HasValue
+                    ? CountTrackSectionPayloadPoints(openTrackSection.Value)
+                    : 0,
+                TreeSectionCount = activeTreeRecording?.TrackSections?.Count ?? 0,
+                RecorderSectionCount = recorderSections?.Count ?? 0,
+                TreeLastPointUT = LastPointUT(activeTreeRecording?.Points),
+                RecorderLastPointUT = LastPointUT(recorderPoints),
+                OpenSectionLastPayloadUT = openTrackSection.HasValue
+                    ? LastTrackSectionPayloadUT(openTrackSection.Value)
+                    : double.NaN,
+                RecorderMatchesActive = recorderMatchesActive,
+            };
         }
 
         internal static bool TryBuildActiveInPlaceReFlyPrimarySnapshot(
@@ -19966,7 +20110,7 @@ namespace Parsek
                 TrackSection open = CopyTrackSectionForActiveReadModel(
                     openTrackSection.Value,
                     normalizeOpenSection: true);
-                stats.OpenSectionPointCount = open.frames?.Count ?? 0;
+                stats.OpenSectionPointCount = CountTrackSectionPayloadPoints(open);
                 if (stats.RecorderPointCount == 0)
                     AppendChronologicalPoints(points, open.frames);
                 sections.Add(open);
@@ -20012,6 +20156,13 @@ namespace Parsek
         }
 
         private const double ActiveReFlyReadModelUtEpsilon = 1e-6;
+
+        private static double LastPointUT(IReadOnlyList<TrajectoryPoint> points)
+        {
+            return points != null && points.Count > 0
+                ? points[points.Count - 1].ut
+                : double.NaN;
+        }
 
         private static void AppendChronologicalPoints(
             List<TrajectoryPoint> destination,
@@ -20071,6 +20222,13 @@ namespace Parsek
             return copy;
         }
 
+        private static int CountTrackSectionPayloadPoints(TrackSection section)
+        {
+            return (section.frames?.Count ?? 0)
+                + (section.bodyFixedFrames?.Count ?? 0)
+                + (section.checkpoints?.Count ?? 0);
+        }
+
         private static double LastTrackSectionPayloadUT(TrackSection section)
         {
             double last = double.NaN;
@@ -20106,8 +20264,9 @@ namespace Parsek
             if (string.IsNullOrEmpty(activeRecordingId))
                 return null;
 
-            ParsekFlight instance = Instance;
-            if (instance?.activeTree?.Recordings != null
+            ParsekFlight instance = ResolveActiveReFlyReadModelInstance();
+            if (!object.ReferenceEquals(instance, null)
+                && instance.activeTree?.Recordings != null
                 && instance.activeTree.Recordings.ContainsKey(activeRecordingId))
             {
                 return instance.activeTree;
