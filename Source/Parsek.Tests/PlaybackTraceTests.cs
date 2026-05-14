@@ -341,20 +341,17 @@ namespace Parsek.Tests
                 Assert.Equal(3, firstWindowLines);
 
                 // Loop wraparound — currentUT jumps backwards into the
-                // same event window. The dedup keys on `currentUT <
-                // prev.lastEmittedUT`, so frames at UTs strictly below
-                // the previous-pass high-water (14.9) are suppressed in
-                // full. In real playback the second pass is bounded by
-                // wall-clock advance per frame, so only the at-most-one
-                // frame that lands exactly at or just past the prior
-                // high-water leaks — orders of magnitude less spam than
-                // the unbounded retracing the bug exhibited.
+                // same event window. The first re-entry frame (10.0 <
+                // the prior pass's last-emitted 14.9) retires event 10
+                // into the completed set, so the whole second pass is
+                // suppressed — including frames at or above the prior
+                // high-water (covered by the dedicated test below).
                 PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.0,
                     renderedPos: Vector3.zero);
                 PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 11.0,
                     renderedPos: new Vector3(1, 0, 0));
-                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.0,
-                    renderedPos: new Vector3(4, 0, 0));
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.9,
+                    renderedPos: new Vector3(5, 0, 0));
             }
             finally { ParsekLog.ResetTestOverrides(); ParsekLog.SuppressLogging = true; }
 
@@ -411,7 +408,7 @@ namespace Parsek.Tests
         {
             // The cursor's lastTracedEventUT must equal the most recent
             // structural event UT after the first emission — this is
-            // the field the loop-wraparound guard keys on.
+            // the field the loop-replay guards key on.
             var traj = MakeTrajWithStructuralEvent("rec-cursor", 42.0);
 
             ParsekLog.SuppressLogging = true; // suppress emission noise
@@ -421,6 +418,106 @@ namespace Parsek.Tests
             double traced = PlaybackTrace.GetLastTracedEventUTForTesting(
                 "rec-cursor", ghostIdx: 3);
             Assert.Equal(42.0, traced);
+        }
+
+        [Fact]
+        public void MaybeEmitFrame_GateCloseRetiresEvent()
+        {
+            // A frame past the 5-second window for a traced event retires
+            // that event UT into the completed set — even though the
+            // gate-closed frame itself emits nothing. This is what makes a
+            // later loop re-entry suppressible regardless of where in the
+            // window it lands.
+            var traj = MakeTrajWithStructuralEvent("rec-gateclose", 10.0);
+
+            ParsekLog.SuppressLogging = true;
+            // Trace one in-window frame, then a gate-closed frame.
+            PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.5,
+                renderedPos: Vector3.zero);
+            Assert.False(PlaybackTrace.IsEventCompletedForTesting(
+                "rec-gateclose", ghostIdx: 0, eventUT: 10.0));
+
+            PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 16.0,
+                renderedPos: Vector3.zero);
+            Assert.True(PlaybackTrace.IsEventCompletedForTesting(
+                "rec-gateclose", ghostIdx: 0, eventUT: 10.0));
+        }
+
+        [Fact]
+        public void MaybeEmitFrame_ReEntryAtOrAboveHighWater_Suppressed()
+        {
+            // Regression for the loop-dedup high-water hole: after the
+            // first pass and a gate-closed frame retire the event, a loop
+            // re-entry whose first in-window frame lands AT or ABOVE the
+            // prior pass's high-water UT must still be suppressed. A guard
+            // that only compared currentUT to the high-water would resume
+            // logging the tail here; the completed-event set does not.
+            var traj = MakeTrajWithStructuralEvent("rec-rewindhw", 10.0);
+
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // First pass: forward through high-water 14.9.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.0,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.9,
+                    renderedPos: new Vector3(5, 0, 0));
+                // Gate-closed frame past the window retires the event.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 16.0,
+                    renderedPos: new Vector3(6, 0, 0));
+                Assert.Equal(2, logLines.FindAll(
+                    l => l.Contains("[PlaybackTrace]")).Count);
+
+                // Loop re-entry landing exactly AT and then ABOVE the prior
+                // high-water — both must be suppressed.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.9,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.95,
+                    renderedPos: Vector3.zero);
+            }
+            finally { ParsekLog.ResetTestOverrides(); ParsekLog.SuppressLogging = true; }
+
+            Assert.Equal(2, logLines.FindAll(
+                l => l.Contains("[PlaybackTrace]")).Count);
+        }
+
+        [Fact]
+        public void MaybeEmitFrame_FirstPassEndsEarly_LoopTailNotReEmitted()
+        {
+            // If the first pass ends after a single frame (ghost
+            // hidden/retired/late-spawned), a loop re-entry must not
+            // re-emit the whole 5-second tail. The first re-entry frame at
+            // the window start (below the early-ended high-water) retires
+            // the event, so the rest of that loop pass and every later
+            // loop are suppressed.
+            var traj = MakeTrajWithStructuralEvent("rec-earlyend", 10.0);
+
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // First pass: a single frame, then the ghost is gone.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.1,
+                    renderedPos: Vector3.zero);
+                Assert.Single(logLines.FindAll(
+                    l => l.Contains("[PlaybackTrace]")));
+
+                // Loop 2: first in-window frame at the window start retires
+                // the event; the rest of the tail is suppressed.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.0,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 11.0,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.9,
+                    renderedPos: Vector3.zero);
+            }
+            finally { ParsekLog.ResetTestOverrides(); ParsekLog.SuppressLogging = true; }
+
+            Assert.Single(logLines.FindAll(
+                l => l.Contains("[PlaybackTrace]")));
         }
 
         [Fact]

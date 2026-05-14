@@ -39,10 +39,24 @@ namespace Parsek
     /// discontinuity at a <c>sectionCrossed</c> frame, points at the source of
     /// visible jitter.</para>
     ///
+    /// <para><b>Loop-replay dedup.</b> Each unique structural-event UT is
+    /// traced in full exactly once per (recordingId, ghostIdx). A looping
+    /// showcase recording re-enters the same post-event window every loop;
+    /// without dedup the INFO line count would multiply by the loop count.
+    /// An event UT is retired into a per-ghost <c>completedEventUTs</c> set
+    /// the moment its window can no longer be in its first pass — when a
+    /// gate-closed frame ages past it, when a frame for a different event
+    /// UT shows, or when <c>currentUT</c> jumps backwards onto it (loop
+    /// wrap at the window edge). Once retired, every later frame for that
+    /// event is suppressed. Retirement keys on set membership, not on a
+    /// high-water UT, so the suppression holds even when a loop pass
+    /// re-enters at or above the prior pass's last-emitted UT.</para>
+    ///
     /// <para><b>Reset on session boundaries.</b> Cached structural-event UT
-    /// lists and per-ghost trace state must be cleared on scene exit / save
-    /// load / DestroyAllGhosts so a re-spawned ghost does not inherit a
-    /// stale "previous frame" pose for delta computation.</para>
+    /// lists and per-ghost trace state (including the completed-event set)
+    /// must be cleared on scene exit / save load / DestroyAllGhosts so a
+    /// re-spawned ghost does not inherit a stale "previous frame" pose for
+    /// delta computation or a stale completed-event set.</para>
     /// </summary>
     internal static class PlaybackTrace
     {
@@ -62,29 +76,37 @@ namespace Parsek
         private static readonly Dictionary<string, List<double>> structuralEventUTCache
             = new Dictionary<string, List<double>>();
 
-        private struct TraceState
+        private sealed class TraceState
         {
-            public double lastEmittedUT;
+            // NaN sentinels mean "no emitted frame yet" — distinct from a
+            // genuine UT of 0 (sandbox-epoch recordings start at UT 0).
+            public double lastEmittedUT = double.NaN;
             public Vector3 lastRenderedPos;
             public int lastSectionIdx;
-            // UT of the structural event whose window the last emitted frame
-            // belonged to. Used to suppress loop-wraparound re-entry: once
-            // the 5-second window for an event has fully played out (or the
-            // ghost loops back to before the event), further frames for the
-            // same event UT are skipped — one trace per unique event is
-            // enough to diagnose separation jitter, and looping showcase
-            // recordings would otherwise multiply the INFO line count
-            // unboundedly.
-            public double lastTracedEventUT;
+            // UT of the structural event whose window the last frame (emitted
+            // OR skipped) belonged to. Drives the transition detection that
+            // retires an event into completedEventUTs.
+            public double lastTracedEventUT = double.NaN;
+            // Structural-event UTs whose post-event window has already been
+            // traced once for this (recordingId, ghostIdx). A looping
+            // recording re-enters the same event window every loop; once an
+            // event UT is in this set, every later frame for it is suppressed
+            // until Reset() — one trace per unique event is enough to
+            // diagnose separation jitter, and the set (not a high-water UT
+            // comparison) is what makes the suppression hold even when a
+            // loop pass re-enters at or above the previous high-water.
+            public readonly HashSet<double> completedEventUTs = new HashSet<double>();
         }
 
         /// <summary>
-        /// Per-(recordingId, ghostIdx) trace cursor — last emission UT,
-        /// last rendered world position (for delta), and last selected
-        /// section index (for boundary-cross detection).
+        /// Per-(recordingId, ghostIdx) trace cursor. Nested by recording id
+        /// then ghost index so the per-frame lookup never allocates a
+        /// composite string key — the gate-closed path (the common case
+        /// during cruise) does this lookup on every frame to retire events
+        /// whose window has aged out.
         /// </summary>
-        private static readonly Dictionary<string, TraceState> traceStates
-            = new Dictionary<string, TraceState>();
+        private static readonly Dictionary<string, Dictionary<int, TraceState>> traceStates
+            = new Dictionary<string, Dictionary<int, TraceState>>();
 
         private static readonly List<double> EmptyEventList = new List<double>(0);
 
@@ -98,6 +120,29 @@ namespace Parsek
         {
             structuralEventUTCache.Clear();
             traceStates.Clear();
+        }
+
+        private static TraceState TryGetTraceState(string recId, int ghostIdx)
+        {
+            return traceStates.TryGetValue(recId, out Dictionary<int, TraceState> byGhost)
+                && byGhost.TryGetValue(ghostIdx, out TraceState state)
+                ? state
+                : null;
+        }
+
+        private static TraceState GetOrCreateTraceState(string recId, int ghostIdx)
+        {
+            if (!traceStates.TryGetValue(recId, out Dictionary<int, TraceState> byGhost))
+            {
+                byGhost = new Dictionary<int, TraceState>();
+                traceStates[recId] = byGhost;
+            }
+            if (!byGhost.TryGetValue(ghostIdx, out TraceState state))
+            {
+                state = new TraceState();
+                byGhost[ghostIdx] = state;
+            }
+            return state;
         }
 
         /// <summary>
@@ -173,15 +218,34 @@ namespace Parsek
 
             // Resolve the most-recent structural event UT for the gate
             // and per-event de-dup. Mirrors IsInPostStructuralEventWindow
-            // but keeps the resolved value so the loop-wraparound guard
-            // below can key on it.
+            // but keeps the resolved value so the loop-replay guards below
+            // can key on it.
             List<double> events = GetOrBuildStructuralEventUTs(traj);
             if (events == null || events.Count == 0) return;
             int eIdx = events.BinarySearch(currentUT);
             if (eIdx < 0) eIdx = ~eIdx - 1;
-            if (eIdx < 0) return;
+            if (eIdx < 0) return; // currentUT before any flagged event
             double mostRecentEventUT = events[eIdx];
-            if ((currentUT - mostRecentEventUT) > PostEventWindowSeconds) return;
+            bool gateOpen = (currentUT - mostRecentEventUT) <= PostEventWindowSeconds;
+
+            TraceState state = TryGetTraceState(recId, ghostIdx);
+
+            if (!gateOpen)
+            {
+                // The window for mostRecentEventUT has aged out. If this
+                // ghost was tracing exactly that event, retire it now so a
+                // later loop pass that re-enters the same window is fully
+                // suppressed — including the case where the loop's first
+                // in-window frame lands at or above the prior pass's
+                // high-water UT (a high-water comparison alone would resume
+                // logging the tail there). Idempotent HashSet.Add; no
+                // allocation on this common cruise-path branch.
+                if (state != null && state.lastTracedEventUT == mostRecentEventUT)
+                {
+                    state.completedEventUTs.Add(mostRecentEventUT);
+                }
+                return;
+            }
 
             // Resolve current section (if any) for context. Out-of-range UT
             // returns -1 from FindTrackSectionForUT; we still emit the line
@@ -203,34 +267,48 @@ namespace Parsek
                 }
             }
 
-            string stateKey = recId + "|" + ghostIdx.ToString(CultureInfo.InvariantCulture);
-            bool hadPrev = traceStates.TryGetValue(stateKey, out TraceState prev);
+            if (state == null)
+                state = GetOrCreateTraceState(recId, ghostIdx);
 
-            // Loop-wraparound dedup: when the gate reopens on the same
-            // event UT after the previous frame's window has aged out
-            // (or after currentUT jumps backwards on loop restart),
-            // suppress further emissions for this event. The first
-            // window across the event still emits in full because
-            // consecutive frames stay monotonically forward within the
-            // 5-second PostEventWindow, so the gap check below remains
-            // false until the recording loops.
-            if (hadPrev
-                && prev.lastTracedEventUT == mostRecentEventUT
-                && (currentUT < prev.lastEmittedUT
-                    || (currentUT - prev.lastEmittedUT) > PostEventWindowSeconds))
+            bool hadPrevFrame = !double.IsNaN(state.lastTracedEventUT);
+
+            // Retire the *previous* event when a different event UT now
+            // shows — the prior window is necessarily over. Covers both
+            // forward progress to a new event and a loop wrap from a later
+            // event back to an earlier one.
+            if (hadPrevFrame && state.lastTracedEventUT != mostRecentEventUT)
             {
+                state.completedEventUTs.Add(state.lastTracedEventUT);
+            }
+            // Retire the *current* event when currentUT jumps backwards
+            // while still on the same event UT — the recording looped right
+            // at the window edge, before any gate-closed frame could retire
+            // it through the branch above.
+            if (hadPrevFrame
+                && state.lastTracedEventUT == mostRecentEventUT
+                && currentUT < state.lastEmittedUT)
+            {
+                state.completedEventUTs.Add(mostRecentEventUT);
+            }
+
+            if (state.completedEventUTs.Contains(mostRecentEventUT))
+            {
+                // Keep lastTracedEventUT current so the transition check
+                // above stays correct on the next call, but emit nothing.
+                state.lastTracedEventUT = mostRecentEventUT;
                 return;
             }
 
+            bool hadPrevEmit = !double.IsNaN(state.lastEmittedUT);
             float deltaMeters = 0f;
             float deltaSpeedMps = 0f;
             bool sectionCrossed = false;
-            if (hadPrev)
+            if (hadPrevEmit)
             {
-                deltaMeters = Vector3.Distance(prev.lastRenderedPos, renderedPos);
-                double dt = currentUT - prev.lastEmittedUT;
+                deltaMeters = Vector3.Distance(state.lastRenderedPos, renderedPos);
+                double dt = currentUT - state.lastEmittedUT;
                 if (dt > 1e-6) deltaSpeedMps = (float)(deltaMeters / dt);
-                sectionCrossed = sectionIdx != prev.lastSectionIdx;
+                sectionCrossed = sectionIdx != state.lastSectionIdx;
             }
 
             string sectionRange = double.IsNaN(sectionStartUT)
@@ -253,13 +331,10 @@ namespace Parsek
                 + " dSpd=" + deltaSpeedMps.ToString("F1", CultureInfo.InvariantCulture)
                 + (sectionCrossed ? " sectionCrossed" : ""));
 
-            traceStates[stateKey] = new TraceState
-            {
-                lastEmittedUT = currentUT,
-                lastRenderedPos = renderedPos,
-                lastSectionIdx = sectionIdx,
-                lastTracedEventUT = mostRecentEventUT,
-            };
+            state.lastEmittedUT = currentUT;
+            state.lastRenderedPos = renderedPos;
+            state.lastSectionIdx = sectionIdx;
+            state.lastTracedEventUT = mostRecentEventUT;
         }
 
         private static string ShortId(string id)
@@ -283,17 +358,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Test-only: returns the last structural-event UT a trace was
-        /// emitted for under the given (recordingId, ghostIdx), or NaN
-        /// when no trace has been recorded yet for that pair.
+        /// Test-only: returns the last structural-event UT a trace cursor
+        /// recorded for the given (recordingId, ghostIdx), or NaN when no
+        /// frame (emitted or skipped) has been seen yet for that pair.
         /// </summary>
         internal static double GetLastTracedEventUTForTesting(string recordingId, int ghostIdx)
         {
             if (string.IsNullOrEmpty(recordingId)) return double.NaN;
-            string stateKey = recordingId + "|" + ghostIdx.ToString(CultureInfo.InvariantCulture);
-            return traceStates.TryGetValue(stateKey, out TraceState state)
-                ? state.lastTracedEventUT
-                : double.NaN;
+            TraceState state = TryGetTraceState(recordingId, ghostIdx);
+            return state != null ? state.lastTracedEventUT : double.NaN;
+        }
+
+        /// <summary>
+        /// Test-only: true when the given structural-event UT has been
+        /// retired into the completed set for the (recordingId, ghostIdx)
+        /// pair — i.e. further frames for that event are now suppressed.
+        /// </summary>
+        internal static bool IsEventCompletedForTesting(
+            string recordingId, int ghostIdx, double eventUT)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            TraceState state = TryGetTraceState(recordingId, ghostIdx);
+            return state != null && state.completedEventUTs.Contains(eventUT);
         }
     }
 }
