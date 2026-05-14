@@ -7572,6 +7572,7 @@ namespace Parsek
                 owner,
                 reason,
                 hasMeaningfulThrust,
+                tree,
                 out refreshed);
 
             refreshed.RecordingId = recordingId;

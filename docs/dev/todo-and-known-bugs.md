@@ -12,6 +12,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Fresh EVA child finalized as Destroyed before first child samples
+
+- ~~A freshly-created EVA branch child could be classified as `Destroyed` within the first few milliseconds after `OnCrewOnEva`, before the child recording had any trajectory points. In the retained Bill Kerman repro, `PatchedConicSnapshot` returned `NullSolver`, `IncompleteBallisticSceneExitFinalizer` fell through to the live-orbit fallback, KSP's not-yet-initialized EVA orbit returned a position near the body origin, and `BallisticExtrapolator` saw `alt=-599652.6 m` (`SubSurfaceStart`) and accepted a `Destroyed` terminal. The parent had already recorded a valid flagged `EVA` structural surface point and the child later wrote 120 valid samples plus a vessel snapshot, but the early cached `Destroyed` result blocked the valid playback snapshot path.~~
+
+**Root cause:** `ShouldSuppressSubSurfaceDestroyedFromRecordedPoint` already defended the exact `NullSolver + SubSurfaceStart + recorded surface contradiction` shape, but it only searched the child recording's own points/track sections. At the failing instant the EVA child had no points yet, so the guard found nothing and the finalizer trusted the garbage live-orbit fallback. The needed surface evidence was on the pre-branch parent recording as a `TrajectoryPointFlags.StructuralEventSnapshot` point. Resolving that parent also cannot use `recording.ParentRecordingId`: for EVA branch children it points at the sibling continuation child, so the pre-branch parent must be reached through `recording.ParentBranchPointId -> BranchPoint.ParentRecordingIds`.
+
+**Fix:** Threaded the active/pending `RecordingTree` into scene-exit finalization and finalizer-cache production (`IncompleteBallisticSceneExitFinalizer.TryApply`, `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`, active recorder refresh, background recorder refresh, and tree finalization call sites). The finalizer still searches child-recorded points first. If that fails, and the recording is an EVA branch child (`EvaCrewName` plus an EVA `BranchPoint` containing the child id), it resolves the pre-branch parent via `BranchPoint.ParentRecordingIds` and searches only flagged structural-event points within the existing `SubSurfaceRecordedPointContradictionWindowSeconds` window. The parent search is section-aware: Absolute sections inspect `frames`; Relative sections inspect `bodyFixedFrames` so v6 anchor-local `frames` offsets are not misread as body-fixed lat/lon/alt. A matching parent surface point suppresses the false finalization by returning `false`; it does not seed `TerminalStateValue`, does not end the active EVA child, and does not create a fresh `Destroyed` cache entry. Destroyed debris and stale/missing parent-evidence cases still classify as `Destroyed`.
+
+**Coverage:** `SceneExitFinalizationIntegrationTests` covers parent structural suppression for an EVA child whose `ParentRecordingId` points at the sibling, a stale child point outside the 0.5 s contradiction window falling through to valid parent evidence, stale parent evidence outside the window, a non-EVA child that must still become `Destroyed`, Relative parent sections using `bodyFixedFrames` instead of local-offset `frames`, and the positive follow-up where the real parent-structural suppression fires before the recording later finalizes as `Landed` with vessel and ghost snapshots intact. `RecordingFinalizationCacheProducerTests` pins the cache seam so a suppressed default finalizer declines safely with `subsurface-destroyed-suppressed` instead of accepting a fresh `terminal=Destroyed` cache or falling through to atmospheric deletion fallback for packed/unloaded vessels. Runtime coverage adds `EvaKerbalGhostHasVesselSnapshot` in `RuntimeTests.cs`: it forces a live EVA branch, requires the no-child-samples window, forces the immediate live cache refresh past the stable-surface prefilter, asserts it declines with `subsurface-destroyed-suppressed`, then verifies the finalized EVA row stays `Landed`, retains usable snapshots, and can build/spawn real ghost geometry without the sphere fallback.
+
+**Status:** CLOSED 2026-05-14.
+
+---
+
+## Done - v0.9.2 Suppressed scene-exit discard leaked debris persistence override
+
+- ~~When Parsek raised KSP's max persistent debris setting for recording, the suppressed scene-exit discard path stopped the in-memory tree without calling the same debris-setting restore used by ordinary recording teardown. A cancelled/suppressed tree commit, including the fresh-EVA runtime canary cleanup path, could therefore leave the player's global debris limit at Parsek's temporary recording value.~~
+
+**Fix:** `DiscardActiveTreeForSuppressedSceneExit` now calls `RestoreDebrisPersistence()` before stopping the active recorder and dropping the tree, matching `StopRecording` and other teardown paths.
+
+**Coverage:** `ParsekFlightDebrisPersistenceTests.DiscardActiveTreeForSuppressedSceneExit_RestoresDebrisPersistenceOverride` seeds the private override state, invokes the suppressed-discard path, and asserts the debris setter receives the saved value, `debrisOverrideActive` is cleared, and the active tree is discarded.
+
+**Status:** CLOSED 2026-05-14.
+
+---
+
 ## Done - v0.9.2 Deferred EVA auto-record from second EVA orphaned tree recording
 
 - ~~When a recording tree's active vessel was flushed to background during a scene/change focus transition, `HandleTreeBackgroundFlush` cleared `ActiveRecordingId` while leaving the parent capsule tracked in `BackgroundMap`. A later second EVA from that capsule arrived with no live recorder, so `OnCrewOnEva` fell through to deferred auto-record. `StartRecording` then created a `FlightRecorder` under the existing tree without a valid active tree head, and `FlushRecorderToTreeRecording` dropped the captured EVA data at scene exit because `tree.ActiveRecordingId` was still null.~~

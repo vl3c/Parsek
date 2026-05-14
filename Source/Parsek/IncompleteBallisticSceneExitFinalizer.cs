@@ -96,7 +96,8 @@ namespace Parsek
             Recording recording,
             Vessel vessel,
             double commitUT,
-            string logContext)
+            string logContext,
+            RecordingTree recordingTree = null)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
             if (IsAlreadyClassifiedDestroyed(recording))
@@ -105,13 +106,16 @@ namespace Parsek
                 return false;
             }
 
-            var finalize = TryFinalizeHook ?? TryFinalizeOverrideForTesting ?? TryFinalizeRecording;
+            var finalize = TryFinalizeHook ?? TryFinalizeOverrideForTesting;
             bool usingHook = TryFinalizeHook != null;
-            bool usingDefaultFinalize = TryFinalizeHook == null && TryFinalizeOverrideForTesting == null;
+            bool usingDefaultFinalize = finalize == null;
             IncompleteBallisticFinalizationResult result;
             try
             {
-                if (!finalize(recording, vessel, commitUT, out result))
+                bool finalized = finalize != null
+                    ? finalize(recording, vessel, commitUT, out result)
+                    : TryFinalizeRecording(recording, vessel, commitUT, recordingTree, out result);
+                if (!finalized)
                 {
                     if (usingHook)
                     {
@@ -170,6 +174,16 @@ namespace Parsek
             double commitUT,
             out IncompleteBallisticFinalizationResult result)
         {
+            return TryFinalizeRecording(recording, vessel, commitUT, null, out result);
+        }
+
+        private static bool TryFinalizeRecording(
+            Recording recording,
+            Vessel vessel,
+            double commitUT,
+            RecordingTree recordingTree,
+            out IncompleteBallisticFinalizationResult result)
+        {
             result = default(IncompleteBallisticFinalizationResult);
             try
             {
@@ -215,6 +229,7 @@ namespace Parsek
                             startState,
                             extrapolationBodies,
                             warnOnSubSurfaceStart: false),
+                        recordingTree,
                         out result))
                 {
                     return false;
@@ -259,6 +274,16 @@ namespace Parsek
             double commitUT,
             out IncompleteBallisticFinalizationResult result)
         {
+            return TryBuildDefaultFinalizationResult(recording, vessel, commitUT, null, out result);
+        }
+
+        internal static bool TryBuildDefaultFinalizationResult(
+            Recording recording,
+            Vessel vessel,
+            double commitUT,
+            RecordingTree recordingTree,
+            out IncompleteBallisticFinalizationResult result)
+        {
             // Side-effect-free: the finalization-cache producer calls this on the
             // periodic refresh path, so all recording mutation must stay in Apply().
             if (IsAlreadyClassifiedDestroyed(recording))
@@ -268,7 +293,7 @@ namespace Parsek
                 return false;
             }
 
-            return TryFinalizeRecording(recording, vessel, commitUT, out result);
+            return TryFinalizeRecording(recording, vessel, commitUT, recordingTree, out result);
         }
 
         internal static bool IsAlreadyClassifiedDestroyed(Recording recording)
@@ -384,6 +409,25 @@ namespace Parsek
             ExtrapolateProvider extrapolate,
             out IncompleteBallisticFinalizationResult result)
         {
+            return TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                recording,
+                snapshot,
+                bodies,
+                buildLiveStartState,
+                extrapolate,
+                null,
+                out result);
+        }
+
+        internal static bool TryCompleteFinalizationFromPatchedSnapshotForTesting(
+            Recording recording,
+            PatchedConicSnapshotResult snapshot,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            TryBuildStartStateProvider buildLiveStartState,
+            ExtrapolateProvider extrapolate,
+            RecordingTree recordingTree,
+            out IncompleteBallisticFinalizationResult result)
+        {
             return TryCompleteFinalizationFromPatchedSnapshot(
                 recording,
                 snapshot,
@@ -391,6 +435,7 @@ namespace Parsek
                 UnityEngine.Quaternion.identity,
                 buildLiveStartState,
                 extrapolate,
+                recordingTree,
                 out result);
         }
 
@@ -401,6 +446,7 @@ namespace Parsek
             UnityEngine.Quaternion frozenWorldRotation,
             TryBuildStartStateProvider buildLiveStartState,
             ExtrapolateProvider extrapolate,
+            RecordingTree recordingTree,
             out IncompleteBallisticFinalizationResult result)
         {
             result = default(IncompleteBallisticFinalizationResult);
@@ -580,6 +626,7 @@ namespace Parsek
                     snapshot,
                     startState,
                     result,
+                    recordingTree,
                     out TrajectoryPoint recordedPoint,
                     out string recordedPointSource,
                     out double recordedPointDeltaUT,
@@ -646,6 +693,7 @@ namespace Parsek
             PatchedConicSnapshotResult snapshot,
             BallisticStateVector startState,
             IncompleteBallisticFinalizationResult result,
+            RecordingTree recordingTree,
             out TrajectoryPoint recordedPoint,
             out string recordedPointSource,
             out double recordedPointDeltaUT,
@@ -672,8 +720,22 @@ namespace Parsek
             string bodyName = !string.IsNullOrEmpty(result.subSurfaceDestroyedBodyName)
                 ? result.subSurfaceDestroyedBodyName
                 : startState.bodyName;
-            if (!TryFindNearestRecordedSurfacePoint(
+            if (TryFindNearestRecordedSurfacePoint(
                 recording,
+                startState.ut,
+                bodyName,
+                result.subSurfaceDestroyedThreshold,
+                out recordedPoint,
+                out recordedPointSource,
+                out recordedPointDeltaUT))
+            {
+                if (recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds)
+                    return true;
+            }
+
+            if (!TryFindParentEvaStructuralSurfacePoint(
+                recording,
+                recordingTree,
                 startState.ut,
                 bodyName,
                 result.subSurfaceDestroyedThreshold,
@@ -684,9 +746,116 @@ namespace Parsek
                 return false;
             }
 
-            if (recordedPointDeltaUT > SubSurfaceRecordedPointContradictionWindowSeconds)
+            return recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds;
+        }
+
+        private static bool TryFindNearestRecordedSurfacePoint(
+            Recording recording,
+            double targetUT,
+            string bodyName,
+            double subSurfaceThreshold,
+            out TrajectoryPoint nearestPoint,
+            out string nearestSource,
+            out double nearestDeltaUT)
+        {
+            return TryFindNearestRecordedSurfacePoint(
+                recording,
+                targetUT,
+                bodyName,
+                subSurfaceThreshold,
+                requireStructuralEventSnapshot: false,
+                sourcePrefix: null,
+                out nearestPoint,
+                out nearestSource,
+                out nearestDeltaUT);
+        }
+
+        private static bool TryFindParentEvaStructuralSurfacePoint(
+            Recording recording,
+            RecordingTree recordingTree,
+            double targetUT,
+            string bodyName,
+            double subSurfaceThreshold,
+            out TrajectoryPoint nearestPoint,
+            out string nearestSource,
+            out double nearestDeltaUT)
+        {
+            nearestPoint = default(TrajectoryPoint);
+            nearestSource = null;
+            nearestDeltaUT = double.NaN;
+
+            if (recording == null
+                || recordingTree == null
+                || recordingTree.Recordings == null
+                || recordingTree.BranchPoints == null
+                || string.IsNullOrEmpty(recording.EvaCrewName)
+                || string.IsNullOrEmpty(recording.ParentBranchPointId))
+            {
+                return false;
+            }
+
+            BranchPoint branchPoint = null;
+            for (int i = 0; i < recordingTree.BranchPoints.Count; i++)
+            {
+                BranchPoint candidate = recordingTree.BranchPoints[i];
+                if (candidate != null
+                    && string.Equals(candidate.Id, recording.ParentBranchPointId, StringComparison.Ordinal))
+                {
+                    branchPoint = candidate;
+                    break;
+                }
+            }
+
+            if (branchPoint == null || branchPoint.Type != BranchPointType.EVA)
+                return false;
+            if (!ContainsOrdinal(branchPoint.ChildRecordingIds, recording.RecordingId))
+                return false;
+            if (branchPoint.ParentRecordingIds == null || branchPoint.ParentRecordingIds.Count == 0)
                 return false;
 
+            bool found = false;
+            double bestDelta = double.MaxValue;
+            for (int i = 0; i < branchPoint.ParentRecordingIds.Count; i++)
+            {
+                string parentRecordingId = branchPoint.ParentRecordingIds[i];
+                if (string.IsNullOrEmpty(parentRecordingId))
+                    continue;
+                if (!recordingTree.Recordings.TryGetValue(parentRecordingId, out Recording parentRecording)
+                    || parentRecording == null)
+                {
+                    continue;
+                }
+
+                TrajectoryPoint candidatePoint;
+                string candidateSource;
+                double candidateDelta;
+                if (!TryFindNearestRecordedSurfacePoint(
+                    parentRecording,
+                    targetUT,
+                    bodyName,
+                    subSurfaceThreshold,
+                    requireStructuralEventSnapshot: true,
+                    sourcePrefix: "parent-structural-eva:" + parentRecordingId,
+                    out candidatePoint,
+                    out candidateSource,
+                    out candidateDelta))
+                {
+                    continue;
+                }
+
+                if (!found || candidateDelta < bestDelta)
+                {
+                    found = true;
+                    bestDelta = candidateDelta;
+                    nearestPoint = candidatePoint;
+                    nearestSource = candidateSource;
+                }
+            }
+
+            if (!found)
+                return false;
+
+            nearestDeltaUT = bestDelta;
             return true;
         }
 
@@ -695,6 +864,8 @@ namespace Parsek
             double targetUT,
             string bodyName,
             double subSurfaceThreshold,
+            bool requireStructuralEventSnapshot,
+            string sourcePrefix,
             out TrajectoryPoint nearestPoint,
             out string nearestSource,
             out double nearestDeltaUT)
@@ -719,6 +890,8 @@ namespace Parsek
                             targetUT,
                             bodyName,
                             subSurfaceThreshold,
+                            requireStructuralEventSnapshot,
+                            sourcePrefix,
                             ref found,
                             ref bestDelta,
                             ref nearestPoint,
@@ -732,6 +905,8 @@ namespace Parsek
                             targetUT,
                             bodyName,
                             subSurfaceThreshold,
+                            requireStructuralEventSnapshot,
+                            sourcePrefix,
                             ref found,
                             ref bestDelta,
                             ref nearestPoint,
@@ -747,6 +922,8 @@ namespace Parsek
                     targetUT,
                     bodyName,
                     subSurfaceThreshold,
+                    requireStructuralEventSnapshot,
+                    sourcePrefix,
                     ref found,
                     ref bestDelta,
                     ref nearestPoint,
@@ -760,12 +937,28 @@ namespace Parsek
             return true;
         }
 
+        private static bool ContainsOrdinal(IList<string> values, string value)
+        {
+            if (values == null || string.IsNullOrEmpty(value))
+                return false;
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                if (string.Equals(values[i], value, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
         private static void InspectRecordedSurfacePoints(
             IList<TrajectoryPoint> points,
             string source,
             double targetUT,
             string bodyName,
             double subSurfaceThreshold,
+            bool requireStructuralEventSnapshot,
+            string sourcePrefix,
             ref bool found,
             ref double bestDelta,
             ref TrajectoryPoint nearestPoint,
@@ -777,8 +970,19 @@ namespace Parsek
             for (int i = 0; i < points.Count; i++)
             {
                 TrajectoryPoint point = points[i];
+                if (requireStructuralEventSnapshot
+                    && (((TrajectoryPointFlags)point.flags & TrajectoryPointFlags.StructuralEventSnapshot)
+                        != TrajectoryPointFlags.StructuralEventSnapshot))
+                {
+                    continue;
+                }
                 if (!IsFinite(point.ut) || !IsFinite(point.altitude))
                     continue;
+                if (requireStructuralEventSnapshot
+                    && (!IsFinite(point.latitude) || !IsFinite(point.longitude)))
+                {
+                    continue;
+                }
                 if (!string.IsNullOrEmpty(bodyName)
                     && !string.IsNullOrEmpty(point.bodyName)
                     && !string.Equals(bodyName, point.bodyName, StringComparison.Ordinal))
@@ -794,7 +998,9 @@ namespace Parsek
                     found = true;
                     bestDelta = delta;
                     nearestPoint = point;
-                    nearestSource = source;
+                    nearestSource = string.IsNullOrEmpty(sourcePrefix)
+                        ? source
+                        : sourcePrefix + ":" + source;
                 }
             }
         }

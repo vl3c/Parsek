@@ -2511,6 +2511,8 @@ namespace Parsek
             if (logRecorderState)
                 ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-entry", CaptureRecorderState());
 
+            RestoreDebrisPersistence();
+
             if (recorder != null)
             {
                 if (recorder.IsRecording)
@@ -10617,6 +10619,14 @@ namespace Parsek
         // Cached reflection field for KSP's maxPersistentDebris setting
         private static System.Reflection.FieldInfo debrisField;
         private static bool debrisFieldSearched;
+        internal static Func<int?> GetMaxPersistentDebrisOverrideForTesting;
+        internal static Action<int> SetMaxPersistentDebrisOverrideForTesting;
+
+        internal static void ResetDebrisPersistenceOverridesForTesting()
+        {
+            GetMaxPersistentDebrisOverrideForTesting = null;
+            SetMaxPersistentDebrisOverrideForTesting = null;
+        }
 
         void EnforceMinDebrisPersistence()
         {
@@ -10666,6 +10676,9 @@ namespace Parsek
         /// </summary>
         static int? GetMaxPersistentDebris()
         {
+            if (GetMaxPersistentDebrisOverrideForTesting != null)
+                return GetMaxPersistentDebrisOverrideForTesting();
+
             var field = FindDebrisField();
             if (field != null)
                 return (int)field.GetValue(null);
@@ -10674,6 +10687,12 @@ namespace Parsek
 
         static void SetMaxPersistentDebris(int value)
         {
+            if (SetMaxPersistentDebrisOverrideForTesting != null)
+            {
+                SetMaxPersistentDebrisOverrideForTesting(value);
+                return;
+            }
+
             var field = FindDebrisField();
             if (field != null)
                 field.SetValue(null, value);
@@ -12613,7 +12632,8 @@ namespace Parsek
                     activeRec,
                     v,
                     commitUT,
-                    "EnsureActiveRecordingTerminalState");
+                    "EnsureActiveRecordingTerminalState",
+                    tree);
                 sceneExitSuppliedSnapshots =
                     !ReferenceEquals(vesselSnapshotBefore, activeRec.VesselSnapshot)
                     && activeRec.VesselSnapshot != null;
@@ -13343,7 +13363,8 @@ namespace Parsek
                     rec,
                     finalizeVessel,
                     commitUT,
-                    "FinalizeIndividualRecording");
+                    "FinalizeIndividualRecording",
+                    treeContext);
                 sceneExitSuppliedSnapshots =
                     !ReferenceEquals(vesselSnapshotBefore, rec.VesselSnapshot)
                     && rec.VesselSnapshot != null;
