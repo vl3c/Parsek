@@ -19559,6 +19559,18 @@ namespace Parsek
             worldPos = default;
             if (string.IsNullOrEmpty(recordingId)) return false;
 
+            // In-place Re-Fly alias: a co-bubble primary that resolved to the
+            // committed origin recording must be evaluated against the live
+            // provisional that supersedes it during the re-fly. Without this
+            // the primary's P_render(t) reads the frozen pre-re-fly
+            // trajectory and every peer ghost holds its offset relative to
+            // where the origin WAS recorded, not where the re-flown vessel
+            // actually is — the peer drifts off by the re-fly divergence.
+            // HR-15 still holds: the provisional is a recording, so this
+            // reads recorded points, not live KSP Vessel state.
+            recordingId = Parsek.Rendering.RenderSessionState
+                .ResolveInPlaceReFlyActiveAlias(recordingId);
+
             Recording rec = ResolveRecordingById(recordingId);
             if (rec == null) return false;
             if (rec.Points == null || rec.Points.Count == 0) return false;

@@ -310,14 +310,25 @@ namespace Parsek.Rendering
                         BranchPoint bp = tree.BranchPoints[b];
                         if (bp == null) continue;
                         // Only propagate on edges that imply ε passes
-                        // through the structural event. Terminal /
-                        // Launch / Breakup are not propagation events
-                        // for Phase 6.
+                        // through the structural event. Terminal / Launch
+                        // are not propagation events for Phase 6.
+                        //
+                        // Breakup IS a propagation event for its controlled
+                        // (non-debris) children: a coalesced staging split
+                        // (decoupler fire during a crash/structural window)
+                        // is recorded as a Breakup BranchPoint whose
+                        // ChildRecordingIds enumerate both the controlled
+                        // stage halves AND short-lived debris fragments. The
+                        // controlled halves are continuing vessels and need
+                        // ε just like an Undock/JointBreak child; debris
+                        // keeps the v13 parent-anchored contract and is
+                        // skipped per-child below.
                         if (bp.Type != BranchPointType.Dock
                             && bp.Type != BranchPointType.Board
                             && bp.Type != BranchPointType.Undock
                             && bp.Type != BranchPointType.EVA
-                            && bp.Type != BranchPointType.JointBreak)
+                            && bp.Type != BranchPointType.JointBreak
+                            && bp.Type != BranchPointType.Breakup)
                         {
                             continue;
                         }
@@ -331,6 +342,18 @@ namespace Parsek.Rendering
                                 string cid = bp.ChildRecordingIds[c];
                                 if (string.IsNullOrEmpty(cid)) continue;
                                 if (string.Equals(pid, cid, StringComparison.Ordinal)) continue;
+                                // Breakup BPs list debris children alongside
+                                // controlled stage halves; debris must not
+                                // receive a propagated DockOrMerge ε (it plays
+                                // back through the v13 parent-anchored debris
+                                // contract). Only controlled children walk.
+                                if (bp.Type == BranchPointType.Breakup
+                                    && byId.TryGetValue(cid, out Recording rChildClassify)
+                                    && rChildClassify != null
+                                    && rChildClassify.IsDebris)
+                                {
+                                    continue;
+                                }
                                 edges.Add(new Edge(pid, cid, bp.UT, bp.Type, isChain: false));
                             }
                         }

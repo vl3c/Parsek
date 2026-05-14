@@ -132,6 +132,35 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void TryEvaluateOffset_PeerIsPrimaryElsewhereButAlsoAPeer_PassesPairSpecificGuard()
+        {
+            // Multi-tier formation: "mid" is the designated primary for
+            // "lower" AND itself a peer of "top". The recursion guard is
+            // PAIR-SPECIFIC — querying "mid" as a peer must NOT short-circuit
+            // to MissRecursionGuard just because "mid" is a primary
+            // somewhere else. Before the fix the global IsPrimary check
+            // rejected "mid" outright and its own co-bubble offset was
+            // dropped, falling the ghost back to standalone PointInterp.
+            RenderSessionState.PutPrimaryAssignmentForTesting("lower", "mid");
+            RenderSessionState.PutPrimaryAssignmentForTesting("mid", "top");
+            // "mid" is a primary (of "lower") AND a peer (of "top").
+            Assert.True(RenderSessionState.IsPrimary("mid"));
+
+            CoBubbleOffsetTrace trace = MakeTrace("top", 100.0, 110.0, new Vector3d(3, 0, 0));
+            SectionAnnotationStore.PutCoBubbleTrace("mid", trace);
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "mid", 105.0, out Vector3d offset, out CoBubbleBlendStatus status,
+                out string primary);
+
+            Assert.NotEqual(CoBubbleBlendStatus.MissRecursionGuard, status);
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal("top", primary);
+            Assert.Equal(3.0, offset.x, 3);
+        }
+
+        [Fact]
         public void TryEvaluateOffset_NoTraceForPeer_ReturnsMissNotInTrace()
         {
             RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");

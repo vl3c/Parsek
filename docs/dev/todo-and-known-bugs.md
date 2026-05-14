@@ -62,6 +62,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly child ghosts still drifted after the propagator was wired in (PR #850 follow-up)
+
+- ~~After the Root Re-Fly fix above made `AnchorPropagator.Run` fire on the in-place continuation path, a fresh capture of the same scenario (`logs/2026-05-14_1952_refly-init-pos-diff/KSP.log`) showed the decoupled `Kerbal X Probe` ghost STILL drifting away from the re-flown upper stage. The propagator ran but did no useful work: every in-place-continuation `DAG walk summary` logged `edgesVisited=0 edgesPropagated=0`, and the one session that emitted seed candidates (`seedCandidatesEmitted=7`) resolved them all to `skip-no-spline`.~~
+
+**Root causes (three, all downstream of "the propagator runs but the active branch is never anchored"):**
+
+1. **`Breakup` branch points were excluded from the DAG walk.** The staging separation between the probe and the upper stage is recorded as a `BranchPointType.Breakup` (a coalesced split — the decoupler fires inside a crash/structural-failure coalescing window), but `AnchorPropagator`'s Phase-2 edge filter only walked `Dock / Board / Undock / EVA / JointBreak`. The exact event that separates the two halves was never an edge, so `edgesVisited=0`.
+2. **The active provisional was never aliased to the committed origin.** Post-#734 the in-place Re-Fly forks a fresh `NotCommitted` provisional (`ReFlySessionMarker.ActiveReFlyRecordingId`, e.g. `rec_9613…`) that supersedes the committed `OriginChildRecordingId` (e.g. `9db4…`). Co-bubble traces, the primary map, and the standalone-position lookups are all keyed on the committed origin id — so the child ghost's co-bubble primary resolved `P_render(t)` against the origin recording's frozen pre-re-fly trajectory, not the live re-flown vessel, and the peer held its offset relative to where the origin *was recorded*.
+3. **The co-bubble recursion guard was global, not pair-specific.** `CoBubbleBlender` rejected any recording for which `RenderSessionState.IsPrimary(...)` was true. In a multi-tier formation a recording is routinely the designated primary for one pair AND a peer of another (e.g. `9db4…` is primary of `18816…` and peer of `81f2…`); the global check forced those middle recordings to `MissRecursionGuard` and dropped their own co-bubble offset, falling them back to standalone `PointInterp`.
+
+**Fix:**
+
+1. `AnchorPropagator.Run` now includes `BranchPointType.Breakup` in the Phase-2 edge filter; the per-child loop skips `Recording.IsDebris` children so the v13 parent-anchored debris contract is untouched and only controlled stage halves receive a propagated `DockOrMerge` ε.
+2. `RenderSessionState` records the in-place Re-Fly alias (`OriginChildRecordingId → ActiveReFlyRecordingId`, fork shape only) at the top of `RebuildFromMarker` via `RegisterInPlaceReFlyAlias`, exposes `ResolveInPlaceReFlyActiveAlias`, and clears it on `Clear()` / non-in-place / legacy-same-id markers. `ParsekFlight.TryComputeStandaloneWorldPositionForRecording` resolves the alias so a co-bubble primary that landed on the superseded committed origin is evaluated against the live provisional's recorded trajectory. HR-15 still holds — the provisional is a recording, so the read is still recorded points, not live `Vessel` state.
+3. `CoBubbleBlender`'s recursion guard is now pair-specific: it short-circuits to `MissRecursionGuard` only when the recording is a primary AND has no designated primary of its own (`!TryGetDesignatedPrimary`), i.e. it is purely a primary and never a peer.
+
+**Coverage:** `AnchorPropagationTests.Run_PropagatesAcrossBreakupEdge_ControlledChildOnly_SkipsDebris` (controlled child anchored, debris child not, `Edge propagated … bpType=Breakup` logged); `RenderSessionStateLoggingTests.InPlaceContinuationForkShape_RootReFly_PropagatesBreakupEdgeToChild` closes the PR-#850 test gap — it uses the real post-#734 fork shape (provisional id ≠ committed origin) and asserts an edge is actually visited (`edgesVisited=1 edgesPropagated=1`) and the child anchor is written, not just that the DAG walk fired; `CoBubbleBlenderTests.TryEvaluateOffset_PeerIsPrimaryElsewhereButAlsoAPeer_PassesPairSpecificGuard`; and four `RenderSessionStateTests` alias cases (fork shape, legacy same-id no-op, non-in-place clears stale, `Clear()` resets). Full suite verified (11645 / 11645).
+
+**Remaining gap (not in this PR):** on a root in-place Re-Fly the AnchorPropagator's Phase-1 seed pass still skips every recording that the session marked suppressed, which on a root re-fly is the entire tree — so the Breakup edge is walkable but has no upstream ε to flow unless a non-suppressed seed exists. The observed bug is resolved because these child ghosts render through the co-bubble path (now correctly aliased), not the propagator ε; a propagator-level upstream seed for the in-place-root case is tracked as future work.
+
+**Status:** CLOSED 2026-05-14.
+
+---
+
 ## Done - v0.9.2 Tree-rewind permanently hides CommittedProvisional priorTip during Watch
 
 - ~~After a Re-Fly with a Crashed/Destroyed outcome (the fork is sealed but stays `MergeState.CommittedProvisional` per `TerminalKindClassifier`), rewinding the tree-root parent recording and then entering Watch on it showed neither the original priorTip ghost nor the re-fly attempt. `RecordingStore.EnsureRewindRetirementsForRollback` Pass 2 retired the priorTip permanently regardless of the dropped supersede's fork `MergeState`. Reproduction: `logs/2026-05-13_2335_kerbal-x-booster-ghost-missing/KSP.log` — user Re-Flies the Kerbal X Probe (crash → crash), seals the slot, rewinds Kerbal X to launch, enters Watch. `Ghost playback skip state: #7 id=bc4390be… vessel="Kerbal X Probe" skip=True reason=rewind-retired` (line 70041). The probe ghost never spawned.~~
