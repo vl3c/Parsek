@@ -741,7 +741,8 @@ namespace Parsek.Rendering
             {
                 if (IsInPlaceContinuationMarker(marker))
                 {
-                    InstallEmptyInPlaceContinuationSession(marker, rOrigin);
+                    InstallEmptyInPlaceContinuationSession(
+                        marker, rOrigin, recordings, treeLookup);
                     return;
                 }
 
@@ -788,20 +789,7 @@ namespace Parsek.Rendering
                 // Phase 6: even without LiveSeparation seeds, the propagator
                 // still emits non-LiveSeparation candidates from the per-
                 // recording .pann into the session map.
-                try
-                {
-                    List<RecordingTree> trees0 = ResolveTreesForPropagator(treeLookup, recordings);
-                    AnchorPropagator.Run(marker, recordings, trees0,
-                        SurfaceLookupOverrideForTesting ?? DefaultSurfaceLookup,
-                        resolver: AnchorPropagator.ResolverOverrideForTesting
-                            ?? new ProductionAnchorWorldFrameResolver());
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn("Pipeline-AnchorPropagate",
-                        $"AnchorPropagator.Run threw {ex.GetType().Name}: {ex.Message}");
-                }
-                ResolvePrimaryAssignmentsAndLog(recordings, marker);
+                RunAnchorPropagatorAndResolvePrimaries(marker, recordings, treeLookup);
                 return;
             }
 
@@ -1088,22 +1076,7 @@ namespace Parsek.Rendering
             // along BranchPoint edges per §9.1. AnchorPropagator gates on
             // useAnchorTaxonomy internally, so a flag-off install gets the
             // Phase-2-only behaviour for free.
-            try
-            {
-                List<RecordingTree> trees = ResolveTreesForPropagator(treeLookup, recordings);
-                AnchorPropagator.Run(marker, recordings, trees, surfaceLookup,
-                    resolver: AnchorPropagator.ResolverOverrideForTesting
-                        ?? new ProductionAnchorWorldFrameResolver());
-            }
-            catch (Exception ex)
-            {
-                // HR-9: regenerable cache must not abort the session-entry
-                // path; propagator failures degrade to Phase-2 behaviour.
-                ParsekLog.Warn("Pipeline-AnchorPropagate",
-                    $"AnchorPropagator.Run threw {ex.GetType().Name}: {ex.Message} — falling back to Phase 2 behaviour");
-            }
-
-            ResolvePrimaryAssignmentsAndLog(recordings, marker);
+            RunAnchorPropagatorAndResolvePrimaries(marker, recordings, treeLookup);
         }
 
         /// <summary>
@@ -1170,7 +1143,9 @@ namespace Parsek.Rendering
         }
 
         private static void InstallEmptyInPlaceContinuationSession(
-            ReFlySessionMarker marker, Recording rOrigin)
+            ReFlySessionMarker marker, Recording rOrigin,
+            IReadOnlyList<Recording> recordings,
+            Func<string, RecordingTreeContext> treeLookup)
         {
             lock (Lock)
             {
@@ -1187,6 +1162,46 @@ namespace Parsek.Rendering
                 $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
                 $"siblingsConsidered=0 anchorsWritten=0 skippedNoLivePoint=0 " +
                 $"skippedNoGhostPoint=0 skippedRelativeFrame=0 skippedBodyMissing=0 skippedSplineSection=0");
+
+            // Phase 6: re-flying the launch root has no parent BranchPoint and
+            // therefore no LiveSeparation seeds, but the AnchorPropagator still
+            // walks the tree DAG from the provisional fork and propagates
+            // recorded anchors down BranchPoint edges to child recordings (e.g.
+            // a side booster recorded ref=Absolute by the BgRecorder). Without
+            // this, those child ghosts play back at stale absolute coordinates
+            // and drift away from the re-flown root. Mirrors the no-siblings
+            // path above so every RebuildFromMarker exit runs the propagator.
+            RunAnchorPropagatorAndResolvePrimaries(marker, recordings, treeLookup);
+        }
+
+        /// <summary>
+        /// Phase 6 shared tail for every <see cref="RebuildFromMarker"/> exit
+        /// that installs a session: walk the DAG via
+        /// <see cref="AnchorPropagator.Run"/> to emit the §7.2–§7.10 anchor
+        /// types and propagate ε along BranchPoint edges, then resolve the
+        /// co-bubble primary assignments. HR-9: the propagator's output is a
+        /// regenerable cache, so a throw degrades to Phase-2-only behaviour
+        /// rather than aborting the session-entry path.
+        /// </summary>
+        private static void RunAnchorPropagatorAndResolvePrimaries(
+            ReFlySessionMarker marker,
+            IReadOnlyList<Recording> recordings,
+            Func<string, RecordingTreeContext> treeLookup)
+        {
+            try
+            {
+                List<RecordingTree> trees = ResolveTreesForPropagator(treeLookup, recordings);
+                AnchorPropagator.Run(marker, recordings, trees,
+                    SurfaceLookupOverrideForTesting ?? DefaultSurfaceLookup,
+                    resolver: AnchorPropagator.ResolverOverrideForTesting
+                        ?? new ProductionAnchorWorldFrameResolver());
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Pipeline-AnchorPropagate",
+                    $"AnchorPropagator.Run threw {ex.GetType().Name}: {ex.Message} — falling back to Phase 2 behaviour");
+            }
+            ResolvePrimaryAssignmentsAndLog(recordings, marker);
         }
 
         private static List<RecordingTree> ResolveTreesForPropagator(
