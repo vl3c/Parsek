@@ -25,16 +25,13 @@ All notable changes to Parsek are documented here.
 - The "Ghost render tracing" diagnostics toggle (both the Parsek settings window and the stock difficulty-settings entry) now reads "Ghost render tracing (Warning: huge logs)" so the log-volume cost is visible before enabling it.
 - The readable sidecar mirrors toggle (both the Parsek settings window and the stock difficulty-settings entry) now carries a "(Warning: extra disk usage)" suffix so the on-disk cost is visible before enabling it.
 
-### Bug Fixes
-
-- Re-flying the launch root of a recording tree (e.g. the Kerbal X upper stage) now keeps decoupled child ghosts — like a separated probe or booster — at the correct distance from the re-flown vessel. The anchor-propagation pass that resolves child ghosts relative to the live vessel was skipped on the root re-fly path, so those ghosts played back at stale absolute coordinates and drifted away.
-
 ---
 
 ## 0.9.2
 
 ### Bug Fixes
 
+- Re-flying the launch root of a recording tree (e.g. the Kerbal X upper stage) now keeps decoupled child ghosts — like a separated probe or booster — at the correct distance from the re-flown vessel. The anchor-propagation pass that resolves child ghosts relative to the live vessel was skipped on the root re-fly path, so those ghosts played back at stale absolute coordinates and drifted away.
 - Retry-from-Rewind-Point during a Re-Fly now drops you into a fresh recording attempt with no extra dialog. Previously the tree merge/discard dialog popped on top of the new attempt AND the underlying recorder was never bound to the freshly-created fork, so users had to discard everything via the dialog to recover — "Retry" effectively did nothing.
 - Ghosts whose recording finalized as SubOrbital, Destroyed, Docked, Recovered, or Boarded no longer disappear partway through their final coast/predicted tail. `RecordingOptimizer.TrimBoringTail` now refuses to chop any recording whose terminal is not one the spawn policy would actually replace with a real vessel (Landed, Splashed, Orbiting), so non-spawnable leaves keep their full on-rails / extrapolated trajectory instead of collapsing 10 s past their last `lastInterestingUT` event. The optimizer and `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` now share `IsSpawnableTerminal` so the two contracts can no longer drift.
 - Planted flags now survive Re-Fly. The post-load strip used to delete flag vessels along with other unmatched siblings, silently erasing the FlagPlant career milestone; the stripper now preserves any `VesselType.Flag` vessel regardless of slot-map membership.

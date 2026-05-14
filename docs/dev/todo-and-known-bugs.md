@@ -12,7 +12,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Root Re-Fly skipped anchor propagation, child ghosts drifted off the re-flown vessel
+## Done - v0.9.2 Root Re-Fly skipped anchor propagation, child ghosts drifted off the re-flown vessel
 
 - ~~During a "Kerbal X upper stage" Re-Fly, the decoupled `Kerbal X Probe` ghost (`635813f2…`) rendered at the wrong distance behind the live upper stage — it shot away at the divergence rate instead of holding the staging-separation relationship. The earlier "probe booster" Re-Fly (live = probe, ghost = upper stage) looked correct. Source: `logs/2026-05-14_1756_kerbalx-refly-ghost-distance/KSP.log`. The probe Re-Fly (`sess_57b2…`) logged `Pipeline-AnchorPropagate DAG walk start … seedCandidatesEmitted=6 resolvedRel=6`; the upper-stage Re-Fly (`sess_eda1…`) logged `RebuildFromMarker: in-place continuation` and then **no DAG walk at all**.~~
 
