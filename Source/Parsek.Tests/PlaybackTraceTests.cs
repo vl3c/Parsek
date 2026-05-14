@@ -484,6 +484,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MaybeEmitFrame_PreEventFrameAfterWrap_RetiresTracedEvent()
+        {
+            // When a loop replays through the recording's pre-event region
+            // (currentUT before every flagged event), that is an
+            // unambiguous wrap signal: the previously-traced event is
+            // retired so its upcoming re-entry is suppressed regardless of
+            // where the loop's first in-window frame lands — including the
+            // early-ended-first-pass case a high-water comparison misses.
+            var traj = MakeTrajWithStructuralEvent("rec-preevent", 10.0);
+
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // First pass ends early after a single frame at 10.2.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.2,
+                    renderedPos: Vector3.zero);
+                Assert.Single(logLines.FindAll(
+                    l => l.Contains("[PlaybackTrace]")));
+                Assert.False(PlaybackTrace.IsEventCompletedForTesting(
+                    "rec-preevent", ghostIdx: 0, eventUT: 10.0));
+
+                // Loop wrap replays a pre-event frame (currentUT 2.0 < the
+                // event at 10.0) — retires event 10.0.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 2.0,
+                    renderedPos: Vector3.zero);
+                Assert.True(PlaybackTrace.IsEventCompletedForTesting(
+                    "rec-preevent", ghostIdx: 0, eventUT: 10.0));
+
+                // The loop's first in-window frame lands ABOVE the prior
+                // high-water of 10.2 — still suppressed.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.5,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 12.0,
+                    renderedPos: Vector3.zero);
+            }
+            finally { ParsekLog.ResetTestOverrides(); ParsekLog.SuppressLogging = true; }
+
+            Assert.Single(logLines.FindAll(
+                l => l.Contains("[PlaybackTrace]")));
+        }
+
+        [Fact]
         public void MaybeEmitFrame_FirstPassEndsEarly_LoopTailNotReEmitted()
         {
             // If the first pass ends after a single frame (ghost
@@ -518,6 +562,57 @@ namespace Parsek.Tests
 
             Assert.Single(logLines.FindAll(
                 l => l.Contains("[PlaybackTrace]")));
+        }
+
+        [Fact]
+        public void MaybeEmitFrame_HiddenThroughPreEventAndIntoWindow_ResidualIsBoundedAndSelfHeals()
+        {
+            // Documents the one known residual: a ghost that stays hidden
+            // (no MaybeEmitFrame calls) through a recording's entire
+            // pre-event region AND into the event window on a loop pass.
+            // That loop has no wrap signal to observe — no pre-event frame,
+            // no below-high-water frame, no gate-closed frame — so it
+            // re-emits a partial tail. The point of this test is that the
+            // residual is BOUNDED: the next loop, which does replay a
+            // pre-event frame, retires the event and suppresses everything.
+            var traj = MakeTrajWithStructuralEvent("rec-residual", 10.0);
+
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // First pass ends early at high-water 10.2.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.2,
+                    renderedPos: Vector3.zero);
+
+                // Loop 2: ghost hidden through the whole pre-event region;
+                // first observed frame is in-window AND above the prior
+                // high-water. No wrap signal — this loop leaks a partial
+                // tail.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.5,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 13.0,
+                    renderedPos: Vector3.zero);
+                int afterLoop2 = logLines.FindAll(
+                    l => l.Contains("[PlaybackTrace]")).Count;
+                // First pass (1) + the bounded loop-2 leak (2) = 3.
+                Assert.Equal(3, afterLoop2);
+
+                // Loop 3: ghost visible normally — a pre-event frame is
+                // observed, retiring the event. The leak does not recur.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 3.0,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.5,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 13.0,
+                    renderedPos: Vector3.zero);
+            }
+            finally { ParsekLog.ResetTestOverrides(); ParsekLog.SuppressLogging = true; }
+
+            // Loop 3 added nothing — the residual self-healed.
+            Assert.Equal(3, logLines.FindAll(
+                l => l.Contains("[PlaybackTrace]")).Count);
         }
 
         [Fact]

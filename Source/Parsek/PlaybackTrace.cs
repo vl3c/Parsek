@@ -46,11 +46,16 @@ namespace Parsek
     /// An event UT is retired into a per-ghost <c>completedEventUTs</c> set
     /// the moment its window can no longer be in its first pass — when a
     /// gate-closed frame ages past it, when a frame for a different event
-    /// UT shows, or when <c>currentUT</c> jumps backwards onto it (loop
-    /// wrap at the window edge). Once retired, every later frame for that
-    /// event is suppressed. Retirement keys on set membership, not on a
-    /// high-water UT, so the suppression holds even when a loop pass
-    /// re-enters at or above the prior pass's last-emitted UT.</para>
+    /// UT shows, when <c>currentUT</c> jumps backwards onto it (loop wrap
+    /// at the window edge), or when a frame lands before every flagged
+    /// event UT (the recording looped past the event start). Once retired,
+    /// every later frame for that event is suppressed. Retirement keys on
+    /// set membership, not on a high-water UT, so the suppression holds
+    /// even when a loop pass re-enters at or above the prior pass's
+    /// last-emitted UT. The only residual is a ghost that stays hidden
+    /// through a recording's entire pre-event region <i>and</i> into the
+    /// event window on a loop pass — that loop re-emits a partial tail,
+    /// then self-heals on the next loop.</para>
     ///
     /// <para><b>Reset on session boundaries.</b> Cached structural-event UT
     /// lists and per-ghost trace state (including the completed-event set)
@@ -224,7 +229,27 @@ namespace Parsek
             if (events == null || events.Count == 0) return;
             int eIdx = events.BinarySearch(currentUT);
             if (eIdx < 0) eIdx = ~eIdx - 1;
-            if (eIdx < 0) return; // currentUT before any flagged event
+            if (eIdx < 0)
+            {
+                // currentUT is before every flagged event. If this ghost was
+                // tracing an event, the recording has looped back past the
+                // event start — an unambiguous wrap signal. Retire whatever
+                // event was last traced so the upcoming re-entry of its
+                // window is suppressed no matter where the loop's first
+                // in-window frame lands (above or below the prior pass's
+                // high-water). This closes the loop case where the recording
+                // wraps through its pre-event region while the ghost is
+                // visible; the only residual is a ghost that stays hidden
+                // through the entire pre-event region AND into the window on
+                // a loop pass, which self-heals on the next loop.
+                TraceState preEventState = TryGetTraceState(recId, ghostIdx);
+                if (preEventState != null
+                    && !double.IsNaN(preEventState.lastTracedEventUT))
+                {
+                    preEventState.completedEventUTs.Add(preEventState.lastTracedEventUT);
+                }
+                return;
+            }
             double mostRecentEventUT = events[eIdx];
             bool gateOpen = (currentUT - mostRecentEventUT) <= PostEventWindowSeconds;
 
