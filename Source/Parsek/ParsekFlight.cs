@@ -16883,13 +16883,15 @@ namespace Parsek
         private static RelativeAnchorResolverContext BuildFlightRelativeAnchorResolverContext(
             RecordingTree focusTree,
             string focusedRecordingId,
-            ReFlySessionMarker marker)
+            ReFlySessionMarker marker,
+            IReadOnlyDictionary<string, Recording> provisionalRecordings = null)
         {
             return new RelativeAnchorResolverContext(
                 focusTree,
                 focusRecordingId: focusedRecordingId,
                 focusTreeId: focusTree?.Id,
                 activeReFlyMarker: marker,
+                provisionalRecordings: provisionalRecordings,
                 pendingTree: RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ResolveAnchorResolverBodyWorldRotation,
@@ -16899,6 +16901,30 @@ namespace Parsek
 
         private static readonly Func<uint, string, double, (Vector3d pos, Quaternion rot)?> LiveAnchorTransformDelegate =
             TryResolveLiveAnchorTransformForResolver;
+
+        internal delegate bool TryResolveActiveInPlaceReFlyPrimaryReadModelDelegate(
+            string requestedRecordingId,
+            ReFlySessionMarker marker,
+            double ut,
+            out Recording recording,
+            out ActiveReFlyPrimaryReadModelStats stats,
+            out string reason);
+
+        internal struct ActiveReFlyPrimaryReadModelStats
+        {
+            public string OriginRecordingId;
+            public string ActiveRecordingId;
+            public int TreePointCount;
+            public int RecorderPointCount;
+            public int OpenSectionPointCount;
+            public int SnapshotPointCount;
+            public int TreeSectionCount;
+            public int RecorderSectionCount;
+            public int SnapshotSectionCount;
+        }
+
+        internal static TryResolveActiveInPlaceReFlyPrimaryReadModelDelegate
+            ActiveInPlaceReFlyPrimaryReadModelResolverForTesting;
 
         internal static Func<uint, string, double, (Vector3d pos, Quaternion rot)?> TryGetLiveAnchorTransformDelegate()
         {
@@ -19565,8 +19591,66 @@ namespace Parsek
             worldPos = default;
             if (string.IsNullOrEmpty(recordingId)) return false;
 
+            if (TryResolveActiveInPlaceReFlyPrimaryReadModel(
+                    recordingId,
+                    ut,
+                    out Recording activeReFlyReadModel,
+                    out ActiveReFlyPrimaryReadModelStats activeReFlyStats,
+                    out string activeReFlyMissReason,
+                    out bool activeReFlyApplies))
+            {
+                if (TryComputeStandaloneWorldPositionForRecordingCore(
+                        activeReFlyReadModel,
+                        ut,
+                        fallbackBody,
+                        out worldPos,
+                        suppressAnchorCorrection,
+                        TryFindActiveInPlaceReFlyFocusTree(activeReFlyStats.ActiveRecordingId),
+                        BuildSingleRecordingOverlay(activeReFlyReadModel)))
+                {
+                    LogActiveInPlaceReFlyPrimaryReadModelHit(activeReFlyStats, ut);
+                    return true;
+                }
+
+                LogActiveInPlaceReFlyPrimaryReadModelMiss(
+                    activeReFlyStats,
+                    ut,
+                    "live-read-model-position-failed");
+                return false;
+            }
+
+            if (activeReFlyApplies)
+            {
+                LogActiveInPlaceReFlyPrimaryReadModelMiss(
+                    activeReFlyStats,
+                    ut,
+                    activeReFlyMissReason);
+                return false;
+            }
+
             Recording rec = ResolveRecordingById(recordingId);
+            return TryComputeStandaloneWorldPositionForRecordingCore(
+                rec,
+                ut,
+                fallbackBody,
+                out worldPos,
+                suppressAnchorCorrection,
+                null,
+                null);
+        }
+
+        private static bool TryComputeStandaloneWorldPositionForRecordingCore(
+            Recording rec,
+            double ut,
+            CelestialBody fallbackBody,
+            out Vector3d worldPos,
+            bool suppressAnchorCorrection,
+            RecordingTree relativeFocusTreeOverride,
+            IReadOnlyDictionary<string, Recording> relativeRecordingOverlay)
+        {
+            worldPos = default;
             if (rec == null) return false;
+            string recordingId = rec.RecordingId;
             if (rec.Points == null || rec.Points.Count == 0) return false;
             if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                     rec,
@@ -19612,7 +19696,13 @@ namespace Parsek
 
             if (maybeSection.HasValue && maybeSection.Value.referenceFrame == ReferenceFrame.Relative)
             {
-                return TryComputeStandaloneRelativeWorldPosition(rec, maybeSection.Value, ut, out worldPos);
+                return TryComputeStandaloneRelativeWorldPosition(
+                    rec,
+                    maybeSection.Value,
+                    ut,
+                    out worldPos,
+                    relativeFocusTreeOverride,
+                    relativeRecordingOverlay);
             }
 
             // ABSOLUTE-frame section (or no track-section context — pre-v3
@@ -19705,6 +19795,377 @@ namespace Parsek
             return true;
         }
 
+        internal static bool ShouldUseActiveInPlaceReFlyPrimaryReadModel(
+            string requestedRecordingId,
+            ReFlySessionMarker marker)
+        {
+            if (string.IsNullOrEmpty(requestedRecordingId))
+                return false;
+            if (!ReFlySessionMarker.IsInPlaceContinuation(marker))
+                return false;
+            if (string.Equals(
+                    requestedRecordingId,
+                    marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+            return !string.IsNullOrEmpty(marker.SupersedeTargetId)
+                && string.Equals(
+                    requestedRecordingId,
+                    marker.SupersedeTargetId,
+                    StringComparison.Ordinal);
+        }
+
+        private static bool TryResolveActiveInPlaceReFlyPrimaryReadModel(
+            string requestedRecordingId,
+            double ut,
+            out Recording recording,
+            out ActiveReFlyPrimaryReadModelStats stats,
+            out string reason,
+            out bool applies)
+        {
+            recording = null;
+            stats = default;
+            reason = null;
+            applies = false;
+
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            if (!ShouldUseActiveInPlaceReFlyPrimaryReadModel(requestedRecordingId, marker))
+                return false;
+
+            applies = true;
+            stats.OriginRecordingId = marker.OriginChildRecordingId;
+            stats.ActiveRecordingId = marker.ActiveReFlyRecordingId;
+
+            var testResolver = ActiveInPlaceReFlyPrimaryReadModelResolverForTesting;
+            if (testResolver != null)
+            {
+                bool resolved = testResolver(
+                    requestedRecordingId,
+                    marker,
+                    ut,
+                    out recording,
+                    out stats,
+                    out reason);
+                if (string.IsNullOrEmpty(stats.OriginRecordingId))
+                    stats.OriginRecordingId = marker.OriginChildRecordingId;
+                if (string.IsNullOrEmpty(stats.ActiveRecordingId))
+                    stats.ActiveRecordingId = marker.ActiveReFlyRecordingId;
+                return resolved && recording != null;
+            }
+
+            ParsekFlight instance = Instance;
+            if (instance == null)
+            {
+                reason = "flight-instance-missing";
+                return false;
+            }
+
+            RecordingTree active = instance.activeTree;
+            if (active?.Recordings == null)
+            {
+                reason = "active-tree-missing";
+                return false;
+            }
+
+            Recording activeTreeRecording;
+            if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                || !active.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out activeTreeRecording)
+                || activeTreeRecording == null)
+            {
+                reason = "active-recording-missing-from-tree";
+                return false;
+            }
+
+            FlightRecorder liveRecorder = instance.recorder;
+            bool recorderMatchesActive =
+                liveRecorder != null
+                && liveRecorder.IsRecording
+                && object.ReferenceEquals(liveRecorder.ActiveTree, active)
+                && string.Equals(
+                    active.ActiveRecordingId,
+                    marker.ActiveReFlyRecordingId,
+                    StringComparison.Ordinal);
+            List<TrajectoryPoint> recorderPoints = recorderMatchesActive
+                ? liveRecorder.Recording
+                : null;
+            List<TrackSection> recorderSections = recorderMatchesActive
+                ? liveRecorder.TrackSections
+                : null;
+
+            TrackSection? openSection = null;
+            if (recorderMatchesActive)
+            {
+                TrackSection current = liveRecorder.CurrentTrackSectionForTesting;
+                if ((current.frames != null && current.frames.Count > 0)
+                    || (current.bodyFixedFrames != null && current.bodyFixedFrames.Count > 0)
+                    || (current.checkpoints != null && current.checkpoints.Count > 0))
+                {
+                    openSection = current;
+                }
+            }
+
+            if (!TryBuildActiveInPlaceReFlyPrimarySnapshot(
+                    marker,
+                    activeTreeRecording,
+                    recorderPoints,
+                    recorderSections,
+                    openSection,
+                    out recording,
+                    out stats,
+                    out reason))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        internal static bool TryBuildActiveInPlaceReFlyPrimarySnapshot(
+            ReFlySessionMarker marker,
+            Recording activeTreeRecording,
+            IReadOnlyList<TrajectoryPoint> recorderPoints,
+            IReadOnlyList<TrackSection> recorderSections,
+            TrackSection? openTrackSection,
+            out Recording snapshot,
+            out ActiveReFlyPrimaryReadModelStats stats,
+            out string reason)
+        {
+            snapshot = null;
+            reason = null;
+            stats = default;
+            stats.OriginRecordingId = marker?.OriginChildRecordingId;
+            stats.ActiveRecordingId = marker?.ActiveReFlyRecordingId;
+
+            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
+            {
+                reason = "marker-missing-active-recording";
+                return false;
+            }
+            if (activeTreeRecording == null)
+            {
+                reason = "active-recording-missing-from-tree";
+                return false;
+            }
+
+            List<TrajectoryPoint> points = new List<TrajectoryPoint>();
+            stats.TreePointCount = activeTreeRecording.Points?.Count ?? 0;
+            stats.RecorderPointCount = recorderPoints?.Count ?? 0;
+            AppendChronologicalPoints(points, activeTreeRecording.Points);
+            AppendChronologicalPoints(points, recorderPoints);
+
+            List<TrackSection> sections = new List<TrackSection>();
+            stats.TreeSectionCount = activeTreeRecording.TrackSections?.Count ?? 0;
+            stats.RecorderSectionCount = recorderSections?.Count ?? 0;
+            AppendTrackSectionCopies(sections, activeTreeRecording.TrackSections);
+            AppendTrackSectionCopies(sections, recorderSections);
+
+            if (openTrackSection.HasValue)
+            {
+                TrackSection open = CopyTrackSectionForActiveReadModel(
+                    openTrackSection.Value,
+                    normalizeOpenSection: true);
+                stats.OpenSectionPointCount = open.frames?.Count ?? 0;
+                if (stats.RecorderPointCount == 0)
+                    AppendChronologicalPoints(points, open.frames);
+                sections.Add(open);
+            }
+
+            stats.SnapshotPointCount = points.Count;
+            stats.SnapshotSectionCount = sections.Count;
+            if (points.Count == 0)
+            {
+                reason = "live-recording-has-no-points";
+                return false;
+            }
+
+            snapshot = new Recording
+            {
+                RecordingId = marker.ActiveReFlyRecordingId,
+                RecordingFormatVersion = activeTreeRecording.RecordingFormatVersion,
+                RecordingSchemaGeneration = activeTreeRecording.RecordingSchemaGeneration,
+                Points = points,
+                OrbitSegments = activeTreeRecording.OrbitSegments != null
+                    ? new List<OrbitSegment>(activeTreeRecording.OrbitSegments)
+                    : new List<OrbitSegment>(),
+                TrackSections = sections,
+                VesselName = activeTreeRecording.VesselName,
+                VesselPersistentId = activeTreeRecording.VesselPersistentId,
+                TreeId = activeTreeRecording.TreeId,
+                TreeOrder = activeTreeRecording.TreeOrder,
+                ChainId = activeTreeRecording.ChainId,
+                ChainIndex = activeTreeRecording.ChainIndex,
+                ChainBranch = activeTreeRecording.ChainBranch,
+                IsDebris = activeTreeRecording.IsDebris,
+                DebrisParentRecordingId = activeTreeRecording.DebrisParentRecordingId,
+                LoopAnchorVesselId = activeTreeRecording.LoopAnchorVesselId,
+                LoopAnchorBodyName = activeTreeRecording.LoopAnchorBodyName,
+                LoopPlayback = activeTreeRecording.LoopPlayback,
+                LoopIntervalSeconds = activeTreeRecording.LoopIntervalSeconds,
+                LoopTimeUnit = activeTreeRecording.LoopTimeUnit,
+                LoopStartUT = activeTreeRecording.LoopStartUT,
+                LoopEndUT = activeTreeRecording.LoopEndUT,
+            };
+            snapshot.CopyStartLocationFrom(activeTreeRecording);
+            return true;
+        }
+
+        private const double ActiveReFlyReadModelUtEpsilon = 1e-6;
+
+        private static void AppendChronologicalPoints(
+            List<TrajectoryPoint> destination,
+            IReadOnlyList<TrajectoryPoint> source)
+        {
+            if (destination == null || source == null) return;
+            for (int i = 0; i < source.Count; i++)
+            {
+                TrajectoryPoint point = source[i];
+                if (destination.Count > 0)
+                {
+                    double lastUT = destination[destination.Count - 1].ut;
+                    if (point.ut <= lastUT + ActiveReFlyReadModelUtEpsilon)
+                        continue;
+                }
+                destination.Add(point);
+            }
+        }
+
+        private static void AppendTrackSectionCopies(
+            List<TrackSection> destination,
+            IReadOnlyList<TrackSection> source)
+        {
+            if (destination == null || source == null) return;
+            for (int i = 0; i < source.Count; i++)
+            {
+                destination.Add(CopyTrackSectionForActiveReadModel(
+                    source[i],
+                    normalizeOpenSection: false));
+            }
+        }
+
+        private static TrackSection CopyTrackSectionForActiveReadModel(
+            TrackSection source,
+            bool normalizeOpenSection)
+        {
+            TrackSection copy = source;
+            copy.frames = source.frames != null ? new List<TrajectoryPoint>(source.frames) : null;
+            copy.bodyFixedFrames = source.bodyFixedFrames != null ? new List<TrajectoryPoint>(source.bodyFixedFrames) : null;
+            copy.checkpoints = source.checkpoints != null ? new List<OrbitSegment>(source.checkpoints) : null;
+
+            if (normalizeOpenSection)
+            {
+                double lastUT = LastTrackSectionPayloadUT(copy);
+                if (!double.IsNaN(lastUT) && (double.IsNaN(copy.endUT) || copy.endUT < lastUT))
+                    copy.endUT = lastUT;
+                if (copy.sampleRateHz <= 0f
+                    && copy.frames != null
+                    && copy.frames.Count > 1)
+                {
+                    double duration = copy.endUT - copy.startUT;
+                    if (duration > 0.0)
+                        copy.sampleRateHz = (float)(copy.frames.Count / duration);
+                }
+            }
+
+            return copy;
+        }
+
+        private static double LastTrackSectionPayloadUT(TrackSection section)
+        {
+            double last = double.NaN;
+            if (section.frames != null && section.frames.Count > 0)
+                last = section.frames[section.frames.Count - 1].ut;
+            if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+            {
+                double bodyFixed = section.bodyFixedFrames[section.bodyFixedFrames.Count - 1].ut;
+                if (double.IsNaN(last) || bodyFixed > last)
+                    last = bodyFixed;
+            }
+            if (section.checkpoints != null && section.checkpoints.Count > 0)
+            {
+                double checkpoint = section.checkpoints[section.checkpoints.Count - 1].endUT;
+                if (double.IsNaN(last) || checkpoint > last)
+                    last = checkpoint;
+            }
+            return last;
+        }
+
+        private static Dictionary<string, Recording> BuildSingleRecordingOverlay(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return null;
+            return new Dictionary<string, Recording>(StringComparer.Ordinal)
+            {
+                { rec.RecordingId, rec }
+            };
+        }
+
+        private static RecordingTree TryFindActiveInPlaceReFlyFocusTree(string activeRecordingId)
+        {
+            if (string.IsNullOrEmpty(activeRecordingId))
+                return null;
+
+            ParsekFlight instance = Instance;
+            if (instance?.activeTree?.Recordings != null
+                && instance.activeTree.Recordings.ContainsKey(activeRecordingId))
+            {
+                return instance.activeTree;
+            }
+
+            return null;
+        }
+
+        private static void LogActiveInPlaceReFlyPrimaryReadModelHit(
+            ActiveReFlyPrimaryReadModelStats stats,
+            double ut)
+        {
+            ParsekLog.VerboseRateLimited(
+                "Pipeline-CoBubble",
+                "active-refly-origin-primary-live-read|" +
+                    (stats.OriginRecordingId ?? "(none)") + "|" +
+                    (stats.ActiveRecordingId ?? "(none)"),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Active Re-Fly origin primary resolved from live recorded trajectory: origin={0} active={1} ut={2} treePoints={3} recorderPoints={4} openSectionPoints={5} snapshotPoints={6} treeSections={7} recorderSections={8} snapshotSections={9}",
+                    stats.OriginRecordingId ?? "(none)",
+                    stats.ActiveRecordingId ?? "(none)",
+                    ut.ToString("R", CultureInfo.InvariantCulture),
+                    stats.TreePointCount,
+                    stats.RecorderPointCount,
+                    stats.OpenSectionPointCount,
+                    stats.SnapshotPointCount,
+                    stats.TreeSectionCount,
+                    stats.RecorderSectionCount,
+                    stats.SnapshotSectionCount),
+                5.0);
+        }
+
+        private static void LogActiveInPlaceReFlyPrimaryReadModelMiss(
+            ActiveReFlyPrimaryReadModelStats stats,
+            double ut,
+            string reason)
+        {
+            ParsekLog.WarnRateLimited(
+                "Pipeline-CoBubble",
+                "active-refly-origin-primary-live-read-miss|" +
+                    (stats.OriginRecordingId ?? "(none)") + "|" +
+                    (stats.ActiveRecordingId ?? "(none)") + "|" +
+                    (reason ?? "(unknown)"),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Active Re-Fly origin primary live trajectory unavailable: origin={0} active={1} ut={2} reason={3} treePoints={4} recorderPoints={5} openSectionPoints={6} snapshotPoints={7}",
+                    stats.OriginRecordingId ?? "(none)",
+                    stats.ActiveRecordingId ?? "(none)",
+                    ut.ToString("R", CultureInfo.InvariantCulture),
+                    reason ?? "(unknown)",
+                    stats.TreePointCount,
+                    stats.RecorderPointCount,
+                    stats.OpenSectionPointCount,
+                    stats.SnapshotPointCount),
+                5.0);
+        }
+
         /// <summary>
         /// P1-D: RELATIVE-frame standalone resolver for
         /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>. Post-reset
@@ -19717,7 +20178,12 @@ namespace Parsek
         /// fails closed instead of falling through to recorded Relative replay.
         /// </summary>
         private static bool TryComputeStandaloneRelativeWorldPosition(
-            Recording rec, TrackSection section, double ut, out Vector3d worldPos)
+            Recording rec,
+            TrackSection section,
+            double ut,
+            out Vector3d worldPos,
+            RecordingTree focusTreeOverride = null,
+            IReadOnlyDictionary<string, Recording> recordingOverlay = null)
         {
             worldPos = default;
             bool ordinaryParentAnchoredDebris =
@@ -19784,7 +20250,9 @@ namespace Parsek
             RelativeAnchorResolveFailure failure = default;
             if (TryBuildRelativeAnchorResolverContext(
                     rec.RecordingId,
-                    out RelativeAnchorResolverContext context)
+                    out RelativeAnchorResolverContext context,
+                    focusTreeOverride,
+                    recordingOverlay)
                 && RelativeAnchorResolver.TryResolveRecordingPose(
                     context,
                     rec,
@@ -24675,16 +25143,23 @@ namespace Parsek
 
         private static bool TryBuildRelativeAnchorResolverContext(
             string recordingId,
-            out RelativeAnchorResolverContext context)
+            out RelativeAnchorResolverContext context,
+            RecordingTree focusTreeOverride = null,
+            IReadOnlyDictionary<string, Recording> provisionalRecordings = null)
         {
             context = default;
-            if (!TryFindRelativeAnchorFocusTree(recordingId, out RecordingTree focusTree))
+            RecordingTree focusTree = focusTreeOverride;
+            if (focusTree == null
+                && !TryFindRelativeAnchorFocusTree(recordingId, out focusTree))
+            {
                 return false;
+            }
 
             context = BuildFlightRelativeAnchorResolverContext(
                 focusTree,
                 recordingId,
-                ParsekScenario.Instance?.ActiveReFlySessionMarker);
+                ParsekScenario.Instance?.ActiveReFlySessionMarker,
+                provisionalRecordings);
             return true;
         }
 

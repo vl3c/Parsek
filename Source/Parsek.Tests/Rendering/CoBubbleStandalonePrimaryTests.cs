@@ -31,12 +31,16 @@ namespace Parsek.Tests.Rendering
 
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting = null;
         }
 
         public void Dispose()
         {
             RecordingStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
+            ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting = null;
+            ParsekScenario.SetInstanceForTesting(null);
+            TestBodyRegistry.Reset();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -391,6 +395,267 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, worldPos.x);
             Assert.Equal(0.0, worldPos.y);
             Assert.Equal(0.0, worldPos.z);
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_UsesLiveProvisionalReadModel()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            const string originId = "committed-origin";
+            const string activeId = "active-provisional";
+
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = originId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        latitude = 0.0,
+                        longitude = 0.0,
+                        altitude = 0.0,
+                        bodyName = "NoSuchBody",
+                        rotation = Quaternion.identity,
+                    }
+                }
+            });
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-live-primary",
+                ActiveReFlyRecordingId = activeId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                InPlaceContinuation = true,
+            };
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = marker,
+            });
+
+            ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting =
+                (string requestedRecordingId, ReFlySessionMarker activeMarker, double ut,
+                    out Recording recording,
+                    out ParsekFlight.ActiveReFlyPrimaryReadModelStats stats,
+                    out string reason) =>
+                {
+                    reason = null;
+                    stats = new ParsekFlight.ActiveReFlyPrimaryReadModelStats
+                    {
+                        OriginRecordingId = activeMarker.OriginChildRecordingId,
+                        ActiveRecordingId = activeMarker.ActiveReFlyRecordingId,
+                        RecorderPointCount = 2,
+                        SnapshotPointCount = 2,
+                    };
+                    recording = new Recording
+                    {
+                        RecordingId = activeId,
+                        RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                        Points = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint
+                            {
+                                ut = 100.0,
+                                latitude = 10.0,
+                                longitude = 20.0,
+                                altitude = 1000.0,
+                                bodyName = "Kerbin",
+                                rotation = Quaternion.identity,
+                            },
+                            new TrajectoryPoint
+                            {
+                                ut = 110.0,
+                                latitude = 10.0,
+                                longitude = 20.0,
+                                altitude = 1000.0,
+                                bodyName = "Kerbin",
+                                rotation = Quaternion.identity,
+                            },
+                        },
+                    };
+                    return true;
+                };
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                105.0,
+                kerbin,
+                out Vector3d worldPos);
+
+            Assert.True(ok);
+            Assert.False(double.IsNaN(worldPos.x));
+            Assert.False(double.IsInfinity(worldPos.x));
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Active Re-Fly origin primary resolved from live recorded trajectory")
+                && l.Contains(originId)
+                && l.Contains(activeId));
+        }
+
+        [Fact]
+        public void StandaloneWorldPosition_InPlaceReFlyOriginPrimary_LiveMissFailsClosed()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            const string originId = "committed-origin-with-valid-points";
+            const string activeId = "active-provisional-empty";
+
+            RecordingStore.AddCommittedInternal(new Recording
+            {
+                RecordingId = originId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0,
+                        latitude = 0.0,
+                        longitude = 0.0,
+                        altitude = 0.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110.0,
+                        latitude = 0.0,
+                        longitude = 0.0,
+                        altitude = 0.0,
+                        bodyName = "Kerbin",
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-live-primary-miss",
+                ActiveReFlyRecordingId = activeId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                InPlaceContinuation = true,
+            };
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = marker,
+            });
+
+            ParsekFlight.ActiveInPlaceReFlyPrimaryReadModelResolverForTesting =
+                (string requestedRecordingId, ReFlySessionMarker activeMarker, double ut,
+                    out Recording recording,
+                    out ParsekFlight.ActiveReFlyPrimaryReadModelStats stats,
+                    out string reason) =>
+                {
+                    recording = null;
+                    reason = "live-recording-has-no-points";
+                    stats = new ParsekFlight.ActiveReFlyPrimaryReadModelStats
+                    {
+                        OriginRecordingId = activeMarker.OriginChildRecordingId,
+                        ActiveRecordingId = activeMarker.ActiveReFlyRecordingId,
+                    };
+                    return false;
+                };
+
+            bool ok = ParsekFlight.TryComputeStandaloneWorldPositionForRecording(
+                originId,
+                105.0,
+                kerbin,
+                out Vector3d worldPos);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, worldPos.x);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Active Re-Fly origin primary live trajectory unavailable")
+                && l.Contains("live-recording-has-no-points")
+                && l.Contains(originId)
+                && l.Contains(activeId));
+        }
+
+        [Fact]
+        public void ActiveInPlaceReFlyPrimarySnapshot_MergesTreePrefixRecorderTailAndOpenSection()
+        {
+            const string activeId = "active-provisional-snapshot";
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-snapshot",
+                ActiveReFlyRecordingId = activeId,
+                OriginChildRecordingId = "origin-snapshot",
+                InPlaceContinuation = true,
+            };
+            var treeRec = new Recording
+            {
+                RecordingId = activeId,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 101.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    new TrackSection
+                    {
+                        startUT = 100.0,
+                        endUT = 101.0,
+                        referenceFrame = ReferenceFrame.Absolute,
+                        frames = new List<TrajectoryPoint>
+                        {
+                            new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                            new TrajectoryPoint { ut = 101.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                        },
+                    },
+                },
+            };
+            var recorderPoints = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 101.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 102.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            var recorderSections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 101.0,
+                    endUT = 102.0,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 101.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                        new TrajectoryPoint { ut = 102.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    },
+                },
+            };
+            var openSection = new TrackSection
+            {
+                startUT = 102.0,
+                endUT = 0.0,
+                referenceFrame = ReferenceFrame.Absolute,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 102.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                    new TrajectoryPoint { ut = 103.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                },
+            };
+
+            bool ok = ParsekFlight.TryBuildActiveInPlaceReFlyPrimarySnapshot(
+                marker,
+                treeRec,
+                recorderPoints,
+                recorderSections,
+                openSection,
+                out Recording snapshot,
+                out ParsekFlight.ActiveReFlyPrimaryReadModelStats stats,
+                out string reason);
+
+            Assert.True(ok, reason);
+            Assert.Equal(activeId, snapshot.RecordingId);
+            Assert.Equal(new[] { 100.0, 101.0, 102.0 }, snapshot.Points.ConvertAll(p => p.ut));
+            Assert.Equal(3, snapshot.TrackSections.Count);
+            Assert.Equal(103.0, snapshot.TrackSections[2].endUT);
+            Assert.Equal(2, stats.TreePointCount);
+            Assert.Equal(2, stats.RecorderPointCount);
+            Assert.Equal(2, stats.OpenSectionPointCount);
+            Assert.Equal(3, stats.SnapshotPointCount);
         }
 
         [Fact]

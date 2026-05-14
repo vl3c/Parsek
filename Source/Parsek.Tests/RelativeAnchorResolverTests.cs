@@ -1564,7 +1564,7 @@ namespace Parsek.Tests
             var tree = new RecordingTree { Id = "tree" };
             var context = (RelativeAnchorResolverContext)method.Invoke(
                 null,
-                new object[] { tree, "focus-rec", null });
+                new object[] { tree, "focus-rec", null, null });
 
             Assert.NotNull(context.TryResolveLiveAnchorTransform);
             Assert.Same(
