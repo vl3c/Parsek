@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 stale in-game harness failures after pre-transition merge and stock UI changes
+
+- ~~Several in-game tests were failing for harness reasons after recent runtime changes: `Run All + Isolated` failed to prime FLIGHT restore-backed tests because `ValidateQuicksaveStructure` looked for `FLIGHTSTATE` directly under the loaded `.sfs` root instead of under the normal `GAME` wrapper; the scene-exit merge/discard canaries still waited for the old deferred Space Center dialog even though `SceneExitInterceptor` now blocks `HighLogic.LoadScene` and shows the merge dialog in FLIGHT; Mission Control overlay tests created fixtures for arbitrary `ContractSystem` offered contracts that might not be visible in the open Mission Control list; and the circular terminal-orbit canary used a hardcoded velocity vector tied to an older body-rotation phase.~~
+
+**Fix:** `QuickloadResumeHelpers.ValidateQuicksaveStructure` now accepts both direct and `GAME`-wrapped save roots. The `SceneExitMerge` stock-transition tests assert the pre-transition FLIGHT dialog, click Merge/Discard there, and only then wait for Space Center. Mission Control overlay tests enter the building first, poll for a visible offered `MCListItem`, and create the committed-future fixture for that exact row. `TerminalOrbitFromTail_DerivesPostBurnCircularOrbit` computes a circular tangent velocity from Kerbin's live transform so the test remains a frame-conversion canary without depending on stale rotation phase.
+
+**Coverage:** Existing deferred-fallback coverage remains in `TreeMergeDialog_DeferredMergeButton_CommitsPendingTree`, which invokes `ParsekScenario.ShowDeferredMergeDialog` directly. The follow-up was validated with `dotnet build Source/Parsek/Parsek.csproj` and the non-injection headless suite; full xUnit still reaches `SyntheticRecordingTests.InjectAllRecordings`, which correctly refuses while live KSP locks `KSP.log`.
+
+**Status:** CLOSED 2026-05-14.
+
+---
+
 ## Done - v0.9.2 Fresh EVA child finalized as Destroyed before first child samples
 
 - ~~A freshly-created EVA branch child could be classified as `Destroyed` within the first few milliseconds after `OnCrewOnEva`, before the child recording had any trajectory points. In the retained Bill Kerman repro, `PatchedConicSnapshot` returned `NullSolver`, `IncompleteBallisticSceneExitFinalizer` fell through to the live-orbit fallback, KSP's not-yet-initialized EVA orbit returned a position near the body origin, and `BallisticExtrapolator` saw `alt=-599652.6 m` (`SubSurfaceStart`) and accepted a `Destroyed` terminal. The parent had already recorded a valid flagged `EVA` structural surface point and the child later wrote 120 valid samples plus a vessel snapshot, but the early cached `Destroyed` result blocked the valid playback snapshot path.~~
