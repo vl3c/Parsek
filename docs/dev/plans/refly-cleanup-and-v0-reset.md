@@ -285,7 +285,7 @@ Eight independent serialized-version axes plus two implicit-schema surfaces, all
 
 **H. Mod-level versioning, NOT part of the reset:**
 - `Parsek.version` file — KSP-compat metadata; left alone.
-- `AssemblyInfo.cs` — mod assembly version, bumped from 0.9.x to 0.10.0 as a normal release-cadence change (see §6).
+- `AssemblyInfo.cs` — mod assembly version, kept at 0.9.2 (see §6).
 
 The next subsections (3.1–3.11) handle these surfaces; the deletion table in §3.6 lists every constant by file and line.
 
@@ -613,7 +613,7 @@ Three branches, smallest blast radius first:
 - Commit 4: `.sfs` schema audit pass per §3.10.
 - Acceptance: `dotnet test` (full headless) green; `dotnet test --filter InjectAllRecordings` green against re-baked fixtures; in-game smoke (Watch + active Re-Fly + map + KSC) on a fresh v0 save; loader-refusal test pass against a checked-in pre-reset legacy fixture.
 - **Rebase note:** Branch B rebases on top of post-#751 main and post-Branch-A main. Test files most likely to need re-baking after the rebase: `MergeDialogResourcesAppliedTests.cs`, `Bug585InPlaceContinuationRestoreTests.cs`, `SupersedeCommitTests.cs`.
-- Bumps mod version to v0.10.0.
+- Keeps mod version at v0.9.2.
 
 ### Branch A → Branch B playtest gate (P2 from review v3)
 
@@ -651,7 +651,7 @@ If Branch B lands and a v0-reset playtest fails:
 
 For each branch, the same-commit doc check applies. v2 resolves the v1 contradiction (v1 said `.claude/CLAUDE.md` was out of scope while also requiring its update). Branch B updates the following docs in the same commit set:
 
-- `CHANGELOG.md` — one entry under v0.10.0 describing the user-visible behaviour change. Include a public-history note acknowledging that the version number drops from v0.9.x mod-version-wise to v0.10.0 while the recording format renumbers from v11 to v0; explain the renumbering is a private-development reset and that public consumers should re-record. The CHANGELOG is the only place GitHub watchers see the rationale.
+- `CHANGELOG.md` — one entry under v0.9.2 describing the user-visible behaviour change. Include a public-history note acknowledging that the recording format renumbers from v11 to v0 while the mod version stays at v0.9.2; explain the renumbering is a private-development reset and that public consumers should re-record. The CHANGELOG is the only place GitHub watchers see the rationale.
 - `docs/dev/todo-and-known-bugs.md` — close out "PR708 post-merge Phase D continuation"; close out the `[PlaybackTrace]` separation jitter observability item once the v0 fixture is captured.
 - `.claude/CLAUDE.md` — update the "Recording storage" gotcha block with the v0 reference frame contract; remove the v6/v7/v10 enum constants section. Update the format-version table.
 - `AGENTS.md` — has its own "Recording storage (format v3)" gotcha block (per repo convention noted by the external reviewer). Update to v0 with the discriminator contract. The v3 reference is stale even today; this is the right moment to rewrite it.
@@ -667,6 +667,6 @@ Before Branch A starts, three confirmations needed (D.0.1–D.0.3 in section 1).
 
 1. **Confirm v0 reset with discriminator** (binary magic prefix + `RecordingSchemaGeneration` field) instead of a plain v11 -> v12 bump. Recommendation: yes, with the discriminator to prevent silent reuse of legacy default-0 records.
 2. **Confirm `absoluteFrames` shadow disposition**: keep through Branch C playtest cycle, then drop. Recommendation: yes (current plan §3.9).
-3. **Confirm version bump to v0.10.0**. Recommendation: yes — the format reset is exactly the kind of change minor-version bumps signal.
+3. **Confirm mod version**. Decision: stays at v0.9.2 — the format renumber is a private-development reset, not a public release signal.
 
 Worktree workflow: per the `.claude/CLAUDE.md` HARD RULE, each branch (A, B, C) gets its own dedicated sibling worktree. Not a question; stating the rule applies.

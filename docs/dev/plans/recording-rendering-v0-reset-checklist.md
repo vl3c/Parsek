@@ -77,7 +77,7 @@ The important product decision is: compatibility is intentionally not a goal. A 
   - future generation (`generation-newer`)
   - wrong current format value after reset (`format-version-mismatch`)
 - [ ] Add v0 scenario playback coverage that checks `NonLoopLivePidGuard.LivePidLookupAttemptsForTesting == 0` once regenerated v0 watch/Re-Fly fixtures exist.
-- [x] Bump mod version to v0.10.0 in both `Parsek.version` and `AssemblyInfo.cs`.
+- [x] Set mod version to v0.9.2 in both `Parsek.version` and `AssemblyInfo.cs`.
 - [~] Update docs in the same commit set:
   - [x] `CHANGELOG.md`
   - [x] `docs/dev/todo-and-known-bugs.md`
