@@ -174,11 +174,46 @@ namespace Parsek.Tests
             });
             Ledger.AddAction(new GameAction
             {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 0f
+            });
+            Ledger.AddAction(new GameAction
+            {
                 UT = 153.0,
                 Type = GameActionType.MilestoneAchievement,
                 MilestoneId = "future-altitude",
                 MilestoneFundsAwarded = 5600f,
                 RecordingId = "future-rec"
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 154.0,
+                Type = GameActionType.ContractAccept,
+                ContractId = "future-contract-accept",
+                AdvanceFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 155.0,
+                Type = GameActionType.ContractComplete,
+                ContractId = "future-contract-complete",
+                FundsReward = 10000f,
+                RecordingId = "future-rec"
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 156.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/LaunchPad",
+                FacilityCost = 7500f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 157.0,
+                Type = GameActionType.ScienceSpending,
+                NodeId = "basicRocketry",
+                Cost = 5f
             });
 
             LedgerOrchestrator.OnKspLoad(
@@ -186,6 +221,18 @@ namespace Parsek.Tests
                 maxUT: 129.0,
                 useCurrentUtCutoffForFutureActions: true);
 
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractAccept
+                && a.ContractId == "future-contract-accept");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractComplete
+                && a.ContractId == "future-contract-complete");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.FacilityUpgrade
+                && a.FacilityId == "SpaceCenter/LaunchPad");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceSpending
+                && a.NodeId == "basicRocketry");
             Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
@@ -194,9 +241,14 @@ namespace Parsek.Tests
                 l.Contains("cutoffUT=129"));
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
-                l.Contains("RecalculateAndPatch: actionsTotal=2") &&
-                l.Contains("actionsAfterCutoff=1") &&
+                l.Contains("RecalculateAndPatch: actionsTotal=7") &&
+                l.Contains("actionsAfterCutoff=2") &&
                 l.Contains("cutoffUT=129"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedContractLifecycle=0")
+                && l.Contains("prunedSpendings=0")
+                && l.Contains("preserveFutureTimelineActions=True"));
         }
 
         [Fact]

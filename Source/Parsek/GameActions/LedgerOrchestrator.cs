@@ -2185,9 +2185,13 @@ namespace Parsek
             // normalize it.
             Ledger.RepairDuplicateRolloutActions();
 
-            // Reconcile after timestamp-normalizing rollout repair — prunes orphaned
-            // actions from the existing ledger. On empty ledger (old save), this is a no-op.
-            Ledger.Reconcile(validRecordingIds, maxUT);
+            // Reconcile after timestamp-normalizing rollout repair. Current-UT load
+            // mode removes orphaned rows but preserves future committed rows so the
+            // cutoff walk can filter them until the game clock catches up.
+            Ledger.Reconcile(
+                validRecordingIds,
+                maxUT,
+                preserveFutureTimelineActions: useCurrentUtCutoffForFutureActions);
 
             // Compatibility repair for early #444 saves written before recovery
             // FundsEarning.DedupKey was serialized. Rebuild the missing key from the
@@ -2206,7 +2210,10 @@ namespace Parsek
                 MigrateOldSaveEvents(validRecordingIds);
                 if (Ledger.Actions.Count != beforeOldSaveMigration)
                 {
-                    Ledger.Reconcile(validRecordingIds, maxUT);
+                    Ledger.Reconcile(
+                        validRecordingIds,
+                        maxUT,
+                        preserveFutureTimelineActions: useCurrentUtCutoffForFutureActions);
                 }
             }
 
