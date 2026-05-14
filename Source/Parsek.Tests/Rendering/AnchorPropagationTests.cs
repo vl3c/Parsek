@@ -180,6 +180,66 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void Run_PropagatesAcrossBreakupEdge_ControlledChildOnly_SkipsDebris()
+        {
+            // What makes it fail: a coalesced staging split (a decoupler
+            // fire during a crash/structural window) is recorded as a
+            // Breakup BranchPoint, not Undock/JointBreak. The propagator
+            // used to skip Breakup edges entirely — so a re-flown stack's
+            // separated stage half never inherited ε and its ghost drifted
+            // off the live vessel. A Breakup BP's ChildRecordingIds also
+            // enumerate short-lived debris fragments, which must NOT receive
+            // a propagated DockOrMerge ε (they keep the v13 parent-anchored
+            // debris contract). This pins both halves of the rule.
+            var parent = MakeRec("rec-stack", 0, 100);
+            var controlled = MakeRec("rec-upper-stage", 50, 150);
+            var debris = MakeRec("rec-debris", 50, 60);
+            debris.IsDebris = true;
+
+            RenderSessionState.PutAnchorForTesting(new AnchorCorrection(
+                recordingId: parent.RecordingId, sectionIndex: 0,
+                side: AnchorSide.Start, ut: 0.0,
+                epsilon: new Vector3d(9.0, 0.0, 0.0),
+                source: AnchorSource.LiveSeparation));
+
+            var tree = new RecordingTree { Id = "t-breakup" };
+            tree.Recordings[parent.RecordingId] = parent;
+            tree.Recordings[controlled.RecordingId] = controlled;
+            tree.Recordings[debris.RecordingId] = debris;
+            var bp = new BranchPoint
+            {
+                Id = "breakup", UT = 75.0,
+                Type = BranchPointType.Breakup,
+                BreakupCause = "CRASH",
+                ParentRecordingIds = new List<string> { parent.RecordingId },
+                ChildRecordingIds = new List<string>
+                {
+                    controlled.RecordingId, debris.RecordingId,
+                },
+            };
+            tree.BranchPoints.Add(bp);
+
+            var marker = new ReFlySessionMarker { SessionId = "breakup-sess", TreeId = tree.Id };
+            AnchorPropagator.Run(marker, new[] { parent, controlled, debris }, new[] { tree },
+                surfaceLookup: null);
+
+            // Controlled stage half inherits ε via the Breakup edge. With
+            // surfaceLookup null the §9.1 offset terms are the identity, so
+            // the propagated ε equals the upstream ε.
+            Assert.True(RenderSessionState.TryLookup(
+                controlled.RecordingId, 0, AnchorSide.Start, out AnchorCorrection acCtrl));
+            Assert.Equal(9.0, acCtrl.Epsilon.x, 3);
+            Assert.Equal(AnchorSource.DockOrMerge, acCtrl.Source);
+            // Debris child gets NO propagated anchor — the Breakup edge to
+            // it is never enumerated.
+            Assert.False(RenderSessionState.TryLookup(
+                debris.RecordingId, 0, AnchorSide.Start, out _));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-AnchorPropagate]") && l.Contains("Edge propagated")
+                && l.Contains("rec-upper-stage") && l.Contains("bpType=Breakup"));
+        }
+
+        [Fact]
         public void Run_DuplicateEdge_TriggersCycleGuard_Warn()
         {
             // Reviewer Nit: this test was misleadingly named

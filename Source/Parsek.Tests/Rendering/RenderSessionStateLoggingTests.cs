@@ -27,6 +27,7 @@ namespace Parsek.Tests.Rendering
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RenderSessionState.ResetForTesting();
             SectionAnnotationStore.ResetForTesting();
+            AnchorPropagator.ResetForTesting();
             RenderSessionState.SurfaceLookupOverrideForTesting =
                 (bodyName, lat, lon, alt) => new Vector3d(lat, lon, alt);
         }
@@ -35,6 +36,7 @@ namespace Parsek.Tests.Rendering
         {
             RenderSessionState.ResetForTesting();
             SectionAnnotationStore.ResetForTesting();
+            AnchorPropagator.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -351,6 +353,102 @@ namespace Parsek.Tests.Rendering
                 l.Contains("[Pipeline-AnchorPropagate]") && l.Contains("DAG walk start"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Pipeline-AnchorPropagate]") && l.Contains("DAG walk summary"));
+        }
+
+        [Fact]
+        public void InPlaceContinuationForkShape_RootReFly_PropagatesBreakupEdgeToChild()
+        {
+            // Closes the coverage gap left by
+            // InPlaceContinuationRootReFly_RunsAnchorPropagator: that test
+            // only asserts the DAG walk fires, not that an edge is actually
+            // visited or an anchor propagated, and it uses the legacy
+            // active==origin shape. This test pins the real post-#734 shape
+            // (provisional ActiveReFlyRecordingId distinct from the
+            // committed OriginChildRecordingId) AND drives a real
+            // propagation: the re-flown root has a seeded Phase-1 candidate,
+            // a Breakup BranchPoint links it to a controlled stage half, and
+            // the propagator must walk that Breakup edge and write the
+            // child's anchor. Before the fix, Breakup edges were excluded
+            // from the walk entirely so the child stayed unanchored.
+            // Stub resolver: returns false for every source so the seed
+            // pass reserves the parent slot with ε = 0 without needing a
+            // live KSP body. This test pins edge TRAVERSAL, not ε math
+            // (AnchorPropagationTests covers the §9.1 magnitude).
+            AnchorPropagator.ResolverOverrideForTesting = new FalseWorldFrameResolver();
+
+            var rRoot = MakeRecording("refly-origin-root", 50, (0, 0, 70));
+            var rStageHalf = MakeRecording("controlled-stage-half", 50, (1, 0, 70));
+
+            // Phase-1 candidate on the root so the seed pass populates a
+            // parent slot for the worklist to walk from.
+            SectionAnnotationStore.PutAnchorCandidates(rRoot.RecordingId, 0,
+                new[]
+                {
+                    new AnchorCandidate(50.0, AnchorSource.RelativeBoundary, AnchorSide.Start),
+                });
+
+            var tree = new RecordingTree { Id = "tBreakupForkRefly" };
+            tree.Recordings[rRoot.RecordingId] = rRoot;
+            tree.Recordings[rStageHalf.RecordingId] = rStageHalf;
+            var breakupBp = new BranchPoint
+            {
+                Id = "bp-breakup-fork", UT = 50.0,
+                Type = BranchPointType.Breakup,
+                BreakupCause = "CRASH",
+                ParentRecordingIds = new List<string> { rRoot.RecordingId },
+                ChildRecordingIds = new List<string> { rStageHalf.RecordingId },
+            };
+            tree.BranchPoints.Add(breakupBp);
+
+            RenderSessionState.RebuildFromMarker(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sBreakupForkRefly",
+                    TreeId = tree.Id,
+                    // Post-#734 fork shape: provisional id != committed origin.
+                    ActiveReFlyRecordingId = "provisional-" + rRoot.RecordingId,
+                    OriginChildRecordingId = rRoot.RecordingId,
+                    InPlaceContinuation = true,
+                },
+                new List<Recording> { rRoot, rStageHalf },
+                // Root in-place continuation: tree present, parent BP null.
+                _ => new RecordingTreeContext(tree, null),
+                _ => new Vector3d(1, 2, 3));
+
+            // The Breakup edge was actually walked and the controlled stage
+            // half received a propagated DockOrMerge anchor.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-AnchorPropagate]") && l.Contains("Edge propagated")
+                && l.Contains("controlled-stage-half") && l.Contains("bpType=Breakup"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-AnchorPropagate]") && l.Contains("DAG walk summary")
+                && l.Contains("edgesVisited=1") && l.Contains("edgesPropagated=1"));
+            Assert.True(RenderSessionState.TryLookup(
+                rStageHalf.RecordingId, 0, AnchorSide.Start, out AnchorCorrection acChild));
+            Assert.Equal(AnchorSource.DockOrMerge, acChild.Source);
+        }
+
+        /// <summary>
+        /// Resolver stub that misses on every source — used to drive the
+        /// seed pass deterministically without a live KSP body.
+        /// </summary>
+        private sealed class FalseWorldFrameResolver : IAnchorWorldFrameResolver
+        {
+            public bool TryResolveRelativeBoundaryWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
+            public bool TryResolveOrbitalCheckpointWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
+            public bool TryResolveSoiBoundaryWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
+            public bool TryResolveLoopAnchorWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double sampleUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
+            public bool TryResolveBubbleEntryExitWorldPos(
+                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
+            { worldPos = default; return false; }
         }
     }
 }
