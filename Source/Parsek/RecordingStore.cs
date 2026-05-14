@@ -6283,6 +6283,19 @@ namespace Parsek
 
         internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe)
         {
+            return TryProbeTrajectorySidecar(path, out probe, quietOnSuccess: false);
+        }
+
+        /// <summary>
+        /// Probes a trajectory sidecar. When <paramref name="quietOnSuccess"/> is
+        /// true, the routine Verbose summary line on a successful supported probe
+        /// is suppressed; Warn lines for unsupported sidecars still fire because
+        /// callers always want to see those (corruption, schema drift, pre-reset
+        /// files). Use the quiet form from diagnostic-only preflights that run
+        /// many times per save (e.g. trajectory-shrinkage warning).
+        /// </summary>
+        internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe, bool quietOnSuccess)
+        {
             probe = default(TrajectorySidecarProbe);
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return false;
@@ -6292,10 +6305,13 @@ namespace Parsek
                 bool binaryProbeOk = TrajectorySidecarBinary.TryProbe(path, out probe);
                 if (binaryProbeOk && !SuppressLogging)
                 {
-                    ParsekLog.Verbose("RecordingStore",
-                        $"TryProbeTrajectorySidecar: encoding={probe.Encoding} magic={probe.MagicTag ?? "<none>"} " +
-                        $"version={probe.FormatVersion} generation={probe.SchemaGeneration} " +
-                        $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                    if (!quietOnSuccess)
+                    {
+                        ParsekLog.Verbose("RecordingStore",
+                            $"TryProbeTrajectorySidecar: encoding={probe.Encoding} magic={probe.MagicTag ?? "<none>"} " +
+                            $"version={probe.FormatVersion} generation={probe.SchemaGeneration} " +
+                            $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                    }
                     if (!probe.Supported)
                     {
                         ParsekLog.Warn("RecordingStore",
