@@ -420,7 +420,7 @@ namespace Parsek
             }
 
             bool ghostRenderTracing = GUILayout.Toggle(s.ghostRenderTracing,
-                new GUIContent(" Ghost render tracing",
+                new GUIContent(" Ghost render tracing (Warning: huge logs)",
                     "Write detailed per-ghost render placement diagnostics to KSP.log. Leave off unless investigating playback placement."));
             if (ghostRenderTracing != s.ghostRenderTracing)
             {
@@ -430,7 +430,7 @@ namespace Parsek
             }
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
-                new GUIContent(" Write readable sidecar mirrors",
+                new GUIContent(" Write readable sidecar mirrors (Warning: extra disk usage)",
                     "Also write human-readable .txt mirrors of .prec and snapshot sidecars for debugging and binary/text comparison"));
             if (writeReadableSidecarMirrors != s.writeReadableSidecarMirrors)
             {
