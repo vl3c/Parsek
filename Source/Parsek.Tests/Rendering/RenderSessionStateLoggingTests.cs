@@ -312,5 +312,45 @@ namespace Parsek.Tests.Rendering
                 l.Contains("[Parsek][VERBOSE][Pipeline-Anchor]")
                 && l.Contains("in-place continuation: parent BP intentionally null"));
         }
+
+        [Fact]
+        public void InPlaceContinuationRootReFly_RunsAnchorPropagator()
+        {
+            // What makes it fail: re-flying the launch root has no parent
+            // BranchPoint, so RebuildFromMarker took the in-place
+            // continuation early-out — which used to return WITHOUT running
+            // the AnchorPropagator. Child recordings under the root (e.g. a
+            // side booster recorded ref=Absolute by the BgRecorder) then
+            // never received recorded anchors and their ghosts drifted off
+            // the re-flown root. Every RebuildFromMarker exit must run the
+            // propagator; this pins the DAG walk firing for the root case.
+            var rRoot  = MakeRecording("root",  50, (0, 0, 70));
+            var rChild = MakeRecording("child", 50, (1, 0, 70));
+            var (tree, _) = MakeTree("tRootRefly", 50, rRoot, rChild);
+
+            RenderSessionState.RebuildFromMarker(
+                new ReFlySessionMarker
+                {
+                    SessionId = "sRootRefly",
+                    TreeId = tree.Id,
+                    ActiveReFlyRecordingId = rRoot.RecordingId,
+                    OriginChildRecordingId = rRoot.RecordingId,
+                    InPlaceContinuation = true,
+                },
+                new List<Recording> { rRoot, rChild },
+                // Root in-place continuation: tree present, parent BP null.
+                _ => new RecordingTreeContext(tree, null),
+                _ => new Vector3d(1, 2, 3));
+
+            // Still takes the in-place continuation path...
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][VERBOSE][Pipeline-Anchor]")
+                && l.Contains("in-place continuation: parent BP intentionally null"));
+            // ...and now also drives the AnchorPropagator DAG walk.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-AnchorPropagate]") && l.Contains("DAG walk start"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-AnchorPropagate]") && l.Contains("DAG walk summary"));
+        }
     }
 }

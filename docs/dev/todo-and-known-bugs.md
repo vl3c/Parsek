@@ -12,6 +12,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Root Re-Fly skipped anchor propagation, child ghosts drifted off the re-flown vessel
+
+- ~~During a "Kerbal X upper stage" Re-Fly, the decoupled `Kerbal X Probe` ghost (`635813f2…`) rendered at the wrong distance behind the live upper stage — it shot away at the divergence rate instead of holding the staging-separation relationship. The earlier "probe booster" Re-Fly (live = probe, ghost = upper stage) looked correct. Source: `logs/2026-05-14_1756_kerbalx-refly-ghost-distance/KSP.log`. The probe Re-Fly (`sess_57b2…`) logged `Pipeline-AnchorPropagate DAG walk start … seedCandidatesEmitted=6 resolvedRel=6`; the upper-stage Re-Fly (`sess_eda1…`) logged `RebuildFromMarker: in-place continuation` and then **no DAG walk at all**.~~
+
+**Root cause:** `RenderSessionState.RebuildFromMarker` resolves the origin recording's parent BranchPoint. Re-flying the tree root has no parent BP, so it took the in-place continuation early-out (`InstallEmptyInPlaceContinuationSession`), which cleared the anchor map, logged `RebuildFromMarker complete`, and **returned without calling `AnchorPropagator.Run`**. Every other exit path (including the structurally similar `no-siblings` path) runs the propagator — its comment even spells out why: "even without LiveSeparation seeds, the propagator still emits non-LiveSeparation candidates … into the session map." The propagator's tree-DAG walk is what propagates recorded anchors down BranchPoint edges to child recordings. The probe's post-separation `TrackSection` was recorded `ref=Absolute source=Background` by the `BgRecorder` (the player stayed focused on the upper stage at staging), so with no relative anchor to the re-flown root it played back at its original absolute world coordinates while the re-flown upper stage diverged. The child Re-Fly worked because that path runs the propagator normally.
+
+**Fix:** `InstallEmptyInPlaceContinuationSession` now takes `recordings` + `treeLookup` and runs the same `AnchorPropagator.Run` + `ResolvePrimaryAssignmentsAndLog` block as the `no-siblings` path, after its existing bookend log lines (matching that path's ordering). HR-9: a propagator throw is caught and warn-logged, degrading to the prior empty-session behaviour rather than aborting the rebuild.
+
+**Coverage:** `RenderSessionStateLoggingTests.InPlaceContinuationRootReFly_RunsAnchorPropagator` drives `RebuildFromMarker` with an in-place continuation marker whose tree lookup returns a tree but a null parent BP (the root-Re-Fly shape), and asserts both the `in-place continuation: parent BP intentionally null` verbose line AND the `Pipeline-AnchorPropagate DAG walk start` / `DAG walk summary` lines now fire. Full suite verified (11578 / 11578).
+
+**Status:** CLOSED 2026-05-14.
+
+---
+
 ## Done - v0.9.2 Retry-from-Rewind-Point left fresh attempt unrecorded behind dialog
 
 - ~~Pressing Esc → Revert during an active Re-Fly and choosing "Retry from Rewind Point" loaded the RP quicksave and `AtomicMarkerWrite` created the new Re-Fly fork as expected, but two failures stacked: (1) `OnFlightReady` immediately opened the tree merge/discard dialog for the parent tree, hiding the new attempt behind a popup; (2) underneath, no recorder was ever bound to the new fork, so the player's "fresh" attempt would not have been recorded even if they dismissed the dialog. Effectively Retry did nothing — the user could only click "Discard Re-Fly Attempt" in the dialog to recover. Source: `logs/2026-05-13_2049/KSP.log` lines 322656 (`AtomicMarkerWrite … fork rec_321b…`), 323525 (`Pending tree 'Kerbal X' reached OnFlightReady — showing tree merge dialog (fallback)`), absence of any `RestoreActiveTreeFromPending: resumed recording …` line for the new fork (compare 287999 for the initial invocation, which did resume). Same trigger applies to initial Re-Fly invocations whose pending tree is Finalized (post-destruction); the initial invocation in this log avoided the bug only because `ShowPostDestructionTreeMergeDialog` had not fired yet.~~

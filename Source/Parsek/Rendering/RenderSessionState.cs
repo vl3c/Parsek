@@ -741,7 +741,8 @@ namespace Parsek.Rendering
             {
                 if (IsInPlaceContinuationMarker(marker))
                 {
-                    InstallEmptyInPlaceContinuationSession(marker, rOrigin);
+                    InstallEmptyInPlaceContinuationSession(
+                        marker, rOrigin, recordings, treeLookup);
                     return;
                 }
 
@@ -1170,7 +1171,9 @@ namespace Parsek.Rendering
         }
 
         private static void InstallEmptyInPlaceContinuationSession(
-            ReFlySessionMarker marker, Recording rOrigin)
+            ReFlySessionMarker marker, Recording rOrigin,
+            IReadOnlyList<Recording> recordings,
+            Func<string, RecordingTreeContext> treeLookup)
         {
             lock (Lock)
             {
@@ -1187,6 +1190,29 @@ namespace Parsek.Rendering
                 $"RebuildFromMarker complete: sessionId={marker.SessionId ?? "<no-id>"} " +
                 $"siblingsConsidered=0 anchorsWritten=0 skippedNoLivePoint=0 " +
                 $"skippedNoGhostPoint=0 skippedRelativeFrame=0 skippedBodyMissing=0 skippedSplineSection=0");
+
+            // Phase 6: re-flying the launch root has no parent BranchPoint and
+            // therefore no LiveSeparation seeds, but the AnchorPropagator still
+            // walks the tree DAG from the provisional fork and propagates
+            // recorded anchors down BranchPoint edges to child recordings (e.g.
+            // a side booster recorded ref=Absolute by the BgRecorder). Without
+            // this, those child ghosts play back at stale absolute coordinates
+            // and drift away from the re-flown root. Mirrors the no-siblings
+            // path above so every RebuildFromMarker exit runs the propagator.
+            try
+            {
+                List<RecordingTree> trees0 = ResolveTreesForPropagator(treeLookup, recordings);
+                AnchorPropagator.Run(marker, recordings, trees0,
+                    SurfaceLookupOverrideForTesting ?? DefaultSurfaceLookup,
+                    resolver: AnchorPropagator.ResolverOverrideForTesting
+                        ?? new ProductionAnchorWorldFrameResolver());
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Pipeline-AnchorPropagate",
+                    $"AnchorPropagator.Run threw {ex.GetType().Name}: {ex.Message}");
+            }
+            ResolvePrimaryAssignmentsAndLog(recordings, marker);
         }
 
         private static List<RecordingTree> ResolveTreesForPropagator(

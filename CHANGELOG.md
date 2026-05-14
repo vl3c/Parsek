@@ -21,6 +21,10 @@ All notable changes to Parsek are documented here.
 - The "Ghost render tracing" diagnostics toggle (both the Parsek settings window and the stock difficulty-settings entry) now reads "Ghost render tracing (Warning: huge logs)" so the log-volume cost is visible before enabling it.
 - The readable sidecar mirrors toggle (both the Parsek settings window and the stock difficulty-settings entry) now carries a "(Warning: extra disk usage)" suffix so the on-disk cost is visible before enabling it.
 
+### Bug Fixes
+
+- Re-flying the launch root of a recording tree (e.g. the Kerbal X upper stage) now keeps decoupled child ghosts — like a separated probe or booster — at the correct distance from the re-flown vessel. The anchor-propagation pass that resolves child ghosts relative to the live vessel was skipped on the root re-fly path, so those ghosts played back at stale absolute coordinates and drifted away.
+
 ---
 
 ## 0.9.2
