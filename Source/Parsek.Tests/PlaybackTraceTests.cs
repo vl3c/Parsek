@@ -444,6 +444,59 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MaybeEmitFrame_GateClosedPastSkippedLaterEvent_RetiresEarlierTracedEvent()
+        {
+            // Two events at UT 10 and UT 100. The ghost traces event A
+            // (UT 10), is hidden through event B's window (UT 100–105)
+            // entirely, then reappears at UT 120 — a gate-closed frame
+            // whose mostRecentEventUT is B, not A. The gate-closed
+            // retirement must still retire A: it keys on lastTracedEventUT
+            // (whose own window aged out long ago), not on
+            // mostRecentEventUT. Without that, A would never be retired
+            // and a later loop re-entry of A's window could re-emit.
+            var traj = new MockTrajectory { RecordingId = "rec-skip-later" };
+            traj.Points.Add(MakeFlaggedPoint(10.0));
+            traj.Points.Add(MakeFlaggedPoint(100.0));
+
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // First pass: trace event A only.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 10.5,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.9,
+                    renderedPos: Vector3.zero);
+                Assert.False(PlaybackTrace.IsEventCompletedForTesting(
+                    "rec-skip-later", ghostIdx: 0, eventUT: 10.0));
+
+                // Hidden through event B's window; reappears at UT 120 —
+                // gate-closed, mostRecentEventUT = B (100) != lastTraced A.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 120.0,
+                    renderedPos: Vector3.zero);
+                Assert.True(PlaybackTrace.IsEventCompletedForTesting(
+                    "rec-skip-later", ghostIdx: 0, eventUT: 10.0));
+                // Event B was never traced — it must NOT be retired, so a
+                // future loop can still trace it fresh.
+                Assert.False(PlaybackTrace.IsEventCompletedForTesting(
+                    "rec-skip-later", ghostIdx: 0, eventUT: 100.0));
+
+                // Loop re-entry of A's window at and above the prior
+                // high-water — suppressed because A is retired.
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.9,
+                    renderedPos: Vector3.zero);
+                PlaybackTrace.MaybeEmitFrame(traj, ghostIdx: 0, currentUT: 14.95,
+                    renderedPos: Vector3.zero);
+            }
+            finally { ParsekLog.ResetTestOverrides(); ParsekLog.SuppressLogging = true; }
+
+            // Only the two first-pass frames emitted.
+            Assert.Equal(2, logLines.FindAll(
+                l => l.Contains("[PlaybackTrace]")).Count);
+        }
+
+        [Fact]
         public void MaybeEmitFrame_ReEntryAtOrAboveHighWater_Suppressed()
         {
             // Regression for the loop-dedup high-water hole: after the

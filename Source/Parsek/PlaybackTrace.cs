@@ -257,17 +257,28 @@ namespace Parsek
 
             if (!gateOpen)
             {
-                // The window for mostRecentEventUT has aged out. If this
-                // ghost was tracing exactly that event, retire it now so a
-                // later loop pass that re-enters the same window is fully
-                // suppressed — including the case where the loop's first
-                // in-window frame lands at or above the prior pass's
-                // high-water UT (a high-water comparison alone would resume
-                // logging the tail there). Idempotent HashSet.Add; no
-                // allocation on this common cruise-path branch.
-                if (state != null && state.lastTracedEventUT == mostRecentEventUT)
+                // A gate-closed frame means currentUT is past some event's
+                // window. If this ghost has a traced event whose own window
+                // has aged out, retire it now so a later loop pass that
+                // re-enters that window is fully suppressed — including the
+                // case where the loop's first in-window frame lands at or
+                // above the prior pass's high-water UT (a high-water
+                // comparison alone would resume logging the tail there).
+                //
+                // Keyed on the *last traced* event, not on mostRecentEventUT:
+                // playback may have skipped a later structural event
+                // entirely (ghost hidden through its window), leaving
+                // lastTracedEventUT pointing at an earlier event that
+                // mostRecentEventUT no longer equals. The two coincide in
+                // the normal forward case (`currentUT - mostRecentEventUT >
+                // window` AND lastTracedEventUT == mostRecentEventUT), so
+                // this condition subsumes the narrower one. Idempotent
+                // HashSet.Add; no allocation on this common cruise path.
+                if (state != null
+                    && !double.IsNaN(state.lastTracedEventUT)
+                    && (currentUT - state.lastTracedEventUT) > PostEventWindowSeconds)
                 {
-                    state.completedEventUTs.Add(mostRecentEventUT);
+                    state.completedEventUTs.Add(state.lastTracedEventUT);
                 }
                 return;
             }
