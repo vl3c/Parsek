@@ -1260,6 +1260,71 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LegacyOldSideSweep_DefersViaRemovedForkSignal_WhenReconstructionFails()
+        {
+            // Proves treesWithRemovedImmutableForkRetirement is LOAD-BEARING on
+            // its own — not just redundant with treesWithSurvivingImmutableSupersede.
+            //
+            // The legacy multi-old shape, but F's DefaultReason retirement has
+            // a null RestoredRecordingId, so TryRestoreLegacyImmutableSupersede
+            // returns MissingMetadata: F's retirement is still removed, but NO
+            // F->priorTip supersede relation is reconstructed. On load 1 the
+            // only deferral signal available is treesWithRemovedImmutableForkRetirement
+            // (the per-row loop just removed an Immutable fork retirement from
+            // this tree). Without that signal the stale-looking P2 row would be
+            // swept and a genuine multi-old-Immutable victim re-exposed.
+            //
+            // (Load 2 of this same save has neither signal — the documented
+            // residual gap — but load 1 is where the protection must hold,
+            // and it does via this set.)
+            InstallTree("tree-recon-fail",
+                new List<Recording>
+                {
+                    Rec("F", MergeState.Immutable, treeId: "tree-recon-fail"),
+                    Rec("P2", MergeState.CommittedProvisional, treeId: "tree-recon-fail")
+                },
+                new List<BranchPoint>());
+            var fRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_F_recon_fail",
+                RecordingId = "F",
+                // null RestoredRecordingId -> TryRestoreLegacyImmutableSupersede
+                // returns MissingMetadata -> no relation reconstructed.
+                RestoredRecordingId = null,
+                SourceSupersedeRelationId = null,
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var p2OldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_P2_recon_fail",
+                RecordingId = "P2",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement>
+                {
+                    fRetirement, p2OldSide
+                });
+
+            LoadTimeSweep.Run();
+
+            // F's retirement was removed but no relation reconstructed
+            // (MissingMetadata) -> treesWithSurvivingImmutableSupersede is empty.
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "F");
+            Assert.Empty(scenario.RecordingSupersedes);
+
+            // P2's row is STILL deferred — solely via treesWithRemovedImmutableForkRetirement.
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "P2");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement=rrt_P2_recon_fail"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Legacy non-Immutable old-side sweep deferred"));
+        }
+
+        [Fact]
         public void LegacyOldSideRetirement_SweepIsIdempotent()
         {
             // First load removes the stale row; subsequent loads have nothing
