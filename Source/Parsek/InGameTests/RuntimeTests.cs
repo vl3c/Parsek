@@ -13293,6 +13293,8 @@ namespace Parsek.InGameTests
 
             bool exercisedFailedPath = false;
             int reactivatableCount = 0;
+            int notActivatableCount = 0;
+            int staleConfigCount = 0;
             string lastReactivatableName = null;
 
             try
@@ -13304,7 +13306,14 @@ namespace Parsek.InGameTests
 
                     var strategyConfig = strategy.Config;
                     if (strategyConfig == null || string.IsNullOrEmpty(strategyConfig.Name))
-                        continue; // probe data went stale — try the next candidate
+                    {
+                        // Probe data went stale between collection and use — skip.
+                        staleConfigCount++;
+                        ParsekLog.Verbose("TestRunner",
+                            $"FailedActivation_DoesNotEmitEvent: candidate '{configName}' lost its " +
+                            $"Config.Name after collection — skipping to the next candidate");
+                        continue;
+                    }
 
                     // Snapshot financials + event/ledger counts BEFORE this
                     // candidate's first Activate so teardown can purge both
@@ -13338,6 +13347,10 @@ namespace Parsek.InGameTests
                         RestoreFinancials(fundsBefore, sciBefore, repBefore);
                         GameStateStore.TruncateEventsForTesting(preTestEventCount);
                         Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                        notActivatableCount++;
+                        ParsekLog.Verbose("TestRunner",
+                            $"FailedActivation_DoesNotEmitEvent: candidate '{configName}' first " +
+                            $"Activate() returned false — skipping to the next candidate");
                         continue;
                     }
 
@@ -13409,7 +13422,8 @@ namespace Parsek.InGameTests
                     ParsekLog.Verbose("TestRunner",
                         $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
                         $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount}); " +
-                        $"reactivatableCandidatesProbed={reactivatableCount}");
+                        $"candidatesSkippedBeforeWinner=[reactivatable={reactivatableCount} " +
+                        $"notActivatable={notActivatableCount} staleConfig={staleConfigCount}]");
                     exercisedFailedPath = true;
 
                     // Teardown this candidate.
@@ -13436,8 +13450,9 @@ namespace Parsek.InGameTests
                 {
                     InGameAssert.Skip(
                         $"no available stock strategy returns false on a second Activate() — " +
-                        $"{reactivatableCount} re-activatable candidate(s) probed " +
-                        $"(last='{lastReactivatableName ?? "(none)"}'); the failed-path " +
+                        $"probed {candidates.Count} candidate(s): reactivatable={reactivatableCount} " +
+                        $"(last='{lastReactivatableName ?? "(none)"}') notActivatable={notActivatableCount} " +
+                        $"staleConfig={staleConfigCount}; the failed-path " +
                         $"(__result==false) filter cannot be exercised on this save");
                 }
             }
