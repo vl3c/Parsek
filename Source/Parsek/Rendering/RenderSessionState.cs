@@ -363,8 +363,7 @@ namespace Parsek.Rendering
         {
             string origin = marker?.OriginChildRecordingId;
             string active = marker?.ActiveReFlyRecordingId;
-            bool register = marker != null
-                && ReFlySessionMarker.IsInPlaceContinuation(marker)
+            bool register = IsInPlaceContinuationMarker(marker)
                 && !string.IsNullOrEmpty(origin)
                 && !string.IsNullOrEmpty(active)
                 && !string.Equals(origin, active, StringComparison.Ordinal);
@@ -798,8 +797,11 @@ namespace Parsek.Rendering
             // Record (or clear) the in-place Re-Fly provisional alias before
             // any session install. Done up-front so every install path —
             // sibling, no-siblings, and the empty in-place continuation —
-            // shares one alias contract; the Clear() calls on the remaining
-            // guard failures below re-clear it, which is harmless.
+            // keeps the freshly-registered alias (those paths clear Anchors
+            // and the primary map inline but deliberately do NOT touch the
+            // alias). The Clear()-based guard-failure exits below re-clear
+            // it, which is harmless: RegisterInPlaceReFlyAlias is
+            // unconditional and idempotent, so no stale pair can leak.
             RegisterInPlaceReFlyAlias(marker);
 
             if (recordings == null || recordings.Count == 0)

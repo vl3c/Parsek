@@ -98,16 +98,22 @@ namespace Parsek.Rendering
                 return false;
             }
 
-            // Recursion guard — primaries render standalone (§6.5), but the
-            // check is PAIR-SPECIFIC, not global. A recording in a
-            // multi-tier formation can be the designated primary for one
-            // pair AND a peer of another (e.g. the middle stage of a
+            // Purely-primary short-circuit — a recording that is ONLY ever a
+            // primary renders standalone (§6.5) and never queries the
+            // blender. The check is PAIR-SPECIFIC, not global: a recording
+            // in a multi-tier formation can be the designated primary for
+            // one pair AND a peer of another (e.g. the middle stage of a
             // three-way split). Globally rejecting any recording that is a
             // primary somewhere wrongly forced those middle recordings to
-            // standalone (MissRecursionGuard) and dropped their own
-            // co-bubble offset. Only short-circuit when the recording is a
-            // primary AND never itself a peer — i.e. it has no designated
-            // primary of its own to blend against.
+            // standalone and dropped their own co-bubble offset. So only
+            // short-circuit when the recording is a primary AND never itself
+            // a peer (no designated primary of its own to blend against).
+            // This is not a cycle defense: a primary CYCLE in the assignment
+            // map (A→B and B→A) is structurally prevented upstream —
+            // CoBubblePrimarySelector writes exactly one (peer→primary) row
+            // per pair via a deterministic strict ordering, so the map is a
+            // DAG. The status enum keeps the legacy MissRecursionGuard name
+            // for log/dashboard continuity.
             if (RenderSessionState.IsPrimary(peerRecordingId)
                 && !RenderSessionState.TryGetDesignatedPrimary(peerRecordingId, out _))
             {
