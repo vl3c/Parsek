@@ -34,6 +34,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             RewindContext.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
@@ -44,6 +45,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = false;
             GameStateStore.ResetForTesting();
             RewindContext.ResetForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -854,6 +856,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CurrentTimelineUtForLedgerRecalc_UsesTestingProvider()
+        {
+            ParsekScenario.CurrentTimelineUTProviderForTesting = () => 123.45;
+
+            Assert.Equal(123.45, ParsekScenario.GetCurrentTimelineUTForLedgerRecalc());
+        }
+
+        [Fact]
+        public void CurrentTimelineUtForLedgerRecalc_WhenPlanetariumUnavailable_UsesTimelineTip()
+        {
+            ParsekScenario.CurrentTimelineUTProviderForTesting = null;
+
+            Assert.Equal(double.MaxValue, ParsekScenario.GetCurrentTimelineUTForLedgerRecalc());
+        }
+
+        [Fact]
         public void PostRewindFlightLoadCurrentUtCutoffDecision_RejectsRevert()
         {
             Assert.False(ShouldUseCurrentUtCutoffForPostRewindFlightLoad(isRevert: true));
@@ -945,6 +963,42 @@ namespace Parsek.Tests
                 l.Contains(Tag)
                 && l.Contains("Live-event recalc decision")
                 && l.Contains("hasFutureLedgerActions=False"));
+        }
+
+        [Fact]
+        public void CurrentTimelineIfFutureActions_FiltersFutureReward()
+        {
+            AddAll(
+                FundsSeed(25000f),
+                FundsSpending(129.0, 3805f, "rollout"),
+                Milestone(153.0, "future-altitude", 5600f));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                129.0,
+                "test-deferred-clear");
+
+            AssertLogHasCutoffSummary(logLines, 3, 2, "129");
+            Assert.Equal(21195.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Contains(logLines, l =>
+                l.Contains(Tag)
+                && l.Contains("Current-UT ledger recalculation")
+                && l.Contains("reason=test-deferred-clear"));
+        }
+
+        [Fact]
+        public void CurrentTimelineIfFutureActions_UsesFullWalkAtTimelineTip()
+        {
+            AddAll(
+                FundsSeed(25000f),
+                FundsSpending(129.0, 3805f, "rollout"),
+                Milestone(153.0, "future-altitude", 5600f));
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                200.0,
+                "test-deferred-clear");
+
+            AssertLogHasCutoffSummary(logLines, 3, 3, "null");
+            Assert.Equal(26795.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
         }
 
         [Fact]

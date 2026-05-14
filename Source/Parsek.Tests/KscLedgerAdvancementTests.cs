@@ -112,5 +112,45 @@ namespace Parsek.Tests
                     lastAppliedUT: 19.0,
                     epsilon: 0.05));
         }
+
+        [Fact]
+        public void IsKscLedgerNextActionCacheValid_SameVersionAndCutoff_ReturnsTrue()
+        {
+            Assert.True(ParsekKSC.IsKscLedgerNextActionCacheValid(
+                cachedLedgerVersion: 12,
+                cachedAfterUT: 19.0,
+                currentLedgerVersion: 12,
+                afterUT: 19.0));
+        }
+
+        [Fact]
+        public void IsKscLedgerNextActionCacheValid_DifferentVersion_ReturnsFalse()
+        {
+            Assert.False(ParsekKSC.IsKscLedgerNextActionCacheValid(
+                cachedLedgerVersion: 12,
+                cachedAfterUT: 19.0,
+                currentLedgerVersion: 13,
+                afterUT: 19.0));
+        }
+
+        [Fact]
+        public void IsKscLedgerNextActionCacheValid_DifferentCutoff_ReturnsFalse()
+        {
+            Assert.False(ParsekKSC.IsKscLedgerNextActionCacheValid(
+                cachedLedgerVersion: 12,
+                cachedAfterUT: 19.0,
+                currentLedgerVersion: 12,
+                afterUT: 20.0));
+        }
+
+        [Fact]
+        public void IsKscLedgerNextActionCacheValid_UnseededCutoff_ReturnsFalse()
+        {
+            Assert.False(ParsekKSC.IsKscLedgerNextActionCacheValid(
+                cachedLedgerVersion: 12,
+                cachedAfterUT: double.NaN,
+                currentLedgerVersion: 12,
+                afterUT: 19.0));
+        }
     }
 }

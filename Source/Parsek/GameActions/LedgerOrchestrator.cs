@@ -1357,6 +1357,20 @@ namespace Parsek
             RecalculateAndPatchForCurrentTimelineUT(utCutoff, "time-jump");
         }
 
+        internal static void RecalculateAndPatchForCurrentTimelineIfFutureActions(
+            double currentUT,
+            string reason)
+        {
+            string safeReason = string.IsNullOrEmpty(reason) ? "current-timeline" : reason;
+            if (HasActionsAfterUT(currentUT))
+            {
+                RecalculateAndPatchForCurrentTimelineUT(currentUT, safeReason);
+                return;
+            }
+
+            RecalculateAndPatch();
+        }
+
         /// <summary>
         /// Recalculates after a live KSC/flight event has just been written to the
         /// ledger. If committed actions still exist after the event UT, keep the walk

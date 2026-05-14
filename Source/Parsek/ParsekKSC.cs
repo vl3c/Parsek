@@ -51,6 +51,9 @@ namespace Parsek
         private HashSet<string> loggedPlaybackDisabledPastEndSpawnAttempts = new HashSet<string>();
         private bool pauseMenuOpen;
         private double lastKscLedgerCutoffUT = double.NaN;
+        private int cachedKscLedgerNextActionVersion = int.MinValue;
+        private double cachedKscLedgerNextActionAfterUT = double.NaN;
+        private double cachedKscLedgerNextActionUT = double.PositiveInfinity;
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
         internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
         internal static Func<int> PauseExplosionOneShotAudioAction = GhostPlaybackLogic.PauseExplosionOneShotAudio;
@@ -497,6 +500,17 @@ namespace Parsek
                 : "ksc-clock";
         }
 
+        internal static bool IsKscLedgerNextActionCacheValid(
+            int cachedLedgerVersion,
+            double cachedAfterUT,
+            int currentLedgerVersion,
+            double afterUT)
+        {
+            return cachedLedgerVersion == currentLedgerVersion
+                && !double.IsNaN(cachedAfterUT)
+                && cachedAfterUT == afterUT;
+        }
+
         private void AdvanceCareerLedgerForKscUT(double currentUT)
         {
             if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
@@ -508,8 +522,7 @@ namespace Parsek
                 return;
             }
 
-            if (!LedgerOrchestrator.TryGetNextActionUTAfter(lastKscLedgerCutoffUT, out double nextActionUT))
-                nextActionUT = double.PositiveInfinity;
+            double nextActionUT = GetNextKscLedgerActionUTAfter(lastKscLedgerCutoffUT);
 
             if (!ShouldAdvanceCareerLedgerForKscUT(
                     currentUT,
@@ -528,6 +541,24 @@ namespace Parsek
             // patch defer; tree resolution runs its own recalc, while retrying here
             // every frame would spam full ledger walks.
             lastKscLedgerCutoffUT = currentUT;
+        }
+
+        private double GetNextKscLedgerActionUTAfter(double afterUT)
+        {
+            int ledgerVersion = Ledger.StateVersion;
+            if (!IsKscLedgerNextActionCacheValid(
+                    cachedKscLedgerNextActionVersion,
+                    cachedKscLedgerNextActionAfterUT,
+                    ledgerVersion,
+                    afterUT))
+            {
+                cachedKscLedgerNextActionVersion = ledgerVersion;
+                cachedKscLedgerNextActionAfterUT = afterUT;
+                if (!LedgerOrchestrator.TryGetNextActionUTAfter(afterUT, out cachedKscLedgerNextActionUT))
+                    cachedKscLedgerNextActionUT = double.PositiveInfinity;
+            }
+
+            return cachedKscLedgerNextActionUT;
         }
 
         private void RebuildAutoLoopLaunchScheduleCache(IReadOnlyList<Recording> recordings)

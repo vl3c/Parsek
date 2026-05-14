@@ -94,6 +94,19 @@ namespace Parsek
         internal static void ResetInstanceForTesting()
         {
             s_instance = null;
+            CurrentTimelineUTProviderForTesting = null;
+        }
+
+        internal static Func<double> CurrentTimelineUTProviderForTesting;
+
+        internal static double GetCurrentTimelineUTForLedgerRecalc()
+        {
+            if (CurrentTimelineUTProviderForTesting != null)
+                return CurrentTimelineUTProviderForTesting();
+
+            return Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : double.MaxValue;
         }
 
         internal static void SetCachedAutoMergeForTesting(bool value)
@@ -256,7 +269,9 @@ namespace Parsek
 
             ParsekLog.Verbose("Scenario", $"DiscardPendingTree recalc path: {reason}");
             RecordingStore.DiscardPendingTree();
-            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                GetCurrentTimelineUTForLedgerRecalc(),
+                "pending-tree-discard");
         }
 
         internal static bool ShouldUseCurrentUtCutoffForPostRewindFlightLoad(
