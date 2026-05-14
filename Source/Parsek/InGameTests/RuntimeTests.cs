@@ -13265,10 +13265,8 @@ namespace Parsek.InGameTests
 
             var selection = new StrategySelectionResult();
             yield return WaitForStableActivatableStockStrategy(selection);
-            var strategy = selection.Strategy;
-            var configName = selection.ConfigName;
 
-            if (strategy == null || string.IsNullOrEmpty(configName))
+            if (selection.Strategy == null || string.IsNullOrEmpty(selection.ConfigName))
             {
                 DestroyHiddenAdministrationCanvasForTest(
                     selection,
@@ -13284,122 +13282,218 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            var strategyConfig = strategy.Config;
-            InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
-            InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
-                "Selected strategy must have a non-empty Config.Name");
+            // Not every stock strategy short-circuits an already-active Activate():
+            // some (e.g. BailoutGrant) re-run and return true. Probing only the
+            // stabilized pick would silently disable the __result==false regression
+            // guard whenever a re-activatable strategy happens to sort first. Walk
+            // every activatable stock strategy instead, stop on the first one whose
+            // second Activate() returns false, and only skip when none can.
+            var candidates = CollectActivatableStockStrategiesForFailedPath(
+                selection.Strategy, selection.ConfigName);
 
-            // Snapshot financials — the first (successful) Activate below will
-            // spend setup costs that we must restore in teardown.
-            var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
-
-            // Snapshot event and ledger-action counts for cleanup. Set before
-            // the try so the finally always sees a valid baseline (matches
-            // pre-activation state, so truncation purges BOTH the first
-            // Activate and the failed second Activate from the save).
-            int preTestEventCount = GameStateStore.EventCount;
-            int preTestLedgerCount = Ledger.Actions.Count;
+            bool exercisedFailedPath = false;
+            int reactivatableCount = 0;
+            int notActivatableCount = 0;
+            int staleConfigCount = 0;
+            string lastReactivatableName = null;
 
             try
             {
-                // Activate the strategy FIRST so the second Activate hits the
-                // already-active short-circuit and returns false.
-                for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
-                    yield return null;
+                foreach (var candidate in candidates)
+                {
+                    var strategy = candidate.Strategy;
+                    var configName = candidate.ConfigName;
 
-                bool firstActivate;
-                try
-                {
-                    firstActivate = strategy.Activate();
-                }
-                catch (System.Exception ex)
-                {
-                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "initial-activate-throw");
-                    InGameAssert.Fail(
-                        $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
-                    yield break;
-                }
-                if (!firstActivate)
-                {
-                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "initial-activate-false");
-                    InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
-                    yield break;
-                }
-
-                int eventCountBefore = GameStateStore.EventCount;
-
-                // Second Activate — KSP short-circuits when IsActive is true and
-                // returns false. The postfix should detect __result=false and skip.
-                bool ok;
-                try
-                {
-                    ok = strategy.Activate();
-                }
-                catch (System.Exception ex)
-                {
-                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "second-activate-throw");
-                    InGameAssert.Fail(
-                        $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
-                    yield break;
-                }
-                InGameAssert.IsFalse(ok,
-                    "Strategy.Activate should return false when already active");
-
-                // Walk the tail slice — must find NO StrategyActivated events
-                // with matching key.
-                for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
-                {
-                    var evt = GameStateStore.Events[i];
-                    if (evt.eventType == GameStateEventType.StrategyActivated
-                        && evt.key == configName)
+                    var strategyConfig = strategy.Config;
+                    if (strategyConfig == null || string.IsNullOrEmpty(strategyConfig.Name))
                     {
-                        InGameAssert.Fail(
-                            $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
-                            $"(found StrategyActivated at tail index {i} for key='{configName}')");
+                        // Probe data went stale between collection and use — skip.
+                        staleConfigCount++;
+                        ParsekLog.Verbose("TestRunner",
+                            $"FailedActivation_DoesNotEmitEvent: candidate '{configName}' lost its " +
+                            $"Config.Name after collection — skipping to the next candidate");
+                        continue;
+                    }
+
+                    // Snapshot financials + event/ledger counts BEFORE this
+                    // candidate's first Activate so the per-candidate finally can
+                    // purge both activations and restore setup costs regardless of
+                    // outcome — including when InGameAssert.Fail throws out of the
+                    // tail-slice walk because the regression it guards was caught.
+                    var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                    int preTestEventCount = GameStateStore.EventCount;
+                    int preTestLedgerCount = Ledger.Actions.Count;
+
+                    bool candidateExercisedFailedPath = false;
+                    try
+                    {
+                        // Activate FIRST so the second Activate hits the
+                        // already-active path.
+                        for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                            yield return null;
+
+                        bool firstActivate;
+                        try
+                        {
+                            firstActivate = strategy.Activate();
+                        }
+                        catch (System.Exception ex)
+                        {
+                            InGameAssert.Fail(
+                                $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
+                            yield break;
+                        }
+                        if (!firstActivate)
+                        {
+                            // Could not activate this candidate — move on.
+                            notActivatableCount++;
+                            ParsekLog.Verbose("TestRunner",
+                                $"FailedActivation_DoesNotEmitEvent: candidate '{configName}' first " +
+                                $"Activate() returned false — skipping to the next candidate");
+                            continue;
+                        }
+
+                        int eventCountBefore = GameStateStore.EventCount;
+
+                        // Second Activate — KSP short-circuits when IsActive is true
+                        // and returns false. The postfix should detect __result=false
+                        // and skip.
+                        bool ok;
+                        try
+                        {
+                            ok = strategy.Activate();
+                        }
+                        catch (System.Exception ex)
+                        {
+                            InGameAssert.Fail(
+                                $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
+                            yield break;
+                        }
+
+                        if (ok)
+                        {
+                            // Re-activatable: Activate() returns true even when already
+                            // active, so it cannot exercise the __result==false filter.
+                            // Keep probing the remaining strategies.
+                            reactivatableCount++;
+                            lastReactivatableName = configName;
+                            continue;
+                        }
+
+                        // ok == false: the failed-path filter is now exercisable.
+                        // Walk the tail slice — must find NO StrategyActivated events
+                        // with matching key.
+                        for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
+                        {
+                            var evt = GameStateStore.Events[i];
+                            if (evt.eventType == GameStateEventType.StrategyActivated
+                                && evt.key == configName)
+                            {
+                                InGameAssert.Fail(
+                                    $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
+                                    $"(found StrategyActivated at tail index {i} for key='{configName}')");
+                            }
+                        }
+
+                        ParsekLog.Verbose("TestRunner",
+                            $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
+                            $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount}); " +
+                            $"candidatesSkippedBeforeWinner=[reactivatable={reactivatableCount} " +
+                            $"notActivatable={notActivatableCount} staleConfig={staleConfigCount}]");
+                        candidateExercisedFailedPath = true;
+                    }
+                    finally
+                    {
+                        // Uniform per-candidate teardown — runs on every exit path
+                        // (success, continue, break, or an InGameAssert.Fail throw)
+                        // so a regression-detecting failure does not leak an active
+                        // strategy or financial/event/ledger mutations. A failed
+                        // second Activate() leaves the strategy active from the first
+                        // Activate(), so the Deactivate is load-bearing here.
+                        if (strategy.IsActive)
+                        {
+                            try { strategy.Deactivate(); }
+                            catch (System.Exception ex)
+                            {
+                                ParsekLog.Warn("TestRunner",
+                                    $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
+                            }
+                        }
+                        RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                        // Purge test-generated events and ledger actions so the save
+                        // stays save-neutral across repeated category runs. See
+                        // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
+                        // teardown for the same pattern.
+                        GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                        Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                    }
+
+                    if (candidateExercisedFailedPath)
+                    {
+                        exercisedFailedPath = true;
+                        break;
                     }
                 }
 
-                ParsekLog.Verbose("TestRunner",
-                    $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
-                    $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
+                if (!exercisedFailedPath)
+                {
+                    InGameAssert.Skip(
+                        $"no available stock strategy returns false on a second Activate() — " +
+                        $"probed {candidates.Count} candidate(s): reactivatable={reactivatableCount} " +
+                        $"(last='{lastReactivatableName ?? "(none)"}') notActivatable={notActivatableCount} " +
+                        $"staleConfig={staleConfigCount}; the failed-path " +
+                        $"(__result==false) filter cannot be exercised on this save");
+                }
             }
             finally
             {
-                if (strategy.IsActive)
-                {
-                    try { strategy.Deactivate(); }
-                    catch (System.Exception ex)
-                    {
-                        ParsekLog.Warn("TestRunner",
-                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
-                    }
-                }
-                RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                // Purge test-generated events and ledger actions so the save
-                // stays save-neutral across repeated category runs. See
-                // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
-                // teardown for the same pattern.
-                GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                Ledger.TruncateActionsForTesting(preTestLedgerCount);
                 DestroyHiddenAdministrationCanvasForTest(
                     selection,
                     "failed-activation-teardown");
             }
+        }
+
+        // Collects every activatable stock strategy for FailedActivation_DoesNotEmitEvent,
+        // with the stabilized readiness pick first. The test walks this list so a
+        // re-activatable strategy sorting first cannot silently disable the
+        // __result==false regression guard.
+        private static List<(Strategies.Strategy Strategy, string ConfigName)>
+            CollectActivatableStockStrategiesForFailedPath(
+                Strategies.Strategy stabilizedPick,
+                string stabilizedConfigName)
+        {
+            var candidates = new List<(Strategies.Strategy Strategy, string ConfigName)>();
+            if (stabilizedPick != null && !string.IsNullOrEmpty(stabilizedConfigName))
+                candidates.Add((stabilizedPick, stabilizedConfigName));
+
+            var system = Strategies.StrategySystem.Instance;
+            var list = system?.Strategies;
+            if (list == null)
+                return candidates;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var s = list[i];
+                if (s == null || ReferenceEquals(s, stabilizedPick))
+                    continue;
+                try
+                {
+                    if (s.IsActive)
+                        continue;
+                    var config = s.Config;
+                    if (config == null || string.IsNullOrEmpty(config.Name))
+                        continue;
+                    if (!s.CanBeActivated(out _))
+                        continue;
+                    candidates.Add((s, config.Name));
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Verbose("TestRunner",
+                        $"FailedActivation candidate-probe exception: index={i} {ex}");
+                }
+            }
+            return candidates;
         }
 
         #endregion
@@ -13505,6 +13599,8 @@ namespace Parsek.InGameTests
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
+            // Drain any R&D canvas left mid-teardown by a prior test before entering.
+            yield return WaitForRdControllerClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             Recording recording = null;
@@ -13552,6 +13648,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
                 "R&D close should strip committed-future tech overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForRdControllerClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -13578,6 +13676,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("HighLogic.CurrentGame.CrewRoster is null");
                 yield break;
             }
+
+            // Drain any Astronaut Complex canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForAstronautComplexClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             KerbalsModule priorKerbalsModule = LedgerOrchestrator.Kerbals;
@@ -13643,6 +13745,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayKerbalObjectName, 0,
                 "Astronaut Complex close should strip committed-future kerbal overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForAstronautComplexClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -13667,6 +13771,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip(skipReason);
                 yield break;
             }
+
+            // Drain any Mission Control canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForMissionControlClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             Recording recording = null;
@@ -13701,6 +13809,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
                 "Mission Control close should strip committed-future contract overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForMissionControlClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -13709,6 +13819,9 @@ namespace Parsek.InGameTests
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
+
+            // Drain any R&D canvas left mid-teardown by a prior test before entering.
+            yield return WaitForRdControllerClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13756,6 +13869,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
                         $"R&D despawn cycle {cycle + 1} should leave no Parsek_TechOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForRdControllerClosed(8f);
                 }
             }
             finally
@@ -13788,6 +13903,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("HighLogic.CurrentGame.CrewRoster is null");
                 yield break;
             }
+
+            // Drain any Astronaut Complex canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForAstronautComplexClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13833,6 +13952,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayKerbalObjectName, 0,
                         $"Astronaut despawn cycle {cycle + 1} should leave no Parsek_KerbalOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForAstronautComplexClosed(8f);
                 }
             }
             finally
@@ -13863,6 +13984,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip(skipReason);
                 yield break;
             }
+
+            // Drain any Mission Control canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForMissionControlClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13896,6 +14021,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
                         $"Mission Control despawn cycle {cycle + 1} should leave no Parsek_ContractOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForMissionControlClosed(8f);
                 }
             }
             finally
@@ -14033,6 +14160,37 @@ namespace Parsek.InGameTests
             yield return WaitUntilTrue(
                 () => Object.FindObjectOfType<MissionControl>() != null,
                 "MissionControl should exist after opening Mission Control",
+                timeoutSeconds);
+        }
+
+        // Space-center building canvases tear down a frame or more after the close
+        // event fires. The overlay tests open the same building repeatedly across
+        // cycles and across two suite passes; if a test enters before the prior
+        // canvas is gone, UIMasterController refuses to spawn a duplicate
+        // ("Canvas named 'X' already exists") and the building UI ends up empty or
+        // stacked. These guards drain a stale canvas before entering and confirm
+        // the canvas is gone after closing, so each test leaves a clean scene.
+        private static IEnumerator WaitForRdControllerClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => RDController.Instance == null && Object.FindObjectOfType<RDController>() == null,
+                "RDController canvas should be destroyed after closing R&D",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForAstronautComplexClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<AstronautComplex>() == null,
+                "AstronautComplex canvas should be destroyed after closing the Astronaut Complex",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForMissionControlClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<MissionControl>() == null,
+                "MissionControl canvas should be destroyed after closing Mission Control",
                 timeoutSeconds);
         }
 
