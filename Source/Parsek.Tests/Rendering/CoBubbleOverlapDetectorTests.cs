@@ -16,14 +16,23 @@ namespace Parsek.Tests.Rendering
     [Collection("Sequential")]
     public class CoBubbleOverlapDetectorTests : IDisposable
     {
+        private readonly List<string> logLines = new List<string>();
+
         public CoBubbleOverlapDetectorTests()
         {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             CoBubbleOverlapDetector.ResetForTesting();
         }
 
         public void Dispose()
         {
             CoBubbleOverlapDetector.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
         }
 
         // ---------- Helpers ----------
@@ -121,6 +130,11 @@ namespace Parsek.Tests.Rendering
             List<CoBubbleOverlapDetector.OverlapWindow> windows =
                 CoBubbleOverlapDetector.Detect(new List<Recording> { rA, rB });
             Assert.Empty(windows);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("CoBubbleOverlapDetector pair:")
+                && l.Contains("a=rec-A")
+                && l.Contains("b=rec-B")
+                && l.Contains("reason=both-active-sections"));
         }
 
         [Fact]
@@ -181,6 +195,31 @@ namespace Parsek.Tests.Rendering
             var rB = MakeRecording("rec-B", 100.0, 100.2,
                 TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
             Assert.Empty(CoBubbleOverlapDetector.Detect(new List<Recording> { rA, rB }));
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("CoBubbleOverlapDetector pair:")
+                && l.Contains("reason=overlap-too-short"));
+        }
+
+        [Fact]
+        public void Detect_SampleMissing_LogsPairSkipReason()
+        {
+            CoBubbleOverlapDetector.SamplePositionResolverForTesting = (rec, ut) =>
+            {
+                if (rec.RecordingId == "rec-A") return new Vector3d(0, 0, 0);
+                return null;
+            };
+
+            var rA = MakeRecording("rec-A", 100, 110,
+                TrackSectionSource.Active, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+            var rB = MakeRecording("rec-B", 100, 110,
+                TrackSectionSource.Background, ReferenceFrame.Absolute, SegmentEnvironment.ExoBallistic);
+
+            Assert.Empty(CoBubbleOverlapDetector.Detect(new List<Recording> { rA, rB }));
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("CoBubbleOverlapDetector pair:")
+                && l.Contains("reason=sample-missing")
+                && l.Contains("sampleA=true")
+                && l.Contains("sampleB=false"));
         }
 
         [Fact]

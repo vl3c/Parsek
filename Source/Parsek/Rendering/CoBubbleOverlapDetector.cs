@@ -144,21 +144,44 @@ namespace Parsek.Rendering
             double minWindowDurationS, double maxBubbleSeparationM,
             List<OverlapWindow> output)
         {
-            if (a.TrackSections == null || b.TrackSections == null) return;
+            if (a.TrackSections == null || b.TrackSections == null)
+            {
+                LogPairDiagnostic(a, b, "missing-track-sections");
+                return;
+            }
 
             // Walk every (sectionA, sectionB) pair whose [startUT, endUT]
             // ranges intersect and both qualify (Active/Background +
             // Absolute). Section count is small (<<100 typically) so the
             // O(N*M) walk is acceptable.
+            int outputBeforePair = output.Count;
+            bool sawEligibleA = false;
+            bool sawEligibleB = false;
+            bool sawEligiblePair = false;
             for (int sa = 0; sa < a.TrackSections.Count; sa++)
             {
                 TrackSection secA = a.TrackSections[sa];
-                if (!IsBubbleEligibleSection(secA)) continue;
+                if (!IsBubbleEligibleSection(secA))
+                {
+                    LogPairDiagnostic(a, b, "section-a-not-eligible", sa, -1,
+                        secA.startUT, secA.endUT, double.NaN, double.NaN,
+                        FormatSectionDiagnostic(secA));
+                    continue;
+                }
+                sawEligibleA = true;
 
                 for (int sb = 0; sb < b.TrackSections.Count; sb++)
                 {
                     TrackSection secB = b.TrackSections[sb];
-                    if (!IsBubbleEligibleSection(secB)) continue;
+                    if (!IsBubbleEligibleSection(secB))
+                    {
+                        LogPairDiagnostic(a, b, "section-b-not-eligible", sa, sb,
+                            secB.startUT, secB.endUT, double.NaN, double.NaN,
+                            FormatSectionDiagnostic(secB));
+                        continue;
+                    }
+                    sawEligibleB = true;
+                    sawEligiblePair = true;
 
                     // P2-A: KSP has exactly one focused vessel per scene at
                     // any UT, so two simultaneous Active sections must come
@@ -169,33 +192,67 @@ namespace Parsek.Rendering
                     // blender would later replay as a stale position lock.
                     if (secA.source == TrackSectionSource.Active
                         && secB.source == TrackSectionSource.Active)
+                    {
+                        LogPairDiagnostic(a, b, "both-active-sections", sa, sb,
+                            Math.Max(secA.startUT, secB.startUT),
+                            Math.Min(secA.endUT, secB.endUT));
                         continue;
+                    }
 
                     double lo = Math.Max(secA.startUT, secB.startUT);
                     double hi = Math.Min(secA.endUT, secB.endUT);
-                    if (hi - lo < minWindowDurationS) continue;
+                    if (hi - lo < minWindowDurationS)
+                    {
+                        LogPairDiagnostic(a, b, "overlap-too-short", sa, sb,
+                            lo, hi, double.NaN, double.NaN,
+                            "minWindowS=" + minWindowDurationS.ToString("R", CultureInfo.InvariantCulture));
+                        continue;
+                    }
 
                     // Body / frame agreement at section level. Body changes
                     // and frame toggles inside the window are split via the
                     // sample-walk below (HR-7).
                     string bodyA = ResolveSectionBodyName(secA);
                     string bodyB = ResolveSectionBodyName(secB);
-                    if (string.IsNullOrEmpty(bodyA) || string.IsNullOrEmpty(bodyB)) continue;
-                    if (!string.Equals(bodyA, bodyB, StringComparison.Ordinal)) continue;
+                    if (string.IsNullOrEmpty(bodyA) || string.IsNullOrEmpty(bodyB))
+                    {
+                        LogPairDiagnostic(a, b, "missing-section-body", sa, sb,
+                            lo, hi, double.NaN, double.NaN,
+                            "bodyA=" + (bodyA ?? "<null>") + " bodyB=" + (bodyB ?? "<null>"));
+                        continue;
+                    }
+                    if (!string.Equals(bodyA, bodyB, StringComparison.Ordinal))
+                    {
+                        LogPairDiagnostic(a, b, "body-mismatch", sa, sb,
+                            lo, hi, double.NaN, double.NaN,
+                            "bodyA=" + bodyA + " bodyB=" + bodyB);
+                        continue;
+                    }
 
                     byte frameTag = (secA.environment == SegmentEnvironment.ExoPropulsive
                         || secA.environment == SegmentEnvironment.ExoBallistic) ? (byte)1 : (byte)0;
 
                     SplitAndEmitWindowsForSectionPair(
-                        a, b, secA, secB, lo, hi, frameTag, bodyA,
+                        a, b, secA, secB, sa, sb, lo, hi, frameTag, bodyA,
                         minWindowDurationS, maxBubbleSeparationM, output);
                 }
+            }
+
+            if (output.Count == outputBeforePair)
+            {
+                string reason =
+                    !sawEligibleA ? "no-eligible-section-a" :
+                    !sawEligibleB ? "no-eligible-section-b" :
+                    !sawEligiblePair ? "no-eligible-section-pair" :
+                    "pair-produced-no-window";
+                LogPairDiagnostic(a, b, reason);
             }
         }
 
         private static void SplitAndEmitWindowsForSectionPair(
             Recording a, Recording b,
             TrackSection secA, TrackSection secB,
+            int sectionA, int sectionB,
             double lo, double hi, byte frameTag, string bodyName,
             double minWindowDurationS, double maxBubbleSeparationM,
             List<OverlapWindow> output)
@@ -214,6 +271,14 @@ namespace Parsek.Rendering
             double effectiveHi = hi;
             if (!double.IsNaN(aTerminalCap) && aTerminalCap < effectiveHi) effectiveHi = aTerminalCap;
             if (!double.IsNaN(bTerminalCap) && bTerminalCap < effectiveHi) effectiveHi = bTerminalCap;
+            if (effectiveHi < hi)
+            {
+                LogPairDiagnostic(a, b, "terminal-cap-shortened-window", sectionA, sectionB,
+                    lo, effectiveHi, double.NaN, double.NaN,
+                    "originalEndUT=" + hi.ToString("R", CultureInfo.InvariantCulture)
+                    + " aTerminalCap=" + aTerminalCap.ToString("R", CultureInfo.InvariantCulture)
+                    + " bTerminalCap=" + bTerminalCap.ToString("R", CultureInfo.InvariantCulture));
+            }
             // Snap any splits past the terminal cap down to the cap.
             var capped = new SortedSet<double>();
             foreach (double s in splits)
@@ -226,17 +291,24 @@ namespace Parsek.Rendering
             {
                 double winStart = ordered[k];
                 double winEnd = ordered[k + 1];
-                if (winEnd - winStart < minWindowDurationS) continue;
+                if (winEnd - winStart < minWindowDurationS)
+                {
+                    LogPairDiagnostic(a, b, "split-window-too-short", sectionA, sectionB,
+                        winStart, winEnd, double.NaN, double.NaN,
+                        "minWindowS=" + minWindowDurationS.ToString("R", CultureInfo.InvariantCulture));
+                    continue;
+                }
 
                 // Walk samples for separation/body checks. Truncate at the
                 // first violation and split the loop accordingly.
-                EmitTruncatedWindow(a, b, winStart, winEnd, frameTag, bodyName, secA.environment,
+                EmitTruncatedWindow(a, b, sectionA, sectionB, winStart, winEnd, frameTag, bodyName, secA.environment,
                     minWindowDurationS, maxBubbleSeparationM, output);
             }
         }
 
         private static void EmitTruncatedWindow(
             Recording a, Recording b,
+            int sectionA, int sectionB,
             double startUT, double endUT, byte frameTag, string bodyName,
             SegmentEnvironment primaryEnv,
             double minWindowDurationS, double maxBubbleSeparationM,
@@ -249,23 +321,38 @@ namespace Parsek.Rendering
             double effectiveEnd = endUT;
             for (double t = startUT; t <= endUT + 1e-9; t += stepS)
             {
-                if (!TrySampleWorld(a, t, out Vector3d pa)
-                    || !TrySampleWorld(b, t, out Vector3d pb))
+                bool sampleA = TrySampleWorld(a, t, out Vector3d pa);
+                bool sampleB = TrySampleWorld(b, t, out Vector3d pb);
+                if (!sampleA || !sampleB)
                 {
                     // Either side has no sample at this UT — truncate the
                     // window here. Ghost-only / partial-data overlaps are
                     // unusual; surface as a Verbose so tuning is visible.
+                    LogPairDiagnostic(a, b, "sample-missing", sectionA, sectionB,
+                        startUT, endUT, t, double.NaN,
+                        "sampleA=" + (sampleA ? "true" : "false")
+                        + " sampleB=" + (sampleB ? "true" : "false"));
                     effectiveEnd = t;
                     break;
                 }
                 double sep = (pb - pa).magnitude;
                 if (sep > maxBubbleSeparationM)
                 {
+                    LogPairDiagnostic(a, b, "separation-exceeds-bubble", sectionA, sectionB,
+                        startUT, endUT, t, sep,
+                        "maxBubbleM=" + maxBubbleSeparationM.ToString("R", CultureInfo.InvariantCulture));
                     effectiveEnd = t;
                     break;
                 }
             }
-            if (effectiveEnd - startUT < minWindowDurationS) return;
+            if (effectiveEnd - startUT < minWindowDurationS)
+            {
+                LogPairDiagnostic(a, b, "truncated-window-too-short", sectionA, sectionB,
+                    startUT, effectiveEnd, double.NaN, double.NaN,
+                    "originalEndUT=" + endUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " minWindowS=" + minWindowDurationS.ToString("R", CultureInfo.InvariantCulture));
+                return;
+            }
 
             output.Add(new OverlapWindow
             {
@@ -277,6 +364,10 @@ namespace Parsek.Rendering
                 PrimaryEnv = primaryEnv,
                 BodyName = bodyName,
             });
+            LogPairDiagnostic(a, b, "window-emitted", sectionA, sectionB,
+                startUT, effectiveEnd, double.NaN, double.NaN,
+                "frameTag=" + frameTag.ToString(CultureInfo.InvariantCulture)
+                + " body=" + (bodyName ?? "<null>"));
         }
 
         private static void CollectStructuralSplits(
@@ -307,6 +398,51 @@ namespace Parsek.Rendering
                         splits.Add(endUT);
                 }
             }
+        }
+
+        private static string FormatSectionDiagnostic(in TrackSection section)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "source={0} frame={1} env={2} startUT={3} endUT={4} frameCount={5} body={6}",
+                section.source,
+                section.referenceFrame,
+                section.environment,
+                section.startUT.ToString("R", CultureInfo.InvariantCulture),
+                section.endUT.ToString("R", CultureInfo.InvariantCulture),
+                section.frames != null ? section.frames.Count : 0,
+                ResolveSectionBodyName(section) ?? "<null>");
+        }
+
+        private static void LogPairDiagnostic(
+            Recording a,
+            Recording b,
+            string reason,
+            int sectionA = -1,
+            int sectionB = -1,
+            double startUT = double.NaN,
+            double endUT = double.NaN,
+            double sampleUT = double.NaN,
+            double separationM = double.NaN,
+            string details = null)
+        {
+            string idA = a?.RecordingId ?? "<null>";
+            string idB = b?.RecordingId ?? "<null>";
+            ParsekLog.VerboseRateLimited(
+                "Pipeline-CoBubble",
+                "cobubble-detect-pair|" + idA + "|" + idB + "|" + reason + "|" + sectionA + "|" + sectionB,
+                string.Format(CultureInfo.InvariantCulture,
+                    "CoBubbleOverlapDetector pair: a={0} b={1} sectionA={2} sectionB={3} reason={4} startUT={5} endUT={6} sampleUT={7} separationM={8} details={9}",
+                    idA,
+                    idB,
+                    sectionA.ToString(CultureInfo.InvariantCulture),
+                    sectionB.ToString(CultureInfo.InvariantCulture),
+                    reason ?? "<null>",
+                    double.IsNaN(startUT) ? "<none>" : startUT.ToString("R", CultureInfo.InvariantCulture),
+                    double.IsNaN(endUT) ? "<none>" : endUT.ToString("R", CultureInfo.InvariantCulture),
+                    double.IsNaN(sampleUT) ? "<none>" : sampleUT.ToString("R", CultureInfo.InvariantCulture),
+                    double.IsNaN(separationM) ? "<none>" : separationM.ToString("F3", CultureInfo.InvariantCulture),
+                    details ?? "<none>"),
+                30.0);
         }
 
         private static bool IsBubbleEligibleSection(in TrackSection section)
@@ -404,8 +540,18 @@ namespace Parsek.Rendering
             Recording primary, Recording peer,
             byte primaryDesignation)
         {
-            if (primary == null || peer == null) return null;
-            if (window.EndUT <= window.StartUT) return null;
+            if (primary == null || peer == null)
+            {
+                LogPairDiagnostic(primary, peer, "build-trace-null-recording",
+                    startUT: window.StartUT, endUT: window.EndUT);
+                return null;
+            }
+            if (window.EndUT <= window.StartUT)
+            {
+                LogPairDiagnostic(primary, peer, "build-trace-empty-window",
+                    startUT: window.StartUT, endUT: window.EndUT);
+                return null;
+            }
 
             double resampleHz = CoBubbleConfiguration.Default.ResampleHz;
             // Check section sample rates; use the lower per §10.2.
@@ -466,8 +612,18 @@ namespace Parsek.Rendering
             {
                 double t = window.StartUT + i * stepS;
                 if (t > effectiveEndUT) t = effectiveEndUT;
-                if (!TrySampleWorld(primary, t, out Vector3d pPrimary)) return null;
-                if (!TrySampleWorld(peer, t, out Vector3d pPeer)) return null;
+                bool samplePrimary = TrySampleWorld(primary, t, out Vector3d pPrimary);
+                bool samplePeer = TrySampleWorld(peer, t, out Vector3d pPeer);
+                if (!samplePrimary || !samplePeer)
+                {
+                    LogPairDiagnostic(primary, peer, "build-trace-sample-missing",
+                        startUT: window.StartUT, endUT: effectiveEndUT, sampleUT: t,
+                        details: "samplePrimary=" + (samplePrimary ? "true" : "false")
+                        + " samplePeer=" + (samplePeer ? "true" : "false")
+                        + " ownerPeer=" + (peer.RecordingId ?? "<null>")
+                        + " primary=" + (primary.RecordingId ?? "<null>"));
+                    return null;
+                }
                 Vector3d delta = pPeer - pPrimary;
                 // P1-B: for FrameTag=1 (ExoPropulsive / ExoBallistic), lift
                 // the world-frame delta to the body's inertial frame at the
@@ -658,6 +814,12 @@ namespace Parsek.Rendering
                     SectionAnnotationStore.PutCoBubbleTrace(recA.RecordingId, traceForA);
                     tracesEmitted++;
                 }
+                else
+                {
+                    LogPairDiagnostic(recB, recA, "trace-not-emitted-for-owner-a",
+                        startUT: w.StartUT, endUT: w.EndUT,
+                        details: "owner=" + recA.RecordingId + " primary=" + recB.RecordingId);
+                }
                 // Side B storage: trace under recB, PeerRecordingId = recA.
                 CoBubbleOffsetTrace traceForB = BuildTrace(
                     w,
@@ -669,6 +831,12 @@ namespace Parsek.Rendering
                     RebrandTraceForPrimary(traceForB, primaryRec: recA);
                     SectionAnnotationStore.PutCoBubbleTrace(recB.RecordingId, traceForB);
                     tracesEmitted++;
+                }
+                else
+                {
+                    LogPairDiagnostic(recA, recB, "trace-not-emitted-for-owner-b",
+                        startUT: w.StartUT, endUT: w.EndUT,
+                        details: "owner=" + recB.RecordingId + " primary=" + recA.RecordingId);
                 }
             }
 
