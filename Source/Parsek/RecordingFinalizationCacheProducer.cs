@@ -90,11 +90,33 @@ namespace Parsek
         {
             return TryBuildFromLiveVessel(
                 recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                null,
+                out cache);
+        }
+
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            Vessel vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            out RecordingFinalizationCache cache)
+        {
+            return TryBuildFromLiveVessel(
+                recording,
                 vessel != null ? new VesselFinalizationView(vessel) : null,
                 refreshUT,
                 owner,
                 reason,
                 hasMeaningfulThrust,
+                recordingTree,
                 out cache);
         }
 
@@ -105,6 +127,27 @@ namespace Parsek
             FinalizationCacheOwner owner,
             string reason,
             bool hasMeaningfulThrust,
+            out RecordingFinalizationCache cache)
+        {
+            return TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                null,
+                out cache);
+        }
+
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
             out RecordingFinalizationCache cache)
         {
             string recordingId = recording?.RecordingId;
@@ -167,8 +210,19 @@ namespace Parsek
                     context,
                     vessel.RawVessel,
                     refreshUT,
+                    recordingTree,
                     out result))
             {
+                if (IsSuppressedSubSurfaceDestroyedDecline(result))
+                {
+                    return CompleteRefresh(
+                        cache,
+                        Fail(cache, "subsurface-destroyed-suppressed"),
+                        recordingsExamined,
+                        0,
+                        0);
+                }
+
                 if (cache.LastWasInAtmosphere && (vessel.IsPacked || !vessel.IsLoaded))
                     return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
 
@@ -830,6 +884,7 @@ namespace Parsek
             Recording context,
             Vessel vessel,
             double refreshUT,
+            RecordingTree recordingTree,
             out IncompleteBallisticFinalizationResult result)
         {
             if (TryBuildDefaultFinalizationResultOverrideForTesting != null)
@@ -845,7 +900,15 @@ namespace Parsek
                 context,
                 vessel,
                 refreshUT,
+                recordingTree,
                 out result);
+        }
+
+        private static bool IsSuppressedSubSurfaceDestroyedDecline(IncompleteBallisticFinalizationResult result)
+        {
+            return result.extrapolationFailureReason == ExtrapolationFailureReason.SubSurfaceStart
+                && result.terminalState.HasValue
+                && result.terminalState.Value == TerminalState.Destroyed;
         }
 
         private static TerminalState DetermineObservedTerminalState(IRecordingFinalizationVesselView vessel)

@@ -1337,6 +1337,213 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildUsesParentStructuralPoint()
+        {
+            Recording parent = MakeParentRecordingWithStructuralPoint(
+                recordingId: "eva-parent",
+                pointUT: 499.75,
+                altitude: 65.0);
+            Recording sibling = MakeTreeRecording("eva-sibling");
+            Recording evaChild = MakeEvaChildRecording(
+                recordingId: "eva-child",
+                siblingRecordingId: sibling.RecordingId,
+                parentBranchPointId: "bp-eva");
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva");
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                evaChild,
+                tree,
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("eva-child")
+                && l.Contains("source=parent-structural-eva:eva-parent:Points")
+                && l.Contains("pointUT=499.750"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("classified Destroyed by sub-surface path")
+                && l.Contains("eva-child"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildParentStructuralPointOutsideWindowStillDestroys()
+        {
+            Recording parent = MakeParentRecordingWithStructuralPoint(
+                recordingId: "eva-stale-parent",
+                pointUT: 499.0,
+                altitude: 65.0);
+            Recording sibling = MakeTreeRecording("eva-stale-sibling");
+            Recording evaChild = MakeEvaChildRecording(
+                recordingId: "eva-stale-child",
+                siblingRecordingId: sibling.RecordingId,
+                parentBranchPointId: "bp-eva-stale");
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva-stale");
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                evaChild,
+                tree,
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("eva-stale-child"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildStaleChildPointFallsBackToParentStructuralPoint()
+        {
+            Recording parent = MakeParentRecordingWithStructuralPoint(
+                recordingId: "eva-parent-near-child-stale",
+                pointUT: 500.0,
+                altitude: 65.0);
+            Recording sibling = MakeTreeRecording("eva-sibling-near-child-stale");
+            Recording evaChild = MakeEvaChildRecording(
+                recordingId: "eva-child-stale-point",
+                siblingRecordingId: sibling.RecordingId,
+                parentBranchPointId: "bp-eva-child-stale-point");
+            evaChild.Points.Add(new TrajectoryPoint
+            {
+                ut = 499.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 65.0
+            });
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva-child-stale-point");
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                evaChild,
+                tree,
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("eva-child-stale-point")
+                && l.Contains("source=parent-structural-eva:eva-parent-near-child-stale:Points")
+                && l.Contains("pointUT=500.000"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("classified Destroyed by sub-surface path")
+                && l.Contains("eva-child-stale-point"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_NonEvaChildParentStructuralPointStillDestroys()
+        {
+            Recording parent = MakeParentRecordingWithStructuralPoint(
+                recordingId: "non-eva-parent",
+                pointUT: 500.0,
+                altitude: 65.0);
+            Recording sibling = MakeTreeRecording("non-eva-sibling");
+            Recording child = MakeTreeRecording("non-eva-child");
+            child.ParentRecordingId = sibling.RecordingId;
+            child.ParentBranchPointId = "bp-non-eva";
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, child, "bp-non-eva");
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                child,
+                tree,
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("non-eva-child"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildParentNonFiniteStructuralPointStillDestroys()
+        {
+            Recording parent = MakeTreeRecording("eva-nonfinite-parent");
+            parent.Points.Add(FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = double.NaN,
+                longitude = -70.02,
+                altitude = 65.0
+            }));
+            Recording sibling = MakeTreeRecording("eva-nonfinite-sibling");
+            Recording evaChild = MakeEvaChildRecording(
+                recordingId: "eva-nonfinite-child",
+                siblingRecordingId: sibling.RecordingId,
+                parentBranchPointId: "bp-eva-nonfinite");
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva-nonfinite");
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                evaChild,
+                tree,
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("eva-nonfinite-child"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildParentRelativeBodyFixedStructuralPointSuppressesDestroyed()
+        {
+            Recording parent = MakeTreeRecording("eva-relative-parent");
+            parent.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 499.9,
+                endUT = 500.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        latitude = 1234.0,
+                        longitude = 5678.0,
+                        altitude = -999.0
+                    })
+                },
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        latitude = -0.11,
+                        longitude = -70.02,
+                        altitude = 65.0
+                    })
+                }
+            });
+            Recording sibling = MakeTreeRecording("eva-relative-sibling");
+            Recording evaChild = MakeEvaChildRecording(
+                recordingId: "eva-relative-child",
+                siblingRecordingId: sibling.RecordingId,
+                parentBranchPointId: "bp-eva-relative");
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva-relative");
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                evaChild,
+                tree,
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("eva-relative-child")
+                && l.Contains("source=parent-structural-eva:eva-relative-parent:TrackSection[0].bodyFixedFrames"));
+        }
+
+        [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_SuppressionWarnsPerRecording()
         {
             var first = new Recording
@@ -2743,6 +2950,14 @@ namespace Parsek.Tests
             Recording rec,
             out IncompleteBallisticFinalizationResult result)
         {
+            return TryFinalizeNullSolverWithSubSurfaceLiveState(rec, null, out result);
+        }
+
+        private static bool TryFinalizeNullSolverWithSubSurfaceLiveState(
+            Recording rec,
+            RecordingTree tree,
+            out IncompleteBallisticFinalizationResult result)
+        {
             return IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
                 rec,
                 NullSolverSnapshot(),
@@ -2757,7 +2972,76 @@ namespace Parsek.Tests
                         startState,
                         extrapolationBodies,
                         warnOnSubSurfaceStart: false),
+                tree,
                 out result);
+        }
+
+        private static Recording MakeTreeRecording(string recordingId)
+        {
+            return new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = "tree-eva-nullsolver",
+                VesselName = recordingId,
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+        }
+
+        private static Recording MakeParentRecordingWithStructuralPoint(
+            string recordingId,
+            double pointUT,
+            double altitude)
+        {
+            Recording parent = MakeTreeRecording(recordingId);
+            parent.Points.Add(FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+            {
+                ut = pointUT,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = altitude
+            }));
+            return parent;
+        }
+
+        private static Recording MakeEvaChildRecording(
+            string recordingId,
+            string siblingRecordingId,
+            string parentBranchPointId)
+        {
+            Recording child = MakeTreeRecording(recordingId);
+            child.EvaCrewName = "Bill Kerman";
+            child.ParentRecordingId = siblingRecordingId;
+            child.ParentBranchPointId = parentBranchPointId;
+            return child;
+        }
+
+        private static RecordingTree MakeEvaBranchTree(
+            Recording parent,
+            Recording sibling,
+            Recording child,
+            string branchPointId)
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-eva-nullsolver",
+                TreeName = "EVA NullSolver",
+                RootRecordingId = parent.RecordingId,
+                ActiveRecordingId = sibling.RecordingId
+            };
+            tree.AddOrReplaceRecording(parent);
+            tree.AddOrReplaceRecording(sibling);
+            tree.AddOrReplaceRecording(child);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = branchPointId,
+                UT = 500.0,
+                Type = BranchPointType.EVA,
+                ParentRecordingIds = new List<string> { parent.RecordingId },
+                ChildRecordingIds = new List<string> { sibling.RecordingId, child.RecordingId }
+            });
+            return tree;
         }
 
         private static BallisticStateVector MakeSubSurfaceKerbinStartState()

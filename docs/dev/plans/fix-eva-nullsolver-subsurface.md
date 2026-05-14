@@ -35,115 +35,169 @@ The allowance has two failure modes, only one of which is currently handled:
 
 The pipeline can't distinguish "solver torn down" from "solver never built" by reading the `Orbit` object alone — both produce a `null`/empty `IDiscoverableObjectsState`, both fall through to the live-orbit fallback, both produce nonsense coordinates.
 
-There are two reliable distinguishing signals available at branch-creation time:
+There are reliable distinguishing signals available, but the fix must not assume
+that the fresh EVA vessel already reports a stable `LANDED`/`SPLASHED`
+situation. The observed path reached `IncompleteBallisticSceneExitFinalizer` at
+all, which means the normal cache fast path did not treat the vessel as a
+surface terminal. Today `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`
+checks `TryBuildSurfaceTerminalCache` first, and `BallisticExtrapolator.ShouldExtrapolate`
+would also decline `LANDED` / `SPLASHED` / `PRELAUNCH` before the patched-conic
+snapshot runs. So the runtime signature is probably "fresh EVA identity with a
+transient extrapolatable situation", not simply "fresh EVA is `LANDED`".
 
 1. **The structural-event snapshot.** `OnCrewOnEva` already calls `recorder.AppendStructuralEventSnapshot(evaEventUT, evaInvolved, "EVA")` on the parent capsule (`ParsekFlight.cs:6356`) which writes `eventType=EVA flags=1 lat=-0.0961 lon=-74.8274 alt=65.3` to the trajectory. The parent's surface position is the EVA kerbal's spawn position (KSP spawns EVA kerbals at the airlock part's world transform, ~2 m from the capsule).
-2. **`Vessel.situation` and `vessel.isEVA`.** A freshly-spawned EVA kerbal has `situation = LANDED` and `isEVA = true`. A destroyed vessel does not survive long enough for the finalizer to read these reliably, but at branch-creation time the EVA vessel is alive and these properties are populated.
+2. **EVA identity.** `BuildSplitBranchData` stamps `EvaCrewName`, `ParentRecordingId`, and `ParentBranchPointId` on the kerbal child. The live vessel also exposes `isEVA` and `vesselType = EVA`. These are better gates than `vessel.situation` because situation can still be transient during the spawn frame.
+3. **Recorded surface evidence.** `ShouldSuppressSubSurfaceDestroyedFromRecordedPoint` already trusts recorded trajectory points when they contradict a `NullSolver + SubSurfaceStart` live-orbit fallback. Bill's child recording eventually has 120 valid points, but the finalizer ran before those child points existed. The missing evidence at that instant is the parent's structural-event surface point.
 
-Either signal lets us short-circuit before the live-orbit fallback runs.
+These signals let us suppress the false `Destroyed` result after the live-orbit
+fallback exposes itself as `SubSurfaceStart`.
 
 ## Goal
 
-For the EVA-branch-creation pathway only, treat a `NullSolver` snapshot failure as "landed at the parent's structural-event position" rather than "destroyed". The recording terminal is `Landed`, not `Destroyed`, and the vessel snapshot remains valid for playback rendering.
+For a fresh EVA branch child, do not apply `SubSurfaceStart -> Destroyed` when recorded surface evidence proves the live-orbit fallback is garbage. Prefer suppressing the false destroyed result at the existing scene-exit finalizer guard over force-writing a terminal state. The normal recorder/unfinished-flight paths can later seal the EVA as `Landed`/`Splashed` once real samples exist.
 
 For all other `NullSolver` cases (destroyed stock debris, decoupled probes that lose their solver, scene-exit on dead vessels) keep today's `Destroyed` classification — those are still real and the existing tests rely on it.
 
 ## Invariant to enforce
 
-An EVA-kerbal recording whose parent's structural-event snapshot resolved to a valid surface position must never have its vessel snapshot blocked from playback by an Extrapolator `SubSurfaceStart` classification.
+`NullSolver + SubSurfaceStart` must never mark an EVA branch child as `Destroyed` when a child recorded point or parent EVA structural-event snapshot within the contradiction window proves a valid surface position.
 
 ## Proposed implementation
 
-Three viable shapes — reviewers should weigh in on which is preferred.
+Recommended shape:
 
-### Option A (preferred): make the branch-creation path seed the new recording's terminal explicitly
+### Option A (preferred): extend the existing sub-surface recorded-point suppression guard
 
-When `OnCrewOnEva` synthesizes the `bgChild` EVA recording (or `activeChild`, depending on which side the EVA kerbal lands on — confirm by re-reading the existing branch creation path at `ParsekFlight.cs:6363` -> `DeferredEvaBranch`), set the recording's terminal directly from the EVA kerbal's live `Vessel` state:
+Use the existing seam in `IncompleteBallisticSceneExitFinalizer` instead of adding a parallel cache rule. The current flow already matches this bug shape:
 
-- `vessel.situation` -> `TerminalState.Landed` for `LANDED` / `SPLASHED`, `Orbiting` for orbital EVAs (rare but possible)
-- terminal lat/lon/alt from `vessel.latitude`, `vessel.longitude`, `vessel.altitude` (these are surface coordinates that work without an Orbit solver)
-- terminal UT from `evaEventUT`
+1. `TryFinalizeRecording` first calls `BallisticExtrapolator.ShouldExtrapolate` (`IncompleteBallisticSceneExitFinalizer.cs:191-196`). If KSP reports `LANDED` / `SPLASHED`, the method returns false before snapshotting. Therefore Bill's failing path proves `vessel.situation` was transient/extrapolatable at that instant.
+2. `PatchedConicSnapshot` returns `NullSolver`, the finalizer samples the garbage live orbit, and `BallisticExtrapolator` returns `ExtrapolationFailureReason.SubSurfaceStart`.
+3. Before applying `Destroyed`, `ShouldSuppressSubSurfaceDestroyedFromRecordedPoint` (`IncompleteBallisticSceneExitFinalizer.cs:578-691`) checks for a nearby recorded surface point and returns `false` from finalization when one contradicts the live-orbit fallback.
 
-This seeded terminal is then cached by `FinalizerCache.Refresh` BEFORE `TryFinalizeRecording` runs and BEFORE the NullSolver fallback gets a chance to compute garbage. The Extrapolator's sub-surface guard never sees the recording because its terminal is already non-null.
+Why the existing guard likely did not save Bill: it only searches the child recording's own `TrackSections` / `Points` (`TryFindNearestRecordedSurfacePoint`, `IncompleteBallisticSceneExitFinalizer.cs:693-800`). The finalizer fired about 3 ms after branch creation, before the EVA child had recorded its later 120 points, so the child-local search found nothing inside `SubSurfaceRecordedPointContradictionWindowSeconds = 0.5`.
 
-Concretely: extend the EVA branch creation path with a `SeedEvaChildTerminalFromVessel(Recording evaChild, Vessel evaVessel, double evaEventUT)` helper. Call it during branch construction, before the new recording is handed to `FinalizationCache.Refresh` for the first time.
+Extend that guard with a parent structural-event fallback:
 
-Advantage: minimal blast radius. Only the EVA branch creation site changes. The Extrapolator, the live-orbit fallback, and the NullSolver handling all stay exactly as they are — they remain correct for the destroyed-vessel case they were designed for.
+- Keep the existing child-recorded-point search first. If the child already has a qualifying point, preserve today's behavior and log source names unchanged.
+- Only when the child search fails, consider parent evidence for an EVA branch child:
+  - `recording.EvaCrewName` is non-empty;
+  - `recording.ParentBranchPointId` resolves to a `BranchPoint`;
+  - the pre-branch parent is resolved through `BranchPoint.ParentRecordingIds`, not `recording.ParentRecordingId`. In EVA branch children, `ParentRecordingId` points at the sibling continuation child (`ParsekFlight.cs:3951-3965`), so use it only as an EVA topology/sibling identity signal;
+  - the parent recording can be resolved from the active/pending tree context or a narrow injected resolver, not a broad global scan;
+  - the parent has a `TrajectoryPointFlags.StructuralEventSnapshot` point near the EVA event. Do not call `FlightRecorder.TryFindStructuralEventSnapshotPointForUT` with its default `1e-6` tolerance; the structural snapshot is captured before the deferred branch coroutine, while the child `StartUT` is the later `branchUT`, so use the existing `SubSurfaceRecordedPointContradictionWindowSeconds` window or search around both the branch point UT and child `StartUT`;
+  - the parent lookup must be section-aware like `TryFindNearestRecordedSurfacePoint`: for v6+ relative sections, `frames` can contain anchor-local metre offsets in `latitude`/`longitude`/`altitude`, while `bodyFixedFrames` keeps the body-fixed surface copy. Reuse/extract the existing absolute/body-fixed inspection logic rather than scanning the flat `Points` list blindly;
+  - the point has finite body/lat/lon/altitude data, body matches the live fallback body when both are known, altitude is above the sub-surface threshold, and `abs(point.ut - startState.ut) <= SubSurfaceRecordedPointContradictionWindowSeconds`.
+- Return through the existing suppression path with `recordedPointSource = "parent-structural-eva"` or similar. Do not set `TerminalStateValue`, do not synthesize a `Landed` result, and do not add a new cache terminal.
 
-Risk: must verify the seeded terminal is not later overwritten by a periodic `FinalizerCache.Refresh` that re-runs `TryFinalizeRecording`. Spot-check `IncompleteBallisticSceneExitFinalizer.cs` for "already classified" short-circuits — there's a guard at `LogAlreadyClassifiedDestroyedSkip` (`IncompleteBallisticSceneExitFinalizer.cs:322`), need to confirm a similar early-exit exists for `terminal=Landed` and that it kicks in before the snapshot pipeline.
+Do not use `vessel.situation` or `RawVessel.LandedOrSplashed` as the main guard. They are useful diagnostics when settled, but the bug path itself proves situation was not a reliable surface-terminal signal at the failing instant. The trustworthy signals are recording topology (`EvaCrewName` + parent branch links) and recorded surface evidence.
 
-### Option B: teach the Extrapolator to use the parent's structural-event position as the start state for EVA children
+Why this seam is preferred:
 
-When `IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshot` hits `NullSolver` on a recording with `ParentBranchPointId != null && parentBranchPoint.Type == BranchPointType.EVA`:
+- it reuses code already built for `NullSolver + SubSurfaceStart + recorded surface contradiction`;
+- it preserves the destroyed-debris path when there is no contradictory recorded evidence;
+- it suppresses the bad finalization result instead of prematurely ending an active EVA child recording;
+- it keeps the log story coherent: the existing "suppressing sub-surface Destroyed" line remains the authoritative diagnostic.
 
-1. Read the parent recording's last `EVA` structural-event snapshot at `evaEventUT`.
-2. Build the start state from that surface position via `body.GetWorldSurfacePosition(lat, lon, alt)` instead of `vessel.orbit.getPositionAtUT`.
-3. Classify as `Landed` (or whatever the situation flag in the structural event implies).
+### Option B: seed the child with a first structural surface point at branch creation
 
-Advantage: works without changing the branch-creation site. Recovery happens at the finalization seam.
+Instead of teaching the finalizer to consult the parent, branch creation could append/queue a first surface point on the EVA child at `evaEventUT`, flagged with `TrajectoryPointFlags.StructuralEventSnapshot`. Then the existing child-local `TryFindNearestRecordedSurfacePoint` would fire unchanged.
 
-Risk: more surface area to test. Every NullSolver path through the finalizer now branches on parent-EVA vs not. The new code path needs to handle: parent recording missing, structural event missing, lat/lon/alt out of range, body lookup failure, etc.
+This is a reasonable fallback if parent lookup plumbing in the finalizer is awkward, but it is easier to get wrong:
 
-### Option C: detect "live EVA kerbal" in `TryBuildStartStateFromVessel`
+- active-child vs background-child ownership must be handled exactly (`BuildSplitBranchData` already decides which child is the kerbal);
+- the active EVA child must not be marked ended;
+- child seed generation must preserve the v6 relative-frame contract and not duplicate later first real samples.
 
-Add a precondition in `TryBuildStartStateFromVessel` (`IncompleteBallisticSceneExitFinalizer.cs:1571`):
+### Option C: skip finalization for recordings with too few points
 
-```
-if (vessel != null && vessel.isEVA && vessel.LandedOrSplashed)
-{
-    // Fresh EVA kerbal — vessel.orbit is unreliable. Use surface coordinates
-    // resolved from the live vessel transform.
-    return TryBuildSurfaceStartStateFromVessel(vessel, commitUT, out startState);
-}
-```
+A small guard such as "do not finalize recordings with fewer than N recorded samples" would address the timing problem directly: a 3 ms-old branch child with zero samples is not a meaningful ballistic trajectory.
 
-`TryBuildSurfaceStartStateFromVessel` calls `vessel.mainBody.GetWorldSurfacePosition(vessel.latitude, vessel.longitude, vessel.altitude)`, packages it into a `BallisticStateVector` with zero velocity. The Extrapolator's sub-surface guard then sees `alt ≈ 65 m` not `-599652 m` and doesn't fire.
+This needs review before becoming primary:
 
-Advantage: completely localized; one new check + one new helper.
+- the point count must include `TrackSections` and legacy `Points` correctly;
+- some real destruction/decouple cases may create very short recordings that still need `Destroyed` classification;
+- it is broader than the EVA bug and could leave legitimate unfinished flights without a terminal unless paired with existing unfinished-flight sealing.
 
-Risk: every EVA recording now runs through the Extrapolator's surface-scan + horizon-cap logic even though the recording is trivially "landed at this spot". Probably classifies correctly (terminal = `Landed`) but wastes cycles on a degenerate state vector (zero velocity). Worth verifying via the existing pure-static `BallisticExtrapolatorTests`.
+If used, make it a separate, well-tested guard with an explicit log reason such as `finalization-deferred-recording-too-short`.
 
-## Stale-cache cleanup (orthogonal but related)
+### Option D: cache-producer preemption
 
-`IncompleteBallisticSceneExitFinalizer.cs:280-310` already has `ClearStaleDestroyedVerdictForResume` for exactly this kind of "transient NullSolver fingerprinted as Destroyed" case — it's used by the Re-Fly resume path. The proposed fix should call into the same helper if it exists and is exported, or extract the existing logic into a shared utility so both paths converge.
+The earlier cache-producer preemption idea is now a fallback, not the preferred fix. It can prevent the bad result before `PatchedConicSnapshot`, but it bypasses the existing finalizer suppression seam and would need its own evidence resolver, stale-cache behavior, and logging. Use it only if Option A cannot access the parent structural-event evidence cleanly.
 
-Worth a reviewer eye: should the EVA branch creation path proactively call `ClearStaleDestroyedVerdictForResume` (or its inverse, a "this terminal is authoritative, don't recompute" sentinel) on the new EVA child to make absolutely sure no later cache refresh re-classifies it?
+### Rejected shape: situation / `LandedOrSplashed` gate
+
+`vessel.situation == LANDED` / `RawVessel.LandedOrSplashed` is not a reliable discriminator for this bug. If it were true during the failing call, `ShouldExtrapolate` would return false and the NullSolver path would not run. The likely runtime shape is an EVA vessel whose type/recording identity is valid while orbit-derived situation is still transient.
+
+### Rejected shape: surface start state only
+
+Changing only `TryBuildStartStateFromVessel` to return a body-surface state for EVA vessels is insufficient:
+
+- the observed failing path likely did not report a surface-terminal situation, or the cache/finalizer would not have run;
+- `BallisticExtrapolator` does not classify zero-velocity surface starts as `Landed`; it initializes to `Orbiting`, treats zero velocity as `DegenerateStateVector`, and otherwise only switches to `Destroyed` for impact/sub-surface cases;
+- making this correct would require teaching the extrapolator a new "stationary surface terminal" result, which broadens a ballistic helper that currently owns `Orbiting`/`Destroyed` outcomes.
+
+### Rejected shape: branch-time terminal seed only
+
+Setting `TerminalStateValue = Landed` / `ExplicitEndUT = evaEventUT` during `CreateSplitBranch` is also insufficient:
+
+- the active EVA child must keep recording the kerbal's walk, so branch creation must not mark it ended;
+- a terminal seed is less precise than recorded-point contradiction evidence;
+- adding a general sticky-terminal sentinel would be a larger behavior change than suppressing this specific false destroyed finalization.
+
+## Stale-cache cleanup
+
+`IncompleteBallisticSceneExitFinalizer.cs:282-310` already has `ClearStaleDestroyedTerminalForResume` for stale `Destroyed` verdicts. The preferred fix should prevent new stale verdicts by suppressing the bad result before it is applied. If existing sessions may already have a poisoned EVA child, add a narrow cleanup path gated by the same EVA topology + recorded surface evidence checks. Do not relax the destroyed skip globally.
 
 ## Tests
 
 xUnit (`Source/Parsek.Tests/`):
 
-- `EvaChildTerminalSeedingTests.cs` — pure-static test for the new `SeedEvaChildTerminalFromVessel` (Option A) or the structural-event-driven start state (Option B). Cases:
-  - LANDED EVA at lat/lon/alt -> terminal = Landed at that position
-  - SPLASHED EVA -> terminal = Landed (or whatever the existing Splashed mapping is)
-  - Orbital EVA (extremely rare) -> seeded terminal is Orbiting or falls through to the existing patched-conic pipeline (the parent has a valid solver in this case)
-  - Parent structural event missing -> regression-safe fallback (return false, let the existing pipeline run, log a verbose diagnostic)
+- Extend `SceneExitFinalizationIntegrationTests` near the existing `TryCompleteFinalizationFromPatchedSnapshot_NullSolver_FreshRecordedPointSuppressesSubSurfaceDestroyed` coverage:
+  - child EVA branch recording has `EvaCrewName`, `ParentRecordingId`, `ParentBranchPointId`, but no qualifying child points;
+  - branch point parent lookup resolves through `ParentBranchPointId -> BranchPoint.ParentRecordingIds`, not the child's `ParentRecordingId`;
+  - parent recording has a flagged structural `EVA` point near the EVA event; the test should prove the explicit 0.5 s contradiction window works when exact `1e-6` structural lookup would miss;
+  - `NullSolver + SubSurfaceStart` returns `built=false`, preserves `extrapolationFailureReason=SubSurfaceStart`, logs `suppressing sub-surface Destroyed`, and uses source `parent-structural-eva`.
 
-- `IncompleteBallisticSceneExitFinalizerNullSolverEvaTests.cs` — assert that NullSolver + parent-EVA-branch + valid structural-event input produces `terminal=Landed`, not `terminal=Destroyed`, and does NOT log `Start rejected: sub-surface state`.
+- Negative suppression guards:
+  - non-EVA child with parent structural point still classifies `Destroyed`;
+  - EVA child whose `ParentRecordingId` points at the sibling child still resolves the pre-branch parent through the branch point;
+  - EVA child with stale parent structural point outside the 0.5 s window still classifies `Destroyed`;
+  - body mismatch or non-finite parent coordinates still classifies `Destroyed`;
+  - v6 relative parent section uses `bodyFixedFrames`, not local-offset `frames`/flat `Points`;
+  - existing child recorded point still wins over parent fallback and preserves current log source behavior.
 
-- Existing `IncompleteBallisticSceneExitFinalizerTests` and `BallisticExtrapolatorSubSurfaceGuardTests` (or whatever the current names are) must still pass — the destroyed-debris NullSolver path remains identically classified as `Destroyed`. Regression guards.
+- Add a `RecordingFinalizationCacheProducerTests` regression for the observed acceptance path:
+  - the default finalizer suppression causes `TryBuildFromLiveVessel` to decline or fail safely instead of accepting a `Fresh` cache with `TerminalState=Destroyed`;
+  - no `Refresh accepted ... terminal=Destroyed` / newly-classified count is emitted for the EVA child.
+
+- If Option B is chosen instead, extend `SplitEventDetectionTests` / branch creation tests to prove the EVA child gets exactly one structural seed point and no terminal/end UT mutation.
+
+- If Option C is added, create focused tests for zero-point/one-point recordings and at least one regression case where a short real destroyed recording still finalizes.
 
 In-game runtime test (`Source/Parsek/InGameTests/RuntimeTests.cs`, scene `FLIGHT`):
 
-- `EvaKerbalGhostHasVesselSnapshot` — load a 1-crew capsule, EVA, scene-exit, then enter Watch mode on the resulting recording's EVA child. Assert:
-  - Bill Kerman ghost spawns with `parts > 0`
-  - Vessel snapshot is non-null
-  - No `Spawn suppressed for #N "Bill Kerman": no vessel snapshot` line in the recent log buffer
+- `EvaKerbalGhostHasVesselSnapshot` - load a 1-crew capsule, EVA, scene-exit, then enter Watch mode on the resulting recording's EVA child. Assert:
+  - Bill Kerman ghost spawns with `parts > 0`;
+  - vessel snapshot is non-null;
+  - no `Spawn suppressed for #N "Bill Kerman": no vessel snapshot` line appears in the recent log buffer.
 
-xUnit can't replicate this because the bug needs KSP's real EVA spawn sequence (Vessel created with uninitialized Orbit).
+xUnit can pin the finalizer suppression decision, but it cannot reproduce KSP's real fresh-EVA spawn timing where the vessel has an uninitialized `Orbit`.
 
 ### Logging
 
-The current `WARN [PatchedSnapshot] SnapshotPatchedConicChain: vessel=<X> solver unavailable` line at `PatchedConicSnapshot.cs:134` should keep firing for both destroyed and fresh-EVA cases — it's the diagnostic that tells us the snapshot couldn't compute. Add a separate `INFO` line at the new EVA-aware short-circuit:
+Keep the existing suppression log as the primary diagnostic:
 
 ```
-ParsekLog.Info("Extrapolator",
-    "EvaChildTerminalSeeded: rec={recId} parentRec={parentRecId} " +
-    "body={body} lat={lat:F4} lon={lon:F4} alt={alt:F1} terminal=Landed " +
-    "reason=fresh-EVA-no-solver");
+TryFinalizeRecording: suppressing sub-surface Destroyed for '{recId}'
+because a nearby recorded surface point contradicts the live-orbit fallback ...
+source=parent-structural-eva ...
 ```
 
-Suppress the existing `Start rejected: sub-surface state ... classifying recording as Destroyed` `WARN` for the EVA short-circuited case — that line currently fires once per recording (deduped by `subSurfaceDestroyedClassificationLogs.Add(key)`) and a reviewer correlating logs to disk state will be confused if we keep it.
+For this fixed path, the `PatchedSnapshot` solver-unavailable warning may still appear because Option A suppresses after the snapshot/extrapolator result. `BallisticExtrapolator` may also emit its generic `Start rejected: sub-surface state ... classifying recording as Destroyed` message at `Verbose` level because the finalizer calls it with `warnOnSubSurfaceStart: false`.
+
+The important invariant is narrower: the rec-scoped `LogSubSurfaceDestroyedClassificationOnce` warning and the cache-producer `Refresh accepted ... terminal=Destroyed` / newly-classified summary must not appear for the EVA child.
+
+If Option C's too-short-recording guard is implemented, log it separately with recording id, point counts, owner/reason, and UT age so it is distinguishable from the recorded-surface contradiction path.
 
 ## Non-goals
 
@@ -156,20 +210,33 @@ Suppress the existing `Start rejected: sub-surface state ... classifying recordi
 ## Key files
 
 - `Source/Parsek/PatchedConicSnapshot.cs:113-136` — where NullSolver originates and is rate-limited
-- `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:282-310` — `ClearStaleDestroyedVerdictForResume` precedent for the same bug shape
+- `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:282-310` — `ClearStaleDestroyedTerminalForResume` precedent for the same bug shape
 - `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:345-377` — `LogSubSurfaceDestroyedClassificationOnce`, the `WARN` site that fires for Bill
 - `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:452-508` — NullSolver allowance + bail-out logic for non-NullSolver failures
+- `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:570-691` — existing `ShouldSuppressSubSurfaceDestroyedFromRecordedPoint` guard to extend
+- `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:693-800` — child-local recorded surface point search
 - `Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs:1571-1597` — `TryBuildStartStateFromVessel`, the live-orbit fallback that produces the garbage state
+- `Source/Parsek/RecordingFinalizationCacheProducer.cs:166-215` - cache path that currently accepts default-finalizer `Destroyed` results
 - `Source/Parsek/BallisticExtrapolator.cs:100` — `SubSurfaceDestroyedAltitude = -100.0` constant
+- `Source/Parsek/BallisticExtrapolator.cs:128-156` — `ShouldExtrapolate`, proving surface situations do not reach NullSolver snapshotting
 - `Source/Parsek/BallisticExtrapolator.cs:195-236` — sub-surface guard that fires
+- `Source/Parsek/FlightRecorder.cs:7722-7724` — v6 relative-frame local-offset rewrite of `latitude`/`longitude`/`altitude`
+- `Source/Parsek/FlightRecorder.cs:8567-8578` — body-fixed shadow frames retained for relative sections
+- `Source/Parsek/FlightRecorder.cs:9051-9085` — structural-event snapshot point lookup helper
+- `Source/Parsek/ParsekFlight.cs:3907-3968` - `BuildSplitBranchData`, where EVA child identity is assigned
+- `Source/Parsek/ParsekFlight.cs:4034-4169` - `CreateSplitBranch`, where active/background child ownership and recording start happen
+- `Source/Parsek/ParsekFlight.cs:4692-4705` - `DeferredEvaBranch` one-frame delay and later `branchUT`
 - `Source/Parsek/ParsekFlight.cs:6356` — `recorder.AppendStructuralEventSnapshot(evaEventUT, evaInvolved, "EVA")` is where the parent's surface position gets captured
-- `Source/Parsek/ParsekFlight.cs:6363` — `DeferredEvaBranch` is launched, branch construction follows
+- `Source/Parsek/ParsekFlight.cs:6364` — `DeferredEvaBranch` is launched, branch construction follows
+- `Source/Parsek.Tests/RecordingFinalizationCacheProducerTests.cs` - cache acceptance regression coverage
+- `Source/Parsek.Tests/SceneExitFinalizationIntegrationTests.cs:1264-1452` - existing NullSolver recorded-point suppression coverage to extend
+- `Source/Parsek.Tests/SplitEventDetectionTests.cs:287-365` - existing EVA branch child identity tests to extend
 - `logs/2026-05-13_2337_eva-kerbals-missing/KSP.log` lines 57189-57196 — full reproducer trace for Bill
 
 ## Open questions for reviewers
 
-1. Option A vs B vs C — which seam is the right one? Option A localizes to the EVA branch creator and leaves the Extrapolator alone. Option B/C add complexity to the Extrapolator side. My current preference is A.
-2. Should the new EVA-aware seed mark the terminal as "authoritative, do not recompute" via a sentinel, or rely on the existing "already-classified" short-circuit pattern? The latter is simpler but couples this fix to that short-circuit's exact semantics.
-3. Should we also fix the symmetric pad-EVA case where the EVA kerbal is the *active* recording (no parent in tree)? Currently that path doesn't hit this bug because it doesn't go through the patched-conic snapshot path the same way. Worth confirming the auto-record-EVA-from-pad runtime test (`RuntimeTests.cs:775-861`) catches the regression we'd introduce if we changed it.
-4. Stock KSP also has `vesselType = EVA`. Could we gate the short-circuit on `vessel.vesselType == VesselType.EVA` rather than `vessel.isEVA && vessel.LandedOrSplashed`? Need to confirm both flags are set before `OnCrewOnEva` runs.
-5. The `ClearStaleDestroyedVerdictForResume` helper exists for Re-Fly resume. Should the proposed fix also call it (or equivalent) so that *if* a stale Destroyed cache entry survives somehow, it gets cleaned up rather than persisted to disk?
+1. What is the cleanest tree-local resolver for `ParentBranchPointId -> BranchPoint.ParentRecordingIds -> parent Recording` inside `ShouldSuppressSubSurfaceDestroyedFromRecordedPoint`? Prefer an injected/narrow resolver over scanning global committed recordings.
+2. Should the parent structural lookup search around the child `StartUT`, the branch point UT, the original EVA event UT if available, or all of them within the existing 0.5 s contradiction window?
+3. Should a minimum-point-count finalization deferral be added in addition to the EVA parent-evidence fallback, or is that too broad for this PR?
+4. What exact `vessel.situation` does KSP report for Bill in the failing 3 ms window? Treat this as diagnostic evidence only, not as a proposed gate.
+5. If existing saves already contain a poisoned EVA `Destroyed` terminal, should this PR include a narrow cleanup path using the same parent/child recorded surface evidence?

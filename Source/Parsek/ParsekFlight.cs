@@ -11904,7 +11904,8 @@ namespace Parsek
                     activeRec,
                     v,
                     commitUT,
-                    "EnsureActiveRecordingTerminalState");
+                    "EnsureActiveRecordingTerminalState",
+                    tree);
                 sceneExitSuppliedSnapshots =
                     !ReferenceEquals(vesselSnapshotBefore, activeRec.VesselSnapshot)
                     && activeRec.VesselSnapshot != null;
@@ -12634,7 +12635,8 @@ namespace Parsek
                     rec,
                     finalizeVessel,
                     commitUT,
-                    "FinalizeIndividualRecording");
+                    "FinalizeIndividualRecording",
+                    treeContext);
                 sceneExitSuppliedSnapshots =
                     !ReferenceEquals(vesselSnapshotBefore, rec.VesselSnapshot)
                     && rec.VesselSnapshot != null;

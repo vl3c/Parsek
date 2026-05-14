@@ -9967,6 +9967,7 @@ namespace Parsek
                 FinalizationCacheOwner.ActiveRecorder,
                 reason,
                 hasMeaningfulThrust,
+                ActiveTree,
                 out refreshed);
 
             if (!success
