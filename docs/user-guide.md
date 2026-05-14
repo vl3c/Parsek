@@ -240,7 +240,8 @@ Diagnostics:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Verbose logging | On | Write detailed diagnostics to `KSP.log` |
-| Write readable sidecar mirrors | On | Also write human-readable `.txt` mirrors alongside binary recording sidecars |
+| Ghost render tracing (Warning: huge logs) | Off | Write detailed per-ghost render placement diagnostics to `KSP.log` |
+| Write readable sidecar mirrors (Warning: extra disk usage) | On | Also write human-readable `.txt` mirrors alongside binary recording sidecars |
 | In-Game Test Runner | - | Opens the runtime-test window (same as Ctrl+Shift+T) |
 | Run Diagnostics Report | - | Dumps a full diagnostics snapshot to `KSP.log` |
 
