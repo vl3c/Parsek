@@ -1300,13 +1300,16 @@ namespace Parsek
         /// cutoff at the call site before <see cref="RewindContext.EndRewind"/> clears
         /// the global.
         /// </param>
-        internal static void RecalculateAndPatch(double? utCutoff = null)
+        internal static void RecalculateAndPatch(
+            double? utCutoff = null,
+            bool suppressSuspiciousDrawdownWarnings = false)
         {
             RecalculateAndPatchCore(
                 utCutoff,
                 bypassPatchDeferral: utCutoff.HasValue,
                 authoritativeRepeatableRecordState: utCutoff.HasValue,
-                techPatchCutoff: utCutoff);
+                techPatchCutoff: utCutoff,
+                suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings);
         }
 
         /// <summary>
@@ -1330,7 +1333,8 @@ namespace Parsek
                 utCutoff,
                 bypassPatchDeferral: false,
                 authoritativeRepeatableRecordState: false,
-                techPatchCutoff: utCutoff);
+                techPatchCutoff: utCutoff,
+                suppressSuspiciousDrawdownWarnings: true);
         }
 
         /// <summary>
@@ -1398,7 +1402,8 @@ namespace Parsek
                 bypassPatchDeferral: true,
                 authoritativeRepeatableRecordState: true,
                 techPatchCutoff: patchTechTree ? double.MaxValue : (double?)null,
-                excludeTombstonedTechFromBaseline: patchTechTree);
+                excludeTombstonedTechFromBaseline: patchTechTree,
+                suppressSuspiciousDrawdownWarnings: false);
         }
 
         private const double InitialResourceBaselineMaxUtSeconds = 1.0;
@@ -1640,7 +1645,8 @@ namespace Parsek
             bool bypassPatchDeferral,
             bool authoritativeRepeatableRecordState,
             double? techPatchCutoff,
-            bool excludeTombstonedTechFromBaseline = false)
+            bool excludeTombstonedTechFromBaseline = false,
+            bool suppressSuspiciousDrawdownWarnings = false)
         {
             Initialize();
 
@@ -1707,7 +1713,8 @@ namespace Parsek
                     utCutoff,
                     authoritativeRepeatableRecordState,
                     techPatchCutoff,
-                    excludeTombstonedTechFromBaseline);
+                    excludeTombstonedTechFromBaseline,
+                    suppressSuspiciousDrawdownWarnings);
             }
 
             // #391 / cutoff-cache follow-up: rebuild committedScienceSubjects from
@@ -1799,7 +1806,8 @@ namespace Parsek
             double? utCutoff,
             bool authoritativeRepeatableRecordState,
             double? techPatchCutoff,
-            bool excludeTombstonedTechFromBaseline)
+            bool excludeTombstonedTechFromBaseline,
+            bool suppressSuspiciousDrawdownWarnings)
         {
             // KSP state mutations (PostWalk already called by engine). Repeatable
             // Records* nodes only rebuild strictly from ledger-backed thresholds on
@@ -1848,7 +1856,7 @@ namespace Parsek
                 authoritativeRepeatableRecordState: authoritativeRepeatableRecordState,
                 techUtCutoff: techPatchCutoff,
                 techBaselineUt: techBaselineUt,
-                suppressSuspiciousDrawdownWarnings: utCutoff.HasValue);
+                suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings);
         }
 
         internal static HashSet<string> BuildTombstonedFacilityIdsForPatch()

@@ -2553,7 +2553,9 @@ namespace Parsek
             // same value into a local BEFORE its yield so its second call is
             // independent of RewindContext state.
             GameStateStore.PruneBaselinesAfterUT(RewindContext.RewindAdjustedUT);
-            LedgerOrchestrator.RecalculateAndPatch(RewindContext.RewindAdjustedUT);
+            LedgerOrchestrator.RecalculateAndPatch(
+                RewindContext.RewindAdjustedUT,
+                suppressSuspiciousDrawdownWarnings: true);
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
             ParsekLog.Info("Rewind",
@@ -5643,7 +5645,9 @@ namespace Parsek
             // this coroutine resumes, so we cannot read from RewindContext here.
             // The cutoff applies to career resources; crew reservations are rebuilt
             // from the full committed timeline inside LedgerOrchestrator.
-            LedgerOrchestrator.RecalculateAndPatch(adjustedUT);
+            LedgerOrchestrator.RecalculateAndPatch(
+                adjustedUT,
+                suppressSuspiciousDrawdownWarnings: true);
 
             // Belt-and-suspenders guard: if some future refactor accidentally schedules
             // the normal revert budget-deduction coroutine during this rewind load, it

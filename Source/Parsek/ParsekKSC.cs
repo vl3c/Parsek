@@ -478,12 +478,31 @@ namespace Parsek
             return currentUT >= nextActionUT;
         }
 
+        internal static bool ShouldSeedCareerLedgerForKscUT(
+            double currentUT,
+            double lastAppliedUT)
+        {
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+                return false;
+            return double.IsNaN(lastAppliedUT);
+        }
+
+        internal static string GetCareerLedgerAdvanceReasonForKscUT(
+            double currentUT,
+            double lastAppliedUT,
+            double epsilon)
+        {
+            return currentUT < lastAppliedUT - epsilon
+                ? "ksc-clock-backward"
+                : "ksc-clock";
+        }
+
         private void AdvanceCareerLedgerForKscUT(double currentUT)
         {
             if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
                 return;
 
-            if (double.IsNaN(lastKscLedgerCutoffUT))
+            if (ShouldSeedCareerLedgerForKscUT(currentUT, lastKscLedgerCutoffUT))
             {
                 lastKscLedgerCutoffUT = currentUT;
                 return;
@@ -499,10 +518,15 @@ namespace Parsek
                     KscLedgerAdvanceEpsilonSeconds))
                 return;
 
-            string reason = currentUT < lastKscLedgerCutoffUT - KscLedgerAdvanceEpsilonSeconds
-                ? "ksc-clock-backward"
-                : "ksc-clock";
+            string reason = GetCareerLedgerAdvanceReasonForKscUT(
+                currentUT,
+                lastKscLedgerCutoffUT,
+                KscLedgerAdvanceEpsilonSeconds);
             LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent(currentUT, reason);
+
+            // Advance the KSC cursor even if a pending/live tree makes the internal
+            // patch defer; tree resolution runs its own recalc, while retrying here
+            // every frame would spam full ledger walks.
             lastKscLedgerCutoffUT = currentUT;
         }
 

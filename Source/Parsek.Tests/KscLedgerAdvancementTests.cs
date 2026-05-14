@@ -63,5 +63,54 @@ namespace Parsek.Tests
                 nextActionUT: double.PositiveInfinity,
                 epsilon: 0.05));
         }
+
+        [Fact]
+        public void ShouldSeedCareerLedgerForKscUT_FirstValidFrame_ReturnsTrue()
+        {
+            Assert.True(ParsekKSC.ShouldSeedCareerLedgerForKscUT(
+                currentUT: 19.0,
+                lastAppliedUT: double.NaN));
+        }
+
+        [Fact]
+        public void ShouldSeedCareerLedgerForKscUT_InvalidCurrentUt_ReturnsFalse()
+        {
+            Assert.False(ParsekKSC.ShouldSeedCareerLedgerForKscUT(
+                currentUT: double.NaN,
+                lastAppliedUT: double.NaN));
+            Assert.False(ParsekKSC.ShouldSeedCareerLedgerForKscUT(
+                currentUT: double.PositiveInfinity,
+                lastAppliedUT: double.NaN));
+        }
+
+        [Fact]
+        public void ShouldSeedCareerLedgerForKscUT_AlreadySeeded_ReturnsFalse()
+        {
+            Assert.False(ParsekKSC.ShouldSeedCareerLedgerForKscUT(
+                currentUT: 20.0,
+                lastAppliedUT: 19.0));
+        }
+
+        [Fact]
+        public void GetCareerLedgerAdvanceReasonForKscUT_BackwardClockMove_ReturnsBackwardReason()
+        {
+            Assert.Equal(
+                "ksc-clock-backward",
+                ParsekKSC.GetCareerLedgerAdvanceReasonForKscUT(
+                    currentUT: 19.0,
+                    lastAppliedUT: 129.0,
+                    epsilon: 0.05));
+        }
+
+        [Fact]
+        public void GetCareerLedgerAdvanceReasonForKscUT_ForwardClockMove_ReturnsForwardReason()
+        {
+            Assert.Equal(
+                "ksc-clock",
+                ParsekKSC.GetCareerLedgerAdvanceReasonForKscUT(
+                    currentUT: 129.0,
+                    lastAppliedUT: 19.0,
+                    epsilon: 0.05));
+        }
     }
 }
