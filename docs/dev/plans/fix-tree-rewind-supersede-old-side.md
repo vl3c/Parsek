@@ -314,7 +314,18 @@ foreach (RewoundOutOldSideReason row on a live non-Immutable priorTip P)
         remove;         // stale pre-fix row -- sweep it
 ```
 
-**Residual gap (documented, accepted):** a load-2+ visit of a save whose load-1 reconstruction *failed* (`MissingMetadata` / `RestoredRecordingMissing`) leaves that tree in neither set. But the tree is already degraded (load 1 logged `priorTip may render alongside canon, investigate`), so the second pass sweeping is not making a healthy tree worse. There is no per-row fork metadata on `RewoundOutOldSideReason` rows to do better; recording it would be a schema change out of scope here.
+**Accepted limitation — same-tree mixed shapes are over-deferred (rejected by review 4 as a gap, kept as the documented conservative trade).** A single recording tree can hold multiple independent rewound-out Re-Fly slots. A pre-canon-forks tree can carry, *in the same tree*, BOTH a surviving/reconstructed Immutable supersede AND a genuinely-stale non-Immutable `RewoundOutOldSideReason` row from a *different* slot. The tree-scoped guard defers both — the stale row is over-deferred (stays hidden).
+
+We cannot scope tighter. PR #807 deliberately writes `RewoundOutOldSideReason` rows with `RestoredRecordingId == null` and `SourceSupersedeRelationId == null` ("an old-side can be the OldRecordingId of multiple dropped relations — picking one is misleading"), so a row carries no link to its fork. `RewindUT` identifies only the rewind *batch*, which can retire several forks (Immutable and non-Immutable) at once, so batch-matching would conflate victims of different forks. There is no recorded provenance finer than the tree without a schema change to add per-row fork lineage — out of scope for a load-time recovery sweep.
+
+Deferral is the correct conservative trade for that rare shape, and crucially it is **not a regression**:
+
+- **Defer (current):** the stale non-Immutable row stays — the priorTip stays hidden. That is *exactly its pre-PR-848 state* (PR #807 hid it on purpose at the time). A missed cleanup, not a corruption: nothing renders incorrectly, the recordings table / ERS stay internally consistent, and the row is still removed by the existing orphan / `TreeDiscardPurge` paths when the recording or tree goes away.
+- **Sweep:** risks re-exposing genuine multi-old-Immutable victims as visible "Destroyed" outcomes alongside the canon — the double-materialization rendering corruption PR #776/#777/#807 exist to prevent.
+
+A missed cleanup is strictly less bad than a rendering corruption, so when a row cannot be proven independent of its tree's canon state we keep it. **PR #848 improves every single-shape tree (the user's repro included) without regressing the rare same-tree-mixed shape — it just does not improve that one.** Pinned by `LegacyOldSideSweep_SameTreeMixedShape_DefersStaleRowConservatively`.
+
+**Residual gap (documented, accepted):** a load-2+ visit of a save whose load-1 reconstruction *failed* (`MissingMetadata` / `RestoredRecordingMissing`) leaves that tree in neither set. But the tree is already degraded (load 1 logged `priorTip may render alongside canon, investigate`), so the second pass sweeping is not making a healthy tree worse.
 
 Post-fix saves never produce a legacy `DefaultReason` retirement on an Immutable recording (canon-forks routes Immutable forks to `pendingImmutablePreservations` instead of `pendingDrops`), so the first signal is effectively legacy-save-only. The second signal *can* fire for a healthy post-fix tree with a legitimate Immutable supersede — but such a tree has zero `RewoundOutOldSideReason` rows to sweep (the new Pass-2 write site is unreachable in production), so deferring that tree is a harmless no-op.
 
@@ -326,6 +337,7 @@ A `[LoadSweep] Legacy non-Immutable old-side sweep deferred: N of M candidate ro
 
 - **`LegacyOldSideSweep_DeferredAndDurableForMultiOldSideToImmutableForkShape`** — constructs the `F`-to-`{P1,P2,P3}` multi-old shape (all in one tree) and runs the sweep **twice** on the same scenario object (a faithful load-1 / load-2 simulation, since the first run mutates `RecordingSupersedes` + `RecordingRewindRetirements` in place). Load 1: the removed-Immutable-fork-retirement signal fires; `F`'s retirement gone, `F`-to-`P1` reconstructed, `P1`/`P2`/`P3` rows survive. Load 2: `F`'s retirement is already gone; the surviving-relation signal fires; `P1`/`P2`/`P3` rows **still** survive. This is the regression the durable signal prevents.
 - **`LegacyOldSideSweep_RecoversStaleRow_WhenUnrelatedTreeHasCanonReFly`** — `tree-user` carries the user's stale `CommittedProvisional` priorTip row; `tree-other` carries a completely unrelated healthy Immutable supersede. The tree-scoped guard sweeps the `tree-user` row (its tree has no Immutable canon state) and leaves `tree-other`'s supersede untouched. This is the regression the tree-scoping prevents.
+- **`LegacyOldSideSweep_SameTreeMixedShape_DefersStaleRowConservatively`** — pins the accepted limitation above: one tree carries both a healthy Immutable canon supersede and a genuinely-stale `CommittedProvisional` `RewoundOutOldSideReason` row from a different slot. The stale row is conservatively deferred (kept in its pre-PR-848 hidden state) rather than risk double-materialization, and the healthy supersede is untouched.
 
 ## CHANGELOG / docs
 

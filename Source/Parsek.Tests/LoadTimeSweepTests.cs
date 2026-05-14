@@ -1186,6 +1186,80 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LegacyOldSideSweep_SameTreeMixedShape_DefersStaleRowConservatively()
+        {
+            // ACCEPTED LIMITATION (pinned here on purpose). A single recording
+            // tree can hold multiple independent rewound-out Re-Fly slots. This
+            // tree carries BOTH, in the SAME tree:
+            //   - a healthy Immutable canon supersede (canonOld -> canonFork),
+            //     unrelated to the stale row; and
+            //   - a genuinely-stale CommittedProvisional priorTip
+            //     RewoundOutOldSideReason row ("stale-probe") from a different
+            //     slot.
+            // The tree-scoped guard cannot distinguish them: RewoundOutOldSideReason
+            // rows carry RestoredRecordingId == null / SourceSupersedeRelationId
+            // == null by PR #807 design, so a row has no link to its fork, and
+            // there is no recorded provenance finer than the tree. The guard
+            // therefore defers BOTH — "stale-probe" is over-deferred.
+            //
+            // This is the correct conservative trade, NOT a regression:
+            //   - Deferring leaves "stale-probe" exactly in its pre-PR-848
+            //     state (hidden — PR #807 hid it on purpose at the time). A
+            //     missed cleanup, not a corruption.
+            //   - Sweeping it would risk re-exposing genuine multi-old-Immutable
+            //     victims in trees we can't tell apart from this one — the
+            //     double-materialization rendering bug PR #776/#777/#807 fixed.
+            // PR #848 improves every single-shape tree (incl. the user's repro)
+            // without regressing this rare same-tree-mixed shape.
+            InstallTree("tree-mixed",
+                new List<Recording>
+                {
+                    Rec("canonOld", MergeState.CommittedProvisional,
+                        treeId: "tree-mixed"),
+                    Rec("canonFork", MergeState.Immutable,
+                        treeId: "tree-mixed"),
+                    Rec("stale-probe", MergeState.CommittedProvisional,
+                        treeId: "tree-mixed")
+                },
+                new List<BranchPoint>());
+            var staleOldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_stale_probe",
+                RecordingId = "stale-probe",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation>
+                {
+                    // Healthy Immutable canon supersede, SAME tree, unrelated
+                    // to stale-probe.
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_canon",
+                        OldRecordingId = "canonOld",
+                        NewRecordingId = "canonFork"
+                    }
+                },
+                retirements: new List<RecordingRewindRetirement> { staleOldSide });
+
+            LoadTimeSweep.Run();
+
+            // The stale row is DEFERRED (conservatively retained) because its
+            // tree carries Immutable canon state we cannot prove it independent
+            // of. This is the documented accepted limitation.
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "stale-probe");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement=rrt_stale_probe"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Legacy non-Immutable old-side sweep deferred"));
+            // The healthy canon supersede is untouched.
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("canonFork", scenario.RecordingSupersedes[0].NewRecordingId);
+        }
+
+        [Fact]
         public void LegacyOldSideRetirement_SweepIsIdempotent()
         {
             // First load removes the stale row; subsequent loads have nothing

@@ -794,7 +794,46 @@ namespace Parsek
             //     signal.
             //
             // An old-side row is deferred only when its priorTip's tree is in
-            // either set. Residual gap: a load-2+ visit of a save whose load-1
+            // either set.
+            //
+            // ACCEPTED LIMITATION — same-tree mixed shapes are over-deferred.
+            // A single recording tree can hold multiple independent rewound-out
+            // Re-Fly slots. If a pre-canon-forks tree carries BOTH a surviving
+            // (or just-reconstructed) Immutable supersede AND a genuinely-stale
+            // non-Immutable RewoundOutOldSideReason row from a *different* slot,
+            // the tree is in treesWithSurvivingImmutableSupersede and the stale
+            // row is deferred even though it is not part of the multi-old
+            // fan-in. We CANNOT do better here: PR #807 deliberately writes
+            // RewoundOutOldSideReason rows with RestoredRecordingId == null and
+            // SourceSupersedeRelationId == null ("an old-side can be the
+            // OldRecordingId of multiple dropped relations — picking one is
+            // misleading"), so a row carries no link to its fork; and RewindUT
+            // identifies only the rewind *batch*, which can retire several
+            // forks at once. There is no recorded provenance to scope tighter
+            // than the tree without a schema change.
+            //
+            // Deferral is nonetheless the correct conservative choice for that
+            // rare shape. The two outcomes are asymmetric:
+            //   - Defer (current): the stale non-Immutable row stays — the
+            //     priorTip remains hidden. This is exactly its pre-PR-848
+            //     state (PR #807 hid it on purpose at the time). A missed
+            //     cleanup, NOT a regression: nothing renders incorrectly, the
+            //     recordings table / ERS stay internally consistent, and the
+            //     row is still removed by the existing orphan / TreeDiscardPurge
+            //     paths when the recording or tree goes away.
+            //   - Sweep: risks re-exposing the multi-old-Immutable victims
+            //     (P2/P3) as visible "Destroyed" outcomes alongside the canon
+            //     — the double-materialization rendering corruption PR
+            //     #776/#777/#807 exist to prevent.
+            // A missed cleanup is strictly less bad than a rendering
+            // corruption, so when a row cannot be proven independent of the
+            // tree's canon state we keep it. PR #848 therefore IMPROVES the
+            // common case (the user's repro, and every single-shape tree)
+            // without REGRESSING the rare same-tree-mixed case — it just does
+            // not improve that one. LegacyOldSideSweep_SameTreeMixedShape_
+            // DefersStaleRowConservatively pins this behavior.
+            //
+            // Residual gap: a load-2+ visit of a save whose load-1
             // reconstruction FAILED leaves that tree in neither set — but the
             // tree is already degraded (load 1 logged "priorTip may render
             // alongside canon, investigate"), so sweeping is not making a
