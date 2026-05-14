@@ -728,17 +728,31 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            // Mirror the Kerbal X bug from logs/2026-05-10_1713: one stored OrbitSegment
+            // Mirror the Kerbal X bug shape from logs/2026-05-10_1713: one stored OrbitSegment
             // covering the on-rails coast (sub-orbital, periapsis below ground), then an
             // ExoBallistic Absolute TrackSection containing a single post-burn frame
-            // whose state vector defines a circular ~205 km orbit. The fix must walk
+            // whose state vector defines a circular ~205 km orbit. The tail velocity is
+            // built from the live body transform so the assertion pins the reseed frame
+            // conversion instead of a historical body-rotation phase. The fix must walk
             // past the segment, build the orbit from the tail frame, and the resulting
             // periapsis must clear the atmosphere.
             const double subOrbitalSegmentEndUT = 958.87;
             const double postBurnFrameUT = 977.93;
             const double postBurnAlt = 203587.0; // metres
-            // Velocity components in body-centric inertial frame, ~circular at 205 km.
-            UnityEngine.Vector3 postBurnVel = new UnityEngine.Vector3(1736.18f, -1.73f, -1178.98f);
+            const double postBurnLat = 0.0;
+            const double postBurnLon = 8.5604;
+            Vector3d postBurnWorldPos = kerbin.GetWorldSurfacePosition(postBurnLat, postBurnLon, postBurnAlt);
+            Vector3d postBurnRadial = (postBurnWorldPos - kerbin.position).normalized;
+            Vector3d postBurnTangent = Vector3d.Cross(new Vector3d(0.0, 1.0, 0.0), postBurnRadial);
+            if (postBurnTangent.sqrMagnitude < 1e-12)
+                postBurnTangent = Vector3d.Cross(new Vector3d(1.0, 0.0, 0.0), postBurnRadial);
+            postBurnTangent = postBurnTangent.normalized;
+            double postBurnSpeed = System.Math.Sqrt(kerbin.gravParameter / (postBurnWorldPos - kerbin.position).magnitude);
+            Vector3d postBurnVelYup = postBurnTangent * postBurnSpeed;
+            UnityEngine.Vector3 postBurnVel = new UnityEngine.Vector3(
+                (float)postBurnVelYup.x,
+                (float)postBurnVelYup.y,
+                (float)postBurnVelYup.z);
 
             var rec = new Recording { RecordingId = "ingame-tail-derived-orbit" };
             rec.OrbitSegments.Add(new OrbitSegment
@@ -765,8 +779,8 @@ namespace Parsek.InGameTests
                     new TrajectoryPoint
                     {
                         ut = postBurnFrameUT,
-                        latitude = 0.7908,
-                        longitude = 8.5604,
+                        latitude = postBurnLat,
+                        longitude = postBurnLon,
                         altitude = postBurnAlt,
                         rotation = UnityEngine.Quaternion.identity,
                         velocity = postBurnVel,
@@ -838,18 +852,18 @@ namespace Parsek.InGameTests
             // ecc bound is what specifically discriminates a `.xzy` failure (a
             // physically-circular orbit reseeded from axis-swapped state vectors comes
             // out with non-zero apparent eccentricity). Tight bounds chosen from the
-            // analytic state-vector solution for (lat=0.79°, lon=8.56°, alt=203 587 m,
-            // |v|≈2 098 m/s) — circular at 203 587 m gives sma = 803 587 m and inc ≈
-            // atan2(vY, |vXZ|) on Kerbin's equator.
+            // dynamically-built state vector: circular at 203 587 m gives
+            // sma = 803 587 m and near-zero eccentricity/inclination. The velocity
+            // is computed from the body's live transform so this test only catches
+            // frame conversion regressions, not harmless body-rotation phase drift.
             InGameAssert.IsTrue(System.Math.Abs(semiMajorAxis - 803_587.0) < 5_000.0,
                 $"sma={semiMajorAxis:F1} should be near 803 587 m (analytic circular at 203.587 km); " +
                 "if this fails, the (pos - body.position) subtraction is wrong (|pos| went off by the body.position offset)");
             InGameAssert.IsTrue(eccentricity < 0.005,
                 $"ecc={eccentricity:F4} should be near zero for a circular orbit; " +
                 "if this fails specifically (and sma is right), the `.xzy` flip is missing on either pos or vel");
-            // Inclination from the analytic state vector: vY = -1.73, |vXZ| ≈ 2 098, so
-            // inc ≈ atan(vY/|vXZ|) × 180/π ≈ 0.047°. Allow 0.5° because the synthetic
-            // test rotates the body around its axis between frames.
+            // The synthetic vector is built tangent to Kerbin's equator at the current
+            // body rotation, so inclination should stay near zero.
             InGameAssert.IsTrue(inclination >= 0.0 && inclination < 0.5,
                 $"inclination={inclination:F4}° should be near zero for an equatorial state vector");
 
@@ -10279,15 +10293,16 @@ namespace Parsek.InGameTests
         /// Stock non-revert scene-exit player-flow canary. Starts a real recording,
         /// launches the active vessel far enough to avoid the idle-on-pad discard
         /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
-        /// stock PauseMenu uses. The expected shipped behavior after #434 with
-        /// auto-merge disabled is a deferred merge dialog in SPACECENTER whose
-        /// "Merge to Timeline" button commits the pending tree. Use a disposable/
-        /// manual-backup save before running it.
+        /// stock PauseMenu uses. The expected shipped behavior with auto-merge
+        /// disabled is a pre-transition merge dialog in FLIGHT whose "Merge to
+        /// Timeline" button finalizes and commits the live tree before the
+        /// blocked Space Center scene change resumes. Use a disposable/manual-
+        /// backup save before running it.
         /// </summary>
         [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the deferred merge dialog in SPACECENTER.",
-            Description = "Space Center exit shows deferred merge dialog and Merge to Timeline commits the pending tree")]
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog.",
+            Description = "Space Center exit shows pre-transition merge dialog and Merge to Timeline commits the live tree")]
         public IEnumerator ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree()
         {
             var flight = ParsekFlight.Instance;
@@ -10377,19 +10392,18 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(0.5f);
 
                 TriggerSaveAndExitToSpaceCenter();
-                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
                 yield return WaitForPopupDialog("ParsekMerge", 10f);
 
                 PopupDialog popup = FindPopupDialog("ParsekMerge");
                 InGameAssert.IsNotNull(popup,
-                    "ParsekMerge popup should exist after the real Space Center exit");
+                    "ParsekMerge popup should exist before the real Space Center exit completes");
 
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
                 InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
-                    "Deferred merge dialog title should match the production popup");
+                    "Pre-transition merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
                 DialogGUIButton mergeButton = buttons.FirstOrDefault(
@@ -10399,17 +10413,17 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
                 InGameAssert.IsNotNull(discardButton, "Discard button should exist");
-                InGameAssert.IsTrue(RecordingStore.HasPendingTree,
-                    "Real Space Center exit should surface a pending tree before the merge click");
-                InGameAssert.AreEqual(treeId, RecordingStore.PendingTree?.Id,
-                    "Real Space Center exit should keep the same pending tree id into SPACECENTER");
+                InGameAssert.AreEqual(GameScenes.FLIGHT, HighLogic.LoadedScene,
+                    "Pre-transition merge dialog should block the Space Center scene change until a button is clicked");
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Pre-transition merge dialog should keep the live tree unfinalized before the merge click");
                 InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
-                    "Deferred merge dialog should keep the pending-dialog flag armed until the click");
+                    "Pre-transition merge dialog should keep the pending-dialog flag armed until the click");
 
                 DialogGuiButtonOptionSelectedMethod.Invoke(mergeButton, null);
 
                 yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
-                yield return null;
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
 
                 InGameAssert.IsFalse(RecordingStore.HasPendingTree,
                     "Merge to Timeline should consume the pending tree after real scene exit");
@@ -10429,12 +10443,12 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(recordingCommitted,
                     "CommittedRecordings should contain the merged tree's active recording");
 
-                bool sawDeferredDialog = captured.Any(
-                    line => line.Contains("Showing deferred tree merge dialog in SPACECENTER"));
+                bool sawPreTransitionDialog = captured.Any(
+                    line => line.Contains("Pre-transition tree merge dialog"));
                 bool sawUserMerge = captured.Any(
                     line => line.Contains("User chose: Tree Merge"));
-                InGameAssert.IsTrue(sawDeferredDialog,
-                    "Expected the real scene-exit flow to log the deferred merge dialog in SPACECENTER");
+                InGameAssert.IsTrue(sawPreTransitionDialog,
+                    "Expected the real scene-exit flow to log the pre-transition merge dialog");
                 InGameAssert.IsTrue(sawUserMerge,
                     "Expected the real scene-exit flow to log the Merge to Timeline branch");
 
@@ -10462,16 +10476,16 @@ namespace Parsek.InGameTests
         /// Stock non-revert scene-exit discard canary. Starts a real recording,
         /// launches the active vessel far enough to avoid the idle-on-pad discard
         /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
-        /// stock PauseMenu uses. The expected shipped behavior after #434 with
-        /// auto-merge disabled is a deferred merge dialog in SPACECENTER whose
-        /// explicit "Discard" button clears the pending tree without committing
-        /// anything to the timeline. Use a disposable/manual-backup save before
-        /// running it.
+        /// stock PauseMenu uses. The expected shipped behavior with auto-merge
+        /// disabled is a pre-transition merge dialog in FLIGHT whose explicit
+        /// "Discard" button finalizes and discards the live tree before the
+        /// blocked Space Center scene change resumes. Use a disposable/manual-
+        /// backup save before running it.
         /// </summary>
         [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the deferred merge dialog discard branch in SPACECENTER.",
-            Description = "Space Center exit shows deferred merge dialog and Discard clears the pending tree without a commit")]
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog discard branch.",
+            Description = "Space Center exit shows pre-transition merge dialog and Discard clears the live tree without a commit")]
         public IEnumerator ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree()
         {
             var flight = ParsekFlight.Instance;
@@ -10561,19 +10575,18 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(0.5f);
 
                 TriggerSaveAndExitToSpaceCenter();
-                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
                 yield return WaitForPopupDialog("ParsekMerge", 10f);
 
                 PopupDialog popup = FindPopupDialog("ParsekMerge");
                 InGameAssert.IsNotNull(popup,
-                    "ParsekMerge popup should exist after the real Space Center exit");
+                    "ParsekMerge popup should exist before the real Space Center exit completes");
 
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
                 InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
-                    "Deferred merge dialog title should match the production popup");
+                    "Pre-transition merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
                 DialogGUIButton mergeButton = buttons.FirstOrDefault(
@@ -10583,17 +10596,17 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
                 InGameAssert.IsNotNull(discardButton, "Discard button should exist");
-                InGameAssert.IsTrue(RecordingStore.HasPendingTree,
-                    "Real Space Center exit should surface a pending tree before the discard click");
-                InGameAssert.AreEqual(treeId, RecordingStore.PendingTree?.Id,
-                    "Real Space Center exit should keep the same pending tree id into SPACECENTER");
+                InGameAssert.AreEqual(GameScenes.FLIGHT, HighLogic.LoadedScene,
+                    "Pre-transition merge dialog should block the Space Center scene change until a button is clicked");
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Pre-transition merge dialog should keep the live tree unfinalized before the discard click");
                 InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
-                    "Deferred merge dialog should keep the pending-dialog flag armed until the click");
+                    "Pre-transition merge dialog should keep the pending-dialog flag armed until the click");
 
                 DialogGuiButtonOptionSelectedMethod.Invoke(discardButton, null);
 
                 yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
-                yield return null;
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
 
                 InGameAssert.IsFalse(RecordingStore.HasPendingTree,
                     "Discard should clear the pending tree after the real scene exit");
@@ -10607,12 +10620,12 @@ namespace Parsek.InGameTests
                         candidate => candidate != null && candidate.Id == treeId),
                     "Discard should not leave the pending tree inside CommittedTrees");
 
-                bool sawDeferredDialog = captured.Any(
-                    line => line.Contains("Showing deferred tree merge dialog in SPACECENTER"));
+                bool sawPreTransitionDialog = captured.Any(
+                    line => line.Contains("Pre-transition tree merge dialog"));
                 bool sawUserDiscard = captured.Any(
                     line => line.Contains("User chose: Tree Discard"));
-                InGameAssert.IsTrue(sawDeferredDialog,
-                    "Expected the real scene-exit flow to log the deferred merge dialog in SPACECENTER");
+                InGameAssert.IsTrue(sawPreTransitionDialog,
+                    "Expected the real scene-exit flow to log the pre-transition merge dialog");
                 InGameAssert.IsTrue(sawUserDiscard,
                     "Expected the real scene-exit flow to log the Discard branch");
 
@@ -13766,12 +13779,6 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip($"Mission Control overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
                 yield break;
             }
-            if (!TryPickOfferedContract(out Contract contract, out string contractKey, out string contractTitle, out string skipReason))
-            {
-                InGameAssert.Skip(skipReason);
-                yield break;
-            }
-
             // Drain any Mission Control canvas left mid-teardown by a prior test
             // before entering.
             yield return WaitForMissionControlClosed(8f);
@@ -13781,22 +13788,34 @@ namespace Parsek.InGameTests
             string recordingId = null;
             try
             {
-                recordingId = "phase5-mission-" + System.Guid.NewGuid().ToString("N");
-                recording = AddCommittedOverlayFixture(
-                    recordingId,
-                    GameStateEventType.ContractAccepted,
-                    contractKey,
-                    "contractTitle=" + contractTitle);
-
                 if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
                     yield break;
 
                 yield return WaitForMissionControl(8f);
-                NotifyTimelineDataChangedForOverlayTest();
-                yield return WaitForMissionControlRowOverlay(contractKey, StockUiOverlayContractObjectName,
-                    $"offered contract '{contractTitle}' should get a committed-future accept overlay", 8f);
+                var contractPick = new MissionControlContractRowPick();
+                yield return WaitForMissionControlOfferedContractRow(contractPick, 8f);
+                if (!contractPick.Found)
+                {
+                    InGameAssert.Skip(contractPick.SkipReason);
+                    yield break;
+                }
 
-                MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
+                recordingId = "phase5-mission-" + System.Guid.NewGuid().ToString("N");
+                recording = AddCommittedOverlayFixture(
+                    recordingId,
+                    GameStateEventType.ContractAccepted,
+                    contractPick.ContractKey,
+                    "contractTitle=" + contractPick.ContractTitle);
+
+                NotifyTimelineDataChangedForOverlayTest();
+                yield return WaitForMissionControlRowOverlay(contractPick.ContractKey, StockUiOverlayContractObjectName,
+                    $"offered contract '{contractPick.ContractTitle}' should get a committed-future accept overlay", 8f);
+
+                MCListItem row = FindMissionControlRowByContractKey(
+                    Object.FindObjectOfType<MissionControl>(),
+                    contractPick.ContractKey);
+                InGameAssert.IsNotNull(row,
+                    $"Mission Control row for offered contract '{contractPick.ContractTitle}' should still exist after overlay wait");
                 InGameAssert.AreEqual(1, CountNamedChildren(row.transform, StockUiOverlayContractObjectName),
                     "Mission Control committed contract row should have exactly one Parsek_ContractOverlay child");
             }
@@ -13979,12 +13998,6 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip($"Mission Control overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
                 yield break;
             }
-            if (!TryPickOfferedContract(out Contract contract, out string contractKey, out string contractTitle, out string skipReason))
-            {
-                InGameAssert.Skip(skipReason);
-                yield break;
-            }
-
             // Drain any Mission Control canvas left mid-teardown by a prior test
             // before entering.
             yield return WaitForMissionControlClosed(8f);
@@ -13998,19 +14011,27 @@ namespace Parsek.InGameTests
                     string recordingId = null;
                     try
                     {
-                        recordingId = "phase5-mission-despawn-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
-                        recording = AddCommittedOverlayFixture(
-                            recordingId,
-                            GameStateEventType.ContractAccepted,
-                            contractKey,
-                            "contractTitle=" + contractTitle);
-
                         if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
                             yield break;
 
                         yield return WaitForMissionControl(8f);
+                        var contractPick = new MissionControlContractRowPick();
+                        yield return WaitForMissionControlOfferedContractRow(contractPick, 8f);
+                        if (!contractPick.Found)
+                        {
+                            InGameAssert.Skip(contractPick.SkipReason);
+                            yield break;
+                        }
+
+                        recordingId = "phase5-mission-despawn-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
+                        recording = AddCommittedOverlayFixture(
+                            recordingId,
+                            GameStateEventType.ContractAccepted,
+                            contractPick.ContractKey,
+                            "contractTitle=" + contractPick.ContractTitle);
+
                         NotifyTimelineDataChangedForOverlayTest();
-                        yield return WaitForMissionControlRowOverlay(contractKey, StockUiOverlayContractObjectName,
+                        yield return WaitForMissionControlRowOverlay(contractPick.ContractKey, StockUiOverlayContractObjectName,
                             $"Mission Control despawn cycle {cycle + 1} should create one contract overlay before close", 8f);
                     }
                     finally
@@ -14543,7 +14564,69 @@ namespace Parsek.InGameTests
             return null;
         }
 
-        private static bool TryPickOfferedContract(
+        private sealed class MissionControlContractRowPick
+        {
+            internal bool Found;
+            internal Contract Contract;
+            internal string ContractKey;
+            internal string ContractTitle;
+            internal string SkipReason;
+        }
+
+        private static IEnumerator WaitForMissionControlOfferedContractRow(
+            MissionControlContractRowPick result,
+            float timeoutSeconds)
+        {
+            InGameAssert.IsNotNull(result, "Mission Control contract row result holder is required");
+            float deadline = Time.time + timeoutSeconds;
+            string lastSkipReason = null;
+
+            while (Time.time < deadline)
+            {
+                MissionControl missionControl = Object.FindObjectOfType<MissionControl>();
+                if (TryPickMissionControlOfferedContractRow(
+                        missionControl,
+                        out Contract contract,
+                        out string contractKey,
+                        out string contractTitle,
+                        out lastSkipReason))
+                {
+                    result.Found = true;
+                    result.Contract = contract;
+                    result.ContractKey = contractKey;
+                    result.ContractTitle = contractTitle;
+                    result.SkipReason = null;
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            MissionControl finalMissionControl = Object.FindObjectOfType<MissionControl>();
+            if (TryPickMissionControlOfferedContractRow(
+                    finalMissionControl,
+                    out Contract finalContract,
+                    out string finalContractKey,
+                    out string finalContractTitle,
+                    out string finalSkipReason))
+            {
+                result.Found = true;
+                result.Contract = finalContract;
+                result.ContractKey = finalContractKey;
+                result.ContractTitle = finalContractTitle;
+                result.SkipReason = null;
+                yield break;
+            }
+
+            result.Found = false;
+            result.Contract = null;
+            result.ContractKey = null;
+            result.ContractTitle = null;
+            result.SkipReason = finalSkipReason ?? lastSkipReason ?? "Mission Control offered contract row did not appear";
+        }
+
+        private static bool TryPickMissionControlOfferedContractRow(
+            MissionControl missionControl,
             out Contract contract,
             out string contractKey,
             out string contractTitle,
@@ -14554,20 +14637,33 @@ namespace Parsek.InGameTests
             contractTitle = null;
             skipReason = null;
 
-            var system = ContractSystem.Instance;
-            if (system == null || system.Contracts == null)
+            if (missionControl == null)
             {
-                skipReason = "ContractSystem.Instance.Contracts is not available";
+                skipReason = "MissionControl is not open";
                 return false;
             }
 
-            for (int i = 0; i < system.Contracts.Count; i++)
+            MCListItem[] rows = missionControl.GetComponentsInChildren<MCListItem>(true);
+            int rowCount = rows != null ? rows.Length : 0;
+            int contractRowCount = 0;
+            int offeredRowCount = 0;
+            int activeRowCount = 0;
+            for (int i = 0; i < rowCount; i++)
             {
-                Contract candidate = system.Contracts[i];
+                MCListItem row = rows[i];
+                if (row == null)
+                    continue;
+
+                Contract candidate = ExtractMissionControlRowContractForTest(row);
                 if (candidate == null)
                     continue;
+                contractRowCount++;
+
+                if (candidate.ContractState == Contract.State.Active)
+                    activeRowCount++;
                 if (candidate.ContractState != Contract.State.Offered)
                     continue;
+                offeredRowCount++;
 
                 string key = candidate.ContractGuid.ToString();
                 string title = candidate.Title;
@@ -14580,7 +14676,9 @@ namespace Parsek.InGameTests
                 return true;
             }
 
-            skipReason = "No offered contract with a non-empty title/Guid is available";
+            skipReason =
+                "No Mission Control offered contract row with a non-empty title/Guid is available " +
+                $"(rows={rowCount}, contractRows={contractRowCount}, offeredRows={offeredRowCount}, activeRows={activeRowCount})";
             return false;
         }
 
@@ -14625,12 +14723,17 @@ namespace Parsek.InGameTests
 
         private static string ExtractMissionControlRowContractKeyForTest(MCListItem row)
         {
+            Contract contract = ExtractMissionControlRowContractForTest(row);
+            return contract != null ? contract.ContractGuid.ToString() : null;
+        }
+
+        private static Contract ExtractMissionControlRowContractForTest(MCListItem row)
+        {
             try
             {
-                Contract contract = row != null && row.container != null
+                return row != null && row.container != null
                     ? row.container.Data as Contract
                     : null;
-                return contract != null ? contract.ContractGuid.ToString() : null;
             }
             catch (System.Exception ex)
             {

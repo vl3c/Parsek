@@ -145,7 +145,15 @@ namespace Parsek.InGameTests.Helpers
             InGameAssert.IsNotNull(root,
                 $"ValidateQuicksaveStructure failed: ConfigNode.Load returned null for '{saveName}/{slotName}'");
 
-            ConfigNode flightStateNode = root.GetNode("FLIGHTSTATE");
+            ConfigNode gameNode = root;
+            if (gameNode.GetNode("FLIGHTSTATE") == null)
+            {
+                ConfigNode wrappedGameNode = root.GetNode("GAME");
+                if (wrappedGameNode != null)
+                    gameNode = wrappedGameNode;
+            }
+
+            ConfigNode flightStateNode = gameNode.GetNode("FLIGHTSTATE");
             InGameAssert.IsNotNull(flightStateNode,
                 $"ValidateQuicksaveStructure failed: '{saveName}/{slotName}' has no FLIGHTSTATE node");
 
