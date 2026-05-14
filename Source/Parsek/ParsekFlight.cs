@@ -51,6 +51,23 @@ namespace Parsek
             ResumeActiveRecording
         }
 
+        public enum EvaBackgroundParentRouteDecision
+        {
+            NotHandled,
+            HandledSkipPendingSplit,
+            HandledUntrackedSource,
+            HandledInvalidMapEntry,
+            HandledMissingCrewName,
+            StartDeferredBackgroundParentBranch
+        }
+
+        public enum EvaBackgroundParentFocusDecision
+        {
+            Invalid,
+            EvaKerbalActive,
+            SourceVesselActive
+        }
+
         internal enum PostSwitchAutoRecordStartDecision
         {
             None,
@@ -3115,9 +3132,11 @@ namespace Parsek
             if (rec == null || tree == null) return;
 
             string recId = tree.ActiveRecordingId;
-            if (recId == null)
+            if (string.IsNullOrEmpty(recId))
             {
-                ParsekLog.Warn("Flight", "FlushRecorderToTreeRecording: no active recording id in tree");
+                ParsekLog.Warn("Flight",
+                    "FlushRecorderToTreeRecording: dropping recorder data because active recording id is missing; " +
+                    FormatRecorderDropDiagnostics(rec, tree, recId));
                 rec.IsRecording = false;
                 return;
             }
@@ -3125,7 +3144,9 @@ namespace Parsek
             Recording treeRec;
             if (!tree.Recordings.TryGetValue(recId, out treeRec))
             {
-                ParsekLog.Warn("Flight", $"FlushRecorderToTreeRecording: recording id '{recId}' not found in tree");
+                ParsekLog.Warn("Flight",
+                    $"FlushRecorderToTreeRecording: dropping recorder data because recording id '{recId}' " +
+                    $"is not found in tree; {FormatRecorderDropDiagnostics(rec, tree, recId)}");
                 rec.IsRecording = false;
                 return;
             }
@@ -3185,6 +3206,23 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Flushed recorder to tree recording '{recId}': " +
                 $"{rec.Recording.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
                 $"{rec.PartEvents.Count} part events");
+        }
+
+        internal static string FormatRecorderDropDiagnostics(FlightRecorder rec, RecordingTree tree, string attemptedRecordingId)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "tree={0} activeRec={1} attemptedRec={2} recVesselPid={3} " +
+                "points={4} orbitSegments={5} partEvents={6} flagEvents={7} segmentEvents={8} trackSections={9}",
+                string.IsNullOrEmpty(tree?.Id) ? "null" : tree.Id,
+                string.IsNullOrEmpty(tree?.ActiveRecordingId) ? "null" : tree.ActiveRecordingId,
+                string.IsNullOrEmpty(attemptedRecordingId) ? "null" : attemptedRecordingId,
+                rec?.RecordingVesselId ?? 0u,
+                rec?.Recording?.Count ?? 0,
+                rec?.OrbitSegments?.Count ?? 0,
+                rec?.PartEvents?.Count ?? 0,
+                rec?.FlagEvents?.Count ?? 0,
+                rec?.SegmentEvents?.Count ?? 0,
+                rec?.TrackSections?.Count ?? 0);
         }
 
         internal static bool ApplyFinalSegmentPhaseFromCapture(
@@ -3997,6 +4035,231 @@ namespace Parsek
             return null;
         }
 
+        internal static bool TryResolveTrackedBackgroundParentRecording(
+            RecordingTree tree,
+            uint sourceVesselPid,
+            out string recordingId,
+            out string diagnostic)
+        {
+            recordingId = null;
+
+            if (tree == null)
+            {
+                diagnostic = "tree-null";
+                return false;
+            }
+
+            if (sourceVesselPid == 0)
+            {
+                diagnostic = "source-pid-zero";
+                return false;
+            }
+
+            if (tree.BackgroundMap != null
+                && tree.BackgroundMap.TryGetValue(sourceVesselPid, out recordingId))
+            {
+                diagnostic = "background-map-hit";
+                return true;
+            }
+
+            if (string.IsNullOrEmpty(tree.ActiveRecordingId))
+            {
+                tree.RebuildBackgroundMap();
+                if (tree.BackgroundMap != null
+                    && tree.BackgroundMap.TryGetValue(sourceVesselPid, out recordingId))
+                {
+                    diagnostic = "background-map-hit-after-rebuild";
+                    return true;
+                }
+
+                diagnostic = "background-map-miss-after-rebuild";
+                return false;
+            }
+
+            diagnostic = "background-map-miss-active-head-present";
+            return false;
+        }
+
+        internal static bool CanStartRecorderWithActiveTreeHead(
+            RecordingTree tree,
+            uint activeVesselPid,
+            out string reason)
+        {
+            reason = null;
+
+            if (tree == null)
+                return true;
+
+            if (string.IsNullOrEmpty(tree.ActiveRecordingId))
+            {
+                reason = "active-recording-id-missing";
+                return false;
+            }
+
+            Recording activeRecording;
+            if (tree.Recordings == null
+                || !tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRecording)
+                || activeRecording == null)
+            {
+                reason = $"active-recording-not-found:{tree.ActiveRecordingId}";
+                return false;
+            }
+
+            uint activeRecordingPid = ResolveLiveTreeRecordingPidForRestore(activeRecording);
+            if (activeVesselPid != 0 && activeRecordingPid != 0 && activeRecordingPid != activeVesselPid)
+            {
+                reason = string.Format(CultureInfo.InvariantCulture,
+                    "active-recording-pid-mismatch:{0}!={1}",
+                    activeRecordingPid,
+                    activeVesselPid);
+                return false;
+            }
+
+            return true;
+        }
+
+        internal static EvaBackgroundParentRouteDecision DecideEvaBackgroundParentRoute(
+            bool isRecording,
+            bool pendingSplitInProgress,
+            bool hasActiveTree,
+            bool hasSourceVessel,
+            bool trackedParentResolved,
+            bool mappedRecordingExists,
+            bool hasCrewName)
+        {
+            if (isRecording || !hasActiveTree || !hasSourceVessel)
+                return EvaBackgroundParentRouteDecision.NotHandled;
+
+            if (pendingSplitInProgress)
+                return EvaBackgroundParentRouteDecision.HandledSkipPendingSplit;
+
+            if (!trackedParentResolved)
+                return EvaBackgroundParentRouteDecision.HandledUntrackedSource;
+
+            if (!mappedRecordingExists)
+                return EvaBackgroundParentRouteDecision.HandledInvalidMapEntry;
+
+            if (!hasCrewName)
+                return EvaBackgroundParentRouteDecision.HandledMissingCrewName;
+
+            return EvaBackgroundParentRouteDecision.StartDeferredBackgroundParentBranch;
+        }
+
+        internal static EvaBackgroundParentFocusDecision DecideEvaBackgroundParentFocus(
+            uint currentActivePid,
+            uint evaPid,
+            uint sourceVesselPid)
+        {
+            if (currentActivePid != 0 && evaPid != 0 && currentActivePid == evaPid)
+                return EvaBackgroundParentFocusDecision.EvaKerbalActive;
+            if (currentActivePid != 0 && sourceVesselPid != 0 && currentActivePid == sourceVesselPid)
+                return EvaBackgroundParentFocusDecision.SourceVesselActive;
+            return EvaBackgroundParentFocusDecision.Invalid;
+        }
+
+        internal static string BuildInvalidActiveTreeHeadRateLimitKey(
+            string source,
+            RecordingTree tree,
+            uint activeVesselPid,
+            string reason)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "{0}-invalid-active-tree-head-tree={1}-activeRec={2}-activePid={3}-reason={4}",
+                string.IsNullOrEmpty(source) ? "unknown" : source,
+                string.IsNullOrEmpty(tree?.Id) ? "none" : tree.Id,
+                string.IsNullOrEmpty(tree?.ActiveRecordingId) ? "none" : tree.ActiveRecordingId,
+                activeVesselPid,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason);
+        }
+
+        internal struct BackgroundMapEntrySnapshot
+        {
+            public uint VesselPid;
+            public bool HadEntry;
+            public string RecordingId;
+        }
+
+        internal static List<BackgroundMapEntrySnapshot> CaptureBackgroundMapEntries(
+            RecordingTree tree,
+            params uint[] vesselPids)
+        {
+            var snapshots = new List<BackgroundMapEntrySnapshot>();
+            if (tree?.BackgroundMap == null || vesselPids == null)
+                return snapshots;
+
+            var seen = new HashSet<uint>();
+            for (int i = 0; i < vesselPids.Length; i++)
+            {
+                uint pid = vesselPids[i];
+                if (pid == 0 || !seen.Add(pid))
+                    continue;
+
+                string recordingId;
+                bool hadEntry = tree.BackgroundMap.TryGetValue(pid, out recordingId);
+                snapshots.Add(new BackgroundMapEntrySnapshot
+                {
+                    VesselPid = pid,
+                    HadEntry = hadEntry,
+                    RecordingId = recordingId
+                });
+            }
+
+            return snapshots;
+        }
+
+        internal static void RestoreBackgroundMapEntries(
+            RecordingTree tree,
+            List<BackgroundMapEntrySnapshot> snapshots)
+        {
+            if (tree?.BackgroundMap == null || snapshots == null)
+                return;
+
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                var snapshot = snapshots[i];
+                if (snapshot.VesselPid == 0)
+                    continue;
+
+                if (snapshot.HadEntry)
+                    tree.BackgroundMap[snapshot.VesselPid] = snapshot.RecordingId;
+                else
+                    tree.BackgroundMap.Remove(snapshot.VesselPid);
+            }
+        }
+
+        internal static void RollbackBackgroundParentBranchMutation(
+            RecordingTree tree,
+            string previousActiveRecordingId,
+            string parentRecordingId,
+            string previousParentChildBranchPointId,
+            BranchPoint bp,
+            Recording activeChild,
+            Recording backgroundChild,
+            List<BackgroundMapEntrySnapshot> previousBackgroundMapEntries)
+        {
+            if (tree == null)
+                return;
+
+            tree.ActiveRecordingId = previousActiveRecordingId;
+
+            if (!string.IsNullOrEmpty(parentRecordingId)
+                && tree.Recordings.TryGetValue(parentRecordingId, out Recording parentRecording)
+                && parentRecording != null)
+            {
+                parentRecording.ChildBranchPointId = previousParentChildBranchPointId;
+            }
+
+            if (bp != null && !string.IsNullOrEmpty(bp.Id))
+                tree.BranchPoints.RemoveAll(candidate => candidate != null && candidate.Id == bp.Id);
+
+            if (activeChild != null && !string.IsNullOrEmpty(activeChild.RecordingId))
+                tree.Recordings.Remove(activeChild.RecordingId);
+            if (backgroundChild != null && !string.IsNullOrEmpty(backgroundChild.RecordingId))
+                tree.Recordings.Remove(backgroundChild.RecordingId);
+
+            RestoreBackgroundMapEntries(tree, previousBackgroundMapEntries);
+        }
+
         /// <summary>
         /// Pure data-model method: creates the BranchPoint and one child Recording object
         /// for a vessel merge (dock or board). Testable without Unity.
@@ -4202,6 +4465,214 @@ namespace Parsek
             {
                 TryAuthorRewindPointForSplit(bp, branchType, activeVessel, activeChild, backgroundVessel, bgChild);
             }
+        }
+
+        private void CreateSplitBranchFromBackgroundParent(
+            string parentRecordingId,
+            uint sourceVesselPid,
+            Vessel activeVessel,
+            Vessel backgroundVessel,
+            double branchUT,
+            string evaCrewName,
+            uint evaVesselPid,
+            string branchPath)
+        {
+            ParsekLog.RecState("CreateSplitBranchFromBackgroundParent:entry", CaptureRecorderState());
+
+            if (activeTree == null)
+            {
+                ParsekLog.Warn("Flight", "CreateSplitBranchFromBackgroundParent: no active tree - aborting");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(parentRecordingId))
+            {
+                ParsekLog.Warn("Flight", "CreateSplitBranchFromBackgroundParent: no parent recording id - aborting");
+                return;
+            }
+
+            Recording parentRecording;
+            if (!activeTree.Recordings.TryGetValue(parentRecordingId, out parentRecording) || parentRecording == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"CreateSplitBranchFromBackgroundParent: parent recording '{parentRecordingId}' not found - aborting");
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(parentRecording.ChildBranchPointId))
+            {
+                ParsekLog.Warn("Flight",
+                    $"CreateSplitBranchFromBackgroundParent: parent recording '{parentRecordingId}' " +
+                    $"already has child branch '{parentRecording.ChildBranchPointId}' - aborting");
+                return;
+            }
+
+            string mappedParentRecordingId = null;
+            if (sourceVesselPid == 0
+                || !activeTree.BackgroundMap.TryGetValue(sourceVesselPid, out mappedParentRecordingId)
+                || !string.Equals(mappedParentRecordingId, parentRecordingId, StringComparison.Ordinal))
+            {
+                ParsekLog.Warn("Flight",
+                    $"CreateSplitBranchFromBackgroundParent: source background map entry changed before branch " +
+                    $"(sourcePid={sourceVesselPid}, expectedParent={parentRecordingId}, " +
+                    $"mappedParent={mappedParentRecordingId ?? "null"}) - aborting");
+                return;
+            }
+
+            if (activeVessel == null || backgroundVessel == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"CreateSplitBranchFromBackgroundParent: child vessel missing " +
+                    $"(active={(activeVessel != null ? activeVessel.persistentId.ToString(CultureInfo.InvariantCulture) : "null")}, " +
+                    $"background={(backgroundVessel != null ? backgroundVessel.persistentId.ToString(CultureInfo.InvariantCulture) : "null")}) - aborting");
+                return;
+            }
+
+            uint currentActivePid = FlightGlobals.ActiveVessel?.persistentId ?? 0u;
+            if (currentActivePid == 0 || activeVessel.persistentId != currentActivePid)
+            {
+                ParsekLog.Warn("Flight",
+                    $"CreateSplitBranchFromBackgroundParent: active child does not match FlightGlobals.ActiveVessel " +
+                    $"(activeChildPid={activeVessel.persistentId}, flightActivePid={currentActivePid}) - aborting");
+                return;
+            }
+
+            ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
+            ConfigNode bgSnapshot = VesselSpawner.TryBackupSnapshot(backgroundVessel);
+            int parentGen = parentRecording.Generation;
+
+            var (bp, activeChild, bgChild) = BuildSplitBranchData(
+                parentRecordingId, activeTree.Id, branchUT, BranchPointType.EVA,
+                activeVessel.persistentId,
+                Recording.ResolveLocalizedName(activeVessel.vesselName) ?? "Unknown",
+                backgroundVessel.persistentId,
+                Recording.ResolveLocalizedName(backgroundVessel.vesselName) ?? "Unknown",
+                evaCrewName, evaVesselPid,
+                parentGeneration: parentGen);
+
+            activeChild.GhostVisualSnapshot = activeSnapshot;
+            activeChild.VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null;
+            bgChild.GhostVisualSnapshot = bgSnapshot;
+            bgChild.VesselSnapshot = bgSnapshot != null ? bgSnapshot.CreateCopy() : null;
+
+            string previousActiveRecordingId = activeTree.ActiveRecordingId;
+            string previousParentChildBranchPointId = parentRecording.ChildBranchPointId;
+            var previousBackgroundMapEntries = CaptureBackgroundMapEntries(
+                activeTree,
+                sourceVesselPid,
+                activeVessel.persistentId,
+                backgroundVessel.persistentId);
+            TrajectoryPoint? previousPendingBoundaryAnchor = chainManager.PendingBoundaryAnchor;
+
+            parentRecording.ChildBranchPointId = bp.Id;
+            activeTree.BranchPoints.Add(bp);
+            activeTree.AddOrReplaceRecording(activeChild);
+            activeTree.AddOrReplaceRecording(bgChild);
+            activeTree.ActiveRecordingId = activeChild.RecordingId;
+
+            // The source vessel is now either the active or background child, depending on KSP focus.
+            activeTree.BackgroundMap.Remove(activeVessel.persistentId);
+            activeTree.BackgroundMap.Remove(backgroundVessel.persistentId);
+            SegmentEnvironment? initialBackgroundEnvOverride = null;
+            if (backgroundVessel.persistentId != 0)
+            {
+                initialBackgroundEnvOverride = GetEvaBackgroundInitialEnvironmentOverride(
+                    BranchPointType.EVA,
+                    backgroundVessel.isEVA,
+                    (int)activeVessel.situation,
+                    backgroundVessel.srfSpeed);
+
+                if (initialBackgroundEnvOverride.HasValue)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"CreateSplitBranchFromBackgroundParent: forcing initial background env " +
+                        $"{initialBackgroundEnvOverride.Value} for pid={backgroundVessel.persistentId}");
+                }
+
+                activeTree.BackgroundMap[backgroundVessel.persistentId] = bgChild.RecordingId;
+            }
+
+            recorder = new FlightRecorder();
+            recorder.ActiveTree = activeTree;
+            if (chainManager.PendingBoundaryAnchor.HasValue)
+            {
+                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
+                chainManager.PendingBoundaryAnchor = null;
+            }
+            recorder.StartRecording(isPromotion: true);
+            recorder.UndockSiblingPid = 0;
+
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Flight",
+                    $"CreateSplitBranchFromBackgroundParent: StartRecording failed for active child " +
+                    $"pid={activeChild.VesselPersistentId}");
+                recorder = null;
+                RollbackBackgroundParentBranchMutation(
+                    activeTree,
+                    previousActiveRecordingId,
+                    parentRecordingId,
+                    previousParentChildBranchPointId,
+                    bp,
+                    activeChild,
+                    bgChild,
+                    previousBackgroundMapEntries);
+                chainManager.PendingBoundaryAnchor = previousPendingBoundaryAnchor;
+                return;
+            }
+
+            if (recorder.RecordingVesselId != activeChild.VesselPersistentId)
+            {
+                ParsekLog.Warn("Flight",
+                    $"CreateSplitBranchFromBackgroundParent: recorder vessel mismatch after start " +
+                    $"(recorderPid={recorder.RecordingVesselId}, activeChildPid={activeChild.VesselPersistentId})");
+                recorder.StopRecordingForChainBoundary();
+                recorder = null;
+                RollbackBackgroundParentBranchMutation(
+                    activeTree,
+                    previousActiveRecordingId,
+                    parentRecordingId,
+                    previousParentChildBranchPointId,
+                    bp,
+                    activeChild,
+                    bgChild,
+                    previousBackgroundMapEntries);
+                chainManager.PendingBoundaryAnchor = previousPendingBoundaryAnchor;
+                return;
+            }
+
+            backgroundRecorder?.OnVesselRemovedFromBackground(sourceVesselPid);
+            if (backgroundVessel.persistentId != 0)
+            {
+                backgroundRecorder?.OnVesselBackgrounded(
+                    backgroundVessel.persistentId,
+                    initialEnvironmentOverride: initialBackgroundEnvOverride);
+            }
+
+            if (chainManager.IsTrackingUndockContinuation)
+            {
+                if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
+                    ChainSegmentManager.BakeContinuationData(undockRec);
+                chainManager.StopUndockContinuation("tree branch");
+            }
+            if (chainManager.IsTrackingContinuation)
+            {
+                if (chainManager.TryGetContinuationRecording(out var contRec))
+                    ChainSegmentManager.BakeContinuationData(contRec);
+                chainManager.StopContinuation("tree branch");
+            }
+
+            ClearPendingEvaAutoRecordState();
+            PrepareSessionStateForRecorderStart("CreateSplitBranchFromBackgroundParent");
+
+            ParsekLog.Info("Flight", $"Tree branch created: type=EVA, " +
+                $"bp={bp.Id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
+                $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId}), " +
+                $"path={branchPath}" +
+                (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
+            ParsekLog.RecState("CreateSplitBranchFromBackgroundParent:exit", CaptureRecorderState());
+
+            TryAuthorRewindPointForSplit(bp, BranchPointType.EVA, activeVessel, activeChild, backgroundVessel, bgChild);
         }
 
         /// <summary>
@@ -4765,6 +5236,95 @@ namespace Parsek
             {
                 pendingSplitInProgress = false;
                 pendingSplitRecorder = null;
+            }
+        }
+
+        IEnumerator DeferredEvaBranchFromBackgroundParent(
+            string parentRecordingId,
+            uint sourceVesselPid,
+            string kerbalName,
+            GameEvents.FromToAction<Part, Part> evaData)
+        {
+            yield return null; // defer one frame for vessel switch to complete
+
+            try
+            {
+                if (activeTree == null)
+                {
+                    ParsekLog.Warn("Flight", "DeferredEvaBranchFromBackgroundParent: no active tree after deferral - aborting");
+                    yield break;
+                }
+
+                if (string.IsNullOrEmpty(parentRecordingId)
+                    || !activeTree.Recordings.ContainsKey(parentRecordingId))
+                {
+                    ParsekLog.Warn("Flight",
+                        $"DeferredEvaBranchFromBackgroundParent: parent recording '{parentRecordingId ?? "null"}' " +
+                        "is missing after deferral - aborting");
+                    yield break;
+                }
+
+                double branchUT = Planetarium.GetUniversalTime();
+                Vessel evaVessel = evaData.to?.vessel;
+                Vessel shipVessel = evaData.from?.vessel;
+
+                if (evaVessel == null || shipVessel == null)
+                {
+                    ParsekLog.Warn("Flight",
+                        $"DeferredEvaBranchFromBackgroundParent: EVA data missing vessel " +
+                        $"(eva={(evaVessel != null ? evaVessel.persistentId.ToString(CultureInfo.InvariantCulture) : "null")}, " +
+                        $"ship={(shipVessel != null ? shipVessel.persistentId.ToString(CultureInfo.InvariantCulture) : "null")}) - aborting");
+                    yield break;
+                }
+
+                uint evaPid = evaVessel.persistentId;
+                if (!CheckBranchDeduplication(branchUT, evaPid))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredEvaBranchFromBackgroundParent: skipping duplicate EVA branch for pid={evaPid}");
+                    yield break;
+                }
+
+                Vessel currentActive = FlightGlobals.ActiveVessel;
+                Vessel activeChild;
+                Vessel backgroundChild;
+                uint currentActivePid = currentActive?.persistentId ?? 0u;
+                switch (DecideEvaBackgroundParentFocus(currentActivePid, evaPid, sourceVesselPid))
+                {
+                    case EvaBackgroundParentFocusDecision.EvaKerbalActive:
+                        activeChild = evaVessel;
+                        backgroundChild = shipVessel;
+                        ParsekLog.Verbose("Flight",
+                            $"DeferredEvaBranchFromBackgroundParent: EVA kerbal is active, evaPid={evaPid}");
+                        break;
+
+                    case EvaBackgroundParentFocusDecision.SourceVesselActive:
+                        activeChild = shipVessel;
+                        backgroundChild = evaVessel;
+                        ParsekLog.Verbose("Flight",
+                            $"DeferredEvaBranchFromBackgroundParent: source vessel is still active, sourcePid={sourceVesselPid}");
+                        break;
+
+                    default:
+                        ParsekLog.Warn("Flight",
+                            $"DeferredEvaBranchFromBackgroundParent: refusing to branch because active vessel is neither " +
+                            $"EVA nor source (flightActivePid={currentActivePid}, evaPid={evaPid}, sourcePid={sourceVesselPid})");
+                        yield break;
+                }
+
+                CreateSplitBranchFromBackgroundParent(
+                    parentRecordingId,
+                    sourceVesselPid,
+                    activeChild,
+                    backgroundChild,
+                    branchUT,
+                    kerbalName,
+                    evaPid,
+                    branchPath: "background-parent");
+            }
+            finally
+            {
+                pendingSplitInProgress = false;
             }
         }
 
@@ -6314,6 +6874,110 @@ namespace Parsek
                 (activeTree != null ? $", inTree={pendingBoardingTargetInTree}" : ""));
         }
 
+        private bool TryStartEvaBranchFromBackgroundParent(GameEvents.FromToAction<Part, Part> data)
+        {
+            uint sourcePid = data.from?.vessel?.persistentId ?? 0u;
+            uint targetPid = data.to?.vessel?.persistentId ?? 0u;
+
+            // Only the structural preconditions matter before we can safely dereference activeTree/sourceVessel.
+            var initialDecision = DecideEvaBackgroundParentRoute(
+                isRecording: IsRecording,
+                pendingSplitInProgress: pendingSplitInProgress,
+                hasActiveTree: activeTree != null,
+                hasSourceVessel: data.from?.vessel != null,
+                trackedParentResolved: false,
+                mappedRecordingExists: false,
+                hasCrewName: false);
+
+            if (initialDecision == EvaBackgroundParentRouteDecision.NotHandled)
+                return false;
+
+            if (initialDecision == EvaBackgroundParentRouteDecision.HandledSkipPendingSplit)
+            {
+                LogSplitSkip(
+                    "OnCrewOnEva",
+                    "pendingSplitInProgress",
+                    sourcePid,
+                    targetPid);
+                ClearPendingEvaAutoRecordState();
+                return true;
+            }
+
+            Vessel sourceVessel = data.from?.vessel;
+            string parentRecordingId;
+            string diagnostic;
+            bool trackedParentResolved = TryResolveTrackedBackgroundParentRecording(
+                    activeTree,
+                    sourceVessel.persistentId,
+                    out parentRecordingId,
+                    out diagnostic);
+            bool mappedRecordingExists = !string.IsNullOrEmpty(parentRecordingId)
+                && activeTree.Recordings != null
+                && activeTree.Recordings.ContainsKey(parentRecordingId);
+            string kerbalName = ExtractEvaKerbalName(data);
+
+            var decision = DecideEvaBackgroundParentRoute(
+                isRecording: false,
+                pendingSplitInProgress: false,
+                hasActiveTree: true,
+                hasSourceVessel: true,
+                trackedParentResolved: trackedParentResolved,
+                mappedRecordingExists: mappedRecordingExists,
+                hasCrewName: !string.IsNullOrEmpty(kerbalName));
+
+            if (decision == EvaBackgroundParentRouteDecision.HandledUntrackedSource)
+            {
+                ParsekLog.Warn("Flight",
+                    $"OnCrewOnEva: source vessel pid={sourceVessel.persistentId} is not the live recorder " +
+                    $"and is not a tracked background parent ({diagnostic}); suppressing deferred auto-record");
+                ScreenMessage("Recording blocked (EVA source not tracked)", 2f);
+                ClearPendingEvaAutoRecordState();
+                return true;
+            }
+
+            if (decision == EvaBackgroundParentRouteDecision.HandledInvalidMapEntry)
+            {
+                ParsekLog.Warn("Flight",
+                    $"OnCrewOnEva: background parent map entry is invalid " +
+                    $"(sourcePid={sourceVessel.persistentId}, parentRec={parentRecordingId ?? "null"}, " +
+                    $"diagnostic={diagnostic}); suppressing deferred auto-record");
+                ScreenMessage("Recording blocked (invalid EVA tree state)", 2f);
+                ClearPendingEvaAutoRecordState();
+                return true;
+            }
+
+            if (decision == EvaBackgroundParentRouteDecision.HandledMissingCrewName)
+            {
+                ParsekLog.Warn("Flight",
+                    $"OnCrewOnEva: source vessel pid={sourceVessel.persistentId} is tracked in background " +
+                    "but EVA kerbal name could not be extracted; suppressing deferred auto-record");
+                ScreenMessage("Recording blocked (EVA crew unknown)", 2f);
+                ClearPendingEvaAutoRecordState();
+                return true;
+            }
+
+            if (decision != EvaBackgroundParentRouteDecision.StartDeferredBackgroundParentBranch)
+                return false;
+
+            ClearPendingEvaAutoRecordState();
+            pendingSplitInProgress = true;
+            Log($"Background-parent EVA detected: '{kerbalName}' from pid={sourceVessel.persistentId} " +
+                $"parentRec={parentRecordingId} - starting deferred tree branch");
+            StartCoroutine(DeferredEvaBranchFromBackgroundParent(
+                parentRecordingId,
+                sourceVessel.persistentId,
+                kerbalName,
+                data));
+            return true;
+        }
+
+        private void ClearPendingEvaAutoRecordState()
+        {
+            pendingAutoRecord = false;
+            chainManager.PendingContinuation = false;
+            chainManager.PendingEvaName = null;
+        }
+
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
         {
             ParsekLog.RecState("OnCrewOnEva:entry", CaptureRecorderState());
@@ -6372,6 +7036,9 @@ namespace Parsek
                 StartCoroutine(DeferredEvaBranch(kerbalName, data));
                 return;
             }
+
+            if (!IsRecording && TryStartEvaBranchFromBackgroundParent(data))
+                return;
 
             bool hasSourceVessel = data.from?.vessel != null;
             if (!ShouldQueueAutoRecordOnEva(
@@ -9661,6 +10328,25 @@ namespace Parsek
                 activeVesselIsEva: hasActiveVessel && FlightGlobals.ActiveVessel.isEVA))
                 return;
 
+            uint activePid = FlightGlobals.ActiveVessel?.persistentId ?? 0u;
+            string invalidHeadReason;
+            if (!CanStartRecorderWithActiveTreeHead(activeTree, activePid, out invalidHeadReason))
+            {
+                ParsekLog.WarnRateLimited(
+                    "Flight",
+                    BuildInvalidActiveTreeHeadRateLimitKey(
+                        "deferred-eva",
+                        activeTree,
+                        activePid,
+                        invalidHeadReason),
+                    $"HandleDeferredAutoRecordEva: clearing pending auto-record because active tree head " +
+                    $"cannot accept a recorder (reason={invalidHeadReason}, activePid={activePid}, " +
+                    $"tree={activeTree?.Id ?? "null"}, activeRec={activeTree?.ActiveRecordingId ?? "null"})");
+                ClearPendingEvaAutoRecordState();
+                ScreenMessage("Recording blocked (invalid tree head)", 2f);
+                return;
+            }
+
             StartRecording(suppressStartScreenMessage: true);
 
             if (IsRecording)
@@ -9750,6 +10436,23 @@ namespace Parsek
             {
                 FallbackCommitSplitRecorder(recorder);
                 ParsekLog.Info("Flight", "Committed orphaned recording before starting new one");
+            }
+
+            uint activePid = FlightGlobals.ActiveVessel?.persistentId ?? 0u;
+            string invalidHeadReason;
+            if (!CanStartRecorderWithActiveTreeHead(activeTree, activePid, out invalidHeadReason))
+            {
+                ParsekLog.WarnRateLimited(
+                    "Flight",
+                    BuildInvalidActiveTreeHeadRateLimitKey(
+                        "start-recording",
+                        activeTree,
+                        activePid,
+                        invalidHeadReason),
+                    $"StartRecording: refused to bind recorder to invalid active tree head " +
+                    $"(reason={invalidHeadReason}, activePid={activePid}, " +
+                    $"tree={activeTree?.Id ?? "null"}, activeRec={activeTree?.ActiveRecordingId ?? "null"})");
+                return;
             }
 
             recorder = new FlightRecorder();
