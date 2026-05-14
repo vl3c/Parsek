@@ -74,6 +74,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Controlled child background samples used one-tick-stale Vessel LLA
+
+- ~~During the May 14 Kerbal X upper-stage Re-Fly, the probe-booster ghost started several metres farther from the live upper stage than it did during the probe-booster Re-Fly. The first split seed was correct, but the next ordinary background samples for the controlled child were not.~~
+
+**Root cause:** PR #832 fixed `FlightRecorder.BuildTrajectoryPoint` by deriving foreground lat/lon/alt from `vessel.transform.position` instead of stale `Vessel.latitude/longitude/altitude`. The controlled-child probe was recorded by `BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel` after separation. Its first seed used the fresh root-part/split path, but ordinary loaded/unpacked background samples with `preferRootPartSurfacePose=false` still read the Vessel LLA fields. The May 14 trace showed `BG_CreateAbs` for the probe with `worldFromLLA` about 6.9 m away from `transformPos` on the samples immediately after the correct seed, while the foreground upper-stage samples stayed near zero delta.
+
+**Fix:** Loaded/unpacked ordinary background samples now match the foreground recorder and derive LLA from `vessel.transform.position` through `body.GetLatitude/Longitude/Altitude`. Packed/on-rails samples keep the Vessel-field fallback, and parent-anchored debris still uses the root-part surface-pose path so the debris visual-root contract is unchanged.
+
+**Coverage:** Headless build and the existing recorder contracts cover the compile-time surface. In-game validation must use a fresh original recording; already-written `.prec` sidecars from the May 14 repro contain the stale child points and cannot be corrected by changing playback alone.
+
+**Status:** CODED 2026-05-15; awaiting review and fresh-recording in-game validation.
+
+---
+
 ## Open - v0.9.2 Re-Fly child ghosts drift off the re-flown vessel (PR #850 follow-up — partially addressed)
 
 - After the Root Re-Fly fix above made `AnchorPropagator.Run` fire on the in-place continuation path, fresh captures (`logs/2026-05-14_1952_refly-init-pos-diff/KSP.log`) showed the decoupled `Kerbal X Probe` ghost STILL drifting away from the re-flown upper stage. The propagator ran but did no useful work: every in-place-continuation `DAG walk summary` logged `edgesVisited=0 edgesPropagated=0`.

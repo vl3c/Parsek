@@ -4268,7 +4268,19 @@ namespace Parsek
             double altitude = v.altitude;
             Quaternion rotation = v.srfRelRotation;
             if (preferRootPartSurfacePose)
+            {
                 TryResolveRootPartSurfacePose(v, out latitude, out longitude, out altitude, out rotation);
+            }
+            else if (!v.packed && v.mainBody != null && v.transform != null)
+            {
+                // Match FlightRecorder.BuildTrajectoryPoint for loaded vessels:
+                // Vessel.latitude/longitude/altitude can lag transform.position
+                // by one physics tick, which is visible right after separation.
+                Vector3d freshWorldPos = v.transform.position;
+                latitude = v.mainBody.GetLatitude(freshWorldPos);
+                longitude = v.mainBody.GetLongitude(freshWorldPos);
+                altitude = v.mainBody.GetAltitude(freshWorldPos);
+            }
 
             TrajectoryPoint pt = new TrajectoryPoint
             {
