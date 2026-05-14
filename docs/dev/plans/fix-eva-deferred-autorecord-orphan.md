@@ -58,8 +58,11 @@ Before opening the build PR, scan every `ParsekFlight.StartRecording(...)` calle
 - `Source/Parsek/RewindInvoker.cs`
 - `Source/Parsek/MergeJournalOrchestrator.cs`
 - `Source/Parsek/LoadTimeSweep.cs`
+- `Source/Parsek/ParsekFlight.cs` continuation callers: `RestartRecordingAfterDockUndock`, `HandleChainBoardingTransition`, and `CommitBoundaryAndRestart`
 
 Record the audit result in the build PR description. The requirement is simple: no flow may call `ParsekFlight.StartRecording` while `activeTree != null` and `ActiveRecordingId` is null/missing or points at a recording for a different live vessel pid. If the audit finds a legitimate transient-null or transient-mismatch recovery window, fix that caller to reassign a valid active recording before recorder start; do not weaken the guard.
+
+Implementation audit result: `RewindInvoker.cs`, `MergeJournalOrchestrator.cs`, and `LoadTimeSweep.cs` do not call `StartRecording(...)` or assign `ActiveRecordingId` in this branch. The three legacy continuation callers in `ParsekFlight.cs` are not valid active-tree continuation starts: dock/undock and boarding are consumed by `HandleTreeDockMerge` / `HandleTreeBoardMerge` before those legacy restart paths when `activeTree != null`, while atmosphere/SOI/altitude boundaries return through `ShouldSuppressBoundarySplit(activeTree)` before `CommitBoundaryAndRestart`. The remaining reachable continuation starts are chain-mode paths with `activeTree == null`; active-tree branch/merge/promote/restore starts use the direct `FlightRecorder.StartRecording(isPromotion: true)` helpers after setting a matching `ActiveRecordingId`.
 
 ### 1. Detect the tracked-parent case in `OnCrewOnEva`
 
@@ -446,6 +449,7 @@ The implementation PR changes behavior and must update docs in the same commit:
 - `Source/Parsek/ParsekFlight.cs:9709-9830` — `StartRecording`, missing `activeTree != null && ActiveRecordingId == null` branch
 - `Source/Parsek/RecordingTree.cs` — `BackgroundMap`, `ActiveRecordingId`, `BranchPoints`
 - `Source/Parsek/RewindInvoker.cs`, `Source/Parsek/MergeJournalOrchestrator.cs`, `Source/Parsek/LoadTimeSweep.cs` — required pre-implementation guard audit
+- `Source/Parsek/ParsekFlight.cs:9622-9981` — continuation callers audited against the active-tree head guard
 - `logs/2026-05-13_2337_eva-kerbals-missing/KSP.log` lines 57068-60848 — full reproducer trace
 
 ## Resolved choices
@@ -453,6 +457,6 @@ The implementation PR changes behavior and must update docs in the same commit:
 1. Use a deferred background-parent branch, not simple promote-then-branch. `PromoteRecordingFromBackground` is unsafe if KSP has already focused the EVA kerbal because `FlightRecorder.StartRecording()` records `FlightGlobals.ActiveVessel`.
 2. Use a hard fail-loud `StartRecording` guard. Do not create a fallback single-node tree while another active tree exists; that would mask a tree-state bug and could fork the user's timeline silently.
 3. Include recorder pid and all buffered-data counts at the flush drop site.
-4. Treat `recorder.ActiveTree == activeTree` with no valid/matching `ActiveRecordingId` as invalid for every caller, including continuations. Current restore / Re-Fly flows should reassign the active id before any recorder start; the implementation PR must audit `RewindInvoker`, `MergeJournalOrchestrator`, and `LoadTimeSweep` before adding the guard.
+4. Treat `recorder.ActiveTree == activeTree` with no valid/matching `ActiveRecordingId` as invalid for every caller, including continuations. Current restore / Re-Fly flows should reassign the active id before any recorder start; the implementation PR must audit `RewindInvoker`, `MergeJournalOrchestrator`, `LoadTimeSweep`, and the `ParsekFlight` continuation restart callers before adding the guard.
 5. Use `BackgroundMap` as the authoritative tracked-parent signal, with one rebuild retry only for null-head trees. Do not fall back to scanning all recordings by pid, and do not allow fresh EVA auto-record while any active tree exists.
 6. Clear deferred EVA pending flags when an invalid-head guard blocks auto-record, so the guard cannot create an every-frame retry loop.
