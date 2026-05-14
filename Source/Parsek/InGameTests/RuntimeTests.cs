@@ -13357,8 +13357,19 @@ namespace Parsek.InGameTests
                         $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
                     yield break;
                 }
-                InGameAssert.IsFalse(ok,
-                    "Strategy.Activate should return false when already active");
+                // Not every stock strategy short-circuits an already-active
+                // Activate() — some (e.g. BailoutGrant) re-run and return true.
+                // Those cannot exercise the __result==false filter this test
+                // pins, so skip rather than fail. The finally still tears down
+                // both activations (truncate + financial restore).
+                if (ok)
+                {
+                    InGameAssert.Skip(
+                        $"selected strategy '{configName}' is re-activatable — its Activate() " +
+                        $"returns true even when already active, so the failed-path " +
+                        $"(__result==false) filter cannot be exercised with this strategy");
+                    yield break;
+                }
 
                 // Walk the tail slice — must find NO StrategyActivated events
                 // with matching key.
@@ -13505,6 +13516,8 @@ namespace Parsek.InGameTests
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
+            // Drain any R&D canvas left mid-teardown by a prior test before entering.
+            yield return WaitForRdControllerClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             Recording recording = null;
@@ -13552,6 +13565,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
                 "R&D close should strip committed-future tech overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForRdControllerClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -13578,6 +13593,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("HighLogic.CurrentGame.CrewRoster is null");
                 yield break;
             }
+
+            // Drain any Astronaut Complex canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForAstronautComplexClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             KerbalsModule priorKerbalsModule = LedgerOrchestrator.Kerbals;
@@ -13643,6 +13662,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayKerbalObjectName, 0,
                 "Astronaut Complex close should strip committed-future kerbal overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForAstronautComplexClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -13667,6 +13688,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip(skipReason);
                 yield break;
             }
+
+            // Drain any Mission Control canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForMissionControlClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             Recording recording = null;
@@ -13701,6 +13726,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
                 "Mission Control close should strip committed-future contract overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForMissionControlClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -13709,6 +13736,9 @@ namespace Parsek.InGameTests
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
+
+            // Drain any R&D canvas left mid-teardown by a prior test before entering.
+            yield return WaitForRdControllerClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13756,6 +13786,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
                         $"R&D despawn cycle {cycle + 1} should leave no Parsek_TechOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForRdControllerClosed(8f);
                 }
             }
             finally
@@ -13788,6 +13820,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("HighLogic.CurrentGame.CrewRoster is null");
                 yield break;
             }
+
+            // Drain any Astronaut Complex canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForAstronautComplexClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13833,6 +13869,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayKerbalObjectName, 0,
                         $"Astronaut despawn cycle {cycle + 1} should leave no Parsek_KerbalOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForAstronautComplexClosed(8f);
                 }
             }
             finally
@@ -13863,6 +13901,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip(skipReason);
                 yield break;
             }
+
+            // Drain any Mission Control canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForMissionControlClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13896,6 +13938,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
                         $"Mission Control despawn cycle {cycle + 1} should leave no Parsek_ContractOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForMissionControlClosed(8f);
                 }
             }
             finally
@@ -14033,6 +14077,37 @@ namespace Parsek.InGameTests
             yield return WaitUntilTrue(
                 () => Object.FindObjectOfType<MissionControl>() != null,
                 "MissionControl should exist after opening Mission Control",
+                timeoutSeconds);
+        }
+
+        // Space-center building canvases tear down a frame or more after the close
+        // event fires. The overlay tests open the same building repeatedly across
+        // cycles and across two suite passes; if a test enters before the prior
+        // canvas is gone, UIMasterController refuses to spawn a duplicate
+        // ("Canvas named 'X' already exists") and the building UI ends up empty or
+        // stacked. These guards drain a stale canvas before entering and confirm
+        // the canvas is gone after closing, so each test leaves a clean scene.
+        private static IEnumerator WaitForRdControllerClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => RDController.Instance == null && Object.FindObjectOfType<RDController>() == null,
+                "RDController canvas should be destroyed after closing R&D",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForAstronautComplexClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<AstronautComplex>() == null,
+                "AstronautComplex canvas should be destroyed after closing the Astronaut Complex",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForMissionControlClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<MissionControl>() == null,
+                "MissionControl canvas should be destroyed after closing Mission Control",
                 timeoutSeconds);
         }
 
