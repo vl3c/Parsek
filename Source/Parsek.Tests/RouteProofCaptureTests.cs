@@ -74,6 +74,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InventoryPayloadIdentityHash_IgnoresNestedProtoPartVolatileValues()
+        {
+            ConfigNode first = MakeStoredPartWithInnerPart(
+                partName: "evaJetpack",
+                resourceAmount: 5.0,
+                moduleMode: "packed",
+                cid: "4294884350",
+                persistentId: "100",
+                position: "0,0,0",
+                temperature: "-1");
+            ConfigNode second = MakeStoredPartWithInnerPart(
+                partName: "evaJetpack",
+                resourceAmount: 5.0,
+                moduleMode: "packed",
+                cid: "4294889999",
+                persistentId: "200",
+                position: "1,2,3",
+                temperature: "250");
+
+            string firstHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(first);
+            Assert.Equal(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
+
+            second.GetNode("PART").GetNode("RESOURCE").SetValue("amount", "4", true);
+            Assert.NotEqual(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(second));
+
+            ConfigNode third = MakeStoredPartWithInnerPart(
+                partName: "evaJetpack",
+                resourceAmount: 5.0,
+                moduleMode: "deployed",
+                cid: "4294884350",
+                persistentId: "100",
+                position: "0,0,0",
+                temperature: "-1");
+            Assert.NotEqual(firstHash, VesselSpawner.ComputeInventoryPayloadIdentityHash(third));
+        }
+
+        [Fact]
         public void ExtractInventoryPayloadItems_GroupsStacksByPayloadIdentity()
         {
             ConfigNode first = MakeStoredPart("evaRepairKit", null, 2);
@@ -261,6 +298,43 @@ namespace Parsek.Tests
                 part.AddValue("name", partName);
                 part.AddNode(resource);
             }
+            return storedPart;
+        }
+
+        private static ConfigNode MakeStoredPartWithInnerPart(
+            string partName,
+            double resourceAmount,
+            string moduleMode,
+            string cid,
+            string persistentId,
+            string position,
+            string temperature)
+        {
+            ConfigNode storedPart = new ConfigNode("STOREDPART");
+            storedPart.AddValue("slotIndex", "0");
+            storedPart.AddValue("partName", partName);
+            storedPart.AddValue("quantity", "1");
+            storedPart.AddValue("stackCapacity", "1");
+            storedPart.AddValue("variantName", "white");
+
+            ConfigNode part = storedPart.AddNode("PART");
+            part.AddValue("name", partName);
+            part.AddValue("cid", cid);
+            part.AddValue("uid", "0");
+            part.AddValue("mid", "0");
+            part.AddValue("persistentId", persistentId);
+            part.AddValue("launchID", "0");
+            part.AddValue("parent", "0");
+            part.AddValue("position", position);
+            part.AddValue("rotation", "0,0,0,0");
+            part.AddValue("temp", temperature);
+            part.AddValue("flag", "");
+            part.AddNode(MakeResource("MonoPropellant", resourceAmount, 5.0));
+
+            ConfigNode module = part.AddNode("MODULE");
+            module.AddValue("name", "ModuleCargoPart");
+            module.AddValue("payloadMode", moduleMode);
+
             return storedPart;
         }
     }

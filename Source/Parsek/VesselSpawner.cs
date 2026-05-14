@@ -489,6 +489,47 @@ namespace Parsek
             return items;
         }
 
+        private static readonly HashSet<string> TransientStoredPartProtoValueNames =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "cid",
+                "uid",
+                "mid",
+                "persistentId",
+                "launchID",
+                "parent",
+                "position",
+                "rotation",
+                "mirror",
+                "symMethod",
+                "istg",
+                "resPri",
+                "dstg",
+                "sqor",
+                "sepI",
+                "sidx",
+                "attm",
+                "sameVesselCollision",
+                "srfN",
+                "attN",
+                "mass",
+                "shielded",
+                "temp",
+                "tempExt",
+                "tempExtUnexp",
+                "staticPressureAtm",
+                "expt",
+                "state",
+                "PreFailState",
+                "attached",
+                "autostrutMode",
+                "rigidAttachment",
+                "flag",
+                "rTrf",
+                "modCost",
+                "modMass"
+            };
+
         internal static string ComputeInventoryPayloadIdentityHash(ConfigNode storedPart)
         {
             if (storedPart == null)
@@ -620,10 +661,14 @@ namespace Parsek
         private static void AppendCanonicalConfigNode(
             ConfigNode node,
             StringBuilder output,
-            bool ignoreStoredPartSlotAndQuantity = false)
+            bool ignoreStoredPartSlotAndQuantity = false,
+            bool insideStoredPart = false)
         {
             if (node == null || output == null)
                 return;
+
+            bool isStoredPart = string.Equals(node.name, "STOREDPART", StringComparison.Ordinal);
+            bool isInsideStoredPart = insideStoredPart || isStoredPart;
 
             output.Append("node=").Append(node.name ?? "").Append('\n');
 
@@ -636,7 +681,8 @@ namespace Parsek
                     if (ShouldSkipStoredPartIdentityValue(
                             node,
                             value.name,
-                            ignoreStoredPartSlotAndQuantity))
+                            ignoreStoredPartSlotAndQuantity,
+                            isInsideStoredPart))
                     {
                         continue;
                     }
@@ -657,7 +703,8 @@ namespace Parsek
                     AppendCanonicalConfigNode(
                         node.nodes[i],
                         child,
-                        ignoreStoredPartSlotAndQuantity);
+                        ignoreStoredPartSlotAndQuantity,
+                        isInsideStoredPart);
                     children.Add(child.ToString());
                 }
             }
@@ -669,18 +716,28 @@ namespace Parsek
         private static bool ShouldSkipStoredPartIdentityValue(
             ConfigNode node,
             string valueName,
-            bool ignoreStoredPartSlotAndQuantity)
+            bool ignoreStoredPartSlotAndQuantity,
+            bool insideStoredPart)
         {
             if (!ignoreStoredPartSlotAndQuantity ||
                 node == null ||
-                node.name != "STOREDPART" ||
                 string.IsNullOrEmpty(valueName))
             {
                 return false;
             }
 
-            return string.Equals(valueName, "slotIndex", StringComparison.Ordinal)
-                || string.Equals(valueName, "quantity", StringComparison.Ordinal);
+            if (string.Equals(node.name, "STOREDPART", StringComparison.Ordinal))
+            {
+                return string.Equals(valueName, "slotIndex", StringComparison.Ordinal)
+                    || string.Equals(valueName, "quantity", StringComparison.Ordinal);
+            }
+
+            // Stock rewrites these vessel-local ProtoPartSnapshot fields when a stored
+            // part moves between inventories. Keep payload-defining child MODULE and
+            // RESOURCE nodes in the hash, but ignore container-placement noise.
+            return insideStoredPart
+                && string.Equals(node.name, "PART", StringComparison.Ordinal)
+                && TransientStoredPartProtoValueNames.Contains(valueName);
         }
 
         /// <summary>

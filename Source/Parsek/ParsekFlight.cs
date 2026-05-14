@@ -713,6 +713,8 @@ namespace Parsek
         // Merge event detection (tree mode)
         private bool pendingTreeDockMerge;           // true when a tree dock merge is pending
         private uint pendingDockAbsorbedPid;         // PID of absorbed vessel in dock merge
+        private RouteEndpoint? pendingDockRouteEndpointAtDock;
+        private int pendingDockRouteEndpointSituation = -1;
         private bool pendingBoardingTargetInTree;    // true if boarding target is in the tree
 
         // Docking race condition guard (Task 5 sets, Task 6 checks)
@@ -4187,11 +4189,6 @@ namespace Parsek
             if (vessel == null || vessel.persistentId != expectedVesselPersistentId)
                 return null;
 
-            bool isSurface =
-                vessel.situation == Vessel.Situations.LANDED ||
-                vessel.situation == Vessel.Situations.SPLASHED ||
-                vessel.situation == Vessel.Situations.PRELAUNCH;
-
             return new RouteEndpoint
             {
                 VesselPersistentId = vessel.persistentId,
@@ -4199,8 +4196,136 @@ namespace Parsek
                 Latitude = vessel.latitude,
                 Longitude = vessel.longitude,
                 Altitude = vessel.altitude,
-                IsSurface = isSurface
+                IsSurface = IsRouteEndpointSurfaceSituation(vessel.situation)
             };
+        }
+
+        internal static bool TryBuildRouteEndpointFromSnapshot(
+            ConfigNode snapshot,
+            uint expectedVesselPersistentId,
+            out RouteEndpoint endpoint,
+            out int endpointSituation)
+        {
+            endpoint = default(RouteEndpoint);
+            endpointSituation = -1;
+
+            if (snapshot == null || expectedVesselPersistentId == 0)
+                return false;
+
+            string pidStr = snapshot.GetValue("persistentId");
+            if (pidStr == null ||
+                !uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint pid) ||
+                pid != expectedVesselPersistentId)
+            {
+                return false;
+            }
+
+            if (!TryParseRouteEndpointSituation(snapshot, out Vessel.Situations situation))
+                return false;
+
+            if (!TryGetSnapshotRouteCoordinate(snapshot, "lat", "latitude", out double latitude) ||
+                !TryGetSnapshotRouteCoordinate(snapshot, "lon", "longitude", out double longitude) ||
+                !TryGetSnapshotRouteCoordinate(snapshot, "alt", "altitude", out double altitude))
+            {
+                return false;
+            }
+
+            VesselSpawner.TryGetSnapshotReferenceBodyName(snapshot, out string bodyName);
+
+            endpoint = new RouteEndpoint
+            {
+                VesselPersistentId = pid,
+                BodyName = bodyName,
+                Latitude = latitude,
+                Longitude = longitude,
+                Altitude = altitude,
+                IsSurface = IsRouteEndpointSurfaceSituation(situation)
+            };
+            endpointSituation = (int)situation;
+            return true;
+        }
+
+        private static bool TryParseRouteEndpointSituation(
+            ConfigNode snapshot,
+            out Vessel.Situations situation)
+        {
+            situation = default(Vessel.Situations);
+            string raw = snapshot?.GetValue("sit");
+            if (string.IsNullOrEmpty(raw))
+                return false;
+
+            if (Enum.TryParse(raw, ignoreCase: true, out situation))
+                return true;
+
+            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int numeric) &&
+                Enum.IsDefined(typeof(Vessel.Situations), numeric))
+            {
+                situation = (Vessel.Situations)numeric;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetSnapshotRouteCoordinate(
+            ConfigNode snapshot,
+            string primaryKey,
+            string fallbackKey,
+            out double value)
+        {
+            return VesselSpawner.TryGetSnapshotDouble(snapshot, primaryKey, out value)
+                || VesselSpawner.TryGetSnapshotDouble(snapshot, fallbackKey, out value);
+        }
+
+        private static bool IsRouteEndpointSurfaceSituation(Vessel.Situations situation)
+        {
+            return situation == Vessel.Situations.LANDED ||
+                situation == Vessel.Situations.SPLASHED ||
+                situation == Vessel.Situations.PRELAUNCH;
+        }
+
+        private void CapturePendingDockRouteEndpointProof(
+            GameEvents.FromToAction<Part, Part> data,
+            uint routeTargetPid)
+        {
+            pendingDockRouteEndpointAtDock = null;
+            pendingDockRouteEndpointSituation = -1;
+
+            if (routeTargetPid == 0)
+                return;
+
+            Vessel endpointVessel = ResolveDockRouteEndpointVesselFromEvent(data, routeTargetPid);
+            RouteEndpoint? endpoint = BuildRouteEndpointFromVessel(endpointVessel, routeTargetPid);
+            if (endpoint.HasValue)
+            {
+                pendingDockRouteEndpointAtDock = endpoint;
+                pendingDockRouteEndpointSituation = endpointVessel != null
+                    ? (int)endpointVessel.situation
+                    : -1;
+                ParsekLog.Verbose("Flight",
+                    $"CapturePendingDockRouteEndpointProof: captured endpoint proof targetPid={routeTargetPid} " +
+                    $"situation={pendingDockRouteEndpointSituation}");
+                return;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"CapturePendingDockRouteEndpointProof: endpoint vessel unavailable at dock targetPid={routeTargetPid}; " +
+                "will try background snapshot fallback");
+        }
+
+        private static Vessel ResolveDockRouteEndpointVesselFromEvent(
+            GameEvents.FromToAction<Part, Part> data,
+            uint routeTargetPid)
+        {
+            Vessel fromVessel = data.from != null ? data.from.vessel : null;
+            if (fromVessel != null && fromVessel.persistentId == routeTargetPid)
+                return fromVessel;
+
+            Vessel toVessel = data.to != null ? data.to.vessel : null;
+            if (toVessel != null && toVessel.persistentId == routeTargetPid)
+                return toVessel;
+
+            return FlightRecorder.FindVesselByPid(routeTargetPid);
         }
 
         private static string GetMergeCauseForBranchType(BranchPointType branchType)
@@ -4648,11 +4773,40 @@ namespace Parsek
                     ? VesselSpawner.CollectPartPersistentIds(bgParentRec.VesselSnapshot)
                     : null;
 
-                Vessel endpointVessel = FlightRecorder.FindVesselByPid(routeTargetVesselPid);
-                RouteEndpoint? endpointAtDock = BuildRouteEndpointFromVessel(
-                    endpointVessel,
-                    routeTargetVesselPid);
-                int endpointSituation = endpointVessel != null ? (int)endpointVessel.situation : -1;
+                RouteEndpoint? endpointAtDock = pendingDockRouteEndpointAtDock;
+                int endpointSituation = pendingDockRouteEndpointSituation;
+
+                if ((!endpointAtDock.HasValue || endpointSituation < 0) &&
+                    bgParentRec?.VesselSnapshot != null &&
+                    bgParentRec.VesselPersistentId == routeTargetVesselPid &&
+                    TryBuildRouteEndpointFromSnapshot(
+                        bgParentRec.VesselSnapshot,
+                        routeTargetVesselPid,
+                        out RouteEndpoint snapshotEndpoint,
+                        out int snapshotSituation))
+                {
+                    endpointAtDock = snapshotEndpoint;
+                    endpointSituation = snapshotSituation;
+                    ParsekLog.Verbose("Flight",
+                        $"Route proof endpoint restored from background snapshot targetPid={routeTargetVesselPid} " +
+                        $"situation={endpointSituation}");
+                }
+
+                if (!endpointAtDock.HasValue || endpointSituation < 0)
+                {
+                    Vessel endpointVessel = FlightRecorder.FindVesselByPid(routeTargetVesselPid);
+                    endpointAtDock = BuildRouteEndpointFromVessel(
+                        endpointVessel,
+                        routeTargetVesselPid);
+                    endpointSituation = endpointVessel != null ? (int)endpointVessel.situation : -1;
+                }
+
+                if (!endpointAtDock.HasValue || endpointSituation < 0)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"Route proof endpoint unavailable at dock targetPid={routeTargetVesselPid}; " +
+                        "route analysis will reject this candidate");
+                }
 
                 RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
                     mergeUT,
@@ -8297,6 +8451,9 @@ namespace Parsek
                         absorbedPid = recorder.RecordingVesselId;
                     }
 
+                    uint routeTargetPid = ResolveDockRouteTargetPid(isTarget, mergedPid, absorbedPid);
+                    CapturePendingDockRouteEndpointProof(data, routeTargetPid);
+
                     // Stop recorder synchronously
                     recorder.StopRecordingForChainBoundary();
 
@@ -8319,6 +8476,11 @@ namespace Parsek
                 {
                     // OnPhysicsFrame already stopped us (initiator, late event)
                     uint absorbedPid = recorder.RecordingVesselId;
+                    uint routeTargetPid = ResolveDockRouteTargetPid(
+                        activeWasDockTarget: false,
+                        mergedVesselPid: mergedPid,
+                        absorbedVesselPid: absorbedPid);
+                    CapturePendingDockRouteEndpointProof(data, routeTargetPid);
 
                     pendingTreeDockMerge = true;
                     pendingDockMergedPid = mergedPid;
@@ -9063,6 +9225,8 @@ namespace Parsek
                     pendingDockAsTarget = false;
                     pendingTreeDockMerge = false;
                     pendingDockAbsorbedPid = 0;
+                    pendingDockRouteEndpointAtDock = null;
+                    pendingDockRouteEndpointSituation = -1;
                     dockConfirmFrames = 0;
                 }
             }
@@ -9195,6 +9359,8 @@ namespace Parsek
             pendingUndockOtherPid = 0;
             undockConfirmFrames = 0;
             pendingDockAbsorbedPid = 0;
+            pendingDockRouteEndpointAtDock = null;
+            pendingDockRouteEndpointSituation = -1;
         }
 
         /// <summary>
@@ -9264,6 +9430,8 @@ namespace Parsek
             pendingTreeDockMerge = false;
             pendingDockMergedPid = 0;
             pendingDockAbsorbedPid = 0;
+            pendingDockRouteEndpointAtDock = null;
+            pendingDockRouteEndpointSituation = -1;
             dockConfirmFrames = 0;
             pendingDockAsTarget = false;
 

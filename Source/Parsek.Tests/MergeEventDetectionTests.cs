@@ -7,8 +7,11 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class MergeEventDetectionTests : System.IDisposable
     {
+        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+
         public MergeEventDetectionTests()
         {
+            originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
@@ -21,6 +24,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
+            VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
         }
 
         #region BuildMergeBranchData — Dock (Two Parents)
@@ -222,6 +226,44 @@ namespace Parsek.Tests
                 activeWasDockTarget: true,
                 mergedVesselPid: 111,
                 absorbedVesselPid: 0));
+        }
+
+        [Fact]
+        public void TryBuildRouteEndpointFromSnapshot_UsesAbsorbedVesselSnapshot()
+        {
+            VesselSpawner.BodyNameResolverForTesting = delegate(int index, out string name)
+            {
+                name = index == 1 ? "Mun" : null;
+                return index == 1;
+            };
+            ConfigNode snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("persistentId", "222");
+            snapshot.AddValue("sit", "LANDED");
+            snapshot.AddValue("lat", "1.25");
+            snapshot.AddValue("lon", "-2.5");
+            snapshot.AddValue("alt", "123.75");
+            ConfigNode orbit = snapshot.AddNode("ORBIT");
+            orbit.AddValue("REF", "1");
+
+            Assert.True(ParsekFlight.TryBuildRouteEndpointFromSnapshot(
+                snapshot,
+                222,
+                out RouteEndpoint endpoint,
+                out int situation));
+
+            Assert.Equal(222u, endpoint.VesselPersistentId);
+            Assert.Equal("Mun", endpoint.BodyName);
+            Assert.Equal(1.25, endpoint.Latitude);
+            Assert.Equal(-2.5, endpoint.Longitude);
+            Assert.Equal(123.75, endpoint.Altitude);
+            Assert.True(endpoint.IsSurface);
+            Assert.Equal((int)Vessel.Situations.LANDED, situation);
+
+            Assert.False(ParsekFlight.TryBuildRouteEndpointFromSnapshot(
+                snapshot,
+                999,
+                out _,
+                out _));
         }
 
         #endregion
