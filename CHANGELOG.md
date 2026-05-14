@@ -20,6 +20,8 @@ All notable changes to Parsek are documented here.
 
 - Added the route-proof recording metadata contracts for Supply Routes, including route-facing dock target PID/kind, origin proof, connection windows, exact inventory payload snapshots, and serialization/copy tests.
 - Dock merge metadata now refuses to synthesize endpoint proof from the post-dock merged vessel PID, and branch-point target PIDs stay `0` unless explicit endpoint proof exists so logistics prep does not change ghost-chain claiming.
+- Always-tree dock/undock now captures route connection windows on the merged recording, including transport/endpoint part PID sets plus scoped resource and exact inventory payload snapshots.
+- Added the first read-only route analysis pass over completed connection windows, including explicit rejection for legacy/base-manifest-only recordings and v0 multi-stop runs.
 - Aligned the logistics transfer contract with stock behavior. Loaded tank edits should use stock `Part.TransferResource()` after explicit flow checks, while exact inventory delivery must preserve canonical `STOREDPART` payloads and avoid part-name-only removal helpers.
 
 ### UI

@@ -4180,6 +4180,29 @@ namespace Parsek
             return activeWasDockTarget ? absorbedVesselPid : mergedVesselPid;
         }
 
+        private static RouteEndpoint? BuildRouteEndpointFromVessel(
+            Vessel vessel,
+            uint expectedVesselPersistentId)
+        {
+            if (vessel == null || vessel.persistentId != expectedVesselPersistentId)
+                return null;
+
+            bool isSurface =
+                vessel.situation == Vessel.Situations.LANDED ||
+                vessel.situation == Vessel.Situations.SPLASHED ||
+                vessel.situation == Vessel.Situations.PRELAUNCH;
+
+            return new RouteEndpoint
+            {
+                VesselPersistentId = vessel.persistentId,
+                BodyName = vessel.mainBody != null ? vessel.mainBody.bodyName : null,
+                Latitude = vessel.latitude,
+                Longitude = vessel.longitude,
+                Altitude = vessel.altitude,
+                IsSurface = isSurface
+            };
+        }
+
         private static string GetMergeCauseForBranchType(BranchPointType branchType)
         {
             switch (branchType)
@@ -4259,6 +4282,21 @@ namespace Parsek
             // Take snapshots for both child vessels
             ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
             ConfigNode bgSnapshot = VesselSpawner.TryBackupSnapshot(backgroundVessel);
+
+            if (branchType == BranchPointType.Undock && parentRec != null)
+            {
+                bool routeWindowCompleted = RouteProofCapture.TryCompleteLatestRouteConnectionWindow(
+                    parentRec,
+                    branchUT,
+                    activeSnapshot,
+                    bgSnapshot);
+                if (routeWindowCompleted)
+                {
+                    ParsekLog.Info("Flight",
+                        $"Route proof dock window completed on undock: parent={parentRecordingId} " +
+                        $"ut={branchUT.ToString("R", CultureInfo.InvariantCulture)}");
+                }
+            }
 
             // Look up the parent's Generation so the children inherit correctly.
             // First-split path: parentRecording is the freshly-wrapped rootRec at gen=0.
@@ -4568,9 +4606,9 @@ namespace Parsek
 
             // 3. End background parent recording (if two-parent merge)
             // Per Fix 3: derive background vessel PID from the recording's VesselPersistentId
+            Recording bgParentRec = null;
             if (backgroundParentRecordingId != null)
             {
-                Recording bgParentRec;
                 if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec))
                 {
                     bgParentRec.ExplicitEndUT = mergeUT;
@@ -4600,6 +4638,50 @@ namespace Parsek
                 ? VesselSpawner.TryBackupSnapshot(mergedVessel) : null;
             mergedChild.GhostVisualSnapshot = mergedSnapshot;
             mergedChild.VesselSnapshot = mergedSnapshot != null ? mergedSnapshot.CreateCopy() : null;
+
+            if (branchType == BranchPointType.Dock && routeTargetVesselPid != 0)
+            {
+                ConfigNode transportSnapshot =
+                    stoppedRecorder?.CaptureAtStop?.VesselSnapshot ?? activeParentRec?.VesselSnapshot;
+                List<uint> transportPartPids = VesselSpawner.CollectPartPersistentIds(transportSnapshot);
+                List<uint> endpointPartPids = bgParentRec?.VesselSnapshot != null
+                    ? VesselSpawner.CollectPartPersistentIds(bgParentRec.VesselSnapshot)
+                    : null;
+
+                Vessel endpointVessel = FlightRecorder.FindVesselByPid(routeTargetVesselPid);
+                RouteEndpoint? endpointAtDock = BuildRouteEndpointFromVessel(
+                    endpointVessel,
+                    routeTargetVesselPid);
+                int endpointSituation = endpointVessel != null ? (int)endpointVessel.situation : -1;
+
+                RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
+                    mergeUT,
+                    routeTargetVesselPid,
+                    RouteConnectionKind.DockingPort,
+                    mergedSnapshot,
+                    transportPartPids,
+                    endpointPartPids,
+                    endpointAtDock,
+                    endpointSituation);
+
+                if (window != null)
+                {
+                    mergedChild.RouteConnectionWindows = new List<RouteConnectionWindow> { window };
+                    ParsekLog.Info("Flight",
+                        $"Route proof dock window captured: child={mergedChild.RecordingId} " +
+                        $"window={window.WindowId} targetPid={routeTargetVesselPid} " +
+                        $"transportParts={window.TransportPartPersistentIds?.Count ?? 0} " +
+                        $"endpointParts={window.EndpointPartPersistentIds?.Count ?? 0}");
+                }
+                else
+                {
+                    ParsekLog.Warn("Flight",
+                        $"Route proof dock window capture skipped: child={mergedChild.RecordingId} " +
+                        $"targetPid={routeTargetVesselPid} snapshot={mergedSnapshot != null} " +
+                        $"transportParts={transportPartPids?.Count ?? 0} " +
+                        $"endpointParts={endpointPartPids?.Count ?? 0}");
+                }
+            }
 
             // 7. Set ChildBranchPointId on all parent recordings
             if (activeParentRec != null)

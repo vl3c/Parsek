@@ -479,7 +479,7 @@ public Dictionary<string, ResourceAmount> EndResources;     // manifest at recor
 
 Implementation prep must verify the always-tree path persists these fields on the actual committed `Recording` objects, not only on transient `FlightRecorder.CaptureAtStop` objects. In the current code, always-tree root recordings are created before `FlightRecorder.StartRecording`, and `ParsekFlight.AppendCapturedDataToRecording` / `FlushRecorderToTreeRecording` append trajectory data but do not currently make the manifest ownership invariant obvious. Before route analysis ships, tests must prove committed tree recordings carry the intended start/end manifests after normal commit, dock/undock, split/merge, scene-exit, and optimizer paths.
 
-**Connection-scoped manifests** (v1 logistics prerequisite; not implemented yet):
+**Connection-scoped manifests** (v1 logistics prerequisite; implementation in progress):
 
 ```csharp
 internal sealed class RouteConnectionWindow
@@ -515,6 +515,8 @@ internal sealed class RouteOriginProof
 ```
 
 Store completed connection windows on the tree recording that represents the docked merged vessel. In the always-tree flow, a dock creates a `BranchPointType.Dock` merge and a merged child recording; the later undock creates a split from that merged recording. The route window naturally spans that merged child. If the window cannot be completed with a matching undock, the route candidate is invalid.
+
+Current implementation prep has the always-tree dock/undock skeleton in place: `RouteProofCapture` builds the dock window from the merged vessel snapshot, records transport/endpoint part PID sets, filters resource manifests by those PID sets, preserves exact `STOREDPART` inventory payload snapshots, and completes the same window at the later undock from the two split-vessel snapshots. Runtime validation is still required for the active-as-target stock dock path's endpoint coordinates/PID semantics before route creation consumes those fields as proof.
 
 The docked aggregate vessel manifest is still useful for diagnostics, but Logistics v1 must compute delivery from matched transport-loss and endpoint-gain fields. Cost uses full-run fields scoped to the original transport part set. Missing connection-scoped fields mean the recording cannot become a Supply Route.
 
@@ -604,6 +606,8 @@ Route creation uses an automatic post-commit prompt on an eligible Supply Run. A
 `RouteAnalysisEngine` (in `Logistics/`) is pure logic over committed recording-tree data. Fully testable without KSP.
 
 **Input:** a committed `RecordingTree`, or a deterministic projection from that tree into the route source path. This can come from an explicit route-intended session marker, the just-committed tree, or a "Create Supply Route" action on an existing recording tree.
+
+Current implementation prep has the first read-only analyzer slice: it scans committed tree recordings for exactly one completed `RouteConnectionWindow`, rejects old recordings that only have aggregate Phase 11 manifests, rejects multi-window/multi-stop candidates for v0, and derives resource/inventory delivery manifests only when endpoint gains are matched by transport losses. It does not yet create route entities, persist route store data, prompt the user, schedule dispatches, or mutate stock resources.
 
 Always-tree mode means the analysis input is not just a flat chronological list. The engine must inspect:
 

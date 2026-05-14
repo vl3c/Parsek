@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using UnityEngine;
 
 namespace Parsek
@@ -314,53 +316,34 @@ namespace Parsek
         /// </summary>
         internal static Dictionary<string, ResourceAmount> ExtractResourceManifest(ConfigNode vesselSnapshot)
         {
+            return ExtractResourceManifest(vesselSnapshot, null);
+        }
+
+        internal static Dictionary<string, ResourceAmount> ExtractResourceManifest(
+            ConfigNode vesselSnapshot,
+            ICollection<uint> partPersistentIds)
+        {
             if (vesselSnapshot == null) return null;
 
             var parts = vesselSnapshot.GetNodes("PART");
             if (parts.Length == 0) return null;
 
             var manifest = new Dictionary<string, ResourceAmount>();
-            int partCount = parts.Length;
+            int includedPartCount = 0;
 
             for (int i = 0; i < parts.Length; i++)
             {
-                var resources = parts[i].GetNodes("RESOURCE");
-                for (int j = 0; j < resources.Length; j++)
-                {
-                    string name = resources[j].GetValue("name");
-                    if (string.IsNullOrEmpty(name)) continue;
-                    if (name == "ElectricCharge" || name == "IntakeAir") continue;
+                if (!ShouldIncludePartByPersistentId(parts[i], partPersistentIds))
+                    continue;
 
-                    double amount = 0;
-                    double maxAmount = 0;
-                    string amountStr = resources[j].GetValue("amount");
-                    string maxStr = resources[j].GetValue("maxAmount");
-                    if (amountStr != null)
-                        double.TryParse(amountStr, System.Globalization.NumberStyles.Float,
-                            CultureInfo.InvariantCulture, out amount);
-                    if (maxStr != null)
-                        double.TryParse(maxStr, System.Globalization.NumberStyles.Float,
-                            CultureInfo.InvariantCulture, out maxAmount);
-
-                    if (manifest.ContainsKey(name))
-                    {
-                        // Struct — indexer returns a copy. Read-modify-write.
-                        var ra = manifest[name];
-                        ra.amount += amount;
-                        ra.maxAmount += maxAmount;
-                        manifest[name] = ra;
-                    }
-                    else
-                    {
-                        manifest[name] = new ResourceAmount { amount = amount, maxAmount = maxAmount };
-                    }
-                }
+                includedPartCount++;
+                AddResourceNodesToManifest(parts[i].GetNodes("RESOURCE"), manifest);
             }
 
             if (manifest.Count == 0) return null;
 
             ParsekLog.Verbose("Spawner",
-                $"ExtractResourceManifest: {manifest.Count} resource type(s) from {partCount} part(s)");
+                $"ExtractResourceManifest: {manifest.Count} resource type(s) from {includedPartCount} part(s)");
 
             return manifest;
         }
@@ -444,6 +427,229 @@ namespace Parsek
                 $"ExtractInventoryManifest: {manifest.Count} item type(s), {totalInventorySlots} total slot(s) across {moduleCount} inventory module(s)");
 
             return manifest;
+        }
+
+        internal static List<InventoryPayloadItem> ExtractInventoryPayloadItems(
+            ConfigNode vesselSnapshot,
+            ICollection<uint> partPersistentIds = null)
+        {
+            if (vesselSnapshot == null) return null;
+
+            ConfigNode[] parts = vesselSnapshot.GetNodes("PART");
+            if (parts.Length == 0) return null;
+
+            var byIdentity = new Dictionary<string, InventoryPayloadItem>();
+            int moduleCount = 0;
+            int storedPartCount = 0;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!ShouldIncludePartByPersistentId(parts[i], partPersistentIds))
+                    continue;
+
+                ConfigNode[] modules = parts[i].GetNodes("MODULE");
+                for (int j = 0; j < modules.Length; j++)
+                {
+                    if (modules[j].GetValue("name") != "ModuleInventoryPart") continue;
+                    moduleCount++;
+
+                    ConfigNode storedPartsNode = modules[j].GetNode("STOREDPARTS");
+                    if (storedPartsNode == null) continue;
+
+                    ConfigNode[] storedParts = storedPartsNode.GetNodes("STOREDPART");
+                    for (int k = 0; k < storedParts.Length; k++)
+                    {
+                        InventoryPayloadItem item = BuildInventoryPayloadItem(storedParts[k]);
+                        if (item == null)
+                            continue;
+
+                        storedPartCount++;
+                        if (byIdentity.TryGetValue(item.IdentityHash, out InventoryPayloadItem existing))
+                        {
+                            existing.Quantity += item.Quantity;
+                            existing.SlotsTaken += item.SlotsTaken;
+                        }
+                        else
+                        {
+                            byIdentity[item.IdentityHash] = item;
+                        }
+                    }
+                }
+            }
+
+            if (byIdentity.Count == 0) return null;
+
+            var items = new List<InventoryPayloadItem>(byIdentity.Values);
+            items.Sort((a, b) => string.Compare(a.IdentityHash, b.IdentityHash, StringComparison.Ordinal));
+
+            ParsekLog.Verbose("Spawner",
+                $"ExtractInventoryPayloadItems: {items.Count} payload identity(s), " +
+                $"{storedPartCount} stored part node(s) across {moduleCount} inventory module(s)");
+
+            return items;
+        }
+
+        internal static string ComputeInventoryPayloadIdentityHash(ConfigNode storedPart)
+        {
+            if (storedPart == null)
+                return null;
+
+            StringBuilder canonical = new StringBuilder();
+            AppendCanonicalConfigNode(storedPart, canonical);
+
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(canonical.ToString());
+                byte[] hash = sha.ComputeHash(bytes);
+                StringBuilder hex = new StringBuilder(hash.Length * 2);
+                for (int i = 0; i < hash.Length; i++)
+                    hex.Append(hash[i].ToString("x2", CultureInfo.InvariantCulture));
+                return hex.ToString();
+            }
+        }
+
+        private static bool ShouldIncludePartByPersistentId(
+            ConfigNode partNode,
+            ICollection<uint> partPersistentIds)
+        {
+            if (partPersistentIds == null || partPersistentIds.Count == 0)
+                return true;
+
+            return TryGetPartPersistentId(partNode, out uint pid)
+                && partPersistentIds.Contains(pid);
+        }
+
+        internal static bool TryGetPartPersistentId(ConfigNode partNode, out uint pid)
+        {
+            pid = 0;
+            if (partNode == null)
+                return false;
+
+            string pidStr = partNode.GetValue("persistentId");
+            return pidStr != null
+                && uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid)
+                && pid != 0;
+        }
+
+        private static InventoryPayloadItem BuildInventoryPayloadItem(ConfigNode storedPart)
+        {
+            if (storedPart == null)
+                return null;
+
+            string partName = storedPart.GetValue("partName");
+            if (string.IsNullOrEmpty(partName))
+                return null;
+
+            int quantity = 1;
+            string qtyStr = storedPart.GetValue("quantity");
+            if (qtyStr != null
+                && int.TryParse(qtyStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedQty))
+            {
+                quantity = parsedQty;
+            }
+
+            ConfigNode snapshot = storedPart.CreateCopy();
+            snapshot.name = "STOREDPART";
+
+            return new InventoryPayloadItem
+            {
+                IdentityHash = ComputeInventoryPayloadIdentityHash(snapshot),
+                PartName = partName,
+                VariantName = storedPart.GetValue("variantName") ?? storedPart.GetValue("variant"),
+                Quantity = quantity,
+                SlotsTaken = 1,
+                StoredResources = ExtractStoredPartResourceManifest(storedPart),
+                StoredPartSnapshot = snapshot
+            };
+        }
+
+        private static Dictionary<string, ResourceAmount> ExtractStoredPartResourceManifest(
+            ConfigNode storedPart)
+        {
+            if (storedPart == null)
+                return null;
+
+            var manifest = new Dictionary<string, ResourceAmount>();
+            AddResourceNodesToManifest(storedPart.GetNodes("RESOURCE"), manifest);
+
+            ConfigNode[] partNodes = storedPart.GetNodes("PART");
+            for (int i = 0; i < partNodes.Length; i++)
+                AddResourceNodesToManifest(partNodes[i].GetNodes("RESOURCE"), manifest);
+
+            return manifest.Count > 0 ? manifest : null;
+        }
+
+        private static void AddResourceNodesToManifest(
+            ConfigNode[] resourceNodes,
+            Dictionary<string, ResourceAmount> manifest)
+        {
+            if (resourceNodes == null || manifest == null)
+                return;
+
+            for (int j = 0; j < resourceNodes.Length; j++)
+            {
+                string name = resourceNodes[j].GetValue("name");
+                if (string.IsNullOrEmpty(name)) continue;
+                if (name == "ElectricCharge" || name == "IntakeAir") continue;
+
+                double amount = 0;
+                double maxAmount = 0;
+                string amountStr = resourceNodes[j].GetValue("amount");
+                string maxStr = resourceNodes[j].GetValue("maxAmount");
+                if (amountStr != null)
+                    double.TryParse(amountStr, NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out amount);
+                if (maxStr != null)
+                    double.TryParse(maxStr, NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out maxAmount);
+
+                if (manifest.ContainsKey(name))
+                {
+                    var ra = manifest[name];
+                    ra.amount += amount;
+                    ra.maxAmount += maxAmount;
+                    manifest[name] = ra;
+                }
+                else
+                {
+                    manifest[name] = new ResourceAmount { amount = amount, maxAmount = maxAmount };
+                }
+            }
+        }
+
+        private static void AppendCanonicalConfigNode(ConfigNode node, StringBuilder output)
+        {
+            if (node == null || output == null)
+                return;
+
+            output.Append("node=").Append(node.name ?? "").Append('\n');
+
+            var values = new List<string>();
+            if (node.values != null)
+            {
+                for (int i = 0; i < node.values.Count; i++)
+                {
+                    ConfigNode.Value value = node.values[i];
+                    values.Add((value.name ?? "") + "\x1F" + (value.value ?? ""));
+                }
+            }
+            values.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < values.Count; i++)
+                output.Append("value=").Append(values[i]).Append('\n');
+
+            var children = new List<string>();
+            if (node.nodes != null)
+            {
+                for (int i = 0; i < node.nodes.Count; i++)
+                {
+                    StringBuilder child = new StringBuilder();
+                    AppendCanonicalConfigNode(node.nodes[i], child);
+                    children.Add(child.ToString());
+                }
+            }
+            children.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < children.Count; i++)
+                output.Append(children[i]);
         }
 
         /// <summary>
