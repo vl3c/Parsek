@@ -1025,13 +1025,19 @@ namespace Parsek.Tests
             // scenario object (a faithful load-1 / load-2 simulation, since the
             // first run mutates RecordingSupersedes and RecordingRewindRetirements
             // in place) and asserts P1/P2/P3 survive BOTH runs.
+            // Pass treeId explicitly so all four recordings genuinely share
+            // "tree-multi-old" in recordingIdToTreeId (Rec() otherwise defaults
+            // to "tree_1", and AddRecordingWithTreeForTesting only sets TreeId
+            // when null — so the InstallTree treeId arg would not actually
+            // reach the recordings). The tree-scoped guard keys on rec.TreeId,
+            // so this keeps the test faithful to its single-tree fan-in shape.
             InstallTree("tree-multi-old",
                 new List<Recording>
                 {
-                    Rec("F", MergeState.Immutable),
-                    Rec("P1", MergeState.CommittedProvisional),
-                    Rec("P2", MergeState.CommittedProvisional),
-                    Rec("P3", MergeState.CommittedProvisional)
+                    Rec("F", MergeState.Immutable, treeId: "tree-multi-old"),
+                    Rec("P1", MergeState.CommittedProvisional, treeId: "tree-multi-old"),
+                    Rec("P2", MergeState.CommittedProvisional, treeId: "tree-multi-old"),
+                    Rec("P3", MergeState.CommittedProvisional, treeId: "tree-multi-old")
                 },
                 new List<BranchPoint>());
             var fRetirement = new RecordingRewindRetirement
