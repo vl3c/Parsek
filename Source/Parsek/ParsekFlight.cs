@@ -6921,6 +6921,7 @@ namespace Parsek
                 ParsekLog.Warn("Flight",
                     $"OnCrewOnEva: source vessel pid={sourceVessel.persistentId} is not the live recorder " +
                     $"and is not a tracked background parent ({diagnostic}); suppressing deferred auto-record");
+                ScreenMessage("Recording blocked (EVA source not tracked)", 2f);
                 ClearPendingEvaAutoRecordState();
                 return true;
             }
@@ -6931,6 +6932,7 @@ namespace Parsek
                     $"OnCrewOnEva: background parent map entry is invalid " +
                     $"(sourcePid={sourceVessel.persistentId}, parentRec={parentRecordingId ?? "null"}, " +
                     $"diagnostic={diagnostic}); suppressing deferred auto-record");
+                ScreenMessage("Recording blocked (invalid EVA tree state)", 2f);
                 ClearPendingEvaAutoRecordState();
                 return true;
             }
@@ -6940,6 +6942,7 @@ namespace Parsek
                 ParsekLog.Warn("Flight",
                     $"OnCrewOnEva: source vessel pid={sourceVessel.persistentId} is tracked in background " +
                     "but EVA kerbal name could not be extracted; suppressing deferred auto-record");
+                ScreenMessage("Recording blocked (EVA crew unknown)", 2f);
                 ClearPendingEvaAutoRecordState();
                 return true;
             }
