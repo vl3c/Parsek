@@ -6210,6 +6210,9 @@ namespace Parsek
             if (rec.DockTargetVesselPid != 0)
                 recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(CultureInfo.InvariantCulture));
 
+            // Logistics route proof metadata (additive; missing node = no proof data)
+            RecordingStore.SerializeRouteProofMetadata(recNode, rec);
+
         }
 
         /// <summary>
@@ -6464,6 +6467,9 @@ namespace Parsek
                 if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out dockTargetPid))
                     rec.DockTargetVesselPid = dockTargetPid;
             }
+
+            // Logistics route proof metadata (additive; missing node = no proof data)
+            RecordingStore.DeserializeRouteProofMetadata(recNode, rec);
         }
 
         /// <summary>

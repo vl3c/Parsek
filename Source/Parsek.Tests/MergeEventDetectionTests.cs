@@ -46,6 +46,10 @@ namespace Parsek.Tests
             Assert.Single(bp.ChildRecordingIds);
             Assert.NotNull(bp.Id);
             Assert.NotEmpty(bp.Id);
+            Assert.Equal("DOCK", bp.MergeCause);
+            Assert.Equal(100u, bp.TargetVesselPersistentId);
+            Assert.Equal(100u, mergedChild.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.DockingPort, mergedChild.TransferKind);
         }
 
         [Fact]
@@ -90,6 +94,10 @@ namespace Parsek.Tests
             Assert.Contains("kerbal_rec", bp.ParentRecordingIds);
             Assert.Contains("vessel_rec", bp.ParentRecordingIds);
             Assert.Single(bp.ChildRecordingIds);
+            Assert.Equal("BOARD", bp.MergeCause);
+            Assert.Equal(300u, bp.TargetVesselPersistentId);
+            Assert.Equal(0u, mergedChild.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.None, mergedChild.TransferKind);
         }
 
         #endregion
@@ -161,6 +169,25 @@ namespace Parsek.Tests
 
             Assert.Single(bp.ChildRecordingIds);
             Assert.Equal(child.RecordingId, bp.ChildRecordingIds[0]);
+        }
+
+        [Fact]
+        public void BuildMergeBranchData_Dock_UsesExplicitTargetPid()
+        {
+            var parentIds = new List<string> { "p1", "p2" };
+            var (bp, child) = ParsekFlight.BuildMergeBranchData(
+                parentIds,
+                "tree",
+                3000.0,
+                BranchPointType.Dock,
+                mergedVesselPid: 60,
+                mergedVesselName: "Merged",
+                targetVesselPersistentId: 999,
+                transferKind: RouteConnectionKind.DockingPort);
+
+            Assert.Equal(999u, bp.TargetVesselPersistentId);
+            Assert.Equal(999u, child.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.DockingPort, child.TransferKind);
         }
 
         #endregion

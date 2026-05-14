@@ -245,6 +245,18 @@ namespace Parsek
         // PID of vessel docked to at this segment's boundary (0 = not a dock segment)
         public uint DockTargetVesselPid;
 
+        // Route-facing connection metadata. TransferTargetVesselPid is the
+        // connected endpoint vessel PID at a logistics-relevant boundary;
+        // TransferKind identifies the producer contract (DockingPort only in v0).
+        public uint TransferTargetVesselPid;
+        internal RouteConnectionKind TransferKind;
+
+        // Logistics proof metadata. RouteConnectionWindows are completed
+        // dock/undock windows with transport- and endpoint-scoped manifests;
+        // RouteOriginProof proves non-KSC origin debit authority.
+        internal List<RouteConnectionWindow> RouteConnectionWindows;
+        internal RouteOriginProof RouteOriginProof;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -597,6 +609,10 @@ namespace Parsek
             StartCrew = source.StartCrew;
             EndCrew = source.EndCrew;
             DockTargetVesselPid = source.DockTargetVesselPid;
+            TransferTargetVesselPid = source.TransferTargetVesselPid;
+            TransferKind = source.TransferKind;
+            RouteConnectionWindows = RouteProofMetadata.CloneConnectionWindows(source.RouteConnectionWindows);
+            RouteOriginProof = source.RouteOriginProof != null ? source.RouteOriginProof.DeepClone() : null;
             CrewEndStatesResolved = source.CrewEndStatesResolved;
             TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
 
@@ -685,6 +701,12 @@ namespace Parsek
                 : null;
             clone.EndCrew = source.EndCrew != null
                 ? new Dictionary<string, int>(source.EndCrew)
+                : null;
+            clone.TransferTargetVesselPid = source.TransferTargetVesselPid;
+            clone.TransferKind = source.TransferKind;
+            clone.RouteConnectionWindows = RouteProofMetadata.CloneConnectionWindows(source.RouteConnectionWindows);
+            clone.RouteOriginProof = source.RouteOriginProof != null
+                ? source.RouteOriginProof.DeepClone()
                 : null;
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;

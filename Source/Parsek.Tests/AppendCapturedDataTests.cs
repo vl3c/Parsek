@@ -238,5 +238,117 @@ namespace Parsek.Tests
             Assert.Equal(100.0, target.SegmentEvents[0].ut);
             Assert.Equal(200.0, target.SegmentEvents[1].ut);
         }
+
+        [Fact]
+        public void LogisticsMetadata_CopiedFromCapture()
+        {
+            var target = new Recording();
+            var source = new Recording
+            {
+                RecordingId = "source-logistics",
+                StartResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 3600.0, maxAmount = 3600.0 }
+                },
+                EndResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 200.0, maxAmount = 3600.0 }
+                },
+                StartInventory = new Dictionary<string, InventoryItem>
+                {
+                    ["evaJetpack"] = new InventoryItem { count = 2, slotsTaken = 2 }
+                },
+                EndInventory = new Dictionary<string, InventoryItem>
+                {
+                    ["evaJetpack"] = new InventoryItem { count = 1, slotsTaken = 1 }
+                },
+                StartInventorySlots = 4,
+                EndInventorySlots = 4,
+                StartCrew = new Dictionary<string, int> { ["Pilot"] = 1 },
+                EndCrew = new Dictionary<string, int> { ["Pilot"] = 1 },
+                DockTargetVesselPid = 123,
+                TransferTargetVesselPid = 456,
+                TransferKind = RouteConnectionKind.DockingPort,
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 789
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "window",
+                        DockUT = 10.0,
+                        UndockUT = 20.0,
+                        TransportPartPersistentIds = new List<uint> { 1, 2 }
+                    }
+                }
+            };
+
+            ParsekFlight.AppendCapturedDataToRecording(target, source, 30.0);
+
+            Assert.Equal(3600.0, target.StartResources["LiquidFuel"].amount);
+            Assert.Equal(200.0, target.EndResources["LiquidFuel"].amount);
+            Assert.Equal(2, target.StartInventory["evaJetpack"].count);
+            Assert.Equal(1, target.EndInventory["evaJetpack"].count);
+            Assert.Equal(4, target.StartInventorySlots);
+            Assert.Equal(4, target.EndInventorySlots);
+            Assert.Equal(1, target.StartCrew["Pilot"]);
+            Assert.Equal(1, target.EndCrew["Pilot"]);
+            Assert.Equal(123u, target.DockTargetVesselPid);
+            Assert.Equal(456u, target.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.DockingPort, target.TransferKind);
+            Assert.Equal(789u, target.RouteOriginProof.StartDockedOriginVesselPid);
+            Assert.Single(target.RouteConnectionWindows);
+
+            source.StartResources["LiquidFuel"] =
+                new ResourceAmount { amount = 1.0, maxAmount = 1.0 };
+            source.RouteConnectionWindows[0].TransportPartPersistentIds.Add(99);
+
+            Assert.Equal(3600.0, target.StartResources["LiquidFuel"].amount);
+            Assert.Equal(new List<uint> { 1u, 2u },
+                target.RouteConnectionWindows[0].TransportPartPersistentIds);
+        }
+
+        [Fact]
+        public void LogisticsMetadata_StartFirstWinsEndOverwrites()
+        {
+            var target = new Recording
+            {
+                StartResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 100.0, maxAmount = 100.0 }
+                },
+                EndResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 90.0, maxAmount = 100.0 }
+                },
+                StartInventorySlots = 2,
+                EndInventorySlots = 2
+            };
+            var source = new Recording
+            {
+                StartResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 3600.0, maxAmount = 3600.0 }
+                },
+                EndResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["LiquidFuel"] = new ResourceAmount { amount = 200.0, maxAmount = 3600.0 }
+                },
+                StartInventorySlots = 8,
+                EndInventorySlots = 6
+            };
+
+            ParsekFlight.ApplyCapturedLogisticsMetadataToRecording(
+                target,
+                source,
+                "test");
+
+            Assert.Equal(100.0, target.StartResources["LiquidFuel"].amount);
+            Assert.Equal(200.0, target.EndResources["LiquidFuel"].amount);
+            Assert.Equal(2, target.StartInventorySlots);
+            Assert.Equal(6, target.EndInventorySlots);
+        }
     }
 }

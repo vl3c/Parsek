@@ -3165,6 +3165,11 @@ namespace Parsek
             if (string.IsNullOrEmpty(treeRec.LaunchSiteName))
                 treeRec.LaunchSiteName = rec.LaunchSiteName;
 
+            ApplyCapturedLogisticsMetadataToRecording(
+                treeRec,
+                rec.CaptureAtStop,
+                "FlushRecorderToTreeRecording");
+
             ApplyFinalSegmentPhaseFromCapture(
                 treeRec,
                 tree.ActiveRecordingId,
@@ -3757,6 +3762,10 @@ namespace Parsek
                 var sortedSegAppend = FlightRecorder.StableSortByUT(target.SegmentEvents, e => e.ut);
                 target.SegmentEvents.Clear();
                 target.SegmentEvents.AddRange(sortedSegAppend);
+                ApplyCapturedLogisticsMetadataToRecording(
+                    target,
+                    source,
+                    "AppendCapturedDataToRecording");
                 // Mark dirty so the next OnSave persists the appended data to
                 // the .prec sidecar. Without this, data lives only in memory
                 // and is lost on scene reload (see Recording.MarkFilesDirty
@@ -3764,6 +3773,108 @@ namespace Parsek
                 target.MarkFilesDirty();
             }
             target.ExplicitEndUT = endUT;
+        }
+
+        internal static bool ApplyCapturedLogisticsMetadataToRecording(
+            Recording target,
+            Recording source,
+            string sourcePath)
+        {
+            if (target == null || source == null)
+                return false;
+
+            bool changed = false;
+
+            if (target.StartResources == null && HasEntries(source.StartResources))
+            {
+                target.StartResources = RouteProofMetadata.CloneResourceManifest(source.StartResources);
+                changed = true;
+            }
+            if (HasEntries(source.EndResources))
+            {
+                target.EndResources = RouteProofMetadata.CloneResourceManifest(source.EndResources);
+                changed = true;
+            }
+
+            if (target.StartInventory == null && HasEntries(source.StartInventory))
+            {
+                target.StartInventory = RouteProofMetadata.CloneInventoryManifest(source.StartInventory);
+                changed = true;
+            }
+            if (HasEntries(source.EndInventory))
+            {
+                target.EndInventory = RouteProofMetadata.CloneInventoryManifest(source.EndInventory);
+                changed = true;
+            }
+            if (target.StartInventorySlots == 0 && source.StartInventorySlots != 0)
+            {
+                target.StartInventorySlots = source.StartInventorySlots;
+                changed = true;
+            }
+            if (source.EndInventorySlots != 0)
+            {
+                target.EndInventorySlots = source.EndInventorySlots;
+                changed = true;
+            }
+
+            if (target.StartCrew == null && HasEntries(source.StartCrew))
+            {
+                target.StartCrew = RouteProofMetadata.CloneCrewManifest(source.StartCrew);
+                changed = true;
+            }
+            if (HasEntries(source.EndCrew))
+            {
+                target.EndCrew = RouteProofMetadata.CloneCrewManifest(source.EndCrew);
+                changed = true;
+            }
+
+            if (source.DockTargetVesselPid != 0)
+            {
+                target.DockTargetVesselPid = source.DockTargetVesselPid;
+                changed = true;
+            }
+            if (source.TransferTargetVesselPid != 0)
+            {
+                target.TransferTargetVesselPid = source.TransferTargetVesselPid;
+                changed = true;
+            }
+            if (source.TransferKind != RouteConnectionKind.None)
+            {
+                target.TransferKind = source.TransferKind;
+                changed = true;
+            }
+
+            if (target.RouteOriginProof == null && source.RouteOriginProof != null)
+            {
+                target.RouteOriginProof = source.RouteOriginProof.DeepClone();
+                changed = true;
+            }
+            if (source.RouteConnectionWindows != null && source.RouteConnectionWindows.Count > 0)
+            {
+                if (target.RouteConnectionWindows == null)
+                    target.RouteConnectionWindows = new List<RouteConnectionWindow>();
+
+                for (int i = 0; i < source.RouteConnectionWindows.Count; i++)
+                    target.RouteConnectionWindows.Add(source.RouteConnectionWindows[i]?.DeepClone());
+                changed = true;
+            }
+
+            if (changed)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Logistics metadata copied: path={sourcePath ?? "<unknown>"} " +
+                    $"target={target.RecordingId ?? "<none>"} source={source.RecordingId ?? "<none>"} " +
+                    $"startRes={(target.StartResources?.Count ?? 0)} endRes={(target.EndResources?.Count ?? 0)} " +
+                    $"startInv={(target.StartInventory?.Count ?? 0)} endInv={(target.EndInventory?.Count ?? 0)} " +
+                    $"windows={(target.RouteConnectionWindows?.Count ?? 0)} targetPid={target.TransferTargetVesselPid}");
+            }
+
+            return changed;
+        }
+
+        private static bool HasEntries<TKey, TValue>(Dictionary<TKey, TValue> dict)
+        {
+            return dict != null && dict.Count > 0;
         }
 
         /// <summary>
@@ -3998,10 +4109,15 @@ namespace Parsek
         internal static (BranchPoint bp, Recording mergedChild)
             BuildMergeBranchData(
                 List<string> parentRecordingIds, string treeId, double mergeUT,
-                BranchPointType branchType, uint mergedVesselPid, string mergedVesselName)
+                BranchPointType branchType, uint mergedVesselPid, string mergedVesselName,
+                uint targetVesselPersistentId = 0,
+                RouteConnectionKind transferKind = RouteConnectionKind.None)
         {
             string childId = Guid.NewGuid().ToString("N");
             string bpId = Guid.NewGuid().ToString("N");
+            uint routeTargetPid = targetVesselPersistentId != 0
+                ? targetVesselPersistentId
+                : mergedVesselPid;
 
             var bp = new BranchPoint
             {
@@ -4009,7 +4125,9 @@ namespace Parsek
                 UT = mergeUT,
                 Type = branchType,
                 ParentRecordingIds = new List<string>(parentRecordingIds),
-                ChildRecordingIds = new List<string> { childId }
+                ChildRecordingIds = new List<string> { childId },
+                MergeCause = GetMergeCauseForBranchType(branchType),
+                TargetVesselPersistentId = routeTargetPid
             };
 
             var mergedChild = new Recording
@@ -4019,10 +4137,27 @@ namespace Parsek
                 VesselPersistentId = mergedVesselPid,
                 VesselName = mergedVesselName,
                 ParentBranchPointId = bpId,
-                ExplicitStartUT = mergeUT
+                ExplicitStartUT = mergeUT,
+                TransferTargetVesselPid = branchType == BranchPointType.Dock ? routeTargetPid : 0,
+                TransferKind = branchType == BranchPointType.Dock
+                    ? (transferKind != RouteConnectionKind.None ? transferKind : RouteConnectionKind.DockingPort)
+                    : RouteConnectionKind.None
             };
 
             return (bp, mergedChild);
+        }
+
+        private static string GetMergeCauseForBranchType(BranchPointType branchType)
+        {
+            switch (branchType)
+            {
+                case BranchPointType.Dock:
+                    return "DOCK";
+                case BranchPointType.Board:
+                    return "BOARD";
+                default:
+                    return null;
+            }
         }
 
         /// <summary>

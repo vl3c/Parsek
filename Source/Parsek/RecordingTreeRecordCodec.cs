@@ -258,6 +258,9 @@ namespace Parsek
             if (rec.DockTargetVesselPid != 0)
                 recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(ic));
 
+            // Logistics route proof metadata (additive; missing node = no proof data)
+            RecordingStore.SerializeRouteProofMetadata(recNode, rec);
+
             // Rewind-to-Staging (design section 5.5). Omit the default Immutable enum value
             // so legacy saves stay byte-identical; write the string form for durability across
             // enum renumbering. SupersedeTargetId is transient but written defensively so a
@@ -839,6 +842,9 @@ namespace Parsek
                 if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, ic, out dockTargetPid))
                     rec.DockTargetVesselPid = dockTargetPid;
             }
+
+            // Logistics route proof metadata (additive; missing node = no proof data)
+            RecordingStore.DeserializeRouteProofMetadata(recNode, rec);
 
             // Rewind-to-Staging (design section 5.5 + 9). Legacy saves without `mergeState`
             // default to Immutable. Saves that carried the old binary `committed` bool map

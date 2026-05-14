@@ -6158,6 +6158,16 @@ namespace Parsek
             RecordingManifestCodec.DeserializeCrewManifest(parent, rec);
         }
 
+        internal static void SerializeRouteProofMetadata(ConfigNode parent, Recording rec)
+        {
+            RouteProofCodec.SerializeRouteProofMetadata(parent, rec);
+        }
+
+        internal static void DeserializeRouteProofMetadata(ConfigNode parent, Recording rec)
+        {
+            RouteProofCodec.DeserializeRouteProofMetadata(parent, rec);
+        }
+
         #endregion
 
         #region Recording File I/O
