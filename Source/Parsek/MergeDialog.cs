@@ -28,7 +28,7 @@ namespace Parsek
         {
             /// <summary>"Merge to Timeline" / "Discard"</summary>
             Default,
-            /// <summary>"Merge" / "Discard"</summary>
+            /// <summary>Dynamic timeline action label / "Discard"</summary>
             ReFlyAttempt,
         }
 
@@ -153,6 +153,7 @@ namespace Parsek
             // too when the preview classifies the attempt as sealable.
             var reFlyScenario = ParsekScenario.Instance;
             string message;
+            string mergeLabel = BuildTimelineActionButtonLabel(isPermanent: true);
             if (!object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveReFlySessionMarker != null)
             {
@@ -177,12 +178,14 @@ namespace Parsek
                     ? ReFlyAutoSealPreviewer.Preview(
                         reFlyRec, marker, FlightGlobals.ActiveVessel)
                     : ReFlyAutoSealPreviewResult.NoSeal();
+                mergeLabel = BuildTimelineActionButtonLabel(preview.WillAutoSeal);
                 message = BuildReFlyDialogBody(
                     vesselLabel, reFlyDuration, preview);
 
                 ParsekLog.Info("MergeDialog",
                     $"Re-Fly auto-seal preview (post-transition): " +
                     $"willSeal={preview.WillAutoSeal} " +
+                    $"button='{mergeLabel}' " +
                     $"reasons=[{string.Join(",", preview.Reasons)}] " +
                     $"sess={marker.SessionId ?? "<no-id>"}");
             }
@@ -205,7 +208,7 @@ namespace Parsek
 
             DialogGUIButton[] buttons = new[]
             {
-                new DialogGUIButton("Merge to Timeline", () =>
+                new DialogGUIButton(mergeLabel, () =>
                 {
                     MergeCommit(tree, capturedDecisions, capturedSpawnCount);
                 }),
@@ -291,7 +294,6 @@ namespace Parsek
             if (labels == MergeDialogButtonLabels.ReFlyAttempt)
             {
                 title = "Re-Fly attempt - leaving flight";
-                mergeLabel = "Merge";
                 discardLabel = "Discard";
                 Recording reFlyRec = marker != null
                     ? FindReFlyRecording(marker, liveTree)
@@ -311,10 +313,12 @@ namespace Parsek
                 // affects the dialog wording, not the seal verdict).
                 var preview = ReFlyAutoSealPreviewer.Preview(
                     reFlyRec, marker, FlightGlobals.ActiveVessel);
+                mergeLabel = BuildTimelineActionButtonLabel(preview.WillAutoSeal);
                 message = BuildReFlyDialogBody(vesselLabel, reFlyDuration, preview);
 
                 ParsekLog.Info("MergeDialog",
                     $"Re-Fly auto-seal preview: willSeal={preview.WillAutoSeal} " +
+                    $"button='{mergeLabel}' " +
                     $"reasons=[{string.Join(",", preview.Reasons)}] " +
                     $"sess={marker?.SessionId ?? "<no-id>"}");
             }
@@ -489,6 +493,11 @@ namespace Parsek
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
 
+        internal static string BuildTimelineActionButtonLabel(bool isPermanent)
+        {
+            return isPermanent ? "Merge to Timeline" : "Commit to Timeline";
+        }
+
         /// <summary>
         /// Composes the Re-Fly merge dialog body. Shared by the pre-
         /// transition <see cref="ShowTreeDialog"/> 4-arg overload and the
@@ -515,7 +524,7 @@ namespace Parsek
                     "to the timeline?</align>";
             }
 
-            string reasons = preview.FormatHumanReadable();
+            string reasons = BuildReFlyAutoSealReasonLines(preview);
             // Auto-seal flips MergeState to Immutable and closes the rewind
             // slot, so this branch *is* the irreversible one. Keep the
             // short translation of what "auto-seal" means in player terms
@@ -529,9 +538,21 @@ namespace Parsek
             return headline +
                 "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
                 $"will be merged AND auto-sealed</b> for the following " +
-                $"reason(s): {reasons}. Auto-seal makes the slot permanent " +
-                "and you cannot Re-Fly this line again. " +
+                $"reason(s):\n{reasons}\n" +
+                "Auto-seal makes the slot permanent and you cannot Re-Fly this line again. " +
                 "This cannot be undone.</align>";
+        }
+
+        internal static string BuildReFlyAutoSealReasonLines(
+            ReFlyAutoSealPreviewResult preview)
+        {
+            if (preview.Reasons == null || preview.Reasons.Count == 0)
+                return "- auto-seal condition met";
+
+            var lines = new List<string>(preview.Reasons.Count);
+            for (int i = 0; i < preview.Reasons.Count; i++)
+                lines.Add("- " + ReFlyAutoSealPreviewResult.PhraseFor(preview.Reasons[i]));
+            return string.Join("\n", lines.ToArray());
         }
 
         private static string FormatClearReason(string reason)

@@ -605,10 +605,9 @@ namespace Parsek.Tests
         [Fact]
         public void Format_MixedSubjectPhrases_StillReadsCleanly()
         {
-            // "the vessel broke up" is subject-led; under the colon-list
-            // form ("for the following reason(s): the vessel broke up
-            // and docked with another vessel.") the implicit subject of
-            // the second clause is "the vessel" too, which is fine.
+            // "the vessel broke up" is subject-led; callers that still use
+            // the sentence form get a readable implicit subject for the
+            // second clause too.
             var result = new ReFlyAutoSealPreviewResult
             {
                 WillAutoSeal = true,
@@ -624,6 +623,52 @@ namespace Parsek.Tests
         }
 
         // ---------- BuildReFlyDialogBody --------------------------------
+
+        [Fact]
+        public void BuildTimelineActionButtonLabel_PermanentAction_UsesMergeToTimeline()
+        {
+            Assert.Equal("Merge to Timeline",
+                MergeDialog.BuildTimelineActionButtonLabel(isPermanent: true));
+        }
+
+        [Fact]
+        public void BuildTimelineActionButtonLabel_ReFlyAttemptNotSealed_UsesCommitToTimeline()
+        {
+            Assert.Equal("Commit to Timeline",
+                MergeDialog.BuildTimelineActionButtonLabel(isPermanent: false));
+        }
+
+        [Fact]
+        public void BuildReFlyAutoSealReasonLines_MultipleReasons_UsesDashedLines()
+        {
+            var preview = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>
+                {
+                    ReFlyAutoSealReason.TransmittedScience,
+                    ReFlyAutoSealReason.Undocked,
+                    ReFlyAutoSealReason.DockedWithAnother,
+                },
+            };
+
+            Assert.Equal(
+                "- transmitted science\n- undocked\n- docked with another vessel",
+                MergeDialog.BuildReFlyAutoSealReasonLines(preview));
+        }
+
+        [Fact]
+        public void BuildReFlyAutoSealReasonLines_EmptyReasons_UsesFallbackLine()
+        {
+            var preview = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>(),
+            };
+
+            Assert.Equal("- auto-seal condition met",
+                MergeDialog.BuildReFlyAutoSealReasonLines(preview));
+        }
 
         [Fact]
         public void BuildBody_NoSeal_UsesDefaultCopy()
@@ -652,13 +697,16 @@ namespace Parsek.Tests
                 "TestVessel", 123.0, preview);
             Assert.Contains("If not discarded, this Re-Fly attempt", body);
             Assert.Contains("merged AND auto-sealed", body);
-            Assert.Contains("for the following reason(s): transmitted science.",
+            Assert.Contains("for the following reason(s):\n- transmitted science\n",
                 body);
             // Auto-seal jargon translation - tells the player what
             // "auto-sealed" actually means in gameplay terms.
             Assert.Contains("Auto-seal makes the slot permanent", body);
             Assert.Contains("cannot Re-Fly this line again", body);
-            Assert.Contains("This cannot be undone", body);
+            Assert.Contains(
+                "cannot Re-Fly this line again. This cannot be undone.</align>",
+                body);
+            Assert.DoesNotContain("cannot Re-Fly this line again.\nThis cannot be undone", body);
         }
 
         [Fact]
@@ -677,8 +725,11 @@ namespace Parsek.Tests
             string body = MergeDialog.BuildReFlyDialogBody(
                 "TestVessel", 123.0, preview);
             Assert.Contains(
-                "for the following reason(s): transmitted science, undocked, " +
-                "and docked with another vessel.",
+                "for the following reason(s):\n" +
+                "- transmitted science\n" +
+                "- undocked\n" +
+                "- docked with another vessel\n" +
+                "Auto-seal makes the slot permanent",
                 body);
         }
 
