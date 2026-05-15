@@ -4276,6 +4276,8 @@ namespace Parsek
             }
             else if (!v.packed && v.mainBody != null && v.transform != null)
             {
+                // Packed/on-rails background vessels are positioned by orbit propagation,
+                // not PhysX; keep those on the Vessel-field path.
                 // Match FlightRecorder.BuildTrajectoryPoint for loaded vessels:
                 // Vessel.latitude/longitude/altitude can lag transform.position
                 // by one physics tick, which is visible right after separation.

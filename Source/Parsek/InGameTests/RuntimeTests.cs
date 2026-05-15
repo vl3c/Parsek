@@ -3353,6 +3353,7 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.VerboseOverrideForTesting = true;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                // The staged split opens the Trace-Sep window via OnPartJointBreak.
                 if (ParsekSettings.Current != null)
                     ParsekSettings.Current.ghostRenderTracing = true;
 
