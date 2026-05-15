@@ -70,18 +70,26 @@ namespace Parsek.Rendering
 
         /// <summary>
         /// Phase 5 main consumer hook. On <see cref="CoBubbleBlendStatus.Hit"/>
-        /// / <see cref="CoBubbleBlendStatus.HitCrossfade"/>, returns a
-        /// world-frame translation to add to the primary's standalone
-        /// <c>P_render(ut)</c>. The caller MUST evaluate the primary's
-        /// position separately — the blender does not know the primary's
-        /// section index or body context.
+        /// / <see cref="CoBubbleBlendStatus.HitCrossfade"/>, returns the
+        /// un-faded world-frame translation to add to the primary's
+        /// standalone <c>P_render(ut)</c>, plus a <paramref name="blend"/>
+        /// factor in [0,1]. The caller composes the final peer position as
+        /// <c>Lerp(peer_standalone, primary_render + worldOffset, blend)</c>:
+        /// the crossfade fades from peer-standalone (blend=0) up to
+        /// primary+offset (blend=1), so the handoff to
+        /// <see cref="CoBubbleBlendStatus.MissCrossfadeOut"/> past EndUT is
+        /// continuous. The caller MUST evaluate the primary's position
+        /// separately — the blender does not know the primary's section
+        /// index or body context.
         /// </summary>
         internal static bool TryEvaluateOffset(
             string peerRecordingId, double ut,
-            out Vector3d worldOffset, out CoBubbleBlendStatus status,
+            out Vector3d worldOffset, out double blend,
+            out CoBubbleBlendStatus status,
             out string primaryRecordingId)
         {
             worldOffset = Vector3d.zero;
+            blend = 0.0;
             status = CoBubbleBlendStatus.MissNotInTrace;
             primaryRecordingId = null;
 
@@ -196,9 +204,13 @@ namespace Parsek.Rendering
             // re-emission when subsequent samples enter the steady region.
             RenderSessionState.NotifyCoBubbleWindowEnter(peerRecordingId, primaryRecordingId, match.StartUT);
 
-            // Within-window blend factor (crossfade at exit).
+            // Within-window blend factor (crossfade at exit). The caller
+            // composes peer position as Lerp(peer_standalone, primary+offset,
+            // blend), so blend=1 keeps the steady-region behavior and blend=0
+            // hands off to peer-standalone with the same world pose the
+            // post-EndUT MissCrossfadeOut path resolves to.
             double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
-            double blend = 1.0;
+            blend = 1.0;
             bool isCrossfade = false;
             if (ut > match.EndUT)
             {
@@ -258,7 +270,12 @@ namespace Parsek.Rendering
                     primaryFrameOffset, body, ut);
             }
 
-            worldOffset = worldFrameOffset * blend;
+            // Return the UN-FADED offset; the caller applies the blend by
+            // lerping between peer-standalone and (primary + worldOffset).
+            // Pre-multiplying here would re-introduce the crossfade-tail
+            // discontinuity (blend=0 → peer rendered at primary, snapping
+            // away from primary on the next MissCrossfadeOut frame).
+            worldOffset = worldFrameOffset;
             status = isCrossfade ? CoBubbleBlendStatus.HitCrossfade : CoBubbleBlendStatus.Hit;
 
             // P2-D: per §19.2 Stage 5, log every crossfade frame at Verbose

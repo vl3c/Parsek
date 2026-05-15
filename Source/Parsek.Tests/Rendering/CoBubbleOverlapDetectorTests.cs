@@ -507,7 +507,8 @@ namespace Parsek.Tests.Rendering
                 RenderSessionState.PutPrimaryAssignmentForTesting(idB, idA);
                 double midpointUT = (aTraces[0].StartUT + aTraces[0].EndUT) * 0.5;
                 bool ok = CoBubbleBlender.TryEvaluateOffset(
-                    idB, midpointUT, out Vector3d offsetB, out CoBubbleBlendStatus statusB,
+                    idB, midpointUT, out Vector3d offsetB, out double _,
+                    out CoBubbleBlendStatus statusB,
                     out string primaryB);
                 Assert.True(ok, $"blender miss for B; status={statusB}");
                 Assert.Equal(idA, primaryB);
@@ -521,7 +522,8 @@ namespace Parsek.Tests.Rendering
                 RenderSessionState.ResetForTesting();
                 RenderSessionState.PutPrimaryAssignmentForTesting(idA, idB);
                 bool ok2 = CoBubbleBlender.TryEvaluateOffset(
-                    idA, midpointUT, out Vector3d offsetA, out CoBubbleBlendStatus statusA,
+                    idA, midpointUT, out Vector3d offsetA, out double _,
+                    out CoBubbleBlendStatus statusA,
                     out string primaryA);
                 Assert.True(ok2, $"blender miss for A; status={statusA}");
                 Assert.Equal(idB, primaryA);
