@@ -2593,32 +2593,7 @@ namespace Parsek.Tests
             // ProtoVessel and stock briefly drew its full suborbital orbit. A
             // later Parsek segment means the pending map vessel should wait for
             // the bounded source instead of using Relative offsets as LLA.
-            var rec = BuildRelativeFrameRecording(
-                anchorRecordingId: "anchor-rec",
-                pointDz: 51.0,
-                pointSpeed: 2200.0);
-            rec.RecordingId = "relative-gap-between-segments";
-            rec.TerminalStateValue = TerminalState.SubOrbital;
-            rec.ExplicitEndUT = 300.0;
-            rec.OrbitSegments = new List<OrbitSegment>
-            {
-                new OrbitSegment
-                {
-                    startUT = 0.0,
-                    endUT = 150.0,
-                    bodyName = "Kerbin",
-                    semiMajorAxis = 654036.0,
-                    eccentricity = 0.235
-                },
-                new OrbitSegment
-                {
-                    startUT = 250.0,
-                    endUT = 300.0,
-                    bodyName = "Kerbin",
-                    semiMajorAxis = 1038510.0,
-                    eccentricity = 0.919531
-                }
-            };
+            var rec = BuildRelativeFrameRecordingBetweenOrbitSegments();
 
             int mapCached = -1;
             var source = GhostMapPresence.ResolveMapPresenceGhostSource(
@@ -2645,6 +2620,68 @@ namespace Parsek.Tests
             Assert.Contains(logLines,
                 l => l.Contains("[GhostMap]")
                     && l.Contains("orbitSegmentGap=True"));
+        }
+
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_AfterSegmentGap_ReturnsBoundedSegment()
+        {
+            var rec = BuildRelativeFrameRecordingBetweenOrbitSegments();
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                260.0,
+                true,
+                "test-rel-segment-gap-release",
+                ref mapCached,
+                out OrbitSegment segment,
+                out TrajectoryPoint statePoint,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.Segment, source);
+            Assert.Null(skipReason);
+            Assert.Equal("Kerbin", segment.bodyName);
+            Assert.Equal(250.0, segment.startUT);
+            Assert.Equal(300.0, segment.endUT);
+            Assert.Equal(default(TrajectoryPoint), statePoint);
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-rel-segment-gap-release")
+                    && l.Contains("source=Segment")
+                    && l.Contains("segmentUT=250.0-300.0"));
+        }
+
+        private static Recording BuildRelativeFrameRecordingBetweenOrbitSegments()
+        {
+            var rec = BuildRelativeFrameRecording(
+                anchorRecordingId: "anchor-rec",
+                pointDz: 51.0,
+                pointSpeed: 2200.0);
+            rec.RecordingId = "relative-gap-between-segments";
+            rec.TerminalStateValue = TerminalState.SubOrbital;
+            rec.ExplicitEndUT = 300.0;
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    startUT = 0.0,
+                    endUT = 150.0,
+                    bodyName = "Kerbin",
+                    semiMajorAxis = 654036.0,
+                    eccentricity = 0.235
+                },
+                new OrbitSegment
+                {
+                    startUT = 250.0,
+                    endUT = 300.0,
+                    bodyName = "Kerbin",
+                    semiMajorAxis = 1038510.0,
+                    eccentricity = 0.919531
+                }
+            };
+            return rec;
         }
 
         private static Recording BuildRelativeFrameRecording(

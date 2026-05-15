@@ -4247,7 +4247,9 @@ namespace Parsek
                 // A Relative section with pending bounded orbit coverage should not
                 // create a no-bounds state-vector ProtoVessel. During rewind/map
                 // time warp that briefly exposed stock's full proto-orbit instead
-                // of waiting for the next Parsek-bounded segment.
+                // of waiting for the next Parsek-bounded segment. The past+future
+                // bracket is intentional: future-only Relative windows still use
+                // the #583 state-vector path until a recorded segment gap exists.
                 stateVectorSkipReason = TrackingStationGhostSkipRelativeStateVectorSegmentGap;
             }
             string relativeSegmentGapDetail = deferRelativeStateVectorForSegmentGap
@@ -4285,14 +4287,14 @@ namespace Parsek
                         traj,
                         considerStateVector || deferRelativeStateVectorForSegmentGap,
                         stateVectorSkipReason);
+                string detail = string.Format(ic,
+                    "terminalFallback=False hasOrbitSegments={0}",
+                    traj.HasOrbitSegments);
+                detail = CombineSourceDetails(detail, relativeSegmentGapDetail);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    CombineSourceDetails(
-                        CombineSourceDetails(
-                            string.Format(ic, "terminalFallback=False hasOrbitSegments={0}", traj.HasOrbitSegments),
-                            relativeSegmentGapDetail),
-                        checkpointFallbackDetail));
+                    CombineSourceDetails(detail, checkpointFallbackDetail));
             }
 
             if (!HasOrbitData(traj))
@@ -4302,14 +4304,12 @@ namespace Parsek
                         traj,
                         considerStateVector || deferRelativeStateVectorForSegmentGap,
                         stateVectorSkipReason);
+                string detail = string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments);
+                detail = CombineSourceDetails(detail, relativeSegmentGapDetail);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    CombineSourceDetails(
-                        CombineSourceDetails(
-                            string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments),
-                            relativeSegmentGapDetail),
-                        checkpointFallbackDetail));
+                    CombineSourceDetails(detail, checkpointFallbackDetail));
             }
 
             if (!IsTerminalStateEligibleForTerminalOrbitMapPresence(terminal))
