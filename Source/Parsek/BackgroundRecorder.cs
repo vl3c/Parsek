@@ -641,6 +641,22 @@ namespace Parsek
                 return;
             }
 
+            // Destroyed-parent guard: defense-in-depth for the (joint-break → next-frame
+            // identity-loss-on-go-on-rails) race. The retirement seam at
+            // OnBackgroundVesselGoOnRails drains pendingBackgroundSplitChecks /
+            // preBreakVesselPidSnapshots, so ProcessPendingSplitChecks should not
+            // normally dispatch here for a sealed parent. This guard pins the
+            // invariant: a Destroyed parent does not spawn branch-point children.
+            if (parentRec.VesselDestroyed)
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"destroyed-skip.split.{parentPid}",
+                    $"HandleBackgroundVesselSplit: skipping destroyed parent " +
+                    $"parentPid={parentPid} rec={parentRecordingId}",
+                    60.0);
+                return;
+            }
+
             var newVesselInfos = CollectNewBackgroundSplitVessels(parentPid, preBreakPids);
 
             if (newVesselInfos.Count == 0)
@@ -2473,14 +2489,21 @@ namespace Parsek
         /// after <see cref="Recording.MarkDestroyedAtTerminal"/> seals the verdict.
         ///
         /// <para>
-        /// Scope is intentionally limited to the four primary BG-state dicts.
-        /// Debris-specific dictionaries (<c>pendingDebrisSeedParentAnchorPoints</c>,
-        /// <c>debrisTTLExpiry</c>, <c>preBreakVesselPidSnapshots</c>,
-        /// <c>pendingBackgroundSplitChecks</c>) are not drained here because the
-        /// identity-loss override only fires on non-debris recordings
-        /// (<c>IsDebris == false</c>), and those dicts are populated only on the
-        /// debris paths. If a future non-debris destruction path needs draining,
-        /// expand this helper rather than duplicating the logic at the call site.
+        /// Drains the four primary BG-state dicts (<c>BackgroundMap</c>,
+        /// <c>onRailsStates</c>, <c>loadedStates</c>, <c>finalizationCaches</c>) plus
+        /// the per-parent split-detection dicts (<c>pendingBackgroundSplitChecks</c>,
+        /// <c>preBreakVesselPidSnapshots</c>) — both populated by
+        /// <see cref="OnBackgroundPartJointBreak"/> for any non-debris BG parent
+        /// that suffers a joint break, so a parent that experiences a joint break
+        /// followed by go-on-rails identity loss on the same/next frame would
+        /// otherwise leave entries that <see cref="ProcessPendingSplitChecks"/>
+        /// could use to create branch points and child recordings off the sealed
+        /// parent. Debris-only dicts (<c>pendingDebrisSeedParentAnchorPoints</c>,
+        /// <c>debrisTTLExpiry</c>) are not drained here because the identity-loss
+        /// override only fires on non-debris recordings (<c>IsDebris == false</c>)
+        /// and those dicts are populated only on the debris paths.
+        /// </para>
+        /// <para>
         /// Logged at Verbose to avoid doubling Info-level output: this is a
         /// downstream consequence of the Info-level
         /// <see cref="Recording.MarkDestroyedAtTerminal"/> entry that fires
@@ -2493,6 +2516,11 @@ namespace Parsek
             onRailsStates.Remove(pid);
             loadedStates.Remove(pid);
             finalizationCaches.Remove(pid);
+            // Drain the deferred-split detection dicts keyed on this parent pid so
+            // ProcessPendingSplitChecks → HandleBackgroundVesselSplit cannot fire
+            // for a sealed parent next frame.
+            pendingBackgroundSplitChecks.Remove(pid);
+            preBreakVesselPidSnapshots.Remove(pid);
             ParsekLog.Verbose("BgRecorder",
                 $"Retired BG tracking for destroyed remnant: pid={pid} rec={recordingId} " +
                 $"terminalUT={terminalUT.ToString("F2", CultureInfo.InvariantCulture)}");

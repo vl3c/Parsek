@@ -730,30 +730,163 @@ namespace Parsek.Tests
         [Fact]
         public void RetiredEntry_DoesNotTriggerBackgroundStateDrift()
         {
-            // Opus review [L1]: confirm that after the identity-loss + retirement
-            // path runs, the drift warner that iterates BackgroundMap does not
-            // fire a "vessel-gone" or stale-entry false positive for the retired
-            // pid. The retirement is synchronous so this is mostly a
-            // future-proofing pin.
-            const uint pid = 9201u;
-            const string recId = "retired-drift-check";
+            // Opus review round 2 [L1]: confirm that after the identity-loss +
+            // retirement path runs, the drift warner that iterates BackgroundMap
+            // does not fire a "vessel-gone" or stale-entry false positive for the
+            // retired pid. Round 3 review flagged the original version of this
+            // test as near-tautological because an empty BackgroundMap trivially
+            // produces a quiet warner. Make it meaningful by seeding a *live*
+            // entry alongside the retired pid so the drift loop actually iterates
+            // and the assertion exercises the warner's per-entry logic.
+            const uint retiredPid = 9201u;
+            const string retiredRecId = "retired-drift-check";
+            const uint livePid = 9202u;
+            const string liveRecId = "live-drift-companion";
 
             var tree = new RecordingTree { Id = "tree-retired-drift" };
-            var rec = new Recording { RecordingId = recId, VesselPersistentId = pid };
-            rec.MarkDestroyedAtTerminal(100.0, "test-seed");
-            tree.Recordings[recId] = rec;
-            // Recording is Destroyed and we never add it to BackgroundMap — the
-            // post-retirement state.
+            var retiredRec = new Recording
+            {
+                RecordingId = retiredRecId,
+                VesselPersistentId = retiredPid
+            };
+            retiredRec.MarkDestroyedAtTerminal(100.0, "test-seed");
+            tree.Recordings[retiredRecId] = retiredRec;
+            // Retired recording: present in Recordings but NOT in BackgroundMap —
+            // the post-retirement state established by RetireDestroyedBackgroundEntry.
+
+            // Live companion entry that the drift loop will actually iterate.
+            tree.Recordings[liveRecId] = new Recording
+            {
+                RecordingId = liveRecId,
+                VesselPersistentId = livePid
+            };
+            tree.BackgroundMap[livePid] = liveRecId;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            Assert.True(bgRecorder.HasOnRailsState(livePid),
+                "Precondition: live companion was seeded into onRailsStates");
+            Assert.False(bgRecorder.HasOnRailsState(retiredPid),
+                "Precondition: retired pid is not in onRailsStates");
+
+            bgRecorder.WarnIfBackgroundStateDriftForTesting(150.0, "test-post-retirement");
+
+            // No drift line should mention the retired pid (the drift loop only
+            // visits BackgroundMap entries, and the retired pid was removed there).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[BgRecorder]") && l.Contains(retiredPid.ToString())
+                && (l.Contains("drift") || l.Contains("Drift") || l.Contains("DRIFT")));
+        }
+
+        [Fact]
+        public void HandleBackgroundVesselSplit_DestroyedParent_SkipsSplitCreation()
+        {
+            // Opus review round 3 [MED]: a non-debris BG parent that suffers a joint
+            // break and then identity-loss on go-on-rails the same/next frame would
+            // leave entries in pendingBackgroundSplitChecks + preBreakVesselPidSnapshots
+            // that ProcessPendingSplitChecks → HandleBackgroundVesselSplit would
+            // dispatch on, potentially creating branch points + child debris recordings
+            // off the sealed parent. The primary fix drains those dicts in
+            // RetireDestroyedBackgroundEntry; this test pins the defense-in-depth
+            // guard inside HandleBackgroundVesselSplit itself.
+            const uint parentPid = 9401u;
+            const string parentRecId = "destroyed-parent-split-skip";
+            const double terminalUT = 600.0;
+            const double branchUT = terminalUT + 0.1;
+
+            var tree = new RecordingTree { Id = "tree-split-skip" };
+            var parentRec = new Recording
+            {
+                RecordingId = parentRecId,
+                VesselPersistentId = parentPid,
+                ChildBranchPointId = null
+            };
+            parentRec.MarkDestroyedAtTerminal(terminalUT, "test-seed");
+            tree.Recordings[parentRecId] = parentRec;
+
+            int initialBranchPoints = tree.BranchPoints.Count;
+            int initialRecordings = tree.Recordings.Count;
 
             var bgRecorder = new BackgroundRecorder(tree);
 
-            // Drift warner should observe a consistent (empty) BG-tracking state
-            // and not emit a warning specifically mentioning the retired pid.
-            bgRecorder.WarnIfBackgroundStateDriftForTesting(150.0, "test-post-retirement");
+            // Dispatch the split handler directly. The empty preBreakPids set is
+            // unimportant — the destroyed-parent guard at the top of the method
+            // must short-circuit before CollectNewBackgroundSplitVessels even runs.
+            bgRecorder.HandleBackgroundVesselSplit(
+                parentPid, branchUT, parentRecId, new HashSet<uint>(), parentBoundaryPoint: null);
 
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("[BgRecorder]") && l.Contains(pid.ToString())
-                && (l.Contains("drift") || l.Contains("Drift") || l.Contains("DRIFT")));
+            Assert.Equal(initialBranchPoints, tree.BranchPoints.Count);
+            Assert.Equal(initialRecordings, tree.Recordings.Count);
+            Assert.Null(parentRec.ChildBranchPointId);
+            Assert.Equal(terminalUT, parentRec.ExplicitEndUT);
+        }
+
+        [Fact]
+        public void PreserveLiveRuntimeFieldsOnReplace_DestroyedIncoming_DoesNotResurrectClearedUIStrings()
+        {
+            // Opus review round 3 [LOW]: MarkDestroyedAtTerminal clears VesselSituation
+            // (null) and SceneExitSituation (-1). RecordingStore.PreserveLiveRuntimeFieldsOnReplace
+            // treats null/-1 as "incoming hasn't set it" and would copy stale
+            // pre-destruction values back from `existing`. Gate behind
+            // !incoming.VesselDestroyed so the M1 hygiene is durable across
+            // commit/replace cycles.
+            var existing = new Recording
+            {
+                RecordingId = "rec-replace-existing",
+                VesselSituation = "Landed on Kerbin",
+                SceneExitSituation = (int)Vessel.Situations.LANDED
+            };
+            var incoming = new Recording
+            {
+                RecordingId = "rec-replace-incoming"
+            };
+            incoming.MarkDestroyedAtTerminal(800.0, "test-seed");
+            // Sanity preconditions: incoming has the cleared values, existing has stale.
+            Assert.Null(incoming.VesselSituation);
+            Assert.Equal(-1, incoming.SceneExitSituation);
+            Assert.Equal("Landed on Kerbin", existing.VesselSituation);
+
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                existing, incoming, out _, out _);
+
+            // Both UI-string fields must stay cleared after the merge — the
+            // !incoming.VesselDestroyed gate blocks the resurrection.
+            Assert.Null(incoming.VesselSituation);
+            Assert.Equal(-1, incoming.SceneExitSituation);
+            // Other diagnostic peaks (MaxDistanceFromLaunch etc.) are unaffected
+            // by the destroyed gate — counter-pin them by setting both to 0 and
+            // verifying the merge still copies them.
+            existing.MaxDistanceFromLaunch = 1234.5;
+            incoming.MaxDistanceFromLaunch = 0;
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                existing, incoming, out _, out _);
+            Assert.Equal(1234.5, incoming.MaxDistanceFromLaunch);
+        }
+
+        [Fact]
+        public void PreserveLiveRuntimeFieldsOnReplace_LiveIncoming_StillCopiesStaleUIStrings()
+        {
+            // Counterpart to the destroyed-skip pin: a non-Destroyed incoming
+            // recording with null/-1 still gets stale values copied from existing.
+            // This proves the gate is specifically destroyed-conditional, not a
+            // blanket suppression.
+            var existing = new Recording
+            {
+                RecordingId = "rec-live-replace-existing",
+                VesselSituation = "Orbiting Kerbin",
+                SceneExitSituation = (int)Vessel.Situations.ORBITING
+            };
+            var incoming = new Recording
+            {
+                RecordingId = "rec-live-replace-incoming",
+                VesselSituation = null,
+                SceneExitSituation = -1
+            };
+
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                existing, incoming, out _, out _);
+
+            Assert.Equal("Orbiting Kerbin", incoming.VesselSituation);
+            Assert.Equal((int)Vessel.Situations.ORBITING, incoming.SceneExitSituation);
         }
 
         [Fact]
