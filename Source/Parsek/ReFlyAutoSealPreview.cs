@@ -5,18 +5,23 @@ using System.Text;
 namespace Parsek
 {
     /// <summary>
-    /// Pre-transition merge dialog (Re-Fly variant) preview of whether the
-    /// merge will trigger auto-seal of the slot, and the player-attributable
+    /// Re-Fly merge dialog (both the pre-transition 4-arg
+    /// <see cref="MergeDialog.ShowTreeDialog"/> overload and the deferred
+    /// post-transition 1-arg overload) preview of whether the merge will
+    /// trigger auto-seal of the slot, plus the player-attributable
     /// reason(s). Mirrors a subset of the production classifier in
-    /// <see cref="SupersedeCommit"/>: detects the cases that are reliable
-    /// from live state (Ledger.Actions for science, tree topology for
-    /// structural mutations, live <see cref="Vessel.Situations"/> for
-    /// stable terminals).
+    /// <see cref="SupersedeCommit"/>: detects the cases reachable from
+    /// the recording's own state - <c>Ledger.Actions</c> for science,
+    /// tree topology for structural mutations, the recording's
+    /// <c>TerminalStateValue</c> AND (when available) the live
+    /// <see cref="Vessel.Situations"/> for stable / hard-safety
+    /// terminals.
     ///
-    /// <para>Read-only and conservative: false negatives over false positives.
-    /// When the preview cannot determine seal, the dialog falls back to the
-    /// default "permanently to the timeline" copy. The production classifier
-    /// runs at finalize and seals correctly regardless of what the preview
+    /// <para>Read-only and conservative: false negatives over false
+    /// positives. When the preview cannot determine seal, the dialog
+    /// renders the no-seal copy ("Do you want to commit this Re-Fly
+    /// attempt to the timeline?"). The production classifier runs at
+    /// finalize and seals correctly regardless of what the preview
     /// said.</para>
     /// </summary>
     internal enum ReFlyAutoSealReason
