@@ -5424,7 +5424,7 @@ namespace Parsek.Tests
             Assert.True(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
-                    allowSessionSuppressedCompanionDebrisRender = true,
+                    sessionSuppressedRenderCarveOutEligible = true,
                     recordingId = "rec_debris"
                 }));
         }
@@ -5448,7 +5448,7 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
-                    allowSessionSuppressedCompanionDebrisRender = false,
+                    sessionSuppressedRenderCarveOutEligible = false,
                     recordingId = "rec_debris"
                 }));
         }
@@ -5471,7 +5471,7 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
-                    allowSessionSuppressedCompanionDebrisRender = true,
+                    sessionSuppressedRenderCarveOutEligible = true,
                     recordingId = "rec_origin"
                 }));
         }
@@ -5500,7 +5500,7 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
-                    allowSessionSuppressedCompanionDebrisRender = true,
+                    sessionSuppressedRenderCarveOutEligible = true,
                     recordingId = recordingId
                 }));
         }
@@ -5523,7 +5523,7 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
-                    allowSessionSuppressedCompanionDebrisRender = true,
+                    sessionSuppressedRenderCarveOutEligible = true,
                     recordingId = "rec_other"
                 }));
         }
@@ -5550,16 +5550,107 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
-                    allowSessionSuppressedCompanionDebrisRender = true,
+                    sessionSuppressedRenderCarveOutEligible = true,
                     recordingId = "rec_debris"
                 }));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ShouldRenderSuppressedCompanionDebris_MissingOriginId_ReturnsFalse(
+            string originRecordingId)
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = originRecordingId,
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_NullTrajectory_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                null, new ReFlySessionMarker
+                {
+                    OriginChildRecordingId = "rec_origin",
+                    ActiveReFlyRecordingId = "rec_active"
+                }, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_NullMarker_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, null, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void LogSessionSuppressedCompanionDebrisRenderAllowed_EmitsDecisionFields()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "origin",
+                ActiveReFlyRecordingId = "active"
+            };
+
+            logLines.Clear();
+            GhostPlaybackEngine.LogSessionSuppressedCompanionDebrisRenderAllowed(
+                3, traj, marker);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("session-suppressed-companion-debris: render allowed")
+                && l.Contains("recording=#3")
+                && l.Contains("recId=debris")
+                && l.Contains("parentRecId=origin")
+                && l.Contains("originRecId=origin")
+                && l.Contains("activeReFlyRecId=active")
+                && l.Contains("sess=sess_1"));
         }
 
         [Theory]
         [InlineData(MergeState.Immutable, true)]
         [InlineData(MergeState.CommittedProvisional, true)]
         [InlineData(MergeState.NotCommitted, false)]
-        public void AllowsSessionSuppressedCompanionDebrisRender_HonorsMergeState(
+        public void RecordingEligibleForSessionSuppressedRenderCarveOut_HonorsMergeState(
             MergeState mergeState,
             bool expected)
         {
@@ -5570,14 +5661,14 @@ namespace Parsek.Tests
             };
 
             Assert.Equal(expected,
-                ParsekFlight.AllowsSessionSuppressedCompanionDebrisRender(rec));
+                ParsekFlight.RecordingEligibleForSessionSuppressedRenderCarveOut(rec));
         }
 
         [Theory]
         [InlineData(null)]
         [InlineData("")]
         [InlineData("   ")]
-        public void AllowsSessionSuppressedCompanionDebrisRender_MissingRecordingId_ReturnsFalse(
+        public void RecordingEligibleForSessionSuppressedRenderCarveOut_MissingRecordingId_ReturnsFalse(
             string recordingId)
         {
             var rec = new Recording
@@ -5586,7 +5677,7 @@ namespace Parsek.Tests
                 MergeState = MergeState.Immutable
             };
 
-            Assert.False(ParsekFlight.AllowsSessionSuppressedCompanionDebrisRender(rec));
+            Assert.False(ParsekFlight.RecordingEligibleForSessionSuppressedRenderCarveOut(rec));
         }
 
         [Fact]

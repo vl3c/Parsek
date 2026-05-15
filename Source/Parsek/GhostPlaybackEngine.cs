@@ -229,7 +229,7 @@ namespace Parsek
             ReFlySessionMarker marker,
             TrajectoryPlaybackFlags flags)
         {
-            if (!flags.allowSessionSuppressedCompanionDebrisRender
+            if (!flags.sessionSuppressedRenderCarveOutEligible
                 || traj == null
                 || marker == null
                 || !traj.IsDebris)
@@ -254,7 +254,7 @@ namespace Parsek
                 && !string.Equals(recordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal);
         }
 
-        private static void LogSessionSuppressedCompanionDebrisRenderAllowed(
+        internal static void LogSessionSuppressedCompanionDebrisRenderAllowed(
             int index,
             IPlaybackTrajectory traj,
             ReFlySessionMarker marker)

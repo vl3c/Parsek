@@ -16643,8 +16643,8 @@ namespace Parsek
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
-                    allowSessionSuppressedCompanionDebrisRender =
-                        AllowsSessionSuppressedCompanionDebrisRender(rec),
+                    sessionSuppressedRenderCarveOutEligible =
+                        RecordingEligibleForSessionSuppressedRenderCarveOut(rec),
                     anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
@@ -16652,7 +16652,11 @@ namespace Parsek
             return flags;
         }
 
-        internal static bool AllowsSessionSuppressedCompanionDebrisRender(Recording rec)
+        /// <summary>
+        /// Host-side row gate for render-only session-suppression carve-outs.
+        /// Route-specific narrowing stays inside the playback engine.
+        /// </summary>
+        internal static bool RecordingEligibleForSessionSuppressedRenderCarveOut(Recording rec)
         {
             return rec != null
                 && rec.MergeState != MergeState.NotCommitted
