@@ -744,12 +744,17 @@ namespace Parsek.InGameTests
             const double postBurnLon = 8.5604;
             Vector3d postBurnWorldPos = kerbin.GetWorldSurfacePosition(postBurnLat, postBurnLon, postBurnAlt);
             Vector3d postBurnRadial = (postBurnWorldPos - kerbin.position).normalized;
-            // Cross order matters: OrbitReseed applies `.xzy` to both position and
-            // velocity before UpdateFromStateVectors, so the Unity world-frame velocity
-            // must yield h = r × v aligned with world +Y (Kerbin's spin axis in world
-            // coords). `Cross(radial, Y)` gives that; the reversed `Cross(Y, radial)`
-            // produces angular momentum along world −Y, which post-`.xzy` lands on KSP's
-            // −Z (south pole) and the resulting orbit reads as inclination=180°.
+            // Cross order matters. OrbitReseed.FromLatLonAltAndRecordedVelocity
+            // applies `.xzy` to both position and velocity before passing them to
+            // Orbit.UpdateFromStateVectors, so what determines the orbit shape is
+            // `h_zup = pos_zup × vel_zup` — and `.xzy` is an axis swap (odd
+            // permutation), so `(r × v).xzy ≠ r_zup × v_zup`; the cross product
+            // must be evaluated AFTER the swap, not before. For a prograde
+            // equatorial orbit `h_zup` must point along +Z_zup (Kerbin's spin
+            // axis in Planetarium-Zup coords). `Cross(radial, Y)` builds the
+            // Unity-Yup velocity whose .xzy form satisfies that; the reversed
+            // `Cross(Y, radial)` produces the opposite velocity, lands `h_zup`
+            // along −Z_zup, and the orbit reads as inclination = 180°.
             Vector3d postBurnTangent = Vector3d.Cross(postBurnRadial, new Vector3d(0.0, 1.0, 0.0));
             if (postBurnTangent.sqrMagnitude < 1e-12)
                 postBurnTangent = Vector3d.Cross(postBurnRadial, new Vector3d(1.0, 0.0, 0.0));
