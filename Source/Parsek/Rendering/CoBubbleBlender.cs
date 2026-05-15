@@ -145,16 +145,8 @@ namespace Parsek.Rendering
                 RenderSessionState.NotifyCoBubbleTraceMiss(peerRecordingId, "no-trace");
                 return false;
             }
-            CoBubbleOffsetTrace match = null;
-            for (int i = 0; i < traces.Count; i++)
-            {
-                CoBubbleOffsetTrace t = traces[i];
-                if (t == null) continue;
-                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
-                if (ut < t.StartUT || ut > t.EndUT + CoBubbleConfiguration.Default.CrossfadeDurationSeconds) continue;
-                match = t;
-                break;
-            }
+            double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
+            CoBubbleOffsetTrace match = SelectTraceForUT(traces, primaryRecordingId, ut, crossfade);
             if (match == null)
             {
                 status = CoBubbleBlendStatus.MissOutsideWindow;
@@ -209,7 +201,6 @@ namespace Parsek.Rendering
             // blend), so blend=1 keeps the steady-region behavior and blend=0
             // hands off to peer-standalone with the same world pose the
             // post-EndUT MissCrossfadeOut path resolves to.
-            double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
             blend = 1.0;
             bool isCrossfade = false;
             if (ut > match.EndUT)
@@ -291,6 +282,48 @@ namespace Parsek.Rendering
                     5.0);
             }
             return true;
+        }
+
+        private static CoBubbleOffsetTrace SelectTraceForUT(
+            IList<CoBubbleOffsetTrace> traces,
+            string primaryRecordingId,
+            double ut,
+            double crossfade)
+        {
+            CoBubbleOffsetTrace activeMatch = null;
+            CoBubbleOffsetTrace tailMatch = null;
+            double activeStartUT = double.NegativeInfinity;
+            double tailEndUT = double.NegativeInfinity;
+
+            for (int i = 0; i < traces.Count; i++)
+            {
+                CoBubbleOffsetTrace t = traces[i];
+                if (t == null) continue;
+                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
+
+                // Active coverage wins over an older trace's crossfade tail.
+                // Adjacent windows are common after structural splits; letting
+                // the previous tail shadow the next active window renders one
+                // or more standalone frames, then snaps back to full co-bubble.
+                if (ut >= t.StartUT && ut <= t.EndUT)
+                {
+                    if (t.StartUT >= activeStartUT)
+                    {
+                        activeMatch = t;
+                        activeStartUT = t.StartUT;
+                    }
+                    continue;
+                }
+
+                if (crossfade <= 0.0) continue;
+                if (ut > t.EndUT && ut <= t.EndUT + crossfade && t.EndUT >= tailEndUT)
+                {
+                    tailMatch = t;
+                    tailEndUT = t.EndUT;
+                }
+            }
+
+            return activeMatch ?? tailMatch;
         }
 
         /// <summary>
