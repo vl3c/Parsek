@@ -12073,13 +12073,26 @@ namespace Parsek.InGameTests
                 return;
             }
 
+            // Space objects (asteroids, comets) are trackable per IsTrackableVessel
+            // but carry no command/EVA/seat parts — CaptureFromVessel correctly returns
+            // an empty list for them. Skip; the assertion below is specifically about
+            // command-bearing/crewed/EVA vessels.
+            if (v.vesselType == VesselType.SpaceObject)
+            {
+                InGameAssert.Skip(
+                    $"active vessel '{v.vesselName}' is a SpaceObject — CaptureFromVessel " +
+                    $"is expected to return an empty list and there is no controller-presence " +
+                    $"assertion to verify here");
+                return;
+            }
+
             var controllers = ControllerInfo.CaptureFromVessel(v);
             InGameAssert.IsNotNull(controllers, "CaptureFromVessel returned null for live active vessel");
 
-            // The active vessel must be controllable to even count as the player's
-            // focused vessel, so we expect at least one controller entry.
+            // Non-SpaceObject active vessels must be controllable to even count as the
+            // player's focused vessel, so we expect at least one controller entry.
             InGameAssert.IsGreaterThan(controllers.Count, 0,
-                $"Active vessel '{v.vesselName}' must expose at least one controller, got {controllers.Count}");
+                $"Active vessel '{v.vesselName}' (vesselType={v.vesselType}) must expose at least one controller, got {controllers.Count}");
 
             var validTypes = new HashSet<string> { "CrewedPod", "ExternalSeat", "ProbeCore", "KerbalEVA" };
             foreach (var ctrl in controllers)
@@ -12104,6 +12117,50 @@ namespace Parsek.InGameTests
 
             ParsekLog.Verbose("TestRunner",
                 $"CaptureFromVessel captured {controllers.Count} controller(s) on '{v.vesselName}' ({v.parts.Count} parts)");
+        }
+
+        [InGameTest(Category = "IdentityLoss", Scene = GameScenes.FLIGHT,
+            Description = "ControllerInfo.CaptureFromVessel returns empty list for SpaceObject vessels (asteroids/comets)")]
+        public void CaptureFromVessel_SpaceObject_ReturnsEmptyList()
+        {
+            // Find a SpaceObject in the scene (active or background). If none exist,
+            // skip — the test is here to pin the SpaceObject contract, not to require
+            // an asteroid in every test run.
+            Vessel spaceObject = null;
+            if (FlightGlobals.Vessels != null)
+            {
+                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                {
+                    var candidate = FlightGlobals.Vessels[i];
+                    if (candidate != null && candidate.vesselType == VesselType.SpaceObject)
+                    {
+                        spaceObject = candidate;
+                        break;
+                    }
+                }
+            }
+            if (spaceObject == null)
+            {
+                InGameAssert.Skip("no SpaceObject vessel in scene — test pins the contract for when one is present");
+                return;
+            }
+
+            var controllers = ControllerInfo.CaptureFromVessel(spaceObject);
+            InGameAssert.IsNotNull(controllers,
+                $"CaptureFromVessel returned null for SpaceObject '{spaceObject.vesselName}' — expected empty list");
+            InGameAssert.AreEqual(0, controllers.Count,
+                $"SpaceObject '{spaceObject.vesselName}' should produce zero controllers (no ModuleCommand/EVA/seat), got {controllers.Count}");
+
+            // The downstream identity-loss predicate must also stay forward-only on
+            // SpaceObjects: an empty controller list means no recorded identity to lose.
+            bool identityLost = IdentityLossClassifier.IsRecordedIdentityLost(
+                new Recording { Controllers = controllers, IsDebris = false },
+                spaceObject);
+            InGameAssert.IsFalse(identityLost,
+                "Identity-loss override must not fire for SpaceObject with empty captured controllers");
+
+            ParsekLog.Verbose("TestRunner",
+                $"CaptureFromVessel correctly returned empty list for SpaceObject '{spaceObject.vesselName}'");
         }
 
         [InGameTest(Category = "IdentityLoss", Scene = GameScenes.FLIGHT,
