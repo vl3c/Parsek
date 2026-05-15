@@ -5464,16 +5464,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAtInvokedUT_ReturnsFalse()
+        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAtPostLoadBoundary_ReturnsFalse()
         {
-            // Strict less-than: a debris whose StartUT exactly equals
-            // marker.InvokedUT is treated as post-RP (the new flight is the
-            // canonical author of any events at InvokedUT). The kept
-            // pre-rewind companions in the field repro all have StartUT
-            // strictly below the rewind point's UT.
+            // Strict less-than against marker.InvokedUT — NOT against the
+            // rewind point's UT. The gate's effective boundary is the
+            // post-load Planetarium UT captured by
+            // RewindInvoker.AtomicMarkerWrite, which sits at RP.UT plus a
+            // sub-second post-load Δ. Debris at exactly that boundary is
+            // treated as post-rewind, while debris timestamped a few tenths
+            // of a second below it (i.e. at-or-near RP.UT, see the at-RP
+            // companion test below) is still admitted.
             var traj = new MockTrajectory
             {
-                RecordingId = "rec_at_rp_debris",
+                RecordingId = "rec_at_boundary_debris",
                 IsDebris = true,
                 DebrisParentRecordingId = "rec_origin",
                 StartUTOverride = 100.0,
@@ -5487,6 +5490,40 @@ namespace Parsek.Tests
             };
 
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_at_boundary_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_DebrisAtRpUTWithDriftedInvokedUT_ReturnsTrue()
+        {
+            // Pins the practically interesting boundary: a Breakup-typed
+            // rewind point that sheds debris at exactly RP.UT. The marker's
+            // InvokedUT lands a sub-second post-load Δ above RP.UT, so the
+            // at-RP debris row falls in the admit band and renders. The
+            // sub-second `(RP.UT, RP.UT + Δ)` window also admits any
+            // replaced-future debris that lands inside it — accepted as a
+            // documented limitation rather than persisting RP.UT on the
+            // marker.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_at_rp_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 37.20,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                InvokedUT = 37.95,
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
                     sessionSuppressedRenderCarveOutEligible = true,

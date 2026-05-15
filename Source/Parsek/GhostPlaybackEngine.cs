@@ -256,15 +256,23 @@ namespace Parsek
                 return false;
             }
 
-            // Pre-RP history only. Strict `<` against marker.InvokedUT (the
-            // post-load Planetarium UT, written by RewindInvoker.AtomicMarkerWrite
-            // ≈ the RP UT) keeps debris shed before the rewind moment visible
-            // and hides debris created after — the latter belongs to the
-            // original timeline being replaced (e.g. the upper stage's own
-            // post-probe-separation break-up), not the kept companion set.
-            // A non-positive InvokedUT (legacy marker without the field, or
-            // any other unset sentinel) collapses to the pre-PR-858 default
-            // of "hide the suppressed debris".
+            // Pre-rewind-moment companions only. The gate is strict `<`
+            // against marker.InvokedUT, which RewindInvoker.AtomicMarkerWrite
+            // captures from Planetarium.GetUniversalTime() one post-load init
+            // step after the RP quicksave loads — so it actually sits at
+            // RP.UT + a sub-second Δ, not exactly at RP.UT. Debris timestamped
+            // before that drift-tolerant boundary is treated as kept history
+            // (e.g. side-booster debris shed pre-rewind); debris timestamped
+            // at-or-after it belongs to the original timeline being replaced
+            // (e.g. the upper stage's own post-probe-separation break-up).
+            // The narrow `(RP.UT, RP.UT + Δ)` window technically admits any
+            // replaced-future debris that lands inside it — accepted as a
+            // documented limitation, since real Breakup BPs from staging
+            // events sit seconds apart and never fall inside a sub-second
+            // drift band. A non-positive InvokedUT (legacy marker without
+            // the persisted field, or any other unset sentinel) collapses
+            // to the pre-PR-858 default of "hide the suppressed debris",
+            // since we have no trustworthy reference UT.
             return marker.InvokedUT > 0.0 && traj.StartUT < marker.InvokedUT;
         }
 
