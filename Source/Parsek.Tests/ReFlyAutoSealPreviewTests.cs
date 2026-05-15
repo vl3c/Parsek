@@ -341,8 +341,8 @@ namespace Parsek.Tests
         // Deferred merge fallback (ShowTreeDialog 1-arg overload) can fire
         // in Space Center / Tracking Station with FlightGlobals.ActiveVessel
         // null. The recorded-terminal classifier must surface the seal
-        // reason from Recording.TerminalStateValue so the dialog still
-        // warns "This cannot be undone" when production would seal.
+        // reason from Recording.TerminalStateValue so the dialog still tells
+        // the player when production would seal.
 
         [Fact]
         public void Preview_RecordedTerminalLanded_NullVessel_FlagsLanded()
@@ -605,10 +605,9 @@ namespace Parsek.Tests
         [Fact]
         public void Format_MixedSubjectPhrases_StillReadsCleanly()
         {
-            // "the vessel broke up" is subject-led; under the colon-list
-            // form ("for the following reason(s): the vessel broke up
-            // and docked with another vessel.") the implicit subject of
-            // the second clause is "the vessel" too, which is fine.
+            // "the vessel broke up" is subject-led; callers that still use
+            // the sentence form get a readable implicit subject for the
+            // second clause too.
             var result = new ReFlyAutoSealPreviewResult
             {
                 WillAutoSeal = true,
@@ -626,6 +625,176 @@ namespace Parsek.Tests
         // ---------- BuildReFlyDialogBody --------------------------------
 
         [Fact]
+        public void BuildTimelineActionButtonLabel_PermanentAction_UsesMergeToTimeline()
+        {
+            Assert.Equal("Merge to Timeline",
+                MergeDialog.BuildTimelineActionButtonLabel(isPermanent: true));
+        }
+
+        [Fact]
+        public void BuildTimelineActionButtonLabel_ReFlyAttemptNotSealed_UsesCommitToTimeline()
+        {
+            Assert.Equal("Commit to Timeline",
+                MergeDialog.BuildTimelineActionButtonLabel(isPermanent: false));
+        }
+
+        [Fact]
+        public void BuildTimelineActionDialogTitle_NotPermanent_UsesCommitToTimeline()
+        {
+            Assert.Equal("Confirm Commit to Timeline",
+                MergeDialog.BuildTimelineActionDialogTitle(isPermanent: false));
+        }
+
+        [Fact]
+        public void DetermineReFlyTimelineActionIsPermanent_ClassifierOverridesNoSealPreview()
+        {
+            var rec = MakeRecording();
+            rec.MergeState = MergeState.NotCommitted;
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.ParentBranchPointId = "bp-test";
+            rec.SupersedeTargetId = "rec-origin";
+            var marker = MakeMarker(activeReFlyRecordingId: rec.RecordingId);
+            marker.OriginChildRecordingId = "rec-origin";
+            marker.SupersedeTargetId = "rec-origin";
+            var scenario = MakeScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = marker.RewindPointId,
+                BranchPointId = rec.ParentBranchPointId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec-origin",
+                        Controllable = true,
+                    },
+                },
+            });
+
+            string source;
+            bool permanent = MergeDialog.DetermineReFlyTimelineActionIsPermanent(
+                rec,
+                marker,
+                ReFlyAutoSealPreviewResult.NoSeal(),
+                out source);
+
+            Assert.True(permanent);
+            Assert.StartsWith("classifier:", source);
+        }
+
+        [Fact]
+        public void DetermineReFlyTimelineActionIsPermanent_CommittedProvisionalPredictionUsesCommit()
+        {
+            var rec = MakeRecording();
+            rec.MergeState = MergeState.NotCommitted;
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ParentBranchPointId = "bp-test";
+            rec.SupersedeTargetId = "rec-origin";
+            var marker = MakeMarker(activeReFlyRecordingId: rec.RecordingId);
+            marker.OriginChildRecordingId = "rec-origin";
+            marker.SupersedeTargetId = "rec-origin";
+            var scenario = MakeScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = marker.RewindPointId,
+                BranchPointId = rec.ParentBranchPointId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec-origin",
+                        Controllable = true,
+                    },
+                },
+            });
+
+            string source;
+            bool permanent = MergeDialog.DetermineReFlyTimelineActionIsPermanent(
+                rec,
+                marker,
+                new ReFlyAutoSealPreviewResult
+                {
+                    WillAutoSeal = true,
+                    Reasons = new List<ReFlyAutoSealReason>
+                        { ReFlyAutoSealReason.TransmittedScience },
+                },
+                out source);
+
+            Assert.False(permanent);
+            Assert.StartsWith("classifier:", source);
+        }
+
+        [Fact]
+        public void DetermineReFlyTimelineActionIsPermanent_ClassifierThrows_FallsBackToPreview()
+        {
+            var rec = MakeRecording();
+            rec.MergeState = MergeState.NotCommitted;
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.ParentBranchPointId = "bp-missing";
+            rec.SupersedeTargetId = "rec-origin";
+            var marker = MakeMarker(activeReFlyRecordingId: rec.RecordingId);
+            marker.OriginChildRecordingId = "rec-origin";
+            marker.SupersedeTargetId = "rec-origin";
+            MakeScenario(marker);
+
+            string source;
+            bool permanent = MergeDialog.DetermineReFlyTimelineActionIsPermanent(
+                rec,
+                marker,
+                ReFlyAutoSealPreviewResult.NoSeal(),
+                out source);
+
+            Assert.False(permanent);
+            Assert.Equal("preview:InvalidOperationException", source);
+            Assert.Contains(logLines,
+                l => l.Contains("[WARN][Supersede]") &&
+                     l.Contains("Prediction fallback") &&
+                     l.Contains("using preview label"));
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("[ERROR][Supersede]") &&
+                     l.Contains("aborting because stable-leaf"));
+        }
+
+        [Fact]
+        public void BuildReFlyAutoSealReasonLines_MultipleReasons_UsesDashedLines()
+        {
+            var preview = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>
+                {
+                    ReFlyAutoSealReason.TransmittedScience,
+                    ReFlyAutoSealReason.Undocked,
+                    ReFlyAutoSealReason.DockedWithAnother,
+                },
+            };
+
+            Assert.Equal(
+                "- transmitted science\n- undocked\n- docked with another vessel",
+                MergeDialog.BuildReFlyAutoSealReasonLines(preview));
+        }
+
+        [Fact]
+        public void BuildReFlyAutoSealReasonLines_EmptyReasons_UsesFallbackLine()
+        {
+            var preview = new ReFlyAutoSealPreviewResult
+            {
+                WillAutoSeal = true,
+                Reasons = new List<ReFlyAutoSealReason>(),
+            };
+
+            Assert.Equal("- auto-seal condition met",
+                MergeDialog.BuildReFlyAutoSealReasonLines(preview));
+            Assert.Contains(logLines,
+                l => l.Contains("[MergeDialog]") &&
+                     l.Contains("auto-seal preview returned no reasons"));
+        }
+
+        [Fact]
         public void BuildBody_NoSeal_UsesDefaultCopy()
         {
             var preview = ReFlyAutoSealPreviewResult.NoSeal();
@@ -640,7 +809,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildBody_AutoSeal_SingleReason_IncludesReasonConsequenceAndUndoWarning()
+        public void BuildBody_AutoSeal_SingleReason_IncludesReasonAndConsequence()
         {
             var preview = new ReFlyAutoSealPreviewResult
             {
@@ -652,13 +821,16 @@ namespace Parsek.Tests
                 "TestVessel", 123.0, preview);
             Assert.Contains("If not discarded, this Re-Fly attempt", body);
             Assert.Contains("merged AND auto-sealed", body);
-            Assert.Contains("for the following reason(s): transmitted science.",
+            Assert.Contains("for the following reason(s):\n- transmitted science\n\n",
                 body);
             // Auto-seal jargon translation - tells the player what
             // "auto-sealed" actually means in gameplay terms.
             Assert.Contains("Auto-seal makes the slot permanent", body);
             Assert.Contains("cannot Re-Fly this line again", body);
-            Assert.Contains("This cannot be undone", body);
+            Assert.Contains(
+                "cannot Re-Fly this line again.</align>",
+                body);
+            Assert.DoesNotContain("This cannot be undone", body);
         }
 
         [Fact]
@@ -677,8 +849,11 @@ namespace Parsek.Tests
             string body = MergeDialog.BuildReFlyDialogBody(
                 "TestVessel", 123.0, preview);
             Assert.Contains(
-                "for the following reason(s): transmitted science, undocked, " +
-                "and docked with another vessel.",
+                "for the following reason(s):\n" +
+                "- transmitted science\n" +
+                "- undocked\n" +
+                "- docked with another vessel\n\n" +
+                "Auto-seal makes the slot permanent",
                 body);
         }
 
