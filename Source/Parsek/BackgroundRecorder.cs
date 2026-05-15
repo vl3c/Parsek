@@ -162,11 +162,18 @@ namespace Parsek
         {
             this.tree = tree;
 
-            // Initialize on-rails state for each existing background vessel
+            // Initialize on-rails state for each existing background vessel.
+            // Skip destroyed recordings: a sealed recording must not be in onRailsStates
+            // (the UpdateOnRails / FinalizeAllForCommit secondary guards would catch
+            // it, but the invariant "destroyed recordings are not in BG-tracking
+            // structures" is cleaner). This also covers legacy saves that may have
+            // left a Destroyed-terminated recording in BackgroundMap.
             foreach (var kvp in tree.BackgroundMap)
             {
                 uint vesselPid = kvp.Key;
                 string recordingId = kvp.Value;
+
+                if (IsBackgroundRecordingDestroyed(recordingId)) continue;
 
                 onRailsStates[vesselPid] = new BackgroundOnRailsState
                 {
@@ -417,6 +424,19 @@ namespace Parsek
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
 
+            // Destroyed-recording guard: do not append new part events to a sealed
+            // recording. The recording's PartEvents list is part of its terminal
+            // payload — appending here after destruction would shift playback events
+            // past the identity-loss UT.
+            if (IsBackgroundRecordingDestroyed(recordingId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"destroyed-skip.part_die.{vesselPid}",
+                    $"OnBackgroundPartDie: skipping destroyed recording pid={vesselPid} rec={recordingId}",
+                    60.0);
+                return;
+            }
+
             // Must have loaded state (part events only meaningful for loaded vessels)
             BackgroundVesselState state;
             if (!loadedStates.TryGetValue(vesselPid, out state)) return;
@@ -464,6 +484,17 @@ namespace Parsek
             // Only handle background vessels
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
+
+            // Destroyed-recording guard: a sealed recording must not accept new
+            // joint-break / decouple events after destruction.
+            if (IsBackgroundRecordingDestroyed(recordingId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"destroyed-skip.part_joint_break.{vesselPid}",
+                    $"OnBackgroundPartJointBreak: skipping destroyed recording pid={vesselPid} rec={recordingId}",
+                    60.0);
+                return;
+            }
 
             BackgroundVesselState state;
             if (!loadedStates.TryGetValue(vesselPid, out state)) return;
@@ -2179,6 +2210,18 @@ namespace Parsek
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
 
+            // Destroyed-recording guard: do not initialize BG tracking state for an
+            // already-destroyed recording — the recording is sealed and any BG
+            // sampling/cache refresh from here would mutate its terminal state.
+            if (IsBackgroundRecordingDestroyed(recordingId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"destroyed-skip.backgrounded.{vesselPid}",
+                    $"OnVesselBackgrounded: skipping destroyed recording pid={vesselPid} rec={recordingId}",
+                    60.0);
+                return;
+            }
+
             AdoptInheritedFinalizationCache(vesselPid, recordingId, inheritedFinalizationCache);
 
             if (initialEnvironmentOverride.HasValue)
@@ -2329,6 +2372,19 @@ namespace Parsek
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
 
+            // Out-of-band destroyed-recording guard. The identity-loss override below
+            // handles the normal path (active recording crashes destructively while BG),
+            // but any other code that left an already-Destroyed recording in BackgroundMap
+            // is short-circuited here so it cannot mutate the sealed terminal verdict.
+            if (IsBackgroundRecordingDestroyed(recordingId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"destroyed-skip.go_on_rails.{pid}",
+                    $"OnBackgroundVesselGoOnRails: skipping destroyed recording pid={pid} rec={recordingId}",
+                    60.0);
+                return;
+            }
+
             double ut = Planetarium.GetUniversalTime();
 
             // If the vessel was in loaded/physics mode, transition to on-rails
@@ -2386,6 +2442,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true when the BG-tracked recording for <paramref name="recordingId"/>
+        /// is already marked Destroyed. Every BG entrypoint that takes a Vessel
+        /// (go-on-rails / go-off-rails / SOI / will-destroy / part-die / part-joint-break /
+        /// vessel-backgrounded) calls this immediately after the
+        /// <see cref="RecordingTree.BackgroundMap"/> lookup to skip out-of-band
+        /// destroyed records that didn't go through the identity-loss
+        /// <see cref="RetireDestroyedBackgroundEntry"/> retirement seam. Without this
+        /// guard, a destroyed record left in <see cref="RecordingTree.BackgroundMap"/>
+        /// could still be sampled, get its <see cref="Recording.ExplicitEndUT"/>
+        /// advanced, accept new <see cref="PartEvent"/>s, or have an open orbit
+        /// segment closed at a later UT — all of which would shift the
+        /// destruction-explosion timing downstream in <see cref="GhostPlaybackLogic"/>.
+        /// </summary>
+        private bool IsBackgroundRecordingDestroyed(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId) || tree == null || tree.Recordings == null)
+                return false;
+            Recording rec;
+            return tree.Recordings.TryGetValue(recordingId, out rec)
+                && rec != null
+                && rec.VesselDestroyed;
+        }
+
+        /// <summary>
         /// Removes a destroyed recording from every BG-tracking data structure so
         /// later <see cref="UpdateOnRails"/>, <see cref="FinalizeAllForCommit"/>, and
         /// <see cref="OnBackgroundPhysicsFrame"/> iterations cannot touch its
@@ -2414,6 +2494,20 @@ namespace Parsek
             uint pid = v.persistentId;
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
+
+            // Destroyed-recording guard: a destroyed remnant that later unpacks
+            // (player switches focus to it) must not get a loaded-state
+            // initialization or a boundary point sampled — that would append a
+            // post-terminal point to the sealed recording and shift the destroyed
+            // explosion timing in GhostPlaybackLogic.
+            if (IsBackgroundRecordingDestroyed(recordingId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"destroyed-skip.go_off_rails.{pid}",
+                    $"OnBackgroundVesselGoOffRails: skipping destroyed recording pid={pid} rec={recordingId}",
+                    60.0);
+                return;
+            }
 
             double ut = Planetarium.GetUniversalTime();
 
@@ -2456,6 +2550,17 @@ namespace Parsek
             uint pid = v.persistentId;
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
+
+            // Destroyed-recording guard: a destroyed remnant's SOI change is moot —
+            // do not close / open orbit segments or refresh the finalization cache.
+            if (IsBackgroundRecordingDestroyed(recordingId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"destroyed-skip.soi_change.{pid}",
+                    $"OnBackgroundVesselSOIChanged: skipping destroyed recording pid={pid} rec={recordingId}",
+                    60.0);
+                return;
+            }
 
             double ut = Planetarium.GetUniversalTime();
 
@@ -2501,6 +2606,24 @@ namespace Parsek
             double ut = Planetarium.GetUniversalTime();
             string recordingId;
             tree.BackgroundMap.TryGetValue(pid, out recordingId);
+
+            // Destroyed-recording guard: if the recording is already sealed (e.g.
+            // via the identity-loss override that didn't fully retire, or any
+            // out-of-band path that called MarkDestroyedAtTerminal), skip the
+            // finalization-cache refresh and just clean up the leftover BG state.
+            // The cache refresh would otherwise advance the terminal verdict.
+            if (IsBackgroundRecordingDestroyed(recordingId))
+            {
+                onRailsStates.Remove(pid);
+                loadedStates.Remove(pid);
+                finalizationCaches.Remove(pid);
+                tree.BackgroundMap.Remove(pid);
+                ParsekLog.Info("BgRecorder",
+                    $"OnBackgroundVesselWillDestroy: cleared BG state for already-destroyed recording " +
+                    $"pid={pid} rec={recordingId}");
+                return;
+            }
+
             RefreshFinalizationCacheForVessel(v, recordingId, v.loaded && !v.packed
                 ? FinalizationCacheOwner.BackgroundLoaded
                 : FinalizationCacheOwner.BackgroundOnRails,
@@ -3323,27 +3446,19 @@ namespace Parsek
 
             // Destroyed-remnant guard runs FIRST — before the pending initial
             // trajectory point is consumed/applied and before any state-machine
-            // branch writes landed/orbiting surface metadata. The recording was
-            // already marked Destroyed by the identity-loss override in
-            // OnBackgroundVesselGoOnRails; appending a seed point or writing
-            // SurfacePos here would re-introduce contradictory persisted state on
-            // top of MarkDestroyedAtTerminal's hygiene. The pending initial point
-            // is still drained from the dictionary so it does not leak across to
-            // a future recording reusing the same pid.
+            // branch writes landed/orbiting surface metadata. A destroyed recording
+            // must NOT have an onRailsStates entry at all: leaving one would let
+            // UpdateOnRails / FinalizeAllForCommit iterate over it (the secondary
+            // guards on those paths catch the case, but the cleanest invariant is
+            // "destroyed recordings are not in BG-tracking structures"). The pending
+            // initial point is still drained from the dictionary so it does not leak
+            // across to a future recording reusing the same pid.
             if (hasTreeRecording && treeRec.VesselDestroyed)
             {
                 TrajectoryPoint discardedPoint;
                 TryConsumePendingInitialTrajectoryPoint(vesselPid, out discardedPoint);
-                onRailsStates[vesselPid] = new BackgroundOnRailsState
-                {
-                    vesselPid = vesselPid,
-                    recordingId = recordingId,
-                    lastExplicitEndUpdate = ut,
-                    hasOpenOrbitSegment = false,
-                    isLanded = false
-                };
                 ParsekLog.Verbose("BgRecorder",
-                    $"On-rails state initialized (destroyed remnant, no surface/orbit metadata): " +
+                    $"InitializeOnRailsState: skipping destroyed recording — no on-rails state created " +
                     $"pid={vesselPid} body={v.mainBody?.name} sit={v.situation} rec={recordingId}");
                 return;
             }

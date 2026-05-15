@@ -12089,10 +12089,20 @@ namespace Parsek.InGameTests
             var controllers = ControllerInfo.CaptureFromVessel(v);
             InGameAssert.IsNotNull(controllers, "CaptureFromVessel returned null for live active vessel");
 
-            // Non-SpaceObject active vessels must be controllable to even count as the
-            // player's focused vessel, so we expect at least one controller entry.
-            InGameAssert.IsGreaterThan(controllers.Count, 0,
-                $"Active vessel '{v.vesselName}' (vesselType={v.vesselType}) must expose at least one controller, got {controllers.Count}");
+            // Even non-SpaceObject focused vessels can legitimately have no controller
+            // parts (e.g. KSP allows focusing a Debris-typed remnant tank with no
+            // command/EVA/seat module). The controller-presence assertion below is
+            // specifically about vessels that ARE expected to carry controllable
+            // identity — if the active vessel has none, the captured empty list is
+            // the correct contract and there is nothing more to verify here.
+            if (controllers.Count == 0)
+            {
+                InGameAssert.Skip(
+                    $"active vessel '{v.vesselName}' (vesselType={v.vesselType}) has no " +
+                    $"controller-bearing parts — CaptureFromVessel correctly returned an empty list; " +
+                    $"controller-presence assertions do not apply");
+                return;
+            }
 
             var validTypes = new HashSet<string> { "CrewedPod", "ExternalSeat", "ProbeCore", "KerbalEVA" };
             foreach (var ctrl in controllers)

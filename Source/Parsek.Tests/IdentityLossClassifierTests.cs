@@ -426,6 +426,12 @@ namespace Parsek.Tests
         [Fact]
         public void UpdateOnRails_SkipsDestroyedRecording_DoesNotOverwriteExplicitEndUT()
         {
+            // The constructor now skips destroyed recordings (covered by
+            // Constructor_SkipsDestroyedRecordings_DoesNotSeedOnRailsState), so a
+            // destroyed record entering onRailsStates would require an out-of-band
+            // injection path. This test pins the UpdateOnRails secondary guard for
+            // exactly that case: a manually-injected onRailsStates entry pointing
+            // at a destroyed recording must NOT have its ExplicitEndUT advanced.
             const uint pid = 9001u;
             const string recId = "destroyed-rec-update-on-rails";
             const double terminalUT = 100.0;
@@ -440,12 +446,14 @@ namespace Parsek.Tests
             };
             rec.MarkDestroyedAtTerminal(terminalUT, "test-seed");
             tree.Recordings[recId] = rec;
-            tree.BackgroundMap[pid] = recId;
+            // Intentionally NOT adding to BackgroundMap so the constructor doesn't
+            // seed onRailsStates from there — the injection below simulates the
+            // out-of-band case.
 
             var bgRecorder = new BackgroundRecorder(tree);
-            // Constructor seeds onRailsStates from BackgroundMap; verify and
-            // proceed: the periodic update will iterate this entry.
-            Assert.True(bgRecorder.HasOnRailsState(pid));
+            bgRecorder.InjectOnRailsStateForTesting(pid, recId, terminalUT);
+            Assert.True(bgRecorder.HasOnRailsState(pid),
+                "Injection seam must have seeded onRailsStates for the test");
 
             bgRecorder.UpdateOnRails(tickUT);
 
@@ -507,6 +515,66 @@ namespace Parsek.Tests
 
             Assert.Equal(tickUT, tree.Recordings[recId].ExplicitEndUT);
             Assert.False(tree.Recordings[recId].VesselDestroyed);
+        }
+
+        [Fact]
+        public void Constructor_SkipsDestroyedRecordings_DoesNotSeedOnRailsState()
+        {
+            // External-review follow-up: the constructor previously seeded onRailsStates
+            // from BackgroundMap unconditionally. A destroyed recording in BackgroundMap
+            // (e.g. from a legacy save) would land in onRailsStates and be subject to
+            // UpdateOnRails / FinalizeAllForCommit mutation. Pin the invariant: the
+            // constructor skips destroyed records.
+            const uint pidDestroyed = 7001u;
+            const uint pidLive = 7002u;
+            const string recIdDestroyed = "destroyed-ctor-skip";
+            const string recIdLive = "live-ctor-seed";
+
+            var tree = new RecordingTree { Id = "tree-ctor-skip" };
+            var destroyedRec = new Recording { RecordingId = recIdDestroyed, VesselPersistentId = pidDestroyed };
+            destroyedRec.MarkDestroyedAtTerminal(100.0, "test-seed");
+            tree.Recordings[recIdDestroyed] = destroyedRec;
+            tree.Recordings[recIdLive] = new Recording { RecordingId = recIdLive, VesselPersistentId = pidLive };
+            tree.BackgroundMap[pidDestroyed] = recIdDestroyed;
+            tree.BackgroundMap[pidLive] = recIdLive;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            Assert.False(bgRecorder.HasOnRailsState(pidDestroyed),
+                "Destroyed recording must not be seeded into onRailsStates by the constructor");
+            Assert.True(bgRecorder.HasOnRailsState(pidLive),
+                "Live recording must still be seeded into onRailsStates by the constructor");
+        }
+
+        [Fact]
+        public void OnVesselBackgrounded_SkipsDestroyedRecording_DoesNotInitializeState()
+        {
+            // The OnVesselBackgrounded entrypoint is called when a vessel is added
+            // to BG tracking (split children, post-switch transitions). If the
+            // recording is already Destroyed, BG state must NOT be initialized.
+            const uint pid = 7003u;
+            const string recId = "destroyed-vessel-backgrounded";
+
+            var tree = new RecordingTree { Id = "tree-vessel-backgrounded" };
+            var rec = new Recording { RecordingId = recId, VesselPersistentId = pid };
+            rec.MarkDestroyedAtTerminal(150.0, "test-seed");
+            tree.Recordings[recId] = rec;
+            tree.BackgroundMap[pid] = recId;
+
+            // Build a recorder, then clear any state seeded by the constructor so we
+            // can observe the OnVesselBackgrounded skip in isolation.
+            var bgRecorder = new BackgroundRecorder(tree);
+            // Confirm the constructor skipped already (defense for that test running
+            // before this one).
+            Assert.False(bgRecorder.HasOnRailsState(pid));
+
+            bgRecorder.OnVesselBackgrounded(pid);
+
+            Assert.False(bgRecorder.HasOnRailsState(pid),
+                "OnVesselBackgrounded must not initialize on-rails state for a destroyed recording");
+            Assert.False(bgRecorder.HasLoadedState(pid),
+                "OnVesselBackgrounded must not initialize loaded state for a destroyed recording");
+            Assert.Equal(150.0, rec.ExplicitEndUT);
         }
 
         #endregion
