@@ -374,12 +374,24 @@ namespace Parsek
                     // skips it too. Map directly.
                     AddIfMissing(reasons, ReFlyAutoSealReason.KerbalBoarded);
                     break;
-                // Destroyed: returns "crashed" earlier in the classifier
-                // (no seal here, the Re-Fly retry-on-crash flow takes over).
+                // Destroyed: no seal here - the upstream Re-Fly
+                // retry-on-crash flow (UnfinishedFlightClassifier returns
+                // "crashed", SupersedeCommit short-circuits before
+                // IsHardSafetyTerminal) handles it outside this method.
             }
         }
 
-        private static void AddIfMissing(
+        /// <summary>
+        /// Append <paramref name="reason"/> to <paramref name="reasons"/>
+        /// only when it is not already present. Used to de-dup contributions
+        /// from the live-vessel proxy and the recorded-terminal classifier
+        /// when both fire for the same outcome (e.g. live vessel Landed +
+        /// recording's TerminalStateValue Landed = one Landed entry, not
+        /// two). Internal so the dedup contract can be pinned in xUnit
+        /// without needing a Unity live-vessel fake to exercise the
+        /// live+recorded crossing.
+        /// </summary>
+        internal static void AddIfMissing(
             List<ReFlyAutoSealReason> reasons, ReFlyAutoSealReason reason)
         {
             for (int i = 0; i < reasons.Count; i++)

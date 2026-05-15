@@ -483,6 +483,42 @@ namespace Parsek.Tests
             Assert.False(result.WillAutoSeal);
         }
 
+        // ---------- AddIfMissing dedup contract -------------------------
+        //
+        // Live-vessel and recorded-terminal classifiers both contribute to
+        // the same reasons list. AddIfMissing must ensure that a Landed
+        // recording with a Landed live vessel (or any other overlap) yields
+        // one reason entry, not two. The live-vessel side requires Unity
+        // runtime so we cannot stage the actual crossing in xUnit; pin the
+        // dedup helper directly instead.
+
+        [Fact]
+        public void AddIfMissing_DuplicateReason_DropsSecond()
+        {
+            var reasons = new List<ReFlyAutoSealReason>();
+            ReFlyAutoSealPreviewer.AddIfMissing(
+                reasons, ReFlyAutoSealReason.Landed);
+            ReFlyAutoSealPreviewer.AddIfMissing(
+                reasons, ReFlyAutoSealReason.Landed);
+
+            Assert.Single(reasons);
+            Assert.Equal(ReFlyAutoSealReason.Landed, reasons[0]);
+        }
+
+        [Fact]
+        public void AddIfMissing_DistinctReasons_AppendsBoth()
+        {
+            var reasons = new List<ReFlyAutoSealReason>();
+            ReFlyAutoSealPreviewer.AddIfMissing(
+                reasons, ReFlyAutoSealReason.Landed);
+            ReFlyAutoSealPreviewer.AddIfMissing(
+                reasons, ReFlyAutoSealReason.TransmittedScience);
+
+            Assert.Equal(2, reasons.Count);
+            Assert.Contains(ReFlyAutoSealReason.Landed, reasons);
+            Assert.Contains(ReFlyAutoSealReason.TransmittedScience, reasons);
+        }
+
         // ---------- FormatHumanReadable standalone ----------------------
 
         [Fact]
@@ -604,7 +640,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildBody_AutoSeal_SingleReason_IncludesReasonAndUndoWarning()
+        public void BuildBody_AutoSeal_SingleReason_IncludesReasonConsequenceAndUndoWarning()
         {
             var preview = new ReFlyAutoSealPreviewResult
             {
@@ -618,10 +654,11 @@ namespace Parsek.Tests
             Assert.Contains("merged AND auto-sealed", body);
             Assert.Contains("for the following reason(s): transmitted science.",
                 body);
+            // Auto-seal jargon translation - tells the player what
+            // "auto-sealed" actually means in gameplay terms.
+            Assert.Contains("Auto-seal makes the slot permanent", body);
+            Assert.Contains("cannot Re-Fly this line again", body);
             Assert.Contains("This cannot be undone", body);
-            Assert.DoesNotContain("slot will become permanent", body);
-            Assert.DoesNotContain("not be able to Re-Fly this line of flight",
-                body);
         }
 
         [Fact]

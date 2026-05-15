@@ -517,12 +517,21 @@ namespace Parsek
 
             string reasons = preview.FormatHumanReadable();
             // Auto-seal flips MergeState to Immutable and closes the rewind
-            // slot, so this branch *is* the irreversible one - keep a short
-            // terminal warning even though the no-seal branch dropped it.
+            // slot, so this branch *is* the irreversible one. Keep the
+            // short translation of what "auto-seal" means in player terms
+            // (the slot becomes permanent, the line of flight can no longer
+            // be Re-Flown) - dropping that sentence in the original trim
+            // left "auto-sealed" undefined for players unfamiliar with the
+            // term. Voice stays declarative ("If not discarded, ... will be
+            // ...") instead of matching the no-seal branch's question form;
+            // the "If not discarded" anchor signals that the Discard button
+            // is still the escape hatch and that asymmetry is intentional.
             return headline +
                 "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
                 $"will be merged AND auto-sealed</b> for the following " +
-                $"reason(s): {reasons}. This cannot be undone.</align>";
+                $"reason(s): {reasons}. Auto-seal makes the slot permanent " +
+                "and you cannot Re-Fly this line again. " +
+                "This cannot be undone.</align>";
         }
 
         private static string FormatClearReason(string reason)
