@@ -409,6 +409,110 @@ namespace Parsek.Tests
             return pids;
         }
 
+        #endregion
+
+        #region Destroyed-recording BG-tracking guards — P2 regression coverage
+
+        // External-review [P2] surface: the destroyed terminal UT was being
+        // overwritten by UpdateOnRails (periodic per-frame) and
+        // FinalizeAllForCommit (per-commit bulk), which moves the non-debris
+        // explosion timing in GhostPlaybackLogic from the identity-loss UT to
+        // the eventual commit/latest-remnant UT. The primary fix retires
+        // destroyed records from BackgroundMap + onRailsStates at identity-loss
+        // time; these tests pin the defense-in-depth guards on the two periodic
+        // paths so an out-of-band destroyed record (e.g. marked Destroyed
+        // somewhere else and still in BG-tracking) is also protected.
+
+        [Fact]
+        public void UpdateOnRails_SkipsDestroyedRecording_DoesNotOverwriteExplicitEndUT()
+        {
+            const uint pid = 9001u;
+            const string recId = "destroyed-rec-update-on-rails";
+            const double terminalUT = 100.0;
+            const double tickUT = terminalUT + 60.0; // well past the 30s update interval
+
+            var tree = new RecordingTree { Id = "tree-update-on-rails" };
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                VesselPersistentId = pid,
+                ExplicitStartUT = 50.0
+            };
+            rec.MarkDestroyedAtTerminal(terminalUT, "test-seed");
+            tree.Recordings[recId] = rec;
+            tree.BackgroundMap[pid] = recId;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            // Constructor seeds onRailsStates from BackgroundMap; verify and
+            // proceed: the periodic update will iterate this entry.
+            Assert.True(bgRecorder.HasOnRailsState(pid));
+
+            bgRecorder.UpdateOnRails(tickUT);
+
+            Assert.Equal(terminalUT, rec.ExplicitEndUT);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.True(rec.VesselDestroyed);
+        }
+
+        [Fact]
+        public void FinalizeAllForCommit_SkipsDestroyedRecording_DoesNotOverwriteExplicitEndUT()
+        {
+            const uint pid = 9002u;
+            const string recId = "destroyed-rec-finalize";
+            const double terminalUT = 200.0;
+            const double commitUT = 500.0;
+
+            var tree = new RecordingTree { Id = "tree-finalize" };
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                VesselPersistentId = pid,
+                ExplicitStartUT = 150.0
+            };
+            rec.MarkDestroyedAtTerminal(terminalUT, "test-seed");
+            tree.Recordings[recId] = rec;
+            tree.BackgroundMap[pid] = recId;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.FinalizeAllForCommit(commitUT);
+
+            Assert.Equal(terminalUT, rec.ExplicitEndUT);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.True(rec.VesselDestroyed);
+        }
+
+        [Fact]
+        public void UpdateOnRails_StillUpdatesLiveRecording()
+        {
+            // Counterpart to the destroyed-skip test: pin that the guard does
+            // NOT regress the live-recording update path.
+            const uint pid = 9003u;
+            const string recId = "live-rec-update-on-rails";
+            const double startUT = 50.0;
+            const double tickUT = 200.0; // well past the 30s update interval
+
+            var tree = new RecordingTree { Id = "tree-update-on-rails-live" };
+            tree.Recordings[recId] = new Recording
+            {
+                RecordingId = recId,
+                VesselPersistentId = pid,
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = startUT
+            };
+            tree.BackgroundMap[pid] = recId;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.UpdateOnRails(tickUT);
+
+            Assert.Equal(tickUT, tree.Recordings[recId].ExplicitEndUT);
+            Assert.False(tree.Recordings[recId].VesselDestroyed);
+        }
+
+        #endregion
+
+        #region Controller capture forwarding — Step 1 (continued)
+
         [Fact]
         public void ApplyPersistenceArtifactsFrom_CopiesControllers()
         {

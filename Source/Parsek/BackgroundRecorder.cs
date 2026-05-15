@@ -1841,13 +1841,26 @@ namespace Parsek
             {
                 uint pid = kvp.Key;
                 var state = kvp.Value;
+
+                // Defense-in-depth: a destroyed recording must never have its
+                // ExplicitEndUT or finalization cache overwritten by a periodic
+                // background tick. The primary fix retires destroyed records from
+                // onRailsStates at OnBackgroundVesselGoOnRails time, so this guard
+                // is a backstop for any code path that injects a destroyed record
+                // into onRailsStates without going through that seam.
+                Recording treeRec;
+                if (tree.Recordings.TryGetValue(state.recordingId, out treeRec)
+                    && treeRec.VesselDestroyed)
+                {
+                    continue;
+                }
+
                 RefreshOnRailsFinalizationCache(state, currentUT, "background_on_rails_periodic", force: false);
 
                 // Update ExplicitEndUT periodically
                 if (currentUT - state.lastExplicitEndUpdate >= ExplicitEndUpdateInterval)
                 {
-                    Recording treeRec;
-                    if (tree.Recordings.TryGetValue(state.recordingId, out treeRec))
+                    if (treeRec != null)
                     {
                         treeRec.ExplicitEndUT = currentUT;
                         state.lastExplicitEndUpdate = currentUT;
@@ -1889,6 +1902,14 @@ namespace Parsek
                     hasRecording);
                 return;
             }
+
+            // Defense-in-depth: a destroyed recording must not be sampled by per-frame
+            // BG ticks. The primary fix retires destroyed records from BackgroundMap
+            // at OnBackgroundVesselGoOnRails time, so this guard catches the unusual
+            // case where a recording was marked Destroyed elsewhere without retiring
+            // its BG entry.
+            if (tree.Recordings[recordingId].VesselDestroyed)
+                return;
 
             // Only process loaded/physics vessels (not packed).
             // Load-bearing for the eccentric-orbit invariant: this early-return is the
@@ -2332,10 +2353,16 @@ namespace Parsek
                 ParsekLog.Info("BgRecorder", $"Mode transition loaded→on-rails: pid={pid}");
             }
 
-            // Identity-loss override runs BEFORE InitializeOnRailsState so the
-            // destroyed-remnant guard in that method can skip writing landed surface
-            // metadata, and BEFORE the cache refresh so the already-classified-destroyed
-            // short-circuit fires.
+            // Identity-loss override runs BEFORE InitializeOnRailsState and BEFORE
+            // the cache refresh. On a positive identity-loss verdict the recording
+            // is sealed at MarkDestroyedAtTerminal-time AND retired from BG tracking
+            // (removed from BackgroundMap + onRailsStates + finalizationCaches).
+            // Retirement is load-bearing: without it, the destroyed recording's
+            // ExplicitEndUT would be overwritten by UpdateOnRails (per-frame
+            // periodic update) and FinalizeAllForCommit (per-BackgroundMap-entry
+            // bulk update), moving the crash endpoint from the identity-loss UT
+            // to the eventual commit/latest-remnant UT — which downstream
+            // GhostPlaybackLogic uses to time the non-debris destroyed explosion.
             Recording onRailsRec;
             if (tree.Recordings.TryGetValue(recordingId, out onRailsRec)
                 && !onRailsRec.VesselDestroyed
@@ -2348,12 +2375,32 @@ namespace Parsek
                     $"recordedControllers={recordedControllerCount} survivingParts={survivingPartCount} " +
                     $"sit={v.situation} rec={recordingId} — classifying as Destroyed");
                 onRailsRec.MarkDestroyedAtTerminal(ut, "BgRecorder.OnBackgroundVesselGoOnRails");
+                RetireDestroyedBackgroundEntry(pid, recordingId, ut);
+                return;
             }
 
             // Initialize on-rails state
             InitializeOnRailsState(v, pid, recordingId);
             RefreshFinalizationCacheForVessel(v, recordingId, FinalizationCacheOwner.BackgroundOnRails,
                 "background_go_on_rails", force: true);
+        }
+
+        /// <summary>
+        /// Removes a destroyed recording from every BG-tracking data structure so
+        /// later <see cref="UpdateOnRails"/>, <see cref="FinalizeAllForCommit"/>, and
+        /// <see cref="OnBackgroundPhysicsFrame"/> iterations cannot touch its
+        /// <see cref="Recording.ExplicitEndUT"/> or sample the inert remnant. Called
+        /// after <see cref="Recording.MarkDestroyedAtTerminal"/> seals the verdict.
+        /// </summary>
+        private void RetireDestroyedBackgroundEntry(uint pid, string recordingId, double terminalUT)
+        {
+            tree.BackgroundMap.Remove(pid);
+            onRailsStates.Remove(pid);
+            loadedStates.Remove(pid);
+            finalizationCaches.Remove(pid);
+            ParsekLog.Info("BgRecorder",
+                $"Retired BG tracking for destroyed remnant: pid={pid} rec={recordingId} " +
+                $"terminalUT={terminalUT.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
@@ -2628,19 +2675,27 @@ namespace Parsek
         /// </summary>
         public void FinalizeAllForCommit(double commitUT)
         {
-            // Close all open orbit segments
+            // Close all open orbit segments (skip destroyed recordings — their
+            // recording is sealed, no open segments should exist, and any cache
+            // refresh here would overwrite the terminal verdict).
             foreach (var kvp in onRailsStates)
             {
                 var state = kvp.Value;
-                if (state.hasOpenOrbitSegment)
+                if (!state.hasOpenOrbitSegment) continue;
+
+                Recording finalizeOrbitTreeRec;
+                if (tree.Recordings.TryGetValue(state.recordingId, out finalizeOrbitTreeRec)
+                    && finalizeOrbitTreeRec.VesselDestroyed)
                 {
-                    RefreshOnRailsFinalizationCache(
-                        state,
-                        commitUT,
-                        "background_commit_on_rails",
-                        force: true);
-                    CloseOrbitSegment(state, commitUT);
+                    continue;
                 }
+
+                RefreshOnRailsFinalizationCache(
+                    state,
+                    commitUT,
+                    "background_commit_on_rails",
+                    force: true);
+                CloseOrbitSegment(state, commitUT);
             }
 
             // Close and flush TrackSections for all loaded vessels, emit terminal engine/RCS/robotic events (bug #108)
@@ -2700,11 +2755,14 @@ namespace Parsek
                 }
             }
 
-            // Update ExplicitEndUT on all background recordings
+            // Update ExplicitEndUT on all background recordings (skip destroyed —
+            // their ExplicitEndUT was sealed at MarkDestroyedAtTerminal time and
+            // moving it here would shift the non-debris explosion timing in
+            // GhostPlaybackLogic from the identity-loss UT to commitUT).
             foreach (var kvp in tree.BackgroundMap)
             {
                 Recording treeRec;
-                if (tree.Recordings.TryGetValue(kvp.Value, out treeRec))
+                if (tree.Recordings.TryGetValue(kvp.Value, out treeRec) && !treeRec.VesselDestroyed)
                 {
                     treeRec.ExplicitEndUT = commitUT;
                     DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
