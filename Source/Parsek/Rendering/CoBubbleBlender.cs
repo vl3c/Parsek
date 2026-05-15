@@ -203,7 +203,6 @@ namespace Parsek.Rendering
             // post-EndUT MissCrossfadeOut path resolves to.
             blend = 1.0;
             bool isCrossfade = false;
-            bool hasContiguousSuccessor = HasContiguousSuccessor(traces, primaryRecordingId, match);
             if (ut > match.EndUT)
             {
                 // Past the window end — the consumer falls back to standalone.
@@ -217,13 +216,28 @@ namespace Parsek.Rendering
             if (windowDuration > 0.0 && windowDuration < exitFadeDuration)
                 exitFadeDuration = windowDuration;
 
-            if (!hasContiguousSuccessor && ut > match.EndUT - exitFadeDuration && exitFadeDuration > 0)
+            bool inExitFadeRegion = ut > match.EndUT - exitFadeDuration && exitFadeDuration > 0;
+            if (inExitFadeRegion)
             {
-                double tail = (match.EndUT - ut) / exitFadeDuration;
-                if (tail < 0.0) tail = 0.0;
-                if (tail > 1.0) tail = 1.0;
-                blend = tail;
-                isCrossfade = true;
+                bool hasContiguousSuccessor = HasContiguousSuccessor(traces, primaryRecordingId, match);
+                if (hasContiguousSuccessor)
+                {
+                    string boundary = match.EndUT.ToString("R", CultureInfo.InvariantCulture);
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "cobubble-contiguous-exit-fade-suppressed-" + peerRecordingId + "-" + primaryRecordingId + "-" + boundary,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "contiguous-exit-fade-suppressed peer={0} primary={1} boundaryUT={2} blend=1.000",
+                            peerRecordingId, primaryRecordingId, boundary),
+                        5.0);
+                }
+                else
+                {
+                    double tail = (match.EndUT - ut) / exitFadeDuration;
+                    if (tail < 0.0) tail = 0.0;
+                    if (tail > 1.0) tail = 1.0;
+                    blend = tail;
+                    isCrossfade = true;
+                }
             }
 
             // Sample the trace at ut (linear interpolation between bracket UTs).

@@ -350,6 +350,9 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(CoBubbleBlendStatus.Hit, status);
             Assert.Equal(1.0, blend, 5);
             Assert.Equal(3.0, offset.x, 5);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("contiguous-exit-fade-suppressed")
+                && l.Contains("boundaryUT=110"));
         }
 
         [Fact]
