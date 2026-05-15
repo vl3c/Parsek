@@ -5406,6 +5406,281 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_OriginOwnedDebris_ReturnsTrue()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_FlagNotAllowed_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = false,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_NonDebris_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_origin",
+                IsDebris = false,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_origin"
+                }));
+        }
+
+        [Theory]
+        [InlineData("rec_other", "rec_debris")]
+        [InlineData("rec_origin", "rec_origin")]
+        [InlineData("rec_origin", "rec_active")]
+        [InlineData("rec_origin", null)]
+        public void ShouldRenderSuppressedCompanionDebris_RejectsNonCompanionCases(
+            string parentRecordingId,
+            string recordingId)
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = recordingId,
+                IsDebris = true,
+                DebrisParentRecordingId = parentRecordingId
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = recordingId
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_FlagRecordingIdMismatch_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_other"
+                }));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ShouldRenderSuppressedCompanionDebris_MissingTrajectoryId_ReturnsFalse(
+            string trajectoryRecordingId)
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = trajectoryRecordingId,
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ShouldRenderSuppressedCompanionDebris_MissingOriginId_ReturnsFalse(
+            string originRecordingId)
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = originRecordingId,
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_NullTrajectory_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                null, new ReFlySessionMarker
+                {
+                    OriginChildRecordingId = "rec_origin",
+                    ActiveReFlyRecordingId = "rec_active"
+                }, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_NullMarker_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, null, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void LogSessionSuppressedCompanionDebrisRenderAllowed_EmitsDecisionFields()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "origin",
+                ActiveReFlyRecordingId = "active"
+            };
+
+            logLines.Clear();
+            GhostPlaybackEngine.LogSessionSuppressedCompanionDebrisRenderAllowed(
+                3, traj, marker);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("session-suppressed-companion-debris: render allowed")
+                && l.Contains("recording=#3")
+                && l.Contains("recId=debris")
+                && l.Contains("parentRecId=origin")
+                && l.Contains("originRecId=origin")
+                && l.Contains("activeReFlyRecId=active")
+                && l.Contains("sess=sess_1"));
+        }
+
+        [Theory]
+        [InlineData(MergeState.Immutable, true)]
+        [InlineData(MergeState.CommittedProvisional, true)]
+        [InlineData(MergeState.NotCommitted, false)]
+        public void RecordingEligibleForSessionSuppressedRenderCarveOut_HonorsMergeState(
+            MergeState mergeState,
+            bool expected)
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_debris",
+                MergeState = mergeState
+            };
+
+            Assert.Equal(expected,
+                ParsekFlight.RecordingEligibleForSessionSuppressedRenderCarveOut(rec));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void RecordingEligibleForSessionSuppressedRenderCarveOut_MissingRecordingId_ReturnsFalse(
+            string recordingId)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                MergeState = MergeState.Immutable
+            };
+
+            Assert.False(ParsekFlight.RecordingEligibleForSessionSuppressedRenderCarveOut(rec));
+        }
+
+        [Fact]
         public void CachePlaybackDistances_CachesSeparateActiveVesselAndRenderDistances()
         {
             var state = new GhostPlaybackState

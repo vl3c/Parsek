@@ -16643,11 +16643,24 @@ namespace Parsek
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
+                    sessionSuppressedRenderCarveOutEligible =
+                        RecordingEligibleForSessionSuppressedRenderCarveOut(rec),
                     anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
             LogReFlyAnchorHoldTransitions(frame);
             return flags;
+        }
+
+        /// <summary>
+        /// Host-side row gate for render-only session-suppression carve-outs.
+        /// Route-specific narrowing stays inside the playback engine.
+        /// </summary>
+        internal static bool RecordingEligibleForSessionSuppressedRenderCarveOut(Recording rec)
+        {
+            return rec != null
+                && rec.MergeState != MergeState.NotCommitted
+                && !string.IsNullOrWhiteSpace(rec.RecordingId);
         }
 
         /// <summary>
