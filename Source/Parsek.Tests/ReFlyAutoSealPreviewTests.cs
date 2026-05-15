@@ -449,7 +449,7 @@ namespace Parsek.Tests
             Assert.Contains("TestVessel", body);
             Assert.Contains("Do you want to commit this Re-Fly attempt", body);
             Assert.Contains("to the timeline", body);
-            Assert.Contains("This cannot be undone later", body);
+            Assert.DoesNotContain("cannot be undone", body);
             Assert.DoesNotContain("auto-sealed", body);
             Assert.DoesNotContain("for the following reason", body);
         }

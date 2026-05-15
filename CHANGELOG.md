@@ -20,7 +20,7 @@ All notable changes to Parsek are documented here.
 
 - The "Ghost render tracing" diagnostics toggle (both the Parsek settings window and the stock difficulty-settings entry) now reads "Ghost render tracing (Warning: huge logs)" so the log-volume cost is visible before enabling it.
 - The readable sidecar mirrors toggle (both the Parsek settings window and the stock difficulty-settings entry) now carries a "(Warning: extra disk usage)" suffix so the on-disk cost is visible before enabling it.
-- Re-Fly merge/discard dialog descriptions are shorter. The pre-transition no-seal body and the post-transition body now read "Do you want to commit this Re-Fly attempt to the timeline? This cannot be undone later." The auto-seal body drops the slot/line-of-flight tail and ends at the reasons list.
+- Re-Fly merge/discard dialog descriptions are shorter. The pre-transition no-seal body and the post-transition body now read "Do you want to commit this Re-Fly attempt to the timeline?" — the "this cannot be undone" tail was dropped because an unsealed committed Re-Fly can still be replaced by another Re-Fly. The auto-seal body drops the slot/line-of-flight tail and ends at the reasons list.
 
 ### Bug Fixes
 

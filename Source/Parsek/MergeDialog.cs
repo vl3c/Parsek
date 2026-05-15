@@ -166,8 +166,7 @@ namespace Parsek
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(tree);
                 message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-                          "<align=\"left\">Do you want to commit this Re-Fly attempt to the timeline? " +
-                          "This cannot be undone later.</align>";
+                          "<align=\"left\">Do you want to commit this Re-Fly attempt to the timeline?</align>";
             }
             else
             {
@@ -493,7 +492,7 @@ namespace Parsek
             {
                 return headline +
                     "<align=\"left\">Do you want to commit this Re-Fly attempt " +
-                    "to the timeline? This cannot be undone later.</align>";
+                    "to the timeline?</align>";
             }
 
             string reasons = preview.FormatHumanReadable();
