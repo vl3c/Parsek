@@ -595,6 +595,102 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryBuildFromLiveVessel_DefaultFinalizerSuppressed_DoesNotAcceptFreshDestroyedCache()
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = refreshUT,
+                        extrapolationFailureReason = ExtrapolationFailureReason.SubSurfaceStart,
+                        subSurfaceDestroyedBodyName = "Kerbin",
+                        subSurfaceDestroyedAltitude = -599979.0,
+                        subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude
+                    };
+                    return false;
+                };
+
+            var vessel = MakeFlyingView(407u, packed: false, loaded: true, inAtmosphere: false);
+            var recording = new Recording
+            {
+                RecordingId = "rec-subsurface-suppressed",
+                VesselPersistentId = 407u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.Equal(FinalizationCacheStatus.Failed, cache.Status);
+            Assert.Equal("subsurface-destroyed-suppressed", cache.DeclineReason);
+            Assert.NotEqual(TerminalState.Destroyed, cache.TerminalState);
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("Refresh accepted")
+                && line.Contains("rec=rec-subsurface-suppressed")
+                && line.Contains("terminal=Destroyed"));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("classified Destroyed by sub-surface path")
+                && line.Contains("rec=rec-subsurface-suppressed"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_SuppressedSubSurfacePackedAtmospheric_DoesNotCacheDestroyedFallback()
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = refreshUT,
+                        extrapolationFailureReason = ExtrapolationFailureReason.SubSurfaceStart,
+                        subSurfaceDestroyedBodyName = "Kerbin",
+                        subSurfaceDestroyedAltitude = -599979.0,
+                        subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude
+                    };
+                    return false;
+                };
+
+            var vessel = MakeFlyingView(408u, packed: true, loaded: false, inAtmosphere: true);
+            var recording = new Recording
+            {
+                RecordingId = "rec-subsurface-suppressed-atmo-packed",
+                VesselPersistentId = 408u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundOnRails,
+                "background_periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.Equal(FinalizationCacheStatus.Failed, cache.Status);
+            Assert.Equal("subsurface-destroyed-suppressed", cache.DeclineReason);
+            Assert.NotEqual(TerminalState.Destroyed, cache.TerminalState);
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("Refresh accepted")
+                && line.Contains("rec=rec-subsurface-suppressed-atmo-packed")
+                && line.Contains("terminal=Destroyed"));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("classified Destroyed by sub-surface path")
+                && line.Contains("rec=rec-subsurface-suppressed-atmo-packed"));
+        }
+
+        [Fact]
         public void TryBuildFromLiveVessel_AtmosphericPackedDefaultDecline_CachesDestroyedFallbackAndLogs()
         {
             RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =

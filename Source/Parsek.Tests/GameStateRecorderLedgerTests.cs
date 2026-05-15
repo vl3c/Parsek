@@ -164,6 +164,94 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnKspLoad_WithFutureLedgerActionsAndCurrentUtCutoff_RecalculatesAtLoadUt()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 0f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 153.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "future-altitude",
+                MilestoneFundsAwarded = 5600f,
+                RecordingId = "future-rec"
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 154.0,
+                Type = GameActionType.ContractAccept,
+                ContractId = "future-contract-accept",
+                AdvanceFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 155.0,
+                Type = GameActionType.ContractComplete,
+                ContractId = "future-contract-complete",
+                FundsReward = 10000f,
+                RecordingId = "future-rec"
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 156.0,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/LaunchPad",
+                FacilityCost = 7500f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 157.0,
+                Type = GameActionType.ScienceSpending,
+                NodeId = "basicRocketry",
+                Cost = 5f
+            });
+
+            LedgerOrchestrator.OnKspLoad(
+                new HashSet<string> { "future-rec" },
+                maxUT: 129.0,
+                useCurrentUtCutoffForFutureActions: true);
+
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractAccept
+                && a.ContractId == "future-contract-accept");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ContractComplete
+                && a.ContractId == "future-contract-complete");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.FacilityUpgrade
+                && a.FacilityId == "SpaceCenter/LaunchPad");
+            Assert.Contains(Ledger.Actions, a =>
+                a.Type == GameActionType.ScienceSpending
+                && a.NodeId == "basicRocketry");
+            Assert.Equal(25000.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Current-UT ledger recalculation") &&
+                l.Contains("reason=ksp-load") &&
+                l.Contains("cutoffUT=129"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("RecalculateAndPatch: actionsTotal=7") &&
+                l.Contains("actionsAfterCutoff=2") &&
+                l.Contains("cutoffUT=129"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]")
+                && l.Contains("prunedContractLifecycle=0")
+                && l.Contains("prunedSpendings=0")
+                && l.Contains("preserveFutureTimelineActions=True"));
+        }
+
+        [Fact]
         public void OnKscSpending_ContractCompleted_AddsContractCompleteAction()
         {
             var evt = new GameStateEvent
@@ -239,6 +327,46 @@ namespace Parsek.Tests
             Assert.NotNull(match);
             Assert.Equal(FundsSpendingSource.Other, match.FundsSpendingSource);
             Assert.Equal(600f, match.FundsSpent);
+        }
+
+        [Fact]
+        public void OnKscSpending_WithFutureLedgerActions_RecalculatesAtEventUt()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 25000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 600.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "future-altitude",
+                MilestoneFundsAwarded = 5600f,
+                RecordingId = "future-rec"
+            });
+            var evt = new GameStateEvent
+            {
+                ut = 500.0,
+                eventType = GameStateEventType.PartPurchased,
+                key = "mk1pod",
+                detail = "cost=600"
+            };
+
+            LedgerOrchestrator.OnKscSpending(evt);
+
+            Assert.Equal(24400.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Live-event recalc decision") &&
+                l.Contains("reason=ksc-spending") &&
+                l.Contains("hasFutureLedgerActions=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("RecalculateAndPatch: actionsTotal=3") &&
+                l.Contains("actionsAfterCutoff=2") &&
+                l.Contains("cutoffUT=500"));
         }
 
         [Fact]
@@ -509,6 +637,57 @@ namespace Parsek.Tests
                 l.Contains("Mystery Probe"));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("no paired FundsChanged(VesselRecovery) event"));
+        }
+
+        [Fact]
+        public void OnRecoveryFundsEventRecorded_DeferredPair_RecalculatesAtMatchedEventUt()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 1000f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 7001.0,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "future-altitude",
+                MilestoneFundsAwarded = 5000f,
+                RecordingId = "future-rec"
+            });
+
+            LedgerOrchestrator.OnVesselRecoveryFunds(
+                7000.0,
+                "Delayed Probe",
+                fromTrackingStation: true,
+                vesselType: VesselType.Ship);
+
+            var evt = new GameStateEvent
+            {
+                ut = 7000.05,
+                eventType = GameStateEventType.FundsChanged,
+                key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                valueBefore = 1000.0,
+                valueAfter = 1250.0
+            };
+            GameStateStore.AddEvent(ref evt);
+
+            LedgerOrchestrator.OnRecoveryFundsEventRecorded(evt);
+
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Equal(1250.0, LedgerOrchestrator.Funds.GetRunningBalance(), 1);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Live-event recalc decision") &&
+                l.Contains("reason=vessel-recovery") &&
+                l.Contains("eventUT=7000.05") &&
+                l.Contains("hasFutureLedgerActions=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("RecalculateAndPatch: actionsTotal=3") &&
+                l.Contains("actionsAfterCutoff=2") &&
+                l.Contains("cutoffUT=7000.05"));
         }
 
         [Fact]

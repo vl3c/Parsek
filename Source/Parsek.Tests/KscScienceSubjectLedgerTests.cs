@@ -73,6 +73,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryRecordKscScienceSubject_WithFutureLedgerActions_RecalculatesAtSubjectUt()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ScienceInitial,
+                InitialScience = 0f
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 40.0,
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "futureScience@KerbinInSpaceLow",
+                ScienceAwarded = 10f,
+                SubjectMaxValue = 20f,
+                Method = ScienceMethod.Recovered,
+                RecordingId = "future-rec"
+            });
+            var subject = new PendingScienceSubject
+            {
+                subjectId = "crewReport@KerbinSrfLandedLaunchPad",
+                science = 1.5f,
+                subjectMaxValue = 5.0f,
+                captureUT = 29.4,
+                reasonKey = "ScienceTransmission",
+                recordingId = ""
+            };
+
+            bool handled = LedgerOrchestrator.TryRecordKscScienceSubject(subject, vesselName: null);
+
+            Assert.True(handled);
+            Assert.Equal(1.5, LedgerOrchestrator.Science.GetAvailableScience(), 3);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Live-event recalc decision") &&
+                l.Contains("reason=ksc-science") &&
+                l.Contains("hasFutureLedgerActions=True"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("RecalculateAndPatch: actionsTotal=3") &&
+                l.Contains("actionsAfterCutoff=2") &&
+                l.Contains("cutoffUT=29.4"));
+        }
+
+        [Fact]
         public void TryRecordKscScienceSubject_RecoveryWithMatchingRecording_UsesRecoveryOwner()
         {
             var rec = new Recording

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace Parsek.Tests
@@ -920,6 +921,441 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[LoadSweep]")
                 && l.Contains("removedOrphanRewindRetirements=1"));
+        }
+
+        [Fact]
+        public void LegacyOldSideRetirement_RemovedWhenPriorTipIsNonImmutable()
+        {
+            // Pre-fix Pass-2 wrote a RewoundOutOldSideReason row for every
+            // priorTip in the rewound subtree regardless of the dropped
+            // supersede's fork MergeState. Under fix-tree-rewind-supersede-old-side
+            // the new Pass-2 gate only writes such rows when the dropped
+            // relation's fork is Immutable (non-self-rewound). For everyone
+            // else (CommittedProvisional / NotCommitted forks, plus orphan
+            // forks) the priorTip stays visible.
+            //
+            // Saves authored under the pre-fix code have stale rows pointing at
+            // live non-Immutable priorTips. The sweep removes them so the user's
+            // ghost is no longer permanently hidden. Direct mirror of
+            // logs/2026-05-13_2335_kerbal-x-booster-ghost-missing.
+            InstallTree("tree-prefix-bug",
+                new List<Recording>
+                {
+                    Rec("kerbal-x-probe", MergeState.CommittedProvisional)
+                },
+                new List<BranchPoint>());
+            var staleOldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_stale_oldside",
+                RecordingId = "kerbal-x-probe",
+                RestoredRecordingId = null,
+                SourceSupersedeRelationId = null,
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { staleOldSide });
+
+            LoadTimeSweep.Run();
+
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Removing legacy rewind-retirement=rrt_stale_oldside")
+                && l.Contains("recording=kerbal-x-probe")
+                && l.Contains("reason=fork-non-immutable-priortip-pre-fix"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("rewind-retirement row(s) RewoundOutOldSide on non-Immutable priorTip"));
+        }
+
+        [Fact]
+        public void LegacyOldSideRetirement_KeepsImmutablePriorTipRow()
+        {
+            // Negative case: an old-side retirement targeting an *Immutable*
+            // priorTip is preserved (existing isIntentionalOldSide carve-out).
+            // The Immutable target case is reserved for stacked-canon supersede
+            // shapes; the legacy non-Immutable sweep must NOT touch it.
+            InstallTree("tree-immutable-priortip",
+                new List<Recording>
+                {
+                    Rec("rec_imm_priorTip", MergeState.Immutable)
+                },
+                new List<BranchPoint>());
+            var oldSideOnImmutable = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_oldside_on_imm",
+                RecordingId = "rec_imm_priorTip",
+                RestoredRecordingId = null,
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { oldSideOnImmutable });
+
+            LoadTimeSweep.Run();
+
+            Assert.Single(scenario.RecordingRewindRetirements);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement=rrt_oldside_on_imm"));
+        }
+
+        [Fact]
+        public void LegacyOldSideSweep_DeferredAndDurableForMultiOldSideToImmutableForkShape()
+        {
+            // Pre-canon-forks saves can carry the multi-old-side-to-one-Immutable
+            // -fork shape PR #807 addressed: multiple priorTips (P1, P2, P3)
+            // each superseded by the same canon fork F (Orbiting → Immutable).
+            // The buggy pre-fix code dropped all relations and wrote per-priorTip
+            // RewoundOutOldSideReason rows. The existing legacy-Immutable sweep
+            // can reconstruct ONLY ONE priorTip→canon relation per fork
+            // retirement (the one named in F's RestoredRecordingId metadata),
+            // so the other priorTips were kept hidden by their own old-side
+            // rows. If the new non-Immutable old-side sweep removed those rows,
+            // P2 and P3 would re-appear as "Destroyed" outcomes in the
+            // recordings table — the exact regression PR #807 fixed.
+            //
+            // The guard must be DURABLE across loads. The fork retirement is a
+            // one-shot signal: the per-row loop removes it and the save
+            // persists without it, so a guard keyed on the fork retirement
+            // alone would defer on load 1 then wrongly sweep on load 2. The
+            // second-pass guard keys on (a) "an Immutable fork retirement was
+            // removed THIS load" — covers load 1 — OR (b) "a supersede relation
+            // whose NewRecordingId is a live Immutable recording survives" —
+            // the F→P1 relation reconstructed on load 1, persisted, and seen
+            // again on load 2+. This test runs the sweep TWICE on the same
+            // scenario object (a faithful load-1 / load-2 simulation, since the
+            // first run mutates RecordingSupersedes and RecordingRewindRetirements
+            // in place) and asserts P1/P2/P3 survive BOTH runs.
+            // Pass treeId explicitly so all four recordings genuinely share
+            // "tree-multi-old" in recordingIdToTreeId (Rec() otherwise defaults
+            // to "tree_1", and AddRecordingWithTreeForTesting only sets TreeId
+            // when null — so the InstallTree treeId arg would not actually
+            // reach the recordings). The tree-scoped guard keys on rec.TreeId,
+            // so this keeps the test faithful to its single-tree fan-in shape.
+            InstallTree("tree-multi-old",
+                new List<Recording>
+                {
+                    Rec("F", MergeState.Immutable, treeId: "tree-multi-old"),
+                    Rec("P1", MergeState.CommittedProvisional, treeId: "tree-multi-old"),
+                    Rec("P2", MergeState.CommittedProvisional, treeId: "tree-multi-old"),
+                    Rec("P3", MergeState.CommittedProvisional, treeId: "tree-multi-old")
+                },
+                new List<BranchPoint>());
+            var fRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_F",
+                RecordingId = "F",
+                // Legacy pre-fix writer recorded only one of the priorTips here.
+                RestoredRecordingId = "P1",
+                SourceSupersedeRelationId = "rsr_F_P1",
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var p1OldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_P1",
+                RecordingId = "P1",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var p2OldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_P2",
+                RecordingId = "P2",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var p3OldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_P3",
+                RecordingId = "P3",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement>
+                {
+                    fRetirement, p1OldSide, p2OldSide, p3OldSide
+                });
+
+            // --- Load 1: deferImmediate signal (Immutable fork retirement removed). ---
+            LoadTimeSweep.Run();
+
+            // The existing legacy-Immutable sweep removes F's retirement and
+            // restores F→P1 (P1 hidden by the surviving relation).
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "F");
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("P1", scenario.RecordingSupersedes[0].OldRecordingId);
+            Assert.Equal("F", scenario.RecordingSupersedes[0].NewRecordingId);
+
+            // The new non-Immutable old-side sweep is deferred: P1, P2, P3
+            // old-side rows survive. P2 and P3 stay hidden via their own
+            // retirements (the only remaining suppression mechanism for them).
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P1");
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P2");
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P3");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement")
+                && (l.Contains("recording=P1")
+                    || l.Contains("recording=P2")
+                    || l.Contains("recording=P3")));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Legacy non-Immutable old-side sweep deferred"));
+
+            // --- Load 2: F retirement is already gone; the durable signal is
+            //     the surviving F→P1 supersede relation. The sweep must STILL
+            //     defer — this is the regression the durable guard prevents. ---
+            int logCountAfterLoad1 = logLines.Count;
+            LoadTimeSweep.Run();
+
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P1");
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P2");
+            Assert.Contains(scenario.RecordingRewindRetirements, r => r.RecordingId == "P3");
+            int load2Removals = logLines
+                .Skip(logCountAfterLoad1)
+                .Count(l => l.Contains("Removing legacy rewind-retirement")
+                    && (l.Contains("recording=P1")
+                        || l.Contains("recording=P2")
+                        || l.Contains("recording=P3")));
+            Assert.Equal(0, load2Removals);
+            // The deferral log fires again on load 2 via the surviving-relation signal.
+            Assert.Contains(logLines.Skip(logCountAfterLoad1), l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Legacy non-Immutable old-side sweep deferred"));
+        }
+
+        [Fact]
+        public void LegacyOldSideSweep_RecoversStaleRow_WhenUnrelatedTreeHasCanonReFly()
+        {
+            // The deferral guard is TREE-SCOPED. A save can carry BOTH:
+            //   - tree-user:  the user's stale CommittedProvisional priorTip
+            //     RewoundOutOldSideReason row (the bug being fixed); and
+            //   - tree-other: a completely unrelated, healthy successful Re-Fly
+            //     with a surviving Immutable supersede relation.
+            // A GLOBAL guard would see the Immutable supersede in tree-other and
+            // wrongly defer the sweep of the tree-user stale row — leaving the
+            // user's Watch ghost hidden forever. The tree-scoped guard only
+            // defers rows whose OWN tree carries the Immutable canon state, so
+            // the tree-user stale row is still swept and the user recovers.
+            InstallTree("tree-user",
+                new List<Recording>
+                {
+                    // Rec() defaults treeId to "tree_1"; pass it explicitly so
+                    // the two trees are genuinely distinct in recordingIdToTreeId.
+                    Rec("kerbal-x-probe", MergeState.CommittedProvisional,
+                        treeId: "tree-user")
+                },
+                new List<BranchPoint>());
+            InstallTree("tree-other",
+                new List<Recording>
+                {
+                    Rec("other-priorTip", MergeState.CommittedProvisional,
+                        treeId: "tree-other"),
+                    Rec("other-canon", MergeState.Immutable,
+                        treeId: "tree-other")
+                },
+                new List<BranchPoint>());
+            var staleOldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_user_stale",
+                RecordingId = "kerbal-x-probe",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation>
+                {
+                    // Healthy canon supersede in the UNRELATED tree-other.
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_other",
+                        OldRecordingId = "other-priorTip",
+                        NewRecordingId = "other-canon"
+                    }
+                },
+                retirements: new List<RecordingRewindRetirement> { staleOldSide });
+
+            LoadTimeSweep.Run();
+
+            // The tree-user stale row IS swept — its tree carries no Immutable
+            // canon state, so the unrelated tree-other supersede does not block it.
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "kerbal-x-probe");
+            Assert.Contains(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement=rrt_user_stale")
+                && l.Contains("recording=kerbal-x-probe"));
+            // The unrelated healthy supersede is untouched.
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("other-canon", scenario.RecordingSupersedes[0].NewRecordingId);
+        }
+
+        [Fact]
+        public void LegacyOldSideSweep_SameTreeMixedShape_DefersStaleRowConservatively()
+        {
+            // ACCEPTED LIMITATION (pinned here on purpose). A single recording
+            // tree can hold multiple independent rewound-out Re-Fly slots. This
+            // tree carries BOTH, in the SAME tree:
+            //   - a healthy Immutable canon supersede (canonOld -> canonFork),
+            //     unrelated to the stale row; and
+            //   - a genuinely-stale CommittedProvisional priorTip
+            //     RewoundOutOldSideReason row ("stale-probe") from a different
+            //     slot.
+            // The tree-scoped guard cannot distinguish them: RewoundOutOldSideReason
+            // rows carry RestoredRecordingId == null / SourceSupersedeRelationId
+            // == null by PR #807 design, so a row has no link to its fork, and
+            // there is no recorded provenance finer than the tree. The guard
+            // therefore defers BOTH — "stale-probe" is over-deferred.
+            //
+            // This is the correct conservative trade, NOT a regression:
+            //   - Deferring leaves "stale-probe" exactly in its pre-PR-848
+            //     state (hidden — PR #807 hid it on purpose at the time). A
+            //     missed cleanup, not a corruption.
+            //   - Sweeping it would risk re-exposing genuine multi-old-Immutable
+            //     victims in trees we can't tell apart from this one — the
+            //     double-materialization rendering bug PR #776/#777/#807 fixed.
+            // PR #848 improves every single-shape tree (incl. the user's repro)
+            // without regressing this rare same-tree-mixed shape.
+            InstallTree("tree-mixed",
+                new List<Recording>
+                {
+                    Rec("canonOld", MergeState.CommittedProvisional,
+                        treeId: "tree-mixed"),
+                    Rec("canonFork", MergeState.Immutable,
+                        treeId: "tree-mixed"),
+                    Rec("stale-probe", MergeState.CommittedProvisional,
+                        treeId: "tree-mixed")
+                },
+                new List<BranchPoint>());
+            var staleOldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_stale_probe",
+                RecordingId = "stale-probe",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                supersedes: new List<RecordingSupersedeRelation>
+                {
+                    // Healthy Immutable canon supersede, SAME tree, unrelated
+                    // to stale-probe.
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_canon",
+                        OldRecordingId = "canonOld",
+                        NewRecordingId = "canonFork"
+                    }
+                },
+                retirements: new List<RecordingRewindRetirement> { staleOldSide });
+
+            LoadTimeSweep.Run();
+
+            // The stale row is DEFERRED (conservatively retained) because its
+            // tree carries Immutable canon state we cannot prove it independent
+            // of. This is the documented accepted limitation.
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "stale-probe");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement=rrt_stale_probe"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Legacy non-Immutable old-side sweep deferred"));
+            // The healthy canon supersede is untouched.
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal("canonFork", scenario.RecordingSupersedes[0].NewRecordingId);
+        }
+
+        [Fact]
+        public void LegacyOldSideSweep_DefersViaRemovedForkSignal_WhenReconstructionFails()
+        {
+            // Proves treesWithRemovedImmutableForkRetirement is LOAD-BEARING on
+            // its own — not just redundant with treesWithSurvivingImmutableSupersede.
+            //
+            // The legacy multi-old shape, but F's DefaultReason retirement has
+            // a null RestoredRecordingId, so TryRestoreLegacyImmutableSupersede
+            // returns MissingMetadata: F's retirement is still removed, but NO
+            // F->priorTip supersede relation is reconstructed. On load 1 the
+            // only deferral signal available is treesWithRemovedImmutableForkRetirement
+            // (the per-row loop just removed an Immutable fork retirement from
+            // this tree). Without that signal the stale-looking P2 row would be
+            // swept and a genuine multi-old-Immutable victim re-exposed.
+            //
+            // (Load 2 of this same save has neither signal — the documented
+            // residual gap — but load 1 is where the protection must hold,
+            // and it does via this set.)
+            InstallTree("tree-recon-fail",
+                new List<Recording>
+                {
+                    Rec("F", MergeState.Immutable, treeId: "tree-recon-fail"),
+                    Rec("P2", MergeState.CommittedProvisional, treeId: "tree-recon-fail")
+                },
+                new List<BranchPoint>());
+            var fRetirement = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_F_recon_fail",
+                RecordingId = "F",
+                // null RestoredRecordingId -> TryRestoreLegacyImmutableSupersede
+                // returns MissingMetadata -> no relation reconstructed.
+                RestoredRecordingId = null,
+                SourceSupersedeRelationId = null,
+                Reason = RecordingRewindRetirement.DefaultReason
+            };
+            var p2OldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_P2_recon_fail",
+                RecordingId = "P2",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement>
+                {
+                    fRetirement, p2OldSide
+                });
+
+            LoadTimeSweep.Run();
+
+            // F's retirement was removed but no relation reconstructed
+            // (MissingMetadata) -> treesWithSurvivingImmutableSupersede is empty.
+            Assert.DoesNotContain(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "F");
+            Assert.Empty(scenario.RecordingSupersedes);
+
+            // P2's row is STILL deferred — solely via treesWithRemovedImmutableForkRetirement.
+            Assert.Contains(scenario.RecordingRewindRetirements,
+                r => r.RecordingId == "P2");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Removing legacy rewind-retirement=rrt_P2_recon_fail"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("Legacy non-Immutable old-side sweep deferred"));
+        }
+
+        [Fact]
+        public void LegacyOldSideRetirement_SweepIsIdempotent()
+        {
+            // First load removes the stale row; subsequent loads have nothing
+            // to do. Verify by running the sweep twice and confirming the
+            // second run produces no removal log line.
+            InstallTree("tree-prefix-bug",
+                new List<Recording>
+                {
+                    Rec("priorTip", MergeState.CommittedProvisional)
+                },
+                new List<BranchPoint>());
+            var staleOldSide = new RecordingRewindRetirement
+            {
+                RetirementId = "rrt_stale",
+                RecordingId = "priorTip",
+                Reason = RecordingRewindRetirement.RewoundOutOldSideReason
+            };
+            var scenario = InstallScenario(
+                retirements: new List<RecordingRewindRetirement> { staleOldSide });
+
+            LoadTimeSweep.Run();
+            int logCountAfterFirstSweep = logLines.Count;
+            Assert.Empty(scenario.RecordingRewindRetirements);
+
+            LoadTimeSweep.Run();
+            Assert.Empty(scenario.RecordingRewindRetirements);
+            // Second sweep produces no further "Removing legacy" line.
+            int newRemovalLines = logLines
+                .Skip(logCountAfterFirstSweep)
+                .Count(l => l.Contains("Removing legacy rewind-retirement"));
+            Assert.Equal(0, newRemovalLines);
         }
 
         [Fact]

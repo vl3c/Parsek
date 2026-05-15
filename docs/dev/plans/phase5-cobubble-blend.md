@@ -230,13 +230,18 @@ internal enum CoBubbleBlendStatus : byte
 internal static class CoBubbleBlender
 {
     // Main consumer hook. Caller passes the peer ghost's recordingId and current
-    // playback UT; on Hit / HitCrossfade, worldOffset is the world-frame translation
-    // to ADD to the primary's P_render(t). Caller is responsible for computing
-    // P_render(t) via the standalone Stages 1+2+3+4 path and adding the offset.
+    // playback UT; on Hit / HitCrossfade, worldOffset is the UN-FADED world-frame
+    // translation to ADD to the primary's P_render(t), and blend ∈ [0, 1] is the
+    // crossfade factor (1 in the steady region, decaying to 0 at EndUT). Caller
+    // composes the final peer position as
+    //     Lerp(peer_standalone, primary_render + worldOffset, blend)
+    // so the crossfade-tail handoff to MissCrossfadeOut (past EndUT, peer renders
+    // at peer_standalone) is continuous instead of snapping by |primary − peer|.
     internal static bool TryEvaluateOffset(
         string peerRecordingId,
         double ut,
         out Vector3d worldOffset,
+        out double blend,
         out CoBubbleBlendStatus status,
         out string primaryRecordingId);
 
@@ -256,16 +261,26 @@ Stored offsets are in the **primary's** frame (per §10.2). Re-lift to world at 
 
 ### 4.3 Crossfade at Window Exit
 
-When the playback UT enters the last `crossfadeDurationSeconds` of a window:
+When the playback UT enters the last `crossfadeDurationSeconds` of a window the blender returns the **un-faded** offset plus a blend factor in [0, 1]:
 
 ```
 double tailFraction = (window.EndUT - ut) / crossfadeDurationSeconds;
-double blend = clamp01(tailFraction);     // 1 at start of crossfade, 0 at end
-worldOffset = blend * worldOffsetFromTrace;
+blend = clamp01(tailFraction);              // 1 at crossfade start, 0 at crossfade end
+worldOffset = worldOffsetFromTrace;         // FULL magnitude, NOT pre-multiplied
 status = HitCrossfade;
 ```
 
-Past the window end, `worldOffset = 0` and status is `MissCrossfadeOut`. The renderer adds nothing — Stages 1+3+4 alone position the ghost. This satisfies §6.5: "Crossfade is on rendered POSITION only — no data merging."
+The caller composes the final peer position as
+
+```
+peer_render = Lerp(peer_standalone, primary_render + worldOffset, blend);
+```
+
+so the crossfade fades **from peer-standalone (blend=0) up to primary+offset (blend=1)**. Past the window end the blender returns `MissCrossfadeOut`, and the caller renders the peer at its own standalone Stages 1+2+3+4 position — exactly the world pose the crossfade-end frame already produced at `blend = 0`. The handoff is continuous: there is no `~|primary − peer_standalone|` snap (the regression observed in `logs/2026-05-15_0134_refly-distance-fixed-weird-motion`, ~1 km on a Re-Fly debris ghost).
+
+This still satisfies §6.5: "Crossfade is on rendered POSITION only — no data merging." The blender remains a pure stateless service; the caller (the only thing that knows the peer's spline / hermite / anchor-ε result) owns the composition.
+
+**Anchor-ε asymmetry:** at `blend = 1` the composed position is `primary + worldOffset`, which intentionally does NOT add the peer's own anchor ε — the offset was authored against the primary's frame and adding the peer's ε on top would double-count. At `blend = 0` the composed position falls back to `peer_standalone`, which DOES include the peer's anchor ε. The lerp interpolates linearly between the two, matching the steady-region behavior at the entry edge and the `MissCrossfadeOut` behavior at the exit edge.
 
 ### 4.4 Trace Sample Lookup
 
@@ -286,23 +301,29 @@ Inside the blender, locate the right trace in `SectionAnnotationStore` (extended
 
 ```csharp
 // Phase 5 co-bubble blend (design doc §6.5, §10, §18 Phase 5).
-// On hit: U_render(t) = P_render(t) + worldOffset, where P_render is computed
-// via the standalone Stages 1+2+3+4 path against the PRIMARY's recording.
+// On hit: U_render(t) = Lerp(peer_standalone, P_render + worldOffset, blend)
+//   where P_render is computed via the standalone Stages 1+2+3+4 path against
+//   the PRIMARY's recording, and `blend` is the blender's crossfade factor
+//   (1 in the steady region, 0 at EndUT) so the crossfade-tail handoff to
+//   MissCrossfadeOut (peer's own standalone) is continuous.
 // On miss: fall through to existing Stages 1+2+3+4 against this recording.
 // HR-15: P_render reads from the primary's recording, never live KSP state.
+
+// Stage 1+2+3+4 already produced `interpolatedPos` — the peer's own
+// standalone result with spline / hermite / anchor ε applied.
 if (allowCoBubbleBlend(recordingId, targetUT,
-        out Vector3d worldOffset, out string primaryRecordingId,
+        out Vector3d worldOffset, out double blend, out string primaryRecordingId,
         out Parsek.Rendering.CoBubbleBlendStatus blendStatus))
 {
     if (TryComputeStandalonePRenderForPrimary(
             primaryRecordingId, targetUT, bodyBefore, out Vector3d pRender))
     {
-        Vector3d coBubblePos = pRender + worldOffset;
+        Vector3d coBubbleTarget = pRender + worldOffset;
+        interpolatedPos = Vector3d.Lerp(interpolatedPos, coBubbleTarget, blend);
         // Position; rotation continues from the existing slerp.
-        ghost.transform.position = coBubblePos;
+        ghost.transform.position = interpolatedPos;
         ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
-        // Bypass the spline + ε path; still register for LateUpdate
-        // re-positioning and emit the velocity result.
+        // Register for LateUpdate re-positioning, emit the velocity result.
         ghostPosEntries.Add(...); // mode = GhostPosMode.CoBubble
         interpResult = new InterpolationResult(...);
         RecordCoBubbleEvalForLogging();
@@ -326,7 +347,13 @@ For the section index lookup of the primary's recording, use `TrajectoryMath.Fin
 
 ### 5.3 LateUpdate
 
-A new `GhostPosMode.CoBubble` enum value. In LateUpdate, the entry stores `(peerRecordingId, primaryRecordingId, pointUT)`; the LateUpdate path re-evaluates primary `P_render` (via `TryComputeStandaloneWorldPositionPure`) and adds the freshly-evaluated offset (`CoBubbleBlender.TryEvaluateOffset`) — same as the Phase 1+4 LateUpdate spline re-evaluation pattern (see `TryComputeLateUpdateSplineWorldPositionPure`, `:15245`). This ensures FloatingOrigin shifts don't desync the peer from the primary.
+A new `GhostPosMode.CoBubble` enum value. In LateUpdate, the entry stores `(peerRecordingId, primaryRecordingId, pointUT)`. The LateUpdate path:
+
+1. Recomputes the **peer's own standalone** position (same lerp/hermite + anchor-ε logic the original PointInterp LateUpdate branch ran) so the crossfade lerp has a valid `blend = 0` target.
+2. Re-evaluates the blender (`CoBubbleBlender.TryEvaluateOffset`) and the primary's `P_render` (via `TryComputeStandaloneWorldPositionPure`).
+3. Composes `Lerp(peer_standalone, primary_render + worldOffset, blend)` and applies it.
+
+Any failure (primary now missing, blender mid-session miss) falls back to the bare peer-standalone position — HR-9 still holds and the world pose stays continuous with the next frame's MissCrossfadeOut. This mirrors the Phase 1+4 LateUpdate spline re-evaluation pattern (see `TryComputeLateUpdateSplineWorldPositionPure`, `:15245`) and ensures FloatingOrigin shifts don't desync the peer from either reference.
 
 ### 5.4 Live-Primary Subtlety (§10.4 / HR-15)
 

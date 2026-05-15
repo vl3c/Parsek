@@ -145,38 +145,46 @@ namespace Parsek
             // Re-fly merge: a marker is active and the dialog is asking the
             // player to lock in the re-flight as the canonical entry. Show
             // the re-flight recording's own vessel name + duration (not the
-            // whole-tree summary used for ordinary tree merges) and a one-
-            // line warning that the commit cannot be undone. The supersede
-            // / ghost-of-retired-attempt / kerbal-deaths-reversed paragraph
-            // we used to show was misleading on the in-place continuation
-            // path (no separate retired attempt exists, no ghost playback,
-            // tombstones not reversed in v1) so we drop the advisory and
-            // keep the dialog short and unambiguous instead.
+            // whole-tree summary used for ordinary tree merges) and route
+            // the body through the same auto-seal preview the pre-transition
+            // path uses - this deferred fallback can still finalize via
+            // TryCommitReFlySupersede and auto-seal the slot Immutable, so
+            // the auto-seal copy + "cannot be undone" tail must appear here
+            // too when the preview classifies the attempt as sealable.
             var reFlyScenario = ParsekScenario.Instance;
             string message;
             if (!object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveReFlySessionMarker != null)
             {
-                Recording reFlyRec = FindReFlyRecording(
-                    reFlyScenario.ActiveReFlySessionMarker, tree);
+                var marker = reFlyScenario.ActiveReFlySessionMarker;
+                Recording reFlyRec = FindReFlyRecording(marker, tree);
                 string vesselLabel = reFlyRec != null
                     ? (reFlyRec.VesselName ?? tree.TreeName ?? "<unnamed>")
                     : (tree.TreeName ?? "<unnamed>");
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(tree);
-                // TMP rich-text alignment: center the headline (vessel name +
-                // re-flight duration), one blank line, then the warning text
-                // left-aligned. KSP's MultiOptionDialog body renders through
-                // TMP which honours the <align> tag; a one-line headline with
-                // a paragraph break before the body keeps the dialog short
-                // (per playtest feedback the long supersede paragraph that
-                // used to live here was confusing on the in-place
-                // continuation path and just plain wrong about
-                // ghost-of-retired-attempt / kerbal-deaths-reversed).
-                message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-                          "<align=\"left\">Commit this Re-Fly attempt permanently to the timeline. " +
-                          "This cannot be undone.</align>";
+
+                // Preview.NoSeal is the safe fallback when reFlyRec is null
+                // (rec missing from the pending tree AND the committed list -
+                // FindReFlyRecording returned null). Preview's null-guard
+                // would also collapse to NoSeal but skipping the call avoids
+                // a CollectRecordingIdsForSafetyGate walk on a null. Live
+                // vessel may legitimately be null in Space Center / Tracking
+                // Station fallback - Preview tolerates it (skips the live-
+                // terminal reasons; science + structural reasons still fire).
+                ReFlyAutoSealPreviewResult preview = reFlyRec != null
+                    ? ReFlyAutoSealPreviewer.Preview(
+                        reFlyRec, marker, FlightGlobals.ActiveVessel)
+                    : ReFlyAutoSealPreviewResult.NoSeal();
+                message = BuildReFlyDialogBody(
+                    vesselLabel, reFlyDuration, preview);
+
+                ParsekLog.Info("MergeDialog",
+                    $"Re-Fly auto-seal preview (post-transition): " +
+                    $"willSeal={preview.WillAutoSeal} " +
+                    $"reasons=[{string.Join(",", preview.Reasons)}] " +
+                    $"sess={marker.SessionId ?? "<no-id>"}");
             }
             else
             {
@@ -482,12 +490,14 @@ namespace Parsek
             => ParsekTimeFormat.FormatDuration(seconds);
 
         /// <summary>
-        /// Composes the pre-transition Re-Fly merge dialog body. Pure
-        /// helper for unit-testability - the callable
-        /// <see cref="ShowTreeDialog"/> 4-arg overload spawns a
-        /// <see cref="PopupDialog"/> which requires Unity runtime, but
-        /// the body string itself is data-driven and worth pinning in
-        /// xUnit. Callers pass a precomputed
+        /// Composes the Re-Fly merge dialog body. Shared by the pre-
+        /// transition <see cref="ShowTreeDialog"/> 4-arg overload and the
+        /// deferred post-transition 1-arg overload - both paths can land
+        /// in <c>TryCommitReFlySupersede</c> and auto-seal, so both must
+        /// render the auto-seal warning when the preview classifies the
+        /// attempt as sealable. Pure helper for unit-testability: the
+        /// dialog spawn requires Unity runtime, but the body string is
+        /// data-driven. Callers pass a precomputed
         /// <see cref="ReFlyAutoSealPreviewResult"/>; this method only
         /// formats it.
         /// </summary>
@@ -498,25 +508,29 @@ namespace Parsek
         {
             string headline = $"<align=\"center\">{vesselLabel} - " +
                               $"{FormatDuration(reFlyDuration)}</align>\n\n";
-            // The "If not discarded" prefix reminds the player that
-            // Discard remains an option: discarding throws this attempt
-            // away and leaves the slot re-flyable for a future retry.
-            // Merge commits the attempt permanently (and seals the
-            // slot, when the auto-seal preview fires).
             if (!preview.WillAutoSeal)
             {
                 return headline +
-                    "<align=\"left\">If not discarded, this Re-Fly attempt " +
-                    "will be committed permanently to the timeline. This " +
-                    "cannot be undone.</align>";
+                    "<align=\"left\">Do you want to commit this Re-Fly attempt " +
+                    "to the timeline?</align>";
             }
 
             string reasons = preview.FormatHumanReadable();
+            // Auto-seal flips MergeState to Immutable and closes the rewind
+            // slot, so this branch *is* the irreversible one. Keep the
+            // short translation of what "auto-seal" means in player terms
+            // (the slot becomes permanent, the line of flight can no longer
+            // be Re-Flown) - dropping that sentence in the original trim
+            // left "auto-sealed" undefined for players unfamiliar with the
+            // term. Voice stays declarative ("If not discarded, ... will be
+            // ...") instead of matching the no-seal branch's question form;
+            // the "If not discarded" anchor signals that the Discard button
+            // is still the escape hatch and that asymmetry is intentional.
             return headline +
                 "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
                 $"will be merged AND auto-sealed</b> for the following " +
-                $"reason(s): {reasons}. The slot will become permanent and " +
-                "you will not be able to Re-Fly this line of flight again. " +
+                $"reason(s): {reasons}. Auto-seal makes the slot permanent " +
+                "and you cannot Re-Fly this line again. " +
                 "This cannot be undone.</align>";
         }
 
@@ -894,7 +908,9 @@ namespace Parsek
             ReFlyRevertButtonGate.Apply("MergeDialog:discard-refly-attempt");
             SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
 
-            LedgerOrchestrator.RecalculateAndPatch();
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
+                ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
+                "merge-dialog-discard-refly");
             ClearPendingFlag();
             bool durableSaved = SaveDiscardedReFlyStateDurably(sessionId);
 

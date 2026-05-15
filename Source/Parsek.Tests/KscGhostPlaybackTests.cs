@@ -667,6 +667,73 @@ namespace Parsek.Tests
             Assert.InRange(cachedIndex, 0, noSection.Points.Count - 1);
         }
 
+        [Fact]
+        public void TryInterpolateKscPlaybackPose_NoPoints_RateLimitedLogPerRecording()
+        {
+            // Synthetic recordings with a TrackSection but no frames and no
+            // top-level Points hit the "no points" skip branch on every KSC
+            // ghost frame. The log must be rate-limited per recording so
+            // looping showcase recordings don't emit ~120 lines/sec.
+            var rec = new Recording
+            {
+                RecordingId = "rec-no-points",
+                VesselName = "Empty",
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0,
+                endUT = 100,
+                frames = new List<TrajectoryPoint>(), // empty
+            });
+
+            ParsekLog.ResetRateLimitsForTesting();
+            double simulatedClock = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => simulatedClock;
+            logLines.Clear();
+
+            for (int i = 0; i < 50; i++)
+            {
+                int cachedIndex = 0;
+                int cachedFrameSourceKey = ParsekKSC.KscFlatPointFrameSourceKey;
+                ParsekKSC.TryInterpolateKscPlaybackPose(
+                    rec,
+                    ref cachedIndex,
+                    ref cachedFrameSourceKey,
+                    50.0,
+                    SurfaceLookupFromLatLonAlt(),
+                    MissingAnchorLookup,
+                    out _);
+            }
+
+            int noPointsLines = logLines.FindAll(l =>
+                l.Contains("[KSCGhost]")
+                && l.Contains("KSC pose interpolation skipped: no points")).Count;
+            // First call emits, the rest are suppressed inside the 5s
+            // rate-limit window — single emission expected at simulated
+            // clock 0.0.
+            Assert.Equal(1, noPointsLines);
+
+            // Advance past the rate-limit interval; the next call should
+            // emit again with a `suppressed=N` rollup, confirming the
+            // rate-limit keyed on recording id is active.
+            simulatedClock = 10.0;
+            int afterClockBumpCachedIndex = 0;
+            int afterClockBumpKey = ParsekKSC.KscFlatPointFrameSourceKey;
+            ParsekKSC.TryInterpolateKscPlaybackPose(
+                rec,
+                ref afterClockBumpCachedIndex,
+                ref afterClockBumpKey,
+                50.0,
+                SurfaceLookupFromLatLonAlt(),
+                MissingAnchorLookup,
+                out _);
+            Assert.Contains(logLines, l =>
+                l.Contains("[KSCGhost]")
+                && l.Contains("KSC pose interpolation skipped: no points")
+                && l.Contains("suppressed="));
+        }
+
         #endregion
 
         #region ShouldShowInKSC

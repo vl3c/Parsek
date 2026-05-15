@@ -50,6 +50,10 @@ namespace Parsek
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
         private HashSet<string> loggedPlaybackDisabledPastEndSpawnAttempts = new HashSet<string>();
         private bool pauseMenuOpen;
+        private double lastKscLedgerCutoffUT = double.NaN;
+        private int cachedKscLedgerNextActionVersion = int.MinValue;
+        private double cachedKscLedgerNextActionAfterUT = double.NaN;
+        private double cachedKscLedgerNextActionUT = double.PositiveInfinity;
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
         internal static Action<GhostPlaybackState> UnpauseGhostAudioAction = GhostPlaybackLogic.UnpauseAllAudio;
         internal static Func<int> PauseExplosionOneShotAudioAction = GhostPlaybackLogic.PauseExplosionOneShotAudio;
@@ -62,6 +66,7 @@ namespace Parsek
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
         private const float GhostCullDistanceSq = DistanceThresholds.KscGhosts.CullDistanceSq;
+        private const double KscLedgerAdvanceEpsilonSeconds = 0.05;
         // KSC playback is a Kerbin-surface scene; do not read GhostPlaybackState.atmosphereFactor
         // here because flight's per-frame atmosphere refresh does not run in KSC.
         private const float KscExplosionAtmosphereFactor = 1f;
@@ -323,11 +328,13 @@ namespace Parsek
             // [ERS-exempt] reason: same as constructor — ParsekKSC keys ghost
             // state by committed recording index. See TODO(phase 6+) above.
             var committed = RecordingStore.CommittedRecordings;
+            double currentUT = Planetarium.GetUniversalTime();
+            AdvanceCareerLedgerForKscUT(currentUT);
+
             if (committed.Count == 0) return;
+
             var supersedes = CurrentRecordingSupersedes();
             var retirements = CurrentRecordingRewindRetirements();
-
-            double currentUT = Planetarium.GetUniversalTime();
 
             float warpRate = TimeWarp.CurrentRate;
             bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(warpRate);
@@ -455,6 +462,103 @@ namespace Parsek
                         warpRate, suppressGhosts, suppressVisualFx);
                 }
             }
+        }
+
+        internal static bool ShouldAdvanceCareerLedgerForKscUT(
+            double currentUT,
+            double lastAppliedUT,
+            double nextActionUT,
+            double epsilon)
+        {
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+                return false;
+            if (double.IsNaN(lastAppliedUT) || double.IsInfinity(lastAppliedUT))
+                return false;
+            if (currentUT < lastAppliedUT - epsilon)
+                return true;
+            if (double.IsNaN(nextActionUT) || double.IsInfinity(nextActionUT))
+                return false;
+            return currentUT >= nextActionUT;
+        }
+
+        internal static bool ShouldSeedCareerLedgerForKscUT(
+            double currentUT,
+            double lastAppliedUT)
+        {
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+                return false;
+            return double.IsNaN(lastAppliedUT);
+        }
+
+        internal static string GetCareerLedgerAdvanceReasonForKscUT(
+            double currentUT,
+            double lastAppliedUT,
+            double epsilon)
+        {
+            return currentUT < lastAppliedUT - epsilon
+                ? "ksc-clock-backward"
+                : "ksc-clock";
+        }
+
+        internal static bool IsKscLedgerNextActionCacheValid(
+            int cachedLedgerVersion,
+            double cachedAfterUT,
+            int currentLedgerVersion,
+            double afterUT)
+        {
+            return cachedLedgerVersion == currentLedgerVersion
+                && !double.IsNaN(cachedAfterUT)
+                && cachedAfterUT == afterUT;
+        }
+
+        private void AdvanceCareerLedgerForKscUT(double currentUT)
+        {
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+                return;
+
+            if (ShouldSeedCareerLedgerForKscUT(currentUT, lastKscLedgerCutoffUT))
+            {
+                lastKscLedgerCutoffUT = currentUT;
+                return;
+            }
+
+            double nextActionUT = GetNextKscLedgerActionUTAfter(lastKscLedgerCutoffUT);
+
+            if (!ShouldAdvanceCareerLedgerForKscUT(
+                    currentUT,
+                    lastKscLedgerCutoffUT,
+                    nextActionUT,
+                    KscLedgerAdvanceEpsilonSeconds))
+                return;
+
+            string reason = GetCareerLedgerAdvanceReasonForKscUT(
+                currentUT,
+                lastKscLedgerCutoffUT,
+                KscLedgerAdvanceEpsilonSeconds);
+            LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent(currentUT, reason);
+
+            // Advance the KSC cursor even if a pending/live tree makes the internal
+            // patch defer; tree resolution runs its own recalc, while retrying here
+            // every frame would spam full ledger walks.
+            lastKscLedgerCutoffUT = currentUT;
+        }
+
+        private double GetNextKscLedgerActionUTAfter(double afterUT)
+        {
+            int ledgerVersion = Ledger.StateVersion;
+            if (!IsKscLedgerNextActionCacheValid(
+                    cachedKscLedgerNextActionVersion,
+                    cachedKscLedgerNextActionAfterUT,
+                    ledgerVersion,
+                    afterUT))
+            {
+                cachedKscLedgerNextActionVersion = ledgerVersion;
+                cachedKscLedgerNextActionAfterUT = afterUT;
+                if (!LedgerOrchestrator.TryGetNextActionUTAfter(afterUT, out cachedKscLedgerNextActionUT))
+                    cachedKscLedgerNextActionUT = double.PositiveInfinity;
+            }
+
+            return cachedKscLedgerNextActionUT;
         }
 
         private void RebuildAutoLoopLaunchScheduleCache(IReadOnlyList<Recording> recordings)
@@ -1332,7 +1436,12 @@ namespace Parsek
                     branch,
                     frameSelectionFailureReason ?? "no-points",
                     targetSection.HasValue ? NormalizeKscAnchorRecordingId(targetSection.Value) : null);
-                ParsekLog.Verbose("KSCGhost",
+                // Rate-limit per recording: synthetic recordings with no
+                // sampled points trigger this branch every KSC ghost frame
+                // and the unrate-limited Verbose used to emit ~120 lines/sec
+                // per offending recording.
+                ParsekLog.VerboseRateLimited("KSCGhost",
+                    $"ksc-no-points-{rec.RecordingId}",
                     $"KSC pose interpolation skipped: no points recording={rec.DebugName} " +
                     $"targetUT={targetUT:F2} sections={rec.TrackSections?.Count ?? 0}");
                 return false;

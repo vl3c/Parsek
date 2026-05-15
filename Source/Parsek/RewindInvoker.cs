@@ -1261,6 +1261,12 @@ namespace Parsek
                     RewindPointId = rp.RewindPointId,
                     SelectedRootPartPersistentId = selectedRootPartPersistentId,
                     InvokedUT = SafeNow(),
+                    // Stable RP cutoff captured directly from the RewindPoint.
+                    // Decoupled from SafeNow() / onFlightReady deferrals so
+                    // gates that need "before the rewind moment" semantics
+                    // (see ReFlySessionMarker.RewindPointUT XML doc) have an
+                    // exact reference UT rather than the drifted InvokedUT.
+                    RewindPointUT = rp.UT,
                     InvokedRealTime = DateTime.UtcNow.ToString("o"),
                     PreSessionBranchPointIds = SnapshotTreeBranchPointIds(treeIdForMarker),
                     InPlaceContinuation = inPlaceContinuation,

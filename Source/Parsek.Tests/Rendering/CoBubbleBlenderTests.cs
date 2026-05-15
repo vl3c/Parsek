@@ -89,7 +89,7 @@ namespace Parsek.Tests.Rendering
         public void TryEvaluateOffset_NullPeerId_ReturnsMissNotInTrace()
         {
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                null, 100.0, out Vector3d offset, out CoBubbleBlendStatus status, out string primary);
+                null, 100.0, out Vector3d offset, out double _, out CoBubbleBlendStatus status, out string primary);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissNotInTrace, status);
             Assert.Null(primary);
@@ -103,7 +103,7 @@ namespace Parsek.Tests.Rendering
         {
             SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => false;
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer", 100.0, out _, out CoBubbleBlendStatus status, out _);
+                "peer", 100.0, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissDisabledByFlag, status);
         }
@@ -113,7 +113,7 @@ namespace Parsek.Tests.Rendering
         {
             // Peer has no entry in the primary map.
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "lonely-peer", 100.0, out _, out CoBubbleBlendStatus status, out string primary);
+                "lonely-peer", 100.0, out _, out double _, out CoBubbleBlendStatus status, out string primary);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissPrimaryNotResolved, status);
             Assert.Null(primary);
@@ -126,9 +126,38 @@ namespace Parsek.Tests.Rendering
             // be guarded — primaries always render standalone (§6.5).
             RenderSessionState.PutPrimaryAssignmentForTesting("peer-Y", "rec-X");
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "rec-X", 100.0, out _, out CoBubbleBlendStatus status, out _);
+                "rec-X", 100.0, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissRecursionGuard, status);
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_PeerIsPrimaryElsewhereButAlsoAPeer_PassesPairSpecificGuard()
+        {
+            // Multi-tier formation: "mid" is the designated primary for
+            // "lower" AND itself a peer of "top". The recursion guard is
+            // PAIR-SPECIFIC — querying "mid" as a peer must NOT short-circuit
+            // to MissRecursionGuard just because "mid" is a primary
+            // somewhere else. Before the fix the global IsPrimary check
+            // rejected "mid" outright and its own co-bubble offset was
+            // dropped, falling the ghost back to standalone PointInterp.
+            RenderSessionState.PutPrimaryAssignmentForTesting("lower", "mid");
+            RenderSessionState.PutPrimaryAssignmentForTesting("mid", "top");
+            // "mid" is a primary (of "lower") AND a peer (of "top").
+            Assert.True(RenderSessionState.IsPrimary("mid"));
+
+            CoBubbleOffsetTrace trace = MakeTrace("top", 100.0, 110.0, new Vector3d(3, 0, 0));
+            SectionAnnotationStore.PutCoBubbleTrace("mid", trace);
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "mid", 105.0, out Vector3d offset, out double _, out CoBubbleBlendStatus status,
+                out string primary);
+
+            Assert.NotEqual(CoBubbleBlendStatus.MissRecursionGuard, status);
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal("top", primary);
+            Assert.Equal(3.0, offset.x, 3);
         }
 
         [Fact]
@@ -136,7 +165,7 @@ namespace Parsek.Tests.Rendering
         {
             RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 100.0, out _, out CoBubbleBlendStatus status, out _);
+                "peer-A", 100.0, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissNotInTrace, status);
         }
@@ -148,7 +177,7 @@ namespace Parsek.Tests.Rendering
             CoBubbleOffsetTrace trace = MakeTrace("primary-B", 100.0, 110.0, new Vector3d(1, 0, 0));
             SectionAnnotationStore.PutCoBubbleTrace("peer-A", trace);
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 50.0, out _, out CoBubbleBlendStatus status, out _);
+                "peer-A", 50.0, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissOutsideWindow, status);
         }
@@ -160,7 +189,7 @@ namespace Parsek.Tests.Rendering
             CoBubbleOffsetTrace trace = MakeTrace("primary-B", 100.0, 110.0, new Vector3d(7, 8, 9));
             SectionAnnotationStore.PutCoBubbleTrace("peer-A", trace);
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 105.0, out Vector3d offset, out CoBubbleBlendStatus status, out string primary);
+                "peer-A", 105.0, out Vector3d offset, out double _, out CoBubbleBlendStatus status, out string primary);
             Assert.True(ok);
             Assert.Equal(CoBubbleBlendStatus.Hit, status);
             Assert.Equal("primary-B", primary);
@@ -173,17 +202,71 @@ namespace Parsek.Tests.Rendering
         public void TryEvaluateOffset_InCrossfadeTail_HitCrossfadeRamp()
         {
             // Crossfade duration = 1.5s. At endUT - 0.5s the blend factor
-            // is 0.5/1.5 = 0.333 of the full magnitude.
+            // is 0.5/1.5 = 0.333. The blender returns the UN-FADED offset
+            // (full magnitude 3.0) plus the blend factor; the caller composes
+            //   Lerp(peer_standalone, primary + offset, blend)
+            // so the crossfade-tail handoff to MissCrossfadeOut past EndUT is
+            // continuous instead of snapping by primary↔peer divergence.
             RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
             CoBubbleOffsetTrace trace = MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0));
             SectionAnnotationStore.PutCoBubbleTrace("peer-A", trace);
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 109.5, out Vector3d offset, out CoBubbleBlendStatus status, out _);
+                "peer-A", 109.5, out Vector3d offset, out double blend, out CoBubbleBlendStatus status, out _);
             Assert.True(ok);
             Assert.Equal(CoBubbleBlendStatus.HitCrossfade, status);
-            // 0.5 / 1.5 = 1/3 of the full 3.0 = 1.0 (with float32 trace
-            // values and double Vector3d, exact).
-            Assert.InRange(offset.x, 0.99, 1.01);
+            Assert.InRange(blend, 0.32, 0.34);
+            Assert.Equal(3.0, offset.x, 5);
+            Assert.Equal(0.0, offset.y, 5);
+            Assert.Equal(0.0, offset.z, 5);
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_AtCrossfadeStart_BlendIsOne()
+        {
+            // Steady → crossfade transition continuity: at the first frame
+            // inside the crossfade window (ut == EndUT - crossfade), the
+            // blend factor must equal 1.0 so the caller's
+            //   Lerp(peer_standalone, primary + offset, blend)
+            // resolves to (primary + offset) — same as the steady-region Hit
+            // value. Without this, the entry edge would already be lerping
+            // toward peer_standalone and the steady region would visibly
+            // disagree with itself.
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            CoBubbleOffsetTrace trace = MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A", trace);
+            // ut = 108.5 = endUT - 1.5 (the crossfade start).
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 108.5, out _, out double blend, out CoBubbleBlendStatus status, out _);
+            Assert.True(ok);
+            // 108.5 == endUT - crossfade exactly. The conditional is
+            // strict `>`, so the steady-region branch wins and the blender
+            // returns blend=1.0 with status=Hit. The very next sample
+            // (ut > 108.5) enters HitCrossfade with blend slightly under 1.0.
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal(1.0, blend, 5);
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_AtEndUT_BlendIsZeroAndContinuesIntoCrossfadeOut()
+        {
+            // Crossfade-end → standalone continuity: at ut == EndUT the blend
+            // factor is 0, so the caller's
+            //   Lerp(peer_standalone, primary + offset, 0) == peer_standalone
+            // — the same world pose the very next frame (ut > EndUT,
+            // MissCrossfadeOut) falls through to. This is the fix that
+            // eliminates the ~1 km crossfade-tail jump observed in
+            // logs/2026-05-15_0134_refly-distance-fixed-weird-motion.
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            CoBubbleOffsetTrace trace = MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A", trace);
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 110.0, out Vector3d offset, out double blend, out CoBubbleBlendStatus status, out _);
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.HitCrossfade, status);
+            Assert.Equal(0.0, blend, 5);
+            // Un-faded offset: composition lives in the caller, so the
+            // blender returns the full magnitude even when blend=0.
+            Assert.Equal(3.0, offset.x, 5);
         }
 
         [Fact]
@@ -196,12 +279,146 @@ namespace Parsek.Tests.Rendering
             // returns the crossfade ramp for the in-window portion of the
             // trace. Past endUT entirely → MissCrossfadeOut.
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 110.5, out Vector3d offset, out CoBubbleBlendStatus status, out _);
+                "peer-A", 110.5, out Vector3d offset, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissCrossfadeOut, status);
             Assert.Equal(0.0, offset.x);
             Assert.Equal(0.0, offset.y);
             Assert.Equal(0.0, offset.z);
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_AdjacentWindowDuringPreviousTail_PrefersActiveNextTrace()
+        {
+            // Regression: adjacent same-pair windows were scanned in insertion
+            // order. During the first window's exit tail, the blender returned
+            // MissCrossfadeOut before checking that the next window already
+            // covered the same UT, so playback rendered standalone and then
+            // snapped to full co-bubble when the old tail expired.
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 110.0, 120.0, new Vector3d(9, 0, 0)));
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 110.5, out Vector3d offset, out double blend, out CoBubbleBlendStatus status, out _);
+
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal(1.0, blend, 5);
+            Assert.Equal(9.0, offset.x, 5);
+            Assert.DoesNotContain(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Blend window exit")
+                && l.Contains("exitUT=110"));
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_AtSharedBoundary_PrefersNewWindowFullBlend()
+        {
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 110.0, 120.0, new Vector3d(9, 0, 0)));
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 110.0, out Vector3d offset, out double blend, out CoBubbleBlendStatus status, out _);
+
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal(1.0, blend, 5);
+            Assert.Equal(9.0, offset.x, 5);
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_BeforeAdjacentWindow_DoesNotFadeToStandalone()
+        {
+            // A same-pair successor at the boundary means co-bubble coverage
+            // continues. The old window must not run its exit fade toward
+            // standalone immediately before the next window takes over.
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 110.0, 120.0, new Vector3d(9, 0, 0)));
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 109.99, out Vector3d offset, out double blend, out CoBubbleBlendStatus status, out _);
+
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal(1.0, blend, 5);
+            Assert.Equal(3.0, offset.x, 5);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("contiguous-exit-fade-suppressed")
+                && l.Contains("boundaryUT=110"));
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_ShortAdjacentWindow_StartsFullBlendBeforeExitFade()
+        {
+            // If the successor is shorter than the configured crossfade, the
+            // exit fade must use the available window duration. Otherwise the
+            // successor enters already partially faded toward standalone.
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 110.0, 111.0, new Vector3d(9, 0, 0)));
+
+            bool atStart = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 110.0, out Vector3d startOffset, out double startBlend, out CoBubbleBlendStatus startStatus, out _);
+            bool midTail = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 110.5, out Vector3d tailOffset, out double tailBlend, out CoBubbleBlendStatus tailStatus, out _);
+
+            Assert.True(atStart);
+            Assert.Equal(CoBubbleBlendStatus.Hit, startStatus);
+            Assert.Equal(1.0, startBlend, 5);
+            Assert.Equal(9.0, startOffset.x, 5);
+
+            Assert.True(midTail);
+            Assert.Equal(CoBubbleBlendStatus.HitCrossfade, tailStatus);
+            Assert.Equal(0.5, tailBlend, 5);
+            Assert.Equal(9.0, tailOffset.x, 5);
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_OverlappingActiveWindows_PrefersLatestStart()
+        {
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 115.0, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 110.0, 120.0, new Vector3d(9, 0, 0)));
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 112.0, out Vector3d offset, out double blend, out CoBubbleBlendStatus status, out _);
+
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal(1.0, blend, 5);
+            Assert.Equal(9.0, offset.x, 5);
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_MultipleTailMatches_PrefersLatestEnd()
+        {
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 111.5, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 102.0, 112.0, new Vector3d(9, 0, 0)));
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 112.25, out Vector3d offset, out double _, out CoBubbleBlendStatus status, out _);
+
+            Assert.False(ok);
+            Assert.Equal(CoBubbleBlendStatus.MissCrossfadeOut, status);
+            Assert.Equal(0.0, offset.x);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Blend window exit")
+                && l.Contains("exitUT=112"));
         }
 
         // ---------- CoBubblePrimarySelector tests ----------
@@ -303,7 +520,7 @@ namespace Parsek.Tests.Rendering
             SectionAnnotationStore.PutCoBubbleTrace("primary-Y",
                 MakeTrace("upstream-Z", 100.0, 110.0, new Vector3d(99, 0, 0)));
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "primary-Y", 105.0, out _, out CoBubbleBlendStatus status, out _);
+                "primary-Y", 105.0, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissRecursionGuard, status);
         }
@@ -327,7 +544,7 @@ namespace Parsek.Tests.Rendering
             CoBubbleBlender.BodyResolverForTesting = name => null;
 
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 105.0, out _, out CoBubbleBlendStatus status, out _);
+                "peer-A", 105.0, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissBodyResolveFailed, status);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]") && l.Contains("body-resolve-failed"));
@@ -352,7 +569,7 @@ namespace Parsek.Tests.Rendering
             CoBubbleBlender.BodyResolverForTesting = name => name == "Kerbin" ? body : null;
 
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 105.0, out Vector3d offset, out CoBubbleBlendStatus status, out _);
+                "peer-A", 105.0, out Vector3d offset, out double _, out CoBubbleBlendStatus status, out _);
             Assert.True(ok);
             Assert.Equal(CoBubbleBlendStatus.Hit, status);
             Assert.Equal(7.0, offset.x, 5);
@@ -441,7 +658,7 @@ namespace Parsek.Tests.Rendering
                     : null;
 
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 105.0, out _, out CoBubbleBlendStatus status, out _);
+                "peer-A", 105.0, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissPeerValidationFailed, status);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
@@ -465,7 +682,7 @@ namespace Parsek.Tests.Rendering
                 };
 
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 105.0, out _, out CoBubbleBlendStatus status, out _);
+                "peer-A", 105.0, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.False(ok);
             Assert.Equal(CoBubbleBlendStatus.MissPeerValidationFailed, status);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
@@ -487,7 +704,7 @@ namespace Parsek.Tests.Rendering
             SectionAnnotationStore.PutCoBubbleTrace("peer-A", trace);
             // First (and only) hit: 109.5 — well inside the 1.5s crossfade tail.
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 109.5, out _, out CoBubbleBlendStatus status, out _);
+                "peer-A", 109.5, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.True(ok);
             Assert.Equal(CoBubbleBlendStatus.HitCrossfade, status);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
@@ -507,7 +724,7 @@ namespace Parsek.Tests.Rendering
             CoBubbleOffsetTrace trace = MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0));
             SectionAnnotationStore.PutCoBubbleTrace("peer-A", trace);
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 109.5, out _, out CoBubbleBlendStatus status, out _);
+                "peer-A", 109.5, out _, out double _, out CoBubbleBlendStatus status, out _);
             Assert.True(ok);
             Assert.Equal(CoBubbleBlendStatus.HitCrossfade, status);
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
@@ -741,7 +958,7 @@ namespace Parsek.Tests.Rendering
                 };
 
             bool ok = CoBubbleBlender.TryEvaluateOffset(
-                "peer-A", 105.0, out Vector3d offset, out CoBubbleBlendStatus status, out _);
+                "peer-A", 105.0, out Vector3d offset, out double _, out CoBubbleBlendStatus status, out _);
             Assert.True(ok);
             Assert.Equal(CoBubbleBlendStatus.Hit, status);
             // Offset must still equal the persisted trace value, NOT

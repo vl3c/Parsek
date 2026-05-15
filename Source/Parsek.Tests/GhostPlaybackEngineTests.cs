@@ -5406,6 +5406,494 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_OriginOwnedDebris_ReturnsTrue()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 50.0,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                RewindPointUT = 100.0,
+            };
+
+            Assert.True(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAfterRewindPointUT_ReturnsFalse()
+        {
+            // Repro: re-flying the upper stage (origin = Kerbal X). One of the
+            // origin-parented debris recordings was authored AFTER the rewind
+            // point (e.g. Kerbal X's own post-probe-separation break-up). That
+            // row belongs to the now-replaced timeline, not the kept companion
+            // set — it must not enter the render carve-out even though it
+            // matches the parent==origin clause.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_postrp_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 150.0,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                RewindPointUT = 100.0,
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_postrp_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAtRewindPointUT_ReturnsFalse()
+        {
+            // Strict less-than against marker.RewindPointUT. The marker
+            // captures rp.UT directly in RewindInvoker.AtomicMarkerWrite,
+            // so the boundary is exact — no post-load Δ drift. Debris with
+            // StartUT == RP.UT is hidden: if a Breakup BP itself sits at
+            // the rewind point, the new flight is the canonical author of
+            // any events at that moment.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_at_rp_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 100.0,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                RewindPointUT = 100.0,
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_at_rp_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_RealisticMarkerShape_HidesDebrisInDriftWindow()
+        {
+            // Realistic production shape: marker carries BOTH RewindPointUT
+            // (= rp.UT, exact) and InvokedUT (= post-load SafeNow(), drifted
+            // above RP.UT by a sub-second-to-multi-second Δ). A debris row
+            // authored in the original timeline between RP.UT and the
+            // drifted InvokedUT must be hidden by the gate. This pins the
+            // exact bug the PR fixes — a future refactor that accidentally
+            // restored the InvokedUT predicate would still satisfy the
+            // single-field tests above (StartUT 150 sits above both UTs),
+            // but would fail here.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_in_drift_window",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 100.5,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                RewindPointUT = 100.0,
+                InvokedUT = 101.5,
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_in_drift_window"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_IsUnaffectedByDriftedInvokedUT()
+        {
+            // Regression guard: the gate is now sourced from RewindPointUT,
+            // not InvokedUT. A post-load InvokedUT that drifted above RP.UT
+            // (the pre-fix shape) must NOT cause an at-RP debris row to leak
+            // through the carve-out. Setting only the (drifted) InvokedUT
+            // leaves RewindPointUT at its NaN default; the strict `> 0.0`
+            // sentinel check rejects NaN and the row is hidden.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_at_rp_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 37.20,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                InvokedUT = 37.95,
+                // RewindPointUT intentionally left at NaN default.
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_at_rp_debris"
+                }));
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-1.0)]
+        [InlineData(double.NaN)]
+        public void ShouldRenderSuppressedCompanionDebris_UnsetOrNonPositiveRewindPointUT_ReturnsFalse(
+            double rewindPointUT)
+        {
+            // Defensive: a non-positive (or NaN) marker.RewindPointUT
+            // (legacy marker without the persisted field, or any other
+            // unset sentinel) collapses to the pre-PR-858 default of
+            // "hide the suppressed debris", since we have no trustworthy
+            // rewind-point UT to separate kept history from replaced
+            // future. NaN > 0.0 is false in C#, so the gate's single
+            // `> 0.0` check handles both 0.0/negative and NaN.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 50.0,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                RewindPointUT = rewindPointUT,
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_FlagNotAllowed_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = false,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_NonDebris_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_origin",
+                IsDebris = false,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_origin"
+                }));
+        }
+
+        [Theory]
+        [InlineData("rec_other", "rec_debris")]
+        [InlineData("rec_origin", "rec_origin")]
+        [InlineData("rec_origin", "rec_active")]
+        [InlineData("rec_origin", null)]
+        public void ShouldRenderSuppressedCompanionDebris_RejectsNonCompanionCases(
+            string parentRecordingId,
+            string recordingId)
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = recordingId,
+                IsDebris = true,
+                DebrisParentRecordingId = parentRecordingId
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = recordingId
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_FlagRecordingIdMismatch_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_other"
+                }));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ShouldRenderSuppressedCompanionDebris_MissingTrajectoryId_ReturnsFalse(
+            string trajectoryRecordingId)
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = trajectoryRecordingId,
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ShouldRenderSuppressedCompanionDebris_MissingOriginId_ReturnsFalse(
+            string originRecordingId)
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+            var marker = new ReFlySessionMarker
+            {
+                OriginChildRecordingId = originRecordingId,
+                ActiveReFlyRecordingId = "rec_active"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_NullTrajectory_ReturnsFalse()
+        {
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                null, new ReFlySessionMarker
+                {
+                    OriginChildRecordingId = "rec_origin",
+                    ActiveReFlyRecordingId = "rec_active"
+                }, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_NullMarker_ReturnsFalse()
+        {
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin"
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, null, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void LogSessionSuppressedCompanionDebrisRenderAllowed_EmitsDecisionFields()
+        {
+            // StartUT / RewindPointUT use exact-representable doubles so
+            // the "R" round-trip format on the log line produces stable
+            // string output across .NET versions and CPU architectures.
+            // 25.5 and 37.25 have power-of-two denominators and round-trip
+            // bit-for-bit; values like 25.86 / 37.20 would surface their
+            // IEEE 754 noise and make the assertion flaky.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "origin",
+                StartUTOverride = 25.5,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "origin",
+                ActiveReFlyRecordingId = "active",
+                RewindPointUT = 37.25,
+            };
+
+            logLines.Clear();
+            GhostPlaybackEngine.LogSessionSuppressedCompanionDebrisRenderAllowed(
+                3, traj, marker);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine]")
+                && l.Contains("session-suppressed-companion-debris: render allowed")
+                && l.Contains("recording=#3")
+                && l.Contains("recId=debris")
+                && l.Contains("parentRecId=origin")
+                && l.Contains("originRecId=origin")
+                && l.Contains("activeReFlyRecId=active")
+                && l.Contains("startUT=25.5")
+                && l.Contains("rewindPointUT=37.25")
+                && l.Contains("sess=sess_1"));
+        }
+
+        [Fact]
+        public void LogSessionSuppressedCompanionDebrisRenderAllowed_NaNRewindPointUT_RendersSentinel()
+        {
+            // Legacy markers without the persisted rewindPointUT load as NaN.
+            // The log line surfaces the sentinel rather than formatting NaN
+            // as a numeric so future repros can see a missing RP cutoff
+            // unambiguously.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "origin",
+                StartUTOverride = 25.86,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "origin",
+                ActiveReFlyRecordingId = "active",
+                // RewindPointUT left at NaN default.
+            };
+
+            logLines.Clear();
+            GhostPlaybackEngine.LogSessionSuppressedCompanionDebrisRenderAllowed(
+                3, traj, marker);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("session-suppressed-companion-debris: render allowed")
+                && l.Contains("rewindPointUT=<nan>"));
+        }
+
+        [Theory]
+        [InlineData(MergeState.Immutable, true)]
+        [InlineData(MergeState.CommittedProvisional, true)]
+        [InlineData(MergeState.NotCommitted, false)]
+        public void RecordingEligibleForSessionSuppressedRenderCarveOut_HonorsMergeState(
+            MergeState mergeState,
+            bool expected)
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_debris",
+                MergeState = mergeState
+            };
+
+            Assert.Equal(expected,
+                ParsekFlight.RecordingEligibleForSessionSuppressedRenderCarveOut(rec));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void RecordingEligibleForSessionSuppressedRenderCarveOut_MissingRecordingId_ReturnsFalse(
+            string recordingId)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                MergeState = MergeState.Immutable
+            };
+
+            Assert.False(ParsekFlight.RecordingEligibleForSessionSuppressedRenderCarveOut(rec));
+        }
+
+        [Fact]
         public void CachePlaybackDistances_CachesSeparateActiveVesselAndRenderDistances()
         {
             var state = new GhostPlaybackState

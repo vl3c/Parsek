@@ -224,6 +224,100 @@ namespace Parsek
                     || traj.SurfacePos.HasValue);
         }
 
+        internal static bool ShouldRenderSuppressedCompanionDebris(
+            IPlaybackTrajectory traj,
+            ReFlySessionMarker marker,
+            TrajectoryPlaybackFlags flags)
+        {
+            if (!flags.sessionSuppressedRenderCarveOutEligible
+                || traj == null
+                || marker == null
+                || !traj.IsDebris)
+            {
+                return false;
+            }
+
+            string parentRecordingId = traj.DebrisParentRecordingId;
+            string originRecordingId = marker.OriginChildRecordingId;
+            if (string.IsNullOrWhiteSpace(parentRecordingId)
+                || string.IsNullOrWhiteSpace(originRecordingId)
+                || !string.Equals(parentRecordingId, originRecordingId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            string recordingId = traj.RecordingId;
+            // Defend against future trajectory/flag pairing drift.
+            if (string.IsNullOrWhiteSpace(recordingId)
+                || !string.Equals(recordingId, flags.recordingId, StringComparison.Ordinal)
+                || string.Equals(recordingId, originRecordingId, StringComparison.Ordinal)
+                || string.Equals(recordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Pre-rewind-moment companions only. The gate is strict `<`
+            // against marker.RewindPointUT — captured directly from rp.UT
+            // in RewindInvoker.AtomicMarkerWrite, so it is decoupled from
+            // SafeNow() / onFlightReady-deferred dispatch and tracks the
+            // exact rewind point UT rather than the drifted post-load
+            // Planetarium UT (marker.InvokedUT). Debris timestamped before
+            // RP.UT is treated as kept history (e.g. side-booster debris
+            // shed pre-rewind); debris at-or-after belongs to the original
+            // timeline being replaced (e.g. the upper stage's own
+            // post-probe-separation break-up). At-exactly-RP debris is
+            // hidden as a conservative choice: if a Breakup BP itself sits
+            // at the rewind point, the new flight is the canonical author
+            // of that moment's events.
+            //
+            // NaN or non-positive RewindPointUT (legacy marker without the
+            // persisted field, or any other unset sentinel) collapses to
+            // the pre-PR-858 default of "hide the suppressed debris",
+            // since we have no trustworthy reference UT. Both branches are
+            // spelled out explicitly so the gate reads at a glance without
+            // relying on IEEE 754 NaN-comparison trivia.
+            return !double.IsNaN(marker.RewindPointUT)
+                && marker.RewindPointUT > 0.0
+                && traj.StartUT < marker.RewindPointUT;
+        }
+
+        internal static void LogSessionSuppressedCompanionDebrisRenderAllowed(
+            int index,
+            IPlaybackTrajectory traj,
+            ReFlySessionMarker marker)
+        {
+            string recordingId = traj?.RecordingId;
+            string parentRecordingId = traj?.DebrisParentRecordingId;
+            double trajStartUT = traj?.StartUT ?? 0.0;
+            double rewindPointUT = marker?.RewindPointUT ?? double.NaN;
+            string identity = "session-suppressed-companion-debris|"
+                + (!string.IsNullOrEmpty(recordingId)
+                    ? recordingId
+                    : index.ToString(CultureInfo.InvariantCulture));
+            string stateKey =
+                (marker?.SessionId ?? string.Empty) + "|" +
+                (recordingId ?? string.Empty) + "|" +
+                (parentRecordingId ?? string.Empty) + "|" +
+                (marker?.OriginChildRecordingId ?? string.Empty) + "|" +
+                (marker?.ActiveReFlyRecordingId ?? string.Empty);
+
+            ParsekLog.VerboseOnChange(
+                "Engine",
+                identity,
+                stateKey,
+                "session-suppressed-companion-debris: render allowed "
+                + "recording=#" + index.ToString(CultureInfo.InvariantCulture)
+                + " recId=" + FormatRecordingIdShort(recordingId)
+                + " parentRecId=" + FormatRecordingIdShort(parentRecordingId)
+                + " originRecId=" + FormatRecordingIdShort(marker?.OriginChildRecordingId)
+                + " activeReFlyRecId=" + FormatRecordingIdShort(marker?.ActiveReFlyRecordingId)
+                + " startUT=" + trajStartUT.ToString("R", CultureInfo.InvariantCulture)
+                + " rewindPointUT=" + (double.IsNaN(rewindPointUT)
+                    ? "<nan>"
+                    : rewindPointUT.ToString("R", CultureInfo.InvariantCulture))
+                + " sess=" + (marker?.SessionId ?? "<no-id>"));
+        }
+
         // Engine-iteration trace (closes observability gap left by GhostRenderTrace
         // gating on IsDetailedWindowOpen). Bypasses the gate so a future repro can
         // tell from a single log line whether a recording reached the per-trajectory
@@ -708,21 +802,34 @@ namespace Parsek
 
                 // Phase 7 of Rewind-to-Staging (design §3.3): during an active
                 // re-fly session, skip ghosts whose source recording is in the
-                // SessionSuppressedSubtree. Destroy any leftover ghost visuals
-                // first so the player doesn't see stale meshes from a recording
-                // that just got superseded mid-flight.
-                if (SessionSuppressionState.IsActive
+                // SessionSuppressedSubtree. Parent-owned companion debris is a
+                // render-only exception for already-committed rows:
+                // ERS/merge/supersede still suppresses it, NotCommitted rows
+                // stay hidden, but the debris body-fixed playback path can
+                // render committed companion debris without showing the
+                // replaced parent ghost. Destroy any other leftover ghost
+                // visuals first so the player doesn't see stale meshes from a
+                // recording that just got superseded mid-flight.
+                ReFlySessionMarker activeReFlyMarker = SessionSuppressionState.ActiveMarker;
+                if (activeReFlyMarker != null
                     && SessionSuppressionState.IsSuppressedRecordingIndex(i))
                 {
-                    GhostRenderTrace.EmitGuardSkip(
-                        traj, i, ctx.currentUT, "session-suppressed-subtree");
-                    if (ghostStates.ContainsKey(i))
+                    if (!ShouldRenderSuppressedCompanionDebris(
+                            traj, activeReFlyMarker, f))
                     {
-                        DestroyAllOverlapGhosts(i);
-                        DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT, "session-suppressed-subtree");
+                        if (ghostStates.ContainsKey(i))
+                        {
+                            DestroyAllOverlapGhosts(i);
+                            DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
+                        }
+                        CountFrameSkip(GhostPlaybackSkipReason.SessionSuppressed);
+                        continue;
                     }
-                    CountFrameSkip(GhostPlaybackSkipReason.SessionSuppressed);
-                    continue;
+
+                    LogSessionSuppressedCompanionDebrisRenderAllowed(
+                        i, traj, activeReFlyMarker);
                 }
 
                 GhostPlaybackState state;

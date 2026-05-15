@@ -20,6 +20,7 @@ namespace Parsek.InGameTests
         internal const float TimeScalePositiveThreshold = 0.01f;
         internal const int TimeScalePositiveProbeFrames = 8;
         internal const float TimeJumpLaunchAutoRecordTransientTimeoutSeconds = 3f;
+        internal const double BackgroundLoadedSampleRoundTripToleranceMeters = 0.5;
 
         internal enum TimeScalePositiveProbeOutcome
         {
@@ -53,6 +54,15 @@ namespace Parsek.InGameTests
                 null,
                 new[] { typeof(ProtoCrewMember), typeof(Part), typeof(Transform), typeof(bool) },
                 null);
+        private static readonly MethodInfo FlightGlobalsSetActiveVesselMethod =
+            typeof(FlightGlobals).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(m =>
+                {
+                    if (m.Name != "SetActiveVessel")
+                        return false;
+                    var parameters = m.GetParameters();
+                    return parameters.Length == 1 && parameters[0].ParameterType == typeof(Vessel);
+                });
         private static readonly FieldInfo PartAirlockField =
             typeof(Part).GetField("airlock",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
@@ -79,6 +89,12 @@ namespace Parsek.InGameTests
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo ParsekFlightOnVesselSwitchCompleteMethod =
             typeof(ParsekFlight).GetMethod("OnVesselSwitchComplete",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ParsekFlightFinalizeTreeRecordingsMethod =
+            typeof(ParsekFlight).GetMethod("FinalizeTreeRecordings",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo ParsekFlightDiscardActiveTreeForSuppressedSceneExitMethod =
+            typeof(ParsekFlight).GetMethod("DiscardActiveTreeForSuppressedSceneExit",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         private static readonly MethodInfo ParsekFlightDisarmPostSwitchAutoRecordMethod =
             typeof(ParsekFlight).GetMethod("DisarmPostSwitchAutoRecord",
@@ -713,17 +729,42 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            // Mirror the Kerbal X bug from logs/2026-05-10_1713: one stored OrbitSegment
+            // Mirror the Kerbal X bug shape from logs/2026-05-10_1713: one stored OrbitSegment
             // covering the on-rails coast (sub-orbital, periapsis below ground), then an
             // ExoBallistic Absolute TrackSection containing a single post-burn frame
-            // whose state vector defines a circular ~205 km orbit. The fix must walk
+            // whose state vector defines a circular ~205 km orbit. The tail velocity is
+            // built from the live body transform so the assertion pins the reseed frame
+            // conversion instead of a historical body-rotation phase. The fix must walk
             // past the segment, build the orbit from the tail frame, and the resulting
             // periapsis must clear the atmosphere.
             const double subOrbitalSegmentEndUT = 958.87;
             const double postBurnFrameUT = 977.93;
             const double postBurnAlt = 203587.0; // metres
-            // Velocity components in body-centric inertial frame, ~circular at 205 km.
-            UnityEngine.Vector3 postBurnVel = new UnityEngine.Vector3(1736.18f, -1.73f, -1178.98f);
+            const double postBurnLat = 0.0;
+            const double postBurnLon = 8.5604;
+            Vector3d postBurnWorldPos = kerbin.GetWorldSurfacePosition(postBurnLat, postBurnLon, postBurnAlt);
+            Vector3d postBurnRadial = (postBurnWorldPos - kerbin.position).normalized;
+            // Cross order matters. OrbitReseed.FromLatLonAltAndRecordedVelocity
+            // applies `.xzy` to both position and velocity before passing them to
+            // Orbit.UpdateFromStateVectors, so what determines the orbit shape is
+            // `h_zup = pos_zup × vel_zup` — and `.xzy` is an axis swap (odd
+            // permutation), so `(r × v).xzy ≠ r_zup × v_zup`; the cross product
+            // must be evaluated AFTER the swap, not before. For a prograde
+            // equatorial orbit `h_zup` must point along +Z_zup (Kerbin's spin
+            // axis in Planetarium-Zup coords). `Cross(radial, Y)` builds the
+            // Unity-Yup velocity whose .xzy form satisfies that; the reversed
+            // `Cross(Y, radial)` produces the opposite velocity, lands `h_zup`
+            // along −Z_zup, and the orbit reads as inclination = 180°.
+            Vector3d postBurnTangent = Vector3d.Cross(postBurnRadial, new Vector3d(0.0, 1.0, 0.0));
+            if (postBurnTangent.sqrMagnitude < 1e-12)
+                postBurnTangent = Vector3d.Cross(postBurnRadial, new Vector3d(1.0, 0.0, 0.0));
+            postBurnTangent = postBurnTangent.normalized;
+            double postBurnSpeed = System.Math.Sqrt(kerbin.gravParameter / (postBurnWorldPos - kerbin.position).magnitude);
+            Vector3d postBurnVelYup = postBurnTangent * postBurnSpeed;
+            UnityEngine.Vector3 postBurnVel = new UnityEngine.Vector3(
+                (float)postBurnVelYup.x,
+                (float)postBurnVelYup.y,
+                (float)postBurnVelYup.z);
 
             var rec = new Recording { RecordingId = "ingame-tail-derived-orbit" };
             rec.OrbitSegments.Add(new OrbitSegment
@@ -750,8 +791,8 @@ namespace Parsek.InGameTests
                     new TrajectoryPoint
                     {
                         ut = postBurnFrameUT,
-                        latitude = 0.7908,
-                        longitude = 8.5604,
+                        latitude = postBurnLat,
+                        longitude = postBurnLon,
                         altitude = postBurnAlt,
                         rotation = UnityEngine.Quaternion.identity,
                         velocity = postBurnVel,
@@ -823,18 +864,18 @@ namespace Parsek.InGameTests
             // ecc bound is what specifically discriminates a `.xzy` failure (a
             // physically-circular orbit reseeded from axis-swapped state vectors comes
             // out with non-zero apparent eccentricity). Tight bounds chosen from the
-            // analytic state-vector solution for (lat=0.79°, lon=8.56°, alt=203 587 m,
-            // |v|≈2 098 m/s) — circular at 203 587 m gives sma = 803 587 m and inc ≈
-            // atan2(vY, |vXZ|) on Kerbin's equator.
+            // dynamically-built state vector: circular at 203 587 m gives
+            // sma = 803 587 m and near-zero eccentricity/inclination. The velocity
+            // is computed from the body's live transform so this test only catches
+            // frame conversion regressions, not harmless body-rotation phase drift.
             InGameAssert.IsTrue(System.Math.Abs(semiMajorAxis - 803_587.0) < 5_000.0,
                 $"sma={semiMajorAxis:F1} should be near 803 587 m (analytic circular at 203.587 km); " +
                 "if this fails, the (pos - body.position) subtraction is wrong (|pos| went off by the body.position offset)");
             InGameAssert.IsTrue(eccentricity < 0.005,
                 $"ecc={eccentricity:F4} should be near zero for a circular orbit; " +
                 "if this fails specifically (and sma is right), the `.xzy` flip is missing on either pos or vel");
-            // Inclination from the analytic state vector: vY = -1.73, |vXZ| ≈ 2 098, so
-            // inc ≈ atan(vY/|vXZ|) × 180/π ≈ 0.047°. Allow 0.5° because the synthetic
-            // test rotates the body around its axis between frames.
+            // The synthetic vector is built tangent to Kerbin's equator at the current
+            // body rotation, so inclination should stay near zero.
             InGameAssert.IsTrue(inclination >= 0.0 && inclination < 0.5,
                 $"inclination={inclination:F4}° should be near zero for an equatorial state vector");
 
@@ -1370,6 +1411,381 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - excluded from ordinary Run All / Run category because this test starts a live recording, forces a crew EVA from the active vessel, and runs the scene-exit finalizer on the live EVA branch. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "EVA branch finalization keeps a Landed kerbal recording with a usable ghost snapshot")]
+        public IEnumerator EvaKerbalGhostHasVesselSnapshot()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a crewed vessel, got EVA");
+                yield break;
+            }
+            if (vessel.situation == Vessel.Situations.PRELAUNCH
+                || vessel.situation == Vessel.Situations.LANDED
+                || vessel.situation == Vessel.Situations.SPLASHED)
+            {
+                // The test relies on the freshly-spawned EVA kerbal briefly
+                // becoming the active live recorder before getting auto-sealed,
+                // so the three subsequent waits (snapshot-before-sample, active
+                // branch recording with samples, surface-settled) can each
+                // observe the live state. From a pad/landed/splashed parent,
+                // KSP's vessel switch to the kerbal takes longer than Parsek's
+                // 1-frame DeferredEvaBranch deferral, so the EVA recording is
+                // built with the kerbal in BackgroundMap and the periodic
+                // finalizer auto-classifies it as Landed (the kerbal is on
+                // the surface) before any recorder rebinds. The waits time out
+                // because no live-EVA-recorder window ever exists. Skip rather
+                // than pass-through: the test's coverage (mid-flight EVA →
+                // snapshot + live continuation) is unrelated to the pad case.
+                InGameAssert.Skip(
+                    $"requires a mid-flight crewed vessel — EVA from {vessel.situation} auto-seals the kerbal recording as Landed " +
+                    "before the live recorder can rebind to the kerbal");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle crewed vessel (recording already active)");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no pending tree before the EVA branch canary");
+                yield break;
+            }
+            if (ParsekFlightFinalizeTreeRecordingsMethod == null)
+            {
+                InGameAssert.Skip("ParsekFlight.FinalizeTreeRecordings reflection surface unavailable");
+                yield break;
+            }
+            if (ParsekFlightDiscardActiveTreeForSuppressedSceneExitMethod == null)
+            {
+                InGameAssert.Skip("ParsekFlight.DiscardActiveTreeForSuppressedSceneExit reflection surface unavailable");
+                yield break;
+            }
+            if (!TryResolveFlightEva(out object flightEva, out string flightEvaSkipReason))
+            {
+                InGameAssert.Skip(flightEvaSkipReason);
+                yield break;
+            }
+            if (!TryGetEvaSource(vessel, out Part sourcePart, out ProtoCrewMember crewMember,
+                out Transform airlock, out string evaSourceSkipReason))
+            {
+                InGameAssert.Skip(evaSourceSkipReason);
+                yield break;
+            }
+
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            bool startedByTest = false;
+            string treeId = null;
+            string evaRecordingId = null;
+            int spawnedGhostIndex = -1;
+            GhostPlaybackState spawnedGhostState = null;
+            GhostBuildResult directBuildResult = null;
+
+            try
+            {
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                flight.StartRecording();
+                startedByTest = flight.IsRecording;
+                InGameAssert.IsTrue(startedByTest,
+                    "ParsekFlight.StartRecording should start before forcing the EVA branch");
+
+                yield return WaitForActiveRecordingPoint(flight, 5f);
+
+                try
+                {
+                    FlightEvaSpawnMethod.Invoke(flightEva, new object[] { crewMember, sourcePart, airlock, true });
+                }
+                catch (TargetInvocationException ex)
+                {
+                    InGameAssert.Fail(
+                        $"FlightEVA.spawnEVA threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                        $"{ex.InnerException?.Message ?? ex.Message}");
+                }
+
+                yield return WaitForActiveEvaBranchSnapshotBeforeFirstSample(crewMember.name, 10f);
+
+                flight = ParsekFlight.Instance;
+                RecordingTree earlyTree = flight?.ActiveTreeForSerialization;
+                InGameAssert.IsTrue(TryFindEvaRecording(earlyTree, crewMember.name, out Recording earlyEvaRecording),
+                    $"Expected active tree to contain an EVA recording for '{crewMember.name}' before first-sample cache check");
+                Vessel earlyEvaVessel = FlightGlobals.ActiveVessel;
+                InGameAssert.IsNotNull(earlyEvaVessel,
+                    "Active EVA vessel should exist before first-sample cache check");
+                InGameAssert.IsTrue(earlyEvaVessel.isEVA,
+                    $"Expected active vessel to be EVA before first-sample cache check, got '{earlyEvaVessel.vesselName}'");
+                var earlyEvaView = new ForcedBallisticLiveVesselViewForRuntimeTest(earlyEvaVessel);
+                bool earlyCacheBuilt = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                    earlyEvaRecording,
+                    earlyEvaView,
+                    Planetarium.GetUniversalTime(),
+                    FinalizationCacheOwner.ActiveRecorder,
+                    "runtime-eva-early-cache",
+                    hasMeaningfulThrust: false,
+                    earlyTree,
+                    out RecordingFinalizationCache earlyCache);
+                InGameAssert.IsFalse(earlyCacheBuilt,
+                    $"Pre-first-sample EVA cache refresh should decline through the sub-surface suppression guard " +
+                    $"(status={earlyCache.Status}, terminal={earlyCache.TerminalState?.ToString() ?? "none"}, " +
+                    $"decline={earlyCache.DeclineReason ?? "null"})");
+                InGameAssert.AreEqual("subsurface-destroyed-suppressed", earlyCache.DeclineReason,
+                    $"Pre-first-sample EVA cache refresh should exercise the NullSolver + SubSurfaceStart suppression path " +
+                    $"(status={earlyCache.Status}, terminal={earlyCache.TerminalState?.ToString() ?? "none"})");
+
+                yield return WaitForActiveEvaBranchRecording(crewMember.name, 10f);
+                yield return WaitForActiveEvaSurfaceSettled(crewMember.name, 10f);
+
+                flight = ParsekFlight.Instance;
+                RecordingTree tree = flight?.ActiveTreeForSerialization;
+                InGameAssert.IsNotNull(tree, "Active tree should still exist after the EVA branch");
+                treeId = tree.Id;
+                InGameAssert.IsTrue(TryFindEvaRecording(tree, crewMember.name, out Recording evaRecording),
+                    $"Expected active tree '{treeId ?? "null"}' to contain an EVA recording for '{crewMember.name}'");
+                evaRecordingId = evaRecording.RecordingId;
+
+                InGameAssert.IsGreaterThan(CountPartNodes(evaRecording.VesselSnapshot), 0,
+                    "EVA child should have a vessel snapshot with at least one PART before finalization");
+                InGameAssert.IsGreaterThan(CountPartNodes(evaRecording.GhostVisualSnapshot), 0,
+                    "EVA child should have a ghost visual snapshot with at least one PART before finalization");
+
+                double commitUT = Planetarium.GetUniversalTime();
+                try
+                {
+                    ParsekFlightFinalizeTreeRecordingsMethod.Invoke(
+                        flight,
+                        new object[] { tree, commitUT, true });
+                }
+                catch (TargetInvocationException ex)
+                {
+                    InGameAssert.Fail(
+                        $"ParsekFlight.FinalizeTreeRecordings threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                        $"{ex.InnerException?.Message ?? ex.Message}");
+                }
+
+                InGameAssert.IsTrue(tree.Recordings.TryGetValue(evaRecordingId, out Recording finalizedEva),
+                    $"Finalized tree should still contain EVA recording '{evaRecordingId}'");
+                InGameAssert.IsTrue(finalizedEva.TerminalStateValue.HasValue,
+                    $"EVA recording '{evaRecordingId}' should have a terminal state after finalization");
+                InGameAssert.AreEqual(TerminalState.Landed, finalizedEva.TerminalStateValue.Value,
+                    $"EVA recording '{evaRecordingId}' should finalize as Landed");
+                InGameAssert.IsNotNull(finalizedEva.VesselSnapshot,
+                    $"EVA recording '{evaRecordingId}' should keep a vessel snapshot");
+                InGameAssert.IsGreaterThan(CountPartNodes(finalizedEva.VesselSnapshot), 0,
+                    $"EVA recording '{evaRecordingId}' vessel snapshot should contain PART nodes");
+                InGameAssert.IsGreaterThan(CountPartNodes(finalizedEva.GhostVisualSnapshot), 0,
+                    $"EVA recording '{evaRecordingId}' ghost visual snapshot should contain PART nodes");
+                InGameAssert.IsTrue(finalizedEva.TerminalPosition.HasValue,
+                    $"EVA recording '{evaRecordingId}' should have a terminal surface position");
+
+                directBuildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    finalizedEva,
+                    "ParsekTest_EvaKerbalGhostHasVesselSnapshot");
+                InGameAssert.IsNotNull(directBuildResult,
+                    $"EVA recording '{evaRecordingId}' snapshot should build a real ghost visual");
+                InGameAssert.IsNotNull(directBuildResult.root,
+                    $"EVA recording '{evaRecordingId}' direct ghost build root should not be null");
+                Renderer[] directRenderers = directBuildResult.root
+                    .GetComponentsInChildren<Renderer>(true)
+                    .Where(r => r is MeshRenderer || r is SkinnedMeshRenderer)
+                    .ToArray();
+                InGameAssert.IsGreaterThan(directRenderers.Length, 0,
+                    $"EVA recording '{evaRecordingId}' snapshot should build mesh or skinned renderers without sphere fallback");
+
+                var engine = flight.Engine;
+                InGameAssert.IsNotNull(engine, "GhostPlaybackEngine should exist before spawning the EVA canary ghost");
+                IPlaybackTrajectory trajectory = finalizedEva as IPlaybackTrajectory;
+                InGameAssert.IsNotNull(trajectory,
+                    $"EVA recording '{evaRecordingId}' should implement IPlaybackTrajectory");
+
+                spawnedGhostIndex = RecordingStore.CommittedRecordings.Count + 5001;
+                while (engine.ghostStates.ContainsKey(spawnedGhostIndex))
+                    spawnedGhostIndex++;
+
+                double primingUT = finalizedEva.Points.Count > 0
+                    ? finalizedEva.Points[0].ut
+                    : finalizedEva.StartUT;
+                engine.SpawnGhost(spawnedGhostIndex, trajectory, primingUT);
+                yield return null;
+                yield return null;
+                yield return new WaitForSeconds(0.25f);
+
+                InGameAssert.IsTrue(engine.ghostStates.TryGetValue(spawnedGhostIndex, out spawnedGhostState),
+                    $"Ghost engine should contain sentinel EVA ghost index {spawnedGhostIndex}");
+                InGameAssert.IsNotNull(spawnedGhostState,
+                    $"Sentinel EVA ghost state {spawnedGhostIndex} should not be null");
+                InGameAssert.IsNotNull(spawnedGhostState.ghost,
+                    $"Sentinel EVA ghost {spawnedGhostIndex} should have a GameObject");
+                Renderer[] renderers = spawnedGhostState.ghost.GetComponentsInChildren<Renderer>(true);
+                InGameAssert.IsGreaterThan(renderers.Length, 0,
+                    $"Sentinel EVA ghost {spawnedGhostIndex} should render at least one child part");
+
+                bool sawNoSnapshotSuppression = captured.Any(line =>
+                    line.Contains("Spawn suppressed")
+                    && line.Contains("no vessel snapshot")
+                    && (line.Contains(evaRecordingId) || line.Contains(crewMember.name)));
+                bool sawDestroyedClassification = captured.Any(line =>
+                    line.Contains("classified Destroyed by sub-surface path")
+                    && line.Contains(evaRecordingId));
+                InGameAssert.IsFalse(sawNoSnapshotSuppression,
+                    "EVA branch canary should not log no-vessel-snapshot spawn suppression");
+                InGameAssert.IsFalse(sawDestroyedClassification,
+                    "EVA branch canary should not accept a sub-surface Destroyed classification");
+
+                ParsekLog.Info("TestRunner",
+                    $"EvaKerbalGhostHasVesselSnapshot: tree={treeId} rec={evaRecordingId} " +
+                    $"crew='{crewMember.name}' terminal={finalizedEva.TerminalStateValue} " +
+                    $"earlyCacheBuilt={earlyCacheBuilt} earlyCacheStatus={earlyCache.Status} " +
+                    $"earlyCacheTerminal={earlyCache.TerminalState?.ToString() ?? "none"} " +
+                    $"earlyCacheDecline={earlyCache.DeclineReason ?? "none"} " +
+                    $"vesselParts={CountPartNodes(finalizedEva.VesselSnapshot)} " +
+                    $"ghostParts={CountPartNodes(finalizedEva.GhostVisualSnapshot)} " +
+                    $"directRenderers={directRenderers.Length} spawnedRenderers={renderers.Length}");
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+
+                if (spawnedGhostIndex >= 0)
+                {
+                    var cleanupEngine = ParsekFlight.Instance?.Engine;
+                    cleanupEngine?.ghostStates.Remove(spawnedGhostIndex);
+                }
+                if (spawnedGhostState?.ghost != null)
+                    runner.TrackForCleanup(spawnedGhostState.ghost);
+                if (directBuildResult?.root != null)
+                    runner.TrackForCleanup(directBuildResult.root);
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (startedByTest)
+                    DiscardActiveTreeForRuntimeTest(cleanupFlight, "EvaKerbalGhostHasVesselSnapshot cleanup");
+                RemoveCommittedTreeByIdForRuntimeTest(treeId);
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - excluded from ordinary Run All / Run category because this test forces two crew EVAs and switches active vessel focus. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "Second EVA from a backgrounded tree parent creates another EVA branch instead of orphan auto-recording")]
+        public IEnumerator EvaTwiceFromSameCapsuleProducesTwoBranches()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
+            {
+                InGameAssert.Skip("requires a crewed source vessel, got EVA");
+                yield break;
+            }
+            if (CountCrewInParts(vessel) < 2)
+            {
+                InGameAssert.Skip($"requires at least two crew in the active vessel, got {CountCrewInParts(vessel)}");
+                yield break;
+            }
+            if (!TryResolveFlightEva(out object flightEva, out string flightEvaSkipReason))
+            {
+                InGameAssert.Skip(flightEvaSkipReason);
+                yield break;
+            }
+            if (!TryGetEvaSource(vessel, out Part firstSourcePart, out ProtoCrewMember firstCrew,
+                out Transform firstAirlock, out string evaSourceSkipReason))
+            {
+                InGameAssert.Skip(evaSourceSkipReason);
+                yield break;
+            }
+
+            bool originalAutoRecord = ParsekSettings.Current?.autoRecordOnEva ?? true;
+            var captured = new List<string>();
+            var priorObserver = ParsekLog.TestObserverForTesting;
+            var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+
+            try
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnEva = true;
+                ParsekLog.VerboseOverrideForTesting = true;
+                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+
+                if (!flight.IsRecording)
+                {
+                    flight.StartRecording(suppressStartScreenMessage: true);
+                    yield return WaitForFlightRecordingStart(5f, "initial source vessel recording");
+                }
+
+                RecordingTree tree = flight.ActiveTreeForSerialization;
+                InGameAssert.IsNotNull(tree, "ActiveTreeForSerialization should exist after initial recording starts");
+                int initialEvaBranches = CountEvaBranches(tree);
+
+                InvokeSpawnEvaOrFail(flightEva, firstCrew, firstSourcePart, firstAirlock);
+                yield return WaitForEvaBranchCount(tree, initialEvaBranches + 1, 10f, "first EVA branch");
+
+                Vessel sourceVessel = firstSourcePart?.vessel ?? vessel;
+                if (!TrySetActiveVesselForTest(sourceVessel, out string switchSkipReason))
+                {
+                    InGameAssert.Skip(switchSkipReason);
+                    yield break;
+                }
+
+                yield return WaitForActiveVesselPid(sourceVessel.persistentId, 10f);
+                yield return new WaitForSeconds(0.5f);
+
+                if (!TryGetEvaSource(sourceVessel, out Part secondSourcePart, out ProtoCrewMember secondCrew,
+                    out Transform secondAirlock, out string secondEvaSourceSkipReason))
+                {
+                    InGameAssert.Skip(secondEvaSourceSkipReason);
+                    yield break;
+                }
+
+                InvokeSpawnEvaOrFail(flightEva, secondCrew, secondSourcePart, secondAirlock);
+                yield return WaitForEvaBranchCount(tree, initialEvaBranches + 2, 10f, "second EVA branch");
+
+                InGameAssert.IsTrue(
+                    captured.Any(l => l.Contains("[Flight]") && l.Contains("Tree branch created: type=EVA") && l.Contains("path=background-parent")),
+                    "Expected second EVA to use the background-parent branch path");
+                InGameAssert.IsFalse(
+                    captured.Any(l => l.Contains("FlushRecorderToTreeRecording: dropping recorder data")),
+                    "No recorder data should be dropped during second-EVA branch setup");
+                InGameAssert.IsFalse(
+                    captured.Any(l => l.Contains($"vessel=\"{secondCrew.name}\"") && l.Contains("treeRec=-")),
+                    "Second EVA recorder should start with a valid tree recording");
+
+                ParsekLog.Info("TestRunner",
+                    $"EvaTwiceFromSameCapsuleProducesTwoBranches: source='{sourceVessel.vesselName}' " +
+                    $"first='{firstCrew.name}' second='{secondCrew.name}' " +
+                    $"evaBranches={CountEvaBranches(tree)} activeRec={tree.ActiveRecordingId ?? "<none>"}");
+            }
+            finally
+            {
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.autoRecordOnEva = originalAutoRecord;
+                ParsekLog.TestObserverForTesting = priorObserver;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+            }
+        }
+
+        [InGameTest(Category = "AutoRecord", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test simulates an idle post-switch watch on the active landed vessel and nudges the craft to verify the LANDED-motion trigger. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Post-switch landed motion auto-record starts exactly once while the vessel stays LANDED")]
         public IEnumerator AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce()
@@ -1889,6 +2305,388 @@ namespace Parsek.InGameTests
                 $"isRecording={timedOutFlight?.IsRecording == true}, " +
                 $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
                 $"isEva={timedOutVessel?.isEVA == true})");
+        }
+
+        private static IEnumerator WaitForFlightRecordingStart(float timeoutSeconds, string context)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (ParsekFlight.Instance?.IsRecording == true)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForFlightRecordingStart timed out after {timeoutSeconds:F0}s ({context})");
+        }
+
+        private static IEnumerator WaitForActiveEvaBranchSnapshotBeforeFirstSample(string expectedCrewName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                RecordingTree tree = flight?.ActiveTreeForSerialization;
+                bool hasPointEvidence = HasObservedActiveRecordingPoint(
+                    flight,
+                    out _,
+                    out _,
+                    out _);
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.isEVA
+                    && IsExpectedEvaVessel(vessel, expectedCrewName)
+                    && TryFindEvaRecording(tree, expectedCrewName, out Recording evaRecording)
+                    && string.Equals(tree?.ActiveRecordingId, evaRecording.RecordingId, System.StringComparison.Ordinal)
+                    && CountPartNodes(evaRecording.VesselSnapshot) > 0
+                    && CountPartNodes(evaRecording.GhostVisualSnapshot) > 0
+                    && !hasPointEvidence)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            RecordingTree timedOutTree = timedOutFlight?.ActiveTreeForSerialization;
+            TryFindEvaRecording(timedOutTree, expectedCrewName, out Recording timedOutEva);
+            HasObservedActiveRecordingPoint(
+                timedOutFlight,
+                out int treePointCount,
+                out int bufferedPointCount,
+                out double lastRecordedUT);
+            InGameAssert.Fail(
+                $"WaitForActiveEvaBranchSnapshotBeforeFirstSample timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeRecId={timedOutTree?.ActiveRecordingId ?? "null"}, " +
+                $"evaRecId={timedOutEva?.RecordingId ?? "null"}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"isEva={timedOutVessel?.isEVA == true}, " +
+                $"snapshotParts={CountPartNodes(timedOutEva?.VesselSnapshot)}, " +
+                $"ghostParts={CountPartNodes(timedOutEva?.GhostVisualSnapshot)}, " +
+                $"treePoints={treePointCount}, bufferedPoints={bufferedPointCount}, " +
+                $"lastRecordedUT={(double.IsNaN(lastRecordedUT) ? "NaN" : lastRecordedUT.ToString("F2", CultureInfo.InvariantCulture))})");
+        }
+
+        private static IEnumerator WaitForActiveEvaBranchRecording(string expectedCrewName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                var flight = ParsekFlight.Instance;
+                var vessel = FlightGlobals.ActiveVessel;
+                RecordingTree tree = flight?.ActiveTreeForSerialization;
+                bool hasPointEvidence = HasObservedActiveRecordingPoint(
+                    flight,
+                    out _,
+                    out _,
+                    out _);
+                if (flight != null
+                    && flight.IsRecording
+                    && vessel != null
+                    && vessel.isEVA
+                    && IsExpectedEvaVessel(vessel, expectedCrewName)
+                    && TryFindEvaRecording(tree, expectedCrewName, out Recording evaRecording)
+                    && string.Equals(tree?.ActiveRecordingId, evaRecording.RecordingId, System.StringComparison.Ordinal)
+                    && CountPartNodes(evaRecording.VesselSnapshot) > 0
+                    && CountPartNodes(evaRecording.GhostVisualSnapshot) > 0
+                    && hasPointEvidence)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            var timedOutFlight = ParsekFlight.Instance;
+            var timedOutVessel = FlightGlobals.ActiveVessel;
+            RecordingTree timedOutTree = timedOutFlight?.ActiveTreeForSerialization;
+            TryFindEvaRecording(timedOutTree, expectedCrewName, out Recording timedOutEva);
+            InGameAssert.Fail(
+                $"WaitForActiveEvaBranchRecording timed out after {timeoutSeconds:F0}s " +
+                $"(parsekFlight={(timedOutFlight != null)}, " +
+                $"isRecording={timedOutFlight?.IsRecording == true}, " +
+                $"activeRecId={timedOutTree?.ActiveRecordingId ?? "null"}, " +
+                $"evaRecId={timedOutEva?.RecordingId ?? "null"}, " +
+                $"activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"isEva={timedOutVessel?.isEVA == true}, " +
+                $"snapshotParts={CountPartNodes(timedOutEva?.VesselSnapshot)}, " +
+                $"ghostParts={CountPartNodes(timedOutEva?.GhostVisualSnapshot)})");
+        }
+
+        private static IEnumerator WaitForActiveEvaSurfaceSettled(string expectedCrewName, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                Vessel vessel = FlightGlobals.ActiveVessel;
+                if (vessel != null
+                    && vessel.isEVA
+                    && IsExpectedEvaVessel(vessel, expectedCrewName)
+                    && (vessel.LandedOrSplashed
+                        || vessel.situation == Vessel.Situations.LANDED
+                        || vessel.situation == Vessel.Situations.SPLASHED))
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            Vessel timedOutVessel = FlightGlobals.ActiveVessel;
+            InGameAssert.Fail(
+                $"WaitForActiveEvaSurfaceSettled timed out after {timeoutSeconds:F0}s " +
+                $"(activeVessel='{timedOutVessel?.vesselName ?? "null"}', " +
+                $"isEva={timedOutVessel?.isEVA == true}, " +
+                $"situation={timedOutVessel?.situation.ToString() ?? "null"}, " +
+                $"landedOrSplashed={timedOutVessel?.LandedOrSplashed == true})");
+        }
+
+        private static bool TryFindEvaRecording(
+            RecordingTree tree,
+            string expectedCrewName,
+            out Recording evaRecording)
+        {
+            evaRecording = null;
+            if (tree?.Recordings == null)
+                return false;
+
+            foreach (Recording candidate in tree.Recordings.Values)
+            {
+                if (candidate == null || string.IsNullOrEmpty(candidate.EvaCrewName))
+                    continue;
+                if (!string.IsNullOrEmpty(expectedCrewName)
+                    && !string.Equals(candidate.EvaCrewName, expectedCrewName, System.StringComparison.Ordinal)
+                    && !candidate.EvaCrewName.Contains(expectedCrewName)
+                    && (string.IsNullOrEmpty(candidate.VesselName)
+                        || !candidate.VesselName.Contains(expectedCrewName)))
+                {
+                    continue;
+                }
+
+                evaRecording = candidate;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsExpectedEvaVessel(Vessel vessel, string expectedCrewName)
+        {
+            if (vessel == null || !vessel.isEVA)
+                return false;
+            if (string.IsNullOrEmpty(expectedCrewName))
+                return true;
+            return string.Equals(vessel.vesselName, expectedCrewName, System.StringComparison.Ordinal)
+                || vessel.vesselName.Contains(expectedCrewName);
+        }
+
+        private static int CountPartNodes(ConfigNode snapshot)
+        {
+            return snapshot?.GetNodes("PART")?.Length ?? 0;
+        }
+
+        private sealed class ForcedBallisticLiveVesselViewForRuntimeTest : IRecordingFinalizationVesselView
+        {
+            private readonly Vessel vessel;
+
+            internal ForcedBallisticLiveVesselViewForRuntimeTest(Vessel vessel)
+            {
+                this.vessel = vessel;
+            }
+
+            public uint PersistentId => vessel.persistentId;
+            public Vessel.Situations Situation => Vessel.Situations.FLYING;
+            public string BodyName => vessel.mainBody?.name
+                ?? vessel.orbit?.referenceBody?.name
+                ?? "(unknown-body)";
+            public bool IsInAtmosphere
+            {
+                get
+                {
+                    CelestialBody body = vessel.mainBody ?? vessel.orbit?.referenceBody;
+                    return body != null
+                        && body.atmosphere
+                        && vessel.altitude < body.atmosphereDepth;
+                }
+            }
+            public bool IsPacked => vessel.packed;
+            public bool IsLoaded => vessel.loaded;
+            public double Latitude => vessel.latitude;
+            public double Longitude => vessel.longitude;
+            public double Altitude => vessel.altitude;
+            public double HeightFromTerrain => vessel.heightFromTerrain;
+            public Quaternion SurfaceRelativeRotation => vessel.srfRelRotation;
+            public Vessel RawVessel => vessel;
+
+            public bool TryGetOrbit(out RecordingFinalizationOrbitView orbit)
+            {
+                orbit = default(RecordingFinalizationOrbitView);
+                CelestialBody body = vessel.mainBody ?? vessel.orbit?.referenceBody;
+                if (body == null)
+                    return false;
+
+                Orbit source = vessel.orbit;
+                orbit = new RecordingFinalizationOrbitView
+                {
+                    ReferenceBodyName = body.name,
+                    ReferenceBodyHasAtmosphere = body.atmosphere,
+                    ReferenceBodyAtmosphereDepth = body.atmosphereDepth,
+                    Inclination = source?.inclination ?? 0.0,
+                    Eccentricity = 1.0,
+                    SemiMajorAxis = source?.semiMajorAxis ?? body.Radius + System.Math.Max(0.0, vessel.altitude),
+                    LongitudeOfAscendingNode = source?.LAN ?? 0.0,
+                    ArgumentOfPeriapsis = source?.argumentOfPeriapsis ?? 0.0,
+                    MeanAnomalyAtEpoch = source?.meanAnomalyAtEpoch ?? 0.0,
+                    Epoch = source?.epoch ?? Planetarium.GetUniversalTime(),
+                    PeriapsisAltitude = -1.0
+                };
+                return true;
+            }
+        }
+
+        private static void DiscardActiveTreeForRuntimeTest(ParsekFlight flight, string reason)
+        {
+            if (flight == null)
+                return;
+
+            if (!flight.HasActiveTree)
+            {
+                if (flight.IsRecording)
+                    flight.StopRecording();
+                return;
+            }
+
+            try
+            {
+                ParsekFlightDiscardActiveTreeForSuppressedSceneExitMethod.Invoke(
+                    flight,
+                    new object[]
+                    {
+                        HighLogic.LoadedScene,
+                        Planetarium.GetUniversalTime(),
+                        reason ?? "runtime test cleanup",
+                        false
+                    });
+            }
+            catch (TargetInvocationException ex)
+            {
+                InGameAssert.Fail(
+                    $"DiscardActiveTreeForSuppressedSceneExit cleanup threw " +
+                    $"{ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}");
+            }
+        }
+
+        private static IEnumerator WaitForEvaBranchCount(
+            RecordingTree tree,
+            int expectedCount,
+            float timeoutSeconds,
+            string context)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (CountEvaBranches(tree) >= expectedCount)
+                    yield break;
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForEvaBranchCount timed out after {timeoutSeconds:F0}s ({context}); " +
+                $"expected>={expectedCount} actual={CountEvaBranches(tree)}");
+        }
+
+        private static IEnumerator WaitForActiveVesselPid(uint expectedPid, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                if (FlightGlobals.ActiveVessel != null
+                    && FlightGlobals.ActiveVessel.persistentId == expectedPid)
+                {
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            InGameAssert.Fail(
+                $"WaitForActiveVesselPid timed out after {timeoutSeconds:F0}s " +
+                $"expected={expectedPid} active={FlightGlobals.ActiveVessel?.persistentId ?? 0u}");
+        }
+
+        private static int CountEvaBranches(RecordingTree tree)
+        {
+            if (tree?.BranchPoints == null)
+                return 0;
+
+            return tree.BranchPoints.Count(bp => bp != null && bp.Type == BranchPointType.EVA);
+        }
+
+        private static int CountCrewInParts(Vessel vessel)
+        {
+            if (vessel?.parts == null)
+                return 0;
+
+            int count = 0;
+            foreach (Part part in vessel.parts)
+                count += part?.protoModuleCrew?.Count ?? 0;
+            return count;
+        }
+
+        private static void InvokeSpawnEvaOrFail(
+            object flightEva,
+            ProtoCrewMember crewMember,
+            Part sourcePart,
+            Transform airlock)
+        {
+            try
+            {
+                FlightEvaSpawnMethod.Invoke(flightEva, new object[] { crewMember, sourcePart, airlock, true });
+            }
+            catch (TargetInvocationException ex)
+            {
+                InGameAssert.Fail(
+                    $"FlightEVA.spawnEVA threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}");
+            }
+        }
+
+        private static bool TrySetActiveVesselForTest(Vessel vessel, out string skipReason)
+        {
+            skipReason = null;
+            if (vessel == null)
+            {
+                skipReason = "cannot switch active vessel: target vessel is null";
+                return false;
+            }
+            if (FlightGlobalsSetActiveVesselMethod == null)
+            {
+                skipReason = "FlightGlobals.SetActiveVessel(Vessel) is not reflectable";
+                return false;
+            }
+
+            try
+            {
+                FlightGlobalsSetActiveVesselMethod.Invoke(null, new object[] { vessel });
+                return true;
+            }
+            catch (TargetInvocationException ex)
+            {
+                skipReason =
+                    $"FlightGlobals.SetActiveVessel threw {ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}";
+                return false;
+            }
         }
 
         private static bool TrySimulatePostSwitchArm(ParsekFlight flight, Vessel vessel, out string skipReason)
@@ -2581,12 +3379,16 @@ namespace Parsek.InGameTests
             var captured = new List<string>();
             var priorObserver = ParsekLog.TestObserverForTesting;
             var priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            bool originalGhostRenderTracing = ParsekSettings.Current?.ghostRenderTracing ?? false;
             bool startedByTest = false;
 
             try
             {
                 ParsekLog.VerboseOverrideForTesting = true;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
+                // The staged split opens the Trace-Sep window via OnPartJointBreak.
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.ghostRenderTracing = true;
 
                 flight.StartRecording();
                 startedByTest = flight.IsRecording;
@@ -2632,14 +3434,40 @@ namespace Parsek.InGameTests
                 InGameAssert.IsFalse(decisionLine.Contains("propagatedResidual=n/a"),
                     "Seed decision log should include a numeric propagated residual");
 
+                string bgSampleLine = null;
+                double bgSampleDeltaMeters = double.NaN;
+                deadline = Time.time + 5f;
+                while (Time.time < deadline)
+                {
+                    if (TryFindLoadedBackgroundAbsoluteSampleLog(captured, out bgSampleLine, out bgSampleDeltaMeters))
+                        break;
+
+                    yield return new WaitForFixedUpdate();
+                }
+
+                if (bgSampleLine == null)
+                {
+                    InGameAssert.Skip(
+                        "controlled child seed observed but no ordinary loaded/unpacked BG_CreateAbs trace sample was observed");
+                    yield break;
+                }
+
+                InGameAssert.Contains(bgSampleLine, "llaSource=transform",
+                    "Loaded/unpacked ordinary background samples should derive LLA from transform.position");
+                InGameAssert.IsLessThan(bgSampleDeltaMeters, BackgroundLoadedSampleRoundTripToleranceMeters,
+                    $"Loaded background sample should round-trip near the live transform; delta={bgSampleDeltaMeters:F3} line='{bgSampleLine}'");
+
                 ParsekLog.Info("TestRunner",
                     $"Controlled child seed residual decision observed: commandModules={commandModuleCount} " +
-                    $"decouplers={decouplerCount} line='{decisionLine}'");
+                    $"decouplers={decouplerCount} bgSampleDelta={bgSampleDeltaMeters:F3}m " +
+                    $"line='{decisionLine}' bgLine='{bgSampleLine}'");
             }
             finally
             {
                 if (FlightInputHandler.state != null)
                     FlightInputHandler.state.mainThrottle = originalThrottle;
+                if (ParsekSettings.Current != null)
+                    ParsekSettings.Current.ghostRenderTracing = originalGhostRenderTracing;
                 ParsekLog.TestObserverForTesting = priorObserver;
                 ParsekLog.VerboseOverrideForTesting = priorVerbose;
 
@@ -2715,6 +3543,69 @@ namespace Parsek.InGameTests
             return line != null
                 && line.Contains("[Coalescer]")
                 && line.Contains("Controlled child initial seed");
+        }
+
+        private static bool TryFindLoadedBackgroundAbsoluteSampleLog(
+            List<string> lines,
+            out string line,
+            out double deltaMeters)
+        {
+            line = null;
+            deltaMeters = double.NaN;
+            if (lines == null)
+                return false;
+
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                string candidate = lines[i];
+                if (candidate == null
+                    || !candidate.Contains("[BG_CreateAbs]")
+                    || !candidate.Contains(" packed=False")
+                    || !candidate.Contains(" preferRoot=False"))
+                {
+                    continue;
+                }
+
+                if (!TryExtractTraceDeltaMeters(candidate, out double parsedDelta))
+                    continue;
+
+                line = candidate;
+                deltaMeters = parsedDelta;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryExtractTraceDeltaMeters(string line, out double deltaMeters)
+        {
+            deltaMeters = double.NaN;
+            if (string.IsNullOrEmpty(line))
+                return false;
+
+            const string marker = " |delta|=";
+            int start = line.IndexOf(marker);
+            if (start < 0)
+                return false;
+
+            start += marker.Length;
+            int end = start;
+            while (end < line.Length)
+            {
+                char c = line[end];
+                if (!(char.IsDigit(c) || c == '-' || c == '+' || c == '.' || c == 'E' || c == 'e'))
+                    break;
+                end++;
+            }
+
+            if (end <= start)
+                return false;
+
+            return double.TryParse(
+                line.Substring(start, end - start),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out deltaMeters);
         }
 
         #endregion
@@ -9465,7 +10356,7 @@ namespace Parsek.InGameTests
                 yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(previousFlightInstanceId, 20f);
                 yield return WaitForCapturedLogLine(
                     captured,
-                    "post-rewind FLIGHT recalc using current-UT cutoff",
+                    "post-rewind scene-load recalc using current-UT cutoff",
                     10f);
                 yield return new WaitForSeconds(0.5f);
 
@@ -9475,13 +10366,13 @@ namespace Parsek.InGameTests
                 double postFunds = Funding.Instance.Funds;
                 int postActiveContracts = LedgerOrchestrator.Contracts.GetActiveContractCount();
                 bool sawDecisionInputs = captured.Any(
-                    line => line.Contains("post-rewind FLIGHT cutoff decision")
+                    line => line.Contains("post-rewind current-UT cutoff decision")
                         && line.Contains("useCurrentUtCutoff=True")
                         && line.Contains("hasFutureLedgerActions=True"));
 
                 InGameAssert.IsTrue(
                     sawDecisionInputs,
-                    "Expected OnLoad to log the post-rewind FLIGHT cutoff decision inputs");
+                    "Expected OnLoad to log the post-rewind current-UT cutoff decision inputs");
                 InGameAssert.IsTrue(
                     System.Math.Abs(postFunds - fundsBeforeFutureActions) < 1.0,
                     $"Post-rewind funds should stay at the pre-future baseline until replay catches up " +
@@ -9529,15 +10420,16 @@ namespace Parsek.InGameTests
         /// Stock non-revert scene-exit player-flow canary. Starts a real recording,
         /// launches the active vessel far enough to avoid the idle-on-pad discard
         /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
-        /// stock PauseMenu uses. The expected shipped behavior after #434 with
-        /// auto-merge disabled is a deferred merge dialog in SPACECENTER whose
-        /// "Merge to Timeline" button commits the pending tree. Use a disposable/
-        /// manual-backup save before running it.
+        /// stock PauseMenu uses. The expected shipped behavior with auto-merge
+        /// disabled is a pre-transition merge dialog in FLIGHT whose "Merge to
+        /// Timeline" button finalizes and commits the live tree before the
+        /// blocked Space Center scene change resumes. Use a disposable/manual-
+        /// backup save before running it.
         /// </summary>
         [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the deferred merge dialog in SPACECENTER.",
-            Description = "Space Center exit shows deferred merge dialog and Merge to Timeline commits the pending tree")]
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog.",
+            Description = "Space Center exit shows pre-transition merge dialog and Merge to Timeline commits the live tree")]
         public IEnumerator ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree()
         {
             var flight = ParsekFlight.Instance;
@@ -9627,19 +10519,18 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(0.5f);
 
                 TriggerSaveAndExitToSpaceCenter();
-                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
                 yield return WaitForPopupDialog("ParsekMerge", 10f);
 
                 PopupDialog popup = FindPopupDialog("ParsekMerge");
                 InGameAssert.IsNotNull(popup,
-                    "ParsekMerge popup should exist after the real Space Center exit");
+                    "ParsekMerge popup should exist before the real Space Center exit completes");
 
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
                 InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
-                    "Deferred merge dialog title should match the production popup");
+                    "Pre-transition merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
                 DialogGUIButton mergeButton = buttons.FirstOrDefault(
@@ -9649,17 +10540,17 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
                 InGameAssert.IsNotNull(discardButton, "Discard button should exist");
-                InGameAssert.IsTrue(RecordingStore.HasPendingTree,
-                    "Real Space Center exit should surface a pending tree before the merge click");
-                InGameAssert.AreEqual(treeId, RecordingStore.PendingTree?.Id,
-                    "Real Space Center exit should keep the same pending tree id into SPACECENTER");
+                InGameAssert.AreEqual(GameScenes.FLIGHT, HighLogic.LoadedScene,
+                    "Pre-transition merge dialog should block the Space Center scene change until a button is clicked");
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Pre-transition merge dialog should keep the live tree unfinalized before the merge click");
                 InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
-                    "Deferred merge dialog should keep the pending-dialog flag armed until the click");
+                    "Pre-transition merge dialog should keep the pending-dialog flag armed until the click");
 
                 DialogGuiButtonOptionSelectedMethod.Invoke(mergeButton, null);
 
                 yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
-                yield return null;
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
 
                 InGameAssert.IsFalse(RecordingStore.HasPendingTree,
                     "Merge to Timeline should consume the pending tree after real scene exit");
@@ -9679,12 +10570,12 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(recordingCommitted,
                     "CommittedRecordings should contain the merged tree's active recording");
 
-                bool sawDeferredDialog = captured.Any(
-                    line => line.Contains("Showing deferred tree merge dialog in SPACECENTER"));
+                bool sawPreTransitionDialog = captured.Any(
+                    line => line.Contains("Pre-transition tree merge dialog"));
                 bool sawUserMerge = captured.Any(
                     line => line.Contains("User chose: Tree Merge"));
-                InGameAssert.IsTrue(sawDeferredDialog,
-                    "Expected the real scene-exit flow to log the deferred merge dialog in SPACECENTER");
+                InGameAssert.IsTrue(sawPreTransitionDialog,
+                    "Expected the real scene-exit flow to log the pre-transition merge dialog");
                 InGameAssert.IsTrue(sawUserMerge,
                     "Expected the real scene-exit flow to log the Merge to Timeline branch");
 
@@ -9712,16 +10603,16 @@ namespace Parsek.InGameTests
         /// Stock non-revert scene-exit discard canary. Starts a real recording,
         /// launches the active vessel far enough to avoid the idle-on-pad discard
         /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
-        /// stock PauseMenu uses. The expected shipped behavior after #434 with
-        /// auto-merge disabled is a deferred merge dialog in SPACECENTER whose
-        /// explicit "Discard" button clears the pending tree without committing
-        /// anything to the timeline. Use a disposable/manual-backup save before
-        /// running it.
+        /// stock PauseMenu uses. The expected shipped behavior with auto-merge
+        /// disabled is a pre-transition merge dialog in FLIGHT whose explicit
+        /// "Discard" button finalizes and discards the live tree before the
+        /// blocked Space Center scene change resumes. Use a disposable/manual-
+        /// backup save before running it.
         /// </summary>
         [InGameTest(Category = "SceneExitMerge", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the deferred merge dialog discard branch in SPACECENTER.",
-            Description = "Space Center exit shows deferred merge dialog and Discard clears the pending tree without a commit")]
+            BatchSkipReason = "Single-run only — excluded from Run All / Run category because this test starts a real recording, launches the active vessel, exits FLIGHT through stock save-and-exit semantics, and then drives the pre-transition merge dialog discard branch.",
+            Description = "Space Center exit shows pre-transition merge dialog and Discard clears the live tree without a commit")]
         public IEnumerator ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree()
         {
             var flight = ParsekFlight.Instance;
@@ -9811,19 +10702,18 @@ namespace Parsek.InGameTests
                 yield return new WaitForSeconds(0.5f);
 
                 TriggerSaveAndExitToSpaceCenter();
-                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
                 yield return WaitForPopupDialog("ParsekMerge", 10f);
 
                 PopupDialog popup = FindPopupDialog("ParsekMerge");
                 InGameAssert.IsNotNull(popup,
-                    "ParsekMerge popup should exist after the real Space Center exit");
+                    "ParsekMerge popup should exist before the real Space Center exit completes");
 
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
                 InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
-                    "Deferred merge dialog title should match the production popup");
+                    "Pre-transition merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
                 DialogGUIButton mergeButton = buttons.FirstOrDefault(
@@ -9833,17 +10723,17 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsNotNull(mergeButton, "Merge to Timeline button should exist");
                 InGameAssert.IsNotNull(discardButton, "Discard button should exist");
-                InGameAssert.IsTrue(RecordingStore.HasPendingTree,
-                    "Real Space Center exit should surface a pending tree before the discard click");
-                InGameAssert.AreEqual(treeId, RecordingStore.PendingTree?.Id,
-                    "Real Space Center exit should keep the same pending tree id into SPACECENTER");
+                InGameAssert.AreEqual(GameScenes.FLIGHT, HighLogic.LoadedScene,
+                    "Pre-transition merge dialog should block the Space Center scene change until a button is clicked");
+                InGameAssert.IsFalse(RecordingStore.HasPendingTree,
+                    "Pre-transition merge dialog should keep the live tree unfinalized before the discard click");
                 InGameAssert.IsTrue(ParsekScenario.MergeDialogPending,
-                    "Deferred merge dialog should keep the pending-dialog flag armed until the click");
+                    "Pre-transition merge dialog should keep the pending-dialog flag armed until the click");
 
                 DialogGuiButtonOptionSelectedMethod.Invoke(discardButton, null);
 
                 yield return WaitForPopupDialogToClose("ParsekMerge", 3f);
-                yield return null;
+                yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
 
                 InGameAssert.IsFalse(RecordingStore.HasPendingTree,
                     "Discard should clear the pending tree after the real scene exit");
@@ -9857,12 +10747,12 @@ namespace Parsek.InGameTests
                         candidate => candidate != null && candidate.Id == treeId),
                     "Discard should not leave the pending tree inside CommittedTrees");
 
-                bool sawDeferredDialog = captured.Any(
-                    line => line.Contains("Showing deferred tree merge dialog in SPACECENTER"));
+                bool sawPreTransitionDialog = captured.Any(
+                    line => line.Contains("Pre-transition tree merge dialog"));
                 bool sawUserDiscard = captured.Any(
                     line => line.Contains("User chose: Tree Discard"));
-                InGameAssert.IsTrue(sawDeferredDialog,
-                    "Expected the real scene-exit flow to log the deferred merge dialog in SPACECENTER");
+                InGameAssert.IsTrue(sawPreTransitionDialog,
+                    "Expected the real scene-exit flow to log the pre-transition merge dialog");
                 InGameAssert.IsTrue(sawUserDiscard,
                     "Expected the real scene-exit flow to log the Discard branch");
 
@@ -12515,10 +13405,8 @@ namespace Parsek.InGameTests
 
             var selection = new StrategySelectionResult();
             yield return WaitForStableActivatableStockStrategy(selection);
-            var strategy = selection.Strategy;
-            var configName = selection.ConfigName;
 
-            if (strategy == null || string.IsNullOrEmpty(configName))
+            if (selection.Strategy == null || string.IsNullOrEmpty(selection.ConfigName))
             {
                 DestroyHiddenAdministrationCanvasForTest(
                     selection,
@@ -12534,122 +13422,218 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            var strategyConfig = strategy.Config;
-            InGameAssert.IsNotNull(strategyConfig, "Selected strategy lost Config after probe");
-            InGameAssert.IsFalse(string.IsNullOrEmpty(strategyConfig.Name),
-                "Selected strategy must have a non-empty Config.Name");
+            // Not every stock strategy short-circuits an already-active Activate():
+            // some (e.g. BailoutGrant) re-run and return true. Probing only the
+            // stabilized pick would silently disable the __result==false regression
+            // guard whenever a re-activatable strategy happens to sort first. Walk
+            // every activatable stock strategy instead, stop on the first one whose
+            // second Activate() returns false, and only skip when none can.
+            var candidates = CollectActivatableStockStrategiesForFailedPath(
+                selection.Strategy, selection.ConfigName);
 
-            // Snapshot financials — the first (successful) Activate below will
-            // spend setup costs that we must restore in teardown.
-            var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
-
-            // Snapshot event and ledger-action counts for cleanup. Set before
-            // the try so the finally always sees a valid baseline (matches
-            // pre-activation state, so truncation purges BOTH the first
-            // Activate and the failed second Activate from the save).
-            int preTestEventCount = GameStateStore.EventCount;
-            int preTestLedgerCount = Ledger.Actions.Count;
+            bool exercisedFailedPath = false;
+            int reactivatableCount = 0;
+            int notActivatableCount = 0;
+            int staleConfigCount = 0;
+            string lastReactivatableName = null;
 
             try
             {
-                // Activate the strategy FIRST so the second Activate hits the
-                // already-active short-circuit and returns false.
-                for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
-                    yield return null;
+                foreach (var candidate in candidates)
+                {
+                    var strategy = candidate.Strategy;
+                    var configName = candidate.ConfigName;
 
-                bool firstActivate;
-                try
-                {
-                    firstActivate = strategy.Activate();
-                }
-                catch (System.Exception ex)
-                {
-                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "initial-activate-throw");
-                    InGameAssert.Fail(
-                        $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
-                    yield break;
-                }
-                if (!firstActivate)
-                {
-                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "initial-activate-false");
-                    InGameAssert.Skip("initial Activate returned false — cannot test failed-path filter");
-                    yield break;
-                }
-
-                int eventCountBefore = GameStateStore.EventCount;
-
-                // Second Activate — KSP short-circuits when IsActive is true and
-                // returns false. The postfix should detect __result=false and skip.
-                bool ok;
-                try
-                {
-                    ok = strategy.Activate();
-                }
-                catch (System.Exception ex)
-                {
-                    RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                    GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                    Ledger.TruncateActionsForTesting(preTestLedgerCount);
-                    DestroyHiddenAdministrationCanvasForTest(
-                        selection,
-                        "second-activate-throw");
-                    InGameAssert.Fail(
-                        $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
-                    yield break;
-                }
-                InGameAssert.IsFalse(ok,
-                    "Strategy.Activate should return false when already active");
-
-                // Walk the tail slice — must find NO StrategyActivated events
-                // with matching key.
-                for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
-                {
-                    var evt = GameStateStore.Events[i];
-                    if (evt.eventType == GameStateEventType.StrategyActivated
-                        && evt.key == configName)
+                    var strategyConfig = strategy.Config;
+                    if (strategyConfig == null || string.IsNullOrEmpty(strategyConfig.Name))
                     {
-                        InGameAssert.Fail(
-                            $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
-                            $"(found StrategyActivated at tail index {i} for key='{configName}')");
+                        // Probe data went stale between collection and use — skip.
+                        staleConfigCount++;
+                        ParsekLog.Verbose("TestRunner",
+                            $"FailedActivation_DoesNotEmitEvent: candidate '{configName}' lost its " +
+                            $"Config.Name after collection — skipping to the next candidate");
+                        continue;
+                    }
+
+                    // Snapshot financials + event/ledger counts BEFORE this
+                    // candidate's first Activate so the per-candidate finally can
+                    // purge both activations and restore setup costs regardless of
+                    // outcome — including when InGameAssert.Fail throws out of the
+                    // tail-slice walk because the regression it guards was caught.
+                    var (fundsBefore, sciBefore, repBefore) = SnapshotFinancials();
+                    int preTestEventCount = GameStateStore.EventCount;
+                    int preTestLedgerCount = Ledger.Actions.Count;
+
+                    bool candidateExercisedFailedPath = false;
+                    try
+                    {
+                        // Activate FIRST so the second Activate hits the
+                        // already-active path.
+                        for (int i = 0; i < StrategyLifecycleActivateSettleFrames; i++)
+                            yield return null;
+
+                        bool firstActivate;
+                        try
+                        {
+                            firstActivate = strategy.Activate();
+                        }
+                        catch (System.Exception ex)
+                        {
+                            InGameAssert.Fail(
+                                $"Initial Strategy.Activate threw for key='{configName}' after readiness stabilized: {ex}");
+                            yield break;
+                        }
+                        if (!firstActivate)
+                        {
+                            // Could not activate this candidate — move on.
+                            notActivatableCount++;
+                            ParsekLog.Verbose("TestRunner",
+                                $"FailedActivation_DoesNotEmitEvent: candidate '{configName}' first " +
+                                $"Activate() returned false — skipping to the next candidate");
+                            continue;
+                        }
+
+                        int eventCountBefore = GameStateStore.EventCount;
+
+                        // Second Activate — KSP short-circuits when IsActive is true
+                        // and returns false. The postfix should detect __result=false
+                        // and skip.
+                        bool ok;
+                        try
+                        {
+                            ok = strategy.Activate();
+                        }
+                        catch (System.Exception ex)
+                        {
+                            InGameAssert.Fail(
+                                $"Second Strategy.Activate threw for already-active key='{configName}': {ex}");
+                            yield break;
+                        }
+
+                        if (ok)
+                        {
+                            // Re-activatable: Activate() returns true even when already
+                            // active, so it cannot exercise the __result==false filter.
+                            // Keep probing the remaining strategies.
+                            reactivatableCount++;
+                            lastReactivatableName = configName;
+                            continue;
+                        }
+
+                        // ok == false: the failed-path filter is now exercisable.
+                        // Walk the tail slice — must find NO StrategyActivated events
+                        // with matching key.
+                        for (int i = eventCountBefore; i < GameStateStore.EventCount; i++)
+                        {
+                            var evt = GameStateStore.Events[i];
+                            if (evt.eventType == GameStateEventType.StrategyActivated
+                                && evt.key == configName)
+                            {
+                                InGameAssert.Fail(
+                                    $"StrategyLifecyclePatch fired on a failed Activate() — __result filter broken " +
+                                    $"(found StrategyActivated at tail index {i} for key='{configName}')");
+                            }
+                        }
+
+                        ParsekLog.Verbose("TestRunner",
+                            $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
+                            $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount}); " +
+                            $"candidatesSkippedBeforeWinner=[reactivatable={reactivatableCount} " +
+                            $"notActivatable={notActivatableCount} staleConfig={staleConfigCount}]");
+                        candidateExercisedFailedPath = true;
+                    }
+                    finally
+                    {
+                        // Uniform per-candidate teardown — runs on every exit path
+                        // (success, continue, break, or an InGameAssert.Fail throw)
+                        // so a regression-detecting failure does not leak an active
+                        // strategy or financial/event/ledger mutations. A failed
+                        // second Activate() leaves the strategy active from the first
+                        // Activate(), so the Deactivate is load-bearing here.
+                        if (strategy.IsActive)
+                        {
+                            try { strategy.Deactivate(); }
+                            catch (System.Exception ex)
+                            {
+                                ParsekLog.Warn("TestRunner",
+                                    $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
+                            }
+                        }
+                        RestoreFinancials(fundsBefore, sciBefore, repBefore);
+                        // Purge test-generated events and ledger actions so the save
+                        // stays save-neutral across repeated category runs. See
+                        // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
+                        // teardown for the same pattern.
+                        GameStateStore.TruncateEventsForTesting(preTestEventCount);
+                        Ledger.TruncateActionsForTesting(preTestLedgerCount);
+                    }
+
+                    if (candidateExercisedFailedPath)
+                    {
+                        exercisedFailedPath = true;
+                        break;
                     }
                 }
 
-                ParsekLog.Verbose("TestRunner",
-                    $"FailedActivation_DoesNotEmitEvent: verified no StrategyActivated event emitted for " +
-                    $"key='{configName}' across tail slice [{eventCountBefore}..{GameStateStore.EventCount})");
+                if (!exercisedFailedPath)
+                {
+                    InGameAssert.Skip(
+                        $"no available stock strategy returns false on a second Activate() — " +
+                        $"probed {candidates.Count} candidate(s): reactivatable={reactivatableCount} " +
+                        $"(last='{lastReactivatableName ?? "(none)"}') notActivatable={notActivatableCount} " +
+                        $"staleConfig={staleConfigCount}; the failed-path " +
+                        $"(__result==false) filter cannot be exercised on this save");
+                }
             }
             finally
             {
-                if (strategy.IsActive)
-                {
-                    try { strategy.Deactivate(); }
-                    catch (System.Exception ex)
-                    {
-                        ParsekLog.Warn("TestRunner",
-                            $"FailedActivation_DoesNotEmitEvent teardown Deactivate threw: {ex}");
-                    }
-                }
-                RestoreFinancials(fundsBefore, sciBefore, repBefore);
-                // Purge test-generated events and ledger actions so the save
-                // stays save-neutral across repeated category runs. See
-                // ActivateAndDeactivate_StockStrategy_EmitsLifecycleEvents
-                // teardown for the same pattern.
-                GameStateStore.TruncateEventsForTesting(preTestEventCount);
-                Ledger.TruncateActionsForTesting(preTestLedgerCount);
                 DestroyHiddenAdministrationCanvasForTest(
                     selection,
                     "failed-activation-teardown");
             }
+        }
+
+        // Collects every activatable stock strategy for FailedActivation_DoesNotEmitEvent,
+        // with the stabilized readiness pick first. The test walks this list so a
+        // re-activatable strategy sorting first cannot silently disable the
+        // __result==false regression guard.
+        private static List<(Strategies.Strategy Strategy, string ConfigName)>
+            CollectActivatableStockStrategiesForFailedPath(
+                Strategies.Strategy stabilizedPick,
+                string stabilizedConfigName)
+        {
+            var candidates = new List<(Strategies.Strategy Strategy, string ConfigName)>();
+            if (stabilizedPick != null && !string.IsNullOrEmpty(stabilizedConfigName))
+                candidates.Add((stabilizedPick, stabilizedConfigName));
+
+            var system = Strategies.StrategySystem.Instance;
+            var list = system?.Strategies;
+            if (list == null)
+                return candidates;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var s = list[i];
+                if (s == null || ReferenceEquals(s, stabilizedPick))
+                    continue;
+                try
+                {
+                    if (s.IsActive)
+                        continue;
+                    var config = s.Config;
+                    if (config == null || string.IsNullOrEmpty(config.Name))
+                        continue;
+                    if (!s.CanBeActivated(out _))
+                        continue;
+                    candidates.Add((s, config.Name));
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Verbose("TestRunner",
+                        $"FailedActivation candidate-probe exception: index={i} {ex}");
+                }
+            }
+            return candidates;
         }
 
         #endregion
@@ -12756,6 +13740,25 @@ namespace Parsek.InGameTests
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
 
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode == Game.Modes.SANDBOX)
+            {
+                // RnDBuilding.EnterBuilding() in pure Sandbox does not instantiate
+                // an RDController (no tech tree to research), so WaitForRdController
+                // would time out. Career and Science mode both produce a controller
+                // and exercise the TechResearched overlay path.
+                InGameAssert.Skip(
+                    $"R&D overlay verification needs a tech-research-capable mode (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+
+            // Drain any R&D canvas left mid-teardown by a prior test before entering.
+            yield return WaitForRdControllerClosed(8f);
+
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             Recording recording = null;
             string recordingId = null;
@@ -12802,6 +13805,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
                 "R&D close should strip committed-future tech overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForRdControllerClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -12828,6 +13833,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("HighLogic.CurrentGame.CrewRoster is null");
                 yield break;
             }
+
+            // Drain any Astronaut Complex canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForAstronautComplexClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             KerbalsModule priorKerbalsModule = LedgerOrchestrator.Kerbals;
@@ -12893,6 +13902,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayKerbalObjectName, 0,
                 "Astronaut Complex close should strip committed-future kerbal overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForAstronautComplexClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -12912,33 +13923,43 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip($"Mission Control overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
                 yield break;
             }
-            if (!TryPickOfferedContract(out Contract contract, out string contractKey, out string contractTitle, out string skipReason))
-            {
-                InGameAssert.Skip(skipReason);
-                yield break;
-            }
+            // Drain any Mission Control canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForMissionControlClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             Recording recording = null;
             string recordingId = null;
             try
             {
-                recordingId = "phase5-mission-" + System.Guid.NewGuid().ToString("N");
-                recording = AddCommittedOverlayFixture(
-                    recordingId,
-                    GameStateEventType.ContractAccepted,
-                    contractKey,
-                    "contractTitle=" + contractTitle);
-
                 if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
                     yield break;
 
                 yield return WaitForMissionControl(8f);
-                NotifyTimelineDataChangedForOverlayTest();
-                yield return WaitForMissionControlRowOverlay(contractKey, StockUiOverlayContractObjectName,
-                    $"offered contract '{contractTitle}' should get a committed-future accept overlay", 8f);
+                var contractPick = new MissionControlContractRowPick();
+                yield return WaitForMissionControlOfferedContractRow(contractPick, 8f);
+                if (!contractPick.Found)
+                {
+                    InGameAssert.Skip(contractPick.SkipReason);
+                    yield break;
+                }
 
-                MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
+                recordingId = "phase5-mission-" + System.Guid.NewGuid().ToString("N");
+                recording = AddCommittedOverlayFixture(
+                    recordingId,
+                    GameStateEventType.ContractAccepted,
+                    contractPick.ContractKey,
+                    "contractTitle=" + contractPick.ContractTitle);
+
+                NotifyTimelineDataChangedForOverlayTest();
+                yield return WaitForMissionControlRowOverlay(contractPick.ContractKey, StockUiOverlayContractObjectName,
+                    $"offered contract '{contractPick.ContractTitle}' should get a committed-future accept overlay", 8f);
+
+                MCListItem row = FindMissionControlRowByContractKey(
+                    Object.FindObjectOfType<MissionControl>(),
+                    contractPick.ContractKey);
+                InGameAssert.IsNotNull(row,
+                    $"Mission Control row for offered contract '{contractPick.ContractTitle}' should still exist after overlay wait");
                 InGameAssert.AreEqual(1, CountNamedChildren(row.transform, StockUiOverlayContractObjectName),
                     "Mission Control committed contract row should have exactly one Parsek_ContractOverlay child");
             }
@@ -12951,6 +13972,8 @@ namespace Parsek.InGameTests
 
             yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
                 "Mission Control close should strip committed-future contract overlays", 5f);
+            // Confirm the canvas is fully gone so the next building test enters clean.
+            yield return WaitForMissionControlClosed(8f);
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -12959,6 +13982,24 @@ namespace Parsek.InGameTests
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode == Game.Modes.SANDBOX)
+            {
+                // RnDBuilding.EnterBuilding() in pure Sandbox does not instantiate
+                // an RDController, so WaitForRdController would time out. Career
+                // and Science mode both produce a controller for the despawn cycle.
+                InGameAssert.Skip(
+                    $"R&D overlay verification needs a tech-research-capable mode (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+
+            // Drain any R&D canvas left mid-teardown by a prior test before entering.
+            yield return WaitForRdControllerClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13006,6 +14047,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayTechObjectName, 0,
                         $"R&D despawn cycle {cycle + 1} should leave no Parsek_TechOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForRdControllerClosed(8f);
                 }
             }
             finally
@@ -13038,6 +14081,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip("HighLogic.CurrentGame.CrewRoster is null");
                 yield break;
             }
+
+            // Drain any Astronaut Complex canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForAstronautComplexClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13083,6 +14130,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayKerbalObjectName, 0,
                         $"Astronaut despawn cycle {cycle + 1} should leave no Parsek_KerbalOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForAstronautComplexClosed(8f);
                 }
             }
             finally
@@ -13108,11 +14157,9 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip($"Mission Control overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
                 yield break;
             }
-            if (!TryPickOfferedContract(out Contract contract, out string contractKey, out string contractTitle, out string skipReason))
-            {
-                InGameAssert.Skip(skipReason);
-                yield break;
-            }
+            // Drain any Mission Control canvas left mid-teardown by a prior test
+            // before entering.
+            yield return WaitForMissionControlClosed(8f);
 
             bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             try
@@ -13123,19 +14170,27 @@ namespace Parsek.InGameTests
                     string recordingId = null;
                     try
                     {
-                        recordingId = "phase5-mission-despawn-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
-                        recording = AddCommittedOverlayFixture(
-                            recordingId,
-                            GameStateEventType.ContractAccepted,
-                            contractKey,
-                            "contractTitle=" + contractTitle);
-
                         if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
                             yield break;
 
                         yield return WaitForMissionControl(8f);
+                        var contractPick = new MissionControlContractRowPick();
+                        yield return WaitForMissionControlOfferedContractRow(contractPick, 8f);
+                        if (!contractPick.Found)
+                        {
+                            InGameAssert.Skip(contractPick.SkipReason);
+                            yield break;
+                        }
+
+                        recordingId = "phase5-mission-despawn-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
+                        recording = AddCommittedOverlayFixture(
+                            recordingId,
+                            GameStateEventType.ContractAccepted,
+                            contractPick.ContractKey,
+                            "contractTitle=" + contractPick.ContractTitle);
+
                         NotifyTimelineDataChangedForOverlayTest();
-                        yield return WaitForMissionControlRowOverlay(contractKey, StockUiOverlayContractObjectName,
+                        yield return WaitForMissionControlRowOverlay(contractPick.ContractKey, StockUiOverlayContractObjectName,
                             $"Mission Control despawn cycle {cycle + 1} should create one contract overlay before close", 8f);
                     }
                     finally
@@ -13146,6 +14201,8 @@ namespace Parsek.InGameTests
 
                     yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
                         $"Mission Control despawn cycle {cycle + 1} should leave no Parsek_ContractOverlay objects alive", 5f);
+                    // Confirm the canvas is gone before the next cycle re-enters.
+                    yield return WaitForMissionControlClosed(8f);
                 }
             }
             finally
@@ -13283,6 +14340,37 @@ namespace Parsek.InGameTests
             yield return WaitUntilTrue(
                 () => Object.FindObjectOfType<MissionControl>() != null,
                 "MissionControl should exist after opening Mission Control",
+                timeoutSeconds);
+        }
+
+        // Space-center building canvases tear down a frame or more after the close
+        // event fires. The overlay tests open the same building repeatedly across
+        // cycles and across two suite passes; if a test enters before the prior
+        // canvas is gone, UIMasterController refuses to spawn a duplicate
+        // ("Canvas named 'X' already exists") and the building UI ends up empty or
+        // stacked. These guards drain a stale canvas before entering and confirm
+        // the canvas is gone after closing, so each test leaves a clean scene.
+        private static IEnumerator WaitForRdControllerClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => RDController.Instance == null && Object.FindObjectOfType<RDController>() == null,
+                "RDController canvas should be destroyed after closing R&D",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForAstronautComplexClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<AstronautComplex>() == null,
+                "AstronautComplex canvas should be destroyed after closing the Astronaut Complex",
+                timeoutSeconds);
+        }
+
+        private static IEnumerator WaitForMissionControlClosed(float timeoutSeconds)
+        {
+            yield return WaitUntilTrue(
+                () => Object.FindObjectOfType<MissionControl>() == null,
+                "MissionControl canvas should be destroyed after closing Mission Control",
                 timeoutSeconds);
         }
 
@@ -13635,7 +14723,69 @@ namespace Parsek.InGameTests
             return null;
         }
 
-        private static bool TryPickOfferedContract(
+        private sealed class MissionControlContractRowPick
+        {
+            internal bool Found;
+            internal Contract Contract;
+            internal string ContractKey;
+            internal string ContractTitle;
+            internal string SkipReason;
+        }
+
+        private static IEnumerator WaitForMissionControlOfferedContractRow(
+            MissionControlContractRowPick result,
+            float timeoutSeconds)
+        {
+            InGameAssert.IsNotNull(result, "Mission Control contract row result holder is required");
+            float deadline = Time.time + timeoutSeconds;
+            string lastSkipReason = null;
+
+            while (Time.time < deadline)
+            {
+                MissionControl missionControl = Object.FindObjectOfType<MissionControl>();
+                if (TryPickMissionControlOfferedContractRow(
+                        missionControl,
+                        out Contract contract,
+                        out string contractKey,
+                        out string contractTitle,
+                        out lastSkipReason))
+                {
+                    result.Found = true;
+                    result.Contract = contract;
+                    result.ContractKey = contractKey;
+                    result.ContractTitle = contractTitle;
+                    result.SkipReason = null;
+                    yield break;
+                }
+
+                yield return null;
+            }
+
+            MissionControl finalMissionControl = Object.FindObjectOfType<MissionControl>();
+            if (TryPickMissionControlOfferedContractRow(
+                    finalMissionControl,
+                    out Contract finalContract,
+                    out string finalContractKey,
+                    out string finalContractTitle,
+                    out string finalSkipReason))
+            {
+                result.Found = true;
+                result.Contract = finalContract;
+                result.ContractKey = finalContractKey;
+                result.ContractTitle = finalContractTitle;
+                result.SkipReason = null;
+                yield break;
+            }
+
+            result.Found = false;
+            result.Contract = null;
+            result.ContractKey = null;
+            result.ContractTitle = null;
+            result.SkipReason = finalSkipReason ?? lastSkipReason ?? "Mission Control offered contract row did not appear";
+        }
+
+        private static bool TryPickMissionControlOfferedContractRow(
+            MissionControl missionControl,
             out Contract contract,
             out string contractKey,
             out string contractTitle,
@@ -13646,20 +14796,33 @@ namespace Parsek.InGameTests
             contractTitle = null;
             skipReason = null;
 
-            var system = ContractSystem.Instance;
-            if (system == null || system.Contracts == null)
+            if (missionControl == null)
             {
-                skipReason = "ContractSystem.Instance.Contracts is not available";
+                skipReason = "MissionControl is not open";
                 return false;
             }
 
-            for (int i = 0; i < system.Contracts.Count; i++)
+            MCListItem[] rows = missionControl.GetComponentsInChildren<MCListItem>(true);
+            int rowCount = rows != null ? rows.Length : 0;
+            int contractRowCount = 0;
+            int offeredRowCount = 0;
+            int activeRowCount = 0;
+            for (int i = 0; i < rowCount; i++)
             {
-                Contract candidate = system.Contracts[i];
+                MCListItem row = rows[i];
+                if (row == null)
+                    continue;
+
+                Contract candidate = ExtractMissionControlRowContractForTest(row);
                 if (candidate == null)
                     continue;
+                contractRowCount++;
+
+                if (candidate.ContractState == Contract.State.Active)
+                    activeRowCount++;
                 if (candidate.ContractState != Contract.State.Offered)
                     continue;
+                offeredRowCount++;
 
                 string key = candidate.ContractGuid.ToString();
                 string title = candidate.Title;
@@ -13672,7 +14835,9 @@ namespace Parsek.InGameTests
                 return true;
             }
 
-            skipReason = "No offered contract with a non-empty title/Guid is available";
+            skipReason =
+                "No Mission Control offered contract row with a non-empty title/Guid is available " +
+                $"(rows={rowCount}, contractRows={contractRowCount}, offeredRows={offeredRowCount}, activeRows={activeRowCount})";
             return false;
         }
 
@@ -13717,12 +14882,17 @@ namespace Parsek.InGameTests
 
         private static string ExtractMissionControlRowContractKeyForTest(MCListItem row)
         {
+            Contract contract = ExtractMissionControlRowContractForTest(row);
+            return contract != null ? contract.ContractGuid.ToString() : null;
+        }
+
+        private static Contract ExtractMissionControlRowContractForTest(MCListItem row)
+        {
             try
             {
-                Contract contract = row != null && row.container != null
+                return row != null && row.container != null
                     ? row.container.Data as Contract
                     : null;
-                return contract != null ? contract.ContractGuid.ToString() : null;
             }
             catch (System.Exception ex)
             {
@@ -17326,6 +18496,7 @@ namespace Parsek.InGameTests
             bool hit = Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
                 peerId, midUT,
                 out Vector3d worldOffset,
+                out double blend,
                 out Parsek.Rendering.CoBubbleBlendStatus status,
                 out string resolvedPrimary);
 
@@ -17333,6 +18504,7 @@ namespace Parsek.InGameTests
                 "Pipeline_CoBubble_Live: status="
                 + status
                 + " primary=" + (resolvedPrimary ?? "<null>")
+                + " blend=" + blend.ToString("F3", CultureInfo.InvariantCulture)
                 + " worldOffset=("
                 + worldOffset.x.ToString("F4", CultureInfo.InvariantCulture) + ","
                 + worldOffset.y.ToString("F4", CultureInfo.InvariantCulture) + ","
@@ -17342,6 +18514,9 @@ namespace Parsek.InGameTests
                 "CoBubbleBlender.TryEvaluateOffset miss for live-primary peer — status=" + status);
             InGameAssert.IsTrue(resolvedPrimary == primaryId,
                 "Resolved primary id mismatch: expected " + primaryId + " got " + (resolvedPrimary ?? "<null>"));
+            // Mid-window samples sit in the steady region with blend=1.0.
+            InGameAssert.IsTrue(blend >= 0.999,
+                "Mid-window blend expected 1.0; got " + blend.ToString("F3", CultureInfo.InvariantCulture));
             double residual = (worldOffset - recordedOffset).magnitude;
             InGameAssert.IsTrue(residual < tolerance,
                 "Co-bubble offset residual " + residual.ToString("F4", CultureInfo.InvariantCulture)
@@ -17444,6 +18619,7 @@ namespace Parsek.InGameTests
             bool hit = Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
                 peerId, midUT,
                 out Vector3d worldOffset,
+                out double blend,
                 out Parsek.Rendering.CoBubbleBlendStatus status,
                 out string resolvedPrimary);
             InGameAssert.IsTrue(hit,
@@ -17451,6 +18627,9 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(resolvedPrimary == primaryId,
                 "Resolved primary id mismatch");
             // Peer-side trace stores -offsetBA, so worldOffset ≈ -offsetBA.
+            // Mid-window samples sit in the steady region with blend=1.0.
+            InGameAssert.IsTrue(blend >= 0.999,
+                "Mid-window blend expected 1.0; got " + blend.ToString("F3", CultureInfo.InvariantCulture));
             double residual = (worldOffset + offsetBA).magnitude;
             InGameAssert.IsTrue(residual < tolerance,
                 "Co-bubble peer offset residual " + residual.ToString("F4", CultureInfo.InvariantCulture)

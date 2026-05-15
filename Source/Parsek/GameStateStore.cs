@@ -888,6 +888,87 @@ namespace Parsek
             ParsekLog.Verbose("GameStateStore", $"Cleared {count} baselines");
         }
 
+        internal static int PruneBaselinesAfterUT(
+            double cutoffUT,
+            bool preserveEarliest = true,
+            bool deleteFiles = true)
+        {
+            if (baselines.Count == 0)
+                return 0;
+
+            double earliestUT = double.PositiveInfinity;
+            if (preserveEarliest)
+            {
+                for (int i = 0; i < baselines.Count; i++)
+                {
+                    var candidate = baselines[i];
+                    if (candidate != null && candidate.ut < earliestUT)
+                        earliestUT = candidate.ut;
+                }
+            }
+
+            var removed = new List<GameStateBaseline>();
+            for (int i = baselines.Count - 1; i >= 0; i--)
+            {
+                var baseline = baselines[i];
+                if (baseline == null)
+                    continue;
+
+                bool isEarliest = preserveEarliest
+                    && Math.Abs(baseline.ut - earliestUT) < 0.000001;
+                if (isEarliest || baseline.ut <= cutoffUT)
+                    continue;
+
+                baselines.RemoveAt(i);
+                removed.Add(baseline);
+            }
+
+            if (removed.Count == 0)
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"PruneBaselinesAfterUT: no baselines pruned cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+                return 0;
+            }
+
+            int deletedFiles = 0;
+            if (deleteFiles)
+            {
+                for (int i = 0; i < removed.Count; i++)
+                {
+                    if (TryDeleteBaselineFile(removed[i]))
+                        deletedFiles++;
+                }
+            }
+
+            ParsekLog.Info("GameStateStore",
+                $"PruneBaselinesAfterUT: removed {removed.Count} baseline(s) after cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"preserveEarliest={preserveEarliest} deletedFiles={deletedFiles}");
+            return removed.Count;
+        }
+
+        private static bool TryDeleteBaselineFile(GameStateBaseline baseline)
+        {
+            if (baseline == null)
+                return false;
+
+            string relativePath = RecordingPaths.BuildBaselineRelativePath(baseline.ut);
+            string path = RecordingPaths.ResolveSaveScopedPath(relativePath);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return false;
+
+            try
+            {
+                File.Delete(path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore",
+                    $"PruneBaselinesAfterUT: failed to delete stale baseline '{path}': {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
         #endregion
 
         #region File I/O

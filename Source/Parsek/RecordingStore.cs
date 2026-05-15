@@ -5415,6 +5415,7 @@ namespace Parsek
                 owner.RecordingId);
             int retired = retirementCounts.ForksAdded;
             int retiredOldSides = retirementCounts.OldSidesAdded;
+            int skippedNonImmutableOldSides = retirementCounts.OldSidesSkippedNonImmutable;
             int restoredCount = rollback.RestoredRecordingIds.Count;
 
             // Invalidate the EffectiveState ERS cache. EffectiveState.ComputeERS
@@ -5446,13 +5447,15 @@ namespace Parsek
                 scenario.BumpSupersedeStateVersion();
 
             if ((dropped > 0 || retired > 0 || retiredOldSides > 0
-                    || skippedImmutable > 0 || demotedImmutable > 0)
+                    || skippedImmutable > 0 || demotedImmutable > 0
+                    || skippedNonImmutableOldSides > 0)
                 && !SuppressLogging)
             {
                 ParsekLog.Info("Rewind",
                     $"Rewind supersede rollback: dropped={dropped.ToString(CultureInfo.InvariantCulture)} " +
                     $"retiredForks={retired.ToString(CultureInfo.InvariantCulture)} " +
                     $"retiredOldSides={retiredOldSides.ToString(CultureInfo.InvariantCulture)} " +
+                    $"skippedNonImmutableOldSides={skippedNonImmutableOldSides.ToString(CultureInfo.InvariantCulture)} " +
                     $"restored={restoredCount.ToString(CultureInfo.InvariantCulture)} " +
                     $"skippedImmutable={skippedImmutable.ToString(CultureInfo.InvariantCulture)} " +
                     $"demotedImmutable={demotedImmutable.ToString(CultureInfo.InvariantCulture)} " +
@@ -5484,6 +5487,61 @@ namespace Parsek
         {
             public int ForksAdded;
             public int OldSidesAdded;
+            // Pass-2 old-side retirements skipped because the dropped supersede's
+            // fork was not a non-self-rewound Immutable. The priorTip stays
+            // visible so spawn-at-endpoint replays it. See
+            // docs/dev/plans/fix-tree-rewind-supersede-old-side.md.
+            public int OldSidesSkippedNonImmutable;
+        }
+
+        /// <summary>
+        /// Returns true when at least one dropped relation targeting
+        /// <paramref name="oldSideId"/> as its OldRecordingId has a fork
+        /// (NewRecordingId) resolving to an <see cref="MergeState.Immutable"/>
+        /// recording AND was not flagged as a forced self-rewind drop. That
+        /// configuration represents a permanent (canon) supersede the rewind
+        /// erased, so the priorTip stays retired. Any other configuration —
+        /// non-Immutable fork, forced self-rewound canon, or missing fork —
+        /// returns false so the priorTip can become visible again.
+        ///
+        /// Internal (not private) so the truth-table xUnit covers each branch
+        /// without going through the full live entry point.
+        /// </summary>
+        internal static bool AnyDroppedRelationRetiresPriorTipPermanently(
+            string oldSideId,
+            RewindSupersedeRollbackResult rollback,
+            IReadOnlyDictionary<string, Recording> liveRecordingsById)
+        {
+            if (string.IsNullOrEmpty(oldSideId)
+                || rollback?.DroppedRelations == null
+                || rollback.DroppedRelations.Count == 0)
+                return false;
+
+            for (int i = 0; i < rollback.DroppedRelations.Count; i++)
+            {
+                var rel = rollback.DroppedRelations[i];
+                if (rel == null
+                    || string.IsNullOrEmpty(rel.NewRecordingId)
+                    || !string.Equals(rel.OldRecordingId, oldSideId, StringComparison.Ordinal))
+                    continue;
+
+                // Forced self-rewind on the canon means the user explicitly
+                // undid the canon recording; the priorTip should become the
+                // new visible state, not stay retired.
+                if (rollback.ForcedSelfRewindDropIds != null
+                    && rollback.ForcedSelfRewindDropIds.Contains(rel.NewRecordingId))
+                    continue;
+
+                Recording forkRec;
+                if (liveRecordingsById != null
+                    && liveRecordingsById.TryGetValue(rel.NewRecordingId, out forkRec)
+                    && forkRec != null
+                    && forkRec.MergeState == MergeState.Immutable)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static RewindRetirementCounts EnsureRewindRetirementsForRollback(
@@ -5651,11 +5709,16 @@ namespace Parsek
             // Pass 2 — old side (OldRecordingId of every dropped supersede that
             // was not also a fork). When the rewind lands BEFORE every recording
             // in the rewound subtree, the originals that were superseded by the
-            // (now-retired) fork are themselves "rewound out of existence": they
-            // happened in the future the rewind erased. Without this pass they
-            // re-appear in the recordings table — including a `terminalState=
-            // Destroyed` outcome the user successfully Re-Flew past (see
-            // logs/2026-05-10_1713). Use STRICT `>` against rewindAdjustedUT so
+            // (now-retired) fork are themselves "rewound out of existence" only
+            // when the supersede was a *permanent* (canon Immutable) replacement.
+            // For non-canon supersedes — CommittedProvisional, NotCommitted,
+            // or orphan-fallback drops — the priorTip stays visible: the
+            // supersede was a tentative re-fly attempt the rewind rolled back,
+            // and spawn-at-endpoint replays the original ghost as the active
+            // vessel reaches its endpoint (see
+            // docs/dev/plans/fix-tree-rewind-supersede-old-side.md, and
+            // logs/2026-05-13_2335_kerbal-x-booster-ghost-missing for the
+            // reproduction). Use STRICT `>` against rewindAdjustedUT so
             // recordings whose StartUT equals the rewind boundary stay visible
             // (the "rewind to launch" pattern modeled by
             // DetailedRollback_MultiGenerationalChain_RetiresForksAndRestoresOnlyOrigin).
@@ -5684,6 +5747,24 @@ namespace Parsek
                     || oldSideRec == null
                     || oldSideRec.StartUT <= rewindAdjustedUT)
                 {
+                    continue;
+                }
+
+                // The priorTip only stays permanently retired when at least
+                // one dropped relation targeting it represented a permanent
+                // (canon Immutable, non-self-rewound) supersede. For
+                // non-canon supersedes the rewind rolls them back: the
+                // priorTip is the restored canonical state.
+                if (!AnyDroppedRelationRetiresPriorTipPermanently(
+                        oldSideId, rollback, liveRecordingsById))
+                {
+                    counts.OldSidesSkippedNonImmutable++;
+                    if (!SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            $"Old-side retirement skipped for rec={oldSideId} " +
+                            $"reason=fork-non-immutable " +
+                            $"rewindUT={rewindAdjustedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                            $"(provisional re-fly rolled back; priorTip stays visible for spawn-at-endpoint)");
                     continue;
                 }
 
@@ -6293,6 +6374,19 @@ namespace Parsek
 
         internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe)
         {
+            return TryProbeTrajectorySidecar(path, out probe, quietOnSuccess: false);
+        }
+
+        /// <summary>
+        /// Probes a trajectory sidecar. When <paramref name="quietOnSuccess"/> is
+        /// true, the routine Verbose summary line on a successful supported probe
+        /// is suppressed; Warn lines for unsupported sidecars still fire because
+        /// callers always want to see those (corruption, schema drift, pre-reset
+        /// files). Use the quiet form from diagnostic-only preflights that run
+        /// many times per save (e.g. trajectory-shrinkage warning).
+        /// </summary>
+        internal static bool TryProbeTrajectorySidecar(string path, out TrajectorySidecarProbe probe, bool quietOnSuccess)
+        {
             probe = default(TrajectorySidecarProbe);
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return false;
@@ -6302,10 +6396,13 @@ namespace Parsek
                 bool binaryProbeOk = TrajectorySidecarBinary.TryProbe(path, out probe);
                 if (binaryProbeOk && !SuppressLogging)
                 {
-                    ParsekLog.Verbose("RecordingStore",
-                        $"TryProbeTrajectorySidecar: encoding={probe.Encoding} magic={probe.MagicTag ?? "<none>"} " +
-                        $"version={probe.FormatVersion} generation={probe.SchemaGeneration} " +
-                        $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                    if (!quietOnSuccess)
+                    {
+                        ParsekLog.Verbose("RecordingStore",
+                            $"TryProbeTrajectorySidecar: encoding={probe.Encoding} magic={probe.MagicTag ?? "<none>"} " +
+                            $"version={probe.FormatVersion} generation={probe.SchemaGeneration} " +
+                            $"recording={probe.RecordingId} sidecarEpoch={probe.SidecarEpoch}");
+                    }
                     if (!probe.Supported)
                     {
                         ParsekLog.Warn("RecordingStore",

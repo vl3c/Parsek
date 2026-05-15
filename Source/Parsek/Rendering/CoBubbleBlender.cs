@@ -70,18 +70,26 @@ namespace Parsek.Rendering
 
         /// <summary>
         /// Phase 5 main consumer hook. On <see cref="CoBubbleBlendStatus.Hit"/>
-        /// / <see cref="CoBubbleBlendStatus.HitCrossfade"/>, returns a
-        /// world-frame translation to add to the primary's standalone
-        /// <c>P_render(ut)</c>. The caller MUST evaluate the primary's
-        /// position separately — the blender does not know the primary's
-        /// section index or body context.
+        /// / <see cref="CoBubbleBlendStatus.HitCrossfade"/>, returns the
+        /// un-faded world-frame translation to add to the primary's
+        /// standalone <c>P_render(ut)</c>, plus a <paramref name="blend"/>
+        /// factor in [0,1]. The caller composes the final peer position as
+        /// <c>Lerp(peer_standalone, primary_render + worldOffset, blend)</c>:
+        /// the crossfade fades from peer-standalone (blend=0) up to
+        /// primary+offset (blend=1), so the handoff to
+        /// <see cref="CoBubbleBlendStatus.MissCrossfadeOut"/> past EndUT is
+        /// continuous. The caller MUST evaluate the primary's position
+        /// separately — the blender does not know the primary's section
+        /// index or body context.
         /// </summary>
         internal static bool TryEvaluateOffset(
             string peerRecordingId, double ut,
-            out Vector3d worldOffset, out CoBubbleBlendStatus status,
+            out Vector3d worldOffset, out double blend,
+            out CoBubbleBlendStatus status,
             out string primaryRecordingId)
         {
             worldOffset = Vector3d.zero;
+            blend = 0.0;
             status = CoBubbleBlendStatus.MissNotInTrace;
             primaryRecordingId = null;
 
@@ -98,8 +106,24 @@ namespace Parsek.Rendering
                 return false;
             }
 
-            // Recursion guard — primaries always render standalone (§6.5).
-            if (RenderSessionState.IsPrimary(peerRecordingId))
+            // Purely-primary short-circuit — a recording that is ONLY ever a
+            // primary renders standalone (§6.5) and never queries the
+            // blender. The check is PAIR-SPECIFIC, not global: a recording
+            // in a multi-tier formation can be the designated primary for
+            // one pair AND a peer of another (e.g. the middle stage of a
+            // three-way split). Globally rejecting any recording that is a
+            // primary somewhere wrongly forced those middle recordings to
+            // standalone and dropped their own co-bubble offset. So only
+            // short-circuit when the recording is a primary AND never itself
+            // a peer (no designated primary of its own to blend against).
+            // This is not a cycle defense: a primary CYCLE in the assignment
+            // map (A→B and B→A) is structurally prevented upstream —
+            // CoBubblePrimarySelector writes exactly one (peer→primary) row
+            // per pair via a deterministic strict ordering, so the map is a
+            // DAG. The status enum keeps the legacy MissRecursionGuard name
+            // for log/dashboard continuity.
+            if (RenderSessionState.IsPrimary(peerRecordingId)
+                && !RenderSessionState.TryGetDesignatedPrimary(peerRecordingId, out _))
             {
                 status = CoBubbleBlendStatus.MissRecursionGuard;
                 return false;
@@ -121,16 +145,8 @@ namespace Parsek.Rendering
                 RenderSessionState.NotifyCoBubbleTraceMiss(peerRecordingId, "no-trace");
                 return false;
             }
-            CoBubbleOffsetTrace match = null;
-            for (int i = 0; i < traces.Count; i++)
-            {
-                CoBubbleOffsetTrace t = traces[i];
-                if (t == null) continue;
-                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
-                if (ut < t.StartUT || ut > t.EndUT + CoBubbleConfiguration.Default.CrossfadeDurationSeconds) continue;
-                match = t;
-                break;
-            }
+            double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
+            CoBubbleOffsetTrace match = SelectTraceForUT(traces, primaryRecordingId, ut, crossfade);
             if (match == null)
             {
                 status = CoBubbleBlendStatus.MissOutsideWindow;
@@ -180,9 +196,12 @@ namespace Parsek.Rendering
             // re-emission when subsequent samples enter the steady region.
             RenderSessionState.NotifyCoBubbleWindowEnter(peerRecordingId, primaryRecordingId, match.StartUT);
 
-            // Within-window blend factor (crossfade at exit).
-            double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
-            double blend = 1.0;
+            // Within-window blend factor (crossfade at exit). The caller
+            // composes peer position as Lerp(peer_standalone, primary+offset,
+            // blend), so blend=1 keeps the steady-region behavior and blend=0
+            // hands off to peer-standalone with the same world pose the
+            // post-EndUT MissCrossfadeOut path resolves to.
+            blend = 1.0;
             bool isCrossfade = false;
             if (ut > match.EndUT)
             {
@@ -192,13 +211,33 @@ namespace Parsek.Rendering
                     match.EndUT, "crossfade-tail");
                 return false;
             }
-            if (ut > match.EndUT - crossfade && crossfade > 0)
+            double exitFadeDuration = crossfade;
+            double windowDuration = match.EndUT - match.StartUT;
+            if (windowDuration > 0.0 && windowDuration < exitFadeDuration)
+                exitFadeDuration = windowDuration;
+
+            bool inExitFadeRegion = ut > match.EndUT - exitFadeDuration && exitFadeDuration > 0;
+            if (inExitFadeRegion)
             {
-                double tail = (match.EndUT - ut) / crossfade;
-                if (tail < 0.0) tail = 0.0;
-                if (tail > 1.0) tail = 1.0;
-                blend = tail;
-                isCrossfade = true;
+                bool hasContiguousSuccessor = HasContiguousSuccessor(traces, primaryRecordingId, match);
+                if (hasContiguousSuccessor)
+                {
+                    string boundary = match.EndUT.ToString("R", CultureInfo.InvariantCulture);
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "cobubble-contiguous-exit-fade-suppressed-" + peerRecordingId + "-" + primaryRecordingId + "-" + boundary,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "contiguous-exit-fade-suppressed peer={0} primary={1} boundaryUT={2} blend=1.000",
+                            peerRecordingId, primaryRecordingId, boundary),
+                        5.0);
+                }
+                else
+                {
+                    double tail = (match.EndUT - ut) / exitFadeDuration;
+                    if (tail < 0.0) tail = 0.0;
+                    if (tail > 1.0) tail = 1.0;
+                    blend = tail;
+                    isCrossfade = true;
+                }
             }
 
             // Sample the trace at ut (linear interpolation between bracket UTs).
@@ -242,7 +281,12 @@ namespace Parsek.Rendering
                     primaryFrameOffset, body, ut);
             }
 
-            worldOffset = worldFrameOffset * blend;
+            // Return the UN-FADED offset; the caller applies the blend by
+            // lerping between peer-standalone and (primary + worldOffset).
+            // Pre-multiplying here would re-introduce the crossfade-tail
+            // discontinuity (blend=0 → peer rendered at primary, snapping
+            // away from primary on the next MissCrossfadeOut frame).
+            worldOffset = worldFrameOffset;
             status = isCrossfade ? CoBubbleBlendStatus.HitCrossfade : CoBubbleBlendStatus.Hit;
 
             // P2-D: per §19.2 Stage 5, log every crossfade frame at Verbose
@@ -258,6 +302,69 @@ namespace Parsek.Rendering
                     5.0);
             }
             return true;
+        }
+
+        private static CoBubbleOffsetTrace SelectTraceForUT(
+            IList<CoBubbleOffsetTrace> traces,
+            string primaryRecordingId,
+            double ut,
+            double crossfade)
+        {
+            CoBubbleOffsetTrace activeMatch = null;
+            CoBubbleOffsetTrace tailMatch = null;
+            double activeStartUT = double.NegativeInfinity;
+            double tailEndUT = double.NegativeInfinity;
+
+            for (int i = 0; i < traces.Count; i++)
+            {
+                CoBubbleOffsetTrace t = traces[i];
+                if (t == null) continue;
+                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
+
+                // Active coverage wins over an older trace's crossfade tail.
+                // Adjacent windows are common after structural splits; letting
+                // the previous tail shadow the next active window renders one
+                // or more standalone frames, then snaps back to full co-bubble.
+                if (ut >= t.StartUT && ut <= t.EndUT)
+                {
+                    if (t.StartUT >= activeStartUT)
+                    {
+                        activeMatch = t;
+                        activeStartUT = t.StartUT;
+                    }
+                    continue;
+                }
+
+                if (crossfade <= 0.0) continue;
+                if (ut > t.EndUT && ut <= t.EndUT + crossfade && t.EndUT >= tailEndUT)
+                {
+                    tailMatch = t;
+                    tailEndUT = t.EndUT;
+                }
+            }
+
+            return activeMatch ?? tailMatch;
+        }
+
+        private static bool HasContiguousSuccessor(
+            IList<CoBubbleOffsetTrace> traces,
+            string primaryRecordingId,
+            CoBubbleOffsetTrace match)
+        {
+            if (match == null) return false;
+
+            const double BoundaryEpsilonSeconds = 1e-6;
+            for (int i = 0; i < traces.Count; i++)
+            {
+                CoBubbleOffsetTrace t = traces[i];
+                if (t == null || object.ReferenceEquals(t, match)) continue;
+                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
+                if (t.EndUT <= match.EndUT + BoundaryEpsilonSeconds) continue;
+                if (Math.Abs(t.StartUT - match.EndUT) <= BoundaryEpsilonSeconds)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
