@@ -111,7 +111,19 @@ Suggested fields:
 
 The marker should be serialized with `ParsekScenario` while the attempt is active or pending. It is the authority for segment-scoped discard after save/reload.
 
-The new segment recording should carry `CreatingSessionId = SessionId`. That gives discard, sidecar cleanup, and event purge a direct ownership predicate without inferring everything from topology.
+### Recording ownership field: do not overload `CreatingSessionId`
+
+`Recording.CreatingSessionId` is already owned by Re-Fly sessions and is load-bearing in `LoadTimeSweep` (zombie NotCommitted discard and RP reap matching), `MergeJournalOrchestrator` (supersede/tombstone copy, RP reaper), `MergeDialog.TryDiscardActiveReFlyAttempt` (provisional cleanup), and `ParsekFlight` provisional-recording detection. Any non-empty value is currently interpreted as Re-Fly session output.
+
+Stamping a switch-segment recording with `CreatingSessionId` would silently expose it to all of those paths and can corrupt the Re-Fly merge journal under save/reload. The implementation must therefore add a separate ownership field on `Recording`:
+
+- `Recording.SwitchSegmentSessionId` (new, default `null`).
+- Serialized through the existing recording codec and `ParsekScenario.OnSave` / `OnLoad`.
+- Carried by `Recording.DeepClone` next to the existing `CreatingSessionId` / `SupersedeTargetId` / `ProvisionalForRpId` copy block.
+- Discard, sidecar cleanup, and event purge match by `SwitchSegmentSessionId == SwitchSegmentSession.SessionId`, not by `CreatingSessionId`.
+- `CreatingSessionId` stays exclusively Re-Fly's field; no implementation step in this plan should write or check it.
+
+Wherever this plan previously said "stamp / match by `CreatingSessionId`", read "stamp / match by `SwitchSegmentSessionId`".
 
 ## Segment Creation
 
@@ -126,7 +138,7 @@ The helper should:
 3. Create a new `Recording` with a new GUID.
 4. Set vessel identity from the focused live vessel.
 5. Set start time to the switch UT and capture an initial boundary sample so the segment is not empty.
-6. Set `CreatingSessionId` to the active `SwitchSegmentSession.SessionId`.
+6. Set `SwitchSegmentSessionId` to the active `SwitchSegmentSession.SessionId`. Do not touch `CreatingSessionId`.
 7. Attach the segment under the selected parent recording via a branch point.
 8. Set `tree.ActiveRecordingId` to the new segment ID.
 9. Remove the live vessel PID from background-recorder maps after the parent boundary flush, if present.
@@ -149,15 +161,15 @@ Branch type audit for implementation:
 
 ### Parent Selection Risk
 
-The on-disk model stores a list of `BranchPoint` objects with `ParentRecordingIds` and `ChildRecordingIds` arrays, so the type itself does not enforce one child per recording. Some chain walkers, codec paths, and recording fields may still assume a single continuation tip or pick one leaf when multiple candidates exist.
+`Recording.ChildBranchPointId` is a single `string` field (`null` on leaves). A recording can therefore reference at most one outgoing branch point; many call sites assign it directly (`parentRecording.ChildBranchPointId = bp.Id;` in `ParsekFlight.cs`, `BackgroundRecorder.cs`, breakup paths, etc.). A `BranchPoint`'s `ChildRecordingIds` is a list and can fan out to many child recordings, but that fan-out belongs to one branch event (Dock/Undock/Breakup/etc.). Reusing an existing branch point's child list for an unrelated switch-continuation would conflate two different branch semantics.
 
 Implementation policy:
 
-1. Never attach a switch continuation directly to a non-terminal historical recording.
-2. Resolve the focused vessel to exactly one terminal leaf in the matched recording's descendant chain, using live vessel PID/materialized spawn identity and existing parent/child relations.
-3. Attach the new segment under that terminal leaf when exactly one safe candidate exists.
+1. Never attach a switch continuation directly to a non-terminal historical recording, and never overwrite or repurpose its existing `ChildBranchPointId`.
+2. Walk forward from the matched recording through `ChildBranchPointId` / branch-point `ChildRecordingIds` to resolve the focused vessel to terminal-leaf candidates, using live vessel PID / materialized spawn identity to pick the chain that represents that vessel.
+3. Attach the new segment under a unique terminal leaf (`ChildBranchPointId == null`) by creating a new `VesselSwitchContinuation` branch point and setting the leaf's `ChildBranchPointId` to its id.
 4. If zero or multiple terminal candidates match, start a standalone switch segment and log `ambiguous-parent-start-standalone` with the candidate IDs. This preserves the requested immediate auto-record behavior without corrupting or surprising the historical tree.
-5. Do not overwrite any existing branch point references or rely on a single-child assumption until the chain-walker behavior has been audited.
+5. Audit chain walkers (`GhostChainWalker`, codec paths, `EffectiveState` consumers) once the new branch type lands to confirm they treat `VesselSwitchContinuation` as non-claiming and traverse it correctly.
 
 ## Behavior by Entry Path
 
@@ -212,7 +224,7 @@ Suggested flow in `MergeDialog.MergeDiscard`:
 Switch-segment discard should remove:
 
 - `ActiveSegmentRecordingId`.
-- Any recording with `CreatingSessionId == SessionId`.
+- Any recording with `SwitchSegmentSessionId == SessionId`.
 - Any descendant recording/branch point created after the session started.
 - Attempt-owned sidecar files.
 - Attempt-owned game-state events and contract snapshots.
@@ -245,7 +257,7 @@ Implementation should narrow all affected #866 suppression/save sites when `Swit
 1. Same-ID event tails for original committed recording IDs remain suppressed until Merge.
 2. New recording IDs owned by `SwitchSegmentSession` are not suppressed merely because a committed-tree restore attempt is armed.
 3. The switch marker must be saved before or atomically with marker-owned event persistence, so a later reload can either continue the pending segment or purge it on Discard.
-4. Discard purges marker-owned events and contract snapshots by `CreatingSessionId` and owned recording IDs.
+4. Discard purges marker-owned events and contract snapshots by `SwitchSegmentSessionId` and owned recording IDs.
 5. Save-time milestone/pending-event flush deferral must also be narrowed. The current #866 behavior defers milestone flushing while a committed-tree restore attempt is active; that is correct for same-ID unmerged restore tails, but marker-owned new segment events must not remain memory-only across F5/save/reload.
 6. The implementation can either allow marker-owned new-ID milestone/event flushes after the marker is durable, or persist the marker-owned pending milestone state with the active segment marker. It must preserve #866 same-ID tail protection while making the switch segment reloadable.
 7. Dirty sidecar skip must distinguish original committed-overlap recordings from marker-owned new segment recordings. Original committed sidecars stay protected before Merge; marker-owned new segment sidecars must be durable enough for F5/save/reload.
@@ -275,7 +287,7 @@ Required behavior:
 8. Save-time pending-event and milestone flush behavior must not lose marker-owned new-ID events just because the #866 committed-tree restore attempt is also active.
 9. Tracking Station Fly intent survives save/F5 while still in TRACKSTATION before FLIGHT loads, or clears with a logged stale-intent reason and no immediate auto-start.
 
-For new segment IDs, do not blindly apply the #866 same-ID event-tail suppression. The segment is real pending state and must survive save/reload if the marker survives. The discard path should purge by `CreatingSessionId` and segment IDs instead.
+For new segment IDs, do not blindly apply the #866 same-ID event-tail suppression. The segment is real pending state and must survive save/reload if the marker survives. The discard path should purge by `SwitchSegmentSessionId` and segment IDs instead.
 
 ## Dialog and UI Copy
 
@@ -329,7 +341,7 @@ Runtime/in-game tests or manual test script:
 ## Implementation Order
 
 1. Add the plan/todo docs and review this design before code changes.
-2. Add the `SwitchSegmentSession` marker and serialization tests.
+2. Add the `SwitchSegmentSession` marker and the new `Recording.SwitchSegmentSessionId` field (codec round-trip, `DeepClone`, scenario save/load) with serialization tests.
 3. Add the pure tree helper for switch continuation segment creation with topology tests.
 4. Extend the known Tracking Station `SpaceTracking.FlyVessel` patch to arm serialized intent on non-ghost passthrough.
 5. Identify and test the narrow stock Map Switch intent source; do not use `FlightGlobals.SetActiveVessel`.
