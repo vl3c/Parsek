@@ -212,9 +212,14 @@ namespace Parsek.Rendering
                     match.EndUT, "crossfade-tail");
                 return false;
             }
-            if (!hasContiguousSuccessor && ut > match.EndUT - crossfade && crossfade > 0)
+            double exitFadeDuration = crossfade;
+            double windowDuration = match.EndUT - match.StartUT;
+            if (windowDuration > 0.0 && windowDuration < exitFadeDuration)
+                exitFadeDuration = windowDuration;
+
+            if (!hasContiguousSuccessor && ut > match.EndUT - exitFadeDuration && exitFadeDuration > 0)
             {
-                double tail = (match.EndUT - ut) / crossfade;
+                double tail = (match.EndUT - ut) / exitFadeDuration;
                 if (tail < 0.0) tail = 0.0;
                 if (tail > 1.0) tail = 1.0;
                 blend = tail;
