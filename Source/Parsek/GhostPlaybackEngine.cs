@@ -247,6 +247,7 @@ namespace Parsek
             }
 
             string recordingId = traj.RecordingId;
+            // Defend against future trajectory/flag pairing drift.
             return !string.IsNullOrWhiteSpace(recordingId)
                 && string.Equals(recordingId, flags.recordingId, StringComparison.Ordinal)
                 && !string.Equals(recordingId, originRecordingId, StringComparison.Ordinal)
