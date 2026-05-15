@@ -5,18 +5,23 @@ using System.Text;
 namespace Parsek
 {
     /// <summary>
-    /// Pre-transition merge dialog (Re-Fly variant) preview of whether the
-    /// merge will trigger auto-seal of the slot, and the player-attributable
+    /// Re-Fly merge dialog (both the pre-transition 4-arg
+    /// <see cref="MergeDialog.ShowTreeDialog"/> overload and the deferred
+    /// post-transition 1-arg overload) preview of whether the merge will
+    /// trigger auto-seal of the slot, plus the player-attributable
     /// reason(s). Mirrors a subset of the production classifier in
-    /// <see cref="SupersedeCommit"/>: detects the cases that are reliable
-    /// from live state (Ledger.Actions for science, tree topology for
-    /// structural mutations, live <see cref="Vessel.Situations"/> for
-    /// stable terminals).
+    /// <see cref="SupersedeCommit"/>: detects the cases reachable from
+    /// the recording's own state - <c>Ledger.Actions</c> for science,
+    /// tree topology for structural mutations, the recording's
+    /// <c>TerminalStateValue</c> AND (when available) the live
+    /// <see cref="Vessel.Situations"/> for stable / hard-safety
+    /// terminals.
     ///
-    /// <para>Read-only and conservative: false negatives over false positives.
-    /// When the preview cannot determine seal, the dialog falls back to the
-    /// default "permanently to the timeline" copy. The production classifier
-    /// runs at finalize and seals correctly regardless of what the preview
+    /// <para>Read-only and conservative: false negatives over false
+    /// positives. When the preview cannot determine seal, the dialog
+    /// renders the no-seal copy ("Do you want to commit this Re-Fly
+    /// attempt to the timeline?"). The production classifier runs at
+    /// finalize and seals correctly regardless of what the preview
     /// said.</para>
     /// </summary>
     internal enum ReFlyAutoSealReason
@@ -28,11 +33,13 @@ namespace Parsek
         KerbalEva,             // BranchPointType.EVA
         PartBrokeOff,          // BranchPointType.JointBreak
         VesselBrokeUp,         // BranchPointType.Breakup
-        DockedWithAnother,     // live vessel.situation == DOCKED -> IsHardSafetyTerminal
-        Landed,                // live vessel.situation == LANDED  -> stableTerminalFocusSlot
-        SplashedDown,          // live vessel.situation == SPLASHED -> stableTerminalFocusSlot
-        StableOrbit,           // live vessel.situation == ORBITING && PeR > atmosphere
-        SubOrbitalArc,         // live vessel.situation == SUB_ORBITAL or decaying ORBITING
+        DockedWithAnother,     // DOCKED situation (live) or TerminalState.Docked (recorded) -> IsHardSafetyTerminal
+        VesselRecovered,       // TerminalState.Recovered -> IsHardSafetyTerminal
+        KerbalBoarded,         // TerminalState.Boarded -> IsHardSafetyTerminal
+        Landed,                // LANDED situation (live) or TerminalState.Landed (recorded) -> stableTerminalFocusSlot
+        SplashedDown,          // SPLASHED situation (live) or TerminalState.Splashed (recorded) -> stableTerminalFocusSlot
+        StableOrbit,           // ORBITING situation && PeR > atmosphere (live) or TerminalState.Orbiting (recorded) -> stableTerminalFocusSlot
+        SubOrbitalArc,         // SUB_ORBITAL situation (live) or TerminalState.SubOrbital (recorded) -> stableTerminalFocusSlot
     }
 
     /// <summary>
@@ -106,6 +113,8 @@ namespace Parsek
                 case ReFlyAutoSealReason.PartBrokeOff:       return "broke off a part";
                 case ReFlyAutoSealReason.VesselBrokeUp:      return "the vessel broke up";
                 case ReFlyAutoSealReason.DockedWithAnother:  return "docked with another vessel";
+                case ReFlyAutoSealReason.VesselRecovered:    return "the vessel was recovered";
+                case ReFlyAutoSealReason.KerbalBoarded:      return "the kerbal boarded another vessel";
                 case ReFlyAutoSealReason.Landed:             return "landed";
                 case ReFlyAutoSealReason.SplashedDown:       return "splashed down";
                 case ReFlyAutoSealReason.StableOrbit:        return "reached a stable orbit";
@@ -185,6 +194,21 @@ namespace Parsek
                     ? liveActiveVessel
                     : null;
             CollectLiveVesselReasons(reFlyVessel, reasons);
+
+            // Recorded-terminal fallback. Production seals on the recording's
+            // own terminal via stableTerminalFocusSlot (Orbiting / SubOrbital
+            // / Landed / Splashed; UnfinishedFlightClassifier:241) and
+            // stableTerminal + IsHardSafetyTerminal (Recovered / Docked;
+            // SupersedeCommit:1017-1019, 1052-1062). The deferred merge
+            // fallback (ShowTreeDialog's 1-arg overload, fired in Space
+            // Center / Tracking Station / re-entered flight when the
+            // pre-transition dialog was missed) cannot rely on
+            // FlightGlobals.ActiveVessel for terminal signal, so derive the
+            // reason from the finalized recording too. In pre-transition the
+            // recording is still being produced so TerminalStateValue is
+            // typically null - the live-vessel proxy above is the source.
+            // Duplicates de-dup via AddIfMissing.
+            CollectRecordedTerminalReasons(liveProvisional, reasons);
 
             SortReasonsByGroup(reasons);
 
@@ -317,7 +341,62 @@ namespace Parsek
             }
         }
 
-        private static void AddIfMissing(
+        private static void CollectRecordedTerminalReasons(
+            Recording reFlyRec,
+            List<ReFlyAutoSealReason> reasons)
+        {
+            if (reFlyRec == null) return;
+            TerminalState? terminal = reFlyRec.TerminalStateValue;
+            if (!terminal.HasValue) return;
+            switch (terminal.Value)
+            {
+                case TerminalState.Landed:
+                    AddIfMissing(reasons, ReFlyAutoSealReason.Landed);
+                    break;
+                case TerminalState.Splashed:
+                    AddIfMissing(reasons, ReFlyAutoSealReason.SplashedDown);
+                    break;
+                case TerminalState.Orbiting:
+                    AddIfMissing(reasons, ReFlyAutoSealReason.StableOrbit);
+                    break;
+                case TerminalState.SubOrbital:
+                    AddIfMissing(reasons, ReFlyAutoSealReason.SubOrbitalArc);
+                    break;
+                case TerminalState.Docked:
+                    AddIfMissing(reasons, ReFlyAutoSealReason.DockedWithAnother);
+                    break;
+                case TerminalState.Recovered:
+                    AddIfMissing(reasons, ReFlyAutoSealReason.VesselRecovered);
+                    break;
+                case TerminalState.Boarded:
+                    // Production seals on Boarded via IsHardSafetyTerminal
+                    // (SupersedeCommit:1052-1062). The structural classifier
+                    // cannot be relied on as a fallback here:
+                    // SupersedeCommit.IsStructuralBranchPointType excludes
+                    // BranchPointType.Board (and Dock), and the upstream EVA
+                    // BP that produced the kerbal recording is typically in
+                    // marker.PreSessionBranchPointIds so the structural scan
+                    // skips it too. Map directly.
+                    AddIfMissing(reasons, ReFlyAutoSealReason.KerbalBoarded);
+                    break;
+                // Destroyed: no seal here - the upstream Re-Fly
+                // retry-on-crash flow (UnfinishedFlightClassifier returns
+                // "crashed", SupersedeCommit short-circuits before
+                // IsHardSafetyTerminal) handles it outside this method.
+            }
+        }
+
+        /// <summary>
+        /// Append <paramref name="reason"/> to <paramref name="reasons"/>
+        /// only when it is not already present. Used to de-dup contributions
+        /// from the live-vessel proxy and the recorded-terminal classifier
+        /// when both fire for the same outcome (e.g. live vessel Landed +
+        /// recording's TerminalStateValue Landed = one Landed entry, not
+        /// two). Internal so the dedup contract can be pinned in xUnit
+        /// without needing a Unity live-vessel fake to exercise the
+        /// live+recorded crossing.
+        /// </summary>
+        internal static void AddIfMissing(
             List<ReFlyAutoSealReason> reasons, ReFlyAutoSealReason reason)
         {
             for (int i = 0; i < reasons.Count; i++)
@@ -334,7 +413,7 @@ namespace Parsek
         /// <list type="number">
         ///   <item><description>Science group: TransmittedScience, RecoveredScience, EarnedScience</description></item>
         ///   <item><description>Structural group: Undocked, KerbalEva, PartBrokeOff, VesselBrokeUp</description></item>
-        ///   <item><description>Live terminal group: DockedWithAnother, Landed, SplashedDown, StableOrbit, SubOrbitalArc</description></item>
+        ///   <item><description>Terminal group: DockedWithAnother, VesselRecovered, KerbalBoarded, Landed, SplashedDown, StableOrbit, SubOrbitalArc</description></item>
         /// </list>
         /// </summary>
         private static void SortReasonsByGroup(List<ReFlyAutoSealReason> reasons)
@@ -354,6 +433,8 @@ namespace Parsek
                 case ReFlyAutoSealReason.PartBrokeOff:       return 220;
                 case ReFlyAutoSealReason.VesselBrokeUp:      return 230;
                 case ReFlyAutoSealReason.DockedWithAnother:  return 300;
+                case ReFlyAutoSealReason.VesselRecovered:    return 305;
+                case ReFlyAutoSealReason.KerbalBoarded:      return 307;
                 case ReFlyAutoSealReason.Landed:             return 310;
                 case ReFlyAutoSealReason.SplashedDown:       return 320;
                 case ReFlyAutoSealReason.StableOrbit:        return 330;

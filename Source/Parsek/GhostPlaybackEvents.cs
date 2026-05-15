@@ -137,6 +137,9 @@ namespace Parsek
         /// <summary>Vessel persistent ID (for event payloads and logging).</summary>
         public uint vesselPersistentId;
 
+        /// <summary>Host-approved row eligibility for render-only session-suppression carve-outs.</summary>
+        public bool sessionSuppressedRenderCarveOutEligible;
+
         /// <summary>Transient Re-Fly settle/FloatingOrigin stability hold; hide-only gate.</summary>
         public bool anchorReFlyUnstable;
     }
