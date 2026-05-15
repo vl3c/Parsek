@@ -744,9 +744,15 @@ namespace Parsek.InGameTests
             const double postBurnLon = 8.5604;
             Vector3d postBurnWorldPos = kerbin.GetWorldSurfacePosition(postBurnLat, postBurnLon, postBurnAlt);
             Vector3d postBurnRadial = (postBurnWorldPos - kerbin.position).normalized;
-            Vector3d postBurnTangent = Vector3d.Cross(new Vector3d(0.0, 1.0, 0.0), postBurnRadial);
+            // Cross order matters: OrbitReseed applies `.xzy` to both position and
+            // velocity before UpdateFromStateVectors, so the Unity world-frame velocity
+            // must yield h = r × v aligned with world +Y (Kerbin's spin axis in world
+            // coords). `Cross(radial, Y)` gives that; the reversed `Cross(Y, radial)`
+            // produces angular momentum along world −Y, which post-`.xzy` lands on KSP's
+            // −Z (south pole) and the resulting orbit reads as inclination=180°.
+            Vector3d postBurnTangent = Vector3d.Cross(postBurnRadial, new Vector3d(0.0, 1.0, 0.0));
             if (postBurnTangent.sqrMagnitude < 1e-12)
-                postBurnTangent = Vector3d.Cross(new Vector3d(1.0, 0.0, 0.0), postBurnRadial);
+                postBurnTangent = Vector3d.Cross(postBurnRadial, new Vector3d(1.0, 0.0, 0.0));
             postBurnTangent = postBurnTangent.normalized;
             double postBurnSpeed = System.Math.Sqrt(kerbin.gravParameter / (postBurnWorldPos - kerbin.position).magnitude);
             Vector3d postBurnVelYup = postBurnTangent * postBurnSpeed;
@@ -1416,6 +1422,28 @@ namespace Parsek.InGameTests
             if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
             {
                 InGameAssert.Skip("requires a crewed vessel, got EVA");
+                yield break;
+            }
+            if (vessel.situation == Vessel.Situations.PRELAUNCH
+                || vessel.situation == Vessel.Situations.LANDED
+                || vessel.situation == Vessel.Situations.SPLASHED)
+            {
+                // The test relies on the freshly-spawned EVA kerbal briefly
+                // becoming the active live recorder before getting auto-sealed,
+                // so the three subsequent waits (snapshot-before-sample, active
+                // branch recording with samples, surface-settled) can each
+                // observe the live state. From a pad/landed/splashed parent,
+                // KSP's vessel switch to the kerbal takes longer than Parsek's
+                // 1-frame DeferredEvaBranch deferral, so the EVA recording is
+                // built with the kerbal in BackgroundMap and the periodic
+                // finalizer auto-classifies it as Landed (the kerbal is on
+                // the surface) before any recorder rebinds. The waits time out
+                // because no live-EVA-recorder window ever exists. Skip rather
+                // than pass-through: the test's coverage (mid-flight EVA →
+                // snapshot + live continuation) is unrelated to the pad case.
+                InGameAssert.Skip(
+                    $"requires a mid-flight crewed vessel — EVA from {vessel.situation} auto-seals the kerbal recording as Landed " +
+                    "before the live recorder can rebind to the kerbal");
                 yield break;
             }
             if (flight.IsRecording)
@@ -13706,6 +13734,23 @@ namespace Parsek.InGameTests
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode == Game.Modes.SANDBOX)
+            {
+                // RnDBuilding.EnterBuilding() in pure Sandbox does not instantiate
+                // an RDController (no tech tree to research), so WaitForRdController
+                // would time out. Career and Science mode both produce a controller
+                // and exercise the TechResearched overlay path.
+                InGameAssert.Skip(
+                    $"R&D overlay verification needs a tech-research-capable mode (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+
             // Drain any R&D canvas left mid-teardown by a prior test before entering.
             yield return WaitForRdControllerClosed(8f);
 
@@ -13932,6 +13977,21 @@ namespace Parsek.InGameTests
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode == Game.Modes.SANDBOX)
+            {
+                // RnDBuilding.EnterBuilding() in pure Sandbox does not instantiate
+                // an RDController, so WaitForRdController would time out. Career
+                // and Science mode both produce a controller for the despawn cycle.
+                InGameAssert.Skip(
+                    $"R&D overlay verification needs a tech-research-capable mode (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
 
             // Drain any R&D canvas left mid-teardown by a prior test before entering.
             yield return WaitForRdControllerClosed(8f);

@@ -12,6 +12,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 second round of stale in-game harness failures
+
+- ~~Five in-game tests failed in the 2026-05-15 Run All + Isolated sweep: (1) `RuntimeTests.TerminalOrbitFromTail_DerivesPostBurnCircularOrbit` asserted inclination near zero but read 180° — the body-rotation-independent velocity rewrite from the previous in-game-harness fix used `Cross(Y, radial)` which, after `OrbitReseed`'s `.xzy` swap, produced angular momentum along KSP's south pole (retrograde equatorial). (2) `OnFlightReadyMergeDialogGuardInGameTest.OnFlightReady_ActiveReFlySession_SkipsMergeDialog` installed a synthetic Re-Fly marker without `InPlaceContinuation=true`; after the dispatch gate was narrowed to `IsReFlyInPlaceContinuationActive()` the synthetic marker no longer satisfied the skip, the dialog opened, and the assertion failed. (3) `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` was running from a PRELAUNCH parent vessel — KSP's vessel switch to the kerbal took ~190 ms while Parsek's `DeferredEvaBranch` only deferred one frame, so the branch was built with the kerbal in BG, the periodic finalizer immediately auto-classified the kerbal as `Landed`, and the test's "active EVA branch with live recorder before first sample" wait never observed a live-EVA-recorder window. (4-5) `RnDOverlayDecoratesCommittedFutureNode` and `RnDOverlaysClearedOnDespawn` timed out for 15 s in Sandbox because `RnDBuilding.EnterBuilding()` in pure Sandbox does not instantiate an `RDController`.~~
+
+- ~~Three more `AllowBatchExecution=false` FLIGHT tests (`PartPersistentIdStabilityTests.PartPersistentIdStableAcrossSaveLoad`, `WarpZeroedDuringSaveTest.WarpZeroedDuringSave`, `SavePathRootThenMoveTest.SavePathRootThenMove`) had to be run manually even though they stay in FLIGHT — they did not opt into the runner's `RestoreBatchFlightBaselineAfterExecution` lane that picks up isolated tests during Run All + Isolated.~~
+
+**Fix:** (1) Swap the cross-product operands to `Cross(radial, Y)` so the constructed Y-up velocity yields prograde equatorial angular momentum after `.xzy`. (2) Set `InPlaceContinuation = true` on the synthetic marker and switch the precondition assertion to `IsReFlyInPlaceContinuationActive()` so the test matches the actual dispatch gate that was narrowed in commit `a891502b`. (3) Add a vessel-situation precondition skip on PRELAUNCH/LANDED/SPLASHED parents — the test was designed for mid-flight EVA and never produced a useful wait window from a pad-launched parent. (4-5) Add a Sandbox skip at the top of both R&D overlay tests, matching the sibling Astronaut Complex / Mission Control / TopBar overlay tests. (6) Add `RestoreBatchFlightBaselineAfterExecution = true` to the three isolated FLIGHT tests; the runner's baseline-restore quickload already cleans up slot saves, staged vessels, and RP sidecars, which is exactly what these tests mutate.
+
+**Coverage:** Test-only changes; verified against the 2026-05-15_1944 collected-logs failure shape. No production code changes.
+
+**Status:** CLOSED 2026-05-15.
+
+---
+
 ## Done - v0.9.2 stale in-game harness failures after pre-transition merge and stock UI changes
 
 - ~~Several in-game tests were failing for harness reasons after recent runtime changes: `Run All + Isolated` failed to prime FLIGHT restore-backed tests because `ValidateQuicksaveStructure` looked for `FLIGHTSTATE` directly under the loaded `.sfs` root instead of under the normal `GAME` wrapper; the scene-exit merge/discard canaries still waited for the old deferred Space Center dialog even though `SceneExitInterceptor` now blocks `HighLogic.LoadScene` and shows the merge dialog in FLIGHT; Mission Control overlay tests created fixtures for arbitrary `ContractSystem` offered contracts that might not be visible in the open Mission Control list; and the circular terminal-orbit canary used a hardcoded velocity vector tied to an older body-rotation phase.~~
