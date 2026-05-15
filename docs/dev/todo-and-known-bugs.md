@@ -74,6 +74,34 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Controlled child background samples used one-tick-stale Vessel LLA
+
+- ~~During the May 14 Kerbal X upper-stage Re-Fly, the probe-booster ghost started several metres farther from the live upper stage than it did during the probe-booster Re-Fly. The first split seed was correct, but the next ordinary background samples for the controlled child were not.~~
+
+**Root cause:** [PR #832](https://github.com/vl3c/Parsek/pull/832) fixed `FlightRecorder.BuildTrajectoryPoint` by deriving foreground lat/lon/alt from `vessel.transform.position` instead of stale `Vessel.latitude/longitude/altitude`. The controlled-child probe was recorded by `BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel` after separation. Its first seed used the fresh root-part/split path, but ordinary loaded/unpacked background samples with `preferRootPartSurfacePose=false` still read the Vessel LLA fields. The May 14 trace showed `BG_CreateAbs` for the probe with `worldFromLLA` about 6.9 m away from `transformPos` on the samples immediately after the correct seed, while the foreground upper-stage samples stayed near zero delta.
+
+**Fix:** Loaded/unpacked ordinary background samples now match the foreground recorder and derive LLA from `vessel.transform.position` through `body.GetLatitude/Longitude/Altitude`. Packed/on-rails samples keep the Vessel-field fallback, and parent-anchored debris still uses the root-part surface-pose path so the debris visual-root contract is unchanged.
+
+**Coverage:** Headless build and the existing recorder contracts cover the compile-time surface. `RuntimeTests.ControlledChildBreakupSeed_LogsLiveResidualDecision` now temporarily enables Trace-Sep during its isolated staging run and asserts that the first ordinary loaded/unpacked `BG_CreateAbs` sample reports `llaSource=transform` with a sub-0.5 m transform round-trip delta. Fresh-recording in-game validation in `logs/2026-05-15_0134_refly-distance-fixed-weird-motion` confirmed the ordinary `Kerbal X Probe` background samples now log `llaSource=transform` with `|delta|=0.009`, and the upper-stage/probe-stage Re-Fly initial distances are no longer the old stale-LLA separation. Already-written stale `.prec` sidecars from the May 14 repro remain uncorrectable by playback-only changes.
+
+**Status:** CLOSED 2026-05-15.
+
+---
+
+## Open - v0.9.2 Re-Fly co-bubble crossfade-tail jump during later playback
+
+- Fresh PR #856 validation fixed the initial Re-Fly distance bug, but the user observed some ghosts moving oddly for 1-2 seconds later in the session. Source: `logs/2026-05-15_0134_refly-distance-fixed-weird-motion/KSP.log`.
+
+**Evidence:** In both upper-stage Re-Fly attempts, the visible probe-booster ghost `9b2de358728d4fdc96aad539aaac0324` jumps when the co-bubble blend window exits at `exitUT=52.629591217043689`: line 18948 / 18949 logs `Blend window exit ... reason=crossfade-tail` followed by `GhostRenderTrace ... dM=1066.12 expectedDM=17.39`; the retry repeats at line 23736 / 23737 with `dM=1109.60 expectedDM=5.80`. Immediately after the exit, `UpdatePath` reports `coBubbleReason=MissCrossfadeOut` and falls back to standalone `PointInterp`, so this is not the initial separation/activation distance bug. The lower/probe Re-Fly also has large later `AfterUpdate` spikes on debris recordings around lines 30178-30198, 40828, 58061-58071, and 65689, likely requiring the same co-bubble/standalone continuity audit.
+
+**Debris rendering note:** During the upper-stage Re-Fly windows, only the probe-booster recording `9b2de358...` produced `GhostRenderTrace phase=AfterUpdate`; `PositionDebris` count was zero and there were no `Kerbal X Debris` explosion FX rows. The saved tree parents the small debris recordings to the re-flown upper-stage root `d44417c806774577899ec639d8833976` (`debrisParentRecordingId=d44417c8...`), while the visible probe-booster has no debris children. This explains why the small debris/explosions did not appear in that upper-stage Re-Fly, but the design question remains whether those root-owned debris should stay suppressed when the visible sibling probe-booster ghost is present.
+
+**Next investigation:** Reproduce with ghost render tracing enabled and inspect `CoBubbleBlender` / primary-selection lifetime around a trace window's tail. The fix should preserve positional continuity when a co-bubble window expires: either the peer should keep a stable co-bubble/anchor relationship through the relevant overlap, or the crossfade-out handoff to standalone playback must land on the same world pose instead of jumping by the primary/standalone disagreement.
+
+**Status:** OPEN.
+
+---
+
 ## Open - v0.9.2 Re-Fly child ghosts drift off the re-flown vessel (PR #850 follow-up — partially addressed)
 
 - After the Root Re-Fly fix above made `AnchorPropagator.Run` fire on the in-place continuation path, fresh captures (`logs/2026-05-14_1952_refly-init-pos-diff/KSP.log`) showed the decoupled `Kerbal X Probe` ghost STILL drifting away from the re-flown upper stage. The propagator ran but did no useful work: every in-place-continuation `DAG walk summary` logged `edgesVisited=0 edgesPropagated=0`.
