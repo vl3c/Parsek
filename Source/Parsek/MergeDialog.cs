@@ -145,13 +145,11 @@ namespace Parsek
             // Re-fly merge: a marker is active and the dialog is asking the
             // player to lock in the re-flight as the canonical entry. Show
             // the re-flight recording's own vessel name + duration (not the
-            // whole-tree summary used for ordinary tree merges) and a one-
-            // line warning that the commit cannot be undone. The supersede
-            // / ghost-of-retired-attempt / kerbal-deaths-reversed paragraph
-            // we used to show was misleading on the in-place continuation
-            // path (no separate retired attempt exists, no ghost playback,
-            // tombstones not reversed in v1) so we drop the advisory and
-            // keep the dialog short and unambiguous instead.
+            // whole-tree summary used for ordinary tree merges) and a short
+            // question body. An unsealed committed Re-Fly remains re-
+            // rewindable so no "cannot be undone" tail is needed here; the
+            // pre-transition auto-seal path is the only branch that warns
+            // about permanence.
             var reFlyScenario = ParsekScenario.Instance;
             string message;
             if (!object.ReferenceEquals(null, reFlyScenario)
@@ -165,8 +163,8 @@ namespace Parsek
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(tree);
-                message = $"<align=\"center\">{vesselLabel} - {FormatDuration(reFlyDuration)}</align>\n\n" +
-                          "<align=\"left\">Do you want to commit this Re-Fly attempt to the timeline?</align>";
+                message = BuildPostTransitionReFlyMessage(
+                    vesselLabel, reFlyDuration);
             }
             else
             {
@@ -496,10 +494,28 @@ namespace Parsek
             }
 
             string reasons = preview.FormatHumanReadable();
+            // Auto-seal flips MergeState to Immutable and closes the rewind
+            // slot, so this branch *is* the irreversible one - keep a short
+            // terminal warning even though the no-seal branch dropped it.
             return headline +
                 "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
                 $"will be merged AND auto-sealed</b> for the following " +
-                $"reason(s): {reasons}.</align>";
+                $"reason(s): {reasons}. This cannot be undone.</align>";
+        }
+
+        /// <summary>
+        /// Composes the post-transition Re-Fly merge dialog body shown by
+        /// <see cref="ShowTreeDialog"/> once the Re-Fly marker is active.
+        /// Extracted for unit-testability - the dialog spawn requires Unity
+        /// but the body string itself is data-driven.
+        /// </summary>
+        internal static string BuildPostTransitionReFlyMessage(
+            string vesselLabel, double reFlyDuration)
+        {
+            return $"<align=\"center\">{vesselLabel} - " +
+                   $"{FormatDuration(reFlyDuration)}</align>\n\n" +
+                   "<align=\"left\">Do you want to commit this Re-Fly " +
+                   "attempt to the timeline?</align>";
         }
 
         private static string FormatClearReason(string reason)

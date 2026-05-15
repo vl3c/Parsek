@@ -455,7 +455,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildBody_AutoSeal_SingleReason_IncludesReasonAndSlotWarning()
+        public void BuildBody_AutoSeal_SingleReason_IncludesReasonAndUndoWarning()
         {
             var preview = new ReFlyAutoSealPreviewResult
             {
@@ -468,6 +468,10 @@ namespace Parsek.Tests
             Assert.Contains("If not discarded, this Re-Fly attempt", body);
             Assert.Contains("merged AND auto-sealed", body);
             Assert.Contains("for the following reason(s): transmitted science.",
+                body);
+            Assert.Contains("This cannot be undone", body);
+            Assert.DoesNotContain("slot will become permanent", body);
+            Assert.DoesNotContain("not be able to Re-Fly this line of flight",
                 body);
         }
 
@@ -499,6 +503,21 @@ namespace Parsek.Tests
             string body = MergeDialog.BuildReFlyDialogBody(
                 "MyShip", 65.0, preview);
             Assert.Contains("<align=\"center\">MyShip - ", body);
+        }
+
+        // ---------- BuildPostTransitionReFlyMessage ---------------------
+
+        [Fact]
+        public void BuildPostTransitionReFlyMessage_AsksToCommit_NoUndoWarning()
+        {
+            string body = MergeDialog.BuildPostTransitionReFlyMessage(
+                "TestVessel", 123.0);
+            Assert.Contains("<align=\"center\">TestVessel - ", body);
+            Assert.Contains("Do you want to commit this Re-Fly attempt", body);
+            Assert.Contains("to the timeline", body);
+            Assert.DoesNotContain("cannot be undone", body);
+            Assert.DoesNotContain("permanently", body);
+            Assert.DoesNotContain("auto-sealed", body);
         }
 
         // ---------- ShouldUseLiveVesselForReFlyTarget (pid match) -------
