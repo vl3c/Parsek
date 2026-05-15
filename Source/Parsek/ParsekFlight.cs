@@ -19208,7 +19208,7 @@ namespace Parsek
                     + " coBubbleHit=" + (coBubbleHit ? "true" : "false")
                     + " coBubblePrimary=" + (coBubblePrimaryId ?? "<none>")
                     + " coBubbleOffset=" + GhostRenderTrace.FormatVector3d(coBubbleHit ? coBubbleOffset : Vector3d.zero)
-                    + " coBubbleBlend=" + (coBubbleHit ? coBubbleBlend : 0.0).ToString("F3", CultureInfo.InvariantCulture)
+                    + " coBubbleBlend=" + (coBubbleHit ? coBubbleBlend.ToString("F3", CultureInfo.InvariantCulture) : "<n/a>")
                     + " coBubbleReason=" + coBubbleReason
                     + " final=" + GhostRenderTrace.FormatVector3d(interpolatedPos)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
