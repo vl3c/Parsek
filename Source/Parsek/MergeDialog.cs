@@ -145,26 +145,46 @@ namespace Parsek
             // Re-fly merge: a marker is active and the dialog is asking the
             // player to lock in the re-flight as the canonical entry. Show
             // the re-flight recording's own vessel name + duration (not the
-            // whole-tree summary used for ordinary tree merges) and a short
-            // question body. An unsealed committed Re-Fly remains re-
-            // rewindable so no "cannot be undone" tail is needed here; the
-            // pre-transition auto-seal path is the only branch that warns
-            // about permanence.
+            // whole-tree summary used for ordinary tree merges) and route
+            // the body through the same auto-seal preview the pre-transition
+            // path uses - this deferred fallback can still finalize via
+            // TryCommitReFlySupersede and auto-seal the slot Immutable, so
+            // the auto-seal copy + "cannot be undone" tail must appear here
+            // too when the preview classifies the attempt as sealable.
             var reFlyScenario = ParsekScenario.Instance;
             string message;
             if (!object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveReFlySessionMarker != null)
             {
-                Recording reFlyRec = FindReFlyRecording(
-                    reFlyScenario.ActiveReFlySessionMarker, tree);
+                var marker = reFlyScenario.ActiveReFlySessionMarker;
+                Recording reFlyRec = FindReFlyRecording(marker, tree);
                 string vesselLabel = reFlyRec != null
                     ? (reFlyRec.VesselName ?? tree.TreeName ?? "<unnamed>")
                     : (tree.TreeName ?? "<unnamed>");
                 double reFlyDuration = reFlyRec != null
                     ? System.Math.Max(0.0, reFlyRec.EndUT - reFlyRec.StartUT)
                     : ComputeTreeDurationRange(tree);
-                message = BuildPostTransitionReFlyMessage(
-                    vesselLabel, reFlyDuration);
+
+                // Preview.NoSeal is the safe fallback when reFlyRec is null
+                // (rec missing from the pending tree AND the committed list -
+                // FindReFlyRecording returned null). Preview's null-guard
+                // would also collapse to NoSeal but skipping the call avoids
+                // a CollectRecordingIdsForSafetyGate walk on a null. Live
+                // vessel may legitimately be null in Space Center / Tracking
+                // Station fallback - Preview tolerates it (skips the live-
+                // terminal reasons; science + structural reasons still fire).
+                ReFlyAutoSealPreviewResult preview = reFlyRec != null
+                    ? ReFlyAutoSealPreviewer.Preview(
+                        reFlyRec, marker, FlightGlobals.ActiveVessel)
+                    : ReFlyAutoSealPreviewResult.NoSeal();
+                message = BuildReFlyDialogBody(
+                    vesselLabel, reFlyDuration, preview);
+
+                ParsekLog.Info("MergeDialog",
+                    $"Re-Fly auto-seal preview (post-transition): " +
+                    $"willSeal={preview.WillAutoSeal} " +
+                    $"reasons=[{string.Join(",", preview.Reasons)}] " +
+                    $"sess={marker.SessionId ?? "<no-id>"}");
             }
             else
             {
@@ -470,12 +490,14 @@ namespace Parsek
             => ParsekTimeFormat.FormatDuration(seconds);
 
         /// <summary>
-        /// Composes the pre-transition Re-Fly merge dialog body. Pure
-        /// helper for unit-testability - the callable
-        /// <see cref="ShowTreeDialog"/> 4-arg overload spawns a
-        /// <see cref="PopupDialog"/> which requires Unity runtime, but
-        /// the body string itself is data-driven and worth pinning in
-        /// xUnit. Callers pass a precomputed
+        /// Composes the Re-Fly merge dialog body. Shared by the pre-
+        /// transition <see cref="ShowTreeDialog"/> 4-arg overload and the
+        /// deferred post-transition 1-arg overload - both paths can land
+        /// in <c>TryCommitReFlySupersede</c> and auto-seal, so both must
+        /// render the auto-seal warning when the preview classifies the
+        /// attempt as sealable. Pure helper for unit-testability: the
+        /// dialog spawn requires Unity runtime, but the body string is
+        /// data-driven. Callers pass a precomputed
         /// <see cref="ReFlyAutoSealPreviewResult"/>; this method only
         /// formats it.
         /// </summary>
@@ -501,21 +523,6 @@ namespace Parsek
                 "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
                 $"will be merged AND auto-sealed</b> for the following " +
                 $"reason(s): {reasons}. This cannot be undone.</align>";
-        }
-
-        /// <summary>
-        /// Composes the post-transition Re-Fly merge dialog body shown by
-        /// <see cref="ShowTreeDialog"/> once the Re-Fly marker is active.
-        /// Extracted for unit-testability - the dialog spawn requires Unity
-        /// but the body string itself is data-driven.
-        /// </summary>
-        internal static string BuildPostTransitionReFlyMessage(
-            string vesselLabel, double reFlyDuration)
-        {
-            return $"<align=\"center\">{vesselLabel} - " +
-                   $"{FormatDuration(reFlyDuration)}</align>\n\n" +
-                   "<align=\"left\">Do you want to commit this Re-Fly " +
-                   "attempt to the timeline?</align>";
         }
 
         private static string FormatClearReason(string reason)

@@ -505,21 +505,6 @@ namespace Parsek.Tests
             Assert.Contains("<align=\"center\">MyShip - ", body);
         }
 
-        // ---------- BuildPostTransitionReFlyMessage ---------------------
-
-        [Fact]
-        public void BuildPostTransitionReFlyMessage_AsksToCommit_NoUndoWarning()
-        {
-            string body = MergeDialog.BuildPostTransitionReFlyMessage(
-                "TestVessel", 123.0);
-            Assert.Contains("<align=\"center\">TestVessel - ", body);
-            Assert.Contains("Do you want to commit this Re-Fly attempt", body);
-            Assert.Contains("to the timeline", body);
-            Assert.DoesNotContain("cannot be undone", body);
-            Assert.DoesNotContain("permanently", body);
-            Assert.DoesNotContain("auto-sealed", body);
-        }
-
         // ---------- ShouldUseLiveVesselForReFlyTarget (pid match) -------
 
         [Fact]
