@@ -12,6 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - v0.9.2 Map/Tracking Station switch/Fly auto-record should create a segment-scoped continuation
+
+**Status:** PLANNING 2026-05-15. Plan: `docs/dev/plans/segment-scoped-switch-fly-autorecord.md`.
+
+**Issue:** PR #866 fixed the data-loss bug by making committed spawned-vessel restore copy-on-write, but explicit stock Map view "Switch To" and Tracking Station "Fly" still need a better recording model. Those actions should immediately start a new recording segment with a distinct ID instead of resuming an existing committed/background recording ID. The merge dialog should be scoped to that new segment; choosing Discard must remove only the switch/Fly attempt and preserve committed timeline recordings, sidecars, and game-state history.
+
+**Acceptance:** Confirmed stock Map Switch and Tracking Station Fly actions to a previously spawned committed vessel both auto-start a new segment, while generic vessel switches without that explicit intent do not. Merge commits that segment as a continuation, and Discard returns the recordings window/timeline to the exact pre-switch committed count. F5/F9 and save/reload during a pending switch/Fly segment preserve or clear only the segment attempt according to the loaded save, never the committed history.
+
+---
+
 ## Done - v0.9.2 Auto-generated group disambiguation collided with the count badge in the recordings table
 
 - ~~Launching a second vessel named "Kerbal X" produced an auto-generated mission group called `Kerbal X (2)`. The recordings-table button label is rendered as `{groupName} ({memberCount})` (see `RecordingsTableUI.cs:1839`, `:2368`), so the second mission's row showed up as `Kerbal X (2) (3)` — two parenthesised numbers side by side, one a mission index and one a recording count, with nothing in the label distinguishing them. Debris subgroups inherited the same ambiguity: `Kerbal X (2) / Debris (7)`.~~
