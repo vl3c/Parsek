@@ -2471,6 +2471,21 @@ namespace Parsek
         /// <see cref="OnBackgroundPhysicsFrame"/> iterations cannot touch its
         /// <see cref="Recording.ExplicitEndUT"/> or sample the inert remnant. Called
         /// after <see cref="Recording.MarkDestroyedAtTerminal"/> seals the verdict.
+        ///
+        /// <para>
+        /// Scope is intentionally limited to the four primary BG-state dicts.
+        /// Debris-specific dictionaries (<c>pendingDebrisSeedParentAnchorPoints</c>,
+        /// <c>debrisTTLExpiry</c>, <c>preBreakVesselPidSnapshots</c>,
+        /// <c>pendingBackgroundSplitChecks</c>) are not drained here because the
+        /// identity-loss override only fires on non-debris recordings
+        /// (<c>IsDebris == false</c>), and those dicts are populated only on the
+        /// debris paths. If a future non-debris destruction path needs draining,
+        /// expand this helper rather than duplicating the logic at the call site.
+        /// Logged at Verbose to avoid doubling Info-level output: this is a
+        /// downstream consequence of the Info-level
+        /// <see cref="Recording.MarkDestroyedAtTerminal"/> entry that fires
+        /// immediately before.
+        /// </para>
         /// </summary>
         private void RetireDestroyedBackgroundEntry(uint pid, string recordingId, double terminalUT)
         {
@@ -2478,7 +2493,7 @@ namespace Parsek
             onRailsStates.Remove(pid);
             loadedStates.Remove(pid);
             finalizationCaches.Remove(pid);
-            ParsekLog.Info("BgRecorder",
+            ParsekLog.Verbose("BgRecorder",
                 $"Retired BG tracking for destroyed remnant: pid={pid} rec={recordingId} " +
                 $"terminalUT={terminalUT.ToString("F2", CultureInfo.InvariantCulture)}");
         }
@@ -2612,11 +2627,16 @@ namespace Parsek
             // out-of-band path that called MarkDestroyedAtTerminal), skip the
             // finalization-cache refresh and just clean up the leftover BG state.
             // The cache refresh would otherwise advance the terminal verdict.
+            // Drain the same set of dictionaries the fall-through path drains
+            // (including pending-initial overrides/points) so this short-circuit
+            // doesn't leak state for a pid KSP may reuse.
             if (IsBackgroundRecordingDestroyed(recordingId))
             {
                 onRailsStates.Remove(pid);
                 loadedStates.Remove(pid);
                 finalizationCaches.Remove(pid);
+                pendingInitialEnvironmentOverrides.Remove(pid);
+                pendingInitialTrajectoryPoints.Remove(pid);
                 tree.BackgroundMap.Remove(pid);
                 ParsekLog.Info("BgRecorder",
                     $"OnBackgroundVesselWillDestroy: cleared BG state for already-destroyed recording " +

@@ -576,14 +576,22 @@ namespace Parsek
             TerminalOrbitMeanAnomalyAtEpoch = 0.0;
             TerminalOrbitEpoch = 0.0;
 
+            // Clear the human-readable situation strings — leaving stale values like
+            // "Landed on Kerbin" alongside a Destroyed terminal would surface in the
+            // recordings UI (Timeline/TimelineBuilder reads VesselSituation directly).
+            // SceneExitSituation is similarly out-of-date for a vessel that never
+            // reached scene exit cleanly.
+            VesselSituation = null;
+            SceneExitSituation = -1;
+
             MarkFilesDirty();
 
             if (!wasAlreadyDestroyed)
             {
                 ParsekLog.Info("Recording",
-                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "MarkDestroyedAtTerminal: rec={0} terminalUT={1:F2} source={2}",
-                        RecordingId ?? "(null)", terminalUT, source ?? "(none)"));
+                    $"MarkDestroyedAtTerminal: rec={RecordingId ?? "(null)"} " +
+                    $"terminalUT={terminalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"source={source ?? "(none)"}");
             }
         }
 

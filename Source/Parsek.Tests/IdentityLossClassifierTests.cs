@@ -185,6 +185,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MarkDestroyedAtTerminal_ClearsVesselSituationAndSceneExitSituation()
+        {
+            // Opus review [M1]: leaving stale "Landed on Kerbin" / "Orbiting Mun" in
+            // VesselSituation alongside a Destroyed terminal would surface in the
+            // recordings UI (Timeline/TimelineBuilder reads VesselSituation directly).
+            // SceneExitSituation is similarly out-of-date for a destroyed vessel.
+            var rec = new Recording
+            {
+                RecordingId = "test-rec-situation-clear",
+                VesselSituation = "Landed on Kerbin",
+                SceneExitSituation = (int)Vessel.Situations.LANDED
+            };
+
+            rec.MarkDestroyedAtTerminal(400.0, "test-source");
+
+            Assert.Null(rec.VesselSituation);
+            Assert.Equal(-1, rec.SceneExitSituation);
+        }
+
+        [Fact]
         public void MarkDestroyedAtTerminal_ClearsStaleTerminalOrbitData()
         {
             // A recording previously classified Orbiting carries terminal-orbit
@@ -664,6 +684,76 @@ namespace Parsek.Tests
             Assert.Equal(terminalUT, rec.ExplicitEndUT);
             Assert.True(rec.VesselDestroyed);
             Assert.Equal(initialOrbitSegments, rec.OrbitSegments.Count);
+        }
+
+        [Fact]
+        public void RecordingOptimizer_MergeInto_SkipsDestroyedTarget()
+        {
+            // Opus review [L2]: RecordingOptimizer.MergeInto unconditionally clears
+            // ExplicitEndUT / ExplicitStartUT at the bottom of the method, which
+            // would break a destroyed recording's sealed terminalUT. Add an
+            // early-return at the top + pin it here.
+            const double terminalUT = 250.0;
+            var target = new Recording { RecordingId = "merge-into-destroyed-target" };
+            target.MarkDestroyedAtTerminal(terminalUT, "test-seed");
+            int initialPointCount = target.Points.Count;
+            int initialPartEvents = target.PartEvents.Count;
+
+            var absorbed = new Recording
+            {
+                RecordingId = "merge-into-absorbed",
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 300.0 },
+                    new TrajectoryPoint { ut = 350.0 }
+                },
+                PartEvents = new List<PartEvent>
+                {
+                    new PartEvent { ut = 320.0, eventType = PartEventType.Destroyed }
+                }
+            };
+
+            string returnedId = RecordingOptimizer.MergeInto(target, absorbed);
+
+            // Target's sealed state must survive the no-op merge.
+            Assert.Equal(terminalUT, target.ExplicitEndUT);
+            Assert.True(target.VesselDestroyed);
+            Assert.Equal(TerminalState.Destroyed, target.TerminalStateValue);
+            Assert.Equal(initialPointCount, target.Points.Count);
+            Assert.Equal(initialPartEvents, target.PartEvents.Count);
+            // Caller pattern: MergeInto returns absorbed's id so the caller can
+            // delete it. Even on the skip path, returning the id keeps that
+            // contract intact.
+            Assert.Equal("merge-into-absorbed", returnedId);
+        }
+
+        [Fact]
+        public void RetiredEntry_DoesNotTriggerBackgroundStateDrift()
+        {
+            // Opus review [L1]: confirm that after the identity-loss + retirement
+            // path runs, the drift warner that iterates BackgroundMap does not
+            // fire a "vessel-gone" or stale-entry false positive for the retired
+            // pid. The retirement is synchronous so this is mostly a
+            // future-proofing pin.
+            const uint pid = 9201u;
+            const string recId = "retired-drift-check";
+
+            var tree = new RecordingTree { Id = "tree-retired-drift" };
+            var rec = new Recording { RecordingId = recId, VesselPersistentId = pid };
+            rec.MarkDestroyedAtTerminal(100.0, "test-seed");
+            tree.Recordings[recId] = rec;
+            // Recording is Destroyed and we never add it to BackgroundMap — the
+            // post-retirement state.
+
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            // Drift warner should observe a consistent (empty) BG-tracking state
+            // and not emit a warning specifically mentioning the retired pid.
+            bgRecorder.WarnIfBackgroundStateDriftForTesting(150.0, "test-post-retirement");
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[BgRecorder]") && l.Contains(pid.ToString())
+                && (l.Contains("drift") || l.Contains("Drift") || l.Contains("DRIFT")));
         }
 
         [Fact]

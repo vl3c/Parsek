@@ -627,6 +627,23 @@ namespace Parsek
         /// </summary>
         internal static string MergeInto(Recording target, Recording absorbed)
         {
+            // Destroyed recordings carry a sealed terminal verdict — VesselDestroyed,
+            // TerminalStateValue=Destroyed, ExplicitEndUT=terminalUT, and cleared
+            // landed/orbital metadata (see Recording.MarkDestroyedAtTerminal). The
+            // unconditional ExplicitEndUT/ExplicitStartUT clear at the bottom of this
+            // method would break the seal, and the per-event/section concatenations
+            // would extend Recording.EndUT past the destruction UT. Skip the merge
+            // entirely — there is nothing to absorb into a sealed recording.
+            if (target != null && target.VesselDestroyed)
+            {
+                ParsekLog.VerboseRateLimited("Optimizer",
+                    $"merge-into-destroyed.{target.RecordingId}",
+                    $"MergeInto: skipping — target is already destroyed " +
+                    $"(target={target.RecordingId}, absorbed={absorbed?.RecordingId ?? "(null)"})",
+                    60.0);
+                return absorbed?.RecordingId;
+            }
+
             bool normalizeEvaBoundaryMerge = CanMergeContinuousEvaAtmoSurfaceBoundary(target, absorbed);
 
             // 1. Concatenate Points (already UT-ordered within each recording)
