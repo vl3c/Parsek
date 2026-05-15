@@ -419,6 +419,13 @@ namespace Parsek
                 recordedGroundClearance = double.NaN
             };
 
+            // Intentionally no Recording.Controllers capture here: this is a
+            // ghost-only parallel-branch continuation (ChainBranch = 1) tied to the
+            // other-vessel undock side. It never enters tree.BackgroundMap (it's a
+            // standalone chain segment, not BG-tracked), so the BG go-on-rails
+            // identity-loss override never sees it and never needs to compare
+            // controller PIDs. The vessel is also documented as ghost-only-never-
+            // spawns; controllable-identity tracking is not load-bearing here.
             var contRec = new Recording
             {
                 VesselName = Recording.ResolveLocalizedName(otherVessel.vesselName) + " (undock continuation)",

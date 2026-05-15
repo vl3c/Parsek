@@ -3208,6 +3208,20 @@ namespace Parsek
             if (string.IsNullOrEmpty(treeRec.LaunchSiteName))
                 treeRec.LaunchSiteName = rec.LaunchSiteName;
 
+            // Forward start-of-recording controller identity onto the tree recording
+            // if it does not already carry it. Critical for the BG go-on-rails
+            // identity-loss override: if the always-tree root was created without
+            // a live vessel and the recorder.StartRecording backstop did not fire
+            // (e.g. the tree ActiveRecordingId was not yet pointed at this rec at
+            // the time), this flush is the final chance to persist the identity
+            // before the recording can be backgrounded.
+            if (treeRec.AdoptControllersIfEmpty(rec.StartControllers))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"FlushRecorderToTreeRecording: forwarded {treeRec.Controllers.Count} controller part(s) " +
+                    $"from recorder to tree recording '{recId}'");
+            }
+
             ApplyFinalSegmentPhaseFromCapture(
                 treeRec,
                 tree.ActiveRecordingId,
@@ -3933,6 +3947,9 @@ namespace Parsek
             rec.RewindReservedRep = captured.RewindReservedRep;
             rec.CopyStartLocationFrom(captured);
             rec.EndBiome = captured.EndBiome;
+            rec.Controllers = captured.Controllers != null
+                ? new List<ControllerInfo>(captured.Controllers)
+                : null;
 
             if (captured.VesselDestroyed)
             {
@@ -4398,6 +4415,12 @@ namespace Parsek
             bgChild.GhostVisualSnapshot = bgSnapshot;
             bgChild.VesselSnapshot = bgSnapshot != null ? bgSnapshot.CreateCopy() : null;
 
+            // Pin the start-of-recording controller identity for each child from the
+            // live split-moment vessel. Pure-factory boundary kept clean by capturing
+            // here rather than threading Vessel into BuildSplitBranchData.
+            activeChild.Controllers = ControllerInfo.CaptureFromVessel(activeVessel);
+            bgChild.Controllers = ControllerInfo.CaptureFromVessel(backgroundVessel);
+
             // Set ChildBranchPointId on parent recording
             if (parentRecording != null)
                 parentRecording.ChildBranchPointId = bp.Id;
@@ -4568,6 +4591,11 @@ namespace Parsek
             activeChild.VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null;
             bgChild.GhostVisualSnapshot = bgSnapshot;
             bgChild.VesselSnapshot = bgSnapshot != null ? bgSnapshot.CreateCopy() : null;
+
+            // Pin the start-of-recording controller identity for each child from the
+            // live split-moment vessel (background-parent EVA branch path).
+            activeChild.Controllers = ControllerInfo.CaptureFromVessel(activeVessel);
+            bgChild.Controllers = ControllerInfo.CaptureFromVessel(backgroundVessel);
 
             string previousActiveRecordingId = activeTree.ActiveRecordingId;
             string previousParentChildBranchPointId = parentRecording.ChildBranchPointId;
@@ -5881,7 +5909,12 @@ namespace Parsek
                 ParentBranchPointId = breakupBp.Id,
                 ExplicitStartUT = breakupBp.UT,
                 IsDebris = isDebris,
-                Generation = parentGeneration + 1
+                Generation = parentGeneration + 1,
+                // Pin start-of-recording controller identity from the live breakup-moment
+                // vessel. Null when the vessel was destroyed during the coalescing
+                // window (no controllable identity to lose anyway — the breakup child
+                // already carries TerminalStateValue=Destroyed in that path).
+                Controllers = ControllerInfo.CaptureFromVessel(vessel)
             };
             // PR 3b: stamp the v13 debris parent-anchor contract on the new child
             // Recording. The breakup branch point's ParentRecordingIds list can have
@@ -8211,7 +8244,11 @@ namespace Parsek
                 TreeId = activeTree.Id,
                 VesselPersistentId = v.persistentId,
                 VesselName = Recording.ResolveLocalizedName(v.vesselName) ?? v.vesselName ?? "Unknown",
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                // Pin start-of-recording controller identity for the fresh post-switch
+                // root so a later BG go-on-rails identity-loss check has the original
+                // controllable-part PIDs to compare against.
+                Controllers = ControllerInfo.CaptureFromVessel(v)
             };
 
             ConfigNode startSnapshot = VesselSpawner.TryBackupSnapshot(v);
@@ -10505,7 +10542,14 @@ namespace Parsek
                     TreeId = treeId,
                     VesselPersistentId = vesselPid,
                     VesselName = activeTree.TreeName,
-                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                    // Pin start-of-recording controller identity directly on the
+                    // always-tree root. Without this, a switch-away that backgrounds
+                    // the root before recorder.StartRecording's tree-forward backstop
+                    // runs would leave Controllers=null on the BG-tracked record and
+                    // the identity-loss override at OnBackgroundVesselGoOnRails would
+                    // never fire.
+                    Controllers = ControllerInfo.CaptureFromVessel(FlightGlobals.ActiveVessel)
                 };
                 // Capture GhostVisualSnapshot at recording start — the FULL vessel
                 // before any staging or breakup events. This is the snapshot used for
@@ -15009,6 +15053,9 @@ namespace Parsek
                 rec.VesselSnapshot = captureAtStop.VesselSnapshot;
                 rec.TerminalStateValue = captureAtStop.TerminalStateValue;
                 rec.TerminalPosition = captureAtStop.TerminalPosition;
+                rec.Controllers = captureAtStop.Controllers != null
+                    ? new List<ControllerInfo>(captureAtStop.Controllers)
+                    : null;
             }
 
             RecordingStore.CommitGloopsRecording(rec);

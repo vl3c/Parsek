@@ -513,6 +513,104 @@ namespace Parsek
         // and there are no remaining callers gating on standalone-vs-tree.
 
         /// <summary>
+        /// Forwards a list of start-of-recording controllers onto this Recording,
+        /// but only if it does not already carry an identity. Used by the
+        /// recorder-start backstop and the flush-time defensive copy to make sure
+        /// the always-tree root has <see cref="Controllers"/> populated before it
+        /// can be backgrounded, so the BG go-on-rails identity-loss override has
+        /// something to compare against. Returns <c>true</c> when a forward
+        /// actually happened (caller can log it).
+        ///
+        /// <para>
+        /// Controller-capture pattern: factory sites (anywhere a fresh
+        /// <see cref="Recording"/> is allocated paired with a live <see cref="Vessel"/> —
+        /// always-tree root, <c>BuildSplitBranchData</c> callers, fresh-post-switch
+        /// root, <c>CreateBreakupChildRecording</c>, BG parent continuation,
+        /// <c>RegisterChildRecordingsFromSplit</c>, <c>FlightRecorder.BuildCaptureRecording</c>)
+        /// directly assign <see cref="Controllers"/> from <see cref="ControllerInfo.CaptureFromVessel"/>
+        /// because the Recording is brand new and has no prior identity to preserve.
+        /// Forwarding sites (anywhere an already-built Recording's identity is being
+        /// propagated — <c>StartRecording</c>'s recorder-start backstop and
+        /// <c>FlushRecorderToTreeRecording</c>) call this helper to respect the
+        /// no-overwrite contract: once a Recording carries an identity, no later
+        /// capture replaces it.
+        /// </para>
+        /// </summary>
+        internal bool AdoptControllersIfEmpty(IReadOnlyList<ControllerInfo> source)
+        {
+            if (source == null || source.Count == 0)
+                return false;
+            if (Controllers != null && Controllers.Count > 0)
+                return false;
+
+            var copy = new List<ControllerInfo>(source.Count);
+            for (int i = 0; i < source.Count; i++)
+                copy.Add(source[i]);
+            Controllers = copy;
+            return true;
+        }
+
+        /// <summary>
+        /// Centralized "mark this recording as destroyed at <paramref name="terminalUT"/>"
+        /// hygiene helper. Sets the terminal verdict (<see cref="TerminalStateValue"/>,
+        /// <see cref="VesselDestroyed"/>, <see cref="ExplicitEndUT"/>) AND clears every
+        /// surface-terminal field that would otherwise leave the recording in mixed
+        /// state (Destroyed terminal alongside a stale landed surface position,
+        /// terrain height, or endpoint phase). Used by the BG go-on-rails identity-loss
+        /// override (and available to any future destruction-detection seam that needs
+        /// the same hygiene). Idempotent.
+        /// </summary>
+        internal void MarkDestroyedAtTerminal(double terminalUT, string source)
+        {
+            bool wasAlreadyDestroyed = VesselDestroyed
+                && TerminalStateValue == TerminalState.Destroyed;
+
+            VesselDestroyed = true;
+            TerminalStateValue = TerminalState.Destroyed;
+            ExplicitEndUT = terminalUT;
+
+            // Clear surface-terminal data — leaving these set produces contradictory
+            // persisted state (Destroyed + landed SurfacePos) that downstream readers
+            // do not expect.
+            TerminalPosition = null;
+            SurfacePos = null;
+            TerrainHeightAtEnd = double.NaN;
+            EndpointPhase = RecordingEndpointPhase.Unknown;
+            EndpointBodyName = null;
+
+            // Clear terminal-orbit data too. The codec at
+            // `RecordingTreeRecordCodec.cs:41` gates the entire orbital persistence
+            // block on `!string.IsNullOrEmpty(TerminalOrbitBody)`, so nulling the
+            // body field is load-bearing; the numeric resets are belt-and-suspenders.
+            TerminalOrbitBody = null;
+            TerminalOrbitInclination = 0.0;
+            TerminalOrbitEccentricity = 0.0;
+            TerminalOrbitSemiMajorAxis = 0.0;
+            TerminalOrbitLAN = 0.0;
+            TerminalOrbitArgumentOfPeriapsis = 0.0;
+            TerminalOrbitMeanAnomalyAtEpoch = 0.0;
+            TerminalOrbitEpoch = 0.0;
+
+            // Clear the human-readable situation strings — leaving stale values like
+            // "Landed on Kerbin" alongside a Destroyed terminal would surface in the
+            // recordings UI (Timeline/TimelineBuilder reads VesselSituation directly).
+            // SceneExitSituation is similarly out-of-date for a vessel that never
+            // reached scene exit cleanly.
+            VesselSituation = null;
+            SceneExitSituation = -1;
+
+            MarkFilesDirty();
+
+            if (!wasAlreadyDestroyed)
+            {
+                ParsekLog.Info("Recording",
+                    $"MarkDestroyedAtTerminal: rec={RecordingId ?? "(null)"} " +
+                    $"terminalUT={terminalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"source={source ?? "(none)"}");
+            }
+        }
+
+        /// <summary>
         /// Copies persistence/capture artifacts from a stop-time captured recording.
         /// Intentionally does NOT copy Points/OrbitSegments/VesselName, which are
         /// set by CreateRecordingFromFlightData from the current recorder buffers.

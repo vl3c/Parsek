@@ -1397,7 +1397,7 @@ namespace Parsek
         /// pending tree (e.g. a spawn flag the merge produced) win over the
         /// stale prior value.
         /// </summary>
-        private static void PreserveLiveRuntimeFieldsOnReplace(
+        internal static void PreserveLiveRuntimeFieldsOnReplace(
             Recording existing, Recording incoming,
             out bool savePreserved, out int otherPreserved)
         {
@@ -1546,7 +1546,14 @@ namespace Parsek
             }
 
             // Diagnostic peaks / final-state metadata.
-            if (incoming.SceneExitSituation == -1 && existing.SceneExitSituation != -1)
+            // SceneExitSituation: do not resurrect a stale pre-destruction value when
+            // the incoming recording carries a Destroyed terminal. MarkDestroyedAtTerminal
+            // intentionally clears the field to -1, and treating that as "incoming
+            // hasn't set it" would copy stale "Landed/Orbiting" data back over the
+            // sealed Destroyed verdict on every commit/replace cycle.
+            if (incoming.SceneExitSituation == -1
+                && existing.SceneExitSituation != -1
+                && !incoming.VesselDestroyed)
             {
                 incoming.SceneExitSituation = existing.SceneExitSituation;
                 otherPreserved++;
@@ -1567,8 +1574,13 @@ namespace Parsek
                 incoming.VesselDestroyed = true;
                 otherPreserved++;
             }
+            // VesselSituation: same rationale as SceneExitSituation above —
+            // MarkDestroyedAtTerminal clears the human-readable string and a commit
+            // cycle would otherwise copy "Landed on Kerbin" back from the existing
+            // pre-destruction recording.
             if (string.IsNullOrEmpty(incoming.VesselSituation)
-                && !string.IsNullOrEmpty(existing.VesselSituation))
+                && !string.IsNullOrEmpty(existing.VesselSituation)
+                && !incoming.VesselDestroyed)
             {
                 incoming.VesselSituation = existing.VesselSituation;
                 otherPreserved++;
