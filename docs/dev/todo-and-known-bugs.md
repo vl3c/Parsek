@@ -134,6 +134,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~Closed~~ - v0.9.2 Re-Fly co-bubble adjacent-window entry snap
+
+**Evidence:** Follow-up validation for PR #859 found a smaller co-bubble entry jump in `logs/2026-05-15_1930_pr859-refly-both-parts-validation/KSP.log`: line 45176 enters the `1ee61764506f49f2ad887a63667940df` / `d44417c806774577899ec639d8833976` blend window at `startUT=37.689591217041354`, line 45177 renders `coBubbleBlend=1.000`, and line 45178 reports `AfterUpdate ... reason=large-delta dM=43.97 expectedDM=2.75`. The previous frame rendered the same peer standalone with `coBubbleReason=MissCrossfadeOut`, so this was distinct from the old ~1 km final-exit bug.
+
+**Fix:** `CoBubbleBlender.TryEvaluateOffset` now selects an active same-pair trace before considering any older trace's exit crossfade tail, suppresses the old window's exit fade when a same-pair successor starts at the same boundary, and clamps the successor's exit fade to the actual window duration when the window is shorter than the configured crossfade. Adjacent trace windows commonly share a boundary after structural splits; the previous insertion-order scan let the older tail shadow the next active window, forcing standalone rendering until the old tail expired and then snapping back to full `primary + offset`.
+
+**Coverage:** `CoBubbleBlenderTests.TryEvaluateOffset_AdjacentWindowDuringPreviousTail_PrefersActiveNextTrace` pins the log-bundle failure mode by querying inside a previous window's crossfade tail while the next same-pair window is already active. `TryEvaluateOffset_BeforeAdjacentWindow_DoesNotFadeToStandalone` pins the frame immediately before a contiguous successor starts, `TryEvaluateOffset_ShortAdjacentWindow_StartsFullBlendBeforeExitFade` covers adjacent successor windows shorter than the configured crossfade, `TryEvaluateOffset_AtSharedBoundary_PrefersNewWindowFullBlend` pins the exact shared-boundary handoff, `TryEvaluateOffset_OverlappingActiveWindows_PrefersLatestStart` covers unexpected overlapping active traces, and `TryEvaluateOffset_MultipleTailMatches_PrefersLatestEnd` covers tail-match arbitration. The existing final-exit tests continue to cover the no-next-window standalone fallback.
+
+**Status:** CLOSED 2026-05-15.
+
+---
+
 ## ~~Closed~~ - v0.9.2 Re-Fly co-bubble crossfade-tail jump during later playback
 
 - Fresh PR #856 validation fixed the initial Re-Fly distance bug, but the user observed some ghosts moving oddly for 1-2 seconds later in the session. Source: `logs/2026-05-15_0134_refly-distance-fixed-weird-motion/KSP.log`.

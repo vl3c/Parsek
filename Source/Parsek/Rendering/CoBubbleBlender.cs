@@ -145,16 +145,8 @@ namespace Parsek.Rendering
                 RenderSessionState.NotifyCoBubbleTraceMiss(peerRecordingId, "no-trace");
                 return false;
             }
-            CoBubbleOffsetTrace match = null;
-            for (int i = 0; i < traces.Count; i++)
-            {
-                CoBubbleOffsetTrace t = traces[i];
-                if (t == null) continue;
-                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
-                if (ut < t.StartUT || ut > t.EndUT + CoBubbleConfiguration.Default.CrossfadeDurationSeconds) continue;
-                match = t;
-                break;
-            }
+            double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
+            CoBubbleOffsetTrace match = SelectTraceForUT(traces, primaryRecordingId, ut, crossfade);
             if (match == null)
             {
                 status = CoBubbleBlendStatus.MissOutsideWindow;
@@ -209,7 +201,6 @@ namespace Parsek.Rendering
             // blend), so blend=1 keeps the steady-region behavior and blend=0
             // hands off to peer-standalone with the same world pose the
             // post-EndUT MissCrossfadeOut path resolves to.
-            double crossfade = CoBubbleConfiguration.Default.CrossfadeDurationSeconds;
             blend = 1.0;
             bool isCrossfade = false;
             if (ut > match.EndUT)
@@ -220,13 +211,33 @@ namespace Parsek.Rendering
                     match.EndUT, "crossfade-tail");
                 return false;
             }
-            if (ut > match.EndUT - crossfade && crossfade > 0)
+            double exitFadeDuration = crossfade;
+            double windowDuration = match.EndUT - match.StartUT;
+            if (windowDuration > 0.0 && windowDuration < exitFadeDuration)
+                exitFadeDuration = windowDuration;
+
+            bool inExitFadeRegion = ut > match.EndUT - exitFadeDuration && exitFadeDuration > 0;
+            if (inExitFadeRegion)
             {
-                double tail = (match.EndUT - ut) / crossfade;
-                if (tail < 0.0) tail = 0.0;
-                if (tail > 1.0) tail = 1.0;
-                blend = tail;
-                isCrossfade = true;
+                bool hasContiguousSuccessor = HasContiguousSuccessor(traces, primaryRecordingId, match);
+                if (hasContiguousSuccessor)
+                {
+                    string boundary = match.EndUT.ToString("R", CultureInfo.InvariantCulture);
+                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
+                        "cobubble-contiguous-exit-fade-suppressed-" + peerRecordingId + "-" + primaryRecordingId + "-" + boundary,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "contiguous-exit-fade-suppressed peer={0} primary={1} boundaryUT={2} blend=1.000",
+                            peerRecordingId, primaryRecordingId, boundary),
+                        5.0);
+                }
+                else
+                {
+                    double tail = (match.EndUT - ut) / exitFadeDuration;
+                    if (tail < 0.0) tail = 0.0;
+                    if (tail > 1.0) tail = 1.0;
+                    blend = tail;
+                    isCrossfade = true;
+                }
             }
 
             // Sample the trace at ut (linear interpolation between bracket UTs).
@@ -291,6 +302,69 @@ namespace Parsek.Rendering
                     5.0);
             }
             return true;
+        }
+
+        private static CoBubbleOffsetTrace SelectTraceForUT(
+            IList<CoBubbleOffsetTrace> traces,
+            string primaryRecordingId,
+            double ut,
+            double crossfade)
+        {
+            CoBubbleOffsetTrace activeMatch = null;
+            CoBubbleOffsetTrace tailMatch = null;
+            double activeStartUT = double.NegativeInfinity;
+            double tailEndUT = double.NegativeInfinity;
+
+            for (int i = 0; i < traces.Count; i++)
+            {
+                CoBubbleOffsetTrace t = traces[i];
+                if (t == null) continue;
+                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
+
+                // Active coverage wins over an older trace's crossfade tail.
+                // Adjacent windows are common after structural splits; letting
+                // the previous tail shadow the next active window renders one
+                // or more standalone frames, then snaps back to full co-bubble.
+                if (ut >= t.StartUT && ut <= t.EndUT)
+                {
+                    if (t.StartUT >= activeStartUT)
+                    {
+                        activeMatch = t;
+                        activeStartUT = t.StartUT;
+                    }
+                    continue;
+                }
+
+                if (crossfade <= 0.0) continue;
+                if (ut > t.EndUT && ut <= t.EndUT + crossfade && t.EndUT >= tailEndUT)
+                {
+                    tailMatch = t;
+                    tailEndUT = t.EndUT;
+                }
+            }
+
+            return activeMatch ?? tailMatch;
+        }
+
+        private static bool HasContiguousSuccessor(
+            IList<CoBubbleOffsetTrace> traces,
+            string primaryRecordingId,
+            CoBubbleOffsetTrace match)
+        {
+            if (match == null) return false;
+
+            const double BoundaryEpsilonSeconds = 1e-6;
+            for (int i = 0; i < traces.Count; i++)
+            {
+                CoBubbleOffsetTrace t = traces[i];
+                if (t == null || object.ReferenceEquals(t, match)) continue;
+                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
+                if (t.EndUT <= match.EndUT + BoundaryEpsilonSeconds) continue;
+                if (Math.Abs(t.StartUT - match.EndUT) <= BoundaryEpsilonSeconds)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
