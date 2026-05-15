@@ -470,6 +470,7 @@ namespace Parsek.Tests
             Assert.Null(flags.segmentLabel);
             Assert.Null(flags.recordingId);
             Assert.Equal(0u, flags.vesselPersistentId);
+            Assert.False(flags.allowSessionSuppressedCompanionDebrisRender);
             Assert.False(flags.anchorReFlyUnstable);
         }
 
@@ -487,6 +488,7 @@ namespace Parsek.Tests
                 segmentLabel = "Ascent [Kerbin]",
                 recordingId = "abc123",
                 vesselPersistentId = 42,
+                allowSessionSuppressedCompanionDebrisRender = true,
                 anchorReFlyUnstable = true
             };
             Assert.True(flags.skipGhost);
@@ -498,6 +500,7 @@ namespace Parsek.Tests
             Assert.Equal("Ascent [Kerbin]", flags.segmentLabel);
             Assert.Equal("abc123", flags.recordingId);
             Assert.Equal(42u, flags.vesselPersistentId);
+            Assert.True(flags.allowSessionSuppressedCompanionDebrisRender);
             Assert.True(flags.anchorReFlyUnstable);
         }
 

@@ -16643,11 +16643,20 @@ namespace Parsek
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
+                    allowSessionSuppressedCompanionDebrisRender =
+                        AllowsSessionSuppressedCompanionDebrisRender(rec),
                     anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
             LogReFlyAnchorHoldTransitions(frame);
             return flags;
+        }
+
+        internal static bool AllowsSessionSuppressedCompanionDebrisRender(Recording rec)
+        {
+            return rec != null
+                && rec.MergeState != MergeState.NotCommitted
+                && !string.IsNullOrWhiteSpace(rec.RecordingId);
         }
 
         /// <summary>

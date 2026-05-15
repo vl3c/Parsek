@@ -88,13 +88,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly upper-stage pass hid root-owned secondary debris
+
+- ~~During upper-stage Re-Fly, the small side-booster debris recordings did not render and their `Kerbal X Debris` explosion FX never fired. Source: `logs/2026-05-15_0134_refly-distance-fixed-weird-motion`. The save tree parents those debris recordings to the re-flown upper-stage root `d44417c806774577899ec639d8833976`, while the only visible peer in that window was the probe-booster recording `9b2de358728d4fdc96aad539aaac0324`.~~
+
+**Root cause:** The engine's top-level session-suppressed-subtree gate ran before relative/debris positioning. For an in-place upper-stage Re-Fly, `EffectiveState.ComputeSessionSuppressedSubtree` correctly includes the origin root plus its debris children for ERS, merge, and supersede semantics. That same closure was also used as an unconditional render skip, so the old side-booster debris never reached the body-fixed primary debris playback path that can render without the hidden parent ghost.
+
+**Fix:** `GhostPlaybackEngine` now treats origin-owned debris as a render-only companion case when a session-suppressed recording is otherwise about to be skipped: `Recording.IsDebris == true`, `DebrisParentRecordingId == marker.OriginChildRecordingId`, the debris recording id is neither the origin nor the active provisional Re-Fly fork, and the host-computed playback flags confirm the raw committed row is not `MergeState.NotCommitted`. The effective-state closure remains unchanged; this only lets already-committed old companion debris continue into the existing parent-anchored/body-fixed playback and explosion-FX pipeline while the replaced vessel ghost and any still-producing/provisional rows stay hidden.
+
+**Coverage:** `GhostPlaybackEngineTests.ShouldRenderSuppressedCompanionDebris_*` pins the positive origin-owned debris case and rejects non-debris, different-parent debris, the origin row itself, the active fork row, missing/mismatched recording ids, and flag-ineligible rows. `AllowsSessionSuppressedCompanionDebrisRender_*` pins the host-side merge-state gate so `Immutable` / `CommittedProvisional` debris may render while `NotCommitted` debris stays hidden. Targeted `GhostPlaybackEngineTests` passed. Full xUnit excluding `InjectAllRecordings` passed; the all-tests command still hits the expected local KSP-lock blocker because live KSP owns `KSP.log`.
+
+**Status:** CLOSED 2026-05-15.
+
+---
+
 ## Open - v0.9.2 Re-Fly co-bubble crossfade-tail jump during later playback
 
 - Fresh PR #856 validation fixed the initial Re-Fly distance bug, but the user observed some ghosts moving oddly for 1-2 seconds later in the session. Source: `logs/2026-05-15_0134_refly-distance-fixed-weird-motion/KSP.log`.
 
 **Evidence:** In both upper-stage Re-Fly attempts, the visible probe-booster ghost `9b2de358728d4fdc96aad539aaac0324` jumps when the co-bubble blend window exits at `exitUT=52.629591217043689`: line 18948 / 18949 logs `Blend window exit ... reason=crossfade-tail` followed by `GhostRenderTrace ... dM=1066.12 expectedDM=17.39`; the retry repeats at line 23736 / 23737 with `dM=1109.60 expectedDM=5.80`. Immediately after the exit, `UpdatePath` reports `coBubbleReason=MissCrossfadeOut` and falls back to standalone `PointInterp`, so this is not the initial separation/activation distance bug. The lower/probe Re-Fly also has large later `AfterUpdate` spikes on debris recordings around lines 30178-30198, 40828, 58061-58071, and 65689, likely requiring the same co-bubble/standalone continuity audit.
 
-**Debris rendering note:** During the upper-stage Re-Fly windows, only the probe-booster recording `9b2de358...` produced `GhostRenderTrace phase=AfterUpdate`; `PositionDebris` count was zero and there were no `Kerbal X Debris` explosion FX rows. The saved tree parents the small debris recordings to the re-flown upper-stage root `d44417c806774577899ec639d8833976` (`debrisParentRecordingId=d44417c8...`), while the visible probe-booster has no debris children. This explains why the small debris/explosions did not appear in that upper-stage Re-Fly, but the design question remains whether those root-owned debris should stay suppressed when the visible sibling probe-booster ghost is present.
+**Debris rendering note:** The zero-`PositionDebris` / missing secondary-debris FX symptom from the upper-stage window is tracked separately above and no longer blocks this investigation. The remaining issue is the later crossfade-tail continuity jump.
 
 **Next investigation:** Reproduce with ghost render tracing enabled and inspect `CoBubbleBlender` / primary-selection lifetime around a trace window's tail. The fix should preserve positional continuity when a co-bubble window expires: either the peer should keep a stable co-bubble/anchor relationship through the relevant overlap, or the crossfade-out handoff to standalone playback must land on the same world pose instead of jumping by the primary/standalone disagreement.
 
