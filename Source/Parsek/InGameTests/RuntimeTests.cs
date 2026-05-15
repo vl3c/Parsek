@@ -18431,6 +18431,7 @@ namespace Parsek.InGameTests
             bool hit = Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
                 peerId, midUT,
                 out Vector3d worldOffset,
+                out double blend,
                 out Parsek.Rendering.CoBubbleBlendStatus status,
                 out string resolvedPrimary);
 
@@ -18438,6 +18439,7 @@ namespace Parsek.InGameTests
                 "Pipeline_CoBubble_Live: status="
                 + status
                 + " primary=" + (resolvedPrimary ?? "<null>")
+                + " blend=" + blend.ToString("F3", CultureInfo.InvariantCulture)
                 + " worldOffset=("
                 + worldOffset.x.ToString("F4", CultureInfo.InvariantCulture) + ","
                 + worldOffset.y.ToString("F4", CultureInfo.InvariantCulture) + ","
@@ -18447,6 +18449,9 @@ namespace Parsek.InGameTests
                 "CoBubbleBlender.TryEvaluateOffset miss for live-primary peer — status=" + status);
             InGameAssert.IsTrue(resolvedPrimary == primaryId,
                 "Resolved primary id mismatch: expected " + primaryId + " got " + (resolvedPrimary ?? "<null>"));
+            // Mid-window samples sit in the steady region with blend=1.0.
+            InGameAssert.IsTrue(blend >= 0.999,
+                "Mid-window blend expected 1.0; got " + blend.ToString("F3", CultureInfo.InvariantCulture));
             double residual = (worldOffset - recordedOffset).magnitude;
             InGameAssert.IsTrue(residual < tolerance,
                 "Co-bubble offset residual " + residual.ToString("F4", CultureInfo.InvariantCulture)
@@ -18549,6 +18554,7 @@ namespace Parsek.InGameTests
             bool hit = Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
                 peerId, midUT,
                 out Vector3d worldOffset,
+                out double blend,
                 out Parsek.Rendering.CoBubbleBlendStatus status,
                 out string resolvedPrimary);
             InGameAssert.IsTrue(hit,
@@ -18556,6 +18562,9 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(resolvedPrimary == primaryId,
                 "Resolved primary id mismatch");
             // Peer-side trace stores -offsetBA, so worldOffset ≈ -offsetBA.
+            // Mid-window samples sit in the steady region with blend=1.0.
+            InGameAssert.IsTrue(blend >= 0.999,
+                "Mid-window blend expected 1.0; got " + blend.ToString("F3", CultureInfo.InvariantCulture));
             double residual = (worldOffset + offsetBA).magnitude;
             InGameAssert.IsTrue(residual < tolerance,
                 "Co-bubble peer offset residual " + residual.ToString("F4", CultureInfo.InvariantCulture)

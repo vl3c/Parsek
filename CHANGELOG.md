@@ -24,6 +24,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Co-bubble overlap ghosts no longer jump ~1 km when their playback window expires. The crossfade now fades the visible peer from `primary + offset` down to the peer's own standalone position over the crossfade tail, so the handoff to standalone playback past the window end is continuous instead of snapping by the live primary's divergence from the recorded primary path. The previous design faded the offset to zero, which left the peer rendered on top of the live primary at the moment of exit and produced a one-frame teleport to wherever the peer's own recording said it should be.
 - Career ledger replay now keeps resources in sync with the live timeline after rewinds, older save loads, and Space Center time warp instead of crediting future rewards early.
 - Fresh EVA branch recordings no longer get poisoned as `Destroyed` before the kerbal has recorded its first samples, so EVA ghosts keep their vessel snapshots for playback. Destroyed debris still follows the old `Destroyed` path when there is no contradictory recorded surface evidence.
 - Suppressed scene-exit discards now restore KSP's persistent-debris setting after Parsek temporarily raises it for recording, so cancelled scene-exit commits and isolated runtime tests do not leave the player's debris limit changed.
