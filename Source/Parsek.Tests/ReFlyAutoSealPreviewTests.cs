@@ -341,8 +341,8 @@ namespace Parsek.Tests
         // Deferred merge fallback (ShowTreeDialog 1-arg overload) can fire
         // in Space Center / Tracking Station with FlightGlobals.ActiveVessel
         // null. The recorded-terminal classifier must surface the seal
-        // reason from Recording.TerminalStateValue so the dialog still
-        // warns "This cannot be undone" when production would seal.
+        // reason from Recording.TerminalStateValue so the dialog still tells
+        // the player when production would seal.
 
         [Fact]
         public void Preview_RecordedTerminalLanded_NullVessel_FlagsLanded()
@@ -704,9 +704,9 @@ namespace Parsek.Tests
             Assert.Contains("Auto-seal makes the slot permanent", body);
             Assert.Contains("cannot Re-Fly this line again", body);
             Assert.Contains(
-                "cannot Re-Fly this line again. This cannot be undone.</align>",
+                "cannot Re-Fly this line again.</align>",
                 body);
-            Assert.DoesNotContain("cannot Re-Fly this line again.\nThis cannot be undone", body);
+            Assert.DoesNotContain("This cannot be undone", body);
         }
 
         [Fact]

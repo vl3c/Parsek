@@ -539,8 +539,7 @@ namespace Parsek
                 "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
                 $"will be merged AND auto-sealed</b> for the following " +
                 $"reason(s):\n{reasons}\n" +
-                "Auto-seal makes the slot permanent and you cannot Re-Fly this line again. " +
-                "This cannot be undone.</align>";
+                "Auto-seal makes the slot permanent and you cannot Re-Fly this line again.</align>";
         }
 
         internal static string BuildReFlyAutoSealReasonLines(
