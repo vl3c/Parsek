@@ -260,6 +260,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AtomicMarkerWrite_CapturesRewindPointUTFromRp_PinnedBySourceInspection()
+        {
+            // The render-only companion-debris carve-out in
+            // GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris
+            // requires an EXACT rewind-point UT — InvokedUT is the post-load
+            // SafeNow() which may sit a sub-second-to-multi-second Δ above
+            // rp.UT (especially when AtomicMarkerWrite is deferred to
+            // onFlightReady on async scene loads). A regression that lets
+            // the marker drop the rp.UT capture and fall back to InvokedUT
+            // for the cutoff would silently re-open the post-RP leak
+            // window. Pin via source inspection — directly unit-testing
+            // AtomicMarkerWrite needs scenario / RecordingStore staging
+            // beyond this file's seam. Anchor the search on the method
+            // signature first so a refactor that renames the local `marker`
+            // or wraps construction in a helper still flags here rather
+            // than silently losing the assertion.
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string invokerSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
+
+            int methodStart = invokerSrc.IndexOf(
+                "internal static void AtomicMarkerWrite(",
+                StringComparison.Ordinal);
+            Assert.True(methodStart >= 0,
+                "AtomicMarkerWrite method must exist");
+
+            // Walk to the next sibling-level `internal static void ` so we
+            // bound the search to AtomicMarkerWrite's body. `IndexOf` from
+            // the next char so we don't re-match the same signature.
+            int nextMethod = invokerSrc.IndexOf(
+                "\n        internal static void ",
+                methodStart + 1,
+                StringComparison.Ordinal);
+            int methodBodyEnd = nextMethod > methodStart
+                ? nextMethod
+                : invokerSrc.Length;
+            string methodBody = invokerSrc.Substring(
+                methodStart, methodBodyEnd - methodStart);
+
+            // The capture must come from rp.UT, not from a recomputed
+            // SafeNow() / Planetarium.GetUniversalTime() / InvokedUT alias.
+            Assert.Contains("RewindPointUT = rp.UT", methodBody);
+        }
+
+        [Fact]
         public void ConsumePostLoad_FlightReady_RunsStripSynchronously()
         {
             // When FlightGlobals is populated (synchronous reload, or deferred

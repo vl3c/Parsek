@@ -248,10 +248,37 @@ namespace Parsek
 
             string recordingId = traj.RecordingId;
             // Defend against future trajectory/flag pairing drift.
-            return !string.IsNullOrWhiteSpace(recordingId)
-                && string.Equals(recordingId, flags.recordingId, StringComparison.Ordinal)
-                && !string.Equals(recordingId, originRecordingId, StringComparison.Ordinal)
-                && !string.Equals(recordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal);
+            if (string.IsNullOrWhiteSpace(recordingId)
+                || !string.Equals(recordingId, flags.recordingId, StringComparison.Ordinal)
+                || string.Equals(recordingId, originRecordingId, StringComparison.Ordinal)
+                || string.Equals(recordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Pre-rewind-moment companions only. The gate is strict `<`
+            // against marker.RewindPointUT — captured directly from rp.UT
+            // in RewindInvoker.AtomicMarkerWrite, so it is decoupled from
+            // SafeNow() / onFlightReady-deferred dispatch and tracks the
+            // exact rewind point UT rather than the drifted post-load
+            // Planetarium UT (marker.InvokedUT). Debris timestamped before
+            // RP.UT is treated as kept history (e.g. side-booster debris
+            // shed pre-rewind); debris at-or-after belongs to the original
+            // timeline being replaced (e.g. the upper stage's own
+            // post-probe-separation break-up). At-exactly-RP debris is
+            // hidden as a conservative choice: if a Breakup BP itself sits
+            // at the rewind point, the new flight is the canonical author
+            // of that moment's events.
+            //
+            // NaN or non-positive RewindPointUT (legacy marker without the
+            // persisted field, or any other unset sentinel) collapses to
+            // the pre-PR-858 default of "hide the suppressed debris",
+            // since we have no trustworthy reference UT. Both branches are
+            // spelled out explicitly so the gate reads at a glance without
+            // relying on IEEE 754 NaN-comparison trivia.
+            return !double.IsNaN(marker.RewindPointUT)
+                && marker.RewindPointUT > 0.0
+                && traj.StartUT < marker.RewindPointUT;
         }
 
         internal static void LogSessionSuppressedCompanionDebrisRenderAllowed(
@@ -261,6 +288,8 @@ namespace Parsek
         {
             string recordingId = traj?.RecordingId;
             string parentRecordingId = traj?.DebrisParentRecordingId;
+            double trajStartUT = traj?.StartUT ?? 0.0;
+            double rewindPointUT = marker?.RewindPointUT ?? double.NaN;
             string identity = "session-suppressed-companion-debris|"
                 + (!string.IsNullOrEmpty(recordingId)
                     ? recordingId
@@ -282,6 +311,10 @@ namespace Parsek
                 + " parentRecId=" + FormatRecordingIdShort(parentRecordingId)
                 + " originRecId=" + FormatRecordingIdShort(marker?.OriginChildRecordingId)
                 + " activeReFlyRecId=" + FormatRecordingIdShort(marker?.ActiveReFlyRecordingId)
+                + " startUT=" + trajStartUT.ToString("R", CultureInfo.InvariantCulture)
+                + " rewindPointUT=" + (double.IsNaN(rewindPointUT)
+                    ? "<nan>"
+                    : rewindPointUT.ToString("R", CultureInfo.InvariantCulture))
                 + " sess=" + (marker?.SessionId ?? "<no-id>"));
         }
 
