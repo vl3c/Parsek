@@ -336,6 +336,132 @@ namespace Parsek.Tests
             Assert.Equal(beforeCount, Ledger.Actions.Count);
         }
 
+        // ---------- Recorded-terminal classifier ------------------------
+        //
+        // Deferred merge fallback (ShowTreeDialog 1-arg overload) can fire
+        // in Space Center / Tracking Station with FlightGlobals.ActiveVessel
+        // null. The recorded-terminal classifier must surface the seal
+        // reason from Recording.TerminalStateValue so the dialog still
+        // warns "This cannot be undone" when production would seal.
+
+        [Fact]
+        public void Preview_RecordedTerminalLanded_NullVessel_FlagsLanded()
+        {
+            var rec = MakeRecording();
+            rec.TerminalStateValue = TerminalState.Landed;
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Contains(ReFlyAutoSealReason.Landed, result.Reasons);
+        }
+
+        [Fact]
+        public void Preview_RecordedTerminalSplashed_NullVessel_FlagsSplashedDown()
+        {
+            var rec = MakeRecording();
+            rec.TerminalStateValue = TerminalState.Splashed;
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Contains(ReFlyAutoSealReason.SplashedDown, result.Reasons);
+        }
+
+        [Fact]
+        public void Preview_RecordedTerminalOrbiting_NullVessel_FlagsStableOrbit()
+        {
+            var rec = MakeRecording();
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Contains(ReFlyAutoSealReason.StableOrbit, result.Reasons);
+        }
+
+        [Fact]
+        public void Preview_RecordedTerminalSubOrbital_NullVessel_FlagsSubOrbitalArc()
+        {
+            var rec = MakeRecording();
+            rec.TerminalStateValue = TerminalState.SubOrbital;
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Contains(ReFlyAutoSealReason.SubOrbitalArc, result.Reasons);
+        }
+
+        [Fact]
+        public void Preview_RecordedTerminalDocked_NullVessel_FlagsDocked()
+        {
+            var rec = MakeRecording();
+            rec.TerminalStateValue = TerminalState.Docked;
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Contains(ReFlyAutoSealReason.DockedWithAnother, result.Reasons);
+        }
+
+        [Fact]
+        public void Preview_RecordedTerminalRecovered_NullVessel_FlagsRecovered()
+        {
+            var rec = MakeRecording();
+            rec.TerminalStateValue = TerminalState.Recovered;
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Contains(ReFlyAutoSealReason.VesselRecovered, result.Reasons);
+        }
+
+        [Fact]
+        public void Preview_RecordedTerminalDestroyed_DoesNotFlag()
+        {
+            // Destroyed routes through the "crashed" classifier reason and
+            // does NOT auto-seal; the Re-Fly retry-on-crash flow takes over.
+            // Preview must not surface a seal reason here.
+            var rec = MakeRecording();
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.False(result.WillAutoSeal);
+            Assert.Empty(result.Reasons);
+        }
+
+        [Fact]
+        public void Preview_NoTerminalSet_DoesNotFlagFromRecordedPath()
+        {
+            // Pre-transition: recording not yet finalized, TerminalStateValue
+            // is null. Recorded-terminal classifier must skip; only the
+            // live-vessel proxy (not exercised here, null vessel) would
+            // contribute terminal reasons.
+            var rec = MakeRecording();
+            Assert.Null(rec.TerminalStateValue);
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.False(result.WillAutoSeal);
+        }
+
         // ---------- FormatHumanReadable standalone ----------------------
 
         [Fact]
@@ -351,6 +477,7 @@ namespace Parsek.Tests
                 { ReFlyAutoSealReason.PartBrokeOff, "broke off a part" },
                 { ReFlyAutoSealReason.VesselBrokeUp, "the vessel broke up" },
                 { ReFlyAutoSealReason.DockedWithAnother, "docked with another vessel" },
+                { ReFlyAutoSealReason.VesselRecovered, "the vessel was recovered" },
                 { ReFlyAutoSealReason.Landed, "landed" },
                 { ReFlyAutoSealReason.SplashedDown, "splashed down" },
                 { ReFlyAutoSealReason.StableOrbit, "reached a stable orbit" },
