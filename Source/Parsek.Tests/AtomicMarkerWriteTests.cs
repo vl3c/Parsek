@@ -272,25 +272,38 @@ namespace Parsek.Tests
             // for the cutoff would silently re-open the post-RP leak
             // window. Pin via source inspection — directly unit-testing
             // AtomicMarkerWrite needs scenario / RecordingStore staging
-            // beyond this file's seam.
+            // beyond this file's seam. Anchor the search on the method
+            // signature first so a refactor that renames the local `marker`
+            // or wraps construction in a helper still flags here rather
+            // than silently losing the assertion.
             string srcRoot = System.IO.Path.GetFullPath(
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
             string invokerSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
 
-            int markerCtorStart = invokerSrc.IndexOf(
-                "marker = new ReFlySessionMarker", StringComparison.Ordinal);
-            Assert.True(markerCtorStart >= 0,
-                "AtomicMarkerWrite must construct a ReFlySessionMarker");
+            int methodStart = invokerSrc.IndexOf(
+                "internal static void AtomicMarkerWrite(",
+                StringComparison.Ordinal);
+            Assert.True(methodStart >= 0,
+                "AtomicMarkerWrite method must exist");
 
-            int markerCtorEnd = invokerSrc.IndexOf("};", markerCtorStart, StringComparison.Ordinal);
-            Assert.True(markerCtorEnd > markerCtorStart,
-                "Marker initializer must terminate");
+            // Walk to the next sibling-level `internal static void ` so we
+            // bound the search to AtomicMarkerWrite's body. `IndexOf` from
+            // the next char so we don't re-match the same signature.
+            int nextMethod = invokerSrc.IndexOf(
+                "\n        internal static void ",
+                methodStart + 1,
+                StringComparison.Ordinal);
+            int methodBodyEnd = nextMethod > methodStart
+                ? nextMethod
+                : invokerSrc.Length;
+            string methodBody = invokerSrc.Substring(
+                methodStart, methodBodyEnd - methodStart);
 
-            string markerCtorBody = invokerSrc.Substring(
-                markerCtorStart, markerCtorEnd - markerCtorStart);
-            Assert.Contains("RewindPointUT = rp.UT", markerCtorBody);
+            // The capture must come from rp.UT, not from a recomputed
+            // SafeNow() / Planetarium.GetUniversalTime() / InvokedUT alias.
+            Assert.Contains("RewindPointUT = rp.UT", methodBody);
         }
 
         [Fact]

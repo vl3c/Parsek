@@ -5496,6 +5496,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_RealisticMarkerShape_HidesDebrisInDriftWindow()
+        {
+            // Realistic production shape: marker carries BOTH RewindPointUT
+            // (= rp.UT, exact) and InvokedUT (= post-load SafeNow(), drifted
+            // above RP.UT by a sub-second-to-multi-second Δ). A debris row
+            // authored in the original timeline between RP.UT and the
+            // drifted InvokedUT must be hidden by the gate. This pins the
+            // exact bug the PR fixes — a future refactor that accidentally
+            // restored the InvokedUT predicate would still satisfy the
+            // single-field tests above (StartUT 150 sits above both UTs),
+            // but would fail here.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_in_drift_window",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 100.5,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                RewindPointUT = 100.0,
+                InvokedUT = 101.5,
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_in_drift_window"
+                }));
+        }
+
+        [Fact]
         public void ShouldRenderSuppressedCompanionDebris_IsUnaffectedByDriftedInvokedUT()
         {
             // Regression guard: the gate is now sourced from RewindPointUT,
@@ -5754,19 +5790,25 @@ namespace Parsek.Tests
         [Fact]
         public void LogSessionSuppressedCompanionDebrisRenderAllowed_EmitsDecisionFields()
         {
+            // StartUT / RewindPointUT use exact-representable doubles so
+            // the "R" round-trip format on the log line produces stable
+            // string output across .NET versions and CPU architectures.
+            // 25.5 and 37.25 have power-of-two denominators and round-trip
+            // bit-for-bit; values like 25.86 / 37.20 would surface their
+            // IEEE 754 noise and make the assertion flaky.
             var traj = new MockTrajectory
             {
                 RecordingId = "debris",
                 IsDebris = true,
                 DebrisParentRecordingId = "origin",
-                StartUTOverride = 25.86,
+                StartUTOverride = 25.5,
             };
             var marker = new ReFlySessionMarker
             {
                 SessionId = "sess_1",
                 OriginChildRecordingId = "origin",
                 ActiveReFlyRecordingId = "active",
-                RewindPointUT = 37.20,
+                RewindPointUT = 37.25,
             };
 
             logLines.Clear();
@@ -5781,8 +5823,8 @@ namespace Parsek.Tests
                 && l.Contains("parentRecId=origin")
                 && l.Contains("originRecId=origin")
                 && l.Contains("activeReFlyRecId=active")
-                && l.Contains("startUT=25.86")
-                && l.Contains("rewindPointUT=37.20")
+                && l.Contains("startUT=25.5")
+                && l.Contains("rewindPointUT=37.25")
                 && l.Contains("sess=sess_1"));
         }
 

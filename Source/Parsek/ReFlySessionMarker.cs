@@ -76,9 +76,18 @@ namespace Parsek
         /// session-suppressed companion-debris carve-out
         /// (<c>GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris</c>)
         /// to separate kept pre-rewind history from the replaced-future
-        /// portion of an origin-parented debris chain. Defaults to
-        /// <see cref="double.NaN"/> on legacy markers that pre-date this
-        /// field; consumers must guard for that sentinel.
+        /// portion of an origin-parented debris chain.
+        /// <para>
+        /// Defaults to <see cref="double.NaN"/>. Consumers MUST treat
+        /// <see cref="double.NaN"/> AND any non-positive value (<c>&lt;= 0.0</c>)
+        /// as the same "unset / no cutoff available" sentinel and fall
+        /// back to whatever conservative default the gate prescribes
+        /// (typically "hide the suppressed row"). NaN exists on legacy
+        /// markers that pre-date this field; non-positive values are not
+        /// produced by <c>AtomicMarkerWrite</c> today but are defended
+        /// against because Planetarium UTs are by contract non-negative
+        /// and zero / negative would itself indicate a corrupt marker.
+        /// </para>
         /// </summary>
         public double RewindPointUT = double.NaN;
 

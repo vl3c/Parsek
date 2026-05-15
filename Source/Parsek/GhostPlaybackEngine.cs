@@ -273,10 +273,12 @@ namespace Parsek
             // NaN or non-positive RewindPointUT (legacy marker without the
             // persisted field, or any other unset sentinel) collapses to
             // the pre-PR-858 default of "hide the suppressed debris",
-            // since we have no trustworthy reference UT. `NaN > 0.0` is
-            // false in C#, so the single `> 0.0` check covers both
-            // sentinels.
-            return marker.RewindPointUT > 0.0 && traj.StartUT < marker.RewindPointUT;
+            // since we have no trustworthy reference UT. Both branches are
+            // spelled out explicitly so the gate reads at a glance without
+            // relying on IEEE 754 NaN-comparison trivia.
+            return !double.IsNaN(marker.RewindPointUT)
+                && marker.RewindPointUT > 0.0
+                && traj.StartUT < marker.RewindPointUT;
         }
 
         internal static void LogSessionSuppressedCompanionDebrisRenderAllowed(
@@ -309,10 +311,10 @@ namespace Parsek
                 + " parentRecId=" + FormatRecordingIdShort(parentRecordingId)
                 + " originRecId=" + FormatRecordingIdShort(marker?.OriginChildRecordingId)
                 + " activeReFlyRecId=" + FormatRecordingIdShort(marker?.ActiveReFlyRecordingId)
-                + " startUT=" + trajStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " startUT=" + trajStartUT.ToString("R", CultureInfo.InvariantCulture)
                 + " rewindPointUT=" + (double.IsNaN(rewindPointUT)
                     ? "<nan>"
-                    : rewindPointUT.ToString("F2", CultureInfo.InvariantCulture))
+                    : rewindPointUT.ToString("R", CultureInfo.InvariantCulture))
                 + " sess=" + (marker?.SessionId ?? "<no-id>"));
         }
 
