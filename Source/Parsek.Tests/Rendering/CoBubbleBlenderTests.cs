@@ -332,6 +332,27 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void TryEvaluateOffset_BeforeAdjacentWindow_DoesNotFadeToStandalone()
+        {
+            // A same-pair successor at the boundary means co-bubble coverage
+            // continues. The old window must not run its exit fade toward
+            // standalone immediately before the next window takes over.
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 110.0, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 110.0, 120.0, new Vector3d(9, 0, 0)));
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 109.99, out Vector3d offset, out double blend, out CoBubbleBlendStatus status, out _);
+
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal(1.0, blend, 5);
+            Assert.Equal(3.0, offset.x, 5);
+        }
+
+        [Fact]
         public void TryEvaluateOffset_OverlappingActiveWindows_PrefersLatestStart()
         {
             RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");

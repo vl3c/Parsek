@@ -203,6 +203,7 @@ namespace Parsek.Rendering
             // post-EndUT MissCrossfadeOut path resolves to.
             blend = 1.0;
             bool isCrossfade = false;
+            bool hasContiguousSuccessor = HasContiguousSuccessor(traces, primaryRecordingId, match);
             if (ut > match.EndUT)
             {
                 // Past the window end — the consumer falls back to standalone.
@@ -211,7 +212,7 @@ namespace Parsek.Rendering
                     match.EndUT, "crossfade-tail");
                 return false;
             }
-            if (ut > match.EndUT - crossfade && crossfade > 0)
+            if (!hasContiguousSuccessor && ut > match.EndUT - crossfade && crossfade > 0)
             {
                 double tail = (match.EndUT - ut) / crossfade;
                 if (tail < 0.0) tail = 0.0;
@@ -324,6 +325,27 @@ namespace Parsek.Rendering
             }
 
             return activeMatch ?? tailMatch;
+        }
+
+        private static bool HasContiguousSuccessor(
+            IList<CoBubbleOffsetTrace> traces,
+            string primaryRecordingId,
+            CoBubbleOffsetTrace match)
+        {
+            if (match == null) return false;
+
+            const double BoundaryEpsilonSeconds = 1e-6;
+            for (int i = 0; i < traces.Count; i++)
+            {
+                CoBubbleOffsetTrace t = traces[i];
+                if (t == null || object.ReferenceEquals(t, match)) continue;
+                if (!string.Equals(t.PeerRecordingId, primaryRecordingId, StringComparison.Ordinal)) continue;
+                if (t.EndUT <= match.EndUT + BoundaryEpsilonSeconds) continue;
+                if (Math.Abs(t.StartUT - match.EndUT) <= BoundaryEpsilonSeconds)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
