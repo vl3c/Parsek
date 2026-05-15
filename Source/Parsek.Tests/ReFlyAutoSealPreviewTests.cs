@@ -758,6 +758,9 @@ namespace Parsek.Tests
 
             Assert.Equal("- auto-seal condition met",
                 MergeDialog.BuildReFlyAutoSealReasonLines(preview));
+            Assert.Contains(logLines,
+                l => l.Contains("[MergeDialog]") &&
+                     l.Contains("auto-seal preview returned no reasons"));
         }
 
         [Fact]
@@ -787,7 +790,7 @@ namespace Parsek.Tests
                 "TestVessel", 123.0, preview);
             Assert.Contains("If not discarded, this Re-Fly attempt", body);
             Assert.Contains("merged AND auto-sealed", body);
-            Assert.Contains("for the following reason(s):\n- transmitted science\n",
+            Assert.Contains("for the following reason(s):\n- transmitted science\n\n",
                 body);
             // Auto-seal jargon translation - tells the player what
             // "auto-sealed" actually means in gameplay terms.
@@ -818,7 +821,7 @@ namespace Parsek.Tests
                 "for the following reason(s):\n" +
                 "- transmitted science\n" +
                 "- undocked\n" +
-                "- docked with another vessel\n" +
+                "- docked with another vessel\n\n" +
                 "Auto-seal makes the slot permanent",
                 body);
         }

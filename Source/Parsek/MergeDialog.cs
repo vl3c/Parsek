@@ -581,7 +581,7 @@ namespace Parsek
             return headline +
                 "<align=\"left\"><b>If not discarded, this Re-Fly attempt " +
                 $"will be merged AND auto-sealed</b> for the following " +
-                $"reason(s):\n{reasons}\n" +
+                $"reason(s):\n{reasons}\n\n" +
                 "Auto-seal makes the slot permanent and you cannot Re-Fly this line again.</align>";
         }
 
@@ -589,12 +589,16 @@ namespace Parsek
             ReFlyAutoSealPreviewResult preview)
         {
             if (preview.Reasons == null || preview.Reasons.Count == 0)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "BuildReFlyAutoSealReasonLines: auto-seal preview returned no reasons; using fallback line");
                 return "- auto-seal condition met";
+            }
 
             var lines = new List<string>(preview.Reasons.Count);
             for (int i = 0; i < preview.Reasons.Count; i++)
                 lines.Add("- " + ReFlyAutoSealPreviewResult.PhraseFor(preview.Reasons[i]));
-            return string.Join("\n", lines.ToArray());
+            return string.Join("\n", lines);
         }
 
         private static string FormatClearReason(string reason)
