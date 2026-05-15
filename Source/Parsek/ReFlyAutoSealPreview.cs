@@ -30,6 +30,7 @@ namespace Parsek
         VesselBrokeUp,         // BranchPointType.Breakup
         DockedWithAnother,     // DOCKED situation (live) or TerminalState.Docked (recorded) -> IsHardSafetyTerminal
         VesselRecovered,       // TerminalState.Recovered -> IsHardSafetyTerminal
+        KerbalBoarded,         // TerminalState.Boarded -> IsHardSafetyTerminal
         Landed,                // LANDED situation (live) or TerminalState.Landed (recorded) -> stableTerminalFocusSlot
         SplashedDown,          // SPLASHED situation (live) or TerminalState.Splashed (recorded) -> stableTerminalFocusSlot
         StableOrbit,           // ORBITING situation && PeR > atmosphere (live) or TerminalState.Orbiting (recorded) -> stableTerminalFocusSlot
@@ -108,6 +109,7 @@ namespace Parsek
                 case ReFlyAutoSealReason.VesselBrokeUp:      return "the vessel broke up";
                 case ReFlyAutoSealReason.DockedWithAnother:  return "docked with another vessel";
                 case ReFlyAutoSealReason.VesselRecovered:    return "the vessel was recovered";
+                case ReFlyAutoSealReason.KerbalBoarded:      return "the kerbal boarded another vessel";
                 case ReFlyAutoSealReason.Landed:             return "landed";
                 case ReFlyAutoSealReason.SplashedDown:       return "splashed down";
                 case ReFlyAutoSealReason.StableOrbit:        return "reached a stable orbit";
@@ -361,14 +363,19 @@ namespace Parsek
                 case TerminalState.Recovered:
                     AddIfMissing(reasons, ReFlyAutoSealReason.VesselRecovered);
                     break;
-                // Destroyed: returns "crashed" earlier in the classifier (no
-                // seal here, the Re-Fly retry-on-crash flow takes over).
-                // Boarded: kerbal EVA recordings ending Boarded almost
-                // always share a structural KerbalEva reason via the parent
-                // tree's BranchPointType.EVA; the structural classifier
-                // covers that user-facing warning. A pure-Boarded recording
-                // with no upstream EVA structural row is rare and left to
-                // the production classifier's authoritative seal verdict.
+                case TerminalState.Boarded:
+                    // Production seals on Boarded via IsHardSafetyTerminal
+                    // (SupersedeCommit:1052-1062). The structural classifier
+                    // cannot be relied on as a fallback here:
+                    // SupersedeCommit.IsStructuralBranchPointType excludes
+                    // BranchPointType.Board (and Dock), and the upstream EVA
+                    // BP that produced the kerbal recording is typically in
+                    // marker.PreSessionBranchPointIds so the structural scan
+                    // skips it too. Map directly.
+                    AddIfMissing(reasons, ReFlyAutoSealReason.KerbalBoarded);
+                    break;
+                // Destroyed: returns "crashed" earlier in the classifier
+                // (no seal here, the Re-Fly retry-on-crash flow takes over).
             }
         }
 
@@ -389,7 +396,7 @@ namespace Parsek
         /// <list type="number">
         ///   <item><description>Science group: TransmittedScience, RecoveredScience, EarnedScience</description></item>
         ///   <item><description>Structural group: Undocked, KerbalEva, PartBrokeOff, VesselBrokeUp</description></item>
-        ///   <item><description>Terminal group: DockedWithAnother, VesselRecovered, Landed, SplashedDown, StableOrbit, SubOrbitalArc</description></item>
+        ///   <item><description>Terminal group: DockedWithAnother, VesselRecovered, KerbalBoarded, Landed, SplashedDown, StableOrbit, SubOrbitalArc</description></item>
         /// </list>
         /// </summary>
         private static void SortReasonsByGroup(List<ReFlyAutoSealReason> reasons)
@@ -410,6 +417,7 @@ namespace Parsek
                 case ReFlyAutoSealReason.VesselBrokeUp:      return 230;
                 case ReFlyAutoSealReason.DockedWithAnother:  return 300;
                 case ReFlyAutoSealReason.VesselRecovered:    return 305;
+                case ReFlyAutoSealReason.KerbalBoarded:      return 307;
                 case ReFlyAutoSealReason.Landed:             return 310;
                 case ReFlyAutoSealReason.SplashedDown:       return 320;
                 case ReFlyAutoSealReason.StableOrbit:        return 330;

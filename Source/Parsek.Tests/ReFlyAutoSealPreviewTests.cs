@@ -429,6 +429,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Preview_RecordedTerminalBoarded_NullVessel_FlagsBoarded()
+        {
+            // Production seals on Boarded via IsHardSafetyTerminal
+            // (SupersedeCommit:1052-1062). The structural classifier excludes
+            // BranchPointType.Board, and any upstream EVA BP that produced
+            // the kerbal recording typically sits in
+            // marker.PreSessionBranchPointIds (skipped by the structural
+            // scan). The recorded-terminal classifier is the only path that
+            // surfaces this seal reason in the preview.
+            var rec = MakeRecording();
+            rec.TerminalStateValue = TerminalState.Boarded;
+            var marker = MakeMarker();
+            MakeScenario(marker);
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.True(result.WillAutoSeal);
+            Assert.Contains(ReFlyAutoSealReason.KerbalBoarded, result.Reasons);
+        }
+
+        [Fact]
         public void Preview_RecordedTerminalDestroyed_DoesNotFlag()
         {
             // Destroyed routes through the "crashed" classifier reason and
@@ -478,6 +499,7 @@ namespace Parsek.Tests
                 { ReFlyAutoSealReason.VesselBrokeUp, "the vessel broke up" },
                 { ReFlyAutoSealReason.DockedWithAnother, "docked with another vessel" },
                 { ReFlyAutoSealReason.VesselRecovered, "the vessel was recovered" },
+                { ReFlyAutoSealReason.KerbalBoarded, "the kerbal boarded another vessel" },
                 { ReFlyAutoSealReason.Landed, "landed" },
                 { ReFlyAutoSealReason.SplashedDown, "splashed down" },
                 { ReFlyAutoSealReason.StableOrbit, "reached a stable orbit" },
