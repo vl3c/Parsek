@@ -3326,6 +3326,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsPreRewindDebris_NullRecording_ReturnsFalse_PinsMissPathFallthrough()
+        {
+            // Defensive: when AppendRelations does
+            // `if (recById.TryGetValue(oldId, out rec) && IsPreRewindDebris(rec, marker))`,
+            // a `TryGetValue` miss leaves `rec == null` and the `&&`
+            // short-circuits without calling IsPreRewindDebris. Independently,
+            // IsPreRewindDebris(null, marker) also returns false, so even a
+            // dictionary that handed back a null reference would fall through
+            // to row-write. Either way, the pre-fix default ("write the row")
+            // is preserved for the anomalous case where a closure id has no
+            // backing Recording in CommittedRecordings.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 29.42,
+                InvokedUT = 29.42,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            Assert.False(SupersedeCommit.IsPreRewindDebris(null, marker));
+        }
+
+        [Fact]
         public void AppendRelationsReturnValue_FilteredSubtreeExcludesPreRewindDebrisFromTombstoneScope()
         {
             // The user-visible secondary effect: AppendRelations's return

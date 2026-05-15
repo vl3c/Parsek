@@ -274,6 +274,14 @@ namespace Parsek
                     // existing-relation) keep their meaning. Build the
                     // id->Recording index lazily; most batches are tiny and
                     // the closure already filtered out null entries.
+                    //
+                    // A `TryGetValue` miss (closure id not in
+                    // `CommittedRecordings` — defensive, the closure walk
+                    // builds itself from the same store) short-circuits the
+                    // `&&` and falls through to row-write. That preserves the
+                    // pre-fix default ("write the row") for the anomalous
+                    // case where the row's Recording is gone but its id is
+                    // still in the closure.
                     if (recById == null)
                         recById = BuildCommittedRecordingIndex();
                     Recording rec;
@@ -399,7 +407,11 @@ namespace Parsek
                 var rec = recordings[i];
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
                 // Tolerate duplicate ids (defensive: stale store entries).
-                // First-wins keeps the closure walk's prior behavior.
+                // First-wins here vs. EffectiveState.ComputeSubtreeClosureInternal's
+                // last-wins (`recById[id] = r`) is a cosmetic divergence — duplicate
+                // ids in CommittedRecordings are pathological and either policy
+                // resolves to "some entry"; we just need a stable Recording reference
+                // to feed IsPreRewindDebris.
                 if (!index.ContainsKey(rec.RecordingId))
                     index.Add(rec.RecordingId, rec);
             }
