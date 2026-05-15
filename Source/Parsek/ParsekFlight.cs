@@ -3201,6 +3201,20 @@ namespace Parsek
             if (string.IsNullOrEmpty(treeRec.LaunchSiteName))
                 treeRec.LaunchSiteName = rec.LaunchSiteName;
 
+            // Forward start-of-recording controller identity onto the tree recording
+            // if it does not already carry it. Critical for the BG go-on-rails
+            // identity-loss override: if the always-tree root was created without
+            // a live vessel and the recorder.StartRecording backstop did not fire
+            // (e.g. the tree ActiveRecordingId was not yet pointed at this rec at
+            // the time), this flush is the final chance to persist the identity
+            // before the recording can be backgrounded.
+            if (treeRec.AdoptControllersIfEmpty(rec.StartControllers))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"FlushRecorderToTreeRecording: forwarded {treeRec.Controllers.Count} controller part(s) " +
+                    $"from recorder to tree recording '{recId}'");
+            }
+
             ApplyFinalSegmentPhaseFromCapture(
                 treeRec,
                 tree.ActiveRecordingId,
@@ -10521,7 +10535,14 @@ namespace Parsek
                     TreeId = treeId,
                     VesselPersistentId = vesselPid,
                     VesselName = activeTree.TreeName,
-                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                    // Pin start-of-recording controller identity directly on the
+                    // always-tree root. Without this, a switch-away that backgrounds
+                    // the root before recorder.StartRecording's tree-forward backstop
+                    // runs would leave Controllers=null on the BG-tracked record and
+                    // the identity-loss override at OnBackgroundVesselGoOnRails would
+                    // never fire.
+                    Controllers = ControllerInfo.CaptureFromVessel(FlightGlobals.ActiveVessel)
                 };
                 // Capture GhostVisualSnapshot at recording start — the FULL vessel
                 // before any staging or breakup events. This is the snapshot used for

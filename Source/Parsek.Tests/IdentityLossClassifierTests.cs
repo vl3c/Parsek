@@ -274,6 +274,142 @@ namespace Parsek.Tests
         #region Controller capture forwarding — Step 1
 
         [Fact]
+        public void AdoptControllersIfEmpty_NullSource_NoChange()
+        {
+            var rec = new Recording { Controllers = null };
+            bool adopted = rec.AdoptControllersIfEmpty(null);
+            Assert.False(adopted);
+            Assert.Null(rec.Controllers);
+        }
+
+        [Fact]
+        public void AdoptControllersIfEmpty_EmptySource_NoChange()
+        {
+            var rec = new Recording { Controllers = null };
+            bool adopted = rec.AdoptControllersIfEmpty(new List<ControllerInfo>());
+            Assert.False(adopted);
+            Assert.Null(rec.Controllers);
+        }
+
+        [Fact]
+        public void AdoptControllersIfEmpty_NullTarget_AdoptsCopy()
+        {
+            var rec = new Recording { Controllers = null };
+            var source = new List<ControllerInfo>
+            {
+                new ControllerInfo { type = "CrewedPod", partName = "mk1pod.v2", partPersistentId = 100u },
+                new ControllerInfo { type = "ProbeCore", partName = "probeStackLarge", partPersistentId = 200u }
+            };
+
+            bool adopted = rec.AdoptControllersIfEmpty(source);
+
+            Assert.True(adopted);
+            Assert.NotNull(rec.Controllers);
+            Assert.Equal(2, rec.Controllers.Count);
+            Assert.Equal(100u, rec.Controllers[0].partPersistentId);
+            Assert.Equal(200u, rec.Controllers[1].partPersistentId);
+            // Defensive copy: mutating source must not mutate rec.Controllers.
+            source.Clear();
+            Assert.Equal(2, rec.Controllers.Count);
+        }
+
+        [Fact]
+        public void AdoptControllersIfEmpty_EmptyTarget_AdoptsCopy()
+        {
+            var rec = new Recording { Controllers = new List<ControllerInfo>() };
+            var source = new List<ControllerInfo>
+            {
+                new ControllerInfo { type = "ProbeCore", partName = "probeStackLarge", partPersistentId = 723919894u }
+            };
+
+            bool adopted = rec.AdoptControllersIfEmpty(source);
+
+            Assert.True(adopted);
+            Assert.Single(rec.Controllers);
+            Assert.Equal(723919894u, rec.Controllers[0].partPersistentId);
+        }
+
+        [Fact]
+        public void AdoptControllersIfEmpty_PopulatedTarget_NoOverwrite()
+        {
+            // Pinning the invariant: a recording that already has a recorded
+            // identity must NOT be overwritten by a later flush/recorder-start.
+            // The start-of-recording identity is captured once and never replaced.
+            var rec = new Recording
+            {
+                Controllers = new List<ControllerInfo>
+                {
+                    new ControllerInfo { type = "ProbeCore", partName = "original", partPersistentId = 100u }
+                }
+            };
+            var source = new List<ControllerInfo>
+            {
+                new ControllerInfo { type = "CrewedPod", partName = "replacement", partPersistentId = 200u }
+            };
+
+            bool adopted = rec.AdoptControllersIfEmpty(source);
+
+            Assert.False(adopted);
+            Assert.Single(rec.Controllers);
+            Assert.Equal(100u, rec.Controllers[0].partPersistentId);
+            Assert.Equal("original", rec.Controllers[0].partName);
+        }
+
+        [Fact]
+        public void ActiveRootBackgrounded_FlushForwardsControllers_AllowingIdentityLossOverride()
+        {
+            // Regression for the P1 the external reviewer flagged: an always-tree
+            // root recording is created at ParsekFlight.cs:10518 with no Controllers
+            // because the field used to be dead schema. The recorder captures
+            // pendingStartControllers privately during StartRecording, but if the
+            // active vessel gets switched away (recorder is suspended/flushed)
+            // before the Controllers were ever copied onto the tree root, the
+            // resulting BG-tracked recording has Controllers == null. The
+            // identity-loss override at OnBackgroundVesselGoOnRails then sees a
+            // null/empty list and the pure predicate returns false, falling
+            // through to the buggy landed classification.
+            //
+            // This test pins the flush-time backstop: when the recorder is flushed
+            // and the tree rec is still missing Controllers, the recorder's
+            // start-controllers list IS forwarded. Combined with the pure-predicate
+            // tests, this proves the override fires for the active-root-backgrounded
+            // shape after the fix.
+
+            var treeRoot = new Recording { RecordingId = "tree-root", Controllers = null };
+            var recorderStartControllers = new List<ControllerInfo>
+            {
+                new ControllerInfo { type = "ProbeCore", partName = "probeStackLarge", partPersistentId = 723919894u },
+                new ControllerInfo { type = "CrewedPod", partName = "mk1pod.v2", partPersistentId = 100u }
+            };
+
+            // Simulate the flush-time forward.
+            bool adopted = treeRoot.AdoptControllersIfEmpty(recorderStartControllers);
+            Assert.True(adopted);
+
+            // Now simulate the BG go-on-rails identity-loss check after the active
+            // root has been backgrounded and the recorded controllers all died in
+            // a destructive crash; the surviving remnant is non-trackable.
+            bool identityLost = IdentityLossClassifier.ShouldClassifyRecordedIdentityLost(
+                isDebris: treeRoot.IsDebris,
+                recordedControllerPids: ExtractPids(treeRoot.Controllers),
+                liveIsTrackable: false,
+                livePartPids: new uint[] { 3087746488u }); // Decoupler.2 remnant
+
+            Assert.True(identityLost,
+                "Identity-loss override must fire for backgrounded active root whose Controllers " +
+                "were forwarded at flush time and whose recorded controllers all died on crash");
+        }
+
+        private static uint[] ExtractPids(List<ControllerInfo> controllers)
+        {
+            if (controllers == null) return null;
+            var pids = new uint[controllers.Count];
+            for (int i = 0; i < controllers.Count; i++)
+                pids[i] = controllers[i].partPersistentId;
+            return pids;
+        }
+
+        [Fact]
         public void ApplyPersistenceArtifactsFrom_CopiesControllers()
         {
             // Sanity-pin: the chain commit path (ChainSegmentManager.CommitSegmentCore →

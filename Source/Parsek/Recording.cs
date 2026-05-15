@@ -513,6 +513,29 @@ namespace Parsek
         // and there are no remaining callers gating on standalone-vs-tree.
 
         /// <summary>
+        /// Forwards a list of start-of-recording controllers onto this Recording,
+        /// but only if it does not already carry an identity. Used by the
+        /// recorder-start backstop and the flush-time defensive copy to make sure
+        /// the always-tree root has <see cref="Controllers"/> populated before it
+        /// can be backgrounded, so the BG go-on-rails identity-loss override has
+        /// something to compare against. Returns <c>true</c> when a forward
+        /// actually happened (caller can log it).
+        /// </summary>
+        internal bool AdoptControllersIfEmpty(IReadOnlyList<ControllerInfo> source)
+        {
+            if (source == null || source.Count == 0)
+                return false;
+            if (Controllers != null && Controllers.Count > 0)
+                return false;
+
+            var copy = new List<ControllerInfo>(source.Count);
+            for (int i = 0; i < source.Count; i++)
+                copy.Add(source[i]);
+            Controllers = copy;
+            return true;
+        }
+
+        /// <summary>
         /// Centralized "mark this recording as destroyed at <paramref name="terminalUT"/>"
         /// hygiene helper. Sets the terminal verdict (<see cref="TerminalStateValue"/>,
         /// <see cref="VesselDestroyed"/>, <see cref="ExplicitEndUT"/>) AND clears every
