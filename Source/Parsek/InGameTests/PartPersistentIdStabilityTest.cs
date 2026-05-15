@@ -28,7 +28,8 @@ namespace Parsek.InGameTests
     {
         [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT, RunLast = true,
             AllowBatchExecution = false,
-            BatchSkipReason = "Single-run only — executes a real stock SaveGame/LoadGame round-trip; excluded from Run All to avoid disrupting the live FLIGHT session.",
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only — executes a real stock SaveGame/LoadGame round-trip; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
             Description = "Part.persistentId is stable across save/load (precondition for RewindPoint.RootPartPidMap)")]
         public IEnumerator PartPersistentIdStableAcrossSaveLoad()
         {

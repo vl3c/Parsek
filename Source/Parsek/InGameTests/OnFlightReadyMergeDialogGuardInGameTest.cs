@@ -112,11 +112,22 @@ namespace Parsek.InGameTests
                     RewindPointId = "rp_onflightready_igt",
                     InvokedUT = Planetarium.GetUniversalTime(),
                     InvokedRealTime = DateTime.UtcNow.ToString("o"),
+                    // Mirror the post-AtomicMarkerWrite marker shape the actual
+                    // dispatch gate checks. The OnFlightReady fallback uses the
+                    // stricter IsReFlyInPlaceContinuationActive() (marker AND
+                    // InPlaceContinuation=true), not the broader
+                    // IsReFlySessionActiveForQuickloadDiscard() — see
+                    // ParsekFlight.MaybeShowPendingTreeMergeDialogOnFlightReady
+                    // and the "Narrow Re-Fly carve-out + dialog skip to in-place
+                    // continuation mode" tightening (a891502b). Without this flag
+                    // the synthetic marker exercises the placeholder-mode branch
+                    // where the dialog correctly stays as the recovery path.
+                    InPlaceContinuation = true,
                 };
 
                 InGameAssert.IsTrue(
-                    ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
-                    "IsReFlySessionActiveForQuickloadDiscard should report true with synthetic marker installed");
+                    ParsekScenario.IsReFlyInPlaceContinuationActive(),
+                    "IsReFlyInPlaceContinuationActive should report true with synthetic in-place-continuation marker installed");
 
                 MaybeShowDialogMethod.Invoke(flight, null);
 
