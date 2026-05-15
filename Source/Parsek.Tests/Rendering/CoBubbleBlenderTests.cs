@@ -331,6 +331,44 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(9.0, offset.x, 5);
         }
 
+        [Fact]
+        public void TryEvaluateOffset_OverlappingActiveWindows_PrefersLatestStart()
+        {
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 115.0, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 110.0, 120.0, new Vector3d(9, 0, 0)));
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 112.0, out Vector3d offset, out double blend, out CoBubbleBlendStatus status, out _);
+
+            Assert.True(ok);
+            Assert.Equal(CoBubbleBlendStatus.Hit, status);
+            Assert.Equal(1.0, blend, 5);
+            Assert.Equal(9.0, offset.x, 5);
+        }
+
+        [Fact]
+        public void TryEvaluateOffset_MultipleTailMatches_PrefersLatestEnd()
+        {
+            RenderSessionState.PutPrimaryAssignmentForTesting("peer-A", "primary-B");
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 100.0, 111.5, new Vector3d(3, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("peer-A",
+                MakeTrace("primary-B", 102.0, 112.0, new Vector3d(9, 0, 0)));
+
+            bool ok = CoBubbleBlender.TryEvaluateOffset(
+                "peer-A", 112.25, out Vector3d offset, out double _, out CoBubbleBlendStatus status, out _);
+
+            Assert.False(ok);
+            Assert.Equal(CoBubbleBlendStatus.MissCrossfadeOut, status);
+            Assert.Equal(0.0, offset.x);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Blend window exit")
+                && l.Contains("exitUT=112"));
+        }
+
         // ---------- CoBubblePrimarySelector tests ----------
 
         [Fact]

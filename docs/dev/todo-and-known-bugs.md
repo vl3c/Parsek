@@ -110,7 +110,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** `CoBubbleBlender.TryEvaluateOffset` now selects an active same-pair trace before considering any older trace's exit crossfade tail. Adjacent trace windows commonly share a boundary after structural splits; the previous insertion-order scan let the older tail shadow the next active window, forcing standalone rendering until the old tail expired and then snapping back to full `primary + offset`.
 
-**Coverage:** `CoBubbleBlenderTests.TryEvaluateOffset_AdjacentWindowDuringPreviousTail_PrefersActiveNextTrace` pins the log-bundle failure mode by querying inside a previous window's crossfade tail while the next same-pair window is already active. `TryEvaluateOffset_AtSharedBoundary_PrefersNewWindowFullBlend` pins the exact shared-boundary handoff. The existing final-exit tests continue to cover the no-next-window standalone fallback.
+**Coverage:** `CoBubbleBlenderTests.TryEvaluateOffset_AdjacentWindowDuringPreviousTail_PrefersActiveNextTrace` pins the log-bundle failure mode by querying inside a previous window's crossfade tail while the next same-pair window is already active. `TryEvaluateOffset_AtSharedBoundary_PrefersNewWindowFullBlend` pins the exact shared-boundary handoff, `TryEvaluateOffset_OverlappingActiveWindows_PrefersLatestStart` covers unexpected overlapping active traces, and `TryEvaluateOffset_MultipleTailMatches_PrefersLatestEnd` covers tail-match arbitration. The existing final-exit tests continue to cover the no-next-window standalone fallback.
 
 **Status:** CLOSED 2026-05-15.
 
