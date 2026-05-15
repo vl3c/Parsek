@@ -12060,6 +12060,88 @@ namespace Parsek.InGameTests
                 $"after-double={rec.PartEvents.Count} events");
         }
 
+        // ======================= IdentityLossClassifier (BG go-on-rails destroyed override) =======================
+
+        [InGameTest(Category = "IdentityLoss", Scene = GameScenes.FLIGHT,
+            Description = "ControllerInfo.CaptureFromVessel returns entries for active vessel's command/EVA parts (KSP-runtime only)")]
+        public void CaptureFromVessel_ActiveVessel_ReturnsControllerEntries()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null || v.parts == null || v.parts.Count == 0)
+            {
+                InGameAssert.Skip("needs active vessel with parts");
+                return;
+            }
+
+            var controllers = ControllerInfo.CaptureFromVessel(v);
+            InGameAssert.IsNotNull(controllers, "CaptureFromVessel returned null for live active vessel");
+
+            // The active vessel must be controllable to even count as the player's
+            // focused vessel, so we expect at least one controller entry.
+            InGameAssert.IsGreaterThan(controllers.Count, 0,
+                $"Active vessel '{v.vesselName}' must expose at least one controller, got {controllers.Count}");
+
+            var validTypes = new HashSet<string> { "CrewedPod", "ExternalSeat", "ProbeCore", "KerbalEVA" };
+            foreach (var ctrl in controllers)
+            {
+                InGameAssert.IsTrue(ctrl.partPersistentId != 0u,
+                    $"Controller pid should not be zero: {ctrl}");
+                InGameAssert.IsTrue(validTypes.Contains(ctrl.type),
+                    $"Unknown controller type '{ctrl.type}' (expected one of: {string.Join(", ", validTypes)})");
+                // Every captured pid must correspond to a live part on the vessel.
+                bool foundOnVessel = false;
+                foreach (var p in v.parts)
+                {
+                    if (p != null && p.persistentId == ctrl.partPersistentId)
+                    {
+                        foundOnVessel = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(foundOnVessel,
+                    $"Captured controller pid={ctrl.partPersistentId} not found on vessel parts");
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"CaptureFromVessel captured {controllers.Count} controller(s) on '{v.vesselName}' ({v.parts.Count} parts)");
+        }
+
+        [InGameTest(Category = "IdentityLoss", Scene = GameScenes.FLIGHT,
+            Description = "IsRecordedIdentityLost returns false when live remnant is trackable (controlled active vessel)")]
+        public void IsRecordedIdentityLost_TrackableLiveVessel_ReturnsFalse()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null || v.parts == null || v.parts.Count == 0)
+            {
+                InGameAssert.Skip("needs active vessel with parts");
+                return;
+            }
+            // Verify the assumption: the active vessel is trackable.
+            if (!ParsekFlight.IsTrackableVessel(v))
+            {
+                InGameAssert.Skip("active vessel is not trackable (no command/EVA/SpaceObject) — test precondition unmet");
+                return;
+            }
+
+            // Synthesize a Recording whose "recorded" controller PIDs deliberately
+            // do NOT match any live part. Even with no matching controllers, the
+            // override must not fire because the live vessel is trackable in its
+            // own right.
+            var rec = new Recording
+            {
+                RecordingId = "test-identity-loss-trackable",
+                IsDebris = false,
+                Controllers = new List<ControllerInfo>
+                {
+                    new ControllerInfo { type = "ProbeCore", partName = "fake", partPersistentId = 99999999u }
+                }
+            };
+
+            bool lost = IdentityLossClassifier.IsRecordedIdentityLost(rec, v);
+            InGameAssert.IsFalse(lost,
+                $"IsRecordedIdentityLost must return false for trackable live vessel '{v.vesselName}' even with no matching controller pids");
+        }
+
         [InGameTest(Category = "PartEventTiming", Scene = GameScenes.FLIGHT,
             Description = "Light part events flip ghost lights exactly at their authored UT boundaries")]
         public void PartEventTiming_LightToggle_AppliesAtEventUt()

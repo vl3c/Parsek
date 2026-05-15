@@ -705,7 +705,12 @@ namespace Parsek
                     // today, but if Step 4a raises the cap, the contract must already be in
                     // place — see plan §"`IsDebris` propagation surface" site #8.
                     DebrisParentRecordingId = parentRec.DebrisParentRecordingId,
-                    Generation = parentRec.Generation
+                    Generation = parentRec.Generation,
+                    // Pin start-of-recording controller identity for the parent continuation
+                    // from the live post-split parent vessel. Captures the parts that
+                    // stayed with the parent after the split, so a later destructive
+                    // crash on the continuation can be detected via identity loss.
+                    Controllers = ControllerInfo.CaptureFromVessel(parentVessel)
                 };
                 bp.ChildRecordingIds.Insert(0, parentContRecId);
                 tree.AddOrReplaceRecording(parentContRec);
@@ -1153,12 +1158,17 @@ namespace Parsek
                     child.StartInventory = VesselSpawner.ExtractInventoryManifest(child.VesselSnapshot, out bgChildInvSlots);
                     child.StartInventorySlots = bgChildInvSlots;
                     child.StartCrew = VesselSpawner.ExtractCrewManifest(child.VesselSnapshot);
+                    // Pin start-of-recording controller identity from the live child vessel
+                    // at split moment. Forwarded by Recording copy/clone paths so a later
+                    // BG go-on-rails identity-loss check can detect destructive crash.
+                    child.Controllers = ControllerInfo.CaptureFromVessel(childVessel);
                     ParsekLog.Verbose("BgRecorder",
                         $"Captured snapshot for child vessel: pid={child.VesselPersistentId} " +
                         $"name='{child.VesselName}' hasSnapshot={child.VesselSnapshot != null} " +
                         $"startResources={child.StartResources?.Count ?? 0} type(s) " +
                         $"startInventory={child.StartInventory?.Count ?? 0} item(s) " +
-                        $"startCrew={child.StartCrew?.Count ?? 0} trait(s)");
+                        $"startCrew={child.StartCrew?.Count ?? 0} trait(s) " +
+                        $"controllers={child.Controllers?.Count ?? 0} part(s)");
                 }
                 else
                 {
@@ -2276,6 +2286,19 @@ namespace Parsek
         /// <summary>
         /// Called when a background vessel goes on rails.
         /// Transitions from loaded/physics mode to on-rails mode.
+        ///
+        /// <para>
+        /// Identity-loss override: before any on-rails state is initialized or any
+        /// cache refresh fires, check whether the recorded controllable identity has
+        /// survived into the live remnant. KSP sets <c>vessel.situation = LANDED</c>
+        /// purely from terrain proximity, so a destructive breakup that leaves a
+        /// 1-part decoupler at non-trivial surface speed would otherwise be classified
+        /// as <c>terminal=Landed</c> by the FinalizerCache short-circuit. When
+        /// <see cref="IdentityLossClassifier.IsRecordedIdentityLost"/> fires, we mark
+        /// the recording <c>Destroyed</c> through the centralized hygiene helper —
+        /// the subsequent cache refresh then short-circuits via the
+        /// already-classified-destroyed skip path, preserving the correct terminal.
+        /// </para>
         /// </summary>
         public void OnBackgroundVesselGoOnRails(Vessel v)
         {
@@ -2307,6 +2330,24 @@ namespace Parsek
 
                 loadedStates.Remove(pid);
                 ParsekLog.Info("BgRecorder", $"Mode transition loaded→on-rails: pid={pid}");
+            }
+
+            // Identity-loss override runs BEFORE InitializeOnRailsState so the
+            // destroyed-remnant guard in that method can skip writing landed surface
+            // metadata, and BEFORE the cache refresh so the already-classified-destroyed
+            // short-circuit fires.
+            Recording onRailsRec;
+            if (tree.Recordings.TryGetValue(recordingId, out onRailsRec)
+                && !onRailsRec.VesselDestroyed
+                && IdentityLossClassifier.IsRecordedIdentityLost(onRailsRec, v))
+            {
+                int recordedControllerCount = onRailsRec.Controllers?.Count ?? 0;
+                int survivingPartCount = v.parts?.Count ?? 0;
+                ParsekLog.Info("BgRecorder",
+                    $"Recorded controllable identity lost on go-on-rails: pid={pid} " +
+                    $"recordedControllers={recordedControllerCount} survivingParts={survivingPartCount} " +
+                    $"sit={v.situation} rec={recordingId} — classifying as Destroyed");
+                onRailsRec.MarkDestroyedAtTerminal(ut, "BgRecorder.OnBackgroundVesselGoOnRails");
             }
 
             // Initialize on-rails state
@@ -3249,6 +3290,25 @@ namespace Parsek
                 recordingId = recordingId,
                 lastExplicitEndUpdate = ut
             };
+
+            // Destroyed-remnant guard: when the recording is already marked Destroyed
+            // (typically by the identity-loss override in OnBackgroundVesselGoOnRails),
+            // do NOT write landed/orbiting surface metadata. The Destroyed terminal must
+            // not coexist with a stale SurfacePos / ExplicitEndUT — MarkDestroyedAtTerminal
+            // already cleared those, and a write here would re-introduce contradictory
+            // persisted state. The bare on-rails state below still tracks the pid so
+            // OnBackgroundVesselWillDestroy / OnBackgroundVesselGoOffRails can clean up,
+            // but no per-frame orbit or surface payload is emitted.
+            if (hasTreeRecording && treeRec.VesselDestroyed)
+            {
+                state.hasOpenOrbitSegment = false;
+                state.isLanded = false;
+                onRailsStates[vesselPid] = state;
+                ParsekLog.Verbose("BgRecorder",
+                    $"On-rails state initialized (destroyed remnant, no surface/orbit metadata): " +
+                    $"pid={vesselPid} body={v.mainBody?.name} sit={v.situation} rec={recordingId}");
+                return;
+            }
 
             bool isLanded = v.situation == Vessel.Situations.LANDED ||
                             v.situation == Vessel.Situations.SPLASHED;

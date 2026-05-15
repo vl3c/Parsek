@@ -979,6 +979,11 @@ namespace Parsek
         private Dictionary<string, InventoryItem> pendingStartInventory;
         private int pendingStartInventorySlots;
         private Dictionary<string, int> pendingStartCrew;
+        // Captured once at recording-start time. Forwarded to CaptureAtStop verbatim;
+        // never re-captured from the stop/remnant vessel, so a destructive breakup
+        // that leaves a 1-part decoupler cannot overwrite the recorded controllable
+        // identity used by the BG go-on-rails Destroyed override.
+        private List<ControllerInfo> pendingStartControllers;
         private double lastSnapshotRefreshUT = double.MinValue;
         private double lastFinalizationCacheRefreshUT = double.MinValue;
 
@@ -6276,6 +6281,8 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartInventory?.Count ?? 0} start inventory item type(s), {pendingStartInventorySlots} slot(s)");
             pendingStartCrew = VesselSpawner.ExtractCrewManifest(lastGoodVesselSnapshot);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartCrew?.Count ?? 0} start crew trait(s)");
+            pendingStartControllers = ControllerInfo.CaptureFromVessel(v);
+            ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartControllers?.Count ?? 0} start controller part(s)");
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
                 : VesselSpawner.TryBackupSnapshot(v);
@@ -6651,6 +6658,14 @@ namespace Parsek
             capture.StartCrew = pendingStartCrew;
             capture.EndCrew = VesselSpawner.ExtractCrewManifest(capture.VesselSnapshot);
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndCrew?.Count ?? 0} end crew trait(s)");
+            // Forward the start-time controller identity. Never re-derive from the live
+            // stop/remnant vessel here: a destructive breakup leaves a 1-part decoupler
+            // with no command authority, and re-capturing would clobber the recorded
+            // controllable identity used by the BG go-on-rails Destroyed override.
+            capture.Controllers = pendingStartControllers != null
+                ? new List<ControllerInfo>(pendingStartControllers)
+                : null;
+            ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: forwarded {capture.Controllers?.Count ?? 0} start controller part(s)");
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);

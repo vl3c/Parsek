@@ -513,6 +513,45 @@ namespace Parsek
         // and there are no remaining callers gating on standalone-vs-tree.
 
         /// <summary>
+        /// Centralized "mark this recording as destroyed at <paramref name="terminalUT"/>"
+        /// hygiene helper. Sets the terminal verdict (<see cref="TerminalStateValue"/>,
+        /// <see cref="VesselDestroyed"/>, <see cref="ExplicitEndUT"/>) AND clears every
+        /// surface-terminal field that would otherwise leave the recording in mixed
+        /// state (Destroyed terminal alongside a stale landed surface position,
+        /// terrain height, or endpoint phase). Used by the BG go-on-rails identity-loss
+        /// override (and available to any future destruction-detection seam that needs
+        /// the same hygiene). Idempotent.
+        /// </summary>
+        internal void MarkDestroyedAtTerminal(double terminalUT, string source)
+        {
+            bool wasAlreadyDestroyed = VesselDestroyed
+                && TerminalStateValue == TerminalState.Destroyed;
+
+            VesselDestroyed = true;
+            TerminalStateValue = TerminalState.Destroyed;
+            ExplicitEndUT = terminalUT;
+
+            // Clear surface-terminal data — leaving these set produces contradictory
+            // persisted state (Destroyed + landed SurfacePos) that downstream readers
+            // do not expect.
+            TerminalPosition = null;
+            SurfacePos = null;
+            TerrainHeightAtEnd = double.NaN;
+            EndpointPhase = RecordingEndpointPhase.Unknown;
+            EndpointBodyName = null;
+
+            MarkFilesDirty();
+
+            if (!wasAlreadyDestroyed)
+            {
+                ParsekLog.Info("Recording",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "MarkDestroyedAtTerminal: rec={0} terminalUT={1:F2} source={2}",
+                        RecordingId ?? "(null)", terminalUT, source ?? "(none)"));
+            }
+        }
+
+        /// <summary>
         /// Copies persistence/capture artifacts from a stop-time captured recording.
         /// Intentionally does NOT copy Points/OrbitSegments/VesselName, which are
         /// set by CreateRecordingFromFlightData from the current recorder buffers.
