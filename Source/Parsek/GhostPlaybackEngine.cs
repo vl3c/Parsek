@@ -248,10 +248,24 @@ namespace Parsek
 
             string recordingId = traj.RecordingId;
             // Defend against future trajectory/flag pairing drift.
-            return !string.IsNullOrWhiteSpace(recordingId)
-                && string.Equals(recordingId, flags.recordingId, StringComparison.Ordinal)
-                && !string.Equals(recordingId, originRecordingId, StringComparison.Ordinal)
-                && !string.Equals(recordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal);
+            if (string.IsNullOrWhiteSpace(recordingId)
+                || !string.Equals(recordingId, flags.recordingId, StringComparison.Ordinal)
+                || string.Equals(recordingId, originRecordingId, StringComparison.Ordinal)
+                || string.Equals(recordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Pre-RP history only. Strict `<` against marker.InvokedUT (the
+            // post-load Planetarium UT, written by RewindInvoker.AtomicMarkerWrite
+            // ≈ the RP UT) keeps debris shed before the rewind moment visible
+            // and hides debris created after — the latter belongs to the
+            // original timeline being replaced (e.g. the upper stage's own
+            // post-probe-separation break-up), not the kept companion set.
+            // A non-positive InvokedUT (legacy marker without the field, or
+            // any other unset sentinel) collapses to the pre-PR-858 default
+            // of "hide the suppressed debris".
+            return marker.InvokedUT > 0.0 && traj.StartUT < marker.InvokedUT;
         }
 
         internal static void LogSessionSuppressedCompanionDebrisRenderAllowed(
@@ -261,6 +275,8 @@ namespace Parsek
         {
             string recordingId = traj?.RecordingId;
             string parentRecordingId = traj?.DebrisParentRecordingId;
+            double trajStartUT = traj?.StartUT ?? 0.0;
+            double invokedUT = marker?.InvokedUT ?? 0.0;
             string identity = "session-suppressed-companion-debris|"
                 + (!string.IsNullOrEmpty(recordingId)
                     ? recordingId
@@ -282,6 +298,8 @@ namespace Parsek
                 + " parentRecId=" + FormatRecordingIdShort(parentRecordingId)
                 + " originRecId=" + FormatRecordingIdShort(marker?.OriginChildRecordingId)
                 + " activeReFlyRecId=" + FormatRecordingIdShort(marker?.ActiveReFlyRecordingId)
+                + " startUT=" + trajStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " invokedUT=" + invokedUT.ToString("F2", CultureInfo.InvariantCulture)
                 + " sess=" + (marker?.SessionId ?? "<no-id>"));
         }
 

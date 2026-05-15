@@ -88,6 +88,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly companion-debris carve-out leaked post-rewind tail debris
+
+- ~~PR #858 added a render-only carve-out so origin-parented committed debris stays visible during an in-place Re-Fly. The repro in `logs/2026-05-15_1929_refly-upper-stage-debris-ghost/KSP.log` showed the carve-out also admitting `c1f50a72…` — a `Kerbal X Debris` recording authored at UT 43.09 by the *original* upper-stage's post-probe-separation break-up at branch point `91287a45…`. The user re-flew the upper stage slot at rewind point UT ≈ 37.2 (`marker.InvokedUT`), so c1f50a72 belongs to the timeline being replaced, not the kept pre-rewind companion set. All seven `Kerbal X Debris` rows shared `DebrisParentRecordingId = d44417c8…`, so `parent == origin` matched for the post-RP row just as it did for the legitimate pre-RP side-booster debris (`StartUT` 25.86 / 33.53 / 34.85). The carve-out's `log:9376 session-suppressed-companion-debris: render allowed recording=#8 recId=c1f50a72 …` line caught the gate firing on the wrong row, and `[ghostIndex=8 … reason=before-activation-start-ut startUT=43.090 endUT=56.090]` confirmed the ghost would have become visible once playback crossed UT 43.09.~~
+
+**Root cause:** `GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris` admitted any in-closure origin-parented debris regardless of when the debris row was authored. The replaced-future debris produced by the original timeline's post-RP break-ups satisfied every existing predicate (`IsDebris`, `parent == origin`, `recordingId != origin`, `recordingId != active`, `sessionSuppressedRenderCarveOutEligible`).
+
+**Fix:** The carve-out now additionally requires `traj.StartUT < marker.InvokedUT`. `marker.InvokedUT` is set in `RewindInvoker.AtomicMarkerWrite` to `Planetarium.GetUniversalTime()` after the rewind-point load, so it is ≈ the RP UT. Strict less-than treats debris authored exactly at the RP as post-RP (the new flight is the canonical author of any events at that moment); the legitimate pre-RP companions in the repro all sit strictly below the rewind UT. A non-positive `InvokedUT` (legacy marker without the persisted field, or any unset sentinel) collapses the carve-out to its pre-PR-858 default of "hide the suppressed debris", since there is no trustworthy reference UT to separate kept history from replaced future. The render-allowed log now also carries `startUT=` and `invokedUT=` so future repros can see the gate's UT decision in a single line.
+
+**Scope:** Render-only, same as PR #858. The effective-state `SessionSuppressedSubtree` closure and the ERS/merge/supersede semantics still walk every origin-parented debris regardless of UT. Map-presence ProtoVessels/orbit lines and Watch-mode targeting continue to follow the normal session-suppressed policy.
+
+**Coverage:** `GhostPlaybackEngineTests.ShouldRenderSuppressedCompanionDebris_OriginOwnedDebris_ReturnsTrue` now sets `StartUTOverride < InvokedUT`. New `_DebrisStartsAfterInvokedUT_ReturnsFalse` pins the post-RP debris case from the repro. `_DebrisStartsAtInvokedUT_ReturnsFalse` pins the strict-less-than boundary. `_NonPositiveInvokedUT_ReturnsFalse` covers the legacy/unset fallback. `LogSessionSuppressedCompanionDebrisRenderAllowed_EmitsDecisionFields` was extended to assert the new `startUT=` / `invokedUT=` log fields. An in-game playback assertion of the post-RP hide remains runtime-only.
+
+**Status:** CLOSED 2026-05-15.
+
+---
+
 ## Done - v0.9.2 Re-Fly upper-stage pass hid root-owned secondary debris
 
 - ~~During upper-stage Re-Fly, the small side-booster debris recordings did not render and their `Kerbal X Debris` explosion FX never fired. Source: `logs/2026-05-15_0134_refly-distance-fixed-weird-motion`. The save tree parents those debris recordings to the re-flown upper-stage root `d44417c806774577899ec639d8833976`, while the only visible peer in that window was the probe-booster recording `9b2de358728d4fdc96aad539aaac0324`.~~

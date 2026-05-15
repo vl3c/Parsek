@@ -5412,16 +5412,115 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin"
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 50.0,
             };
             var marker = new ReFlySessionMarker
             {
                 SessionId = "sess_1",
                 OriginChildRecordingId = "rec_origin",
-                ActiveReFlyRecordingId = "rec_active"
+                ActiveReFlyRecordingId = "rec_active",
+                InvokedUT = 100.0,
             };
 
             Assert.True(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAfterInvokedUT_ReturnsFalse()
+        {
+            // Repro: re-flying the upper stage (origin = Kerbal X). One of the
+            // origin-parented debris recordings was authored AFTER the rewind
+            // point (e.g. Kerbal X's own post-probe-separation break-up). That
+            // row belongs to the now-replaced timeline, not the kept companion
+            // set — it must not enter the render carve-out even though it
+            // matches the parent==origin clause.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_postrp_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 150.0,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                InvokedUT = 100.0,
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_postrp_debris"
+                }));
+        }
+
+        [Fact]
+        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAtInvokedUT_ReturnsFalse()
+        {
+            // Strict less-than: a debris whose StartUT exactly equals
+            // marker.InvokedUT is treated as post-RP (the new flight is the
+            // canonical author of any events at InvokedUT). The kept
+            // pre-rewind companions in the field repro all have StartUT
+            // strictly below the rewind point's UT.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_at_rp_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 100.0,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                InvokedUT = 100.0,
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+                traj, marker, new TrajectoryPlaybackFlags
+                {
+                    sessionSuppressedRenderCarveOutEligible = true,
+                    recordingId = "rec_at_rp_debris"
+                }));
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-1.0)]
+        public void ShouldRenderSuppressedCompanionDebris_NonPositiveInvokedUT_ReturnsFalse(
+            double invokedUT)
+        {
+            // Defensive: a non-positive marker.InvokedUT (legacy marker
+            // without the persisted field, or any other unset sentinel)
+            // collapses to the pre-PR-858 default of "hide the suppressed
+            // debris", since we have no trustworthy rewind-point UT to
+            // separate kept history from replaced future.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec_debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin",
+                StartUTOverride = 50.0,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_active",
+                InvokedUT = invokedUT,
+            };
+
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
                     sessionSuppressedRenderCarveOutEligible = true,
@@ -5622,13 +5721,15 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "origin"
+                DebrisParentRecordingId = "origin",
+                StartUTOverride = 25.86,
             };
             var marker = new ReFlySessionMarker
             {
                 SessionId = "sess_1",
                 OriginChildRecordingId = "origin",
-                ActiveReFlyRecordingId = "active"
+                ActiveReFlyRecordingId = "active",
+                InvokedUT = 37.20,
             };
 
             logLines.Clear();
@@ -5643,6 +5744,8 @@ namespace Parsek.Tests
                 && l.Contains("parentRecId=origin")
                 && l.Contains("originRecId=origin")
                 && l.Contains("activeReFlyRecId=active")
+                && l.Contains("startUT=25.86")
+                && l.Contains("invokedUT=37.20")
                 && l.Contains("sess=sess_1"));
         }
 
