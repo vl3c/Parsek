@@ -729,6 +729,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DetermineReFlyTimelineActionIsPermanent_ClassifierThrows_FallsBackToPreview()
+        {
+            var rec = MakeRecording();
+            rec.MergeState = MergeState.NotCommitted;
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.ParentBranchPointId = "bp-missing";
+            rec.SupersedeTargetId = "rec-origin";
+            var marker = MakeMarker(activeReFlyRecordingId: rec.RecordingId);
+            marker.OriginChildRecordingId = "rec-origin";
+            marker.SupersedeTargetId = "rec-origin";
+            MakeScenario(marker);
+
+            string source;
+            bool permanent = MergeDialog.DetermineReFlyTimelineActionIsPermanent(
+                rec,
+                marker,
+                ReFlyAutoSealPreviewResult.NoSeal(),
+                out source);
+
+            Assert.False(permanent);
+            Assert.Equal("preview:InvalidOperationException", source);
+            Assert.Contains(logLines,
+                l => l.Contains("[WARN][Supersede]") &&
+                     l.Contains("Prediction fallback") &&
+                     l.Contains("using preview label"));
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("[ERROR][Supersede]") &&
+                     l.Contains("aborting because stable-leaf"));
+        }
+
+        [Fact]
         public void BuildReFlyAutoSealReasonLines_MultipleReasons_UsesDashedLines()
         {
             var preview = new ReFlyAutoSealPreviewResult

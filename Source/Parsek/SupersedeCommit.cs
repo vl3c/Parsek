@@ -305,7 +305,9 @@ namespace Parsek
                 || object.ReferenceEquals(null, scenario)) return;
 
             MergeStateClassification classification =
-                ClassifyMergeStateOrThrow(marker, provisional, scenario, logFallback: true);
+                ClassifyMergeStateOrThrow(
+                    marker, provisional, scenario, logFallback: true,
+                    isPrediction: false);
 
             provisional.MergeState = classification.NewState;
             // Re-Fly provisionals are created with PlaybackEnabled=false in
@@ -439,7 +441,8 @@ namespace Parsek
             {
                 MergeStateClassification classification =
                     ClassifyMergeStateOrThrow(
-                        marker, provisional, scenario, logFallback: false);
+                        marker, provisional, scenario, logFallback: false,
+                        isPrediction: true);
                 isPermanent = classification.NewState == MergeState.Immutable;
                 reason = classification.ClassifierReason
                     ?? classification.Kind.ToString();
@@ -512,7 +515,8 @@ namespace Parsek
             ReFlySessionMarker marker,
             Recording provisional,
             ParsekScenario scenario,
-            bool logFallback)
+            bool logFallback,
+            bool isPrediction = false)
         {
             TerminalKind kind = TerminalKindClassifier.Classify(provisional);
             var result = new MergeStateClassification
@@ -586,9 +590,18 @@ namespace Parsek
             if (!IsInPlaceContinuation(marker, provisional)
                 && RequiresSlotAwareMergeClassification(provisional))
             {
-                ParsekLog.Error(Tag,
-                    slotLookupFailure +
-                    "; aborting because stable-leaf classification cannot safely fall back");
+                if (isPrediction)
+                {
+                    ParsekLog.Warn(Tag,
+                        "Prediction fallback: stable-leaf slot lookup failed; using preview label. " +
+                        slotLookupFailure);
+                }
+                else
+                {
+                    ParsekLog.Error(Tag,
+                        slotLookupFailure +
+                        "; aborting because stable-leaf classification cannot safely fall back");
+                }
                 throw new InvalidOperationException(slotLookupFailure);
             }
 
