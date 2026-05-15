@@ -520,6 +520,21 @@ namespace Parsek
         /// can be backgrounded, so the BG go-on-rails identity-loss override has
         /// something to compare against. Returns <c>true</c> when a forward
         /// actually happened (caller can log it).
+        ///
+        /// <para>
+        /// Controller-capture pattern: factory sites (anywhere a fresh
+        /// <see cref="Recording"/> is allocated paired with a live <see cref="Vessel"/> —
+        /// always-tree root, <c>BuildSplitBranchData</c> callers, fresh-post-switch
+        /// root, <c>CreateBreakupChildRecording</c>, BG parent continuation,
+        /// <c>RegisterChildRecordingsFromSplit</c>, <c>FlightRecorder.BuildCaptureRecording</c>)
+        /// directly assign <see cref="Controllers"/> from <see cref="ControllerInfo.CaptureFromVessel"/>
+        /// because the Recording is brand new and has no prior identity to preserve.
+        /// Forwarding sites (anywhere an already-built Recording's identity is being
+        /// propagated — <c>StartRecording</c>'s recorder-start backstop and
+        /// <c>FlushRecorderToTreeRecording</c>) call this helper to respect the
+        /// no-overwrite contract: once a Recording carries an identity, no later
+        /// capture replaces it.
+        /// </para>
         /// </summary>
         internal bool AdoptControllersIfEmpty(IReadOnlyList<ControllerInfo> source)
         {

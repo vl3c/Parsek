@@ -2653,19 +2653,18 @@ namespace Parsek
             // Destroyed-recording guard: if the recording is already sealed (e.g.
             // via the identity-loss override that didn't fully retire, or any
             // out-of-band path that called MarkDestroyedAtTerminal), skip the
-            // finalization-cache refresh and just clean up the leftover BG state.
-            // The cache refresh would otherwise advance the terminal verdict.
-            // Drain the same set of dictionaries the fall-through path drains
-            // (including pending-initial overrides/points) so this short-circuit
-            // doesn't leak state for a pid KSP may reuse.
+            // finalization-cache refresh and reuse RetireDestroyedBackgroundEntry
+            // for the dictionary drain so this branch is single-source-of-truth
+            // with the identity-loss retirement seam (including the
+            // pendingBackgroundSplitChecks / preBreakVesselPidSnapshots drain
+            // that prevents ProcessPendingSplitChecks from dispatching on a sealed
+            // parent). The pending-initial dicts that the live-vessel-destroy
+            // fall-through normally drains are also cleared here for symmetry.
             if (IsBackgroundRecordingDestroyed(recordingId))
             {
-                onRailsStates.Remove(pid);
-                loadedStates.Remove(pid);
-                finalizationCaches.Remove(pid);
                 pendingInitialEnvironmentOverrides.Remove(pid);
                 pendingInitialTrajectoryPoints.Remove(pid);
-                tree.BackgroundMap.Remove(pid);
+                RetireDestroyedBackgroundEntry(pid, recordingId, ut);
                 ParsekLog.Info("BgRecorder",
                     $"OnBackgroundVesselWillDestroy: cleared BG state for already-destroyed recording " +
                     $"pid={pid} rec={recordingId}");

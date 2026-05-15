@@ -739,9 +739,10 @@ namespace Parsek
             target.ExplicitStartUT = double.NaN;
             target.ExplicitEndUT = double.NaN;
 
-            // 10. Controllers: keep target's if present, else inherit
+            // 10. Controllers: keep target's if present, else inherit (defensive
+            // copy to match every other Recording.Controllers propagation site).
             if (target.Controllers == null && absorbed.Controllers != null)
-                target.Controllers = absorbed.Controllers;
+                target.Controllers = new List<ControllerInfo>(absorbed.Controllers);
 
             // 11. AntennaSpecs: keep target's if present, else inherit
             if (target.AntennaSpecs == null && absorbed.AntennaSpecs != null)
