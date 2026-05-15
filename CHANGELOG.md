@@ -26,6 +26,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Ghost map presence now defers Relative-frame state-vector ProtoVessels while waiting between bounded orbit segments, preventing rewind/map time warp from briefly showing stock's unbounded suborbital proto-orbit for a ghost icon before Parsek's next bounded segment becomes active.
+- Discarding a merge dialog after switching into a previously spawned committed vessel no longer wipes the whole recording timeline. The discarded restore clone is now dropped without touching committed history; only unmerged event tails recorded after the original commit are purged.
 - In-game test harness: `RuntimeTests.TerminalOrbitFromTail_DerivesPostBurnCircularOrbit` now builds a prograde equatorial velocity instead of a retrograde one, so the inclination assertion measures the orbit shape it was written to pin instead of reading 180°.
 - In-game test harness: `OnFlightReadyMergeDialogGuardInGameTest.OnFlightReady_ActiveReFlySession_SkipsMergeDialog` now installs an in-place-continuation marker, matching the narrower dispatch gate the dialog skip path actually checks; the placeholder-mode marker the test previously installed fell through to the dialog every run.
 - In-game test harness: `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` now skips on PRELAUNCH/LANDED/SPLASHED parent vessels. The test's snapshot-before-first-sample wait depends on a brief live-recorder window that only exists for mid-flight EVAs; pad-launched parents produce an immediately auto-Landed kerbal recording with no live window.

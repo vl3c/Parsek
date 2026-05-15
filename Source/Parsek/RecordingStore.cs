@@ -382,6 +382,17 @@ namespace Parsek
         // stash/commit/pop/unstash lifecycle methods intentionally leave it alone.
         private static RecordingTree savedPendingTreeDuringActiveRestore;
         private static bool savedPendingTreeDuringActiveRestoreSerializedForSave;
+
+        // One-shot context for the committed-spawned-vessel restore path. That
+        // path keeps the original committed tree durable and gives the live
+        // flight a copy-on-write clone. While the clone is unmerged, dirty
+        // overlap sidecars must not be written over committed history, and
+        // Discard must remove same-id game-state event tails authored after the
+        // committed recording's original end UT.
+        private static string committedTreeRestoreAttemptTreeId;
+        private static string committedTreeRestoreAttemptReason;
+        private static HashSet<string> committedTreeRestoreAttemptRecordingIds;
+        private static Dictionary<string, double> committedTreeRestoreAttemptEventCutoffs;
         internal static string CleanOrphanFilesDirectoryOverrideForTesting;
 
         /// <summary>
@@ -405,6 +416,10 @@ namespace Parsek
             savedPendingTreeDuringActiveRestore;
         internal static bool SavedPendingTreeDuringActiveRestoreSerializedForSave =>
             savedPendingTreeDuringActiveRestoreSerializedForSave;
+        internal static bool HasCommittedTreeRestoreAttempt =>
+            committedTreeRestoreAttemptTreeId != null;
+        internal static bool HasCommittedTreeRestoreAttemptForTesting =>
+            HasCommittedTreeRestoreAttempt;
 
         // Phase 2 (Rewind-to-Staging): state-version counter consumed by
         // <see cref="EffectiveState"/> to invalidate the ERS cache. Every code
@@ -706,6 +721,7 @@ namespace Parsek
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
             committedTrees.Clear();
+            ClearCommittedTreeRestoreAttempt("ClearCommitted");
             ClearRewindReplayTargetScope();
             BumpStateVersion();
             GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("clear-committed");
@@ -720,6 +736,7 @@ namespace Parsek
             pendingTreeSerializedForSave = false;
             savedPendingTreeDuringActiveRestore = null;
             savedPendingTreeDuringActiveRestoreSerializedForSave = false;
+            ClearCommittedTreeRestoreAttempt("Clear");
             ClearCommitted();
             ClearRewindReplayTargetScope();
             Log("[Parsek] All recordings cleared");
@@ -808,6 +825,7 @@ namespace Parsek
             AdoptOrphanedRecordingsIntoTreeGroup(tree);
             MarkSupersededTerminalSpawnsForContinuedSources(tree);
             FinalizeTreeCommit(tree, replaceCommittedTreeIndex);
+            ClearCommittedTreeRestoreAttemptForTree(tree.Id, "CommitTree accepted restored active tree");
             ClearRewindReplayTargetScope();
         }
 
@@ -1602,6 +1620,7 @@ namespace Parsek
                 StringComparison.Ordinal);
             bool recordingTopologyChanged = HasRecordingTopologyDifference(existing, incoming);
             bool branchTopologyChanged = HasBranchPointTopologyDifference(existing, incoming);
+            bool recordingPayloadChanged = HasRecordingPayloadDifference(existing, incoming);
 
             bool replace =
                 newRecordingIds > 0 ||
@@ -1609,13 +1628,15 @@ namespace Parsek
                 rootChanged ||
                 activeChanged ||
                 recordingTopologyChanged ||
-                branchTopologyChanged;
+                branchTopologyChanged ||
+                recordingPayloadChanged;
 
             reason =
                 $"newRecordingIds={newRecordingIds} newBranchPointIds={newBranchPointIds} " +
                 $"rootChanged={rootChanged} activeChanged={activeChanged} " +
                 $"recordingTopologyChanged={recordingTopologyChanged} " +
-                $"branchTopologyChanged={branchTopologyChanged}";
+                $"branchTopologyChanged={branchTopologyChanged} " +
+                $"recordingPayloadChanged={recordingPayloadChanged}";
             return replace;
         }
 
@@ -1730,6 +1751,62 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static bool HasRecordingPayloadDifference(
+            RecordingTree existing,
+            RecordingTree incoming)
+        {
+            if (existing?.Recordings == null || incoming?.Recordings == null)
+                return false;
+
+            foreach (var kvp in incoming.Recordings)
+            {
+                Recording incomingRec = kvp.Value;
+                if (incomingRec == null ||
+                    !existing.Recordings.TryGetValue(kvp.Key, out var existingRec) ||
+                    existingRec == null)
+                {
+                    continue;
+                }
+
+                if (HasRecordingPayloadDifference(existingRec, incomingRec))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasRecordingPayloadDifference(Recording existing, Recording incoming)
+        {
+            return CountOf(existing.Points) != CountOf(incoming.Points) ||
+                CountOf(existing.OrbitSegments) != CountOf(incoming.OrbitSegments) ||
+                CountOf(existing.PartEvents) != CountOf(incoming.PartEvents) ||
+                CountOf(existing.FlagEvents) != CountOf(incoming.FlagEvents) ||
+                CountOf(existing.SegmentEvents) != CountOf(incoming.SegmentEvents) ||
+                CountOf(existing.TrackSections) != CountOf(incoming.TrackSections) ||
+                !SameDouble(existing.StartUT, incoming.StartUT) ||
+                !SameDouble(existing.EndUT, incoming.EndUT) ||
+                existing.VesselPersistentId != incoming.VesselPersistentId ||
+                existing.SpawnedVesselPersistentId != incoming.SpawnedVesselPersistentId ||
+                existing.VesselSpawned != incoming.VesselSpawned ||
+                existing.TerminalStateValue != incoming.TerminalStateValue ||
+                existing.EndpointPhase != incoming.EndpointPhase ||
+                !string.Equals(existing.EndpointBodyName, incoming.EndpointBodyName, StringComparison.Ordinal) ||
+                !string.Equals(existing.TerminalOrbitBody, incoming.TerminalOrbitBody, StringComparison.Ordinal);
+        }
+
+        private static int CountOf<T>(ICollection<T> items)
+        {
+            return items?.Count ?? 0;
+        }
+
+        private static bool SameDouble(double left, double right)
+        {
+            if (double.IsNaN(left) && double.IsNaN(right))
+                return true;
+
+            return left.Equals(right);
         }
 
         private static bool HasBranchPointTopologyDifference(
@@ -1922,6 +1999,213 @@ namespace Parsek
             return true;
         }
 
+        internal static void ArmCommittedTreeRestoreAttempt(RecordingTree tree, string reason)
+        {
+            if (tree == null || string.IsNullOrEmpty(tree.Id))
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"ArmCommittedTreeRestoreAttempt skipped: tree={(tree == null ? "<null>" : "<no-id>")} " +
+                    $"reason={reason ?? "<none>"}");
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"ArmCommittedTreeRestoreAttempt: replacing stale context " +
+                    $"tree={committedTreeRestoreAttemptTreeId} " +
+                    $"reason={committedTreeRestoreAttemptReason ?? "<none>"}");
+            }
+
+            committedTreeRestoreAttemptTreeId = tree.Id;
+            committedTreeRestoreAttemptReason = reason ?? "<unspecified>";
+            committedTreeRestoreAttemptRecordingIds =
+                BuildCommittedTreeRestoreRecordingIds(tree);
+            committedTreeRestoreAttemptEventCutoffs =
+                BuildCommittedTreeRestoreEventCutoffs(tree);
+            ParsekLog.Info("RecordingStore",
+                $"Armed committed-tree restore attempt for '{tree.TreeName ?? "<unnamed>"}' " +
+                $"(id={tree.Id}, recordings={tree.Recordings?.Count ?? 0}, " +
+                $"cutoffs={committedTreeRestoreAttemptEventCutoffs.Count}, " +
+                $"reason={committedTreeRestoreAttemptReason})");
+        }
+
+        internal static void ClearCommittedTreeRestoreAttempt(string reason)
+        {
+            if (string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
+                return;
+
+            ParsekLog.Verbose("RecordingStore",
+                $"Cleared committed-tree restore attempt " +
+                $"tree={committedTreeRestoreAttemptTreeId} " +
+                $"reason={reason ?? "<none>"} " +
+                $"armedReason={committedTreeRestoreAttemptReason ?? "<none>"}");
+            committedTreeRestoreAttemptTreeId = null;
+            committedTreeRestoreAttemptReason = null;
+            committedTreeRestoreAttemptRecordingIds = null;
+            committedTreeRestoreAttemptEventCutoffs = null;
+        }
+
+        private static void ClearCommittedTreeRestoreAttemptForTree(string treeId, string reason)
+        {
+            if (string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
+                return;
+            if (!string.Equals(committedTreeRestoreAttemptTreeId, treeId, StringComparison.Ordinal))
+                return;
+
+            ClearCommittedTreeRestoreAttempt(reason);
+        }
+
+        internal static bool IsCommittedTreeRestoreAttemptRecordingId(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)
+                || committedTreeRestoreAttemptRecordingIds == null)
+                return false;
+
+            return committedTreeRestoreAttemptRecordingIds.Contains(recordingId);
+        }
+
+        internal static bool ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+            GameStateEvent evt)
+        {
+            string recordingId = evt.recordingId;
+            if (string.IsNullOrEmpty(recordingId)
+                || string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
+            {
+                return false;
+            }
+
+            if (committedTreeRestoreAttemptEventCutoffs != null
+                && committedTreeRestoreAttemptEventCutoffs.TryGetValue(
+                    recordingId,
+                    out double cutoffUT))
+            {
+                return evt.ut > cutoffUT;
+            }
+
+            return IsPendingOnlyCommittedTreeRestoreAttemptRecordingId(recordingId);
+        }
+
+        private static bool IsPendingOnlyCommittedTreeRestoreAttemptRecordingId(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)
+                || string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
+            {
+                return false;
+            }
+
+            if (committedTreeRestoreAttemptRecordingIds != null
+                && committedTreeRestoreAttemptRecordingIds.Contains(recordingId))
+            {
+                return false;
+            }
+
+            if (IsCommittedRecordingId(recordingId))
+                return false;
+
+            return TreeContainsRecordingId(
+                    pendingTree,
+                    committedTreeRestoreAttemptTreeId,
+                    recordingId)
+                || TreeContainsRecordingId(
+                    savedPendingTreeDuringActiveRestore,
+                    committedTreeRestoreAttemptTreeId,
+                    recordingId)
+                || ParsekFlight.IsActiveTreeRecordingIdForTree(
+                    recordingId,
+                    committedTreeRestoreAttemptTreeId);
+        }
+
+        private static bool TreeContainsRecordingId(
+            RecordingTree tree,
+            string treeId,
+            string recordingId)
+        {
+            return tree != null
+                && !string.IsNullOrEmpty(treeId)
+                && string.Equals(tree.Id, treeId, StringComparison.Ordinal)
+                && tree.Recordings != null
+                && tree.Recordings.ContainsKey(recordingId);
+        }
+
+        private static HashSet<string> BuildCommittedTreeRestoreRecordingIds(RecordingTree tree)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            if (tree?.Recordings == null)
+                return result;
+
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (!string.IsNullOrEmpty(rec?.RecordingId))
+                    result.Add(rec.RecordingId);
+            }
+
+            return result;
+        }
+
+        private static Dictionary<string, double> BuildCommittedTreeRestoreEventCutoffs(
+            RecordingTree tree)
+        {
+            var result = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (tree?.Recordings == null)
+                return result;
+
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                if (!rec.HasActualTrajectoryBounds && double.IsNaN(rec.ExplicitEndUT))
+                    continue;
+
+                double cutoff = rec.EndUT;
+                if (double.IsNaN(cutoff) || double.IsInfinity(cutoff))
+                    continue;
+
+                result[rec.RecordingId] = cutoff;
+            }
+
+            return result;
+        }
+
+        private static bool PendingTreeMatchesCommittedTreeRestoreAttempt()
+        {
+            return pendingTree != null
+                && !string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId)
+                && string.Equals(
+                    pendingTree.Id,
+                    committedTreeRestoreAttemptTreeId,
+                    StringComparison.Ordinal);
+        }
+
+        private static int PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard()
+        {
+            if (!PendingTreeMatchesCommittedTreeRestoreAttempt()
+                || committedTreeRestoreAttemptEventCutoffs == null
+                || committedTreeRestoreAttemptEventCutoffs.Count == 0)
+            {
+                return 0;
+            }
+
+            int purged = 0;
+            foreach (var kvp in committedTreeRestoreAttemptEventCutoffs)
+            {
+                purged += GameStateStore.PurgeEventsForRecordingAfterUT(
+                    kvp.Key,
+                    kvp.Value,
+                    $"DiscardPendingTree committed-spawned-vessel attempt '{pendingTree.TreeName}'");
+            }
+
+            if (purged > 0)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"DiscardPendingTree: purged {purged} same-id game-state event tail(s) " +
+                    $"for committed-tree restore attempt tree={committedTreeRestoreAttemptTreeId} " +
+                    $"armedReason={committedTreeRestoreAttemptReason ?? "<none>"}");
+            }
+
+            return purged;
+        }
+
         /// <summary>
         /// Arms a one-shot guard for scene transitions that intentionally throw
         /// away the active flight's in-memory tree. Discard Re-Fly uses this
@@ -2034,6 +2318,11 @@ namespace Parsek
                 return;
             }
 
+            bool pendingMatchesCommittedRestoreAttempt =
+                PendingTreeMatchesCommittedTreeRestoreAttempt();
+            int purgedSameIdAttemptEventTails =
+                PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard();
+
             // #431: purge tagged events for pending-only recording IDs first. A pending
             // tree can intentionally reference a committed recording ID; those events,
             // milestone entries, contract snapshots, and sidecars belong to committed
@@ -2068,7 +2357,10 @@ namespace Parsek
             {
                 ParsekLog.Warn("RecordingStore",
                     $"DiscardPendingTree: skipped destructive event/milestone purge for " +
-                    $"{skippedCommittedEventPurges} committed-overlap recording ID(s)");
+                    $"{skippedCommittedEventPurges} committed-overlap recording ID(s)" +
+                    (pendingMatchesCommittedRestoreAttempt
+                        ? $"; purged same-id attempt tails={purgedSameIdAttemptEventTails}"
+                        : ""));
             }
 
             int skippedCommittedDeletes = 0;
@@ -2092,6 +2384,8 @@ namespace Parsek
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
             pendingTreeSerializedForSave = false;
+            if (pendingMatchesCommittedRestoreAttempt)
+                ClearCommittedTreeRestoreAttempt("DiscardPendingTree abandoned restored active copy");
             ClearRewindReplayTargetScope();
         }
 
@@ -3804,6 +4098,10 @@ namespace Parsek
             pendingTreeSerializedForSave = false;
             savedPendingTreeDuringActiveRestore = null;
             savedPendingTreeDuringActiveRestoreSerializedForSave = false;
+            committedTreeRestoreAttemptTreeId = null;
+            committedTreeRestoreAttemptReason = null;
+            committedTreeRestoreAttemptRecordingIds = null;
+            committedTreeRestoreAttemptEventCutoffs = null;
             CleanOrphanFilesDirectoryOverrideForTesting = null;
             SkipSidecarCurrencyCheckForTesting = false;
             WriteReadableSidecarMirrorsOverrideForTesting = null;

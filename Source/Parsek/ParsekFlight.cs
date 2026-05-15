@@ -229,6 +229,13 @@ namespace Parsek
                 && Instance?.activeTree?.Recordings != null
                 && Instance.activeTree.Recordings.ContainsKey(recordingId);
 
+        internal static bool IsActiveTreeRecordingIdForTree(string recordingId, string treeId)
+            => !string.IsNullOrEmpty(recordingId)
+                && !string.IsNullOrEmpty(treeId)
+                && string.Equals(Instance?.activeTree?.Id, treeId, StringComparison.Ordinal)
+                && Instance.activeTree.Recordings != null
+                && Instance.activeTree.Recordings.ContainsKey(recordingId);
+
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
@@ -11846,9 +11853,18 @@ namespace Parsek
                 return false;
             }
 
+            RecordingTree liveTree = RecordingTree.DeepClone(committedTree);
+            if (liveTree == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '{committedTree.TreeName}' " +
+                    $"recording '{targetRecordingId}' for pid={activeVesselPid}, but could not clone the tree");
+                return false;
+            }
+
             CommittedSpawnedVesselRestoreAction preparedAction =
                 PrepareCommittedTreeRestoreForSpawnedVessel(
-                    committedTree,
+                    liveTree,
                     targetRecordingId,
                     activeVesselPid);
             if (preparedAction == CommittedSpawnedVesselRestoreAction.None)
@@ -11859,18 +11875,9 @@ namespace Parsek
                 return false;
             }
 
-            // Detach the tree from committed storage before making it live again. The
-            // active-flight path depends on "live tree != committed tree" for patch
-            // deferral and for the later commit to run its full side effects.
-            if (!RecordingStore.RemoveCommittedTreeById(
-                    committedTree.Id,
-                    logContext: "TryTakeCommittedTreeForSpawnedVesselRestore"))
-            {
-                ParsekLog.Warn("Flight",
-                    $"TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '{committedTree.TreeName}' " +
-                    $"(id={committedTree.Id}) but could not detach it from committed storage");
-                return false;
-            }
+            RecordingStore.ArmCommittedTreeRestoreAttempt(
+                committedTree,
+                "TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write");
 
             // The recording we're about to resume carries VesselSpawned=true and a
             // non-zero SpawnedVesselPersistentId from its prior commit (set by the KSC
@@ -11887,8 +11894,8 @@ namespace Parsek
             // snapshot refresh, and rollout-adoption paths key off VesselPersistentId and
             // must follow the vessel the player actually re-entered here, not the older
             // source PID that originally produced the committed recording.
-            if (committedTree.Recordings != null
-                && committedTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
+            if (liveTree.Recordings != null
+                && liveTree.Recordings.TryGetValue(targetRecordingId, out Recording resumedRec)
                 && resumedRec != null
                 && (resumedRec.VesselSpawned || resumedRec.SpawnedVesselPersistentId != 0))
             {
@@ -11904,7 +11911,7 @@ namespace Parsek
                     $"persist eligibility instead of defaulting to ghost-only");
             }
 
-            tree = committedTree;
+            tree = liveTree;
             recordingId = targetRecordingId;
             action = preparedAction;
             return true;
