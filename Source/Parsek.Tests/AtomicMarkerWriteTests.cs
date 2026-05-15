@@ -260,6 +260,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AtomicMarkerWrite_CapturesRewindPointUTFromRp_PinnedBySourceInspection()
+        {
+            // The render-only companion-debris carve-out in
+            // GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris
+            // requires an EXACT rewind-point UT — InvokedUT is the post-load
+            // SafeNow() which may sit a sub-second-to-multi-second Δ above
+            // rp.UT (especially when AtomicMarkerWrite is deferred to
+            // onFlightReady on async scene loads). A regression that lets
+            // the marker drop the rp.UT capture and fall back to InvokedUT
+            // for the cutoff would silently re-open the post-RP leak
+            // window. Pin via source inspection — directly unit-testing
+            // AtomicMarkerWrite needs scenario / RecordingStore staging
+            // beyond this file's seam.
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string invokerSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "RewindInvoker.cs"));
+
+            int markerCtorStart = invokerSrc.IndexOf(
+                "marker = new ReFlySessionMarker", StringComparison.Ordinal);
+            Assert.True(markerCtorStart >= 0,
+                "AtomicMarkerWrite must construct a ReFlySessionMarker");
+
+            int markerCtorEnd = invokerSrc.IndexOf("};", markerCtorStart, StringComparison.Ordinal);
+            Assert.True(markerCtorEnd > markerCtorStart,
+                "Marker initializer must terminate");
+
+            string markerCtorBody = invokerSrc.Substring(
+                markerCtorStart, markerCtorEnd - markerCtorStart);
+            Assert.Contains("RewindPointUT = rp.UT", markerCtorBody);
+        }
+
+        [Fact]
         public void ConsumePostLoad_FlightReady_RunsStripSynchronously()
         {
             // When FlightGlobals is populated (synchronous reload, or deferred

@@ -21,6 +21,7 @@ namespace Parsek.Tests
                 RewindPointId = "rp_a1b2",
                 SelectedRootPartPersistentId = 3087746488u,
                 InvokedUT = 1742810.25,
+                RewindPointUT = 1742809.50,
                 InvokedRealTime = "2026-04-17T23:15:00Z"
             };
 
@@ -38,7 +39,62 @@ namespace Parsek.Tests
             Assert.Equal("rp_a1b2", restored.RewindPointId);
             Assert.Equal(3087746488u, restored.SelectedRootPartPersistentId);
             Assert.Equal(1742810.25, restored.InvokedUT);
+            Assert.Equal(1742809.50, restored.RewindPointUT);
             Assert.Equal("2026-04-17T23:15:00Z", restored.InvokedRealTime);
+        }
+
+        [Fact]
+        public void ReFlySessionMarker_RewindPointUT_DefaultsToNaN()
+        {
+            // Sanity: the field defaults to NaN so consumers can distinguish
+            // "unset" from a real zero-UT marker.
+            var marker = new ReFlySessionMarker();
+            Assert.True(double.IsNaN(marker.RewindPointUT));
+        }
+
+        [Fact]
+        public void ReFlySessionMarker_NaNRewindPointUT_OmitsValue_LoadsAsNaN()
+        {
+            // NaN is the unset sentinel and must not be persisted as the
+            // literal "NaN" string. Round-trip from NaN must land back at
+            // NaN (not 0.0, not a parse failure).
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                TreeId = "tree",
+                ActiveReFlyRecordingId = "rec_active",
+                OriginChildRecordingId = "rec_origin",
+                RewindPointId = "rp",
+                InvokedUT = 100.0,
+                RewindPointUT = double.NaN,
+            };
+
+            var parent = new ConfigNode("PARSEK");
+            marker.SaveInto(parent);
+            var savedNode = parent.GetNode("REFLY_SESSION_MARKER");
+            Assert.False(savedNode.HasValue("rewindPointUT"));
+
+            var restored = ReFlySessionMarker.LoadFrom(savedNode);
+            Assert.True(double.IsNaN(restored.RewindPointUT));
+        }
+
+        [Fact]
+        public void ReFlySessionMarker_LegacyWithoutRewindPointUT_LoadsAsNaN()
+        {
+            // Markers persisted before this field shipped: load must leave
+            // the field at the NaN default so gates fall back to their
+            // conservative "no cutoff available" branch.
+            var node = new ConfigNode("REFLY_SESSION_MARKER");
+            node.AddValue("sessionId", "sess");
+            node.AddValue("treeId", "tree");
+            node.AddValue("activeReFlyRecordingId", "rec_active");
+            node.AddValue("originChildRecordingId", "rec_origin");
+            node.AddValue("rewindPointId", "rp");
+            node.AddValue("invokedUT", "100");
+
+            var restored = ReFlySessionMarker.LoadFrom(node);
+
+            Assert.True(double.IsNaN(restored.RewindPointUT));
         }
 
         [Fact]

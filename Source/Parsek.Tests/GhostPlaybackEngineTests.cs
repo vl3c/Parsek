@@ -5420,7 +5420,7 @@ namespace Parsek.Tests
                 SessionId = "sess_1",
                 OriginChildRecordingId = "rec_origin",
                 ActiveReFlyRecordingId = "rec_active",
-                InvokedUT = 100.0,
+                RewindPointUT = 100.0,
             };
 
             Assert.True(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
@@ -5432,7 +5432,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAfterInvokedUT_ReturnsFalse()
+        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAfterRewindPointUT_ReturnsFalse()
         {
             // Repro: re-flying the upper stage (origin = Kerbal X). One of the
             // origin-parented debris recordings was authored AFTER the rewind
@@ -5452,7 +5452,7 @@ namespace Parsek.Tests
                 SessionId = "sess_1",
                 OriginChildRecordingId = "rec_origin",
                 ActiveReFlyRecordingId = "rec_active",
-                InvokedUT = 100.0,
+                RewindPointUT = 100.0,
             };
 
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
@@ -5464,19 +5464,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAtPostLoadBoundary_ReturnsFalse()
+        public void ShouldRenderSuppressedCompanionDebris_DebrisStartsAtRewindPointUT_ReturnsFalse()
         {
-            // Strict less-than against marker.InvokedUT — NOT against the
-            // rewind point's UT. The gate's effective boundary is the
-            // post-load Planetarium UT captured by
-            // RewindInvoker.AtomicMarkerWrite, which sits at RP.UT plus a
-            // sub-second post-load Δ. Debris at exactly that boundary is
-            // treated as post-rewind, while debris timestamped a few tenths
-            // of a second below it (i.e. at-or-near RP.UT, see the at-RP
-            // companion test below) is still admitted.
+            // Strict less-than against marker.RewindPointUT. The marker
+            // captures rp.UT directly in RewindInvoker.AtomicMarkerWrite,
+            // so the boundary is exact — no post-load Δ drift. Debris with
+            // StartUT == RP.UT is hidden: if a Breakup BP itself sits at
+            // the rewind point, the new flight is the canonical author of
+            // any events at that moment.
             var traj = new MockTrajectory
             {
-                RecordingId = "rec_at_boundary_debris",
+                RecordingId = "rec_at_rp_debris",
                 IsDebris = true,
                 DebrisParentRecordingId = "rec_origin",
                 StartUTOverride = 100.0,
@@ -5486,28 +5484,26 @@ namespace Parsek.Tests
                 SessionId = "sess_1",
                 OriginChildRecordingId = "rec_origin",
                 ActiveReFlyRecordingId = "rec_active",
-                InvokedUT = 100.0,
+                RewindPointUT = 100.0,
             };
 
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
                     sessionSuppressedRenderCarveOutEligible = true,
-                    recordingId = "rec_at_boundary_debris"
+                    recordingId = "rec_at_rp_debris"
                 }));
         }
 
         [Fact]
-        public void ShouldRenderSuppressedCompanionDebris_DebrisAtRpUTWithDriftedInvokedUT_ReturnsTrue()
+        public void ShouldRenderSuppressedCompanionDebris_IsUnaffectedByDriftedInvokedUT()
         {
-            // Pins the practically interesting boundary: a Breakup-typed
-            // rewind point that sheds debris at exactly RP.UT. The marker's
-            // InvokedUT lands a sub-second post-load Δ above RP.UT, so the
-            // at-RP debris row falls in the admit band and renders. The
-            // sub-second `(RP.UT, RP.UT + Δ)` window also admits any
-            // replaced-future debris that lands inside it — accepted as a
-            // documented limitation rather than persisting RP.UT on the
-            // marker.
+            // Regression guard: the gate is now sourced from RewindPointUT,
+            // not InvokedUT. A post-load InvokedUT that drifted above RP.UT
+            // (the pre-fix shape) must NOT cause an at-RP debris row to leak
+            // through the carve-out. Setting only the (drifted) InvokedUT
+            // leaves RewindPointUT at its NaN default; the strict `> 0.0`
+            // sentinel check rejects NaN and the row is hidden.
             var traj = new MockTrajectory
             {
                 RecordingId = "rec_at_rp_debris",
@@ -5521,9 +5517,10 @@ namespace Parsek.Tests
                 OriginChildRecordingId = "rec_origin",
                 ActiveReFlyRecordingId = "rec_active",
                 InvokedUT = 37.95,
+                // RewindPointUT intentionally left at NaN default.
             };
 
-            Assert.True(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
+            Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
                 traj, marker, new TrajectoryPlaybackFlags
                 {
                     sessionSuppressedRenderCarveOutEligible = true,
@@ -5534,14 +5531,17 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(0.0)]
         [InlineData(-1.0)]
-        public void ShouldRenderSuppressedCompanionDebris_NonPositiveInvokedUT_ReturnsFalse(
-            double invokedUT)
+        [InlineData(double.NaN)]
+        public void ShouldRenderSuppressedCompanionDebris_UnsetOrNonPositiveRewindPointUT_ReturnsFalse(
+            double rewindPointUT)
         {
-            // Defensive: a non-positive marker.InvokedUT (legacy marker
-            // without the persisted field, or any other unset sentinel)
-            // collapses to the pre-PR-858 default of "hide the suppressed
-            // debris", since we have no trustworthy rewind-point UT to
-            // separate kept history from replaced future.
+            // Defensive: a non-positive (or NaN) marker.RewindPointUT
+            // (legacy marker without the persisted field, or any other
+            // unset sentinel) collapses to the pre-PR-858 default of
+            // "hide the suppressed debris", since we have no trustworthy
+            // rewind-point UT to separate kept history from replaced
+            // future. NaN > 0.0 is false in C#, so the gate's single
+            // `> 0.0` check handles both 0.0/negative and NaN.
             var traj = new MockTrajectory
             {
                 RecordingId = "rec_debris",
@@ -5554,7 +5554,7 @@ namespace Parsek.Tests
                 SessionId = "sess_1",
                 OriginChildRecordingId = "rec_origin",
                 ActiveReFlyRecordingId = "rec_active",
-                InvokedUT = invokedUT,
+                RewindPointUT = rewindPointUT,
             };
 
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
@@ -5766,7 +5766,7 @@ namespace Parsek.Tests
                 SessionId = "sess_1",
                 OriginChildRecordingId = "origin",
                 ActiveReFlyRecordingId = "active",
-                InvokedUT = 37.20,
+                RewindPointUT = 37.20,
             };
 
             logLines.Clear();
@@ -5782,8 +5782,39 @@ namespace Parsek.Tests
                 && l.Contains("originRecId=origin")
                 && l.Contains("activeReFlyRecId=active")
                 && l.Contains("startUT=25.86")
-                && l.Contains("invokedUT=37.20")
+                && l.Contains("rewindPointUT=37.20")
                 && l.Contains("sess=sess_1"));
+        }
+
+        [Fact]
+        public void LogSessionSuppressedCompanionDebrisRenderAllowed_NaNRewindPointUT_RendersSentinel()
+        {
+            // Legacy markers without the persisted rewindPointUT load as NaN.
+            // The log line surfaces the sentinel rather than formatting NaN
+            // as a numeric so future repros can see a missing RP cutoff
+            // unambiguously.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "origin",
+                StartUTOverride = 25.86,
+            };
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                OriginChildRecordingId = "origin",
+                ActiveReFlyRecordingId = "active",
+                // RewindPointUT left at NaN default.
+            };
+
+            logLines.Clear();
+            GhostPlaybackEngine.LogSessionSuppressedCompanionDebrisRenderAllowed(
+                3, traj, marker);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("session-suppressed-companion-debris: render allowed")
+                && l.Contains("rewindPointUT=<nan>"));
         }
 
         [Theory]

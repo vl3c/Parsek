@@ -66,6 +66,22 @@ namespace Parsek
         /// <summary>Planetarium UT at which the session was invoked (design §5.7).</summary>
         public double InvokedUT;
 
+        /// <summary>
+        /// Rewind-point UT captured from <c>rp.UT</c> in
+        /// <c>RewindInvoker.AtomicMarkerWrite</c>. Stable, exact cutoff for
+        /// gates that need "before the rewind moment" semantics — unlike
+        /// <see cref="InvokedUT"/>, this is NOT advanced by post-load
+        /// Planetarium init, deferred <c>onFlightReady</c> dispatch, or the
+        /// quicksave-load step. Used by the engine's render-only
+        /// session-suppressed companion-debris carve-out
+        /// (<c>GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris</c>)
+        /// to separate kept pre-rewind history from the replaced-future
+        /// portion of an origin-parented debris chain. Defaults to
+        /// <see cref="double.NaN"/> on legacy markers that pre-date this
+        /// field; consumers must guard for that sentinel.
+        /// </summary>
+        public double RewindPointUT = double.NaN;
+
         /// <summary>Wall-clock timestamp at invocation (ISO 8601 UTC; design §5.7).</summary>
         public string InvokedRealTime;
 
@@ -130,6 +146,8 @@ namespace Parsek
             if (SelectedRootPartPersistentId != 0u)
                 node.AddValue("selectedRootPartPersistentId", SelectedRootPartPersistentId.ToString(ic));
             node.AddValue("invokedUT", InvokedUT.ToString("R", ic));
+            if (!double.IsNaN(RewindPointUT))
+                node.AddValue("rewindPointUT", RewindPointUT.ToString("R", ic));
             if (!string.IsNullOrEmpty(InvokedRealTime))
                 node.AddValue("invokedRealTime", InvokedRealTime);
             if (InPlaceContinuation)
@@ -192,6 +210,14 @@ namespace Parsek
             double ut;
             if (!string.IsNullOrEmpty(utStr) && double.TryParse(utStr, NumberStyles.Float, ic, out ut))
                 m.InvokedUT = ut;
+
+            // Legacy markers without `rewindPointUT` stay at the NaN default.
+            // Gates that consume RewindPointUT must treat NaN as "no cutoff
+            // available" and apply their own conservative fallback.
+            string rpUtStr = node.GetValue("rewindPointUT");
+            double rpUt;
+            if (!string.IsNullOrEmpty(rpUtStr) && double.TryParse(rpUtStr, NumberStyles.Float, ic, out rpUt))
+                m.RewindPointUT = rpUt;
 
             m.InvokedRealTime = node.GetValue("invokedRealTime");
 
