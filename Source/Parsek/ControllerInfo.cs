@@ -70,6 +70,14 @@ namespace Parsek
                 return hasCrew ? "CrewedPod" : "ProbeCore";
             }
 
+            // Note: `KerbalSeat` is captured here as start-of-recording controllable
+            // identity, but `ParsekFlight.IsTrackableVessel` deliberately does NOT
+            // treat a bare seat (no ModuleCommand, not EVA, not SpaceObject) as
+            // trackable. The asymmetry is intentional: "what we recorded as
+            // controllable" can be slightly broader than "what KSP would still let
+            // the player control as a live vessel". If the only recorded controller
+            // is a `KerbalSeat` and the seat dies, `ShouldClassifyRecordedIdentityLost`
+            // still fires correctly because the live trackability check also fails.
             if (p.FindModuleImplementing<KerbalSeat>() != null)
                 return "ExternalSeat";
 

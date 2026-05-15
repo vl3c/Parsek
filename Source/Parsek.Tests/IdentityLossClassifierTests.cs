@@ -145,6 +145,23 @@ namespace Parsek.Tests
             Assert.False(lost); // 100 still matches
         }
 
+        [Fact]
+        public void AllZeroPidRecordedControllers_TreatedAsIdentityLost()
+        {
+            // Pathological: every recorded controller pid is zero (defensive shape
+            // that shouldn't happen in practice but the predicate must not return
+            // false positively "identity preserved"). Every recorded pid is skipped
+            // by the zero-pid guard, the inner loop never finds a survivor, and
+            // the predicate falls through to true.
+            bool lost = IdentityLossClassifier.ShouldClassifyRecordedIdentityLost(
+                isDebris: false,
+                recordedControllerPids: new uint[] { 0u, 0u },
+                liveIsTrackable: false,
+                livePartPids: new uint[] { 100u });
+
+            Assert.True(lost);
+        }
+
         #endregion
 
         #region Recording.MarkDestroyedAtTerminal — hygiene helper
@@ -165,6 +182,40 @@ namespace Parsek.Tests
             Assert.True(rec.VesselDestroyed);
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.Equal(123.45, rec.ExplicitEndUT);
+        }
+
+        [Fact]
+        public void MarkDestroyedAtTerminal_ClearsStaleTerminalOrbitData()
+        {
+            // A recording previously classified Orbiting carries terminal-orbit
+            // metadata; flipping it Destroyed via identity-loss must clear that
+            // so the codec does not persist contradictory Orbiting/Destroyed
+            // state. TerminalOrbitBody is the load-bearing gate
+            // (RecordingTreeRecordCodec.cs:41 only writes orbital fields when it
+            // is non-empty); the numeric resets are belt-and-suspenders.
+            var rec = new Recording
+            {
+                RecordingId = "test-rec-orbit-clear",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitInclination = 12.0,
+                TerminalOrbitEccentricity = 0.5,
+                TerminalOrbitSemiMajorAxis = 700000.0,
+                TerminalOrbitLAN = 1.0,
+                TerminalOrbitArgumentOfPeriapsis = 2.0,
+                TerminalOrbitMeanAnomalyAtEpoch = 3.0,
+                TerminalOrbitEpoch = 100.0
+            };
+
+            rec.MarkDestroyedAtTerminal(300.0, "test-source");
+
+            Assert.Null(rec.TerminalOrbitBody);
+            Assert.Equal(0.0, rec.TerminalOrbitInclination);
+            Assert.Equal(0.0, rec.TerminalOrbitEccentricity);
+            Assert.Equal(0.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(0.0, rec.TerminalOrbitLAN);
+            Assert.Equal(0.0, rec.TerminalOrbitArgumentOfPeriapsis);
+            Assert.Equal(0.0, rec.TerminalOrbitMeanAnomalyAtEpoch);
+            Assert.Equal(0.0, rec.TerminalOrbitEpoch);
         }
 
         [Fact]

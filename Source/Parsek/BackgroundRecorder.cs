@@ -3260,6 +3260,36 @@ namespace Parsek
         private void InitializeOnRailsState(Vessel v, uint vesselPid, string recordingId)
         {
             double ut = Planetarium.GetUniversalTime();
+            Recording treeRec;
+            bool hasTreeRecording = tree.Recordings.TryGetValue(recordingId, out treeRec);
+
+            // Destroyed-remnant guard runs FIRST — before the pending initial
+            // trajectory point is consumed/applied and before any state-machine
+            // branch writes landed/orbiting surface metadata. The recording was
+            // already marked Destroyed by the identity-loss override in
+            // OnBackgroundVesselGoOnRails; appending a seed point or writing
+            // SurfacePos here would re-introduce contradictory persisted state on
+            // top of MarkDestroyedAtTerminal's hygiene. The pending initial point
+            // is still drained from the dictionary so it does not leak across to
+            // a future recording reusing the same pid.
+            if (hasTreeRecording && treeRec.VesselDestroyed)
+            {
+                TrajectoryPoint discardedPoint;
+                TryConsumePendingInitialTrajectoryPoint(vesselPid, out discardedPoint);
+                onRailsStates[vesselPid] = new BackgroundOnRailsState
+                {
+                    vesselPid = vesselPid,
+                    recordingId = recordingId,
+                    lastExplicitEndUpdate = ut,
+                    hasOpenOrbitSegment = false,
+                    isLanded = false
+                };
+                ParsekLog.Verbose("BgRecorder",
+                    $"On-rails state initialized (destroyed remnant, no surface/orbit metadata): " +
+                    $"pid={vesselPid} body={v.mainBody?.name} sit={v.situation} rec={recordingId}");
+                return;
+            }
+
             TrajectoryPoint initialTrajectoryPoint;
             bool hasInitialTrajectoryPoint = TryConsumePendingInitialTrajectoryPoint(vesselPid, out initialTrajectoryPoint);
             if (hasInitialTrajectoryPoint && initialTrajectoryPoint.ut > ut)
@@ -3269,8 +3299,6 @@ namespace Parsek
                     recordingId,
                     ref initialTrajectoryPoint,
                     "on-rails-initial");
-            Recording treeRec;
-            bool hasTreeRecording = tree.Recordings.TryGetValue(recordingId, out treeRec);
             if (hasInitialTrajectoryPoint && hasTreeRecording)
             {
                 // #419: only log "seeded" if the flat-append was accepted. A rejection
@@ -3290,25 +3318,6 @@ namespace Parsek
                 recordingId = recordingId,
                 lastExplicitEndUpdate = ut
             };
-
-            // Destroyed-remnant guard: when the recording is already marked Destroyed
-            // (typically by the identity-loss override in OnBackgroundVesselGoOnRails),
-            // do NOT write landed/orbiting surface metadata. The Destroyed terminal must
-            // not coexist with a stale SurfacePos / ExplicitEndUT — MarkDestroyedAtTerminal
-            // already cleared those, and a write here would re-introduce contradictory
-            // persisted state. The bare on-rails state below still tracks the pid so
-            // OnBackgroundVesselWillDestroy / OnBackgroundVesselGoOffRails can clean up,
-            // but no per-frame orbit or surface payload is emitted.
-            if (hasTreeRecording && treeRec.VesselDestroyed)
-            {
-                state.hasOpenOrbitSegment = false;
-                state.isLanded = false;
-                onRailsStates[vesselPid] = state;
-                ParsekLog.Verbose("BgRecorder",
-                    $"On-rails state initialized (destroyed remnant, no surface/orbit metadata): " +
-                    $"pid={vesselPid} body={v.mainBody?.name} sit={v.situation} rec={recordingId}");
-                return;
-            }
 
             bool isLanded = v.situation == Vessel.Situations.LANDED ||
                             v.situation == Vessel.Situations.SPLASHED;

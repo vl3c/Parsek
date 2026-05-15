@@ -540,6 +540,19 @@ namespace Parsek
             EndpointPhase = RecordingEndpointPhase.Unknown;
             EndpointBodyName = null;
 
+            // Clear terminal-orbit data too. The codec at
+            // `RecordingTreeRecordCodec.cs:41` gates the entire orbital persistence
+            // block on `!string.IsNullOrEmpty(TerminalOrbitBody)`, so nulling the
+            // body field is load-bearing; the numeric resets are belt-and-suspenders.
+            TerminalOrbitBody = null;
+            TerminalOrbitInclination = 0.0;
+            TerminalOrbitEccentricity = 0.0;
+            TerminalOrbitSemiMajorAxis = 0.0;
+            TerminalOrbitLAN = 0.0;
+            TerminalOrbitArgumentOfPeriapsis = 0.0;
+            TerminalOrbitMeanAnomalyAtEpoch = 0.0;
+            TerminalOrbitEpoch = 0.0;
+
             MarkFilesDirty();
 
             if (!wasAlreadyDestroyed)
