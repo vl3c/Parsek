@@ -12,13 +12,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.9.2 Map/Tracking Station switch/Fly auto-record should create a segment-scoped continuation
+## Open - v0.9.2 Stock Fly buttons should auto-start a segment-scoped continuation
 
-**Status:** PLANNING 2026-05-15. Plan: `docs/dev/plans/segment-scoped-switch-fly-autorecord.md`.
+**Status:** PLANNING 2026-05-15. Plan: `docs/dev/plans/segment-scoped-switch-fly-autorecord.md`. Open decisions resolved; ready for implementation.
 
-**Issue:** PR #866 fixed the data-loss bug by making committed spawned-vessel restore copy-on-write, but explicit stock Map view "Switch To" and Tracking Station "Fly" still need a better recording model. Those actions should immediately start a new recording segment with a distinct ID instead of resuming an existing committed/background recording ID. The merge dialog should be scoped to that new segment; choosing Discard must remove only the switch/Fly attempt and preserve committed timeline recordings, sidecars, and game-state history.
+**Issue:** PR #866 fixed the data-loss bug by making committed spawned-vessel restore copy-on-write, but the stock "Fly" UI buttons still need a better recording model. The two in-scope buttons are Tracking Station Fly (`SpaceTracking.FlyVessel`) and KSC nearby-vessel marker Fly (`KSCVesselMarkers.FlyVessel`); both should immediately start a new recording segment with a distinct ID instead of resuming an existing committed/background recording ID. The merge dialog should be scoped to that new segment; choosing Discard must remove only the Fly attempt and preserve committed timeline recordings, sidecars, and game-state history. `[` / `]` keyboard cycling and other generic focus changes remain on the existing first-modification watcher and must not trigger this. Map view "Switch To" is not a stock UI button (verified by decompiling `Assembly-CSharp.dll`); it is out of scope for v1.
 
-**Acceptance:** Confirmed stock Map Switch and Tracking Station Fly actions to a previously spawned committed vessel both auto-start a new segment, while generic vessel switches without that explicit intent do not. Merge commits that segment as a continuation, and Discard returns the recordings window/timeline to the exact pre-switch committed count. F5/F9 and save/reload during a pending switch/Fly segment preserve or clear only the segment attempt according to the loaded save, never the committed history.
+**Acceptance:** Confirmed stock TS Fly and KSC marker Fly into a previously spawned committed vessel both auto-start a new segment, while `[` / `]` cycling, boarding, dock/undock, ReFly arrivals, and `FlightDriver.StartAndFocusVessel` invocations from save load / scenario startup do not. Merge commits that segment as a continuation, and Discard returns the recordings window/timeline to the exact pre-Fly committed count. F5/F9 and save/reload during a pending Fly segment preserve or clear only the segment attempt according to the loaded save, never the committed history.
 
 ---
 

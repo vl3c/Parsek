@@ -1,4 +1,4 @@
-# Segment-scoped auto-record for Map Switch and Tracking Station Fly
+# Segment-scoped auto-record for stock Fly buttons
 
 Status: draft plan for review, no implementation yet.
 
@@ -10,7 +10,11 @@ Base: `origin/main` after PR #866 (`ea942184`, merged 2026-05-15).
 
 ## Summary
 
-When the player explicitly moves focus to another vessel through stock Map view "Switch To" or Tracking Station "Fly", Parsek should immediately start an auto-recording for that focused vessel. That recording must be a distinct segment with a new recording ID, not a same-recording resume of an existing committed tree member.
+When the player explicitly moves focus to another vessel through a stock "Fly" UI button (Tracking Station Fly, KSC nearby-vessel marker Fly), Parsek should immediately start an auto-recording for that focused vessel. That recording must be a distinct segment with a new recording ID, not a same-recording resume of an existing committed tree member.
+
+Keyboard vessel cycling (`[` / `]`) and other generic focus changes must NOT trigger immediate-start; those remain covered by the existing first-modification watcher (`fix-546-…`). Only confirmed stock Fly buttons arm the segment.
+
+Scope note on Map view "Switch To": decompilation confirms stock KSP does not expose a Map-view Switch-To button (`#autoLOC_465671 = "Switch To"` is defined in `dictionary.cfg` but is not referenced by `Assembly-CSharp.dll`; the stock `MapContextMenu` options are `FocusObject`, `SetAsTarget`, `AddManeuver`, `AutoWarpToUT`, `DeleteCustomWaypoint`, `WaypointNavigation`). Map view interaction is therefore out of scope for v1; the feature ships with TS Fly + KSC marker Fly only.
 
 The merge dialog that appears when leaving the scene should be scoped to this new segment attempt. Choosing Discard must remove only the segment created by the switch/Fly action, including its descendant attempt recordings and game-state events, while preserving all previously committed recordings and sidecars.
 
@@ -20,21 +24,22 @@ This plan builds on PR #866. The #866 copy-on-write restore is still the right s
 
 PR #866 fixed the data-loss bug where switching into a previously spawned committed vessel detached the committed tree and reused it as the live active tree. Discard then treated the entire timeline as pending-only and removed all recordings. The current merged behavior clones the committed tree, arms a one-shot restore context, and protects same-ID event tails on Discard.
 
-The earlier post-switch auto-record plan (`fix-546-post-switch-first-modification-autorecord.md`) added a watcher that arms after vessel switch and starts recording when the first meaningful modification is detected. That plan intentionally did not start on switch alone. This feature changes the product behavior for explicit Map Switch / Tracking Station Fly: the switch itself is the intent signal, so the auto recorder should start immediately.
+The earlier post-switch auto-record plan (`fix-546-post-switch-first-modification-autorecord.md`) added a watcher that arms after vessel switch and starts recording when the first meaningful modification is detected. That plan intentionally did not start on switch alone. This feature changes the product behavior for explicit stock Fly buttons (TS Fly, KSC marker Fly): the click itself is the intent signal, so the auto recorder should start immediately.
 
-The first-modification watcher can remain useful as a fallback for cases where immediate start is unsafe or where a focus change is not recognized as an explicit stock Switch/Fly action.
+The first-modification watcher continues to cover every other focus-change class: `[` / `]` keyboard cycling, in-flight boarding/EVA, dock/undock focus shifts, and recovery flows. Those must not immediate-start a segment because they pass through `FlightGlobals.SetActiveVessel` (or equivalent) without firing a stock Fly UI button.
 
-When an immediate switch/Fly segment starts successfully, it must consume the intent marker and clear or suppress the first-modification watcher for that same vessel switch. The watcher is a fallback path only; it must not remain armed in a way that can create a second segment for the same stock action.
+When an immediate Fly segment starts successfully, it must consume the intent marker and clear or suppress the first-modification watcher for that same scene transition. The watcher is a fallback path only; it must not remain armed in a way that can create a second segment for the same stock action.
 
 ## Goals
 
-1. Map view "Switch To" and Tracking Station "Fly" immediately start an auto-recording segment for the focused vessel.
+1. Stock Tracking Station "Fly" and stock KSC nearby-vessel marker "Fly" immediately start an auto-recording segment for the focused vessel.
 2. The segment uses a new recording ID distinct from any committed or background recording ID.
 3. If the focused vessel belongs to a committed spawned-vessel tree, the live flight `activeTree` is a clone of that committed tree plus the new segment.
 4. If the focused vessel belongs to the current active/background tree, the new segment is attached as a continuation child rather than promoting/resuming the old recording ID.
 5. If the focused vessel is unrelated to Parsek history, Parsek starts a fresh standalone recording/tree, or a child segment of the tree the player just left when that parent context is available.
 6. Scene-exit merge UI, accept, discard, save/reload, F5, and F9 all operate at segment-attempt scope.
 7. Existing #866 committed-history protection stays in place and remains useful for clone restore and same-ID safety.
+8. Keyboard vessel cycling (`[` / `]`, `VesselSwitching.Update` → `FlightGlobals.SetActiveVessel` / `ForceSetActiveVessel`) and other generic focus changes do NOT immediate-start a switch segment; those remain covered by the existing first-modification watcher only.
 
 ## Non-goals
 
@@ -59,20 +64,25 @@ When an immediate switch/Fly segment starts successfully, it must consume the in
 
 ## Required Stock-Action Intent Marker
 
-The generic vessel-switch seams are not enough to decide immediate auto-record. `GameEvents.onVesselSwitching` and `GameEvents.onVesselChange` fire for more than the two requested stock actions, including boarding, missed-switch recovery, ReFly-related focus changes, and other KSP focus transitions.
+The generic vessel-switch seams are not enough to decide immediate auto-record. `GameEvents.onVesselSwitching` and `GameEvents.onVesselChange` fire for more than the two in-scope stock actions, including boarding, missed-switch recovery, ReFly-related focus changes, `[`/`]` keyboard cycling, and other KSP focus transitions.
 
-Implementation must add a positive intent marker that is set only by confirmed stock Map view "Switch To" or stock Tracking Station "Fly" UI actions. The Tracking Station source is already known: `Patches/GhostTrackingStationPatch.cs` patches `SpaceTracking.FlyVessel` in `GhostTrackingFlyPatch`. Extend that patch, or add a sibling postfix/prefix, so the non-ghost passthrough path arms a `TrackingStationFly` intent before stock transitions to FLIGHT.
+Implementation must add a positive intent marker that is set only by confirmed stock Fly UI actions. Both sources are confirmed by decompiling `KSP_x64_Data/Managed/Assembly-CSharp.dll`:
 
-Map view "Switch To" is the remaining method-source research item. Candidate sources should be narrow stock UI handlers in the MapView / OrbitTargeter / target flyout path. Do not use a blanket `FlightGlobals.SetActiveVessel` prefix as the intent source; that path is shared by boarding, dock/undock, ReFly arrivals, recovery flows, and other focus changes.
+- **Tracking Station Fly button** — `KSP.UI.Screens.SpaceTracking.FlyVessel(Vessel v)`. Already patched at `Patches/GhostTrackingStationPatch.cs` (`GhostTrackingFlyPatch`) for ghost blocking. Extend that patch with a sibling postfix or chained prefix so the non-ghost passthrough arms a `TrackingStationFly` intent before stock transitions to FLIGHT.
+- **KSC nearby-vessel marker Fly button** — `KSP.UI.Screens.KSCVesselMarker.OnFlyButtonInput` listener (registered on `FlyButton.onClick`), which dispatches to `KSP.UI.Screens.KSCVesselMarkers.FlyVessel(Vessel v)`. That handler calls `FlightDriver.StartAndFocusVessel("persistent", FlightGlobals.Vessels.IndexOf(v))`. Add a Harmony prefix on `KSCVesselMarkers.FlyVessel(Vessel)` to arm a `KscMarkerFly` intent before the scene transition.
 
-Until a stock-action source is confirmed, the generic vessel-switch callbacks should only consume an already-armed intent marker; they should not infer immediate-start intent by themselves.
+Patches must be on these specific UI handlers, not on `FlightGlobals.SetActiveVessel` / `FlightGlobals.ForceSetActiveVessel` / `FlightDriver.StartAndFocusVessel`. Those lower-level methods are shared by `[`/`]` cycling (`VesselSwitching.Update`), boarding, dock/undock, ReFly arrivals, save loading, scenario startup, and recovery flows. A prefix at that depth would false-fire on every one of them.
+
+`VesselSwitching.Update` (the `[`/`]` cycle handler) guards on `MapView.MapIsEnabled` and reads `GameSettings.FOCUS_PREV_VESSEL` / `FOCUS_NEXT_VESSEL`. Confirmed it never produces a TS-Fly-style stock-action signal; it is the canonical example of a focus change that must NOT immediate-start a segment.
+
+Generic vessel-switch callbacks (`onVesselSwitching`, `onVesselChange`) should only consume an already-armed intent marker; they should not infer immediate-start intent by themselves.
 
 Suggested intent marker fields:
 
 - `IntentId`: stable GUID for the pending UI action.
-- `Action`: `MapSwitchTo` or `TrackingStationFly`.
-- `TargetVesselPersistentId`: expected target vessel PID, if available when the UI action fires.
-- `SourceScene`: `FLIGHT` or `TRACKSTATION`.
+- `Action`: `TrackingStationFly` or `KscMarkerFly`.
+- `TargetVesselPersistentId`: expected target vessel PID (available from the patched Fly handler's `Vessel v` argument).
+- `SourceScene`: `TRACKSTATION` or `SPACECENTER`.
 - `CapturedRealtime`: wall-clock freshness guard for stale UI markers.
 - `CapturedUT`: UT freshness guard when available.
 
@@ -104,7 +114,7 @@ Suggested fields:
 - `SourceVesselPersistentId`: vessel PID before the switch, when available.
 - `FocusedVesselPersistentId`: focused live vessel PID after the switch/Fly.
 - `SwitchUT`: UT at which the segment was created.
-- `EntryReason`: `MapSwitch`, `TrackingStationFly`, or `RecoveredConfirmedIntent`.
+- `EntryReason`: `TrackingStationFly`, `KscMarkerFly`, or `RecoveredConfirmedIntent`.
 - `IntentId`: explicit stock-action intent that authorized immediate segment start.
 - `PreSessionBranchPointIds`: branch points that existed before this segment was attached.
 - `CommittedTreeId`: original committed tree ID if the segment was attached to a committed clone.
@@ -173,25 +183,13 @@ Implementation policy:
 
 ## Behavior by Entry Path
 
-### Map View "Switch To" to tracked active-tree/background vessel
+Both in-scope entry points (Tracking Station Fly, KSC marker Fly) cross scenes from TRACKSTATION / SPACECENTER into FLIGHT. There is no in-flight mid-session entry path — the user-mentioned in-flight `[`/`]` cycle does not trigger this feature and remains on the first-modification watcher.
 
-Current behavior promotes/resumes the background recording. New behavior should:
-
-1. Consume a fresh Map Switch intent marker matching the focused vessel.
-2. Complete the normal focus switch.
-3. Background the vessel the player left.
-4. Close/flush the focused parent if it was in background recording.
-5. Create a new continuation segment under the focused vessel's existing recording.
-6. Start the recorder on the new segment immediately.
-7. Arm `SwitchSegmentSession` for segment-scoped merge/discard.
-
-This should use a new start reason or mode rather than overloading `isPromotion`. The old promotion path resumes an existing recording ID; this feature must not do that for explicit Switch/Fly segment starts.
-
-### Map View "Switch To" or Tracking Station "Fly" to committed spawned vessel
+### Fly to a committed spawned vessel
 
 Current #866 behavior clones the committed tree, marks the target recording active, and records into the cloned same ID. New behavior should:
 
-1. Consume a fresh Map Switch or Tracking Station Fly intent marker matching the focused vessel.
+1. Consume a fresh `TrackingStationFly` or `KscMarkerFly` intent marker matching the focused vessel.
 2. Keep the #866 committed-tree clone.
 3. Arm the committed-tree restore attempt so original committed files/IDs remain protected.
 4. Create a new continuation segment under the target recording inside the clone.
@@ -203,13 +201,24 @@ Current #866 behavior clones the committed tree, marks the target recording acti
 
 This does not conflict with #866. #866 is the copy-on-write safety layer; this plan changes what gets written to the cloned tree after restore.
 
-### Switch/Fly to unrelated vessel
+### Fly to a vessel unrelated to any Parsek tree
 
-If the focused vessel is unrelated to any active or committed Parsek tree, start a fresh recording immediately. If the player switched away from an active tree and a parent context is available, create a child segment using the existing "fresh start parent" concept. If there is no safe parent, create a standalone root recording/tree.
+If the focused vessel has no committed or active Parsek tree, start a fresh recording immediately under a new standalone tree. Use the new `VesselSwitchContinuation` start mode rather than overloading `isPromotion` — there is no parent recording to resume.
 
-The first-modification watcher may remain as a fallback when immediate start is suppressed because the vessel is packed, the scene is not ready, the switch context is ambiguous, or Parsek is already inside a special attempt such as ReFly.
+### Fly to a vessel with a non-terminal historical match
 
-If the immediate start succeeds, the fallback watcher should be explicitly disarmed for that switch. If immediate start is rejected or delayed, the plan allows the watcher to arm only when the rejection reason is safe for delayed first-modification recording.
+Per `Parent Selection Risk` above: walk forward to a unique terminal leaf and attach the new continuation there. If zero or multiple terminal candidates match, start a standalone tree and log `ambiguous-parent-start-standalone`.
+
+### Generic focus changes that are NOT in scope
+
+- `[` / `]` keyboard cycling (`VesselSwitching.Update`).
+- Boarding / EVA transitions (covered by existing `BranchPointType.EVA` / `BranchPointType.Board` paths).
+- Dock / undock focus shifts (covered by existing `BranchPointType.Dock` / `BranchPointType.Undock`).
+- ReFly marker arrivals (covered by `MergeJournalOrchestrator` and `MergeDialog.TryDiscardActiveReFlyAttempt`).
+- Missed-switch recovery without a captured stock-action intent.
+- Internal `FlightDriver.StartAndFocusVessel` invocations during save load, scenario startup, or recovery.
+
+The existing first-modification watcher (`fix-546-…`) continues to cover these as a fallback. If the immediate-start path succeeds, the watcher must be disarmed for that scene transition.
 
 ## Merge and Discard Scope
 
@@ -324,39 +333,46 @@ Headless xUnit tests:
 16. Non-terminal historical matches attach only to a unique terminal leaf; ambiguous matches start standalone and log the ambiguity.
 17. Tracking Station Fly intent marker survives save/F5 in TRACKSTATION before the FLIGHT scene consumes it, or clears with a logged stale-intent reason.
 18. Two Switch/Fly actions in quick succession do not double-consume an intent, lose the active segment marker, or leave two immediate-start paths racing.
-19. Map Switch and Tracking Station Fly entry reasons are logged distinctly.
+19. Tracking Station Fly and KSC marker Fly entry reasons are logged distinctly.
 20. ReFly scoped discard still wins for Parsek ReFly marker arrivals and does not use switch-segment logic.
+21. `[` / `]` keyboard cycling (`VesselSwitching.Update`) and `FlightGlobals.SetActiveVessel` / `ForceSetActiveVessel` invocations from non-UI paths (boarding, dock/undock, recovery, save load) leave the intent marker unset and do not immediate-start a segment.
 
 Runtime/in-game tests or manual test script:
 
-1. Spawn/commit a vessel in orbit, switch to it from Map view, confirm auto-record starts immediately with a new ID, exit scene, choose Discard, and confirm timeline count is unchanged.
-2. Repeat from Tracking Station using stock "Fly".
+1. From Tracking Station, click Fly on a previously committed orbiting vessel; confirm auto-record starts immediately with a new ID, exit scene, choose Discard, and confirm timeline count is unchanged.
+2. From KSC, click a nearby-vessel marker, then click Fly; confirm same behavior as test 1.
 3. Repeat both paths with Merge and confirm a new child segment appears.
-4. F5 after switch/Fly, F9 back to that quicksave, continue recording, exit and Merge.
+4. F5 after Fly, F9 back to that quicksave, continue recording, exit and Merge.
 5. F5 in Tracking Station after pressing Fly but before FLIGHT finishes loading; reload and confirm the intent is either consumed once in FLIGHT or explicitly cleared stale with no auto-start.
-6. F5 before switch, switch/Fly, then F9 to the pre-switch save; confirm no stale pending marker and no committed-history loss.
-7. Trigger two Switch/Fly actions in quick succession; confirm only one active segment marker exists and the final focused vessel owns it.
-8. Switch/Fly and immediately leave without major vessel changes; confirm the dialog is segment-scoped and idle/no-op cleanup does not remove committed history.
+6. F5 before Fly, then Fly, then F9 to the pre-Fly save; confirm no stale pending marker and no committed-history loss.
+7. Trigger two Fly actions in quick succession (e.g., TS Fly, abort to TS, TS Fly to a different vessel); confirm only one active segment marker exists and the final focused vessel owns it.
+8. Fly and immediately leave without major vessel changes; confirm the dialog is segment-scoped and idle/no-op cleanup does not remove committed history.
+9. In FLIGHT, press `[` / `]` to cycle vessels; confirm no segment is started by the cycle itself and the first-modification watcher behaves as before.
 
 ## Implementation Order
 
 1. Add the plan/todo docs and review this design before code changes.
 2. Add the `SwitchSegmentSession` marker and the new `Recording.SwitchSegmentSessionId` field (codec round-trip, `DeepClone`, scenario save/load) with serialization tests.
 3. Add the pure tree helper for switch continuation segment creation with topology tests.
-4. Extend the known Tracking Station `SpaceTracking.FlyVessel` patch to arm serialized intent on non-ghost passthrough.
-5. Identify and test the narrow stock Map Switch intent source; do not use `FlightGlobals.SetActiveVessel`.
-6. Add the new non-claiming branch type and complete the branch-type audit list above.
-7. Wire confirmed stock-action entry paths to create/start segments immediately.
-8. Narrow #866 suppression/save sites by name: `ShouldSuppressCommittedTreeRestoreAttemptEventPersistence`, `IsPendingOnlyCommittedTreeRestoreAttemptRecordingId`, `ShouldDeferPendingEventMilestoneFlushForSave`, `SaveActiveTreeIfAny` dirty sidecar skip, and `GameStateStore.SaveEventFile`.
-9. Add segment-scoped merge/discard cleanup, final tree disposition, second-dialog behavior for remaining pending work, and event purge.
-10. Add save/load/F5/F9 tests.
-11. Update dialog copy and UI tests.
-12. Run full headless tests.
-13. Run targeted in-game tests and collect logs.
+4. Add the new non-claiming `BranchPointType.VesselSwitchContinuation` value and complete the branch-type audit list above.
+5. Extend `GhostTrackingFlyPatch` to arm serialized `TrackingStationFly` intent on the non-ghost passthrough.
+6. Add a Harmony prefix on `KSCVesselMarkers.FlyVessel(Vessel)` to arm serialized `KscMarkerFly` intent before the scene transition.
+7. Add the new `autoRecordOnExplicitVesselSwitch` setting next to the existing `autoRecordOnFirstModificationAfterSwitch` (do not rename or replace the existing one; the two cover different focus-change classes).
+8. Wire confirmed stock-action entry paths in `OnVesselSwitchComplete` / post-load to consume the intent marker and create/start segments immediately.
+9. Narrow #866 suppression/save sites by name: `ShouldSuppressCommittedTreeRestoreAttemptEventPersistence`, `IsPendingOnlyCommittedTreeRestoreAttemptRecordingId`, `ShouldDeferPendingEventMilestoneFlushForSave`, `SaveActiveTreeIfAny` dirty sidecar skip, and `GameStateStore.SaveEventFile`.
+10. Add segment-scoped merge/discard cleanup, final tree disposition, second-dialog behavior for remaining pending work, and event purge.
+11. Add save/load/F5/F9 tests.
+12. Update dialog copy and UI tests.
+13. Run full headless tests.
+14. Run targeted in-game tests and collect logs.
 
-## Open Decisions for Review
+## Resolved Decisions
 
-1. Exact branch type name: `VesselSwitchContinuation`, `FocusSwitchContinuation`, or another clearer option.
-2. Whether to rename/replace the existing `autoRecordOnFirstModificationAfterSwitch` setting or add a separate `autoRecordOnExplicitVesselSwitch` setting.
-3. Which stock KSP method is the correct, narrow intent source for Map view "Switch To".
-4. Whether zero-duration switch segments should still show a merge dialog or use a special auto-discard rule. The user-reported bug came from Discard, so any auto-discard must be proven segment-scoped first.
+1. **Branch type name**: `BranchPointType.VesselSwitchContinuation`. Matches existing `OnVesselSwitching` / `OnVesselSwitchComplete` naming in the codebase; "Focus" reads as camera/UI rather than the actual action.
+2. **Settings**: add a separate `autoRecordOnExplicitVesselSwitch` toggle, keep `autoRecordOnFirstModificationAfterSwitch` as-is. The two cover orthogonal cases: this feature handles explicit Fly UI buttons; the existing watcher continues to handle `[` / `]` cycling and other generic focus changes.
+3. **Stock intent sources**: `SpaceTracking.FlyVessel` (TS) and `KSCVesselMarkers.FlyVessel` (KSC nearby-vessel marker), confirmed by decompilation. Map view has no stock "Switch To" button — explicitly out of scope for v1.
+4. **Zero-duration segments**: always show the segment-scoped merge dialog. Do not auto-discard. The bug that motivated this plan was a Discard codepath erasing committed history; until segment-scoped Discard ships and bakes, auto-discard is unsafe. Revisit once the Discard path has field confidence and add a sub-N-second / zero-event fast path then.
+
+## Remaining Open Decisions
+
+None at plan-review time. Issues uncovered during implementation should be added back here with a date and reason.
