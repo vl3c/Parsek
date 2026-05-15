@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Rewind map ghost briefly showed unbounded Relative state-vector orbit
+
+- ~~After rewind, watching ghost icons in map mode during time warp could briefly show the Kerbal X Probe's weird proto-vessel suborbital trajectory line. The retained `logs/2026-05-15_2119_rewind-map-ghost-icons/KSP.log` captured the bad source decision: `Ghost: Kerbal X Probe` was created from `state-vector-fallback` in a `frame=relative` section with `hasBounds=False`, then the orbit-line patch logged `reason=terminal-visible` and let stock draw the full unbounded proto-orbit. The Kerbal X upper stage, by contrast, resolved through the expected visible Parsek segment with `hasBounds=True`.~~
+
+**Fix:** `GhostMapPresence.ResolveMapPresenceGhostSource` now keeps the #583 Relative-frame state-vector path for physics-only recordings and recordings whose orbit segments are not bracketing the current UT, but defers that path when the current Relative section sits between a past bounded orbit segment and a future bounded orbit segment. The pending map vessel now stays uncreated with `relative-state-vector-segment-gap` instead of creating a no-bounds state-vector ProtoVessel during the gap, so the next Parsek-bounded segment owns the map icon/orbit line.
+
+**Coverage:** `GhostMapPresenceTests.ResolveMapPresenceGhostSource_RelativeFrame_BetweenOrbitSegments_DefersStateVectorBranch` mirrors the logged gap and asserts the resolver returns `None`, emits the new skip reason, and logs the segment-gap detail. Existing #583 coverage still proves Relative-frame recordings with only older orbit segments continue to reach the state-vector source.
+
+**Status:** CLOSED 2026-05-15.
+
+---
+
 ## Done - v0.9.2 second round of stale in-game harness failures
 
 - ~~Five in-game tests failed in the 2026-05-15 Run All + Isolated sweep: (1) `RuntimeTests.TerminalOrbitFromTail_DerivesPostBurnCircularOrbit` asserted inclination near zero but read 180° — the body-rotation-independent velocity rewrite from the previous in-game-harness fix used `Cross(Y, radial)` which, after `OrbitReseed`'s `.xzy` swap, produced angular momentum along KSP's south pole (retrograde equatorial). (2) `OnFlightReadyMergeDialogGuardInGameTest.OnFlightReady_ActiveReFlySession_SkipsMergeDialog` installed a synthetic Re-Fly marker without `InPlaceContinuation=true`; after the dispatch gate was narrowed to `IsReFlyInPlaceContinuationActive()` the synthetic marker no longer satisfied the skip, the dialog opened, and the assertion failed. (3) `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` was running from a PRELAUNCH parent vessel — KSP's vessel switch to the kerbal took ~190 ms while Parsek's `DeferredEvaBranch` only deferred one frame, so the branch was built with the kerbal in BG, the periodic finalizer immediately auto-classified the kerbal as `Landed`, and the test's "active EVA branch with live recorder before first sample" wait never observed a live-EVA-recorder window. (4-5) `RnDOverlayDecoratesCommittedFutureNode` and `RnDOverlaysClearedOnDespawn` timed out for 15 s in Sandbox because `RnDBuilding.EnterBuilding()` in pure Sandbox does not instantiate an `RDController`.~~

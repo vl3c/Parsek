@@ -2585,6 +2585,68 @@ namespace Parsek.Tests
             Assert.Null(skipReason);
         }
 
+        [Fact]
+        public void ResolveMapPresenceGhostSource_RelativeFrame_BetweenOrbitSegments_DefersStateVectorBranch()
+        {
+            // Rewind/map-time-warp regression: in a Relative section between
+            // bounded orbit windows, the state-vector path produced a no-bounds
+            // ProtoVessel and stock briefly drew its full suborbital orbit. A
+            // later Parsek segment means the pending map vessel should wait for
+            // the bounded source instead of using Relative offsets as LLA.
+            var rec = BuildRelativeFrameRecording(
+                anchorRecordingId: "anchor-rec",
+                pointDz: 51.0,
+                pointSpeed: 2200.0);
+            rec.RecordingId = "relative-gap-between-segments";
+            rec.TerminalStateValue = TerminalState.SubOrbital;
+            rec.ExplicitEndUT = 300.0;
+            rec.OrbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    startUT = 0.0,
+                    endUT = 150.0,
+                    bodyName = "Kerbin",
+                    semiMajorAxis = 654036.0,
+                    eccentricity = 0.235
+                },
+                new OrbitSegment
+                {
+                    startUT = 250.0,
+                    endUT = 300.0,
+                    bodyName = "Kerbin",
+                    semiMajorAxis = 1038510.0,
+                    eccentricity = 0.919531
+                }
+            };
+
+            int mapCached = -1;
+            var source = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                false,
+                200.0,
+                true,
+                "test-rel-segment-gap",
+                ref mapCached,
+                out _,
+                out TrajectoryPoint statePoint,
+                out string skipReason);
+
+            Assert.Equal(GhostMapPresence.TrackingStationGhostSource.None, source);
+            Assert.Equal(
+                GhostMapPresence.TrackingStationGhostSkipRelativeStateVectorSegmentGap,
+                skipReason);
+            Assert.Equal(default(TrajectoryPoint), statePoint);
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("test-rel-segment-gap")
+                    && l.Contains("reason=" + GhostMapPresence.TrackingStationGhostSkipRelativeStateVectorSegmentGap));
+            Assert.Contains(logLines,
+                l => l.Contains("[GhostMap]")
+                    && l.Contains("orbitSegmentGap=True"));
+        }
+
         private static Recording BuildRelativeFrameRecording(
             string anchorRecordingId, double pointDz, double pointSpeed)
         {

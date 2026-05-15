@@ -477,6 +477,8 @@ namespace Parsek
         internal const string TrackingStationGhostSkipUnseedableTerminalOrbit = "terminal-orbit-unseedable";
         internal const string TrackingStationGhostSkipStateVectorThreshold = "state-vector-threshold";
         internal const string TrackingStationGhostSkipRelativeFrame = "relative-frame";
+        internal const string TrackingStationGhostSkipRelativeStateVectorSegmentGap =
+            "relative-state-vector-segment-gap";
         internal const string TrackingStationGhostSkipBodyFixedPrimaryUnavailable = "body-fixed-primary-unavailable";
         // #583: Relative-frame state-vector ghost CREATION reaches the resolver
         // when the first map-visible UT lies inside a Relative section. Creation
@@ -4218,9 +4220,43 @@ namespace Parsek
             // rendezvous section; CreateGhostVesselFromStateVectors handles
             // Relative world-position resolution against the recorded anchor
             // pose for the target UT.
+            bool inRelativeFrame = IsInRelativeFrame(traj, currentUT);
+            bool hasPastOrbitSegment = false;
+            bool hasFutureOrbitSegment = false;
+            if (traj.HasOrbitSegments && inRelativeFrame && traj.OrbitSegments != null)
+            {
+                for (int i = 0; i < traj.OrbitSegments.Count; i++)
+                {
+                    OrbitSegment candidate = traj.OrbitSegments[i];
+                    if (candidate.endUT < currentUT)
+                        hasPastOrbitSegment = true;
+                    if (candidate.startUT > currentUT)
+                        hasFutureOrbitSegment = true;
+                    if (hasPastOrbitSegment && hasFutureOrbitSegment)
+                        break;
+                }
+            }
+
+            bool deferRelativeStateVectorForSegmentGap =
+                traj.HasOrbitSegments
+                && inRelativeFrame
+                && hasPastOrbitSegment
+                && hasFutureOrbitSegment;
+            if (deferRelativeStateVectorForSegmentGap)
+            {
+                // A Relative section with pending bounded orbit coverage should not
+                // create a no-bounds state-vector ProtoVessel. During rewind/map
+                // time warp that briefly exposed stock's full proto-orbit instead
+                // of waiting for the next Parsek-bounded segment.
+                stateVectorSkipReason = TrackingStationGhostSkipRelativeStateVectorSegmentGap;
+            }
+            string relativeSegmentGapDetail = deferRelativeStateVectorForSegmentGap
+                ? "relativeFrame=True orbitSegmentGap=True"
+                : null;
+
             bool considerStateVector =
                 !traj.HasOrbitSegments
-                || IsInRelativeFrame(traj, currentUT);
+                || (inRelativeFrame && !deferRelativeStateVectorForSegmentGap);
             if (considerStateVector)
             {
                 if (TryResolveStateVectorMapPoint(
@@ -4246,12 +4282,16 @@ namespace Parsek
             {
                 skipReason = checkpointFallbackRejectReason
                     ?? ResolveStateVectorOrSegmentSkipReason(
-                        traj, considerStateVector, stateVectorSkipReason);
+                        traj,
+                        considerStateVector || deferRelativeStateVectorForSegmentGap,
+                        stateVectorSkipReason);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
                     CombineSourceDetails(
-                        string.Format(ic, "terminalFallback=False hasOrbitSegments={0}", traj.HasOrbitSegments),
+                        CombineSourceDetails(
+                            string.Format(ic, "terminalFallback=False hasOrbitSegments={0}", traj.HasOrbitSegments),
+                            relativeSegmentGapDetail),
                         checkpointFallbackDetail));
             }
 
@@ -4259,12 +4299,16 @@ namespace Parsek
             {
                 skipReason = checkpointFallbackRejectReason
                     ?? ResolveStateVectorOrSegmentSkipReason(
-                        traj, considerStateVector, stateVectorSkipReason);
+                        traj,
+                        considerStateVector || deferRelativeStateVectorForSegmentGap,
+                        stateVectorSkipReason);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
                     CombineSourceDetails(
-                        string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments),
+                        CombineSourceDetails(
+                            string.Format(ic, "hasOrbitSegments={0}", traj.HasOrbitSegments),
+                            relativeSegmentGapDetail),
                         checkpointFallbackDetail));
             }
 
@@ -4296,13 +4340,16 @@ namespace Parsek
                 && !HasRecordedTrackCoverageAtUT(traj, currentUT);
             if (currentUT < traj.EndUT && !allowSparseOrbitGapFallback)
             {
-                skipReason = checkpointFallbackRejectReason ?? "before-terminal-orbit";
+                skipReason = checkpointFallbackRejectReason
+                    ?? (deferRelativeStateVectorForSegmentGap
+                        ? stateVectorSkipReason
+                        : "before-terminal-orbit");
+                string detail = string.Format(ic, "endUT={0:F1}", traj.EndUT);
+                detail = CombineSourceDetails(detail, relativeSegmentGapDetail);
                 return ReturnDecision(
                     TrackingStationGhostSource.None,
                     skipReason,
-                    CombineSourceDetails(
-                        string.Format(ic, "endUT={0:F1}", traj.EndUT),
-                        checkpointFallbackDetail));
+                    CombineSourceDetails(detail, checkpointFallbackDetail));
             }
 
             if (TryResolveEndpointTailForMapPresence(
@@ -4503,6 +4550,11 @@ namespace Parsek
 
             if (skipReason == TrackingStationGhostSkipRelativeFrame)
                 return WithStructured("relativeFrame=True");
+
+            if (skipReason == TrackingStationGhostSkipRelativeStateVectorSegmentGap)
+                return WithStructured(string.Format(ic,
+                    "relativeFrame=True orbitSegmentGap=True endUT={0:F1}",
+                    rec.EndUT));
 
             if (skipReason == "no-state-vector-point")
                 return WithStructured(string.Format(ic, "stateVectorPointMissing=True hasOrbitSegments={0}", rec.HasOrbitSegments));
@@ -4731,8 +4783,9 @@ namespace Parsek
         // #583: when state-vector resolution was attempted (either because
         // there are no orbit segments OR because we're in a Relative section)
         // and produced a meaningful skip reason — relative-frame /
-        // relative-anchor-unresolved / state-vector-threshold — surface that
-        // reason. Otherwise fall back to the legacy split between
+        // relative-anchor-unresolved / relative-state-vector-segment-gap /
+        // state-vector-threshold — surface that reason. Otherwise fall back
+        // to the legacy split between
         // `no-current-segment` (orbit-bearing recording) and `no-orbit-data`
         // (state-vector-only recording with no points). Preserves the prior
         // log-shape contract for callers that don't reach the new Relative
