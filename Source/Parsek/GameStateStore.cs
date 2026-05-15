@@ -1000,22 +1000,56 @@ namespace Parsek
                 var rootNode = new ConfigNode("PARSEK_GAME_STATE");
                 rootNode.AddValue("version", 1);
 
+                int savedEvents = 0;
+                int skippedCommittedRestoreAttemptEvents = 0;
+                HashSet<string> skippedContractAcceptGuids = null;
                 foreach (var e in events)
                 {
+                    if (RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(e))
+                    {
+                        skippedCommittedRestoreAttemptEvents++;
+                        if (e.eventType == GameStateEventType.ContractAccepted
+                            && !string.IsNullOrEmpty(e.key))
+                        {
+                            if (skippedContractAcceptGuids == null)
+                                skippedContractAcceptGuids = new HashSet<string>();
+                            skippedContractAcceptGuids.Add(e.key);
+                        }
+                        continue;
+                    }
+
                     ConfigNode eventNode = rootNode.AddNode("GAME_STATE_EVENT");
                     e.SerializeInto(eventNode);
+                    savedEvents++;
                 }
 
+                int savedSnapshots = 0;
+                int skippedSnapshots = 0;
                 foreach (var snap in contractSnapshots)
+                {
+                    if (skippedContractAcceptGuids != null
+                        && skippedContractAcceptGuids.Contains(snap.contractGuid))
+                    {
+                        skippedSnapshots++;
+                        continue;
+                    }
+
                     snap.SerializeInto(rootNode);
+                    savedSnapshots++;
+                }
 
                 SerializeScienceSubjectsInto(rootNode);
 
                 SafeWriteConfigNode(rootNode, path);
 
                 ParsekLog.Info("GameStateStore",
-                    $"Saved {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
-                    $"{committedScienceSubjects.Count} science subjects to {path}");
+                    $"Saved {savedEvents}/{events.Count} game state events, " +
+                    $"{savedSnapshots}/{contractSnapshots.Count} contract snapshots, " +
+                    $"{committedScienceSubjects.Count} science subjects to {path}" +
+                    (skippedCommittedRestoreAttemptEvents > 0
+                        ? $" (skippedCommittedRestoreAttemptEvents={skippedCommittedRestoreAttemptEvents}, " +
+                          $"skippedSnapshots={skippedSnapshots})"
+                        : ""));
                 return true;
             }
             catch (Exception ex)

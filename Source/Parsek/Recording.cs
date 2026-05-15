@@ -725,6 +725,10 @@ namespace Parsek
             clone.CopyStartLocationFrom(source);
             clone.VesselName = source.VesselName;
             clone.MergeState = source.MergeState;
+            clone.CreatingSessionId = source.CreatingSessionId;
+            clone.SupersedeTargetId = source.SupersedeTargetId;
+            clone.ProvisionalForRpId = source.ProvisionalForRpId;
+            clone.AutoAssignedStandaloneGroupName = source.AutoAssignedStandaloneGroupName;
 
             clone.Points = source.Points != null
                 ? new List<TrajectoryPoint>(source.Points)
