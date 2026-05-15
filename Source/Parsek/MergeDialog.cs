@@ -149,11 +149,13 @@ namespace Parsek
             // the body through the same auto-seal preview the pre-transition
             // path uses - this deferred fallback can still finalize via
             // TryCommitReFlySupersede and auto-seal the slot Immutable, so
-            // the auto-seal copy + "cannot be undone" tail must appear here
+            // the auto-seal copy and reason list must appear here
             // too when the preview classifies the attempt as sealable.
             var reFlyScenario = ParsekScenario.Instance;
             string message;
-            string mergeLabel = BuildTimelineActionButtonLabel(isPermanent: true);
+            bool timelineActionPermanent = true;
+            string mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
+            string title = BuildTimelineActionDialogTitle(timelineActionPermanent);
             if (!object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveReFlySessionMarker != null)
             {
@@ -178,14 +180,21 @@ namespace Parsek
                     ? ReFlyAutoSealPreviewer.Preview(
                         reFlyRec, marker, FlightGlobals.ActiveVessel)
                     : ReFlyAutoSealPreviewResult.NoSeal();
-                mergeLabel = BuildTimelineActionButtonLabel(preview.WillAutoSeal);
+                string labelSource;
+                timelineActionPermanent =
+                    DetermineReFlyTimelineActionIsPermanent(
+                        reFlyRec, marker, preview, out labelSource);
+                mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
+                title = BuildTimelineActionDialogTitle(timelineActionPermanent);
                 message = BuildReFlyDialogBody(
                     vesselLabel, reFlyDuration, preview);
 
                 ParsekLog.Info("MergeDialog",
                     $"Re-Fly auto-seal preview (post-transition): " +
                     $"willSeal={preview.WillAutoSeal} " +
+                    $"actionPermanent={timelineActionPermanent} " +
                     $"button='{mergeLabel}' " +
+                    $"labelSource={labelSource ?? "<none>"} " +
                     $"reasons=[{string.Join(",", preview.Reasons)}] " +
                     $"sess={marker.SessionId ?? "<no-id>"}");
             }
@@ -229,7 +238,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     DialogName,
                     message,
-                    "Confirm Merge to Timeline",
+                    title,
                     HighLogic.UISkin,
                     buttons
                 ),
@@ -313,12 +322,18 @@ namespace Parsek
                 // affects the dialog wording, not the seal verdict).
                 var preview = ReFlyAutoSealPreviewer.Preview(
                     reFlyRec, marker, FlightGlobals.ActiveVessel);
-                mergeLabel = BuildTimelineActionButtonLabel(preview.WillAutoSeal);
+                string labelSource;
+                bool timelineActionPermanent =
+                    DetermineReFlyTimelineActionIsPermanent(
+                        reFlyRec, marker, preview, out labelSource);
+                mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
                 message = BuildReFlyDialogBody(vesselLabel, reFlyDuration, preview);
 
                 ParsekLog.Info("MergeDialog",
                     $"Re-Fly auto-seal preview: willSeal={preview.WillAutoSeal} " +
+                    $"actionPermanent={timelineActionPermanent} " +
                     $"button='{mergeLabel}' " +
+                    $"labelSource={labelSource ?? "<none>"} " +
                     $"reasons=[{string.Join(",", preview.Reasons)}] " +
                     $"sess={marker?.SessionId ?? "<no-id>"}");
             }
@@ -496,6 +511,34 @@ namespace Parsek
         internal static string BuildTimelineActionButtonLabel(bool isPermanent)
         {
             return isPermanent ? "Merge to Timeline" : "Commit to Timeline";
+        }
+
+        internal static string BuildTimelineActionDialogTitle(bool isPermanent)
+        {
+            return isPermanent ? "Confirm Merge to Timeline" : "Confirm Commit to Timeline";
+        }
+
+        internal static bool DetermineReFlyTimelineActionIsPermanent(
+            Recording reFlyRec,
+            ReFlySessionMarker marker,
+            ReFlyAutoSealPreviewResult preview,
+            out string source)
+        {
+            bool classifierPermanent;
+            string classifierReason;
+            if (SupersedeCommit.TryPredictReFlyMergeIsPermanent(
+                    marker,
+                    reFlyRec,
+                    ParsekScenario.Instance,
+                    out classifierPermanent,
+                    out classifierReason))
+            {
+                source = "classifier:" + (classifierReason ?? "<none>");
+                return classifierPermanent;
+            }
+
+            source = "preview:" + (classifierReason ?? "<unavailable>");
+            return preview.WillAutoSeal;
         }
 
         /// <summary>

@@ -21,7 +21,7 @@ All notable changes to Parsek are documented here.
 - The "Ghost render tracing" diagnostics toggle (both the Parsek settings window and the stock difficulty-settings entry) now reads "Ghost render tracing (Warning: huge logs)" so the log-volume cost is visible before enabling it.
 - The readable sidecar mirrors toggle (both the Parsek settings window and the stock difficulty-settings entry) now carries a "(Warning: extra disk usage)" suffix so the on-disk cost is visible before enabling it.
 - Re-Fly merge/discard dialog descriptions are shorter. The no-seal body now asks "Do you want to commit this Re-Fly attempt to the timeline?", and the auto-seal body lists each reason on its own dashed line, followed by the auto-seal explanation without a redundant undo warning.
-- Timeline dialog action buttons now distinguish permanent merges from still-re-flyable commits: regular recordings and auto-sealed Re-Fly attempts say "Merge to Timeline", while unsealed Re-Fly attempts say "Commit to Timeline".
+- Timeline dialog action buttons now distinguish permanent merges from still-re-flyable commits using the production merge-state classifier: regular recordings and auto-sealed Re-Fly attempts say "Merge to Timeline", while unsealed Re-Fly attempts say "Commit to Timeline". Deferred dialog titles follow the same Merge/Commit wording.
 
 ### Bug Fixes
 

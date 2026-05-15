@@ -639,6 +639,96 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildTimelineActionDialogTitle_NotPermanent_UsesCommitToTimeline()
+        {
+            Assert.Equal("Confirm Commit to Timeline",
+                MergeDialog.BuildTimelineActionDialogTitle(isPermanent: false));
+        }
+
+        [Fact]
+        public void DetermineReFlyTimelineActionIsPermanent_ClassifierOverridesNoSealPreview()
+        {
+            var rec = MakeRecording();
+            rec.MergeState = MergeState.NotCommitted;
+            rec.TerminalStateValue = TerminalState.Orbiting;
+            rec.ParentBranchPointId = "bp-test";
+            rec.SupersedeTargetId = "rec-origin";
+            var marker = MakeMarker(activeReFlyRecordingId: rec.RecordingId);
+            marker.OriginChildRecordingId = "rec-origin";
+            marker.SupersedeTargetId = "rec-origin";
+            var scenario = MakeScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = marker.RewindPointId,
+                BranchPointId = rec.ParentBranchPointId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec-origin",
+                        Controllable = true,
+                    },
+                },
+            });
+
+            string source;
+            bool permanent = MergeDialog.DetermineReFlyTimelineActionIsPermanent(
+                rec,
+                marker,
+                ReFlyAutoSealPreviewResult.NoSeal(),
+                out source);
+
+            Assert.True(permanent);
+            Assert.StartsWith("classifier:", source);
+        }
+
+        [Fact]
+        public void DetermineReFlyTimelineActionIsPermanent_CommittedProvisionalPredictionUsesCommit()
+        {
+            var rec = MakeRecording();
+            rec.MergeState = MergeState.NotCommitted;
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ParentBranchPointId = "bp-test";
+            rec.SupersedeTargetId = "rec-origin";
+            var marker = MakeMarker(activeReFlyRecordingId: rec.RecordingId);
+            marker.OriginChildRecordingId = "rec-origin";
+            marker.SupersedeTargetId = "rec-origin";
+            var scenario = MakeScenario(marker);
+            scenario.RewindPoints.Add(new RewindPoint
+            {
+                RewindPointId = marker.RewindPointId,
+                BranchPointId = rec.ParentBranchPointId,
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = "rec-origin",
+                        Controllable = true,
+                    },
+                },
+            });
+
+            string source;
+            bool permanent = MergeDialog.DetermineReFlyTimelineActionIsPermanent(
+                rec,
+                marker,
+                new ReFlyAutoSealPreviewResult
+                {
+                    WillAutoSeal = true,
+                    Reasons = new List<ReFlyAutoSealReason>
+                        { ReFlyAutoSealReason.TransmittedScience },
+                },
+                out source);
+
+            Assert.False(permanent);
+            Assert.StartsWith("classifier:", source);
+        }
+
+        [Fact]
         public void BuildReFlyAutoSealReasonLines_MultipleReasons_UsesDashedLines()
         {
             var preview = new ReFlyAutoSealPreviewResult
@@ -685,7 +775,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildBody_AutoSeal_SingleReason_IncludesReasonConsequenceAndUndoWarning()
+        public void BuildBody_AutoSeal_SingleReason_IncludesReasonAndConsequence()
         {
             var preview = new ReFlyAutoSealPreviewResult
             {

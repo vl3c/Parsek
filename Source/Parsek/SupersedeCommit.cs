@@ -410,6 +410,48 @@ namespace Parsek
             ClassifyMergeStateOrThrow(marker, provisional, scenario, logFallback: false);
         }
 
+        internal static bool TryPredictReFlyMergeIsPermanent(
+            ReFlySessionMarker marker,
+            Recording provisional,
+            ParsekScenario scenario,
+            out bool isPermanent,
+            out string reason)
+        {
+            isPermanent = false;
+            reason = null;
+            if (marker == null)
+            {
+                reason = "marker-null";
+                return false;
+            }
+            if (provisional == null)
+            {
+                reason = "provisional-null";
+                return false;
+            }
+            if (object.ReferenceEquals(null, scenario))
+            {
+                reason = "scenario-null";
+                return false;
+            }
+
+            try
+            {
+                MergeStateClassification classification =
+                    ClassifyMergeStateOrThrow(
+                        marker, provisional, scenario, logFallback: false);
+                isPermanent = classification.NewState == MergeState.Immutable;
+                reason = classification.ClassifierReason
+                    ?? classification.Kind.ToString();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                reason = ex.GetType().Name;
+                return false;
+            }
+        }
+
         private struct MergeStateClassification
         {
             public TerminalKind Kind;
