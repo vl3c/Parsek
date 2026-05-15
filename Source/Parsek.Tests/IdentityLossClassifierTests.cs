@@ -547,6 +547,126 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeAllForCommit_LoadedStateDestroyed_DoesNotMutateRecording()
+        {
+            // External-review follow-up: even with the on-rails loop guarded, the
+            // loaded-state loop in FinalizeAllForCommit (which refreshes the cache,
+            // closes the current TrackSection at commitUT, flushes it onto the
+            // recording, and appends terminal engine/RCS events) had no destroyed
+            // check. Recording.EndUT computes from playable TrackSection bounds
+            // when frames are present, so even with ExplicitEndUT preserved a
+            // flushed commit-UT section would move the destroyed-explosion timing.
+            const uint pid = 9101u;
+            const string recId = "destroyed-rec-finalize-loaded";
+            const double terminalUT = 100.0;
+            const double commitUT = 500.0;
+
+            var tree = new RecordingTree { Id = "tree-finalize-loaded" };
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                VesselPersistentId = pid,
+                ExplicitStartUT = 50.0
+            };
+            rec.MarkDestroyedAtTerminal(terminalUT, "test-seed");
+            tree.Recordings[recId] = rec;
+            // NOT in BackgroundMap — the loaded-state loop iterates loadedStates
+            // independently, so the test only injects into loadedStates.
+
+            int initialPartEvents = rec.PartEvents.Count;
+            int initialOrbitSegments = rec.OrbitSegments.Count;
+            int initialTrackSections = rec.TrackSections.Count;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectLoadedStateForTesting(pid, recId);
+            Assert.True(bgRecorder.HasLoadedState(pid));
+
+            bgRecorder.FinalizeAllForCommit(commitUT);
+
+            Assert.Equal(terminalUT, rec.ExplicitEndUT);
+            Assert.True(rec.VesselDestroyed);
+            Assert.Equal(initialPartEvents, rec.PartEvents.Count);
+            Assert.Equal(initialOrbitSegments, rec.OrbitSegments.Count);
+            Assert.Equal(initialTrackSections, rec.TrackSections.Count);
+        }
+
+        [Fact]
+        public void Shutdown_LoadedStateDestroyed_DoesNotMutateRecording()
+        {
+            // Shutdown's loaded-state loop also flushes TrackSections and persists
+            // the recording. The destroyed guard short-circuits both.
+            const uint pid = 9102u;
+            const string recId = "destroyed-rec-shutdown-loaded";
+            const double terminalUT = 200.0;
+
+            var tree = new RecordingTree { Id = "tree-shutdown-loaded" };
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                VesselPersistentId = pid,
+                ExplicitStartUT = 150.0
+            };
+            rec.MarkDestroyedAtTerminal(terminalUT, "test-seed");
+            tree.Recordings[recId] = rec;
+
+            int initialPartEvents = rec.PartEvents.Count;
+            int initialTrackSections = rec.TrackSections.Count;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectLoadedStateForTesting(pid, recId);
+
+            // Shutdown(double) overload bypasses the Unity Planetarium singleton
+            // that the parameterless production overload reads from.
+            bgRecorder.Shutdown(terminalUT + 100.0);
+
+            Assert.Equal(terminalUT, rec.ExplicitEndUT);
+            Assert.True(rec.VesselDestroyed);
+            Assert.Equal(initialPartEvents, rec.PartEvents.Count);
+            Assert.Equal(initialTrackSections, rec.TrackSections.Count);
+        }
+
+        [Fact]
+        public void Shutdown_OnRailsStateDestroyed_DoesNotMutateRecording()
+        {
+            // Shutdown's on-rails loop closes any open orbit segment; a destroyed
+            // recording's seal would be broken if the segment were closed at
+            // shutdown UT.
+            const uint pid = 9103u;
+            const string recId = "destroyed-rec-shutdown-onrails";
+            const double terminalUT = 300.0;
+
+            var tree = new RecordingTree { Id = "tree-shutdown-onrails" };
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                VesselPersistentId = pid,
+                ExplicitStartUT = 250.0
+            };
+            rec.MarkDestroyedAtTerminal(terminalUT, "test-seed");
+            tree.Recordings[recId] = rec;
+
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectOnRailsStateForTesting(pid, recId, terminalUT);
+            // Force an open orbit segment so the Shutdown loop would touch it
+            // absent the destroyed guard.
+            bgRecorder.InjectOpenOrbitSegmentForTesting(pid, new OrbitSegment
+            {
+                startUT = terminalUT - 10.0,
+                endUT = double.NaN,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0
+            });
+
+            int initialOrbitSegments = rec.OrbitSegments.Count;
+
+            bgRecorder.Shutdown(terminalUT + 100.0);
+
+            Assert.Equal(terminalUT, rec.ExplicitEndUT);
+            Assert.True(rec.VesselDestroyed);
+            Assert.Equal(initialOrbitSegments, rec.OrbitSegments.Count);
+        }
+
+        [Fact]
         public void OnVesselBackgrounded_SkipsDestroyedRecording_DoesNotInitializeState()
         {
             // The OnVesselBackgrounded entrypoint is called when a vessel is added

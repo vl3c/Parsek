@@ -2726,24 +2726,50 @@ namespace Parsek
         /// </summary>
         public void Shutdown()
         {
+            Shutdown(Planetarium.GetUniversalTime());
+        }
+
+        /// <summary>
+        /// Shutdown with an explicit UT, for tests that exercise the destroyed-record
+        /// skip paths without requiring the Unity Planetarium singleton.
+        /// </summary>
+        internal void Shutdown(double ut)
+        {
             UnsubscribePartEvents();
 
-            double ut = Planetarium.GetUniversalTime();
-
-            // Close all open orbit segments
+            // Close all open orbit segments (skip destroyed — closing an open segment
+            // at shutdown UT would extend the sealed recording past its terminalUT).
             foreach (var kvp in onRailsStates)
             {
                 var state = kvp.Value;
-                if (state.hasOpenOrbitSegment)
+                if (!state.hasOpenOrbitSegment) continue;
+                if (IsBackgroundRecordingDestroyed(state.recordingId))
                 {
-                    CloseOrbitSegment(state, ut);
+                    ParsekLog.VerboseRateLimited("BgRecorder",
+                        $"destroyed-skip.shutdown_orbit.{state.vesselPid}",
+                        $"Shutdown: skipping orbit-segment close for destroyed recording " +
+                        $"pid={state.vesselPid} rec={state.recordingId}",
+                        60.0);
+                    continue;
                 }
+                CloseOrbitSegment(state, ut);
             }
 
-            // Close and flush TrackSections for all loaded vessels
+            // Close and flush TrackSections for all loaded vessels (skip destroyed —
+            // flushing a TrackSection at shutdown UT and persisting it would similarly
+            // extend Recording.EndUT past the sealed identity-loss UT).
             foreach (var kvp in loadedStates)
             {
                 var state = kvp.Value;
+                if (IsBackgroundRecordingDestroyed(state.recordingId))
+                {
+                    ParsekLog.VerboseRateLimited("BgRecorder",
+                        $"destroyed-skip.shutdown_loaded.{state.vesselPid}",
+                        $"Shutdown: skipping loaded-state flush for destroyed recording " +
+                        $"pid={state.vesselPid} rec={state.recordingId}",
+                        60.0);
+                    continue;
+                }
                 CloseBackgroundTrackSection(state, ut);
 
                 Recording flushRec;
@@ -2821,10 +2847,25 @@ namespace Parsek
                 CloseOrbitSegment(state, commitUT);
             }
 
-            // Close and flush TrackSections for all loaded vessels, emit terminal engine/RCS/robotic events (bug #108)
+            // Close and flush TrackSections for all loaded vessels, emit terminal engine/RCS/robotic events (bug #108).
+            // Skip destroyed recordings — flushing a new TrackSection at commitUT
+            // would extend Recording.EndUT (which uses playable TrackSection bounds
+            // when frames are present, see Recording.cs ~line 421) past the sealed
+            // identity-loss UT, moving the destroyed-explosion timing in
+            // GhostPlaybackLogic. The cache refresh + terminal-engine events would
+            // similarly overwrite the sealed terminal payload.
             foreach (var kvp in loadedStates)
             {
                 var state = kvp.Value;
+                if (IsBackgroundRecordingDestroyed(state.recordingId))
+                {
+                    ParsekLog.VerboseRateLimited("BgRecorder",
+                        $"destroyed-skip.finalize_loaded.{state.vesselPid}",
+                        $"FinalizeAllForCommit: skipping destroyed loaded recording " +
+                        $"pid={state.vesselPid} rec={state.recordingId}",
+                        60.0);
+                    continue;
+                }
                 Vessel v = FlightRecorder.FindVesselByPid(state.vesselPid);
                 RecordingFinalizationCache previous = null;
                 finalizationCaches.TryGetValue(state.vesselPid, out previous);
@@ -3315,6 +3356,20 @@ namespace Parsek
                 {
                     // Landed/splashed or no-orbit vessels don't need orbital checkpoints
                     skippedNotOrbital++;
+                    continue;
+                }
+
+                // Skip destroyed recordings — closing/opening a fresh orbit segment
+                // at checkpoint UT would extend the sealed recording past its
+                // identity-loss terminalUT, shifting the destroyed-explosion timing
+                // in GhostPlaybackLogic.
+                if (IsBackgroundRecordingDestroyed(state.recordingId))
+                {
+                    ParsekLog.VerboseRateLimited("BgRecorder",
+                        $"destroyed-skip.checkpoint.{vesselPid}",
+                        $"CheckpointAllVessels: skipping destroyed recording " +
+                        $"pid={vesselPid} rec={state.recordingId}",
+                        60.0);
                     continue;
                 }
 
