@@ -3326,17 +3326,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsPreRewindDebris_NullRecording_ReturnsFalse_PinsMissPathFallthrough()
+        public void IsPreRewindDebris_NullRecording_ReturnsFalse()
         {
-            // Defensive: when AppendRelations does
-            // `if (recById.TryGetValue(oldId, out rec) && IsPreRewindDebris(rec, marker))`,
-            // a `TryGetValue` miss leaves `rec == null` and the `&&`
-            // short-circuits without calling IsPreRewindDebris. Independently,
-            // IsPreRewindDebris(null, marker) also returns false, so even a
-            // dictionary that handed back a null reference would fall through
-            // to row-write. Either way, the pre-fix default ("write the row")
-            // is preserved for the anomalous case where a closure id has no
-            // backing Recording in CommittedRecordings.
+            // Defensive symmetry with the AppendRelations miss path: when
+            // `recById.TryGetValue(oldId, out rec)` misses, `rec` is null and
+            // the `&&` short-circuits without calling IsPreRewindDebris. This
+            // test pins the predicate's own null-rec branch so even a
+            // dictionary that returned a null reference would fall through
+            // to row-write. The end-to-end TryGetValue-miss path is covered
+            // by code review — driving a synthetic closure id absent from
+            // CommittedRecordings requires ad-hoc closure injection that
+            // sits outside this unit test's scope.
             var marker = new ReFlySessionMarker
             {
                 RewindPointUT = 29.42,
