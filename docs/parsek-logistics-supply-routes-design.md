@@ -745,6 +745,8 @@ Future route analysis produces:
 
 **Trigger:** The route scheduler (`RouteScheduler`) runs each physics frame (or once per second during warp) in all scenes via `RouteOrchestrator`, called from `ParsekScenario.Update`.
 
+**v0 status (item 5):** The entrypoint is `RouteOrchestrator.Tick(currentUT)`, called from `ParsekScenario.Update` with a UT-delta accumulator at `RouteOrchestrator.TickIntervalSec` cadence. v0 implements the dispatch-decision chain and emits `RouteDispatched` + `RouteCargoDebited` (and `RouteEndpointLost` on resolution failure) ledger rows, but stops at `PendingDeliveryUT` — the actual cargo / funds mutation and the `RouteCargoDelivered` row are item 6.
+
 **For each route with Status in {Active, WaitingForResources, WaitingForFunds, DestinationFull} and `NextDispatchUT <= currentUT`:**
 
 Routes with Status Paused, EndpointLost, MissingSourceRecording, or SourceChanged are excluded from dispatch evaluation. `InTransit` routes are processed by the UT-driven progression loop before dispatch evaluation.
@@ -1068,7 +1070,7 @@ RouteDelivery.DeliverResources(endpointVessel, deliveryManifest)
 
 Loaded origin debits use the same primitive with a negative amount on the proven origin resource. Logistics pre-checks flow state/mode for both signs because stock PAW transfer does so before calling the primitive. This is independent of Parsek's recording/playback/ghost systems, but not independent of the ledger. Every enabled mutation path must be driven by a route event that records target vessel identity, route id, cycle, resource/item amounts requested and actually applied, and enough before/after information for recalculation or rollback.
 
-The v0 skeleton ships a single `RouteModule` (registered at `RecalculationEngine.ModuleTier.SecondTier`, after `FundsModule`) that observes every route-scoped action type — `RouteDispatched`, `RouteCargoDebited`, `RouteCargoDelivered`, `RoutePaused`, `RouteEndpointLost` — and tracks per-route walk state. The module is observation-only: it does not yet apply KSC funds charges, debit origin resource/inventory, deliver endpoint payloads, or consult `Affordable`. Those mutations land in later phases when the scheduler that emits these actions exists. A future phase may split `RouteModule` into separate KSC-funds / origin-debit / endpoint-delivery modules if separation of concerns demands it; the action-type vocabulary already keeps that option open.
+The v0 skeleton ships a single `RouteModule` (registered at `RecalculationEngine.ModuleTier.SecondTier`, after `FundsModule`) that observes every route-scoped action type — `RouteDispatched`, `RouteCargoDebited`, `RouteCargoDelivered`, `RoutePaused`, `RouteEndpointLost` — and tracks per-route walk state. The module is observation-only: it does not yet apply KSC funds charges, debit origin resource/inventory, deliver endpoint payloads, or consult `Affordable`. As of item 5 the dispatch scheduler emits `RouteDispatched` / `RouteCargoDebited` / `RouteEndpointLost` rows; the module still observes them without mutating, and the remaining mutations (funds debit, origin/endpoint cargo, `RouteCargoDelivered`) land with item 6. A future phase may split `RouteModule` into separate KSC-funds / origin-debit / endpoint-delivery modules if separation of concerns demands it; the action-type vocabulary already keeps that option open.
 
 If a module cannot find or safely reverse its target during epoch recomputation, it must mark the route/effect invalid and log a warning rather than silently leaving duplicated cargo behind.
 
