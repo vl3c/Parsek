@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
@@ -24,6 +25,13 @@ namespace Parsek.Tests.Logistics
             public bool IsCareer { get; set; }
             public bool EndpointResolvable { get; set; } = true;
             public string EndpointResolveFailureReason { get; set; } = "pid-miss";
+            /// <summary>
+            /// Optional per-endpoint resolver. When non-null, takes precedence over
+            /// the flat <see cref="EndpointResolvable"/> boolean — lets a test fail
+            /// only on specific PIDs (e.g. resolve all stop PIDs but fail on the
+            /// origin PID, exercising the origin branch in isolation).
+            /// </summary>
+            public Func<RouteEndpoint, (bool Ok, string Reason)> EndpointResolver { get; set; }
             public bool OriginHasCargoResult { get; set; } = true;
             public string OriginLackingResource { get; set; } = "LiquidFuel";
             public bool KscFundsAvailableResult { get; set; } = true;
@@ -36,6 +44,12 @@ namespace Parsek.Tests.Logistics
 
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
             {
+                if (EndpointResolver != null)
+                {
+                    var result = EndpointResolver(endpoint);
+                    reason = result.Ok ? string.Empty : result.Reason;
+                    return result.Ok;
+                }
                 reason = EndpointResolvable ? string.Empty : EndpointResolveFailureReason;
                 return EndpointResolvable;
             }
@@ -240,6 +254,11 @@ namespace Parsek.Tests.Logistics
         }
 
         // catches: a non-KSC origin bypassing the resolver check when it goes missing.
+        // The stops loop runs BEFORE the origin check, so a flat
+        // EndpointResolvable=false fake would fail at stop-0 first and never
+        // reach the origin branch. The custom EndpointResolver here resolves the
+        // stop PID (42) but fails the origin PID (99), pinning the origin
+        // branch in isolation.
         [Fact]
         public void EndpointLost_OnNonKscOriginUnresolved()
         {
@@ -248,14 +267,20 @@ namespace Parsek.Tests.Logistics
             route.Origin = new RouteEndpoint { VesselPersistentId = 99u };
             var env = new FakeRouteRuntimeEnvironment
             {
-                EndpointResolvable = false,
-                EndpointResolveFailureReason = "pid-miss",
+                EndpointResolver = ep => ep.VesselPersistentId == 99u
+                    ? (false, "pid-miss")
+                    : (true, string.Empty),
             };
 
             var decision = RouteDispatchEvaluator.EvaluateRoute(route, 200.0, env);
 
             Assert.Equal(RouteDispatchOutcome.EndpointLost, decision.Outcome);
-            Assert.Contains("stop-0", decision.Reason);
+            Assert.Equal(RouteStatus.EndpointLost, decision.NextStatus);
+            Assert.Equal(200.0 + RouteOrchestrator.WaitRetryIntervalSec, decision.NewNextEligibilityCheckUT);
+            // Production emits "origin-{originReason}" (RouteDispatchEvaluator.cs:83).
+            // The previous "stop-0" assertion was the bug: that was a stop failure,
+            // not an origin failure.
+            Assert.Contains("origin-", decision.Reason);
         }
 
         // catches: a KSC-origin route still trying to resolve Origin as a live vessel.

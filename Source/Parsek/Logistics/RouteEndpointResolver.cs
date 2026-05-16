@@ -84,6 +84,7 @@ namespace Parsek.Logistics
                     GhostMapPresence.ghostMapVesselPids,
                     RouteOrchestrator.SurfaceProximityRadiusMeters,
                     out vessel,
+                    out _,
                     out reason);
             }
 
@@ -98,7 +99,10 @@ namespace Parsek.Logistics
         /// <paramref name="radiusMeters"/> whose PID is not in
         /// <paramref name="excludePids"/>. <c>out vessel</c> may be null when
         /// the snapshot has no live <c>Vessel</c> reference (pure-test mode);
-        /// production callers always populate it.
+        /// production callers always populate it. <c>out pickedPid</c> exposes
+        /// the chosen snapshot's <see cref="SurfaceVesselSnapshot.PersistentId"/>
+        /// for diagnostic clarity and pure-test assertions; it is <c>0</c> on
+        /// every miss path.
         /// </summary>
         internal static bool TrySurfaceFallbackPure(
             Vector3d endpointWorldPos,
@@ -107,9 +111,11 @@ namespace Parsek.Logistics
             HashSet<uint> excludePids,
             double radiusMeters,
             out Vessel vessel,
+            out uint pickedPid,
             out string reason)
         {
             vessel = null;
+            pickedPid = 0u;
             reason = string.Empty;
 
             if (liveSnapshots == null || liveSnapshots.Count == 0)
@@ -156,6 +162,7 @@ namespace Parsek.Logistics
             }
 
             vessel = liveSnapshots[bestIdx].Vessel;
+            pickedPid = liveSnapshots[bestIdx].PersistentId;
             return true;
         }
 
