@@ -5121,6 +5121,7 @@ namespace Parsek
             string creatingSessionId = loadedRec.CreatingSessionId;
             string supersedeTargetId = loadedRec.SupersedeTargetId;
             string provisionalForRpId = loadedRec.ProvisionalForRpId;
+            string switchSegmentSessionId = loadedRec.SwitchSegmentSessionId;
 
             // Recorder-owned [NonSerialized] flags. Snapshotted before the
             // overwrite so the active-refresh path can put them back. The
@@ -5175,6 +5176,7 @@ namespace Parsek
             loadedRec.CreatingSessionId = creatingSessionId;
             loadedRec.SupersedeTargetId = supersedeTargetId;
             loadedRec.ProvisionalForRpId = provisionalForRpId;
+            loadedRec.SwitchSegmentSessionId = switchSegmentSessionId;
 
             if (preserveRecorderOwnedState)
             {
@@ -5318,6 +5320,7 @@ namespace Parsek
             string creatingSessionId = target.CreatingSessionId;
             string supersedeTargetId = target.SupersedeTargetId;
             string provisionalForRpId = target.ProvisionalForRpId;
+            string switchSegmentSessionId = target.SwitchSegmentSessionId;
 
             Recording sourceClone = Recording.DeepClone(source);
             target.ApplyPersistenceArtifactsFrom(sourceClone);
@@ -5359,6 +5362,7 @@ namespace Parsek
             target.CreatingSessionId = creatingSessionId;
             target.SupersedeTargetId = supersedeTargetId;
             target.ProvisionalForRpId = provisionalForRpId;
+            target.SwitchSegmentSessionId = switchSegmentSessionId;
 
             // PR #572 second-order data-loss companion: the trajectory just
             // copied over came from a committed recording that, in the

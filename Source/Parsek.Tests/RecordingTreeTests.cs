@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using UnityEngine;
 using Xunit;
 
@@ -1612,6 +1613,70 @@ namespace Parsek.Tests
             var reflyClone = Recording.DeepClone(refly);
             Assert.Equal("refly-session-id", reflyClone.CreatingSessionId);
             Assert.Null(reflyClone.SwitchSegmentSessionId);
+        }
+
+        [Fact]
+        public void Recording_RefreshFromCommittedSidecar_PreservesSwitchSegmentSessionId()
+        {
+            // Fails if: a future refactor of
+            // ParsekScenario.RefreshLoadedRecordingFromCommittedSplit (or its
+            // companion RestoreCommittedSidecarPayloadIntoActiveTreeRecording)
+            // drops the SwitchSegmentSessionId snapshot/restore lines, silently
+            // clobbering the field during sidecar refresh.
+            //
+            // The refresh paths cannot be driven from xUnit without Planetarium
+            // and Unity GameEvents (see reference_parsek_scenario_xunit.md), so
+            // we gate the contract at the source-text level: both functions must
+            // snapshot SwitchSegmentSessionId alongside the other peer ownership
+            // fields before the DeepClone overwrite and write it back
+            // afterwards. Modeled on ChainSaveLoadTests.ChainStateNotPersistedInScenario.
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string scenarioPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekScenario.cs");
+            if (!File.Exists(scenarioPath))
+            {
+                scenarioPath = Path.Combine(projectRoot,
+                    "Parsek", "ParsekScenario.cs");
+            }
+            Assert.True(File.Exists(scenarioPath),
+                $"ParsekScenario.cs not found at {scenarioPath}");
+
+            string source = File.ReadAllText(scenarioPath);
+
+            // Both refresh functions must snapshot the field (declare a local)
+            // and write it back. The two patterns below appear once per
+            // function, so we expect exactly two occurrences of each.
+            int snapshotCount = CountOccurrences(source,
+                "switchSegmentSessionId = ");
+            int restoreCount = CountOccurrences(source,
+                ".SwitchSegmentSessionId = switchSegmentSessionId;");
+            // Each refresh function: 1 snapshot ("... = loadedRec.SwitchSegmentSessionId;"
+            // or "... = target.SwitchSegmentSessionId;") + 1 restore.
+            Assert.True(snapshotCount >= 2,
+                $"Expected at least 2 snapshots of switchSegmentSessionId; got {snapshotCount}. "
+                + "Both RefreshLoadedRecordingFromCommittedSplit and "
+                + "RestoreCommittedSidecarPayloadIntoActiveTreeRecording must "
+                + "snapshot SwitchSegmentSessionId before the DeepClone overwrite.");
+            Assert.True(restoreCount >= 2,
+                $"Expected at least 2 restore writes of SwitchSegmentSessionId; got {restoreCount}. "
+                + "Both refresh paths must write switchSegmentSessionId back after "
+                + "the DeepClone overwrite, alongside the other peer ownership fields.");
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            if (string.IsNullOrEmpty(haystack) || string.IsNullOrEmpty(needle))
+                return 0;
+            int count = 0;
+            int idx = 0;
+            while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                idx += needle.Length;
+            }
+            return count;
         }
     }
 }

@@ -100,6 +100,18 @@ namespace Parsek
         /// terminal leaves whose own <see cref="Recording.VesselPersistentId"/> matches
         /// the focused vessel PID. The resolver is purely read-only — it never
         /// mutates the tree (plan §"Parent Selection Risk" item 1).
+        /// <para>A recording whose <see cref="Recording.ChildBranchPointId"/> is
+        /// non-empty but whose referenced branch point is missing/empty in
+        /// <see cref="RecordingTree.BranchPoints"/> is treated as a tree-corruption
+        /// signal: it is NOT added to the candidate-leaf list (the creator
+        /// rejects any parent with a non-empty ChildBranchPointId with
+        /// <c>parent-not-terminal-leaf</c>, so adding it would only produce a
+        /// downstream refused creation), and a Warn line is emitted with
+        /// <c>reason=dangling-childbranchpoint</c> plus the offending recording
+        /// and missing branch-point IDs so the corruption surfaces in logs.
+        /// The resolver returns whatever status the remaining matches produce,
+        /// typically <see cref="SwitchContinuationParentStatus.NoMatchUseStandalone"/>
+        /// when no other candidate exists.</para>
         /// </summary>
         internal static SwitchContinuationParentResolution ResolveSwitchContinuationParent(
             RecordingTree tree,
@@ -259,13 +271,23 @@ namespace Parsek
             if (bp == null || bp.ChildRecordingIds == null
                 || bp.ChildRecordingIds.Count == 0)
             {
-                // Dangling ChildBranchPointId: treat the current recording as
-                // a terminal leaf (it has no walkable continuation).
-                if (focusedVesselPersistentId == 0
-                    || rec.VesselPersistentId == focusedVesselPersistentId)
-                {
-                    leaves.Add(rec.RecordingId);
-                }
+                // Dangling ChildBranchPointId: the recording claims a
+                // continuation but the referenced branch point is missing or
+                // empty in tree.BranchPoints. We deliberately do NOT add this
+                // recording to leaves — the creator (CreateSwitchContinuationSegment)
+                // rejects any parent with a non-empty ChildBranchPointId with
+                // `parent-not-terminal-leaf`, so adding it here would only
+                // produce a refused creation downstream. A non-null
+                // ChildBranchPointId is, by contract, "not a terminal leaf",
+                // and a dangling reference is a tree-corruption signal that
+                // must surface in the logs, not be papered over by treating
+                // the recording as a leaf.
+                ParsekLog.Warn("SwitchSegmentResolver",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "reason=dangling-childbranchpoint treeId={0} recordingId={1} missingBpId={2}",
+                        tree?.Id ?? "<null>",
+                        rec.RecordingId,
+                        rec.ChildBranchPointId ?? "<null>"));
                 return;
             }
 

@@ -513,5 +513,191 @@ namespace Parsek.Tests
             Assert.Equal(1, newRec.RecordingFormatVersion);
             Assert.Equal(1, newRec.RecordingSchemaGeneration);
         }
+
+        // Fails if: a null tree is silently dereferenced (NullReferenceException)
+        // or partially mutated before refusing. The helper must reject with
+        // FailureReason="tree-null" so the live-side wrapper has a definite
+        // refusal reason to surface in the diagnostic log.
+        [Fact]
+        public void CreateSwitchContinuationSegment_NullTree_RefusesWithFailureReason()
+        {
+            var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                tree: null,
+                parentRecordingIdOrNull: null,
+                focusedVesselPersistentId: 1u,
+                focusedVesselName: "V",
+                focusedRootPartPid: 0u,
+                switchUT: 0.0,
+                entryReason: SwitchSegmentEntryReason.TrackingStationFly,
+                intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
+                newRecordingId: Guid.NewGuid().ToString("N"),
+                newBranchPointId: Guid.NewGuid().ToString("N"),
+                initialBoundaryPointFactory: MakeBoundary);
+
+            Assert.False(result.Created);
+            Assert.Equal("tree-null", result.FailureReason);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]")
+                && l.Contains("refused")
+                && l.Contains("failureReason=tree-null"));
+        }
+
+        // Fails if: a null/empty newRecordingId is accepted and a recording
+        // with empty id is inserted into the tree, or the helper crashes
+        // instead of cleanly refusing with FailureReason="new-recording-id-missing".
+        [Fact]
+        public void CreateSwitchContinuationSegment_MissingNewRecordingId_RefusesWithFailureReason()
+        {
+            var tree = MakeTree("tree-MissingRecId");
+            int preBranchPointCount = tree.BranchPoints.Count;
+            int preRecordingCount = tree.Recordings.Count;
+            string preActiveRecordingId = tree.ActiveRecordingId;
+
+            var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                tree, parentRecordingIdOrNull: null,
+                focusedVesselPersistentId: 1u,
+                focusedVesselName: "V",
+                focusedRootPartPid: 0u,
+                switchUT: 0.0,
+                entryReason: SwitchSegmentEntryReason.TrackingStationFly,
+                intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
+                newRecordingId: null,
+                newBranchPointId: Guid.NewGuid().ToString("N"),
+                initialBoundaryPointFactory: MakeBoundary);
+
+            Assert.False(result.Created);
+            Assert.Equal("new-recording-id-missing", result.FailureReason);
+
+            // Tree shape unchanged.
+            Assert.Equal(preBranchPointCount, tree.BranchPoints.Count);
+            Assert.Equal(preRecordingCount, tree.Recordings.Count);
+            Assert.Equal(preActiveRecordingId, tree.ActiveRecordingId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]")
+                && l.Contains("refused")
+                && l.Contains("failureReason=new-recording-id-missing"));
+        }
+
+        // Fails if: a null initialBoundaryPointFactory is invoked anyway
+        // (NullReferenceException) or the helper inserts the new recording
+        // without a boundary sample. The helper must reject with
+        // FailureReason="boundary-factory-missing" before any mutation.
+        [Fact]
+        public void CreateSwitchContinuationSegment_MissingBoundaryFactory_RefusesWithFailureReason()
+        {
+            var tree = MakeTree("tree-MissingFactory");
+            int preBranchPointCount = tree.BranchPoints.Count;
+            int preRecordingCount = tree.Recordings.Count;
+            string preActiveRecordingId = tree.ActiveRecordingId;
+
+            var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                tree, parentRecordingIdOrNull: null,
+                focusedVesselPersistentId: 1u,
+                focusedVesselName: "V",
+                focusedRootPartPid: 0u,
+                switchUT: 0.0,
+                entryReason: SwitchSegmentEntryReason.TrackingStationFly,
+                intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
+                newRecordingId: Guid.NewGuid().ToString("N"),
+                newBranchPointId: Guid.NewGuid().ToString("N"),
+                initialBoundaryPointFactory: null);
+
+            Assert.False(result.Created);
+            Assert.Equal("boundary-factory-missing", result.FailureReason);
+
+            Assert.Equal(preBranchPointCount, tree.BranchPoints.Count);
+            Assert.Equal(preRecordingCount, tree.Recordings.Count);
+            Assert.Equal(preActiveRecordingId, tree.ActiveRecordingId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]")
+                && l.Contains("refused")
+                && l.Contains("failureReason=boundary-factory-missing"));
+        }
+
+        // Fails if: an attached creation (parent != null) is allowed to
+        // proceed without a fresh newBranchPointId, which would later make
+        // tree-walk lookups by branch-point id fail. The helper must reject
+        // with FailureReason="new-branch-point-id-missing". Note: the guard
+        // is scoped to the parent-attached path; standalone creation
+        // (parent == null) skips this check because no branch point is
+        // created.
+        [Fact]
+        public void CreateSwitchContinuationSegment_MissingBranchPointIdWithParent_RefusesWithFailureReason()
+        {
+            var tree = MakeTree("tree-MissingBpId");
+            var parent = MakeRecording("parent-bp", tree.Id, 5u, "Parent", 50.0);
+            tree.AddOrReplaceRecording(parent);
+            tree.RootRecordingId = parent.RecordingId;
+            tree.ActiveRecordingId = parent.RecordingId;
+
+            int preBranchPointCount = tree.BranchPoints.Count;
+            int preRecordingCount = tree.Recordings.Count;
+            string preActiveRecordingId = tree.ActiveRecordingId;
+            string preParentChildBp = parent.ChildBranchPointId;
+
+            var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                tree, parent.RecordingId,
+                focusedVesselPersistentId: 5u,
+                focusedVesselName: "Parent",
+                focusedRootPartPid: 0u,
+                switchUT: 75.0,
+                entryReason: SwitchSegmentEntryReason.TrackingStationFly,
+                intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
+                newRecordingId: Guid.NewGuid().ToString("N"),
+                newBranchPointId: null,
+                initialBoundaryPointFactory: MakeBoundary);
+
+            Assert.False(result.Created);
+            Assert.Equal("new-branch-point-id-missing", result.FailureReason);
+
+            // Tree shape unchanged + parent left intact.
+            Assert.Equal(preBranchPointCount, tree.BranchPoints.Count);
+            Assert.Equal(preRecordingCount, tree.Recordings.Count);
+            Assert.Equal(preActiveRecordingId, tree.ActiveRecordingId);
+            Assert.Equal(preParentChildBp, parent.ChildBranchPointId);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]")
+                && l.Contains("refused")
+                && l.Contains("failureReason=new-branch-point-id-missing"));
+        }
+
+        // Fails if: WalkToTerminalLeaves still adds a recording whose
+        // ChildBranchPointId references a missing/empty branch point. The
+        // creator rejects any non-empty ChildBranchPointId with
+        // `parent-not-terminal-leaf`, so resolver and creator must agree —
+        // dangling references signal tree corruption and must surface as a
+        // Warn log, not be papered over.
+        [Fact]
+        public void ResolveSwitchContinuationParent_DanglingChildBranchPoint_LogsWarnAndSkips()
+        {
+            var tree = MakeTree("tree-Dangling");
+            var rec = MakeRecording("rec-dangling", tree.Id, 42u, "Vessel", 10.0);
+            const string missingBpId = "nonexistent-bp-id";
+            rec.ChildBranchPointId = missingBpId;
+            tree.AddOrReplaceRecording(rec);
+            // Intentionally do NOT add a BranchPoint with this id.
+
+            SwitchContinuationParentResolution res =
+                SwitchSegmentBuilder.ResolveSwitchContinuationParent(tree, 42u);
+
+            // Resolver must NOT add the dangling-ref recording to candidates,
+            // and (with no other matches) returns NoMatchUseStandalone.
+            Assert.Equal(SwitchContinuationParentStatus.NoMatchUseStandalone,
+                res.Status);
+            Assert.Null(res.TerminalLeafRecordingId);
+            Assert.Empty(res.CandidateRecordingIds);
+
+            // Warn line with the diagnostic payload must be emitted so the
+            // tree-corruption signal surfaces in KSP.log.
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegmentResolver]")
+                && l.Contains("dangling-childbranchpoint")
+                && l.Contains("recordingId=" + rec.RecordingId)
+                && l.Contains("missingBpId=" + missingBpId));
+        }
     }
 }
