@@ -148,6 +148,9 @@ Key source files and what they do - read the relevant one before modifying:
 - `SupersedeCommit.cs` - re-fly merge tail: appends `RecordingSupersedeRelation` rows for the superseded subtree, flips MergeState (Immutable vs CommittedProvisional by `TerminalKindClassifier`), builds `LedgerTombstone`s for in-scope kerbal-death actions + bundled rep penalties, bumps ERS / ELS cache versions.
 - `MergeJournalOrchestrator.cs` - drives the 14-step re-fly merge through five crash-recovery checkpoints (Supersede / Tombstone / Finalize / Durable1Done / RpReap); `RunFinisher` on OnLoad rolls back or drives to completion based on the persisted `MergeJournal.Phase`.
 - `LoadTimeSweep.cs` - OnLoad sweep (between journal finisher and reaper) that validates the re-fly marker's six durable fields, discards zombie NotCommitted provisionals + session-provisional RPs, warn-logs orphan supersede/tombstone rows, and clears stray `SupersedeTargetId` fields.
+- `ParsekProcess.cs` - process-wide static identity helper holding the AppDomain-lifetime `ProcessSessionId` GUID used by stock-action intent markers to detect cross-run orphaned saves.
+- `StockActionIntentMarker.cs` - positive intent marker armed only by confirmed stock-UI Fly / Switch-To click handlers; carries TTL + UT + `ProcessSessionId` and a pure `EvaluateStaleness` predicate for the FLIGHT-side consume site.
+- `SwitchSegmentSession.cs` - live segment-attempt marker armed when a switch/Fly click actually starts a new segment in FLIGHT, owned by `ParsekScenario` and serialized through OnSave/OnLoad so scoped Discard survives save/reload.
 
 ## Worktree Workflow
 

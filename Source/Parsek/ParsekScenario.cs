@@ -46,6 +46,161 @@ namespace Parsek
         /// <summary>Singleton; non-null only during a staged-commit merge.</summary>
         public MergeJournal ActiveMergeJournal;
 
+        // ---------------------------------------------------------------------
+        // Switch-segment auto-record (segment-scoped Fly / Switch-To). Phase A.3
+        // wires only the storage + serialization; arming sites (Harmony patches
+        // in Phase B) and consume sites (Phase C) land later. See
+        // docs/dev/plans/segment-scoped-switch-fly-autorecord.md.
+        // ---------------------------------------------------------------------
+
+        private StockActionIntentMarker activeStockActionIntent;
+        private SwitchSegmentSession activeSwitchSegmentSession;
+
+        /// <summary>
+        /// Pending stock-action intent armed by a Tracking Station Fly / KSC
+        /// marker Fly / Map Switch-To click and not yet consumed by the
+        /// FLIGHT-side scene-load tail. Null when no UI click is in flight.
+        /// </summary>
+        internal StockActionIntentMarker CurrentStockActionIntent => activeStockActionIntent;
+
+        /// <summary>
+        /// Active switch-segment session (live attempt or pending-after-reload).
+        /// Null outside an active switch-segment attempt.
+        /// </summary>
+        internal SwitchSegmentSession ActiveSwitchSegmentSession => activeSwitchSegmentSession;
+
+        /// <summary>
+        /// Arms a new stock-action intent marker. Replaces any previously
+        /// armed marker (which is then logged as superseded). Idempotent
+        /// on a structurally identical marker; callers must rebuild the
+        /// marker rather than mutate an armed one in place.
+        /// </summary>
+        internal void ArmStockActionIntent(StockActionIntentMarker marker)
+        {
+            if (marker == null) throw new ArgumentNullException(nameof(marker));
+            if (activeStockActionIntent != null)
+            {
+                ParsekLog.Info("SwitchIntent",
+                    $"intent superseded: prior intentId={activeStockActionIntent.IntentId:D} " +
+                    $"action={activeStockActionIntent.Action} reason=stale-intent-superseded " +
+                    $"new intentId={marker.IntentId:D} action={marker.Action}");
+            }
+            activeStockActionIntent = marker;
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Info("SwitchIntent",
+                $"armed: intentId={marker.IntentId:D} action={marker.Action} " +
+                $"targetPid={marker.TargetVesselPersistentId.ToString(ic)} " +
+                $"sourceScene={marker.SourceScene} " +
+                $"capturedUT={marker.CapturedUT.ToString("R", ic)} " +
+                $"capturedRealtime={marker.CapturedRealtime.ToString("R", ic)}");
+        }
+
+        /// <summary>
+        /// Clears the current stock-action intent marker with a reason.
+        /// Idempotent: clearing with no marker armed logs a Verbose line
+        /// and returns.
+        /// </summary>
+        internal void ClearStockActionIntent(string reason)
+        {
+            if (activeStockActionIntent == null)
+            {
+                ParsekLog.Verbose("SwitchIntent",
+                    $"clear no-op: no marker armed (reason={reason ?? "<none>"})");
+                return;
+            }
+            var marker = activeStockActionIntent;
+            activeStockActionIntent = null;
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Info("SwitchIntent",
+                $"cleared: intentId={marker.IntentId:D} action={marker.Action} " +
+                $"targetPid={marker.TargetVesselPersistentId.ToString(ic)} " +
+                $"reason={reason ?? "<none>"}");
+        }
+
+        /// <summary>
+        /// Arms an active switch-segment session. Replaces any previously
+        /// armed session (which is logged as superseded).
+        /// </summary>
+        internal void ArmSwitchSegmentSession(SwitchSegmentSession session)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+            if (activeSwitchSegmentSession != null)
+            {
+                ParsekLog.Info("SwitchSegment",
+                    $"session superseded: prior sessionId={activeSwitchSegmentSession.SessionId:D} " +
+                    $"reason=session-superseded new sessionId={session.SessionId:D}");
+            }
+            activeSwitchSegmentSession = session;
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Info("SwitchSegment",
+                $"armed: sessionId={session.SessionId:D} intentId={session.IntentId:D} " +
+                $"entryReason={session.EntryReason} " +
+                $"treeId={session.TreeId ?? "<null>"} " +
+                $"parentRecordingId={session.ParentRecordingId ?? "<null>"} " +
+                $"activeSegmentRecordingId={session.ActiveSegmentRecordingId ?? "<null>"} " +
+                $"sourcePid={session.SourceVesselPersistentId.ToString(ic)} " +
+                $"focusedPid={session.FocusedVesselPersistentId.ToString(ic)} " +
+                $"switchUT={session.SwitchUT.ToString("R", ic)}");
+        }
+
+        /// <summary>
+        /// Clears the active switch-segment session with a reason.
+        /// Idempotent: clearing with no session armed logs Verbose only.
+        /// </summary>
+        internal void ClearSwitchSegmentSession(string reason)
+        {
+            if (activeSwitchSegmentSession == null)
+            {
+                ParsekLog.Verbose("SwitchSegment",
+                    $"clear no-op: no session armed (reason={reason ?? "<none>"})");
+                return;
+            }
+            var session = activeSwitchSegmentSession;
+            activeSwitchSegmentSession = null;
+            ParsekLog.Info("SwitchSegment",
+                $"cleared: sessionId={session.SessionId:D} intentId={session.IntentId:D} " +
+                $"entryReason={session.EntryReason} reason={reason ?? "<none>"}");
+        }
+
+        /// <summary>
+        /// Called by <see cref="LoadRewindStagingState"/> right after the intent
+        /// marker is loaded. Applies the documented cross-run / TTL / UT
+        /// regression staleness checks and clears the marker with the
+        /// appropriate reason on a miss. Fresh markers stay armed for the
+        /// future Phase C consume site to act on.
+        /// </summary>
+        private void ValidateLoadedStockActionIntentFreshness()
+        {
+            if (activeStockActionIntent == null)
+                return;
+            float currentRealtime = Time.realtimeSinceStartup;
+            double currentUT = Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : activeStockActionIntent.CapturedUT;
+            var classification = StockActionIntentMarker.EvaluateStaleness(
+                activeStockActionIntent,
+                ParsekProcess.ProcessSessionId,
+                currentRealtime,
+                currentUT);
+            switch (classification)
+            {
+                case StockActionIntentStaleness.StaleCrossRun:
+                    ClearStockActionIntent("stale-cross-run");
+                    return;
+                case StockActionIntentStaleness.StaleIntentTtlExpired:
+                case StockActionIntentStaleness.StaleIntentUtRegressed:
+                    ClearStockActionIntent("stale-intent");
+                    return;
+                case StockActionIntentStaleness.Fresh:
+                default:
+                    ParsekLog.Info("SwitchIntent",
+                        $"intent kept-armed on OnLoad: intentId={activeStockActionIntent.IntentId:D} " +
+                        $"action={activeStockActionIntent.Action} " +
+                        $"targetPid={activeStockActionIntent.TargetVesselPersistentId}");
+                    return;
+            }
+        }
+
         // Phase 2 (Rewind-to-Staging): state-version counters consumed by
         // <see cref="EffectiveState"/> to invalidate ERS/ELS caches. Production
         // code bumps these whenever <see cref="RecordingSupersedes"/>,
@@ -1178,6 +1333,8 @@ namespace Parsek
             node.RemoveNodes("LEDGER_TOMBSTONES");
             node.RemoveNodes(ReFlySessionMarker.NodeName);
             node.RemoveNodes(MergeJournal.NodeName);
+            node.RemoveNodes(StockActionIntentMarker.NodeName);
+            node.RemoveNodes(SwitchSegmentSession.NodeName);
 
             int rpCount = 0;
             if (RewindPoints != null && RewindPoints.Count > 0)
@@ -1245,6 +1402,24 @@ namespace Parsek
                 journalId = ActiveMergeJournal.JournalId;
             }
 
+            bool intentWritten = false;
+            string intentId = null;
+            if (activeStockActionIntent != null)
+            {
+                activeStockActionIntent.SaveInto(node);
+                intentWritten = true;
+                intentId = activeStockActionIntent.IntentId.ToString("D");
+            }
+
+            bool segmentWritten = false;
+            string segmentSessionId = null;
+            if (activeSwitchSegmentSession != null)
+            {
+                activeSwitchSegmentSession.SaveInto(node);
+                segmentWritten = true;
+                segmentSessionId = activeSwitchSegmentSession.SessionId.ToString("D");
+            }
+
             // Per-section tagged lines (design §10 tag conventions). Emitted
             // alongside the consolidated summary below so log-grep by tag still
             // works even when the summary line changes shape.
@@ -1256,11 +1431,16 @@ namespace Parsek
                 $"Marker saved: {(markerWritten ? (markerSessionId ?? "<no-id>") : "none")}");
             ParsekLog.Info("MergeJournal",
                 $"Journal saved: {(journalWritten ? (journalId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("SwitchIntent",
+                $"intent saved: {(intentWritten ? (intentId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("SwitchSegment",
+                $"session saved: {(segmentWritten ? (segmentSessionId ?? "<no-id>") : "none")}");
 
             ParsekLog.Info("Scenario",
                 $"OnSave: rewind-staging persist: rewindPoints={rpCount} supersedes={supersedeCount} " +
                 $"rewindRetirements={retirementCount} " +
-                $"tombstones={tombCount} marker={markerWritten} journal={journalWritten}");
+                $"tombstones={tombCount} marker={markerWritten} journal={journalWritten} " +
+                $"switchIntent={intentWritten} switchSegment={segmentWritten}");
         }
 
         /// <summary>
@@ -1282,6 +1462,11 @@ namespace Parsek
             // Clear keeps stale anchors from a previous game leaking into
             // the new load (HR-9 visibility).
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
+            // Switch-segment auto-record statics are loaded fresh below from
+            // their dedicated nodes; null here so a pre-feature save (no
+            // serialized markers) leaves both fields cleared.
+            activeStockActionIntent = null;
+            activeSwitchSegmentSession = null;
 
             ConfigNode rpParent = node.GetNode("REWIND_POINTS");
             if (rpParent != null)
@@ -1351,6 +1536,30 @@ namespace Parsek
             if (journalNode != null)
                 ActiveMergeJournal = MergeJournal.LoadFrom(journalNode);
 
+            // Switch-segment auto-record markers (Phase A.3 wiring; consume
+            // sites land in Phase C). The intent marker carries TTL + UT +
+            // ProcessSessionId so we validate freshness here at load time and
+            // clear stale-on-OnLoad rather than at consume site — that way
+            // the player isn't surprised by a delayed auto-start after they
+            // click around in TS.
+            ConfigNode intentNode = node.GetNode(StockActionIntentMarker.NodeName);
+            StockActionIntentMarker loadedIntent;
+            if (intentNode != null && StockActionIntentMarker.TryLoadFrom(intentNode, out loadedIntent))
+            {
+                activeStockActionIntent = loadedIntent;
+                ValidateLoadedStockActionIntentFreshness();
+            }
+
+            ConfigNode segmentNode = node.GetNode(SwitchSegmentSession.NodeName);
+            SwitchSegmentSession loadedSession;
+            if (segmentNode != null && SwitchSegmentSession.TryLoadFrom(segmentNode, out loadedSession))
+            {
+                activeSwitchSegmentSession = loadedSession;
+                ParsekLog.Info("SwitchSegment",
+                    $"session loaded: sessionId={loadedSession.SessionId:D} " +
+                    $"intentId={loadedSession.IntentId:D} entryReason={loadedSession.EntryReason}");
+            }
+
             // Per-section tagged lines (design §10 tag conventions). Emitted
             // alongside the consolidated summary below so log-grep by tag still
             // works even when the summary line changes shape.
@@ -1365,12 +1574,17 @@ namespace Parsek
                 $"Marker loaded: {(ActiveReFlySessionMarker != null ? (ActiveReFlySessionMarker.SessionId ?? "<no-id>") : "none")}");
             ParsekLog.Info("MergeJournal",
                 $"Journal loaded: {(ActiveMergeJournal != null ? (ActiveMergeJournal.JournalId ?? "<no-id>") : "none")}");
+            ParsekLog.Info("SwitchIntent",
+                $"intent loaded: {(activeStockActionIntent != null ? activeStockActionIntent.IntentId.ToString("D") : "none")}");
+            ParsekLog.Info("SwitchSegment",
+                $"session loaded summary: {(activeSwitchSegmentSession != null ? activeSwitchSegmentSession.SessionId.ToString("D") : "none")}");
 
             ParsekLog.Info("Scenario",
                 $"OnLoad: rewind-staging load: rewindPoints={RewindPoints.Count} " +
                 $"supersedes={RecordingSupersedes.Count} rewindRetirements={RecordingRewindRetirements.Count} " +
                 $"tombstones={LedgerTombstones.Count} " +
-                $"marker={(ActiveReFlySessionMarker != null)} journal={(ActiveMergeJournal != null)}");
+                $"marker={(ActiveReFlySessionMarker != null)} journal={(ActiveMergeJournal != null)} " +
+                $"switchIntent={(activeStockActionIntent != null)} switchSegment={(activeSwitchSegmentSession != null)}");
 
             // Phase 2: a new load invalidates every derived cache. Bump both
             // counters so <see cref="EffectiveState.ComputeERS"/> and
