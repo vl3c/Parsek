@@ -572,6 +572,64 @@ namespace Parsek
             s_instance = this;
         }
 
+        /// <summary>
+        /// UT at which the last <see cref="RouteOrchestrator.Tick(double)"/>
+        /// fired. Sentinel <c>-1.0</c> means "no tick yet this session" — the
+        /// first Update merely seeds the accumulator and skips the tick body
+        /// so the very first tick does not see a zero-length delta.
+        /// </summary>
+        private double lastRouteTickUT = -1.0;
+
+        /// <summary>
+        /// Unity MonoBehaviour Update hook driven by the live ScenarioModule.
+        /// Drives the route dispatch orchestrator at the cadence defined by
+        /// <see cref="RouteOrchestrator.TickIntervalSec"/>. UT-delta accumulator
+        /// (not wall-clock) so time warp is respected — at 10000x the route
+        /// system sees one Tick per ~100ms wall-clock instead of one per
+        /// 10000s game time. Exceptions from the tick body are caught and
+        /// logged so a transient KSP-state error cannot kill the scenario
+        /// module.
+        /// </summary>
+        private void Update()
+        {
+            if (Planetarium.fetch == null)
+                return;
+
+            double currentUT;
+            try
+            {
+                currentUT = Planetarium.GetUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                // Defensive: Planetarium.GetUniversalTime() can throw during
+                // very early load / scene teardown. A single skipped tick is
+                // benign — the next Update reseeds the accumulator.
+                ParsekLog.Verbose("Route",
+                    $"Update: Planetarium.GetUniversalTime threw {ex.GetType().Name}: {ex.Message}; skipping tick");
+                return;
+            }
+
+            if (lastRouteTickUT < 0.0)
+            {
+                lastRouteTickUT = currentUT;
+                return;
+            }
+            if (currentUT - lastRouteTickUT < RouteOrchestrator.TickIntervalSec)
+                return;
+            lastRouteTickUT = currentUT;
+
+            try
+            {
+                RouteOrchestrator.Tick(currentUT);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Route",
+                    $"RouteOrchestrator.Tick(currentUT) threw {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         public override void OnSave(ConfigNode node)
         {
             var sw = Stopwatch.StartNew();

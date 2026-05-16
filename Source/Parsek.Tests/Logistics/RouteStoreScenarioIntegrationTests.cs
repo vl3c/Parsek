@@ -245,5 +245,40 @@ namespace Parsek.Tests.Logistics
             // validation hook even if the load call survives.
             Assert.Contains("RouteStore.RevalidateSources(\"OnLoad\")", source);
         }
+
+        // catches: a future edit to ParsekScenario that drops the
+        // RouteOrchestrator.Tick(currentUT) Update() hook. The orchestrator
+        // tests in RouteOrchestratorTests drive Tick directly with a fake env,
+        // so they would NOT catch a missing hookup — only this test does.
+        //
+        // We cannot drive ParsekScenario.Update() from xUnit: it calls
+        // Planetarium.GetUniversalTime() unguarded and depends on the live
+        // Unity MonoBehaviour lifecycle. Same source-text gate pattern as
+        // Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec above.
+        [Fact]
+        public void Scenario_Update_InvokesRouteOrchestratorTick()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string scenarioPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekScenario.cs");
+
+            // Fallback path if the test runs from an unusual working dir.
+            if (!File.Exists(scenarioPath))
+            {
+                scenarioPath = Path.Combine(projectRoot,
+                    "Parsek", "ParsekScenario.cs");
+            }
+
+            Assert.True(File.Exists(scenarioPath),
+                $"ParsekScenario.cs not found at {scenarioPath}");
+
+            string source = File.ReadAllText(scenarioPath);
+
+            // The literal call site the orchestrator depends on. Editing the
+            // signature requires updating this gate string in lockstep.
+            Assert.Contains("RouteOrchestrator.Tick(currentUT)", source);
+        }
     }
 }
