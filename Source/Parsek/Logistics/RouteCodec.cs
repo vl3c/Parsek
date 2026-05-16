@@ -294,14 +294,20 @@ namespace Parsek.Logistics
         // ENDPOINT
         // -----------------------------------------------------------------
 
+        // Endpoint shape matches RouteProofCodec.SerializeRouteEndpoint exactly so the
+        // same struct serializes the same way regardless of whether it lands inside a
+        // ROUTE node here or inside a RouteConnectionWindow there. Sparse writes on
+        // pid == 0 and empty body name match that contract -- KSC origins (pid == 0)
+        // omit the key on both sides.
         private static void SerializeEndpoint(ConfigNode node, RouteEndpoint ep, CultureInfo ic)
         {
+            if (ep.VesselPersistentId != 0)
+                node.AddValue("vesselPersistentId", ep.VesselPersistentId.ToString(ic));
             if (!string.IsNullOrEmpty(ep.BodyName))
                 node.AddValue("bodyName", ep.BodyName);
             node.AddValue("latitude", ep.Latitude.ToString("R", ic));
             node.AddValue("longitude", ep.Longitude.ToString("R", ic));
             node.AddValue("altitude", ep.Altitude.ToString("R", ic));
-            node.AddValue("vesselPersistentId", ep.VesselPersistentId.ToString(ic));
             node.AddValue("isSurface", ep.IsSurface.ToString());
         }
 

@@ -5,7 +5,7 @@ namespace Parsek.Logistics
     /// <summary>
     /// A Supply Route — one origin, one or more stops, on a recurring
     /// dispatch schedule (design §4.7). Pure data; orchestration lives in
-    /// <c>RouteStore</c>, <c>RouteScheduler</c>, etc.
+    /// <c>RouteStore</c> and later phases.
     /// </summary>
     internal sealed class Route
     {
