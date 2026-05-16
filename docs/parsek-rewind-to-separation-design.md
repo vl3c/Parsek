@@ -682,16 +682,17 @@ The `Phases` vocabulary (`MergeJournal.cs:53`):
 | Phase string | What has happened on disk | Recovery on load |
 |---|---|---|
 | `Begin` | Journal written. Nothing else. | Rollback. |
-| `Supersede` | Supersede relations half-written or fully written in memory. | Rollback. |
-| `Tombstone` | Tombstones half-written or fully written in memory. | Rollback. |
-| `Finalize` | MergeState flipped + transient cleared in memory. | Rollback. |
+| `Split` | `SplitOriginAtRewindUT` ran + durably persisted: origin split into HEAD + TIP if it spanned the rewind UT, `marker.SupersedeTargetId` rewritten to TIP. | Forward-completion (idempotent re-run via `SplitOriginAtRewindUT`; existing TIP is detected and skipped). |
+| `Supersede` | Supersede relations half-written or fully written in memory. | Forward-completion (`AppendRelations` skips existing rows). |
+| `Tombstone` | Tombstones half-written or fully written in memory. | Forward-completion (`CommitTombstones` dedups via `alreadyTombstoned`). |
+| `Finalize` | MergeState flipped + transient cleared in memory. | Forward-completion (`FlipMergeStateAndClearTransient` is value-write idempotent). |
 | `Durable1Done` | First durable save flushed: supersedes + tombstones + MergeState on disk. Marker + RPs still live. | Complete from here (tag RPs → reap → clear marker → …). |
 | `RpReap` | Session-prov RPs tagged + reaped. Marker still live. | Complete (clear marker → …). |
 | `MarkerCleared` | Marker cleared in memory. | Complete (Durable Save #2). |
 | `Durable2Done` | Second durable save flushed. | Complete (clear journal → Durable Save #3). |
 | `Complete` | Journal set to `Complete`; Durable Save #3 interrupted before clear. | Idempotent clear. |
 
-`MergeJournal.IsPreDurablePhase(phase)` returns true for `Begin` / `Supersede` / `Tombstone` / `Finalize`; `IsPostDurablePhase` returns true for `Durable1Done` / `RpReap` / `MarkerCleared` / `Durable2Done` / `Complete`.
+`MergeJournal.IsPreDurablePhase(phase)` returns true only for `Begin`; `IsPostDurablePhase` (alias `IsKnownPostBeginPhase` in the dispatch sketch) returns true for every other phase (`Split` / `Supersede` / `Tombstone` / `Finalize` / `Durable1Done` / `RpReap` / `MarkerCleared` / `Durable2Done` / `Complete`). Each post-Begin step is idempotent (`SplitOriginAtRewindUT`'s idempotency check detects an existing TIP and skips re-creation, `AppendRelations` skips existing rows, `CommitTombstones` dedups, `FlipMergeStateAndClearTransient` is value-write idempotent), so forward-completion via re-run is safer than rollback (which would otherwise have to undo serialized state mutations after the durable barrier). The `Split` phase shipped in Task A4 + A5 sits between `Begin` and `Supersede` with its own `DurableSave("split", persistSynchronously: true)` barrier, isolating the in-memory split's transactional snapshot rollback (handled internally by `RecordingTreeSplitter`) from the post-durable forward-completion path.
 
 Persisted as a single `MERGE_JOURNAL` ConfigNode on `ParsekScenario`:
 

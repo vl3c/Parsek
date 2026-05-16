@@ -12,6 +12,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Re-Fly of a recording spanning the rewind UT wholly superseded it
+
+- ~~User flew Kerbal X mission 1, rewound, launched Kerbal X (2) at UT 8.42, crashed at UT 52.7 (single recording `94806c0b…`, no clean stage events). User clicked Re-Fly which forked `rec_f512…` from the rewind point at UT 34.24. After commit, `94806c0b` was wholly superseded so its launch row vanished from the timeline, the Watch button on Kerbal X (2) greyed out, the on-board kerbal stayed in the dead state from origin's terminal, and a second Re-Fly on the same slot couldn't find fork1 via the supersede chain.~~
+
+**Root cause:** `RecordingSupersedeRelation` is whole-recording. When a Re-Fly's origin spans the rewind point UT, one row covered both pre- and post-rewind identities and the supersede write replaced all of it — including the launch portion that was never re-flown. Every reader of the supersede table is wired around the "id-only, whole recording" invariant, so a write-set filter alone would silently break kerbal-permanent-death tombstoning, RewindPoint reap, Unfinished-Flight classification, nested Re-Fly chains, and tracking-station ghost suppression.
+
+**Fix:** At merge time, the origin recording is now split at the rewind-point UT into HEAD (pre-rewind, kept visible) and TIP (post-rewind, superseded by the fork). The split landed across five commits (`41fc9781` → `22827a95` → `d4256226` → `4c34f437` → `76cb7b93`) plus an in-game acceptance test + doc updates: `RecordingOptimizer.SplitAtUT` arbitrary-UT split helper; `EffectiveState.EffectiveTipRecordingId` composite chain+supersede walker (slot tip resolution now traces HEAD → chain → TIP → supersede → fork); `SupersedeCommit.IsPreRewindCarveOut` generalized from debris-only to also cover post-split chain heads; `RecordingTreeSplitter.SplitOriginAtRewindUT` 13-step orchestrator with snapshot-rollback ledger; new `MergeJournal.Phases.Split` post-Begin durable barrier with `CompleteFromPostDurable` entry points at Split/Supersede/Tombstone/Finalize so post-Begin phases now drive forward via idempotent re-run instead of rolling back. The pre-rewind portion of the recording stays in ERS, the timeline shows its Start entry, the slot's effective tip resolves through the composite walker to the fork, and the kerbal's `Dead` action retags from HEAD to TIP at split time and gets tombstoned at commit (so the kerbal stays alive in the roster).
+
+**Coverage:** Five unit-test groups (`RecordingOptimizerSplitAtUTTests`, `EffectiveStateCompositeWalkerTests`, `SupersedeCommitCarveOutTests`, `RecordingTreeSplitterTests`, plus the merge-orchestrator `RunMerge_OriginSpansRewindUT_*` / `RunFinisher_PhaseSplit_*` fixtures) plus the in-game acceptance test `ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew` in `RuntimeTests.cs` exercising the full RunMerge end-to-end against a synthetic spanned-recording fixture (HEAD/TIP topology, supersede shape, ERS visibility, ledger retag + tombstone, ELS filter, milestone retag, timeline Start, composite walker, carve-out predicate, Watch button helper, durable-barrier ordering). The unit suite is 11839 passing.
+
+**Legacy-save note:** Saves committed with the pre-fix code retain their stale whole-recording supersede rows; on rerun the `skippedExisting` short-circuit in `AppendRelations` keeps the launch row hidden for those saves. Acceptable per the pre-1.0 no-backward-compat policy; the rows can be cleared manually.
+
+**Status:** CLOSED 2026-05-16.
+
+---
+
+## Open - v0.9.2 Watch button greyed out for short crashed recordings whose playback window has closed
+
+**Evidence:** Same 2026-05-16 user repro. After the split fix above lands, Kerbal X (2)'s HEAD row stays in the recordings table but its Watch button remains greyed out when the player returns to KSC well after the recording's `EndUT`. The ghost playback engine treats a recording as visible only inside its `[StartUT, EndUT]` range — once `currentUT > EndUT`, `hasGhost = false` and `IsWatchButtonEnabled` returns false. This is a separate root cause from the supersede-identity bug.
+
+**Fix:** Needs design discussion about whether the right model is looping past `EndUT`, scrubbing to an arbitrary UT, or a dedicated "watchable past recordings" affordance. Listed here so it doesn't get conflated with the split-at-rewind-UT fix.
+
+**Status:** OPEN.
+
+---
+
 ## Done - v0.9.2 Re-Fly supersede commit hid pre-rewind debris recordings
 
 - ~~In `logs/2026-05-15_2342_refly-debris-disappeared/KSP.log`, the user re-flew the upper stage of a multi-stage launch (origin/supersede target `a83ef0f2…`, in-place continuation `rec_76614eb7…`). Before the re-fly the save held 9 recordings (root + 7 booster-debris + probe). After the supersede commit, only 2 rows remained visible in the recordings table; 6 of the booster-debris recordings (StartUT 23.66–25.12) had separated WELL BEFORE the rewind point at UT ≈ 29.42 and were nevertheless marked superseded. The `SessionSuppressedSubtree: 10 recording(s) … debrisAdded=8` summary at log line 48400 plus `Added 9 supersede relations` at line 48531 show the closure walk's `EnqueueDebrisChildren` admitting every breakup-edged origin-parented debris and `SupersedeCommit.AppendRelations` then writing a row for each.~~

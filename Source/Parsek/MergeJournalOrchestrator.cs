@@ -60,6 +60,27 @@ namespace Parsek
     /// open slot (NotCommitted / CommittedProvisional) stay put for a later
     /// pass.
     /// </para>
+    ///
+    /// <para>
+    /// Phase classification (updated by Task A5 in fix-supersede-identity-scope):
+    /// only <see cref="MergeJournal.Phases.Begin"/> is pre-Durable1-rollback.
+    /// <see cref="MergeJournal.Phases.Split"/> sits between Begin and Supersede
+    /// with its own barrier (<c>DurableSave("split", persistSynchronously:
+    /// true)</c>), and runs
+    /// <see cref="RecordingTreeSplitter.SplitOriginAtRewindUT"/> to split a
+    /// Re-Fly origin recording that spans the rewind UT into HEAD + TIP.
+    /// Supersede / Tombstone / Finalize moved from rollback-on-crash to
+    /// drive-forward-via-idempotent-re-run because each step is idempotent
+    /// (<see cref="SupersedeCommit.AppendRelations"/> skips existing rows,
+    /// <see cref="SupersedeCommit.CommitTombstones"/> dedups via
+    /// <c>alreadyTombstoned</c>, <see cref="SupersedeCommit.FlipMergeStateAndClearTransient"/>
+    /// is value-write idempotent, and <c>SplitOriginAtRewindUT</c> detects an
+    /// existing TIP and skips re-creation).
+    /// <see cref="CompleteFromPostDurable"/> now entry-points at any of
+    /// Split / Supersede / Tombstone / Finalize / Durable1Done — earlier
+    /// resume points cascade through later ones via <c>journal.Phase</c>-keyed
+    /// blocks.
+    /// </para>
     /// </summary>
     internal static class MergeJournalOrchestrator
     {

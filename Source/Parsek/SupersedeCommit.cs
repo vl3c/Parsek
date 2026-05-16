@@ -36,14 +36,23 @@ namespace Parsek
     /// <para>
     /// <see cref="AppendRelations"/> applies a generalized pre-rewind
     /// carve-out covering BOTH pre-rewind debris AND post-split pre-rewind
-    /// chain heads (see <see cref="IsPreRewindCarveOut"/>). The chain-head
-    /// case is dormant until Task A4's split orchestrator
-    /// (<c>SplitOriginAtRewindUT</c>) ships and starts producing HEAD
-    /// recordings with <c>EndUT == marker.RewindPointUT</c>; today no caller
-    /// constructs such recordings so the predicate returns false in
-    /// practice. The wiring is in place so the moment the orchestrator
-    /// lands, HEAD is automatically excluded from the supersede write-set
-    /// without further changes here.
+    /// chain heads (see <see cref="IsPreRewindCarveOut"/>).
+    /// </para>
+    ///
+    /// <para>
+    /// As of Task A4 (Split-at-rewind-UT), the merge orchestrator now invokes
+    /// <see cref="RecordingTreeSplitter.SplitOriginAtRewindUT"/> BEFORE
+    /// <see cref="AppendRelations"/> to split a Re-Fly origin that spans the
+    /// rewind UT into HEAD (kept visible) + TIP (superseded). After the split
+    /// the marker's <see cref="ReFlySessionMarker.SupersedeTargetId"/> points
+    /// at TIP, so the closure walk starts at TIP and naturally enqueues HEAD
+    /// as a chain sibling. The carve-out predicate
+    /// <see cref="IsPreRewindCarveOut"/> then filters HEAD out of the
+    /// supersede write-set (reason
+    /// <see cref="PreRewindCarveOutReason.PreRewindChainHead"/>) so HEAD's
+    /// row remains in ERS / timeline / Watch / KSC. Debris carve-out
+    /// (PR #858 / reason <see cref="PreRewindCarveOutReason.PreRewindDebris"/>)
+    /// is preserved unchanged.
     /// </para>
     /// </summary>
     internal static class SupersedeCommit
