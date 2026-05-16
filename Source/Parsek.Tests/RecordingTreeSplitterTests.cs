@@ -515,50 +515,111 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
-        // 9. Orbit-segment straddle -> Skipped fallback
+        // 9. Orbit-segment straddles rewindUT -> split now succeeds (tail-clone)
         // =====================================================================
 
         [Fact]
-        public void SplitOriginAtRewindUT_OrbitSegmentStraddlesRewindUT_NoSplit()
+        public void SplitOriginAtRewindUT_OrbitSegmentStraddlesRewindUT_SplitsCleanly()
         {
-            var origin = BuildRecording("rec_straddle", 8.0, 53.0, midUT: 34.0,
-                treeId: "tree_9", terminal: TerminalState.Destroyed);
-            // Add an orbit segment that straddles rewindUT=34.
+            // Task A7 removed the SplitAtUT orbit-segment-straddle guard.
+            // SplitAtSection's OrbitSegments partition now tail-clones the
+            // straddling segment into TIP at startUT=splitUT, so the splitter
+            // completes cleanly and marker.SupersedeTargetId is mutated to TIP's
+            // id (so AppendRelations writes a TIP -> fork row instead of
+            // origin -> fork).
+            //
+            // Build the origin directly (not via BuildRecording) so the
+            // TrackSection has null frames. HasCompleteTrackSectionPayloadForFlatSync
+            // then fails and SplitAtSection's downstream TrySyncFlat does not
+            // rebuild OrbitSegments from the (un-partitioned) OrbitalCheckpoint
+            // section's checkpoints — which would undo the partition under test.
+            // Also use isPredicted=true so the EnsureCheckpoint bridge does not
+            // add an OrbitalCheckpoint section that would be re-sorted in front
+            // of the synthetic boundary section, invalidating sectionIndex and
+            // routing SplitAtSection into the Unity-only Slerp interpolation
+            // branch (xUnit tests run outside the Unity runtime).
+            var origin = new Recording
+            {
+                RecordingId = "rec_straddle",
+                VesselName = "rec_straddle",
+                TreeId = "tree_9",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+            };
+            origin.Points.Add(PointAt(8.0));
+            origin.Points.Add(PointAt(34.0));
+            origin.Points.Add(PointAt(53.0));
+            origin.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 8.0,
+                endUT = 53.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = null,
+            });
+            var orbitalRot = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f);
+            var angVel = new Vector3(0.01f, 0.02f, 0.03f);
             origin.OrbitSegments.Add(new OrbitSegment
             {
                 startUT = 20.0,
                 endUT = 50.0,
                 bodyName = "Kerbin",
-                inclination = 0.0,
-                eccentricity = 0.0,
+                inclination = 12.5,
+                eccentricity = 0.123,
                 semiMajorAxis = 700000.0,
-                longitudeOfAscendingNode = 0.0,
-                argumentOfPeriapsis = 0.0,
-                meanAnomalyAtEpoch = 0.0,
+                longitudeOfAscendingNode = 45.0,
+                argumentOfPeriapsis = 90.0,
+                meanAnomalyAtEpoch = 1.5,
                 epoch = 20.0,
-                isPredicted = false,
-                orbitalFrameRotation = Quaternion.identity,
-                angularVelocity = Vector3.zero,
+                isPredicted = true,
+                orbitalFrameRotation = orbitalRot,
+                angularVelocity = angVel,
             });
             InstallOriginInTree(origin, "tree_9");
 
             var marker = BuildMarker(origin, rewindUT: 34.0);
-            string targetBefore = marker.SupersedeTargetId;
-            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
 
             var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
 
-            Assert.True(result.Skipped);
-            Assert.Equal("SplitAtUT_Guarded", result.SkipReason);
-            // Marker unchanged.
-            Assert.Equal(targetBefore, marker.SupersedeTargetId);
-            // No new recording added.
-            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            // Split completes (no fallback).
+            Assert.False(result.Skipped);
+            Assert.Null(result.SkipReason);
+            Assert.Equal("rec_straddle", result.HeadRecordingId);
+            Assert.NotNull(result.TipRecordingId);
+            Assert.NotEqual("rec_straddle", result.TipRecordingId);
 
-            Assert.Contains(logLines, l =>
-                l.Contains("[Splitter]")
-                && l.Contains("SplitAtUT returned null")
-                && l.Contains("falling back to whole-recording supersede"));
+            Recording head = FindCommitted("rec_straddle");
+            Recording tip = FindCommitted(result.TipRecordingId);
+            Assert.NotNull(head);
+            Assert.NotNull(tip);
+
+            // HEAD keeps the head-trimmed segment [20, 34].
+            Assert.Single(head.OrbitSegments);
+            Assert.Equal(20.0, head.OrbitSegments[0].startUT);
+            Assert.Equal(34.0, head.OrbitSegments[0].endUT);
+
+            // TIP carries the tail-clone [34, 50] with identical Kepler elements.
+            Assert.Single(tip.OrbitSegments);
+            var tipSeg = tip.OrbitSegments[0];
+            Assert.Equal(34.0, tipSeg.startUT);
+            Assert.Equal(50.0, tipSeg.endUT);
+            Assert.Equal("Kerbin", tipSeg.bodyName);
+            Assert.Equal(12.5, tipSeg.inclination);
+            Assert.Equal(0.123, tipSeg.eccentricity);
+            Assert.Equal(700000.0, tipSeg.semiMajorAxis);
+            Assert.Equal(45.0, tipSeg.longitudeOfAscendingNode);
+            Assert.Equal(90.0, tipSeg.argumentOfPeriapsis);
+            Assert.Equal(1.5, tipSeg.meanAnomalyAtEpoch);
+            Assert.Equal(20.0, tipSeg.epoch);
+            Assert.True(tipSeg.isPredicted);
+            Assert.Equal(orbitalRot, tipSeg.orbitalFrameRotation);
+            Assert.Equal(angVel, tipSeg.angularVelocity);
+
+            // Marker mutated to TIP's id — AppendRelations will write TIP -> fork.
+            Assert.Equal(tip.RecordingId, marker.SupersedeTargetId);
         }
 
         // =====================================================================

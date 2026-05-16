@@ -875,19 +875,55 @@ namespace Parsek
             original.TrackSections.RemoveRange(sectionIndex, original.TrackSections.Count - sectionIndex);
             TrimFirstHalfTrackSectionsAtSplit(original.TrackSections, splitUT);
 
-            // 7. Partition OrbitSegments by UT
+            // 7. Partition OrbitSegments by UT.
+            //    Whole post-split segments (startUT >= splitUT) move to TIP.
+            //    A straddler (startUT < splitUT < endUT) is HEAD-trimmed by
+            //    TrimFirstHalfOrbitSegmentsAtSplit (endUT clamped to splitUT) AND
+            //    tail-cloned into TIP so the post-split portion of the orbit is
+            //    preserved. The orbit's Kepler elements describe the WHOLE conic
+            //    (inclination, eccentricity, semiMajorAxis, LAN, AoP,
+            //    meanAnomalyAtEpoch, epoch, bodyName, isPredicted,
+            //    orbitalFrameRotation, angularVelocity) and remain valid for both
+            //    halves — only startUT / endUT differ.
             if (original.HasOrbitSegments)
             {
                 second.OrbitSegments = new List<OrbitSegment>();
+
+                // Build tail-clones for any straddling segment BEFORE the
+                // whole-segment moves, so the clones can be inserted at the
+                // front of TIP's list in UT-ascending order.
+                List<OrbitSegment> tailClones = CreateTailHalfOrbitSegmentsAtSplit(
+                    original.OrbitSegments, splitUT);
+
+                int wholeMoved = 0;
                 for (int i = original.OrbitSegments.Count - 1; i >= 0; i--)
                 {
                     if (original.OrbitSegments[i].startUT >= splitUT)
                     {
                         second.OrbitSegments.Insert(0, original.OrbitSegments[i]);
                         original.OrbitSegments.RemoveAt(i);
+                        wholeMoved++;
                     }
                 }
+
+                // Tail-clones precede every wholly-post-split segment in UT
+                // order because each clone's startUT == splitUT, which is by
+                // definition <= the startUT of any wholly-post-split segment.
+                for (int i = 0; i < tailClones.Count; i++)
+                {
+                    second.OrbitSegments.Insert(i, tailClones[i]);
+                }
+
                 TrimFirstHalfOrbitSegmentsAtSplit(original.OrbitSegments, splitUT);
+
+                if (wholeMoved > 0 || tailClones.Count > 0)
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"SplitAtSection: partitioned OrbitSegments at UT=" +
+                        $"{splitUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"(whole moved={wholeMoved.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"tail-clones={tailClones.Count.ToString(CultureInfo.InvariantCulture)})");
+                }
             }
 
             // 8. Clone GhostVisualSnapshot (safe: CanAutoSplit ensures no ghosting triggers).
@@ -1077,9 +1113,14 @@ namespace Parsek
         /// tree wiring, and sidecar files.
         ///
         /// Returns null (without mutating <paramref name="original"/>) on any guard
-        /// failure: bad pre-conditions, an OrbitSegment straddling splitUT, or a
-        /// v13 debris contract violation (post-split half ends up with fewer than 2
-        /// bodyFixedFrames samples). Caller treats null as "skip the split for this
+        /// failure: bad pre-conditions (null input, NaN splitUT, recording's UT bounds
+        /// don't strictly span splitUT) or a v13 debris contract violation (post-split
+        /// half ends up with fewer than 2 bodyFixedFrames samples). Straddling
+        /// OrbitSegments are safe — <see cref="SplitAtSection"/>'s OrbitSegments
+        /// partition tail-clones them into TIP at startUT=splitUT (the Kepler
+        /// elements describe the whole conic, so a value-copy plus startUT update
+        /// is sufficient). The boundary-seam case logs an override Warn but does
+        /// not return null. Caller treats null as "skip the split for this
         /// recording" and falls back to its today-behavior path.
         /// </summary>
         internal static Recording SplitAtUT(Recording original, double splitUT)
@@ -1110,29 +1151,11 @@ namespace Parsek
                 return null;
             }
 
-            // 2. Orbit-segment-straddle guard. SplitAtSection's OrbitSegment partition
-            //    (lines 878-891) trims first-half segments via TrimFirstHalfOrbitSegmentsAtSplit
-            //    but never tail-clones the post-split portion. A segment straddling the
-            //    rewind UT would silently lose its post-rewind half on TIP. Caller falls
-            //    back to whole-recording supersede so the merge completes cleanly.
-            if (original.OrbitSegments != null)
-            {
-                for (int i = 0; i < original.OrbitSegments.Count; i++)
-                {
-                    var seg = original.OrbitSegments[i];
-                    if (seg.startUT < splitUT && seg.endUT > splitUT)
-                    {
-                        ParsekLog.Warn("Optimizer",
-                            $"SplitAtUT: orbit-segment straddle guard — recording " +
-                            $"{original.RecordingId} has OrbitSegment[{i}] at UT=[" +
-                            $"{seg.startUT.ToString("F2", CultureInfo.InvariantCulture)}," +
-                            $"{seg.endUT.ToString("F2", CultureInfo.InvariantCulture)}] " +
-                            $"crossing splitUT={splitUT.ToString("F2", CultureInfo.InvariantCulture)}; " +
-                            "skipping split");
-                        return null;
-                    }
-                }
-            }
+            // 2. (Removed) Orbit-segment-straddle guard. Straddling OrbitSegments are
+            //    now handled in SplitAtSection's partition step by tail-cloning the
+            //    straddler into TIP at startUT=splitUT (Kepler elements describe the
+            //    whole conic — a value-copy plus startUT update is sufficient). See
+            //    SplitAtSection step 7 and CreateTailHalfOrbitSegmentsAtSplit.
 
             // 3. Ensure checkpoint sections (mirrors SplitAtSection's call at line 776-779).
             RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
@@ -1385,6 +1408,46 @@ namespace Parsek
                         orbitSegments.RemoveAt(i);
                 }
             }
+        }
+
+        /// <summary>
+        /// Returns tail clones of every OrbitSegment in <paramref name="originalSegments"/>
+        /// that straddles <paramref name="splitUT"/> (i.e., <c>seg.startUT &lt; splitUT
+        /// &lt; seg.endUT</c>). Each clone is a value-copy of the original struct with
+        /// <c>startUT</c> set to <paramref name="splitUT"/> and <c>endUT</c> unchanged.
+        ///
+        /// All other fields (inclination, eccentricity, semiMajorAxis, LAN, AoP,
+        /// meanAnomalyAtEpoch, epoch, bodyName, isPredicted, orbitalFrameRotation,
+        /// angularVelocity) are preserved because the Kepler elements describe the
+        /// WHOLE conic — only the UT range slices it. Non-straddling segments are
+        /// NOT included in the output; those are partitioned by the caller's
+        /// whole-segment moves and head-half trim. Symmetric counterpart to
+        /// <see cref="TrimFirstHalfOrbitSegmentsAtSplit"/>.
+        ///
+        /// Output ordering mirrors input ordering: clones are emitted in the order
+        /// their originals appear in <paramref name="originalSegments"/>.
+        /// </summary>
+        private static List<OrbitSegment> CreateTailHalfOrbitSegmentsAtSplit(
+            List<OrbitSegment> originalSegments,
+            double splitUT)
+        {
+            var clones = new List<OrbitSegment>();
+            if (originalSegments == null || originalSegments.Count == 0)
+                return clones;
+
+            for (int i = 0; i < originalSegments.Count; i++)
+            {
+                OrbitSegment seg = originalSegments[i];
+                if (seg.startUT < splitUT && seg.endUT > splitUT)
+                {
+                    // Value-copy of the struct duplicates every Kepler element.
+                    OrbitSegment tail = seg;
+                    tail.startUT = splitUT;
+                    // tail.endUT unchanged.
+                    clones.Add(tail);
+                }
+            }
+            return clones;
         }
 
         /// <summary>

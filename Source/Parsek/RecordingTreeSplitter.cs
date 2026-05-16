@@ -413,12 +413,16 @@ namespace Parsek
                 Recording tip = RecordingOptimizer.SplitAtUT(origin, rewindUT);
                 if (tip == null)
                 {
-                    // SplitAtUT's guards (orbit-segment straddle, v13 debris
-                    // contract minimum samples, etc.) all return null without
+                    // SplitAtUT's remaining guards (v13 debris contract
+                    // minimum bodyFixedFrames sample count, precondition
+                    // violations such as origin not strictly spanning
+                    // splitUT or NaN splitUT) all return null without
                     // mutating origin. Marker stays as-is so the caller's
-                    // AppendRelations writes today's whole-recording supersede
-                    // row (the bug remains for this one recording, but the
-                    // merge completes cleanly).
+                    // AppendRelations writes today's whole-recording
+                    // supersede row (the bug remains for this one
+                    // recording, but the merge completes cleanly).
+                    // Note: straddling OrbitSegments no longer return null;
+                    // SplitAtSection tail-clones them into TIP.
                     ParsekLog.Warn(Tag,
                         $"SplitOriginAtRewindUT: SplitAtUT returned null for origin " +
                         $"'{origin.RecordingId}' at rewindUT={rewindUT.ToString("F2", ic)} — " +

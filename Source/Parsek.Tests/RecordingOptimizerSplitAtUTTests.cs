@@ -9,9 +9,11 @@ namespace Parsek.Tests
     /// <summary>
     /// Unit tests for <see cref="RecordingOptimizer.SplitAtUT"/> — the arbitrary-UT
     /// split helper used by the Re-Fly supersede-identity orchestrator. Covers
-    /// pre-condition guards, the orbit-segment-straddle guard, the v13 debris
-    /// bodyFixedFrames sample-count guard, the boundary-seam override warning,
-    /// and the alignment-vs-synthetic-insert branch in step 4.
+    /// pre-condition guards, OrbitSegment tail-cloning across the split (Task A7
+    /// removed the prior orbit-segment-straddle guard in favour of struct-copy
+    /// tail clones inside <see cref="RecordingOptimizer.SplitAtSection"/>), the
+    /// v13 debris bodyFixedFrames sample-count guard, the boundary-seam override
+    /// warning, and the alignment-vs-synthetic-insert branch in step 4.
     /// </summary>
     [Collection("Sequential")]
     public class RecordingOptimizerSplitAtUTTests : IDisposable
@@ -213,17 +215,32 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Orbit-segment straddle guard
+        #region OrbitSegment tail-clone across split UT
 
         [Fact]
-        public void SplitAtUT_OrbitSegmentStraddlesSplitUT_ReturnsNull()
+        public void SplitAtUT_OrbitSegmentStraddlesSplitUT_TailClonesIntoTip()
         {
             // Build a recording where an OrbitSegment straddles splitUT.
+            // After Task A7, the prior straddle guard is gone; SplitAtSection
+            // now HEAD-trims the straddler's endUT down to splitUT AND
+            // tail-clones the post-split portion into TIP at startUT=splitUT.
+            //
+            // Setup notes:
+            //  - TrackSection.frames is null so HasCompleteTrackSectionPayloadForFlatSync
+            //    fails and SplitAtSection's downstream TrySyncFlat does not rebuild
+            //    OrbitSegments from sections (which would undo the partition under test).
+            //  - OrbitSegment.isPredicted=true so the EnsureCheckpoint bridge skips
+            //    creating an OrbitalCheckpoint section, which would otherwise be
+            //    inserted at startUT=20 and then re-sorted in front of the synthetic
+            //    [34, 53] tail section — invalidating sectionIndex and routing
+            //    SplitAtSection into the boundary-interpolation Slerp path that
+            //    requires the Unity runtime.
             var rec = new Recording
             {
                 RecordingId = "rec-orbit-straddle",
             };
             rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(34.0));
             rec.Points.Add(PointAt(53.0));
             rec.TrackSections.Add(new TrackSection
             {
@@ -234,11 +251,169 @@ namespace Parsek.Tests
                 sampleRateHz = 1f,
                 minAltitude = float.NaN,
                 maxAltitude = float.NaN,
-                frames = new List<TrajectoryPoint>
-                {
-                    PointAt(8.0),
-                    PointAt(53.0),
-                },
+                frames = null,
+            });
+            var orbitalRot = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f);
+            var angVel = new Vector3(0.01f, 0.02f, 0.03f);
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 20.0,
+                endUT = 50.0,
+                bodyName = "Kerbin",
+                inclination = 12.5,
+                eccentricity = 0.123,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 45.0,
+                argumentOfPeriapsis = 90.0,
+                meanAnomalyAtEpoch = 1.5,
+                epoch = 20.0,
+                isPredicted = true,
+                orbitalFrameRotation = orbitalRot,
+                angularVelocity = angVel,
+            });
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            // Split now succeeds: returns non-null TIP.
+            Assert.NotNull(tip);
+
+            // HEAD retains a single head-trimmed segment [20, 34].
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(20.0, rec.OrbitSegments[0].startUT);
+            Assert.Equal(34.0, rec.OrbitSegments[0].endUT);
+
+            // TIP has the tail-clone [34, 50] with identical Kepler elements.
+            Assert.Single(tip.OrbitSegments);
+            var tipSeg = tip.OrbitSegments[0];
+            Assert.Equal(34.0, tipSeg.startUT);
+            Assert.Equal(50.0, tipSeg.endUT);
+            Assert.Equal("Kerbin", tipSeg.bodyName);
+            Assert.Equal(12.5, tipSeg.inclination);
+            Assert.Equal(0.123, tipSeg.eccentricity);
+            Assert.Equal(700000.0, tipSeg.semiMajorAxis);
+            Assert.Equal(45.0, tipSeg.longitudeOfAscendingNode);
+            Assert.Equal(90.0, tipSeg.argumentOfPeriapsis);
+            Assert.Equal(1.5, tipSeg.meanAnomalyAtEpoch);
+            Assert.Equal(20.0, tipSeg.epoch);
+            Assert.True(tipSeg.isPredicted);
+            Assert.Equal(orbitalRot, tipSeg.orbitalFrameRotation);
+            Assert.Equal(angVel, tipSeg.angularVelocity);
+
+            // Verbose partition log emitted.
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("partitioned OrbitSegments")
+                && l.Contains("tail-clones=1"));
+        }
+
+        [Fact]
+        public void SplitAtUT_MultipleOrbitSegmentsAcrossSplitUT_PartitionsCorrectly()
+        {
+            // Three segments: one entirely pre-split [5, 15], one straddling
+            // [20, 50], one entirely post-split [55, 80]. After split at 34:
+            //   HEAD.OrbitSegments == [ [5,15], [20,34] ]
+            //   TIP.OrbitSegments  == [ [34,50], [55,80] ]  (UT-ascending)
+            // See _TailClonesIntoTip for the null-frames rationale.
+            var rec = new Recording
+            {
+                RecordingId = "rec-orbit-multi",
+            };
+            // Recording must strictly span [5, 80] (precondition); add Points and a
+            // single covering TrackSection (without per-section frames) so HasComplete
+            // fails and TrySyncFlat does not rebuild OrbitSegments from sections.
+            rec.Points.Add(PointAt(5.0));
+            rec.Points.Add(PointAt(34.0));
+            rec.Points.Add(PointAt(80.0));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 5.0,
+                endUT = 80.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = null,
+            });
+            // isPredicted=true: EnsureCheckpoint skips creating OC sections that would
+            // otherwise be re-sorted in front of the synthetic boundary section and
+            // route SplitAtSection into the boundary-interpolation Slerp path.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 5.0, endUT = 15.0, bodyName = "Kerbin",
+                inclination = 0.0, eccentricity = 0.0, semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 0.0, argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0, epoch = 5.0,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero,
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 20.0, endUT = 50.0, bodyName = "Kerbin",
+                inclination = 0.0, eccentricity = 0.0, semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 0.0, argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0, epoch = 20.0,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero,
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 55.0, endUT = 80.0, bodyName = "Kerbin",
+                inclination = 0.0, eccentricity = 0.0, semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 0.0, argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0, epoch = 55.0,
+                isPredicted = true,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero,
+            });
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+
+            // HEAD: [5,15] untouched + [20,34] head-trimmed.
+            Assert.Equal(2, rec.OrbitSegments.Count);
+            Assert.Equal(5.0, rec.OrbitSegments[0].startUT);
+            Assert.Equal(15.0, rec.OrbitSegments[0].endUT);
+            Assert.Equal(20.0, rec.OrbitSegments[1].startUT);
+            Assert.Equal(34.0, rec.OrbitSegments[1].endUT);
+
+            // TIP: [34,50] tail-clone + [55,80] wholly moved, UT-ascending.
+            Assert.Equal(2, tip.OrbitSegments.Count);
+            Assert.Equal(34.0, tip.OrbitSegments[0].startUT);
+            Assert.Equal(50.0, tip.OrbitSegments[0].endUT);
+            Assert.Equal(55.0, tip.OrbitSegments[1].startUT);
+            Assert.Equal(80.0, tip.OrbitSegments[1].endUT);
+
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("partitioned OrbitSegments")
+                && l.Contains("whole moved=1")
+                && l.Contains("tail-clones=1"));
+        }
+
+        [Fact]
+        public void SplitAtUT_OrbitSegmentStraddlesSplitUT_PreservesIsPredictedFlag()
+        {
+            // The isPredicted flag is part of the struct; value-copy must preserve it.
+            // See _TailClonesIntoTip for the null-frames rationale.
+            var rec = new Recording
+            {
+                RecordingId = "rec-orbit-predicted",
+            };
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(34.0));
+            rec.Points.Add(PointAt(53.0));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 8.0,
+                endUT = 53.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = null,
             });
             rec.OrbitSegments.Add(new OrbitSegment
             {
@@ -252,28 +427,19 @@ namespace Parsek.Tests
                 argumentOfPeriapsis = 0.0,
                 meanAnomalyAtEpoch = 0.0,
                 epoch = 20.0,
-                isPredicted = false,
+                isPredicted = true,
                 orbitalFrameRotation = Quaternion.identity,
                 angularVelocity = Vector3.zero,
             });
 
-            // Snapshot pre-call state for byte-identical-on-failure assertion.
-            int sectionsBefore = rec.TrackSections.Count;
-            int pointsBefore = rec.Points.Count;
-            int orbitSegmentsBefore = rec.OrbitSegments.Count;
-
             var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
 
-            Assert.Null(tip);
-            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
-                && l.Contains("orbit-segment straddle")
-                && l.Contains("rec-orbit-straddle")
-                && l.Contains("OrbitSegment[0]"));
-
-            // Mutation-ordering invariant: failed guard must leave original alone.
-            Assert.Equal(sectionsBefore, rec.TrackSections.Count);
-            Assert.Equal(pointsBefore, rec.Points.Count);
-            Assert.Equal(orbitSegmentsBefore, rec.OrbitSegments.Count);
+            Assert.NotNull(tip);
+            Assert.Single(tip.OrbitSegments);
+            Assert.True(tip.OrbitSegments[0].isPredicted);
+            // HEAD-side trimmed segment preserves the flag too.
+            Assert.Single(rec.OrbitSegments);
+            Assert.True(rec.OrbitSegments[0].isPredicted);
         }
 
         #endregion
