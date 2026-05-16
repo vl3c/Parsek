@@ -287,6 +287,49 @@ namespace Parsek.Tests
             Assert.Empty(lookup);
         }
 
+        // Regression for the May-2026 "missing W button" bug: TimelineWindowUI
+        // used to feed an ERS-scoped index into ghost-engine APIs that key on
+        // the RAW CommittedRecordings list. ERS skips superseded entries, so
+        // the same recording can sit at different positions in the two lists.
+        // The fix maintains a second `committedIndexById` lookup off the raw
+        // committed list; this test documents the invariant the two lookups
+        // are built to preserve.
+        [Fact]
+        public void BuildRecordingIndexLookup_ErsAndCommittedIndicesDivergeAfterSupersede()
+        {
+            // ERS-style list — superseded rec-b is filtered out.
+            var ersList = new[]
+            {
+                new Recording { RecordingId = "rec-a" }, // ERS 0 / Committed 0
+                new Recording { RecordingId = "rec-c" }  // ERS 1 / Committed 2
+            };
+
+            // Raw CommittedRecordings list — rec-b sits between rec-a and rec-c.
+            var committedList = new[]
+            {
+                new Recording { RecordingId = "rec-a" }, // Committed 0
+                new Recording { RecordingId = "rec-b" }, // Committed 1 (superseded; ERS-hidden)
+                new Recording { RecordingId = "rec-c" }  // Committed 2
+            };
+
+            var ersLookup = TimelineWindowUI.BuildRecordingIndexLookup(ersList);
+            var committedLookup = TimelineWindowUI.BuildRecordingIndexLookup(committedList);
+
+            // rec-a sits at index 0 in both lists — the no-supersede happy path.
+            Assert.Equal(0, ersLookup["rec-a"]);
+            Assert.Equal(0, committedLookup["rec-a"]);
+
+            // rec-c is at ERS index 1 but Committed index 2 — the bug scenario.
+            // Passing ersLookup["rec-c"] to ghostStates[] would hit rec-b's slot.
+            Assert.Equal(1, ersLookup["rec-c"]);
+            Assert.Equal(2, committedLookup["rec-c"]);
+            Assert.NotEqual(ersLookup["rec-c"], committedLookup["rec-c"]);
+
+            // rec-b only exists in the raw committed list (ERS filters it out).
+            Assert.False(ersLookup.ContainsKey("rec-b"));
+            Assert.Equal(1, committedLookup["rec-b"]);
+        }
+
         [Fact]
         public void BuildWatchButtonDescriptor_WatchedUnavailableRow_UsesExitTooltipAndStaysEnabled()
         {
