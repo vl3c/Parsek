@@ -3,9 +3,6 @@ using Parsek;
 using Parsek.Logistics;
 using Parsek.Tests.Generators;
 using Xunit;
-// Disambiguate: Parsek.Logistics.RouteBuilder (production) vs. the fluent test
-// fixture in Parsek.Tests.Generators. This file uses the test fixture.
-using RouteBuilder = Parsek.Tests.Generators.RouteBuilder;
 
 namespace Parsek.Tests.Logistics
 {
@@ -77,7 +74,7 @@ namespace Parsek.Tests.Logistics
 
         private static Route BuildRoute(string id, string name = null)
         {
-            return new RouteBuilder()
+            return new RouteFixtureBuilder()
                 .WithId(id)
                 .WithName(name ?? id)
                 .WithOrigin(BuildKscOrigin())

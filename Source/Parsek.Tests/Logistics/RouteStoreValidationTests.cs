@@ -4,9 +4,6 @@ using Parsek;
 using Parsek.Logistics;
 using Parsek.Tests.Generators;
 using Xunit;
-// Disambiguate: Parsek.Logistics.RouteBuilder (production) vs. the fluent test
-// fixture in Parsek.Tests.Generators. This file uses the test fixture.
-using RouteBuilder = Parsek.Tests.Generators.RouteBuilder;
 
 namespace Parsek.Tests.Logistics
 {
@@ -182,7 +179,7 @@ namespace Parsek.Tests.Logistics
         private static Route BuildRoute(
             string id, RouteStatus status, params RouteSourceRef[] sourceRefs)
         {
-            var builder = new RouteBuilder()
+            var builder = new RouteFixtureBuilder()
                 .WithId(id)
                 .WithName(id)
                 .WithStatus(status)
@@ -566,7 +563,7 @@ namespace Parsek.Tests.Logistics
         public void Revalidate_NoSourceRefs_SkipsWithVerbose()
         {
             // Build a route by hand so we can leave SourceRefs empty after
-            // construction (RouteBuilder.WithSourceRef appends).
+            // construction (RouteFixtureBuilder.WithSourceRef appends).
             var route = new Route
             {
                 Id = "route-no-refs",

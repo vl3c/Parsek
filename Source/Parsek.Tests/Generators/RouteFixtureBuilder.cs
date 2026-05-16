@@ -11,7 +11,7 @@ namespace Parsek.Tests.Generators
     /// emits a route with sensible defaults so tests only need to specify
     /// the fields they care about.
     /// </summary>
-    internal class RouteBuilder
+    internal class RouteFixtureBuilder
     {
         private string id = "route-test-id";
         private string name = "Test Route";
@@ -40,39 +40,39 @@ namespace Parsek.Tests.Generators
         private Dictionary<string, double> costManifest;
         private List<InventoryPayloadItem> inventoryCostManifest;
 
-        public RouteBuilder WithId(string newId)
+        public RouteFixtureBuilder WithId(string newId)
         {
             id = newId;
             return this;
         }
 
-        public RouteBuilder WithName(string newName)
+        public RouteFixtureBuilder WithName(string newName)
         {
             name = newName;
             return this;
         }
 
-        public RouteBuilder WithStatus(RouteStatus newStatus)
+        public RouteFixtureBuilder WithStatus(RouteStatus newStatus)
         {
             status = newStatus;
             return this;
         }
 
-        public RouteBuilder WithKscOrigin(bool kscOrigin, float cost = 0f)
+        public RouteFixtureBuilder WithKscOrigin(bool kscOrigin, float cost = 0f)
         {
             isKscOrigin = kscOrigin;
             kscDispatchFundsCost = cost;
             return this;
         }
 
-        public RouteBuilder WithSchedule(double transitDurationSeconds, double dispatchIntervalSeconds)
+        public RouteFixtureBuilder WithSchedule(double transitDurationSeconds, double dispatchIntervalSeconds)
         {
             transitDuration = transitDurationSeconds;
             dispatchInterval = dispatchIntervalSeconds;
             return this;
         }
 
-        public RouteBuilder WithDispatchWindow(double epochUT, double period, double nextDispatch)
+        public RouteFixtureBuilder WithDispatchWindow(double epochUT, double period, double nextDispatch)
         {
             dispatchWindowEpochUT = epochUT;
             dispatchWindowPeriod = period;
@@ -80,38 +80,38 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
-        public RouteBuilder WithCurrentCycleStartUT(double? ut)
+        public RouteFixtureBuilder WithCurrentCycleStartUT(double? ut)
         {
             currentCycleStartUT = ut;
             return this;
         }
 
-        public RouteBuilder WithNextEligibilityCheckUT(double? ut)
+        public RouteFixtureBuilder WithNextEligibilityCheckUT(double? ut)
         {
             nextEligibilityCheckUT = ut;
             return this;
         }
 
-        public RouteBuilder WithPendingDeliveryUT(double? ut, int stopIndex = -1)
+        public RouteFixtureBuilder WithPendingDeliveryUT(double? ut, int stopIndex = -1)
         {
             pendingDeliveryUT = ut;
             pendingStopIndex = stopIndex;
             return this;
         }
 
-        public RouteBuilder WithCurrentSegmentIndex(int index)
+        public RouteFixtureBuilder WithCurrentSegmentIndex(int index)
         {
             currentSegmentIndex = index;
             return this;
         }
 
-        public RouteBuilder WithLinkedRouteId(string linkedId)
+        public RouteFixtureBuilder WithLinkedRouteId(string linkedId)
         {
             linkedRouteId = linkedId;
             return this;
         }
 
-        public RouteBuilder WithCycleCounters(int completed, int skipped, bool pauseAfter = false)
+        public RouteFixtureBuilder WithCycleCounters(int completed, int skipped, bool pauseAfter = false)
         {
             completedCycles = completed;
             skippedCycles = skipped;
@@ -119,38 +119,38 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
-        public RouteBuilder WithOrigin(RouteEndpoint endpoint)
+        public RouteFixtureBuilder WithOrigin(RouteEndpoint endpoint)
         {
             origin = endpoint;
             originSet = true;
             return this;
         }
 
-        public RouteBuilder WithRecordingId(string recordingId)
+        public RouteFixtureBuilder WithRecordingId(string recordingId)
         {
             recordingIds.Add(recordingId);
             return this;
         }
 
-        public RouteBuilder WithSourceRef(RouteSourceRef sourceRef)
+        public RouteFixtureBuilder WithSourceRef(RouteSourceRef sourceRef)
         {
             sourceRefs.Add(sourceRef);
             return this;
         }
 
-        public RouteBuilder WithStop(RouteStop stop)
+        public RouteFixtureBuilder WithStop(RouteStop stop)
         {
             stops.Add(stop);
             return this;
         }
 
-        public RouteBuilder WithCostManifest(Dictionary<string, double> manifest)
+        public RouteFixtureBuilder WithCostManifest(Dictionary<string, double> manifest)
         {
             costManifest = manifest;
             return this;
         }
 
-        public RouteBuilder WithInventoryCostManifest(List<InventoryPayloadItem> manifest)
+        public RouteFixtureBuilder WithInventoryCostManifest(List<InventoryPayloadItem> manifest)
         {
             inventoryCostManifest = manifest;
             return this;

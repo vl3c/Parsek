@@ -5,9 +5,9 @@ using System.Threading;
 using Parsek;
 using Parsek.Logistics;
 using Xunit;
-// `RouteBuilder` is intentionally the production class
+// `RouteBuilder` here refers to the production class
 // `Parsek.Logistics.RouteBuilder`. The fluent test fixture lives in
-// `Parsek.Tests.Generators.RouteBuilder` and is not imported here.
+// `Parsek.Tests.Generators.RouteFixtureBuilder`; it is not imported here.
 
 namespace Parsek.Tests.Logistics
 {

@@ -4,9 +4,6 @@ using System.Linq;
 using Parsek.Logistics;
 using Parsek.Tests.Generators;
 using Xunit;
-// Disambiguate: Parsek.Logistics.RouteBuilder (production) vs. the fluent test
-// fixture in Parsek.Tests.Generators. This file uses the test fixture.
-using RouteBuilder = Parsek.Tests.Generators.RouteBuilder;
 
 namespace Parsek.Tests
 {
@@ -2479,7 +2476,7 @@ namespace Parsek.Tests
                 EndUT = rec_origin.EndUT,
                 RouteProofHash = RouteStore.ComputeRouteProofHashFromRecording(rec_origin)
             };
-            var route = new RouteBuilder()
+            var route = new RouteFixtureBuilder()
                 .WithId("route-superseded-origin")
                 .WithName("Test Route")
                 .WithStatus(RouteStatus.Active)
