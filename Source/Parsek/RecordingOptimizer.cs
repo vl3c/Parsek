@@ -1241,11 +1241,19 @@ namespace Parsek
                 original,
                 markDirty: false,
                 context: "RecordingOptimizer.SplitAtUT");
-            bool ensureMutated = ensureStats.Changed;
 
-            void RestorePreEnsureSnapshotIfMutated()
+            // Pass 3 review subtle gap: the prior gate keyed on
+            // `ensureStats.Changed`, which is true only when sections were
+            // Added / Clipped / SkippedCovered. But Ensure's cleanup block at
+            // OrbitSegmentCheckpointBridge.cs:188 also fires its CachedStats
+            // wipe under `Changed || sorted` — a pure-re-sort case
+            // (sorted=true, Changed=false) wipes CachedStats but the
+            // Changed flag stays false. Restoration is cheap (list-clear +
+            // AddRange of struct values), and this is only reached on
+            // guarded null returns (off the hot path). Drop the gate and
+            // always restore.
+            void RestorePreEnsureSnapshot()
             {
-                if (!ensureMutated) return;
                 if (trackSectionsPreEnsure != null)
                 {
                     if (original.TrackSections == null)
@@ -1270,7 +1278,8 @@ namespace Parsek
                 original.CachedStatsPointCount = cachedStatsPointCountPreEnsure;
                 ParsekLog.Verbose("Optimizer",
                     $"SplitAtUT: restored pre-Ensure snapshot on guarded return for " +
-                    $"{original.RecordingId} (Ensure had added/clipped {ensureStats.Added}+{ensureStats.Clipped} sections)");
+                    $"{original.RecordingId} (Ensure stats added={ensureStats.Added} " +
+                    $"clipped={ensureStats.Clipped} changed={ensureStats.Changed})");
             }
 
             // 4. Find or insert TrackSection boundary at splitUT.
@@ -1443,7 +1452,7 @@ namespace Parsek
                                 $"sample count {headSection.bodyFixedFrames.Count} below minimum " +
                                 $"after rewindUT split on section {straddleIndex} of recording " +
                                 $"{original.RecordingId}; skipping split");
-                            RestorePreEnsureSnapshotIfMutated();
+                            RestorePreEnsureSnapshot();
                             return null;
                         }
                         if (tailSection.bodyFixedFrames.Count < 2)
@@ -1453,7 +1462,7 @@ namespace Parsek
                                 $"sample count {tailSection.bodyFixedFrames.Count} below minimum " +
                                 $"after rewindUT split on section {straddleIndex} of recording " +
                                 $"{original.RecordingId}; skipping split");
-                            RestorePreEnsureSnapshotIfMutated();
+                            RestorePreEnsureSnapshot();
                             return null;
                         }
                     }
@@ -1501,7 +1510,7 @@ namespace Parsek
                             $"recBounds=[{recStart.ToString("F2", CultureInfo.InvariantCulture)}," +
                             $"{recEnd.ToString("F2", CultureInfo.InvariantCulture)}]) — " +
                             "skipping split (no section to anchor the cut)");
-                        RestorePreEnsureSnapshotIfMutated();
+                        RestorePreEnsureSnapshot();
                         return null;
                     }
                 }
@@ -1515,7 +1524,7 @@ namespace Parsek
                     ParsekLog.Warn("Optimizer",
                         $"SplitAtUT: defensive guard — recording {original.RecordingId} " +
                         "has null TrackSections list; skipping split");
-                    RestorePreEnsureSnapshotIfMutated();
+                    RestorePreEnsureSnapshot();
                     return null;
                 }
             }

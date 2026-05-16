@@ -175,6 +175,10 @@ namespace Parsek.Tests
         public void SplitAtUT_OriginEntirelyPreSplitUT_ReturnsNull()
         {
             var rec = MakeSimpleRecording(8.0, 30.0, "rec-pre");
+            // Pass 3 Test gap 2: byte-equivalence on precondition guards.
+            int sectionCountBefore = rec.TrackSections.Count;
+            double sectionEndUtBefore = rec.TrackSections[0].endUT;
+            int pointsCountBefore = rec.Points.Count;
 
             var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
 
@@ -183,12 +187,21 @@ namespace Parsek.Tests
                 && l.Contains("precondition violation")
                 && l.Contains("rec-pre")
                 && l.Contains("do not strictly span"));
+            // The precondition fires BEFORE the Ensure call, so no mutation
+            // is possible — but pin the byte-identical contract anyway so a
+            // future refactor that reorders the guards trips this test.
+            Assert.Equal(sectionCountBefore, rec.TrackSections.Count);
+            Assert.Equal(sectionEndUtBefore, rec.TrackSections[0].endUT);
+            Assert.Equal(pointsCountBefore, rec.Points.Count);
         }
 
         [Fact]
         public void SplitAtUT_OriginEntirelyPostSplitUT_ReturnsNull()
         {
             var rec = MakeSimpleRecording(40.0, 53.0, "rec-post");
+            int sectionCountBefore = rec.TrackSections.Count;
+            double sectionStartUtBefore = rec.TrackSections[0].startUT;
+            int pointsCountBefore = rec.Points.Count;
 
             var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
 
@@ -197,12 +210,18 @@ namespace Parsek.Tests
                 && l.Contains("precondition violation")
                 && l.Contains("rec-post")
                 && l.Contains("do not strictly span"));
+            Assert.Equal(sectionCountBefore, rec.TrackSections.Count);
+            Assert.Equal(sectionStartUtBefore, rec.TrackSections[0].startUT);
+            Assert.Equal(pointsCountBefore, rec.Points.Count);
         }
 
         [Fact]
         public void SplitAtUT_NaNSplitUT_ReturnsNull()
         {
             var rec = MakeSimpleRecording(8.0, 53.0, "rec-nan");
+            int sectionCountBefore = rec.TrackSections.Count;
+            int pointsCountBefore = rec.Points.Count;
+            double sectionEndUtBefore = rec.TrackSections[0].endUT;
 
             var tip = RecordingOptimizer.SplitAtUT(rec, double.NaN);
 
@@ -211,6 +230,22 @@ namespace Parsek.Tests
                 && l.Contains("precondition violation")
                 && l.Contains("splitUT is NaN")
                 && l.Contains("rec-nan"));
+            Assert.Equal(sectionCountBefore, rec.TrackSections.Count);
+            Assert.Equal(pointsCountBefore, rec.Points.Count);
+            Assert.Equal(sectionEndUtBefore, rec.TrackSections[0].endUT);
+        }
+
+        [Fact]
+        public void SplitAtUT_NullOriginalRecording_ReturnsNullWithoutCrash()
+        {
+            // The null-original precondition is the topmost guard; trivially
+            // byte-identical because there's no recording to mutate.
+            var tip = RecordingOptimizer.SplitAtUT(null, 34.0);
+
+            Assert.Null(tip);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("precondition violation")
+                && l.Contains("original recording is null"));
         }
 
         #endregion

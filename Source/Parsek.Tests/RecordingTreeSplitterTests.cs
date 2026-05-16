@@ -1119,6 +1119,73 @@ namespace Parsek.Tests
                 && l.Contains($"markerRestoredTo={preMutationSupersedeTargetId}"));
         }
 
+        // =====================================================================
+        // 16. Idempotency probe — false-positive guard (Pass 3 Test gap 1)
+        //
+        // The idempotency probe at TryFindExistingTip requires all three of
+        // (ChainId match, ChainIndex+1, |StartUT - rewindUT| < eps). Without
+        // the third predicate, an env-class chain sibling already sitting at
+        // ChainIndex+1 (e.g. from a prior optimizer split at an environment
+        // boundary) would be mistaken for an "already-split TIP" — the
+        // splitter would skip the fresh split and return result.TipRecordingId
+        // pointing at the env-class sibling instead. This test pins the
+        // false-positive guard: a chain sibling at ChainIndex+1 whose
+        // StartUT is at the env-transition UT (not the rewind UT) must NOT
+        // prevent the splitter from running.
+        // =====================================================================
+
+        [Fact]
+        public void SplitOriginAtRewindUT_EnvClassSiblingAtChainIndexPlusOne_DoesNotFalsePositiveIntoIdempotentReentry()
+        {
+            // Origin covers [8..40] on chain "chain_idem", ChainIndex=0. An
+            // env-class sibling covers [40..60] on the same chain at
+            // ChainIndex=1 — like an Atmospheric→ExoBallistic optimizer split.
+            // The env-class sibling's StartUT (40) is NOT at the rewind UT
+            // (34), so the idempotency probe's third predicate must reject it
+            // and the splitter must proceed with a fresh split that produces
+            // a brand-new TIP at [34..40].
+            // midUT must equal rewindUT so SplitAtSection's interpolation
+            // branch (Unity-runtime-only Slerp) is bypassed under xUnit.
+            var origin = BuildRecording("rec_origin_idem", 8.0, 40.0, midUT: 34.0,
+                treeId: "tree_idem", terminal: null);
+            origin.ChainId = "chain_idem";
+            origin.ChainIndex = 0;
+            var tree = InstallOriginInTree(origin, "tree_idem");
+
+            var envClassSibling = BuildRecording("rec_envclass_sibling",
+                40.0, 60.0, midUT: 50.0,
+                treeId: "tree_idem", terminal: TerminalState.Destroyed);
+            envClassSibling.ChainId = "chain_idem";
+            envClassSibling.ChainIndex = 1;
+            tree.AddOrReplaceRecording(envClassSibling);
+            RecordingStore.AddCommittedInternal(envClassSibling);
+
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            // Splitter ran a fresh split — did NOT fall into the idempotent
+            // re-entry path.
+            Assert.False(result.Skipped);
+            Assert.NotNull(result.TipRecordingId);
+            Assert.NotEqual("rec_envclass_sibling", result.TipRecordingId);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Splitter]") && l.Contains("idempotent re-entry"));
+
+            // New TIP exists at the rewind UT, distinct from the env-class
+            // sibling.
+            Recording newTip = FindCommitted(result.TipRecordingId);
+            Assert.NotNull(newTip);
+            Assert.Equal(34.0, newTip.StartUT);
+            Assert.Equal(40.0, newTip.EndUT);
+
+            // Env-class sibling still exists and was reindexed to the new
+            // ChainIndex (push by one because TIP took its old slot).
+            Recording siblingAfter = FindCommitted("rec_envclass_sibling");
+            Assert.NotNull(siblingAfter);
+            Assert.Equal(2, siblingAfter.ChainIndex);
+        }
+
         [Fact]
         public void SplitOriginAtRewindUT_RollBackInMemory_MarkerUntouchedIfSupersedeTargetIdNotCaptured()
         {
