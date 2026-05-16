@@ -126,7 +126,7 @@ namespace Parsek.Tests.Logistics
                 }
             };
 
-            return new RouteBuilder()
+            return new RouteFixtureBuilder()
                 .WithId("route-guid-1")
                 .WithName("Mun Fuel Run")
                 .WithStatus(RouteStatus.InTransit)
@@ -233,7 +233,7 @@ namespace Parsek.Tests.Logistics
                 DeliveryOffsetSeconds = 0.0
             };
 
-            var route = new RouteBuilder()
+            var route = new RouteFixtureBuilder()
                 .WithId("lean-route")
                 .WithName("Lean")
                 .WithOrigin(BuildKscOrigin())
@@ -283,7 +283,7 @@ namespace Parsek.Tests.Logistics
                 DeliveryOffsetSeconds = 0.0
             };
 
-            var route = new RouteBuilder()
+            var route = new RouteFixtureBuilder()
                 .WithId("verbatim-route")
                 .WithOrigin(BuildKscOrigin())
                 .WithStop(stop)

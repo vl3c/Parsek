@@ -2140,6 +2140,12 @@ namespace Parsek
             watchMode.ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeController.WatchModeLockId); // safety net
 
+            // Dismiss the route creation dialog if it is still open — the
+            // tree it cached belongs to this scene's RecordingStore state
+            // and outliving the scene would let the next scene confirm a
+            // stale route. DismissIfOpen is a no-op when no dialog is open.
+            RouteCreationDialog.DismissIfOpen("scene-change");
+
             // Clear ghost-icon sticky state and force atlas re-init so the next
             // scene loads its own sprite atlas (the tracking station and flight
             // scenes may resolve different Texture2D instances for the same
@@ -9765,12 +9771,15 @@ namespace Parsek
 
         /// <summary>
         /// Called when the merge dialog commits a tree. Re-evaluates ghost chains
-        /// so newly committed recordings get ghost map ProtoVessels immediately.
+        /// so newly committed recordings get ghost map ProtoVessels immediately,
+        /// then offers route creation if the committed tree carries a completed
+        /// route proof (handled by <see cref="RouteCreationDialog.TryShow"/>).
         /// </summary>
-        private void OnTreeCommittedFromMergeDialog()
+        private void OnTreeCommittedFromMergeDialog(RecordingTree tree)
         {
             ParsekLog.Info("GhostMap", "Tree committed from merge dialog — re-evaluating ghost chains");
             EvaluateAndApplyGhostChains();
+            RouteCreationDialog.TryShow(tree);
         }
 
         /// <summary>

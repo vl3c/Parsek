@@ -2476,7 +2476,7 @@ namespace Parsek.Tests
                 EndUT = rec_origin.EndUT,
                 RouteProofHash = RouteStore.ComputeRouteProofHashFromRecording(rec_origin)
             };
-            var route = new RouteBuilder()
+            var route = new RouteFixtureBuilder()
                 .WithId("route-superseded-origin")
                 .WithName("Test Route")
                 .WithStatus(RouteStatus.Active)

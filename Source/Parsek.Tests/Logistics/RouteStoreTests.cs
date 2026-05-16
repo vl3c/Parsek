@@ -74,7 +74,7 @@ namespace Parsek.Tests.Logistics
 
         private static Route BuildRoute(string id, string name = null)
         {
-            return new RouteBuilder()
+            return new RouteFixtureBuilder()
                 .WithId(id)
                 .WithName(name ?? id)
                 .WithOrigin(BuildKscOrigin())
