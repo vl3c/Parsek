@@ -1176,29 +1176,38 @@ namespace Parsek
                 selected.SlotIndex,
                 out uint selectedRootPartPersistentId);
 
+            // Bug fix-refly-abandon-and-fork-persist §Bug1: before this
+            // session adds its provisional, reap any prior NotCommitted
+            // provisional that targets the same RewindPoint from a
+            // different (now-abandoned) session. The user just clicked
+            // Re-Fly on the same RP slot, so the prior attempt's
+            // provisional is orphaned by construction. Without this
+            // reap, the orphan survives in tree.Recordings dicts and
+            // gets re-added to RecordingStore.CommittedRecordings by
+            // FinalizeTreeCommit (RecordingStore.cs:1363-1386), and the
+            // next merge's AppendRelations closure walk writes an
+            // invalid `old=<NotCommitted-orphan> → new=<new-fork>`
+            // supersede row.
+            //
+            // Hoisted OUTSIDE the try block below so the reap is an
+            // independent cleanup step: if BuildProvisionalRecording
+            // throws after a successful reap, the orphans stay gone
+            // (which is correct — they were already invariant violations)
+            // and the catch block does not need to undo the reap. A reap
+            // failure propagates unhandled out of AtomicMarkerWrite,
+            // which is the desired behavior — a corrupted store should
+            // not silently fall through to writing a new marker.
+            int reaped = ReapPriorProvisionalsForRp(rp.RewindPointId, sessionId);
+            if (reaped > 0)
+            {
+                ParsekLog.Info(SessionTag,
+                    $"AtomicMarkerWrite: reaped {reaped} prior NotCommitted provisional(s) " +
+                    $"for rp={rp.RewindPointId} before new sess={sessionId}");
+            }
+
             ReFlySessionMarker marker;
             try
             {
-                // Bug fix-refly-abandon-and-fork-persist §Bug1: before this
-                // session adds its provisional, reap any prior NotCommitted
-                // provisional that targets the same RewindPoint from a
-                // different (now-abandoned) session. The user just clicked
-                // Re-Fly on the same RP slot, so the prior attempt's
-                // provisional is orphaned by construction. Without this
-                // reap, the orphan survives in tree.Recordings dicts and
-                // gets re-added to RecordingStore.CommittedRecordings by
-                // FinalizeTreeCommit (RecordingStore.cs:1363-1386), and the
-                // next merge's AppendRelations closure walk writes an
-                // invalid `old=<NotCommitted-orphan> → new=<new-fork>`
-                // supersede row.
-                int reaped = ReapPriorProvisionalsForRp(rp.RewindPointId, sessionId);
-                if (reaped > 0)
-                {
-                    ParsekLog.Info(SessionTag,
-                        $"AtomicMarkerWrite: reaped {reaped} prior NotCommitted provisional(s) " +
-                        $"for rp={rp.RewindPointId} before new sess={sessionId}");
-                }
-
                 // BuildProvisionalRecording previously also wrote
                 // `SupersedeTargetId = selected.OriginChildRecordingId` as
                 // a placeholder; that initial assignment was removed
@@ -1545,7 +1554,11 @@ namespace Parsek
                 totalReaped++;
             }
 
-            // 3. Bump supersede state version once at the end so ERS rebuilds.
+            // 3. Bump the supersede-state version so ERS / ELS caches
+            //    invalidate. RecordingStore.RemoveCommittedById has already
+            //    bumped RecordingStore.StateVersion per victim; this bump
+            //    is the scenario-level supersede version which is a
+            //    separate signal that the closure walk depends on.
             //    Use ReferenceEquals to skip Unity's null-check override (so a
             //    test fixture scenario without a Unity lifecycle still works).
             if (totalReaped > 0)
