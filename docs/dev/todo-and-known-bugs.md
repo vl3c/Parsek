@@ -12,6 +12,79 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - v0.9.2 Re-fly provisional Relative section anchored to fast-separating sibling causes chaotic ghost playback during watch mode
+
+**Evidence:** Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. User entered watch mode at 22:56:02 after committing three nested re-flies on the same save. During the 27-second watch window (until 22:56:29), `GhostRenderTrace` fired **281 `reason=large-delta` events** — all concentrated on the three re-fly provisional recordings:
+
+| Provisional | Re-fly source | Large-delta events | Anchored to | Notes |
+|---|---|---|---|---|
+| `rec_65833a40…` | Session 1 (upper-stage Kerbal X) | **274** | `affc443f…` (Kerbal X Probe — lower-stage booster) | Worst case |
+| `rec_3e1ef56f…` | Session 2 | 5 | `508f6be8…` (another Kerbal X Probe) | |
+| `rec_a5699314…` | Session 3 | 2 | `rec_3e1ef56f…` (the *previous* re-fly provisional) | Anchor chain! |
+
+Worst case is `rec_6583` at UT 66.18-66.22: ghost rendered subsurface (`alt=-44m → -62m`) for two frames, then teleported `dM=178.68m` in one frame to `alt=+83m`. The teleport's `expectedDM=0.21m` per the vessel's recorded velocity — actual movement is ~850x what the velocity field implies. Across the full chaotic window, the ghost makes giant spiralling sweeps (alt oscillates between -62m and +277m) entirely caused by anchor-relative-frame artefacts, not by what the recorded trajectory actually represents. Third independent symptom: at 22:53:16 during session 1, the recorder logged `relative-anchor-unresolved: reason=anchor-out-of-recorded-range recordingId=rec_6583 anchorRecordingId=rec_6583 ut=67.32` — anchor lookup pointed at the recording itself and failed, indicating the anchor-selection layer has an unstable code path.
+
+Crucially, **this is NOT a CoBubble bug.** Every chaotic frame logs `mode=RecordedRelative` with `coBubbleHit=false coBubbleReason=MissPrimaryNotResolved` — playback was going through the v11 `TrackSection.anchorRecordingId` path, not through `CoBubbleBlender`. PR #874's Rule 6 cannot help this issue.
+
+**Root cause:** When a re-fly session opens a Relative TrackSection for its provisional recording, the anchor resolver (`AnchorPropagator` + the recorder's per-tick anchor lookup) picks a nearby non-superseded ghost as the anchor. The resolver does not filter for "stable formation anchor" vs "fast-separating sibling" — any in-bubble candidate is acceptable. For a re-fly of the upper stage, the lower-stage probe is sitting right there from the same launch and gets picked, even though the probe is descending at ~150 m/s while the upper stage is climbing at ~150 m/s in the opposite direction. The recorded localOffset captures the combined relative velocity (~300 m/s). On playback, the rotated localOffset against the anchor's evolving position reproduces hundreds of metres of relative motion per UT step. For nested re-flies (re-fly the same slot twice), the anchor chain stacks: re-fly #3's provisional gets anchored to re-fly #2's provisional, which is itself anchored to a sibling probe — composing two unstable anchors.
+
+**Fix candidates (producer-side, recommended):** When opening a Relative TrackSection for a re-fly provisional, prefer the origin recording being superseded (`marker.SupersedeTargetId` resolved through `RecordingStore.CommittedRecordings`) as the anchor — that's the same physical-identity continuation and its trajectory is monotone in time. Fall back to Absolute if the origin's track at the rewind UT doesn't have stable data. Never select a sibling whose recorded velocity-vector dot-product with the provisional's own velocity is negative (a separating sibling). The recorder needs the same "is this anchor stable enough?" check the playback engine effectively trusts via `anchorReFlyUnstable`/`anchorRotationUnreliable` flags (currently both stayed `0` throughout the chaos — the flags don't catch this pattern).
+
+**Fix candidates (consumer-side, band-aid):** At playback time, detect that a Relative section's localOffset is changing faster than the recording's recorded velocity field implies, and either fall back to standalone Absolute (skip the anchor multiplication) or retire the section as "unrenderable". Cheaper than fixing the recorder but doesn't help past saves either way (the bad anchor id is durably written into `TrackSection.anchorRecordingId`).
+
+**Scope:** Recorder (anchor selection at re-fly session start / `RebuildFromMarker`). Cross-reference: the `relative-anchor-unresolved` warning with `anchorRecordingId == recordingId` suggests `AnchorPropagator` has a self-reference defect that should be audited at the same time.
+
+**Acceptance:**
+- Re-running the same playtest pattern (multiple nested re-flies of Kerbal X, then enter watch mode) produces 0 `large-delta` events on re-fly provisional recordings.
+- `rec_6583`-style recordings (re-fly of upper stage) anchor to their own origin (the pre-rewind upper-stage segment) or to `<absolute>`, never to `affc443f`-style fast-separating siblings.
+- Unit test or in-game test: construct a synthetic re-fly provisional with a fast-separating sibling candidate; assert the selector picks origin/Absolute.
+
+**See also:** Closely related to the "Controlled-decoupled child vessels lack a parent-anchored recording surface" Open entry below and to the rotation-Slerp Open entry below — both surfaced from the same playtest and share the recorder-side "stable anchor selection" theme. The deeper fix here should consider whether the recorder's anchor-selection logic can be unified across debris, controlled-decoupled children, and re-fly provisionals (the design space is shared even if the code paths are different today).
+
+**Status:** OPEN.
+
+---
+
+## Open - v0.9.2 Rotation Slerp wraparound (quaternion antipodality) teleports Relative-anchored ghosts mid-section
+
+**Evidence:** Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. At UT 66.220 in `rec_65833a40…` section 1 (Relative-anchored to `affc443f…`), the rendered position jumped **178m in one frame** while the playback bracket (`beforeUT=65.900 afterUT=66.320`) and `t`-fraction (0.7143 → 0.7619) were continuous with the previous frame. The ghost's world rotation jumped backward from `(0.83, -0.12, -0.12, -0.53)` to `(0.62, -0.39, -0.38, -0.56)` — reversing ~75% of its smooth evolution from earlier frames. Sequence of `GhostRenderTrace` lines around the teleport:
+
+```
+frame 60992 UT 66.200 t=0.7143 rot=(0.83,-0.12,-0.12,-0.53) final=(1258,-78,1468) alt=-62  ← subsurface
+frame 60994 UT 66.220 t=0.7619 rot=(0.62,-0.39,-0.38,-0.56) final=(1092,-16,1489) alt=+83  ← TELEPORT
+frame 60996 UT 66.240 t=0.8095 rot=(0.61,-0.41,-0.40,-0.55) final=(1071,-11,1492) alt=+102
+```
+
+The anchor (`affc443f`) itself was smooth — its own position dM was 0.87 m/UT-step (~43 m/s), rotation evolved monotonically, no `sectionCrossed`. The discontinuity is entirely on `rec_6583`'s side, inside a single TrackSection's interpolation.
+
+**Root cause hypothesis:** Slerp between two quaternions `q1` and `q2` has two valid paths (one direct, one via `-q2` since `q` and `-q` represent the same rotation). The standard math takes the long path when `q1·q2 < 0`. The standard fix is to negate one quaternion when the dot product is negative, ensuring shortest-path interpolation:
+
+```csharp
+if (Quaternion.Dot(q1, q2) < 0) q2 = -q2;
+return Quaternion.SlerpUnclamped(q1, q2, t);
+```
+
+Either Parsek's rotation-interpolation routine (`TrajectoryMath.SlerpQuaternion` or wherever it lives) is missing this sign-correction, OR the recorder stored two adjacent localRotation samples whose quaternions are near-antipodal (e.g. one as `q`, the next as `-q` for the same orientation), forcing the Slerp into the long path even with sign-correction. Audit both write-side and read-side. The frame 60994 result (`rot ≈ frame 60970`'s value, almost a full "rewind") is consistent with the Slerp output starting to loop back toward the start quaternion via the long path as `t` approaches the section endpoint.
+
+**Independence from the re-fly-provisional-anchor bug:** These are two separate bugs that happened to co-occur in the same playtest. Even with a correct anchor choice (the re-fly-provisional-anchor fix above), a Slerp wraparound can teleport ANY Relative-frame ghost whose recorded localRotation samples bracket an antipodal pair. Both need separate fixes; either fix alone leaves the other failure mode latent.
+
+**Fix candidates:**
+- (Read-side) Audit `TrajectoryMath.SlerpQuaternion` and any other rotation-interpolation call sites for `Quaternion.Dot < 0` sign-correction. Add the negation if missing.
+- (Write-side) When the recorder writes the next localRotation sample, check the dot product with the previous sample. If negative, negate the new sample before storing so adjacent samples are always in the same hemisphere. Belt-and-suspenders defense.
+- Unit test: feed Slerp two near-antipodal quaternions (`Dot ≈ -0.99`); assert the interpolated result moves directly between them rather than spinning the long way around.
+
+**Scope:** Playback rotation interpolation (`TrajectoryMath`) and/or the recorder's localRotation write path (`FlightRecorder` / `BackgroundRecorder`). Affects every Relative-frame TrackSection consumer, not just re-fly provisionals — could explain other "ghost briefly faces backwards" or "ghost briefly teleports" reports that have been hard to repro.
+
+**Acceptance:**
+- Re-running the same playtest produces 0 mid-section position teleports in any ghost (no `dM` value >50× `expectedDM` in `GhostRenderTrace`).
+- The Slerp unit test passes with the sign-corrected implementation.
+
+**See also:** The "Re-fly provisional Relative section anchored to fast-separating sibling" Open entry above (same playtest, independent root cause) and the "Controlled-decoupled child vessels lack a parent-anchored recording surface" Open entry below (related anchor-selection theme).
+
+**Status:** OPEN.
+
+---
+
 ## Open - v0.9.2 Controlled-decoupled child vessels lack a parent-anchored recording surface (deeper fix for the CoBubble debris-anchor snap)
 
 **Evidence:** User-reported visual seam in PR #872 build, `logs/2026-05-16_2010_pr872-kerbalx-ghost-switch/KSP.log`. During Re-Fly of the Kerbal X upper stage, the lower-stage probe ghost (`b11ef3d4…`, type=Probe, hasController=True) visibly snapped mid-flight at UT 34.74 onto the trajectory of a sibling radial-booster debris piece (`fa429137…`) and crossfaded back at UT 38.76 when that debris crashed. Root cause is that controlled-decoupled children are recorded as plain Absolute by `BgRecorder` with no `DebrisParentRecordingId` and no relative-to-parent track surface — the only formation-coherence mechanism available to them is CoBubble peer-blend, which pairs them opportunistically with whichever Absolute neighbor happens to win the primary selector. PR #874 added a short-term selector guard ("non-debris-over-debris" Rule 6) so a sibling debris can never be promoted to primary against a controlled peer. The deeper fix below removes the dependence on CoBubble peer-blend for this case entirely.
@@ -21,6 +94,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Scope:** Recorder + Coalescer changes. The `IsDebris` flag itself stays `false` for these vessels (they really are controlled), but `DebrisParentRecordingId` becomes orthogonal to `IsDebris`. Need to audit every existing read of `DebrisParentRecordingId` to ensure it doesn't gate on `IsDebris` as a proxy. Also requires a format-version bump if existing pannotations/sidecar invariants assume `DebrisParentRecordingId != null → IsDebris == true`.
 
 **Acceptance:** Re-running the PR #872 repro shows the Kerbal X Probe ghost playing smoothly end-to-end with no mid-flight trajectory snap, regardless of whether nearby sibling debris pieces survive or crash during the playback window. In-game test or scripted xUnit fixture asserts the child plays via the parent-anchored path during re-fly (the path log line indicates the parent recording id, not a co-bubble blend window).
+
+**Related findings (PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/`):** Two adjacent anchor-selection bugs surfaced during watch-mode observation and are filed as separate Open entries above: (a) **re-fly provisional Relative sections** are anchored to fast-separating siblings (e.g. upper-stage re-fly provisional anchored to the descending lower-stage probe), producing chaotic playback with 178m teleports and subsurface dives; (b) **rotation Slerp wraparound** mid-section can teleport ANY Relative-anchored ghost ~180m due to a missing sign-correction in the quaternion interpolation path. Both are independent of the controlled-decoupled-child case here but share the recorder/playback "stable anchor selection + clean rotation interpolation" theme. The deeper fix here should consider whether the recorder's anchor-selection logic can be unified across debris children, controlled-decoupled children, and re-fly provisionals — the design space is shared even if the code paths are different today.
 
 **Status:** OPEN. Plan to be written in a separate worktree before implementation.
 
@@ -37,6 +112,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Scope:** Selector-only short-term fix. Does not change `CoBubbleOverlapDetector` (so the existing `.pann` traces stay valid and no schema bump is needed) and does not address the deeper recorder gap (controlled children lacking a `DebrisParentRecordingId` parent-anchored surface — see the Open entry above). The Rule 6 guard handles the user-reported regression and any future occurrence of a debris-primary-against-controlled-peer collision until the recorder-side fix lands.
 
 **Coverage:** Five new xUnit tests in `CoBubbleBlenderTests`. `PrimarySelection_NonDebrisBeatsDebris_OverridingEarlierStartUT` is the canonical fix assertion — the user's probe-vs-debris StartUT inversion (debris 20.66 / probe 24.26) yields probe as primary with `ruleIndex == 6`. `PrimarySelection_LiveStillBeatsNonDebrisRule` pins Rule 1 above Rule 6 (a live-anchored debris still wins). `PrimarySelection_BothDebris_FallsThroughToLaterRules` pins the negative direction — pairs of two debris recordings keep their existing Rule 3 behavior (earlier StartUT). `NotifyCoBubblePrimarySelection_LogsRule6` pins the operator-visible log wire format (`Pipeline-CoBubble Primary selection ... rule=6`) so a regression that silently demoted controlled vessels back into the peer slot would be caught. `PrimarySelection_ThreeWayFormation_ProbeWinsAgainstDebrisA_DeterministicAcrossInputOrder` covers the multi-pair-peer case (probe + debris-A + debris-B) and asserts both the stable parts of the resolution (debris-A → probe via Rule 6, probe never a peer) and the pre-existing last-write-wins overwrite for debris-B (debris-A overwrites probe via Rule 3 from the (debris-A, debris-B) pair). The overwrite is documented as a pre-existing selector concern that Rule 6 does not introduce — fixing it properly belongs with the deeper recorder-side fix. All 11,805 existing tests continue to pass.
+
+**Playtest validation (`logs/2026-05-16_2258_pr874-validate/`):** Three nested re-fly sessions on Kerbal X executed against the merged-with-main build. Rule 6 did **not** fire — 0 occurrences of `rule=6` across 9 CoBubble Primary selections in 365K Parsek-tagged log lines. All pairs in this save were `(controlled, controlled)`: specifically `(Kerbal X Probe, Kerbal X main)` and `(Kerbal X Probe, prior re-fly provisional)`, so Rule 6's `IsDebris != IsDebris` predicate had nothing to act on. The original PR872 bug condition (a `(controlled, debris)` CoBubble pair) was not reproduced — the CoBubble overlap detector emitted only parent-anchored pairs this run rather than the probe-vs-sibling-debris pair from the PR872 log. Whether due to different rocket configuration, different physics timing, or different post-merge code behavior in `CoBubbleOverlapDetector` is unclear; the radial-booster debris pieces existed in this save but never ended up in a saved CoBubble trace with a Probe. Zero `appearance#2+` events anywhere in the log — no ghost was visually re-positioned mid-flight via CoBubble. PR validated as **inert + non-regressing** in this scenario; the original bug class remains addressed by the deployed code but did not get exercised end-to-end. Two **separate** playback anomalies surfaced during post-merge watch mode (chaotic motion + 178m teleport + subsurface dive on re-fly provisional ghosts) but both trace to unrelated anchor-selection / Slerp issues in the Relative-track playback path — `mode=RecordedRelative coBubbleHit=false` throughout. Filed as the two new Open entries above ("Re-fly provisional Relative section anchored to fast-separating sibling" + "Rotation Slerp wraparound") for separate follow-up.
 
 **Status:** CLOSED 2026-05-16.
 
