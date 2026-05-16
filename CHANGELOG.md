@@ -22,6 +22,7 @@ All notable changes to Parsek are documented here.
 - The readable sidecar mirrors toggle (both the Parsek settings window and the stock difficulty-settings entry) now carries a "(Warning: extra disk usage)" suffix so the on-disk cost is visible before enabling it.
 - Re-Fly merge/discard dialog descriptions are shorter. The no-seal body now asks "Do you want to commit this Re-Fly attempt to the timeline?", and the auto-seal body lists each reason on its own dashed line, followed by the auto-seal explanation without a redundant undo warning.
 - Timeline dialog action buttons now distinguish permanent merges from still-re-flyable commits using the production merge-state classifier: regular recordings and auto-sealed Re-Fly attempts say "Merge to Timeline", while unsealed Re-Fly attempts say "Commit to Timeline". Deferred dialog titles follow the same Merge/Commit wording.
+- Auto-generated group names for second-and-later launches of a same-named vessel now use a `#N` suffix instead of `(N)`. Launching a second "Kerbal X" produces the group "Kerbal X #2" (with debris subgroup "Kerbal X #2 / Debris"), so the recordings-table button label is unambiguous next to the trailing `({memberCount})` count — no more "Kerbal X (2) (3)" guessing.
 
 ### Bug Fixes
 
