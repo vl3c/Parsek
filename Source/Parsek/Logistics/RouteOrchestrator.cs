@@ -370,7 +370,7 @@ namespace Parsek.Logistics
         /// completion (and the next-cycle reset) is owned by the delivery
         /// pipeline, not the dispatch orchestrator.
         /// </summary>
-        private static void ApplyInTransitComplete(Route route, double currentUT)
+        internal static void ApplyInTransitComplete(Route route, double currentUT)
         {
             // The evaluator guards against re-emission via the
             // !route.PendingDeliveryUT.HasValue check, so this applier only
@@ -434,6 +434,12 @@ namespace Parsek.Logistics
                     $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} replay detected — already in ledger");
                 route.PendingDeliveryUT = null;
                 route.PendingStopIndex = -1;
+                // Clear any stale retry timer carried over from a pre-dispatch
+                // wait state — mirrors the success branch in
+                // ApplyDeliveryFromPlan and the ApplyDispatch transition so
+                // a delivered cycle never leaves the route gated behind an
+                // old WaitRetryIntervalSec deadline.
+                route.NextEligibilityCheckUT = null;
                 route.TransitionTo(RouteStatus.Active, "delivered-replay");
                 return;
             }
@@ -620,6 +626,12 @@ namespace Parsek.Logistics
             route.CompletedCycles += 1;
             route.PendingDeliveryUT = null;
             route.PendingStopIndex = -1;
+            // Successful delivery exits the route from any wait state — clear
+            // the retry timer so a future tick is not blocked by a stale
+            // NextEligibilityCheckUT inherited from a pre-dispatch
+            // WaitingForResources / WaitingForFunds / DestinationFull pass.
+            // Mirrors ApplyDispatch (line ~301).
+            route.NextEligibilityCheckUT = null;
 
             int inventoryActual = ctx.InventoryActualCountReader();
             route.TransitionTo(RouteStatus.Active, plan.IsPartial ? "delivered-partial" : "delivered");
@@ -691,6 +703,60 @@ namespace Parsek.Logistics
             Ledger.AddAction(action);
             ParsekLog.Info(Tag,
                 $"EndpointLost: route {ShortIdForLog(route)} reason={reason ?? "<none>"} (at delivery)");
+        }
+
+        /// <summary>
+        /// Resource-write filter shared by the live writers and the live
+        /// capacity probe. Returns <c>true</c> only when the destination tank
+        /// is BOTH:
+        /// <list type="bullet">
+        ///   <item><c>flowState == true</c> — the player has not closed the
+        ///     tank's flow toggle. Writing to a closed tank silently violates
+        ///     player intent (the tank is locked from the player's POV).</item>
+        ///   <item><paramref name="flowMode"/> not <see cref="ResourceFlowMode.NO_FLOW"/>
+        ///     — v0 simplicity: <c>SolidFuel</c>, <c>EVAPropellant</c>,
+        ///     <c>Ablator</c>, etc. don't cross part boundaries in stock, so
+        ///     depositing them via route delivery would be a stock contract
+        ///     violation. v1+ may surface a player option to override.</item>
+        /// </list>
+        /// Extracting this as a pure helper lets xUnit pin the policy without
+        /// touching live KSP <c>PartResource</c> / <c>ProtoPartResourceSnapshot</c>
+        /// instances; the writers and probes call it at the tank-iteration
+        /// boundary.
+        /// </summary>
+        internal static bool ShouldDeliverToResource(bool flowState, ResourceFlowMode flowMode)
+        {
+            if (!flowState) return false;
+            if (flowMode == ResourceFlowMode.NO_FLOW) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Looks up the <see cref="ResourceFlowMode"/> for a named resource via
+        /// <see cref="PartResourceLibrary"/>. Returns <see cref="ResourceFlowMode.ALL_VESSEL"/>
+        /// (a "delivery allowed" value) when the library is not available or
+        /// the resource is missing, so writes/probes don't accidentally suppress
+        /// a legitimate delivery when the library is mid-load. <see cref="NO_FLOW"/>
+        /// is a deliberate gate — only the explicit definition triggers the
+        /// suppression in <see cref="ShouldDeliverToResource"/>.
+        /// </summary>
+        internal static ResourceFlowMode LookupResourceFlowMode(string resourceName)
+        {
+            if (string.IsNullOrEmpty(resourceName)) return ResourceFlowMode.ALL_VESSEL;
+            try
+            {
+                PartResourceDefinition def =
+                    PartResourceLibrary.Instance != null
+                        ? PartResourceLibrary.Instance.GetDefinition(resourceName)
+                        : null;
+                return def != null ? def.resourceFlowMode : ResourceFlowMode.ALL_VESSEL;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"LookupResourceFlowMode({resourceName}) threw {ex.GetType().Name}: {ex.Message}; defaulting ALL_VESSEL");
+                return ResourceFlowMode.ALL_VESSEL;
+            }
         }
 
         /// <summary>
@@ -852,6 +918,12 @@ namespace Parsek.Logistics
                     if (p == null || p.Resources == null) continue;
                     PartResource pr = p.Resources.Get(resourceName);
                     if (pr == null) continue;
+                    // Mirror the probe's flowState gate AND suppress NO_FLOW
+                    // resources at the seam. ShouldDeliverToResource is the
+                    // single policy point shared with the unloaded writer and
+                    // both probe paths so capacity/actual stay symmetric.
+                    ResourceFlowMode mode = pr.info != null ? pr.info.resourceFlowMode : ResourceFlowMode.ALL_VESSEL;
+                    if (!ShouldDeliverToResource(pr.flowState, mode)) continue;
                     double free = pr.maxAmount - pr.amount;
                     if (free <= 0.0) continue;
                     double delta = free < remaining ? free : remaining;
@@ -876,6 +948,11 @@ namespace Parsek.Logistics
                 ProtoVessel pv = vessel.protoVessel;
                 if (pv == null || pv.protoPartSnapshots == null) return 0.0;
 
+                // NO_FLOW gate is per-resource definition, not per-tank — look
+                // it up once outside the part loop so we don't hammer the
+                // library for every proto-part. flowState stays per-snapshot.
+                ResourceFlowMode mode = LookupResourceFlowMode(resourceName);
+
                 for (int i = 0; i < pv.protoPartSnapshots.Count && remaining > 0.0; i++)
                 {
                     ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
@@ -885,6 +962,9 @@ namespace Parsek.Logistics
                         ProtoPartResourceSnapshot prs = pps.resources[j];
                         if (prs == null) continue;
                         if (!string.Equals(prs.resourceName, resourceName, StringComparison.Ordinal)) continue;
+                        // Mirror the probe + loaded-writer gate. Closed proto
+                        // tanks and NO_FLOW resources never receive a write.
+                        if (!ShouldDeliverToResource(prs.flowState, mode)) continue;
                         double free = prs.maxAmount - prs.amount;
                         if (free <= 0.0) continue;
                         double delta = free < remaining ? free : remaining;
@@ -1075,7 +1155,10 @@ namespace Parsek.Logistics
                     if (p == null || p.Resources == null) continue;
                     PartResource pr = p.Resources.Get(resourceName);
                     if (pr == null) continue;
-                    if (!pr.flowState) continue;
+                    // Capacity must match what the writer will actually fill —
+                    // closed tanks and NO_FLOW resources are non-deliverable.
+                    ResourceFlowMode mode = pr.info != null ? pr.info.resourceFlowMode : ResourceFlowMode.ALL_VESSEL;
+                    if (!ShouldDeliverToResource(pr.flowState, mode)) continue;
                     double free = pr.maxAmount - pr.amount;
                     if (free > 0.0) total += free;
                 }
@@ -1087,6 +1170,11 @@ namespace Parsek.Logistics
                 ProtoVessel pv = vessel.protoVessel;
                 if (pv == null || pv.protoPartSnapshots == null) return 0.0;
                 double total = 0.0;
+
+                // NO_FLOW is a per-resource definition — look it up once and
+                // either return 0 immediately or reuse the mode in the loop.
+                ResourceFlowMode mode = LookupResourceFlowMode(resourceName);
+
                 for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
                 {
                     ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
@@ -1096,7 +1184,9 @@ namespace Parsek.Logistics
                         ProtoPartResourceSnapshot prs = pps.resources[j];
                         if (prs == null) continue;
                         if (!string.Equals(prs.resourceName, resourceName, StringComparison.Ordinal)) continue;
-                        if (!prs.flowState) continue;
+                        // Mirror the writer-side gate so probe capacity and
+                        // actual transferable stay symmetric.
+                        if (!ShouldDeliverToResource(prs.flowState, mode)) continue;
                         double free = prs.maxAmount - prs.amount;
                         if (free > 0.0) total += free;
                     }

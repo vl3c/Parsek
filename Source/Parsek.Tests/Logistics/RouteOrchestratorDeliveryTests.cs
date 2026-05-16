@@ -513,6 +513,99 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(Ledger.Actions);
         }
 
+        // catches: writer/probe leaking deliveries into player-closed tanks.
+        // The probe's flowState skip is mirrored on the writer side via the
+        // shared ShouldDeliverToResource helper; this pure-helper test pins
+        // the policy without needing a live PartResource. A regression that
+        // removes the flowState check inside the writer would still leave
+        // this test passing — but the in-game test path (Phase C) covers
+        // the live mutation. This test pins the policy seam itself: a future
+        // refactor that turns the helper into `return true` blows up here.
+        [Fact]
+        public void ShouldDeliverToResource_ClosedTank_ReturnsFalse()
+        {
+            // flowState=false (closed tank), normal flow mode → blocked.
+            Assert.False(RouteOrchestrator.ShouldDeliverToResource(false, ResourceFlowMode.ALL_VESSEL));
+            Assert.False(RouteOrchestrator.ShouldDeliverToResource(false, ResourceFlowMode.STAGE_PRIORITY_FLOW));
+            // flowState=false is the dominant gate: even NO_FLOW + closed is still false.
+            Assert.False(RouteOrchestrator.ShouldDeliverToResource(false, ResourceFlowMode.NO_FLOW));
+        }
+
+        // catches: a SolidFuel/EVAPropellant/Ablator delivery silently dumping
+        // into the destination — those are NO_FLOW per stock contract.
+        [Fact]
+        public void ShouldDeliverToResource_NoFlowResource_ReturnsFalse()
+        {
+            // NO_FLOW mode with open tank → still blocked.
+            Assert.False(RouteOrchestrator.ShouldDeliverToResource(true, ResourceFlowMode.NO_FLOW));
+        }
+
+        // catches: helper accidentally blocking the happy path (every normal
+        // resource on an open tank must remain deliverable).
+        [Fact]
+        public void ShouldDeliverToResource_OpenTank_NormalFlow_ReturnsTrue()
+        {
+            Assert.True(RouteOrchestrator.ShouldDeliverToResource(true, ResourceFlowMode.ALL_VESSEL));
+            Assert.True(RouteOrchestrator.ShouldDeliverToResource(true, ResourceFlowMode.STAGE_PRIORITY_FLOW));
+            Assert.True(RouteOrchestrator.ShouldDeliverToResource(true, ResourceFlowMode.STACK_PRIORITY_SEARCH));
+            Assert.True(RouteOrchestrator.ShouldDeliverToResource(true, ResourceFlowMode.ALL_VESSEL_BALANCE));
+            Assert.True(RouteOrchestrator.ShouldDeliverToResource(true, ResourceFlowMode.STAGE_STACK_FLOW));
+        }
+
+        // catches: P2-4 regression — a successful delivery leaving a stale
+        // NextEligibilityCheckUT on the route, blocking future ticks behind
+        // an old retry deadline that was set during a pre-dispatch wait.
+        [Fact]
+        public void HappyPath_ClearsNextEligibilityCheckUT()
+        {
+            var route = BuildInTransitKscRoute();
+            // Simulate a stale retry timer left over from a prior wait state
+            // (the dispatch eval consumed the wait and cleared status, but a
+            // pre-Phase-B regression could have left this field non-null).
+            route.NextEligibilityCheckUT = 12345.0;
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            // Successful delivery exits any wait state — timer must be cleared.
+            Assert.Null(route.NextEligibilityCheckUT);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.Equal(1, route.CompletedCycles);
+        }
+
+        // catches: P2-1 regression — a future refactor that calls
+        // ApplyInTransitComplete directly, bypassing the evaluator's
+        // "already pending" Skip gate, must NOT overwrite the existing
+        // PendingDeliveryUT. The applier-side guard in RouteOrchestrator.cs
+        // around line ~381 is defense-in-depth; this test pins it.
+        [Fact]
+        public void ApplyInTransitComplete_PendingDeliveryUtAlreadySet_DoesNotReset()
+        {
+            var route = BuildInTransitKscRoute();
+            route.Status = RouteStatus.InTransit;
+            route.PendingDeliveryUT = 100.0;
+            route.PendingStopIndex = 3; // distinctive non-zero so reset would also be caught
+
+            // Drive the applier directly with a different "current UT" — a
+            // broken guard would overwrite PendingDeliveryUT=100.0 with 200.0.
+            RouteOrchestrator.ApplyInTransitComplete(route, 200.0);
+
+            // Existing pending state preserved bit-for-bit.
+            Assert.True(route.PendingDeliveryUT.HasValue);
+            Assert.Equal(100.0, route.PendingDeliveryUT.Value);
+            Assert.Equal(3, route.PendingStopIndex);
+
+            // The defensive guard emits a Verbose breadcrumb so operators
+            // can trace why a re-set was suppressed.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("InTransitComplete")
+                && l.Contains("already has PendingDeliveryUT")
+                && l.Contains("skipping re-set"));
+        }
+
         // catches: status gate regression — would emit RouteCargoDelivered on
         // a dead route.
         [Fact]
