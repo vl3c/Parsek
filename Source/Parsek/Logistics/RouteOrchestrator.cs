@@ -1370,15 +1370,22 @@ namespace Parsek.Logistics
         /// snapshot stays scoped and cannot leak between ticks.
         /// </summary>
         /// <remarks>
-        /// v0 limitations (item 6 wires these):
+        /// v0 eligibility-gate contract (intentional, not a TODO):
         /// <list type="bullet">
-        ///   <item><c>OriginHasCargo</c>: non-KSC origins always return
-        ///     <c>false</c> with reason <c>"non-ksc-origin-unsupported-in-v0"</c>.
-        ///     KSC origins return <c>true</c> unconditionally (funds are
-        ///     gated separately via <see cref="KscFundsAvailable"/>).</item>
-        ///   <item><c>DestinationHasCapacity</c>: always returns <c>true</c>.
-        ///     Live capacity reads against the resolved destination vessel
-        ///     wait until item 6.</item>
+        ///   <item><c>OriginHasCargo</c>: non-KSC origins return <c>false</c>
+        ///     with reason <c>"non-ksc-origin-unsupported-in-v0"</c> so those
+        ///     routes hold in <c>WaitingForResources</c> until live origin-cargo
+        ///     gating ships (post-v0). KSC origins return <c>true</c>
+        ///     unconditionally; funds are gated separately via
+        ///     <see cref="KscFundsAvailable"/>.</item>
+        ///   <item><c>DestinationHasCapacity</c>: returns <c>true</c> by design.
+        ///     v0 enforces capacity at apply time via
+        ///     <see cref="RouteDeliveryPlanner.PrepareDelivery"/> +
+        ///     <see cref="LiveDeliveryCapacityProbe"/>, which partial-fills
+        ///     each resource and records the actual-vs-requested split in the
+        ///     <c>RouteCargoDelivered</c> ledger row. The eligibility-gate stub
+        ///     stays so dispatch can always attempt; apply-time clamping is
+        ///     the real capacity contract.</item>
         /// </list>
         /// </remarks>
         private sealed class LiveRouteRuntimeEnvironment : IRouteRuntimeEnvironment
@@ -1443,15 +1450,17 @@ namespace Parsek.Logistics
                     return true;
                 }
 
-                // v0: non-KSC origins are deferred to item 6. We CANNOT silently
-                // return true — that would let routes dispatch without verifying
-                // the live origin vessel has the manifest. Returning false with
-                // a stable reason puts these routes in WaitingForResources until
-                // the live origin-cargo check lands.
+                // v0 contract: non-KSC origins do not dispatch. Returning true
+                // here would let a route dispatch without verifying the live
+                // origin vessel has the manifest — a silent correctness bug.
+                // Returning false with a stable reason holds non-KSC routes
+                // in WaitingForResources; post-v0 work wires live origin-cargo
+                // gating that replaces this stub.
                 lackingResource = "non-ksc-origin-unsupported-in-v0";
                 ParsekLog.VerboseRateLimited(Tag, "non-ksc-origin-stub",
                     $"OriginHasCargo: non-KSC origin path is stubbed in v0; " +
-                    $"route {ShortIdForRoute(route)} held in WaitingForResources until item 6");
+                    $"route {ShortIdForRoute(route)} held in WaitingForResources " +
+                    "until live origin-cargo gating ships");
                 return false;
             }
 
@@ -1482,24 +1491,22 @@ namespace Parsek.Logistics
 
             public bool DestinationHasCapacity(Route route, out string fullResource)
             {
-                // v0: capacity check not yet implemented; item 6 wires this
-                // by reading each stop endpoint's live vessel resource
-                // capacity vs the cost manifest. Defaulting to true means
-                // every dispatch attempts as if the destination is empty —
-                // matches the design doc's "v0 minimal viable scheduler"
-                // posture.
+                // v0 contract: eligibility gate returns true unconditionally —
+                // capacity is enforced at apply time by RouteDeliveryPlanner +
+                // LiveDeliveryCapacityProbe, which partial-fills each resource
+                // and records the actual-vs-requested split in the
+                // RouteCargoDelivered ledger row. The stub stays so dispatch
+                // can always attempt; apply-time clamping is the real contract.
                 //
-                // Without a log, a destination-full scenario in v0 silently
-                // dispatches and the only evidence in KSP.log is the
-                // successful dispatch line. Emit a per-route rate-limited
-                // breadcrumb so operators see the v0 limitation in context —
-                // same shape as OriginHasCargo's non-KSC stub above.
+                // Emit a per-route rate-limited breadcrumb so operators can
+                // see the v0 split in KSP.log alongside the matching apply-time
+                // partial-fill log — same shape as OriginHasCargo's stub above.
                 fullResource = string.Empty;
                 string routeId = route?.Id ?? "<none>";
                 ParsekLog.VerboseRateLimited(Tag,
                     "route-destcap-" + routeId,
-                    $"DestinationHasCapacity: v0 stub returning true " +
-                    $"(item-6 wires real check); routeId={routeId}");
+                    $"DestinationHasCapacity: v0 eligibility-gate stub returns " +
+                    $"true; capacity enforced at apply time; routeId={routeId}");
                 return true;
             }
 

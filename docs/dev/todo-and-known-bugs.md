@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - Logistics route status can drift mid-session after ERS-mutating paths
+
+- `RouteStore.RevalidateSources` is called canonically on `ParsekScenario.OnLoad` and after `SupersedeCommit.FlipMergeStateAndClearTransient`. But about a dozen other code paths bump `ParsekScenario.SupersedeStateVersion` (which invalidates ERS) without triggering route revalidation: `TreeDiscardPurge`, `RevertInterceptor`, `RecordingStore` direct mutators, `ReconciliationBundle`, `UnfinishedFlightSealHandler`, `UnfinishedFlightStashHandler`, `LoadTimeSweep`, `MergeJournalOrchestrator`, `MergeDialog`, `RewindInvoker`. After any of these run mid-session, a route's cached `Status` (UI-visible) may say `Active` while its source recording has actually been retired / superseded.
+
+**User-visible impact:** **Status-display drift only — no incorrect dispatches.** The dispatch path is defensively gated by `RouteDispatchEvaluator.EvaluateRoute` calling `env.RouteHasValidSourcesInErs(route)` (which queries the current ERS, not the cached status), so a stale-Active route in the UI will still hold in `WaitingForResources` (or skip silently) when the scheduler eval runs. The user-visible glitch is the status badge in the route panel: it shows the old status until the next save/load triggers `OnLoad` revalidation.
+
+**Fix shape (v0.x):** add `RouteStore.RevalidateSources("<source-name>")` calls at the bump sites that meaningfully retire route sources (subset of the ~12). Or: wrap `BumpSupersedeStateVersion` to fire a revalidation pass once per tick if any bumps happened.
+
+**Status:** Open — deferred from PR #875's final review (P2 noted; no merge blocker because dispatch is independently gated).
+
+---
+
 ## Open - Logistics scenario-lifecycle coverage relies on source-text gates
 
 - The route system has three `ParsekScenario` lifecycle hookups (`RouteStore.SaveRoutesTo`, `LoadRoutesFrom`, `RevalidateSources`) and they are pinned by `RouteStoreScenarioIntegrationTests.Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec`, which greps the source for the three literal strings. The pattern matches existing precedents (`ChainSaveLoadTests`, `GrepAuditTests`, `Bug278SnapshotPersistenceTests`, etc.) but only verifies presence, not surrounding state or order.
