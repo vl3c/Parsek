@@ -12,6 +12,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - Logistics scenario-lifecycle coverage relies on source-text gates
+
+- The route system has three `ParsekScenario` lifecycle hookups (`RouteStore.SaveRoutesTo`, `LoadRoutesFrom`, `RevalidateSources`) and they are pinned by `RouteStoreScenarioIntegrationTests.Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec`, which greps the source for the three literal strings. The pattern matches existing precedents (`ChainSaveLoadTests`, `GrepAuditTests`, `Bug278SnapshotPersistenceTests`, etc.) but only verifies presence, not surrounding state or order.
+- xUnit cannot drive `ParsekScenario.OnSave`/`OnLoad` end-to-end because both call `Planetarium.GetUniversalTime()` unguarded and the OnLoad path depends on `stateRecorder.Subscribe`, `SubscribeVesselLifecycleEvents` (Unity `GameEvents`), and `StartCoroutine` (Unity `MonoBehaviour`). No Unity-shim base class exists in `Source/Parsek.Tests/`.
+
+**Risk:** Scales linearly with hook count. As later items (item 4 route creation UI, item 5 dispatch scheduler) add more hooks, the gate-test count grows and ordering bugs become invisible.
+
+**Fix:** Deferred to a post-v0 infrastructure phase. Building a Unity test harness (stubbed `Planetarium.fetch` + minimal `GameEvents` event-bus mock + `MonoBehaviour` shim) affects every existing harness-touching test (about 120 files reference one of those types) and is not justified by route work alone — ideally tackled together with the in-flight logging audit.
+
+**Mitigation in the meantime:** When new hookups land in items 4-5, tighten the corresponding source-text gate to assert on an **ordered multi-string pattern** of the surrounding phase, not just presence. Example: gate for item 5's scheduler init should grep that `LoadRoutesFrom` precedes `RevalidateSources` precedes the scheduler init within the same load-phase block. `ChainSaveLoadTests` already has precedents for both presence-of and absence-of assertions.
+
+**Status:** OPEN. Filed 2026-05-16 alongside the items 1-3 blind-spot audit.
+
+---
+
 ## Open - Logistics route window dock-side baseline is post-couple
 
 - The `RouteConnectionWindow.DockTransportResources` / `DockEndpointResources` manifests captured in `ParsekFlight.CreateMergeBranch` come from the merged vessel's `mergedSnapshot` (built from the live merged vessel taken inside `onPartCouple`). By the time the snapshot is taken the parts are physically joined, so any same-frame stock crossfeed equalisation between transport and endpoint tanks of the same resource lands on the dock-side baseline, not the undock-side delta. The strict `RouteAnalysisEngine.HasMixedPickupDelivery` gate then sees `transportGain > 0` on a resource the player never intended to move and rejects the run as `MixedPickupDelivery`.
