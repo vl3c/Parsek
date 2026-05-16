@@ -101,14 +101,13 @@ namespace Parsek
 
         // Cached recording lookup by ID — refreshed on cache rebuild
         private Dictionary<string, Recording> recordingById;
-        private Dictionary<string, int> recordingIndexById;
         // [ERS-exempt] Watch button code path needs RAW CommittedRecordings
         // indices to feed ghost-engine APIs (HasActiveGhost, EnterWatchMode, …)
         // which are keyed on the raw committed list. ERS indices diverge from
-        // committed indices after a Re-Fly creates supersedes, so a second
-        // lookup is necessary to avoid silently disabling the W button (or,
-        // worse, watching the wrong recording). See cache-rebuild rationale
-        // below and the matching allowlist entry.
+        // committed indices after a Re-Fly creates supersedes, so this lookup
+        // exists to avoid silently disabling the W button (or, worse, watching
+        // the wrong recording). See cache-rebuild rationale below and the
+        // matching allowlist entry.
         private Dictionary<string, int> committedIndexById;
         private Dictionary<string, bool> rewindSaveExistsByRecordingId;
         private readonly Dictionary<string, bool> lastCanWatchByRecId = new Dictionary<string, bool>();
@@ -266,7 +265,6 @@ namespace Parsek
             filterDirty = true;
             cachedStatsText = null;
             recordingById = null;
-            recordingIndexById = null;
             committedIndexById = null;
             rewindSaveExistsByRecordingId = null;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
@@ -364,7 +362,6 @@ namespace Parsek
                 // navigation only resolves to visible recordings).
                 var recordings = EffectiveState.ComputeERS();
                 recordingById = new Dictionary<string, Recording>(recordings.Count);
-                recordingIndexById = BuildRecordingIndexLookup(recordings);
                 // [ERS-exempt] Watch button code path needs RAW CommittedRecordings
                 // positions: GhostPlaybackEngine.ghostStates and every
                 // WatchModeController API (HasActiveGhost / IsGhostOnSameBody /
@@ -1349,19 +1346,11 @@ namespace Parsek
             return rec;
         }
 
-        private int FindRecordingIndexById(string recordingId)
-        {
-            if (recordingIndexById == null || string.IsNullOrEmpty(recordingId))
-                return -1;
-            int index;
-            return recordingIndexById.TryGetValue(recordingId, out index) ? index : -1;
-        }
-
         // Resolves a recording id to its position in RecordingStore.CommittedRecordings.
-        // Use this — NOT FindRecordingIndexById — whenever the result is passed to a
-        // ghost-engine API (WatchModeController.* / GhostPlaybackEngine.ghostStates):
-        // those are keyed on the raw committed list, and ERS indices diverge from
-        // committed indices after a Re-Fly creates supersedes.
+        // This index is the one ghost-engine APIs expect (WatchModeController.* /
+        // GhostPlaybackEngine.ghostStates) because they are keyed on the raw committed
+        // list. ERS indices diverge from committed indices after a Re-Fly creates
+        // supersedes — never substitute one for the other.
         private int FindCommittedRecordingIndexById(string recordingId)
         {
             if (committedIndexById == null || string.IsNullOrEmpty(recordingId))
