@@ -64,9 +64,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Composes a player-facing phrase from <see cref="Reasons"/>.
+        /// Composes a player-facing sentence phrase from <see cref="Reasons"/>.
         /// Subject-free phrasing (e.g. "transmitted science and undocked")
-        /// for the dialog body's "for the following reason(s):" wrapping.
+        /// is kept for callers that need compact inline copy.
         ///
         /// <list type="bullet">
         ///   <item><description>0 reasons: returns null. Caller shows default copy.</description></item>

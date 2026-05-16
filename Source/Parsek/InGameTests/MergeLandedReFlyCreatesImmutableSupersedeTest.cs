@@ -66,10 +66,30 @@ namespace Parsek.InGameTests
                 "Expected at least one recording in the origin subtree closure before merge");
             int supersedeCountBefore = scenario.RecordingSupersedes?.Count ?? 0;
 
+            // Pre-rewind debris in the closure is intentionally excluded from
+            // the supersede write-set so it stays visible in the recordings
+            // table after commit (see SupersedeCommit.IsPreRewindDebris).
+            // The expected added-row count is the closure size minus that
+            // exclusion; the per-row Contains check below still uses the
+            // unfiltered closure (correct: every added row's OldRecordingId
+            // is a subset of the closure).
+            int expectedAdded = subtreeBefore.Count;
+            int preRewindDebrisInClosure = 0;
+            foreach (var id in subtreeBefore)
+            {
+                var rec = FindRecording(id);
+                if (rec != null && SupersedeCommit.IsPreRewindDebris(rec, marker))
+                {
+                    preRewindDebrisInClosure++;
+                    expectedAdded--;
+                }
+            }
+
             ParsekLog.Info("RewindTest",
                 $"MergeLandedReFlyCreatesImmutableSupersede: sess={marker.SessionId} " +
                 $"provisional={provisionalId} subtreeCount={subtreeBefore.Count} " +
-                $"supersedesBefore={supersedeCountBefore}");
+                $"preRewindDebrisInClosure={preRewindDebrisInClosure} " +
+                $"expectedAdded={expectedAdded} supersedesBefore={supersedeCountBefore}");
 
             // Simulate the merge button: invoke SupersedeCommit directly. In
             // production this runs inside MergeDialog.MergeCommit after
@@ -88,8 +108,9 @@ namespace Parsek.InGameTests
 
             int supersedeCountAfter = scenario.RecordingSupersedes.Count;
             int added = supersedeCountAfter - supersedeCountBefore;
-            InGameAssert.AreEqual(subtreeBefore.Count, added,
-                $"Expected {subtreeBefore.Count} new supersede relations; got {added}");
+            InGameAssert.AreEqual(expectedAdded, added,
+                $"Expected {expectedAdded} new supersede relations " +
+                $"(subtree={subtreeBefore.Count} − preRewindDebris={preRewindDebrisInClosure}); got {added}");
 
             // Every added relation must point at the provisional.
             for (int i = supersedeCountBefore; i < supersedeCountAfter; i++)

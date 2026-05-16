@@ -65,10 +65,28 @@ namespace Parsek.InGameTests
                 "Expected at least one recording in the origin subtree closure before merge");
             int supersedeCountBefore = scenario.RecordingSupersedes?.Count ?? 0;
 
+            // Pre-rewind debris in the closure is intentionally excluded from
+            // the supersede write-set so it stays visible in the recordings
+            // table after commit (see SupersedeCommit.IsPreRewindDebris).
+            // The expected added-row count is the closure size minus that
+            // exclusion.
+            int expectedAdded = subtreeBefore.Count;
+            int preRewindDebrisInClosure = 0;
+            foreach (var id in subtreeBefore)
+            {
+                var rec = FindRecording(id);
+                if (rec != null && SupersedeCommit.IsPreRewindDebris(rec, marker))
+                {
+                    preRewindDebrisInClosure++;
+                    expectedAdded--;
+                }
+            }
+
             ParsekLog.Info("RewindTest",
                 $"MergeCrashedReFlyCreatesCPSupersede: sess={marker.SessionId} " +
                 $"provisional={provisionalId} subtreeCount={subtreeBefore.Count} " +
-                $"supersedesBefore={supersedeCountBefore}");
+                $"preRewindDebrisInClosure={preRewindDebrisInClosure} " +
+                $"expectedAdded={expectedAdded} supersedesBefore={supersedeCountBefore}");
 
             SupersedeCommit.CommitSupersede(marker, provisional);
 
@@ -81,8 +99,9 @@ namespace Parsek.InGameTests
 
             int supersedeCountAfter = scenario.RecordingSupersedes.Count;
             int added = supersedeCountAfter - supersedeCountBefore;
-            InGameAssert.AreEqual(subtreeBefore.Count, added,
-                $"Expected {subtreeBefore.Count} new supersede relations; got {added}");
+            InGameAssert.AreEqual(expectedAdded, added,
+                $"Expected {expectedAdded} new supersede relations " +
+                $"(subtree={subtreeBefore.Count} − preRewindDebris={preRewindDebrisInClosure}); got {added}");
 
             // Provisional must still be visible (nothing supersedes it yet —
             // design §7.43 chain extension requires that the provisional

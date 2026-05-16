@@ -627,6 +627,23 @@ namespace Parsek
         /// </summary>
         internal static string MergeInto(Recording target, Recording absorbed)
         {
+            // Destroyed recordings carry a sealed terminal verdict — VesselDestroyed,
+            // TerminalStateValue=Destroyed, ExplicitEndUT=terminalUT, and cleared
+            // landed/orbital metadata (see Recording.MarkDestroyedAtTerminal). The
+            // unconditional ExplicitEndUT/ExplicitStartUT clear at the bottom of this
+            // method would break the seal, and the per-event/section concatenations
+            // would extend Recording.EndUT past the destruction UT. Skip the merge
+            // entirely — there is nothing to absorb into a sealed recording.
+            if (target != null && target.VesselDestroyed)
+            {
+                ParsekLog.VerboseRateLimited("Optimizer",
+                    $"merge-into-destroyed.{target.RecordingId}",
+                    $"MergeInto: skipping — target is already destroyed " +
+                    $"(target={target.RecordingId}, absorbed={absorbed?.RecordingId ?? "(null)"})",
+                    60.0);
+                return absorbed?.RecordingId;
+            }
+
             bool normalizeEvaBoundaryMerge = CanMergeContinuousEvaAtmoSurfaceBoundary(target, absorbed);
 
             // 1. Concatenate Points (already UT-ordered within each recording)
@@ -722,9 +739,10 @@ namespace Parsek
             target.ExplicitStartUT = double.NaN;
             target.ExplicitEndUT = double.NaN;
 
-            // 10. Controllers: keep target's if present, else inherit
+            // 10. Controllers: keep target's if present, else inherit (defensive
+            // copy to match every other Recording.Controllers propagation site).
             if (target.Controllers == null && absorbed.Controllers != null)
-                target.Controllers = absorbed.Controllers;
+                target.Controllers = new List<ControllerInfo>(absorbed.Controllers);
 
             // 11. AntennaSpecs: keep target's if present, else inherit
             if (target.AntennaSpecs == null && absorbed.AntennaSpecs != null)

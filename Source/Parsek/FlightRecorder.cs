@@ -979,6 +979,20 @@ namespace Parsek
         private Dictionary<string, InventoryItem> pendingStartInventory;
         private int pendingStartInventorySlots;
         private Dictionary<string, int> pendingStartCrew;
+        // Captured once at recording-start time. Forwarded to CaptureAtStop verbatim;
+        // never re-captured from the stop/remnant vessel, so a destructive breakup
+        // that leaves a 1-part decoupler cannot overwrite the recorded controllable
+        // identity used by the BG go-on-rails Destroyed override.
+        private List<ControllerInfo> pendingStartControllers;
+
+        /// <summary>
+        /// Read-only view of the controller identity captured at the most recent
+        /// <see cref="StartRecording"/> call. Used by
+        /// <see cref="ParsekFlight.FlushRecorderToTreeRecording"/> to forward the
+        /// identity onto the tree recording in case the always-tree root creation
+        /// fired before a live vessel was available.
+        /// </summary>
+        internal IReadOnlyList<ControllerInfo> StartControllers => pendingStartControllers;
         private double lastSnapshotRefreshUT = double.MinValue;
         private double lastFinalizationCacheRefreshUT = double.MinValue;
 
@@ -6276,6 +6290,26 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartInventory?.Count ?? 0} start inventory item type(s), {pendingStartInventorySlots} slot(s)");
             pendingStartCrew = VesselSpawner.ExtractCrewManifest(lastGoodVesselSnapshot);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartCrew?.Count ?? 0} start crew trait(s)");
+            pendingStartControllers = ControllerInfo.CaptureFromVessel(v);
+            ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartControllers?.Count ?? 0} start controller part(s)");
+            // Backstop: forward the just-captured identity onto the active tree
+            // recording if it doesn't already carry it. Covers the always-tree-root
+            // path (created with whatever vessel was active at the time of root
+            // creation, which may have been null) and the promotion path
+            // (preexisting tree rec from a legacy recording without Controllers).
+            // No-op when the tree rec was already populated at creation time.
+            if (ActiveTree != null
+                && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
+                && ActiveTree.Recordings != null
+                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out var treeRecForControllers)
+                && treeRecForControllers != null
+                && treeRecForControllers.AdoptControllersIfEmpty(pendingStartControllers))
+            {
+                treeRecForControllers.MarkFilesDirty();
+                ParsekLog.Verbose("Recorder",
+                    $"StartRecording: forwarded {pendingStartControllers.Count} controller part(s) " +
+                    $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+            }
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
                 : VesselSpawner.TryBackupSnapshot(v);
@@ -6651,6 +6685,14 @@ namespace Parsek
             capture.StartCrew = pendingStartCrew;
             capture.EndCrew = VesselSpawner.ExtractCrewManifest(capture.VesselSnapshot);
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndCrew?.Count ?? 0} end crew trait(s)");
+            // Forward the start-time controller identity. Never re-derive from the live
+            // stop/remnant vessel here: a destructive breakup leaves a 1-part decoupler
+            // with no command authority, and re-capturing would clobber the recorded
+            // controllable identity used by the BG go-on-rails Destroyed override.
+            capture.Controllers = pendingStartControllers != null
+                ? new List<ControllerInfo>(pendingStartControllers)
+                : null;
+            ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: forwarded {capture.Controllers?.Count ?? 0} start controller part(s)");
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);

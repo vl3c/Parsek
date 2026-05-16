@@ -12060,6 +12060,155 @@ namespace Parsek.InGameTests
                 $"after-double={rec.PartEvents.Count} events");
         }
 
+        // ======================= IdentityLossClassifier (BG go-on-rails destroyed override) =======================
+
+        [InGameTest(Category = "IdentityLoss", Scene = GameScenes.FLIGHT,
+            Description = "ControllerInfo.CaptureFromVessel returns entries for active vessel's command/EVA parts (KSP-runtime only)")]
+        public void CaptureFromVessel_ActiveVessel_ReturnsControllerEntries()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null || v.parts == null || v.parts.Count == 0)
+            {
+                InGameAssert.Skip("needs active vessel with parts");
+                return;
+            }
+
+            // Space objects (asteroids, comets) are trackable per IsTrackableVessel
+            // but carry no command/EVA/seat parts — CaptureFromVessel correctly returns
+            // an empty list for them. Skip; the assertion below is specifically about
+            // command-bearing/crewed/EVA vessels.
+            if (v.vesselType == VesselType.SpaceObject)
+            {
+                InGameAssert.Skip(
+                    $"active vessel '{v.vesselName}' is a SpaceObject — CaptureFromVessel " +
+                    $"is expected to return an empty list and there is no controller-presence " +
+                    $"assertion to verify here");
+                return;
+            }
+
+            var controllers = ControllerInfo.CaptureFromVessel(v);
+            InGameAssert.IsNotNull(controllers, "CaptureFromVessel returned null for live active vessel");
+
+            // Even non-SpaceObject focused vessels can legitimately have no controller
+            // parts (e.g. KSP allows focusing a Debris-typed remnant tank with no
+            // command/EVA/seat module). The controller-presence assertion below is
+            // specifically about vessels that ARE expected to carry controllable
+            // identity — if the active vessel has none, the captured empty list is
+            // the correct contract and there is nothing more to verify here.
+            if (controllers.Count == 0)
+            {
+                InGameAssert.Skip(
+                    $"active vessel '{v.vesselName}' (vesselType={v.vesselType}) has no " +
+                    $"controller-bearing parts — CaptureFromVessel correctly returned an empty list; " +
+                    $"controller-presence assertions do not apply");
+                return;
+            }
+
+            var validTypes = new HashSet<string> { "CrewedPod", "ExternalSeat", "ProbeCore", "KerbalEVA" };
+            foreach (var ctrl in controllers)
+            {
+                InGameAssert.IsTrue(ctrl.partPersistentId != 0u,
+                    $"Controller pid should not be zero: {ctrl}");
+                InGameAssert.IsTrue(validTypes.Contains(ctrl.type),
+                    $"Unknown controller type '{ctrl.type}' (expected one of: {string.Join(", ", validTypes)})");
+                // Every captured pid must correspond to a live part on the vessel.
+                bool foundOnVessel = false;
+                foreach (var p in v.parts)
+                {
+                    if (p != null && p.persistentId == ctrl.partPersistentId)
+                    {
+                        foundOnVessel = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(foundOnVessel,
+                    $"Captured controller pid={ctrl.partPersistentId} not found on vessel parts");
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"CaptureFromVessel captured {controllers.Count} controller(s) on '{v.vesselName}' ({v.parts.Count} parts)");
+        }
+
+        [InGameTest(Category = "IdentityLoss", Scene = GameScenes.FLIGHT,
+            Description = "ControllerInfo.CaptureFromVessel returns empty list for SpaceObject vessels (asteroids/comets)")]
+        public void CaptureFromVessel_SpaceObject_ReturnsEmptyList()
+        {
+            // Find a SpaceObject in the scene (active or background). If none exist,
+            // skip — the test is here to pin the SpaceObject contract, not to require
+            // an asteroid in every test run.
+            Vessel spaceObject = null;
+            if (FlightGlobals.Vessels != null)
+            {
+                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                {
+                    var candidate = FlightGlobals.Vessels[i];
+                    if (candidate != null && candidate.vesselType == VesselType.SpaceObject)
+                    {
+                        spaceObject = candidate;
+                        break;
+                    }
+                }
+            }
+            if (spaceObject == null)
+            {
+                InGameAssert.Skip("no SpaceObject vessel in scene — test pins the contract for when one is present");
+                return;
+            }
+
+            var controllers = ControllerInfo.CaptureFromVessel(spaceObject);
+            InGameAssert.IsNotNull(controllers,
+                $"CaptureFromVessel returned null for SpaceObject '{spaceObject.vesselName}' — expected empty list");
+            InGameAssert.AreEqual(0, controllers.Count,
+                $"SpaceObject '{spaceObject.vesselName}' should produce zero controllers (no ModuleCommand/EVA/seat), got {controllers.Count}");
+
+            // The downstream identity-loss predicate must also stay forward-only on
+            // SpaceObjects: an empty controller list means no recorded identity to lose.
+            bool identityLost = IdentityLossClassifier.IsRecordedIdentityLost(
+                new Recording { Controllers = controllers, IsDebris = false },
+                spaceObject);
+            InGameAssert.IsFalse(identityLost,
+                "Identity-loss override must not fire for SpaceObject with empty captured controllers");
+
+            ParsekLog.Verbose("TestRunner",
+                $"CaptureFromVessel correctly returned empty list for SpaceObject '{spaceObject.vesselName}'");
+        }
+
+        [InGameTest(Category = "IdentityLoss", Scene = GameScenes.FLIGHT,
+            Description = "IsRecordedIdentityLost returns false when live remnant is trackable (controlled active vessel)")]
+        public void IsRecordedIdentityLost_TrackableLiveVessel_ReturnsFalse()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null || v.parts == null || v.parts.Count == 0)
+            {
+                InGameAssert.Skip("needs active vessel with parts");
+                return;
+            }
+            // Verify the assumption: the active vessel is trackable.
+            if (!ParsekFlight.IsTrackableVessel(v))
+            {
+                InGameAssert.Skip("active vessel is not trackable (no command/EVA/SpaceObject) — test precondition unmet");
+                return;
+            }
+
+            // Synthesize a Recording whose "recorded" controller PIDs deliberately
+            // do NOT match any live part. Even with no matching controllers, the
+            // override must not fire because the live vessel is trackable in its
+            // own right.
+            var rec = new Recording
+            {
+                RecordingId = "test-identity-loss-trackable",
+                IsDebris = false,
+                Controllers = new List<ControllerInfo>
+                {
+                    new ControllerInfo { type = "ProbeCore", partName = "fake", partPersistentId = 99999999u }
+                }
+            };
+
+            bool lost = IdentityLossClassifier.IsRecordedIdentityLost(rec, v);
+            InGameAssert.IsFalse(lost,
+                $"IsRecordedIdentityLost must return false for trackable live vessel '{v.vesselName}' even with no matching controller pids");
+        }
+
         [InGameTest(Category = "PartEventTiming", Scene = GameScenes.FLIGHT,
             Description = "Light part events flip ghost lights exactly at their authored UT boundaries")]
         public void PartEventTiming_LightToggle_AppliesAtEventUt()

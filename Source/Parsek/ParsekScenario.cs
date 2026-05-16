@@ -1017,6 +1017,7 @@ namespace Parsek
             int activeSavedCount = 0;
             int activeSaveFailedCount = 0;
             int activeSkippedDegradedCount = 0;
+            int activeSkippedCommittedRestoreOverlapCount = 0;
             bool activeFilesCurrent = true;
             foreach (var rec in activeTree.Recordings.Values)
             {
@@ -1024,6 +1025,18 @@ namespace Parsek
                 if (wasDirty)
                 {
                     activeDirtyCount++;
+                    if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId))
+                    {
+                        activeSkippedCommittedRestoreOverlapCount++;
+                        ParsekLog.Warn("Scenario",
+                            $"SaveActiveTreeIfAny: skipped dirty sidecar save for committed-restore overlap " +
+                            $"recording '{rec.RecordingId ?? "<no-id>"}' in active tree '{activeTree.TreeName}' " +
+                            "to avoid mutating committed history before merge consent");
+                        activeFilesCurrent = false;
+                        activeRecCount++;
+                        continue;
+                    }
+
                     if (ShouldSkipActiveTreeEmptySidecarOverwrite(rec))
                     {
                         activeSkippedDegradedCount++;
@@ -1051,7 +1064,8 @@ namespace Parsek
             ParsekLog.Info("Scenario",
                 $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
                 $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed, " +
-                $"{activeSkippedDegradedCount} skippedDegraded");
+                $"{activeSkippedDegradedCount} skippedDegraded, " +
+                $"{activeSkippedCommittedRestoreOverlapCount} skippedCommittedRestoreOverlap");
 
             if (!activeFilesCurrent)
             {
@@ -1116,9 +1130,24 @@ namespace Parsek
 
             // Flush any uncaptured game state events into a milestone before saving.
             // Handles events that happened without a recording commit (e.g. tech
-            // research in R&D without launching a flight).
-            ParsekLog.Verbose("Scenario", $"OnSave: flushing pending events at UT {Planetarium.GetUniversalTime():F0}");
-            MilestoneStore.FlushPendingEvents(Planetarium.GetUniversalTime());
+            // research in R&D without launching a flight). A committed-tree restore
+            // attempt is special: same recording IDs are being reused by an unmerged
+            // active clone. The event file save above filters those same-id attempt
+            // tails from disk, but flushing a milestone here would make them durable
+            // through milestones and advance the watermark before the player chooses
+            // Merge. Defer the flush; the normal commit path will create the milestone
+            // if the player accepts the segment.
+            if (ShouldDeferPendingEventMilestoneFlushForSave())
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnSave: deferred pending event milestone flush while a committed-tree " +
+                    "restore attempt is active; unmerged same-id attempt events remain memory-only");
+            }
+            else
+            {
+                ParsekLog.Verbose("Scenario", $"OnSave: flushing pending events at UT {Planetarium.GetUniversalTime():F0}");
+                MilestoneStore.FlushPendingEvents(Planetarium.GetUniversalTime());
+            }
 
             // Save milestones to external file + mutable state to .sfs
             MilestoneStore.SaveMilestoneFile();
@@ -1128,6 +1157,11 @@ namespace Parsek
             LedgerOrchestrator.OnSave();
             ParsekLog.Verbose("Scenario",
                 $"OnSave: wrote external game-state files (events={GameStateStore.EventCount}, milestones={MilestoneStore.MilestoneCount})");
+        }
+
+        internal static bool ShouldDeferPendingEventMilestoneFlushForSave()
+        {
+            return RecordingStore.HasCommittedTreeRestoreAttempt;
         }
 
         /// <summary>

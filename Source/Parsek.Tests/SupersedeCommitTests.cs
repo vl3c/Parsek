@@ -2987,5 +2987,387 @@ namespace Parsek.Tests
             Assert.True(SupersedeCommit.ValidateSupersedeTarget(rec, out reason));
             Assert.Null(reason);
         }
+
+        // ---------- Pre-rewind debris write-set filter -----------------------
+        //
+        // Bug repro: `logs/2026-05-15_2342_refly-debris-disappeared`. The user
+        // re-flew the upper stage of a multi-stage launch. The closure walk
+        // pulled in 6 debris recordings that physically separated BEFORE the
+        // rewind point (StartUT 23.66–25.12, RP.UT ≈ 29.42) and 2 that
+        // separated DURING the in-place re-fly. All 8 received supersede rows
+        // at commit, hiding the 6 pre-rewind ones from the recordings UI even
+        // though they are independent vessel histories the re-fly did not redo.
+        //
+        // Fix: `EnqueueDebrisChildren` closure inclusion stays as-is (so
+        // PR #858 render carve-out + PR #860 watch/map-presence scoping keep
+        // their behavior during active sessions), but `AppendRelations` now
+        // filters its write-set by `IsPreRewindDebris(rec, marker)` and
+        // returns the filtered subtree so `CommitTombstones` restricts
+        // ledger tombstone scope to the same set.
+
+        // Wrapper around AppendRelations so the per-test boilerplate stays
+        // small: installs a tree with origin + debris children, adds a
+        // provisional, installs a marker with the requested cutoff fields,
+        // and returns the (scenario, subtree-returned-by-AppendRelations).
+        private (ParsekScenario, IReadOnlyCollection<string>) RunAppendForDebrisFixture(
+            double rewindPointUT, double invokedUT,
+            params (string id, bool isDebris, double startUT, string parent)[] debrisRows)
+        {
+            const string treeId = "tree_prdb";
+            const string originId = "rec_origin_prdb";
+            const string provisionalId = "rec_prov_prdb";
+
+            var origin = Rec(originId, treeId,
+                childBranchPointId: "bp_origin_child",
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            origin.ExplicitStartUT = 0.0;
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            var recordings = new List<Recording> { origin };
+            var bps = new List<BranchPoint>
+            {
+                // Single shared Breakup BP keeps the test minimal; debris
+                // each point at it via ParentBranchPointId so the closure
+                // walk's EnqueueDebrisChildren admits them.
+                Bp("bp_origin_child", BranchPointType.Breakup,
+                    parents: new List<string> { originId },
+                    children: debrisRows
+                        .Where(r => r.parent == originId)
+                        .Select(r => r.id).ToList()),
+            };
+            foreach (var row in debrisRows)
+            {
+                var rec = Rec(row.id, treeId,
+                    parentBranchPointId: "bp_origin_child",
+                    state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+                rec.ExplicitStartUT = row.startUT;
+                rec.IsDebris = row.isDebris;
+                if (row.isDebris) rec.DebrisParentRecordingId = row.parent;
+                recordings.Add(rec);
+            }
+            InstallTree(treeId, recordings, bps);
+
+            var provisional = AddProvisional(provisionalId, treeId,
+                TerminalState.Landed, supersedeTargetId: originId);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_prdb",
+                TreeId = treeId,
+                ActiveReFlyRecordingId = provisionalId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                RewindPointId = "rp_prdb",
+                InvokedUT = invokedUT,
+                RewindPointUT = rewindPointUT,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var scenario = InstallScenario(marker);
+
+            var subtree = SupersedeCommit.AppendRelations(marker, provisional, scenario);
+            return (scenario, subtree);
+        }
+
+        [Fact]
+        public void AppendRelations_PreRewindDebris_NoSupersedeRow_NotInReturnedSubtree()
+        {
+            // Single pre-rewind debris: gets no supersede row and is dropped
+            // from the returned subtree so downstream CommitTombstones leaves
+            // its attributed ledger actions alone.
+            var (scenario, subtree) = RunAppendForDebrisFixture(
+                rewindPointUT: 29.42, invokedUT: 29.42,
+                ("rec_debris_pre", true, 23.66, "rec_origin_prdb"));
+
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_pre");
+            // Origin itself still gets a row.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin_prdb");
+            Assert.Contains("rec_origin_prdb", subtree);
+            Assert.DoesNotContain("rec_debris_pre", subtree);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip pre-rewind debris")
+                && l.Contains("old=rec_debris_pre"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("skippedPreRewindDebris=1"));
+        }
+
+        [Fact]
+        public void AppendRelations_PostRewindDebris_RowWritten()
+        {
+            // Post-rewind debris (StartUT >= cutoff) is still in the
+            // write-set and the returned subtree.
+            var (scenario, subtree) = RunAppendForDebrisFixture(
+                rewindPointUT: 29.42, invokedUT: 29.42,
+                ("rec_debris_post", true, 34.10, "rec_origin_prdb"));
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_post");
+            Assert.Contains("rec_debris_post", subtree);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("skippedPreRewindDebris=0"));
+        }
+
+        [Fact]
+        public void AppendRelations_DebrisAtRewindPointUtBoundary_RowWritten()
+        {
+            // Boundary case: StartUT exactly at the cutoff
+            // (RewindPointUT - PidPeerStartUtEpsilonSeconds = 29.42 - 0.05).
+            // The gate is strict `<`, so this debris is admitted (it
+            // separated at-or-after the epsilon-tolerated rewind moment).
+            const double rp = 29.42;
+            var (scenario, _) = RunAppendForDebrisFixture(
+                rewindPointUT: rp, invokedUT: rp,
+                ("rec_debris_boundary", true, rp - 0.05, "rec_origin_prdb"));
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_boundary");
+        }
+
+        [Fact]
+        public void AppendRelations_MixedPreAndPostRewind_OnlyPostRowsWritten()
+        {
+            // The user's repro: 6 pre-rewind debris (StartUT 23.66–25.12) +
+            // 2 post-rewind debris (StartUT 34.10, 37.14) + origin. Pre-rewind
+            // debris stays out of the supersede write-set and out of the
+            // returned subtree; the 2 post-rewind debris and the origin are
+            // each superseded; the summary log reports skippedPreRewindDebris=6.
+            var (scenario, subtree) = RunAppendForDebrisFixture(
+                rewindPointUT: 29.42, invokedUT: 29.42,
+                ("rec_debris_pre_1", true, 23.66, "rec_origin_prdb"),
+                ("rec_debris_pre_2", true, 23.66, "rec_origin_prdb"),
+                ("rec_debris_pre_3", true, 24.36, "rec_origin_prdb"),
+                ("rec_debris_pre_4", true, 24.36, "rec_origin_prdb"),
+                ("rec_debris_pre_5", true, 25.12, "rec_origin_prdb"),
+                ("rec_debris_pre_6", true, 25.12, "rec_origin_prdb"),
+                ("rec_debris_post_1", true, 34.10, "rec_origin_prdb"),
+                ("rec_debris_post_2", true, 37.14, "rec_origin_prdb"));
+
+            // Rows: 2 post-rewind debris + 1 origin = 3.
+            Assert.Equal(3, scenario.RecordingSupersedes.Count);
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_origin_prdb");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_post_1");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_post_2");
+            for (int i = 1; i <= 6; i++)
+                Assert.DoesNotContain(scenario.RecordingSupersedes,
+                    r => r.OldRecordingId == $"rec_debris_pre_{i}");
+
+            // Returned subtree (consumed by CommitTombstones) drops pre-rewind
+            // debris but keeps post-rewind debris + origin.
+            Assert.Contains("rec_origin_prdb", subtree);
+            Assert.Contains("rec_debris_post_1", subtree);
+            Assert.Contains("rec_debris_post_2", subtree);
+            for (int i = 1; i <= 6; i++)
+                Assert.DoesNotContain($"rec_debris_pre_{i}", subtree);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("skippedPreRewindDebris=6"));
+        }
+
+        [Fact]
+        public void AppendRelations_NaNRewindPointUT_FallsBackToInvokedUT()
+        {
+            // Legacy marker pattern: RewindPointUT is NaN (field default).
+            // The cutoff falls back to InvokedUT - eps, matching the
+            // EnqueuePidPeerSiblings cutoff and giving us the same
+            // pre-rewind exclusion behavior for legacy sessions.
+            var (scenario, subtree) = RunAppendForDebrisFixture(
+                rewindPointUT: double.NaN, invokedUT: 29.42,
+                ("rec_debris_pre", true, 20.0, "rec_origin_prdb"),
+                ("rec_debris_post", true, 35.0, "rec_origin_prdb"));
+
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_pre");
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_post");
+            Assert.DoesNotContain("rec_debris_pre", subtree);
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-1.0)]
+        public void AppendRelations_NonPositiveRewindPointUT_FallsBackToInvokedUT(double rp)
+        {
+            // Defensive: zero / negative RewindPointUT is treated as unset
+            // (same convention as ShouldRenderSuppressedCompanionDebris and
+            // documented on the ReFlySessionMarker.RewindPointUT field).
+            // The cutoff falls back to InvokedUT - eps.
+            var (scenario, _) = RunAppendForDebrisFixture(
+                rewindPointUT: rp, invokedUT: 29.42,
+                ("rec_debris_pre", true, 20.0, "rec_origin_prdb"));
+
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_pre");
+        }
+
+        [Fact]
+        public void AppendRelations_BothCutoffsUnset_NoFilteringApplied()
+        {
+            // No usable cutoff: ComputePreRewindCutoff returns NaN and
+            // IsPreRewindDebris fails open. Pre-fix behavior (every debris
+            // gets a row) is preserved so a half-populated marker doesn't
+            // silently hide debris.
+            var (scenario, subtree) = RunAppendForDebrisFixture(
+                rewindPointUT: double.NaN, invokedUT: 0.0,
+                ("rec_debris_old", true, 20.0, "rec_origin_prdb"));
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_debris_old");
+            Assert.Contains("rec_debris_old", subtree);
+        }
+
+        [Fact]
+        public void AppendRelations_NonDebrisRecording_NeverFilteredByPreRewindGate()
+        {
+            // A non-debris recording with StartUT well before the cutoff
+            // still gets a supersede row — IsPreRewindDebris is scoped to
+            // debris only. The chain-sibling / pid-peer / BP closure paths
+            // own non-debris pre-rewind handling.
+            var (scenario, _) = RunAppendForDebrisFixture(
+                rewindPointUT: 29.42, invokedUT: 29.42,
+                ("rec_child", false, 10.0, "rec_origin_prdb"));
+
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_child");
+        }
+
+        [Fact]
+        public void IsPreRewindDebris_DebrisWithoutDebrisParentRecordingId_ReturnsFalse()
+        {
+            // Legacy v11 debris loaded without DebrisParentRecordingId has
+            // no v12 ownership link. The closure walk's
+            // EnqueueDebrisChildren refuses to admit such rows in the first
+            // place, but if some other path put it in the closure, the
+            // IsPreRewindDebris gate keeps its defensive parent-required
+            // guard so it follows the unfiltered legacy path.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 29.42,
+                InvokedUT = 29.42,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var legacyDebris = new Recording
+            {
+                RecordingId = "rec_legacy",
+                IsDebris = true,
+                // DebrisParentRecordingId intentionally null
+                ExplicitStartUT = 10.0,
+            };
+            Assert.False(SupersedeCommit.IsPreRewindDebris(legacyDebris, marker));
+        }
+
+        [Fact]
+        public void IsPreRewindDebris_NullInputs_ReturnFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 29.42,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var rec = new Recording
+            {
+                RecordingId = "rec_d",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_parent",
+                ExplicitStartUT = 10.0,
+            };
+
+            Assert.False(SupersedeCommit.IsPreRewindDebris(null, marker));
+            Assert.False(SupersedeCommit.IsPreRewindDebris(rec, null));
+            Assert.False(SupersedeCommit.IsPreRewindDebris(null, null));
+        }
+
+        [Theory]
+        [InlineData(29.42, double.NaN, 29.37)]  // RewindPointUT path
+        [InlineData(double.NaN, 29.42, 29.37)]  // InvokedUT fallback
+        [InlineData(29.42, 50.0, 29.37)]        // RewindPointUT wins when both set
+        public void ComputePreRewindCutoff_ResolvesExpectedField(
+            double rp, double invoked, double expected)
+        {
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = rp,
+                InvokedUT = invoked,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            double actual = SupersedeCommit.ComputePreRewindCutoff(marker);
+            Assert.Equal(expected, actual, 10);
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 0.0)]    // both unset
+        [InlineData(0.0, double.NaN)]    // both unset (zero rp)
+        [InlineData(-1.0, -1.0)]         // both negative
+        public void ComputePreRewindCutoff_NoUsableField_ReturnsNaN(
+            double rp, double invoked)
+        {
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = rp,
+                InvokedUT = invoked,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            Assert.True(double.IsNaN(SupersedeCommit.ComputePreRewindCutoff(marker)));
+        }
+
+        [Fact]
+        public void ComputePreRewindCutoff_NullMarker_ReturnsNaN()
+        {
+            Assert.True(double.IsNaN(SupersedeCommit.ComputePreRewindCutoff(null)));
+        }
+
+        [Fact]
+        public void AppendRelationsReturnValue_FilteredSubtreeExcludesPreRewindDebrisFromTombstoneScope()
+        {
+            // The user-visible secondary effect: AppendRelations's return
+            // value flows directly into CommitTombstones as the subtree set
+            // (see CommitSupersede.cs:96 / MergeJournalOrchestrator.cs:208).
+            // TombstoneAttributionHelper.InSupersedeScope checks
+            // action.RecordingId membership in that set, so any ledger
+            // action attributed to a pre-rewind debris will be left alone
+            // automatically once the returned subtree excludes the debris
+            // id. Without this filter, a pre-rewind kerbal death would be
+            // undone at commit even though the debris recording stays
+            // visible after this fix — internally inconsistent state.
+            var (_, subtree) = RunAppendForDebrisFixture(
+                rewindPointUT: 29.42, invokedUT: 29.42,
+                ("rec_debris_pre", true, 23.66, "rec_origin_prdb"),
+                ("rec_debris_post", true, 35.0, "rec_origin_prdb"));
+
+            var subtreeSet = new HashSet<string>(subtree, StringComparer.Ordinal);
+
+            var preRewindAction = new GameAction
+            {
+                ActionId = "act_prdb_pre",
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec_debris_pre",
+                UT = 24.0,
+                KerbalEndStateField = KerbalEndState.Dead,
+            };
+            var postRewindAction = new GameAction
+            {
+                ActionId = "act_prdb_post",
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec_debris_post",
+                UT = 36.0,
+                KerbalEndStateField = KerbalEndState.Dead,
+            };
+
+            Assert.False(TombstoneAttributionHelper.InSupersedeScope(
+                preRewindAction, subtreeSet),
+                "Pre-rewind debris action must drop out of tombstone scope.");
+            Assert.True(TombstoneAttributionHelper.InSupersedeScope(
+                postRewindAction, subtreeSet),
+                "Post-rewind debris action must remain in tombstone scope.");
+        }
     }
 }
