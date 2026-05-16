@@ -3909,31 +3909,12 @@ namespace Parsek
                 target.DockTargetVesselPid = source.DockTargetVesselPid;
                 changed = true;
             }
-            if (source.TransferTargetVesselPid != 0)
-            {
-                target.TransferTargetVesselPid = source.TransferTargetVesselPid;
-                changed = true;
-            }
-            if (source.TransferKind != RouteConnectionKind.None)
-            {
-                target.TransferKind = source.TransferKind;
-                changed = true;
-            }
 
-            if (target.RouteOriginProof == null && source.RouteOriginProof != null)
-            {
-                target.RouteOriginProof = source.RouteOriginProof.DeepClone();
-                changed = true;
-            }
-            if (source.RouteConnectionWindows != null && source.RouteConnectionWindows.Count > 0)
-            {
-                if (target.RouteConnectionWindows == null)
-                    target.RouteConnectionWindows = new List<RouteConnectionWindow>();
-
-                for (int i = 0; i < source.RouteConnectionWindows.Count; i++)
-                    UpsertRouteConnectionWindow(target.RouteConnectionWindows, source.RouteConnectionWindows[i]);
-                changed = true;
-            }
+            // Route-window/origin-proof/transfer fields are NOT forwarded here.
+            // FlightRecorder.BuildCaptureRecording does not populate them, and dock
+            // route windows are written directly onto the merged child in
+            // CreateMergeBranch. A future capture-side producer would extend this
+            // helper, not callers.
 
             if (changed)
             {
@@ -3942,7 +3923,7 @@ namespace Parsek
                     $"target={target.RecordingId ?? "<none>"} source={source.RecordingId ?? "<none>"} " +
                     $"startRes={(target.StartResources?.Count ?? 0)} endRes={(target.EndResources?.Count ?? 0)} " +
                     $"startInv={(target.StartInventory?.Count ?? 0)} endInv={(target.EndInventory?.Count ?? 0)} " +
-                    $"windows={(target.RouteConnectionWindows?.Count ?? 0)} targetPid={target.TransferTargetVesselPid}");
+                    $"dockTargetPid={target.DockTargetVesselPid}");
             }
 
             return changed;
@@ -3951,29 +3932,6 @@ namespace Parsek
         private static bool HasEntries<TKey, TValue>(Dictionary<TKey, TValue> dict)
         {
             return dict != null && dict.Count > 0;
-        }
-
-        private static void UpsertRouteConnectionWindow(
-            List<RouteConnectionWindow> target,
-            RouteConnectionWindow source)
-        {
-            if (target == null || source == null)
-                return;
-
-            RouteConnectionWindow clone = source.DeepClone();
-            if (!string.IsNullOrEmpty(clone.WindowId))
-            {
-                for (int i = 0; i < target.Count; i++)
-                {
-                    if (target[i] != null && target[i].WindowId == clone.WindowId)
-                    {
-                        target[i] = clone;
-                        return;
-                    }
-                }
-            }
-
-            target.Add(clone);
         }
 
         /// <summary>
@@ -4478,9 +4436,12 @@ namespace Parsek
             uint mergedVesselPid,
             uint absorbedVesselPid)
         {
-            // On stock dock merge events, the surviving vessel PID is the dock target.
-            // Runtime coverage must verify both active-as-target and active-as-initiator
-            // paths before route creation consumes this as endpoint proof.
+            // Returns the docking partner's persistentId -- the OTHER vessel from the
+            // active recording's point of view. When the active recording survived as
+            // the dock target (active.pid == mergedVesselPid), the partner is the
+            // absorbed vessel; when the active recording was absorbed, the partner is
+            // the surviving merged vessel. Runtime coverage must verify both paths
+            // before route creation consumes this as endpoint proof.
             return activeWasDockTarget ? absorbedVesselPid : mergedVesselPid;
         }
 

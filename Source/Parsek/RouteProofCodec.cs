@@ -441,7 +441,14 @@ namespace Parsek
                 return null;
 
             ConfigNode storedPartNode = snapshotNode.GetNode(StockStoredPartNode);
-            ConfigNode result = (storedPartNode ?? snapshotNode).CreateCopy();
+            if (storedPartNode == null)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"DeserializeStoredPartSnapshot: missing inner {StockStoredPartNode} node " +
+                    $"under {snapshotNode.name ?? "<unnamed>"}; dropping payload snapshot");
+                return null;
+            }
+            ConfigNode result = storedPartNode.CreateCopy();
             result.name = StockStoredPartNode;
             return result;
         }

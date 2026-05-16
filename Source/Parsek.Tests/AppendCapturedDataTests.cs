@@ -242,6 +242,10 @@ namespace Parsek.Tests
         [Fact]
         public void LogisticsMetadata_CopiedFromCapture()
         {
+            // CaptureAtStop carries the Phase 11 manifest fields (resources/inventory/crew)
+            // plus DockTargetVesselPid. Route-window / origin-proof / transfer fields are
+            // written directly onto the merged child in CreateMergeBranch and must not flow
+            // through this helper -- BuildCaptureRecording never populates them.
             var target = new Recording();
             var source = new Recording
             {
@@ -266,13 +270,40 @@ namespace Parsek.Tests
                 EndInventorySlots = 4,
                 StartCrew = new Dictionary<string, int> { ["Pilot"] = 1 },
                 EndCrew = new Dictionary<string, int> { ["Pilot"] = 1 },
-                DockTargetVesselPid = 123,
+                DockTargetVesselPid = 123
+            };
+
+            ParsekFlight.AppendCapturedDataToRecording(target, source, 30.0);
+
+            Assert.Equal(3600.0, target.StartResources["LiquidFuel"].amount);
+            Assert.Equal(200.0, target.EndResources["LiquidFuel"].amount);
+            Assert.Equal(2, target.StartInventory["evaJetpack"].count);
+            Assert.Equal(1, target.EndInventory["evaJetpack"].count);
+            Assert.Equal(4, target.StartInventorySlots);
+            Assert.Equal(4, target.EndInventorySlots);
+            Assert.Equal(1, target.StartCrew["Pilot"]);
+            Assert.Equal(1, target.EndCrew["Pilot"]);
+            Assert.Equal(123u, target.DockTargetVesselPid);
+
+            source.StartResources["LiquidFuel"] =
+                new ResourceAmount { amount = 1.0, maxAmount = 1.0 };
+
+            Assert.Equal(3600.0, target.StartResources["LiquidFuel"].amount);
+        }
+
+        [Fact]
+        public void LogisticsMetadata_RouteFieldsOnSourceAreIgnored()
+        {
+            // Guard against the dead-branch reintroduction: even if a Recording somehow
+            // carries route-window / origin-proof / transfer fields, the manifest-copy
+            // helper must not forward them. Route metadata flows through CreateMergeBranch.
+            var target = new Recording();
+            var source = new Recording
+            {
+                RecordingId = "source-route-fields",
                 TransferTargetVesselPid = 456,
                 TransferKind = RouteConnectionKind.DockingPort,
-                RouteOriginProof = new RouteOriginProof
-                {
-                    StartDockedOriginVesselPid = 789
-                },
+                RouteOriginProof = new RouteOriginProof { StartDockedOriginVesselPid = 789 },
                 RouteConnectionWindows = new List<RouteConnectionWindow>
                 {
                     new RouteConnectionWindow
@@ -287,30 +318,10 @@ namespace Parsek.Tests
 
             ParsekFlight.AppendCapturedDataToRecording(target, source, 30.0);
 
-            Assert.Equal(3600.0, target.StartResources["LiquidFuel"].amount);
-            Assert.Equal(200.0, target.EndResources["LiquidFuel"].amount);
-            Assert.Equal(2, target.StartInventory["evaJetpack"].count);
-            Assert.Equal(1, target.EndInventory["evaJetpack"].count);
-            Assert.Equal(4, target.StartInventorySlots);
-            Assert.Equal(4, target.EndInventorySlots);
-            Assert.Equal(1, target.StartCrew["Pilot"]);
-            Assert.Equal(1, target.EndCrew["Pilot"]);
-            Assert.Equal(123u, target.DockTargetVesselPid);
-            Assert.Equal(456u, target.TransferTargetVesselPid);
-            Assert.Equal(RouteConnectionKind.DockingPort, target.TransferKind);
-            Assert.Equal(789u, target.RouteOriginProof.StartDockedOriginVesselPid);
-            Assert.Single(target.RouteConnectionWindows);
-
-            ParsekFlight.ApplyCapturedLogisticsMetadataToRecording(target, source, "repeat");
-            Assert.Single(target.RouteConnectionWindows);
-
-            source.StartResources["LiquidFuel"] =
-                new ResourceAmount { amount = 1.0, maxAmount = 1.0 };
-            source.RouteConnectionWindows[0].TransportPartPersistentIds.Add(99);
-
-            Assert.Equal(3600.0, target.StartResources["LiquidFuel"].amount);
-            Assert.Equal(new List<uint> { 1u, 2u },
-                target.RouteConnectionWindows[0].TransportPartPersistentIds);
+            Assert.Equal(0u, target.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.None, target.TransferKind);
+            Assert.Null(target.RouteOriginProof);
+            Assert.Null(target.RouteConnectionWindows);
         }
 
         [Fact]
