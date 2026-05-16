@@ -800,6 +800,25 @@ namespace Parsek
 
             // Step 2.8: TrackSection anchor rewrites.
             // TIP-side first.
+            //
+            // Pass 6 review L1 — dead-code investigation: this branch rewrites
+            // Relative TrackSections in TIP whose anchorRecordingId points at
+            // origin.RecordingId (= HEAD's id). Semantically that's a section
+            // self-anchored to its own (post-split: HEAD's) recording. It's
+            // unclear whether the recorder ever produces self-anchored
+            // sections — the anchor contract is typically "anchored to a
+            // DIFFERENT vessel's recording" (loop anchors, parent-anchored
+            // debris). The 2026-05-16 playtest's real Re-Fly showed
+            // `tipSections=0` in the Step8 summary, suggesting this branch
+            // didn't fire for that session.
+            //
+            // Added a per-rewrite Verbose log naming the section so future
+            // sessions surface whether this path is ever exercised. If
+            // operators search KSP.log for "TipAnchorRewrite: self-anchored"
+            // across multiple Re-Flys and the count stays at zero, the branch
+            // can be removed in a follow-up cleanup. Until then, the rewrite
+            // is harmless and self-anchor-to-TIP is at worst a no-op for the
+            // section's relative-frame resolution.
             if (tip.TrackSections != null)
             {
                 for (int i = 0; i < tip.TrackSections.Count; i++)
@@ -814,6 +833,14 @@ namespace Parsek
                         s.anchorRecordingId = tip.RecordingId;
                         tip.TrackSections[i] = s;
                         result.TipAnchorRewrites++;
+                        ParsekLog.Verbose(Tag,
+                            $"TipAnchorRewrite: self-anchored Relative section " +
+                            $"sectionIndex={i.ToString(ic)} " +
+                            $"startUT={s.startUT.ToString("F2", ic)} " +
+                            $"endUT={s.endUT.ToString("F2", ic)} " +
+                            $"origin={origin.RecordingId} -> tip={tip.RecordingId} " +
+                            "(L1 dead-code investigation marker — file an issue " +
+                            "if you see this; the branch may be removable)");
                     }
                 }
             }
