@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek.Logistics;
 
 namespace Parsek
 {
@@ -477,6 +478,20 @@ namespace Parsek
                     $"FlipMergeStateAndClearTransient: restored PlaybackEnabled=true on " +
                     $"provisional={provisional.RecordingId ?? "<no-id>"} (was suppressed during recording)");
             }
+
+            // Mid-session route revalidation. The supersede relations + MergeState
+            // flip are now committed and the ERS cache has been invalidated above
+            // (BumpSupersedeStateVersion). Any route whose SourceRefs point at a
+            // recording that just left ERS must transition to
+            // MissingSourceRecording in-session so the future item-5 dispatch
+            // scheduler (which iterates CommittedRoutes per tick) does not fire
+            // against stale source-refs. Without this hook routes stay Active
+            // until the next save/load cycle. This single call site covers both
+            // the synchronous CommitSupersede path and the journaled
+            // MergeJournalOrchestrator.RunMerge path (which calls
+            // FlipMergeStateAndClearTransient with preserveMarker=true at
+            // §6.6 step 4) and runs once per supersede commit.
+            RouteStore.RevalidateSources("Supersede");
 
             ParsekLog.Info(Tag,
                 $"provisional={provisional.RecordingId ?? "<no-id>"} mergeState={classification.NewState} terminalKind={classification.Kind} " +
