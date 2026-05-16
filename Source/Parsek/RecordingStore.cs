@@ -2796,6 +2796,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Cycle / pathological-fanout safety cap on the descendant-walk loop
+        /// in <see cref="CollectSwitchSegmentMarkerOwnedRecordingIds"/>. The
+        /// outer do/while iterates until no new ids are added, with this cap
+        /// guarding against a corrupted branch-point graph that forms a cycle
+        /// or fans out wider than expected. A healthy production tree
+        /// terminates in O(tree depth) iterations; reaching the cap means
+        /// something is wrong, so the walk breaks and logs a Warn with the
+        /// session id and the partial collection size so the failure leaves a
+        /// diagnostic trail. Phase F review fix (1c): replaces a bare 1024
+        /// literal that broke silently.
+        /// </summary>
+        internal const int SwitchSegmentRecordingTreeWalkMaxIterations = 1024;
+
+        /// <summary>
         /// Collects the transitive closure of recording IDs owned by
         /// <paramref name="session"/> in <paramref name="tree"/>: the active
         /// segment recording + every descendant recording whose own
@@ -2804,7 +2818,7 @@ namespace Parsek
         /// during the segment that did NOT inherit the session id) stay out
         /// of scope per plan §"Composing with existing branch types".
         /// </summary>
-        private static HashSet<string> CollectSwitchSegmentMarkerOwnedRecordingIds(
+        internal static HashSet<string> CollectSwitchSegmentMarkerOwnedRecordingIds(
             RecordingTree tree, SwitchSegmentSession session)
         {
             var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -2846,7 +2860,18 @@ namespace Parsek
             do
             {
                 added = false;
-                if (++safety > 1024) break;
+                if (++safety > SwitchSegmentRecordingTreeWalkMaxIterations)
+                {
+                    // Cycle or pathological fanout — log Warn so the partial
+                    // collection that the caller is about to act on is at
+                    // least traceable in KSP.log. Phase F review fix (1c).
+                    ParsekLog.Warn("SwitchSegment",
+                        $"CollectMarkerOwned: iteration cap reached, breaking walk: " +
+                        $"sessionId={session.SessionId.ToString("D", CultureInfo.InvariantCulture)} " +
+                        $"treeId={tree.Id ?? "<null>"} cap={SwitchSegmentRecordingTreeWalkMaxIterations} " +
+                        $"collectedSoFar={ids.Count}");
+                    break;
+                }
                 var snapshot = new List<string>(ids);
                 foreach (string ownedId in snapshot)
                 {

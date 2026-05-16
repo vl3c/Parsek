@@ -221,6 +221,34 @@ namespace Parsek.Tests
                 StockActionIntentConsumeDecision.RouteForRefusal(outcome));
         }
 
+        // Fails if: a stale-target marker is reported as setting-toggled-off
+        // when both the target-mismatch AND the setting-off conditions hold
+        // simultaneously. Phase F review fix (1b): target-mismatch must
+        // dominate setting-off so the refusal log attributes the failure to
+        // the PID divergence (which is the diagnostic signal a developer
+        // chasing a stuck marker actually needs). Without the reorder, a
+        // mod-conflict double-fire case would be misclassified as a setting
+        // toggle.
+        [Fact]
+        public void Evaluate_TargetMismatch_AndSettingOff_PrefersTargetMismatch()
+        {
+            Guid procId = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.TrackingStationFly,
+                targetPid: 100u, processSessionId: procId);
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, newVesselPersistentId: 200u,
+                settingEnabledForAction: false,
+                currentProcessSessionId: procId,
+                currentRealtime: 101f, currentUT: 1001.0,
+                missedSwitchRecoveryInProgress: false,
+                activeSessionFocusedPid: 0u);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.TargetMismatch, outcome);
+            Assert.Equal("stale-target-mismatch",
+                StockActionIntentConsumeDecision.ClearReasonFor(outcome));
+            Assert.Equal(SwitchSegmentEntryRoute.Refused_TargetMismatch,
+                StockActionIntentConsumeDecision.RouteForRefusal(outcome));
+        }
+
         // Fails if: a rapid double-click on the same Switch-To button starts
         // a second session instead of no-opping. Plan §"Two rapid switches
         // semantics → Same target vessel".

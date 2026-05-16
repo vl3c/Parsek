@@ -497,14 +497,25 @@ namespace Parsek.Patches
     /// transition never completes.
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "FlyVessel")]
-    [HarmonyAfter("com.parsek.mod")] // ordered AFTER GhostTrackingFlyPatch so its ghost-block runs first
+    // Both this Prefix and the sibling GhostTrackingFlyPatch's Prefix are owned by
+    // the same Harmony instance (`com.parsek.mod` from ParsekHarmony.cs). A
+    // [HarmonyAfter("com.parsek.mod")] attribute here would be a no-op self-
+    // reference; same-owner ordering is governed by [HarmonyPriority]. Mark this
+    // patch as Low so Harmony schedules the ghost-block Prefix first — the
+    // ghost-block runs the early-return path, and the in-method ghost-guard
+    // mirror below provides defense in depth if ordering ever shifts.
+    [HarmonyPriority(Priority.Low)]
     internal static class SwitchIntentTrackingStationFlyPatch
     {
         static void Prefix(Vessel v)
         {
             // Ghost-block guard mirror: if the sibling GhostTrackingFlyPatch
             // would have returned false (cancelling the body), we must NOT arm
-            // an intent because the scene transition will not happen.
+            // an intent because the scene transition will not happen. Load-
+            // bearing even though HarmonyPriority schedules the ghost-block
+            // Prefix first — Prefix early-returns do not skip sibling Prefixes,
+            // so this guard is what actually prevents an intent from arming on
+            // a ghost-blocked Fly click.
             if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return;
 

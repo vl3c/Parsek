@@ -224,6 +224,18 @@ namespace Parsek
                     break;
             }
 
+            // Target-mismatch BEFORE the setting-toggled-off branch: a marker
+            // armed for vessel A while the active vessel is vessel B is a
+            // diagnostic-relevant mis-target (player clicked Switch-To on B
+            // while [/] cycling lands on A, or a mod conflict races SetActive
+            // vessel). The reason needs to be `stale-target-mismatch` so the
+            // log clearly attributes the refusal to the PID divergence, not
+            // to a coincidental setting toggle. Reviewer note (Phase F 1b):
+            // earlier ordering put setting-off ahead of target-mismatch, which
+            // could mask the mismatch when both fired together.
+            if (marker.TargetVesselPersistentId != newVesselPersistentId)
+                return Outcome.TargetMismatch;
+
             if (!settingEnabledForAction)
                 return Outcome.UnauthorizedSetting;
 
@@ -237,9 +249,6 @@ namespace Parsek
             {
                 return Outcome.DuplicateSameTarget;
             }
-
-            if (marker.TargetVesselPersistentId != newVesselPersistentId)
-                return Outcome.TargetMismatch;
 
             return Outcome.Authorized;
         }

@@ -20495,5 +20495,176 @@ namespace Parsek.InGameTests
                 ParsekHarmonyHasPatchOn(target),
                 "Harmony.GetPatchInfo(FocusObject.OnSelect) must list com.parsek.mod as an owner");
         }
+
+        // ----------------------------------------------------------------
+        // Phase F in-game promotion: pure-gate predicate coverage for the
+        // Map Switch-To Prefix arming logic. The Prefix's four-gate decision
+        // (setting-on, FocusMode == OwnedVessel, CanSwitchVesselsFar,
+        // vessel non-null) is factored into Patches.MapFocusObjectOnSelectPatch
+        // .ShouldArmMapSwitchTo so we can drive each branch combinatorially
+        // here from a live KSP scene without needing to inject a real
+        // MapContextMenuOptions.FocusObject instance. Plan test #22.
+        // ----------------------------------------------------------------
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate arms for OwnedVessel focus mode (FocusObject Prefix)",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_OwnedVesselFocusMode_AllowsArm()
+        {
+            // Fails if: the OwnedVessel branch (Switch-To on a real owned
+            // vessel with the setting on, far-switch enabled, and a non-null
+            // vessel reference) is refused. This is the in-scope happy path.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                settingOn: true,
+                isOwnedVesselMode: true,
+                canSwitchVesselsFar: true,
+                vesselNotNull: true);
+            InGameAssert.IsTrue(wouldArm,
+                "OwnedVessel + setting-on + far-switch + non-null vessel must arm");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses UnownedVessel focus mode (routes to TS)",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_UnownedVesselFocusMode_DoesNotArm()
+        {
+            // Fails if: the UnownedVessel branch is mistakenly armed. That
+            // branch calls SpaceTracking.GoToAndFocusVessel which loads
+            // TRACKSTATION — the TS Fly patch is responsible for arming
+            // there, not the Map Switch-To patch.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                settingOn: true,
+                isOwnedVesselMode: false,
+                canSwitchVesselsFar: true,
+                vesselNotNull: true);
+            InGameAssert.IsFalse(wouldArm,
+                "Non-OwnedVessel focus mode must NOT arm Map Switch-To intent");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses CelestialBody focus mode (camera-only)",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_CelestialBodyFocusMode_DoesNotArm()
+        {
+            // Fails if: the CelestialBody branch is mistakenly armed. That
+            // branch is camera-only (PlanetariumCamera.SetTarget); no
+            // vessel switch happens.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                settingOn: true,
+                isOwnedVesselMode: false,
+                canSwitchVesselsFar: true,
+                vesselNotNull: true);
+            InGameAssert.IsFalse(wouldArm,
+                "CelestialBody focus mode must NOT arm Map Switch-To intent");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses arming when CanSwitchVesselsFar is off",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_CanSwitchVesselsFarOff_DoesNotArm()
+        {
+            // Fails if: arming proceeds with far-switch disabled. Stock
+            // refuses the switch in that case; arming would leak a stuck
+            // marker.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                settingOn: true,
+                isOwnedVesselMode: true,
+                canSwitchVesselsFar: false,
+                vesselNotNull: true);
+            InGameAssert.IsFalse(wouldArm,
+                "CanSwitchVesselsFar=false must NOT arm Map Switch-To intent");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses arming when target vessel is null (Traverse-failed)",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_NullVessel_DoesNotArm()
+        {
+            // Fails if: the gate proceeds with a null vessel (would arm
+            // with PID 0). Stock would crash inside SetActiveVessel; our
+            // Prefix must bail and log a Warn instead.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                settingOn: true,
+                isOwnedVesselMode: true,
+                canSwitchVesselsFar: true,
+                vesselNotNull: false);
+            InGameAssert.IsFalse(wouldArm,
+                "vessel=null must NOT arm Map Switch-To intent");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses arming when per-source auto-record setting is off",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_SettingOff_DoesNotArm()
+        {
+            // Fails if: arming proceeds with autoRecordOnMapSwitchTo=false.
+            // The player explicitly disabled the auto-record source; the
+            // gate must respect it.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                settingOn: false,
+                isOwnedVesselMode: true,
+                canSwitchVesselsFar: true,
+                vesselNotNull: true);
+            InGameAssert.IsFalse(wouldArm,
+                "settingOn=false must NOT arm Map Switch-To intent");
+        }
+
+        // ----------------------------------------------------------------
+        // Phase F: stock-action intent + segment-session lifecycle from a
+        // FLIGHT scene. The full consume site runs from
+        // ParsekFlight.TryConsumeStockActionIntent on
+        // OnVesselSwitchComplete / OnFlightReady; here we drive only the
+        // arm/clear lifecycle on the live ParsekScenario, since arming an
+        // intent and watching it clear with the right reason is the
+        // smallest atomic in-game contract.
+        // ----------------------------------------------------------------
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "ParsekScenario arms and clears a stock-action intent marker cleanly",
+            Scene = GameScenes.FLIGHT)]
+        public void StockActionIntent_ArmAndClear_OnLiveScenario_LeavesNoLeak()
+        {
+            // Fails if: the live ParsekScenario.Instance does not retain a
+            // freshly armed marker, or the clear leaves it lingering. These
+            // are the two leaf operations the Phase B Harmony patches and
+            // the Phase C consume site rely on.
+            var scenario = ParsekScenario.Instance;
+            InGameAssert.IsNotNull(scenario,
+                "ParsekScenario.Instance must exist in FLIGHT");
+
+            var marker = new StockActionIntentMarker
+            {
+                IntentId = System.Guid.NewGuid(),
+                Action = StockActionType.MapSwitchTo,
+                TargetVesselPersistentId = 7777u,
+                SourceScene = StockActionSourceScene.Flight,
+                CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
+                CapturedUT = Planetarium.fetch != null
+                    ? Planetarium.GetUniversalTime() : 0.0,
+                ProcessSessionId = ParsekProcess.ProcessSessionId,
+            };
+
+            // Snapshot any prior marker (defensive — should be null in a
+            // clean session) and clear before arming so this test is
+            // observable independently of prior in-game tests.
+            scenario.ClearStockActionIntent("in-game-test-prearm");
+            scenario.ArmStockActionIntent(marker);
+            InGameAssert.IsNotNull(scenario.CurrentStockActionIntent,
+                "Intent must be retrievable after ArmStockActionIntent");
+            InGameAssert.AreEqual(
+                marker.IntentId, scenario.CurrentStockActionIntent.IntentId,
+                "Armed marker's IntentId must match");
+
+            scenario.ClearStockActionIntent("in-game-test-cleanup");
+            InGameAssert.IsNull(scenario.CurrentStockActionIntent,
+                "Intent must be null after ClearStockActionIntent");
+        }
     }
 }

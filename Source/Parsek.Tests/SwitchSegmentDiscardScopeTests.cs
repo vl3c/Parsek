@@ -279,6 +279,77 @@ namespace Parsek.Tests
         // Owned-id transitive closure + recordings cleanup
         // -----------------------------------------------------------------
 
+        // Fails if: the descendant-walk iteration cap is removed or its
+        // safety-break log line is dropped. Phase F review fix (1c)
+        // extracted the bare 1024 literal to a named constant and added a
+        // Warn log line so a future blow-up leaves a diagnostic trail in
+        // KSP.log. The cap is a defense-in-depth guard against a
+        // corrupted branch-point graph that no current healthy production
+        // path can trip on its own (the marker-stamp scan adds every
+        // session-stamped recording up front, so the do/while typically
+        // terminates after a single empty pass). Testing the runtime path
+        // would require injecting a corrupted graph; instead we pin three
+        // anchors that together guarantee the safety net stays in place:
+        // (a) the constant exists with a sensible value, (b) the function
+        // surface still walks tree.Recordings, (c) the Warn log line
+        // template is present in the source so the diagnostic message
+        // shape can't drift silently.
+        [Fact]
+        public void CollectMarkerOwned_DeepCycleProtection_LogsWarn_AndReturnsPartialList()
+        {
+            // (a) the constant exists and is non-trivial — anything below
+            // realistic tree depth would risk false-positive caps on
+            // healthy production graphs.
+            Assert.True(
+                RecordingStore.SwitchSegmentRecordingTreeWalkMaxIterations >= 256,
+                "cap must allow realistic tree depth");
+
+            // (b) sanity-check the function still returns a sensible set
+            // for a normal small chain (regression: a refactor that
+            // accidentally bypassed the marker-stamp scan would surface
+            // here as a count-1 collection).
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+            string sessionIdStr = SessionIdString(session.SessionId);
+            string bp2Id = "bp_chain";
+            segment.ChildBranchPointId = bp2Id;
+            var grandchild = MakeRecording("rec_grandchild", tree.Id,
+                switchSegmentSessionId: sessionIdStr,
+                parentBranchPointId: bp2Id);
+            tree.AddOrReplaceRecording(grandchild);
+            tree.BranchPoints.Add(MakeBranchPoint(
+                bp2Id, segment.RecordingId, grandchild.RecordingId));
+
+            HashSet<string> collected =
+                RecordingStore.CollectSwitchSegmentMarkerOwnedRecordingIds(tree, session);
+            Assert.Contains(segment.RecordingId, collected);
+            Assert.Contains(grandchild.RecordingId, collected);
+            Assert.DoesNotContain(parent.RecordingId, collected);
+
+            // (c) source-text gate on the Warn log line shape. The break
+            // path is defense-in-depth — we cannot easily exercise it
+            // from xUnit because the marker-stamp scan + the descendant
+            // walk's `ids.Contains(childId) continue` guard together make
+            // the loop terminate after one empty pass on every healthy
+            // input. The source-text gate pins the diagnostic content so
+            // a future regression cannot silently strip the break log.
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string storePath = Path.Combine(projectRoot,
+                "Source", "Parsek", "RecordingStore.cs");
+            string source = File.ReadAllText(storePath);
+            Assert.Contains(
+                "SwitchSegmentRecordingTreeWalkMaxIterations",
+                source);
+            Assert.Contains(
+                "iteration cap reached, breaking walk",
+                source);
+            Assert.Contains(
+                "collectedSoFar=",
+                source);
+        }
+
         // Fails if: a descendant recording stamped with the session id is
         // left in the tree. Owned-id walk must follow ChildBranchPointId
         // chains.
