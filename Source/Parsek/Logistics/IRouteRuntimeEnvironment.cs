@@ -19,6 +19,15 @@ namespace Parsek.Logistics
         bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason);
 
         /// <summary>
+        /// Resolve the endpoint to a live <see cref="Vessel"/> reference. Same
+        /// contract as <see cref="TryResolveEndpoint"/> for the success flag and
+        /// reason text, but additionally returns the resolved vessel so the
+        /// delivery applier can write to its parts or its <c>protoVessel</c>.
+        /// On miss <c>vessel</c> is <c>null</c>.
+        /// </summary>
+        bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason);
+
+        /// <summary>
         /// True if the origin currently has the manifest's required resources.
         /// KSC origin always returns <c>true</c> (funds are checked separately
         /// via <see cref="KscFundsAvailable"/>).

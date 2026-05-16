@@ -42,20 +42,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - Logistics dispatch scheduler stops at PendingDeliveryUT
+## Done - Logistics dispatch scheduler stops at PendingDeliveryUT
 
-- Item 5 (dispatch scheduler) lands the per-tick orchestrator + ledger-row intent emission but defers the actual cargo / funds mutation to item 6 (delivery execution). A v0 route that reaches the transit-duration boundary transitions to `InTransit` with `PendingDeliveryUT` set, then stays in that state indefinitely — nothing consumes the pending-delivery signal yet.
+- ~~Item 5 (dispatch scheduler) lands the per-tick orchestrator + ledger-row intent emission but defers the actual cargo / funds mutation to item 6 (delivery execution). A v0 route that reaches the transit-duration boundary transitions to `InTransit` with `PendingDeliveryUT` set, then stays in that state indefinitely — nothing consumes the pending-delivery signal yet.~~
 
-**Workaround:** None needed at the player level. v0 builds can create routes via the post-commit prompt, but those routes will never actually deliver cargo until item 6 ships.
+**Fix (Phase A — pure planner):** Added `RouteDeliveryPlanner.PrepareDelivery` (`Source/Parsek/Logistics/RouteDeliveryPlanner.cs`). Pure decision over the stop's `DeliveryManifest` + `InventoryDeliveryManifest`, capacity-clamped per resource and slot-aware for inventory, deterministic ordering for ledger-row stability. Unit-tested in `RouteDeliveryPlannerTests.cs`.
 
-**Item-6 scope:**
+**Fix (Phase B — apply path):** Added `RouteOrchestrator.ApplyDelivery` + the testable seam `ApplyDeliveryFromPlan` (`Source/Parsek/Logistics/RouteOrchestrator.cs`). The applier:
 
-1. Watch for `Route.PendingDeliveryUT.HasValue && Route.Status == InTransit` in the orchestrator's per-tick eval.
-2. For each pending delivery: resolve the endpoint vessel (loaded vs unloaded path), apply the cargo manifest (`Part.TransferResource` for loaded; `ProtoPartResourceSnapshot.amount` edits for unloaded), apply the inventory delivery (`STOREDPART` ConfigNode mutation for unloaded, `ModuleInventoryPart.StoreCargoPartAtSlot` for loaded), emit `RouteCargoDelivered` action through the ledger.
-3. On successful delivery: clear `PendingDeliveryUT` + `PendingStopIndex`, transition `Status` → `Active`, increment `CompletedCycles`.
-4. Career-only: actually debit `Funding.Instance.AddFunds(-cost, TransactionReasons.VesselRollout)` for KSC-origin routes (the intent row already exists from item 5's `RouteCargoDebited`).
+1. Idempotency-guards against ELS replay via `(RouteId, RouteCycleId)` lookup — the only ELS read in the orchestrator.
+2. Re-resolves the destination endpoint via new `IRouteRuntimeEnvironment.TryResolveEndpointVessel`; on miss emits `RouteEndpointLost` and aborts (no funds, no delivered row).
+3. Builds a `LiveDeliveryCapacityProbe` against the resolved vessel (loaded `parts` or unloaded `protoVessel.protoPartSnapshots`).
+4. Calls the pure planner; applies resource writes (direct `PartResource.amount` mutations for loaded, `ProtoPartResourceSnapshot.amount` for unloaded) and inventory writes (`ModuleInventoryPart.StoreCargoPartAtSlot(ProtoPartSnapshot, slot)` for loaded after `new ProtoPartSnapshot(STOREDPART/PART node, protoVessel, null)` conversion; ConfigNode append under the proto module's `STOREDPARTS` for unloaded).
+5. Career + KSC-origin: debits `Funding.Instance.AddFunds(-route.KscDispatchFundsCost, TransactionReasons.None)`. Skipped silently in Sandbox/Science or for non-KSC origins.
+6. Emits `RouteCargoDelivered` with actual + (partial-only) requested manifests, then clears `PendingDeliveryUT`, increments `CompletedCycles`, transitions `Active "delivered"` or `Active "delivered-partial"`.
+7. Status gates: routes in `Paused` or `EndpointLost` skip the applier entirely (a paused route resumes its pending state on unpause; an aborted route stays aborted).
 
-**Status:** OPEN. Filed 2026-05-16 alongside item-5 dispatch-scheduler landing.
+The hook fires before the dispatch evaluator so a tick where delivery + dispatch are both due lands both transitions in one Tick (catch-up loop bounded by `MaxCatchUpCyclesPerTick`).
+
+**Coverage:** `RouteOrchestratorDeliveryTests` (10 tests) pins happy-path KSC career, sandbox-no-debit, partial-fill manifest, zero-fill cycle completion, endpoint-lost-mid-transit, idempotent replay, status reason strings, deliver-then-dispatch in the same tick, paused-skips-delivery, endpoint-lost-skips-delivery. The end-to-end `Tick → ProcessOneRoute → ApplyDelivery` happy path is covered by in-game runtime tests (live `Vessel` + `ModuleInventoryPart` required).
+
+**Status:** CLOSED 2026-05-17.
 
 ---
 
