@@ -985,6 +985,16 @@ namespace Parsek
         // identity used by the BG go-on-rails Destroyed override.
         private List<ControllerInfo> pendingStartControllers;
 
+        // Logistics start-docked origin proof captured at recording-start time.
+        // Non-null only when CaptureStartRouteOriginProofIfDocked detected exactly one
+        // valid non-KSC partner vessel coupled to the active vessel at record_start.
+        // pendingRouteOriginProofStartPartPids holds the snapshot's part-pid set so
+        // BuildCaptureRecording's end manifest extraction is scoped to the same parts
+        // that produced the start manifests, without persisting a transient field on
+        // the RouteOriginProof DTO itself.
+        private RouteOriginProof pendingRouteOriginProof;
+        private List<uint> pendingRouteOriginProofStartPartPids;
+
         /// <summary>
         /// Read-only view of the controller identity captured at the most recent
         /// <see cref="StartRecording"/> call. Used by
@@ -6028,6 +6038,11 @@ namespace Parsek
             ResetReFlyPostLoadSettle();
             highFidelityProximityVesselPids.Clear();
 
+            // Reset start-docked origin proof so a previous Stop->Start sequence
+            // cannot leak a prior recording's partner detection into the new one.
+            pendingRouteOriginProof = null;
+            pendingRouteOriginProofStartPartPids = null;
+
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
             ParsekLog.Info("Recorder", $"PersistentRotation mod detected: {hasPersistentRotation}");
@@ -6292,6 +6307,7 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartCrew?.Count ?? 0} start crew trait(s)");
             pendingStartControllers = ControllerInfo.CaptureFromVessel(v);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartControllers?.Count ?? 0} start controller part(s)");
+            CaptureStartRouteOriginProofIfDocked(v);
             // Backstop: forward the just-captured identity onto the active tree
             // recording if it doesn't already carry it. Covers the always-tree-root
             // path (created with whatever vessel was active at the time of root
@@ -6313,6 +6329,67 @@ namespace Parsek
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
                 : VesselSpawner.TryBackupSnapshot(v);
+        }
+
+        /// <summary>
+        /// Logistics start-docked origin proof producer. Inspects the live vessel for
+        /// externally-coupled parts (i.e. a docking port whose part.parent.vessel is a
+        /// different vessel) and delegates the gloops/null-snapshot guards, the resolver
+        /// dispatch, the per-branch logging, and the proof construction to
+        /// <see cref="RouteProofCapture.BuildStartRouteOriginProof"/>. This method's
+        /// own responsibility is just the live-Vessel work: null-vessel guard plus
+        /// candidate construction from <c>v.parts</c>.
+        /// </summary>
+        private void CaptureStartRouteOriginProofIfDocked(Vessel v)
+        {
+            pendingRouteOriginProof = null;
+            pendingRouteOriginProofStartPartPids = null;
+
+            // Gloops-mode early-skip: matches the helper's gloops branch but lets the
+            // production path avoid candidate construction when there's nothing to do.
+            if (IsGloopsMode)
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"RouteOriginProof skipped: gloops mode recId={RecordingVesselId} vessel='{v?.vesselName}'");
+                return;
+            }
+            // Live-vessel-only guard: candidates can only be built from a live
+            // Vessel.parts list, so this guard stays in production rather than
+            // moving into the pure helper.
+            if (v == null || v.parts == null)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"RouteOriginProof skipped: no live parts at record_start recId={RecordingVesselId} " +
+                    $"vessel='{v?.vesselName}'");
+                return;
+            }
+
+            // Build candidates: any live part whose parent belongs to a different vessel.
+            var candidates = new List<OriginPartnerCandidate>();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                Part parent = p.parent;
+                if (parent == null) continue;
+                Vessel parentVessel = parent.vessel;
+                if (parentVessel == null || parentVessel == v) continue;
+                candidates.Add(new OriginPartnerCandidate(
+                    p.persistentId,
+                    parentVessel.persistentId,
+                    (int)parentVessel.situation));
+            }
+
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)v.situation,
+                activeVesselIsEva: v.isEVA,
+                candidates: candidates,
+                snapshot: lastGoodVesselSnapshot,
+                isGloopsMode: false, // already handled above; helper still defensively re-checks
+                vesselContext: v.vesselName,
+                recordingVesselId: RecordingVesselId,
+                out pendingRouteOriginProof,
+                out pendingRouteOriginProofStartPartPids);
         }
 
         /// <summary>
@@ -6693,6 +6770,16 @@ namespace Parsek
                 ? new List<ControllerInfo>(pendingStartControllers)
                 : null;
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: forwarded {capture.Controllers?.Count ?? 0} start controller part(s)");
+
+            // Forward the start-time RouteOriginProof onto the captured recording and
+            // re-extract the end transport manifests scoped to the same part-pid set
+            // captured at start. v0 limitation: if the transport decoupled parts between
+            // start and end, those parts are absent from capture.VesselSnapshot and silently
+            // drop out of the end manifest. Acceptable for the logistics v0 contract.
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(
+                capture,
+                pendingRouteOriginProof,
+                pendingRouteOriginProofStartPartPids);
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);
