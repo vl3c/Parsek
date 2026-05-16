@@ -264,6 +264,13 @@ namespace Parsek
         public string SupersedeTargetId;
         // Rewind-Point back-pointer for provisional re-fly recordings. Null outside sessions.
         public string ProvisionalForRpId;
+        /// <summary>
+        /// Stamp identifying which <c>SwitchSegmentSession</c> owns this recording.
+        /// Not to be confused with <see cref="CreatingSessionId"/>, which is owned by
+        /// Re-Fly sessions. Discard, sidecar cleanup, and event purge for switch/Fly
+        /// segments match by this field, not <see cref="CreatingSessionId"/>.
+        /// </summary>
+        public string SwitchSegmentSessionId = null;
 
         // Branch linkage
         public string ParentBranchPointId;             // null for root recording
@@ -743,6 +750,7 @@ namespace Parsek
             clone.CreatingSessionId = source.CreatingSessionId;
             clone.SupersedeTargetId = source.SupersedeTargetId;
             clone.ProvisionalForRpId = source.ProvisionalForRpId;
+            clone.SwitchSegmentSessionId = source.SwitchSegmentSessionId;
             clone.AutoAssignedStandaloneGroupName = source.AutoAssignedStandaloneGroupName;
 
             clone.Points = source.Points != null

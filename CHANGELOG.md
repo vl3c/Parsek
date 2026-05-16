@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Breaking Changes
 
 - Recording format bumped v0 -> v1 to reserve a `VesselSwitchContinuation` branch type for upcoming switch/Fly auto-record. Per pre-1.0 no-backwards-compat policy, v0 saves are rejected at load with reason `format-version-mismatch`.
+- New optional `Recording.SwitchSegmentSessionId` ownership field (forward-compatible v1 extension) reserved for upcoming switch/Fly segment ownership. Defaults to null and is omitted from saves when unset; independent from the Re-Fly-owned `CreatingSessionId`.
 - Reset the private-development recording/rendering schema baseline to v0. Old pre-reset Parsek recordings, sidecars, and career ledger entries are rejected with explicit reasons rather than migrated.
 - Reset pannotations sidecars through new `PNA0`/`PNC0` magic and v0 cache schema stamps.
 - Removed the historical recording-format compatibility ladder from the current trajectory codec. Old `PRKB`/`PRKS` sidecars and pre-reset pannotations magic tags are treated as unsupported.

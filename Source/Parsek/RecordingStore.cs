@@ -3421,6 +3421,7 @@ namespace Parsek
                 second.CreatingSessionId = original.CreatingSessionId;
                 second.ProvisionalForRpId = original.ProvisionalForRpId;
                 second.SupersedeTargetId = original.SupersedeTargetId;
+                second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
 
                 // Derive SegmentBodyName from trajectory points
                 if (original.Points != null && original.Points.Count > 0)
