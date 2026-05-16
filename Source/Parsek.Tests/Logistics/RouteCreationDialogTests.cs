@@ -147,6 +147,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void TryShow_NullTree_LogsAndReturnsNoSpawn()
         {
+            // catches: TryShow throwing or silently spawning a dialog for a
+            // null committed tree. Either failure would either crash the
+            // post-commit hook or surface an "empty" route creation dialog
+            // that has no source recording behind it.
             bool hookFired = false;
             RouteCreationDialog.TestHookForConfirm = () =>
             {
@@ -170,6 +174,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void TryShow_IneligibleAnalysisResult_DoesNotSpawnDialog_LogsInfo()
         {
+            // catches: the eligibility gate regressing and the dialog popping
+            // for trees that have no completed transfer. A spawned dialog
+            // would let the player commit a route from a recording the
+            // builder will immediately reject.
             bool hookFired = false;
             RouteCreationDialog.TestHookForConfirm = () =>
             {
@@ -192,6 +200,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void TryShow_EligibleResult_InvokesTestHook()
         {
+            // catches: the test-hook seam regressing so tests cannot drive the
+            // dialog headlessly. Without this guarantee the rest of this file
+            // would silently fall back to the live PopupDialog path under
+            // tests and start failing because no Unity is present.
             bool hookFired = false;
             RouteCreationDialog.TestHookForConfirm = () =>
             {
@@ -214,6 +226,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void OnConfirm_BuildsAndAddsRouteToStore()
         {
+            // catches: the confirm path skipping the RouteStore add, leaving
+            // the player with an apparently-created route that vanishes on
+            // next reload. Also pins the "route created" log line that KSP.log
+            // diagnostics rely on.
             RouteCreationDialog.TestHookForConfirm = () =>
                 new RouteCreationDialog.RouteCreationInputsForTesting
                 {
@@ -237,6 +253,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void OnConfirm_WhenSourceNoLongerEligible_DoesNotAddRoute_LogsRejected()
         {
+            // catches: dropping the stale-tree re-analysis on confirm. Without
+            // it, a parallel scene change that retires the source mid-dialog
+            // would let the player commit a route pointing at vanished
+            // state, then crash the scheduler on first dispatch.
             RecordingTree tree = BuildEligibleTree(out Recording source);
             // Mutate the tree mid-hook so the re-analysis fails: drop the
             // completed window. This mirrors a parallel scene-change
@@ -263,6 +283,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void OnConfirm_InvalidInterval_KeepsDialogOpen_DoesNotAddRoute()
         {
+            // catches: an invalid interval reaching RouteStore.AddRoute. The
+            // builder's interval-invalid reject must propagate up so the
+            // store sees no route — otherwise a -1.0s interval would land in
+            // the save file and crash the scheduler on first tick.
             RouteCreationDialog.TestHookForConfirm = () =>
                 new RouteCreationDialog.RouteCreationInputsForTesting
                 {
@@ -286,6 +310,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void OnCancel_NoRouteAdded_LogsCanceled()
         {
+            // catches: the cancel button silently building a route anyway, or
+            // the cancel log line drifting. The "canceled" log is what
+            // post-mortem analysis uses to distinguish player-aborted runs
+            // from build-rejected ones.
             RouteCreationDialog.TestHookForConfirm = () =>
                 new RouteCreationDialog.RouteCreationInputsForTesting
                 {
@@ -307,6 +335,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void DismissIfOpen_ReleasesCacheState_LogsDismissed()
         {
+            // catches: dismissed dialogs leaving stale cachedResult/cachedTree
+            // pointers behind. A scene change after a leaked cache would let
+            // a stale RecordingTree survive into the next session and resolve
+            // to a vanished recording on the next TryShow.
             RouteCreationDialog.TestHookForConfirm = () =>
                 new RouteCreationDialog.RouteCreationInputsForTesting
                 {
@@ -331,6 +363,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void MergeDialog_OnTreeCommitted_PassesCommittedTreeToSubscriber()
         {
+            // catches: the MergeDialog.OnTreeCommitted event signature
+            // changing without the route-creation subscriber being adapted.
+            // The whole post-commit flow hangs off this event; an
+            // accidentally-typed Action<> would silently sever the bridge.
             RecordingTree captured = null;
             Action<RecordingTree> subscriber = tree => captured = tree;
             MergeDialog.OnTreeCommitted += subscriber;

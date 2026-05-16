@@ -127,6 +127,25 @@ namespace Parsek.Tests.Logistics
             }.WithUtSpan(startUT, endUT);
         }
 
+        // No-origin source: empty LaunchSiteName, non-Kerbin body, and
+        // null RouteOriginProof. Used to drive the endpoint-missing reject.
+        private static Recording MakeNoOriginSource(
+            double startUT = 5000.0,
+            double endUT = 5600.0,
+            string recordingId = "src-no-origin")
+        {
+            return new Recording
+            {
+                RecordingId = recordingId,
+                TreeId = "tree-no-origin",
+                TreeOrder = 0,
+                StartBodyName = "Mun",
+                LaunchSiteName = null,
+                RouteConnectionWindows = new List<RouteConnectionWindow> { MakeCompleteWindow() },
+                RouteOriginProof = null
+            }.WithUtSpan(startUT, endUT);
+        }
+
         private static RouteAnalysisResult EligibleAnalysisFromSource(Recording source)
         {
             RouteConnectionWindow window = source.RouteConnectionWindows[0];
@@ -164,6 +183,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_FromEligibleSingleRecordingResult_ProducesActiveRoute_WithFreshGuid()
         {
+            // catches: a regression in BuildRoute that returns a route with
+            // Status != Active or an empty Id. Both would corrupt the route
+            // lifecycle from the moment of creation — the scheduler would
+            // refuse to dispatch and the codec would round-trip a malformed id.
             Recording source = MakeKscSource();
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -181,6 +204,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_PopulatesSourceRefsWithRouteProofHash()
         {
+            // catches: a drift between the route-proof-hash the builder writes
+            // into the source ref and the hash RouteStore computes from the
+            // same recording. If they ever diverge the validation pass would
+            // start invalidating every freshly-built route on the next load.
             Recording source = MakeKscSource();
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -203,6 +230,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_KscOriginRecording_SetsIsKscOriginTrue()
         {
+            // catches: KSC-origin classification quietly regressing — e.g.
+            // a refactor that requires RouteOriginProof for every route would
+            // start rejecting Kerbin-launch recordings. Origin.BodyName/PID
+            // are the shape the dispatch scheduler relies on for KSC routes.
             Recording source = MakeKscSource();
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -217,6 +248,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_NonKscOriginRecording_PopulatesOriginVesselPid_FromRouteOriginProof()
         {
+            // catches: silently dropping the docked-origin vessel pid for
+            // non-KSC routes. Without that pid the scheduler cannot resolve
+            // the origin vessel at dispatch, so the route would degrade into
+            // an undispatchable "ghost" route that survives reload.
             Recording source = MakeNonKscSource(originPid: 4242);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -231,6 +266,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_StopCarriesResourceAndInventoryManifestsFromResult()
         {
+            // catches: stop manifests being lost in the analysis-to-route copy
+            // or shared by reference. Either failure would surface as empty
+            // deliveries at runtime or as accidental cross-route mutation of
+            // the analysis result after Build.
             Recording source = MakeKscSource();
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -248,6 +287,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_TransitDurationMatchesSourcePathSpan()
         {
+            // catches: TransitDuration being derived from the wrong UT pair
+            // (e.g. the connection-window dock/undock instead of the source
+            // recording start/end). A wrong transit value would let the
+            // scheduler dispatch faster than the route actually traverses.
             Recording source = MakeKscSource(startUT: 2000.0, endUT: 2900.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -260,6 +303,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_PopulatesDispatchWindowEpochUTFromFirstStartUT()
         {
+            // catches: a regression where the dispatch-window epoch drifts off
+            // the source recording's StartUT. The scheduler anchors the
+            // dispatch cadence on this epoch — losing it would phase the
+            // cycle off the player's original launch.
             Recording source = MakeKscSource(startUT: 17_000.0, endUT: 17_500.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -276,6 +323,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_DispatchIntervalBelowTransit_Rejected()
         {
+            // catches: accepting a dispatch interval shorter than the transit
+            // duration. That would let the scheduler dispatch cycle N+1 before
+            // cycle N finishes its delivery, double-spending the source craft.
             Recording source = MakeKscSource(startUT: 0.0, endUT: 1000.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -289,6 +339,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_NegativeOrZeroInterval_Rejected()
         {
+            // catches: a non-positive dispatch interval slipping past
+            // validation. Zero would trigger an infinite-dispatch loop in the
+            // scheduler; negative would underflow the next-dispatch UT and
+            // could fire on every tick.
             Recording source = MakeKscSource();
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
@@ -304,6 +358,9 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_IneligibleResult_ReturnsNullRouteWithRejectReason()
         {
+            // catches: BuildRoute silently producing a route from an
+            // ineligible analysis result. A pre-flight gate change that
+            // dropped the IsEligible check would surface here.
             RouteAnalysisResult analysis = new RouteAnalysisResult
             {
                 Status = RouteAnalysisStatus.MissingRouteProof
@@ -317,8 +374,33 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
+        public void Build_NoOrigin_Rejected()
+        {
+            // catches: the endpoint-missing rejection branch silently changing
+            // wording or accepting routes without a determinable origin.
+            // Without this test a future refactor could swallow the case and
+            // produce a route with a zero-PID, empty-body origin that the
+            // scheduler would treat as KSC by accident.
+            Recording source = MakeNoOriginSource();
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("endpoint-missing", outcome.RejectReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RouteUI]")
+                && l.Contains("endpoint-missing"));
+        }
+
+        [Fact]
         public void Build_LogsRouteUITagOnBuildAndOnReject()
         {
+            // catches: the [RouteUI] subsystem tag or the "Built route" /
+            // "BuildRoute rejected" log wording drifting. KSP.log is the
+            // primary debugging tool; the post-mortem checker greps these
+            // exact strings.
             // Happy path log
             Recording source = MakeKscSource();
             RouteAnalysisResult ok = EligibleAnalysisFromSource(source);

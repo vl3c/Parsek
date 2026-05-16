@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using Parsek.Logistics;
 using UnityEngine;
 
@@ -217,7 +218,7 @@ namespace Parsek
 
                 ParsekLog.Info(Tag,
                     $"OnConfirm: route created id={outcome.Route.Id} name='{outcome.Route.Name ?? "<none>"}' " +
-                    $"interval={inputs.DispatchIntervalSeconds}");
+                    $"interval={inputs.DispatchIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}");
                 DismissIfOpen("confirmed");
             }
             catch (Exception ex)
