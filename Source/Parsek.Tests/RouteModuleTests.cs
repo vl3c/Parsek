@@ -152,6 +152,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ProcessAction_RouteDispatched_OnPausedRoute_WarnsAndKeepsPausedTrue()
+        {
+            // Fails if Paused state silently clears on dispatch — the skeleton must
+            // preserve the paused flag until an explicit clear (which the skeleton
+            // doesn't provide). The integration phase replaces this with an
+            // affordability gate.
+            module.ProcessAction(MakePaused("r1", "PlayerPause", 150.0));
+            module.ProcessAction(MakeDispatched("r1", "cyc-1", 200.0));
+            module.ProcessAction(MakeDispatched("r1", "cyc-2", 300.0));
+
+            var state = module.GetWalkStateForTesting()["r1"];
+            Assert.True(state.Paused);
+
+            int warnCount = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("[Route]") && line.Contains("Dispatch on paused"))
+                    warnCount++;
+            }
+            Assert.Equal(2, warnCount);
+        }
+
+        [Fact]
+        public void ProcessAction_RouteDispatched_OnEndpointLostRoute_KeepsEndpointLostTrue()
+        {
+            // Fails if EndpointLost silently clears on dispatch — the skeleton must
+            // preserve the flag until explicit re-target (which the skeleton doesn't
+            // provide).
+            module.ProcessAction(MakeEndpointLost("r1", "EndpointLost:OrbitalNoFallback", 150.0));
+            module.ProcessAction(MakeDispatched("r1", "cyc-1", 200.0));
+
+            var state = module.GetWalkStateForTesting()["r1"];
+            Assert.True(state.EndpointLost);
+        }
+
+        [Fact]
         public void Reset_ClearsAllState()
         {
             // Fails if Reset stops fully clearing the per-route dict — a stale entry

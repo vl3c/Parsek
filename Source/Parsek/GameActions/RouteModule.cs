@@ -53,14 +53,17 @@ namespace Parsek
             internal int DeliveredStops;
 
             /// <summary>True once a <see cref="GameActionType.RoutePaused"/> row has been processed.
-            /// Cleared by the next <see cref="GameActionType.RouteDispatched"/> on the same route —
-            /// the skeleton accepts the dispatch with a warn but still bumps the counter so the
-            /// timeline records the intent. Future affordability code will reject paused dispatches.</summary>
+            /// Skeleton scope: this flag survives subsequent <see cref="GameActionType.RouteDispatched"/>
+            /// rows on the same route — the skeleton accepts the dispatch with a warn and still
+            /// bumps the counter so the timeline records the intent, but it does NOT silently
+            /// clear <see cref="Paused"/>. The integration phase replaces the warn with an
+            /// affordability gate and the only clearing path will be an explicit player Resume.</summary>
             internal bool Paused;
 
             /// <summary>True once a <see cref="GameActionType.RouteEndpointLost"/> row has been processed.
-            /// Cleared on the next successful dispatch (skeleton-only behaviour; the real engine
-            /// will require explicit player re-target per design doc §6.6).</summary>
+            /// Skeleton scope: this flag survives subsequent <see cref="GameActionType.RouteDispatched"/>
+            /// rows on the same route — the skeleton has no explicit re-target action yet, so the
+            /// flag persists until the integration phase introduces one (design doc §6.6).</summary>
             internal bool EndpointLost;
 
             /// <summary>Last reason text observed on a <see cref="GameActionType.RoutePaused"/>
@@ -168,25 +171,26 @@ namespace Parsek
             // Skeleton rule: the FundsModule affordability gate isn't wired through
             // yet, so a paused dispatch still bumps the counter. The future
             // integration will reject this path — for now we log a warn and
-            // continue so the timeline reflects intent.
+            // continue so the timeline reflects intent. The Paused flag is NOT
+            // cleared here: the skeleton has no explicit Resume action, so every
+            // subsequent dispatch on a paused route must keep warning until an
+            // explicit clear path lands in the integration phase.
             if (state.Paused)
             {
                 ParsekLog.Warn(Tag,
                     $"Dispatch on paused route {routeId}: skeleton accepts; " +
                     "future affordability gate will reject");
-                // Skeleton-only auto-clear: the next dispatch implicitly resumes the
-                // route in the absence of a real unpause path. Real dispatch policy
-                // will require an explicit player Resume before clearing this.
-                state.Paused = false;
             }
 
-            // EndpointLost auto-clear follows the same logic — a successful dispatch
-            // implies endpoint resolution worked. Future re-target UI will own this.
+            // EndpointLost survives subsequent dispatches for the same reason —
+            // there is no explicit re-target action in the skeleton, so a flagged
+            // route stays flagged until the integration phase introduces one
+            // (design doc §6.6).
             if (state.EndpointLost)
             {
                 ParsekLog.Verbose(Tag,
-                    $"Dispatch clears EndpointLost flag on route {routeId} (skeleton auto-clear)");
-                state.EndpointLost = false;
+                    $"Dispatch on EndpointLost route {routeId}: skeleton accepts; " +
+                    "flag persists until explicit re-target lands");
             }
 
             state.DispatchedCycles++;
