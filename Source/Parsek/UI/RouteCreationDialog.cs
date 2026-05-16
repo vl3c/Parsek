@@ -99,6 +99,25 @@ namespace Parsek
             cachedTree = tree;
             dialogOpen = true;
 
+            // Acquire input lock BEFORE the test-hook short-circuit so tests
+            // can assert lock state during the hook callback. Mirrors
+            // MergeDialog.LockInput (MergeDialog.cs:90-94): blocks every other
+            // player input — KSC buildings, scene-change shortcuts, vessel
+            // controls — while the modal Create Supply Route? dialog is up.
+            // Wrapped in try/catch because InputLockManager.SetControlLock
+            // fires GameEvents.onInputLocksModified, which can NRE in test
+            // contexts that have not initialized the event dispatcher.
+            try
+            {
+                InputLockManager.SetControlLock(ControlTypes.All, LockId);
+                ParsekLog.Verbose(Tag, $"Input lock set: {LockId}");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Spawn: SetControlLock threw {ex.GetType().Name}: {ex.Message}; continuing");
+            }
+
             Func<RouteCreationInputsForTesting> hook = TestHookForConfirm;
             if (hook != null)
             {
@@ -163,6 +182,20 @@ namespace Parsek
         internal static RecordingTree CachedTreeForTesting => cachedTree;
         /// <summary>Test-only flag mirroring <see cref="dialogOpen"/>.</summary>
         internal static bool DialogOpenForTesting => dialogOpen;
+        /// <summary>
+        /// Test-only accessor that reads the live <see cref="InputLockManager"/>
+        /// state for our <see cref="LockId"/>. Returns true when the lock is
+        /// in the stack, false when absent or when the underlying check
+        /// throws (xUnit contexts without an initialized event dispatcher).
+        /// </summary>
+        internal static bool IsLockAcquiredForTesting
+        {
+            get
+            {
+                try { return InputLockManager.GetControlLock(LockId) != ControlTypes.None; }
+                catch { return false; }
+            }
+        }
 
         private static void OnConfirm(RouteCreationInputsForTesting inputs)
         {
@@ -259,9 +292,16 @@ namespace Parsek
                 ParsekLog.Warn(Tag,
                     $"DismissIfOpen: DismissPopup threw {ex.GetType().Name}: {ex.Message}; continuing cleanup");
             }
-            // No control lock is set in Phase 2; this is a safety net so
-            // Phase 3's lock pickup is symmetric.
-            try { InputLockManager.RemoveControlLock(LockId); }
+            // Release the input lock acquired in Spawn. Safe no-op when the
+            // lock id is not in the stack (mirrors MergeDialog.ClearPendingFlag
+            // semantics). Wrapped because RemoveControlLock fires
+            // onInputLocksModified, which can NRE in test contexts that have
+            // not initialized the event dispatcher.
+            try
+            {
+                InputLockManager.RemoveControlLock(LockId);
+                ParsekLog.Verbose(Tag, $"Input lock released: {LockId}");
+            }
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag,
@@ -281,6 +321,11 @@ namespace Parsek
             cachedTree = null;
             dialogOpen = false;
             TestHookForConfirm = null;
+            // Defensive: release any lingering input lock from a previous test
+            // run. Mirrors the production DismissIfOpen cleanup path so test
+            // ordering can't leave the lock stack contaminated.
+            try { InputLockManager.RemoveControlLock(LockId); }
+            catch { /* ignored — xUnit lacks the event dispatcher */ }
         }
     }
 }

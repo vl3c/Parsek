@@ -357,6 +357,157 @@ namespace Parsek.Tests.Logistics
         }
 
         // -----------------------------------------------------------------
+        // Phase 3 — Career-mode wire-up
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Spawn_CareerMode_SummaryBlockMentionsDispatchCost()
+        {
+            // catches: Spawn calling BuildSummaryBlock with a hardcoded
+            // SANDBOX (or no-arg) signature, which would drop the Career-only
+            // "Dispatch cost: TBD" line. The dialog needs the line in Career
+            // even though the cost is TBD — players notice when the line
+            // vanishes from a Career save. xUnit cannot drive
+            // HighLogic.CurrentGame.Mode, so we drive BuildSummaryBlock with
+            // the cached analysis the dialog computed during Spawn — same
+            // input the real wire path would feed in Career.
+            RouteAnalysisResult capturedAnalysis = null;
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                capturedAnalysis = RouteCreationDialog.CachedResultForTesting;
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            };
+
+            RouteCreationDialog.TryShow(BuildEligibleTree(out _));
+
+            Assert.NotNull(capturedAnalysis);
+            string careerBody = RouteCreationFormatters.BuildSummaryBlock(
+                capturedAnalysis, Game.Modes.CAREER);
+            Assert.Contains("Dispatch cost", careerBody);
+        }
+
+        [Fact]
+        public void Spawn_SandboxMode_SummaryBlockOmitsDispatchCost()
+        {
+            // catches: Career-only conditional bleeding into Sandbox — would
+            // surface a "Dispatch cost: TBD" line in Sandbox saves and confuse
+            // players who never opted into a Career economy. xUnit context has
+            // HighLogic.CurrentGame == null, which exercises the SANDBOX
+            // fallback in Spawn — so this test pins the wire-path default.
+            RouteAnalysisResult capturedAnalysis = null;
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                capturedAnalysis = RouteCreationDialog.CachedResultForTesting;
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            };
+
+            RouteCreationDialog.TryShow(BuildEligibleTree(out _));
+
+            Assert.NotNull(capturedAnalysis);
+            string sandboxBody = RouteCreationFormatters.BuildSummaryBlock(
+                capturedAnalysis, Game.Modes.SANDBOX);
+            Assert.DoesNotContain("Dispatch cost", sandboxBody);
+        }
+
+        // -----------------------------------------------------------------
+        // Phase 3 — InputLockManager parity with MergeDialog
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Spawn_AcquiresInputLock_BeforeTestHookFires()
+        {
+            // catches: regressing the SetControlLock call in Spawn, which
+            // would let the player click KSC buildings / scene-change
+            // shortcuts / vessel controls while the modal Create Supply
+            // Route? dialog is up. Mirrors MergeDialog.LockInput
+            // (MergeDialog.cs:90-94). The hook captures the live lock state
+            // mid-dialog; asserting after dismissal would only check the
+            // released-state path.
+            bool wasLockedDuringHook = false;
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                wasLockedDuringHook = RouteCreationDialog.IsLockAcquiredForTesting;
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            };
+
+            RouteCreationDialog.TryShow(BuildEligibleTree(out _));
+
+            Assert.True(wasLockedDuringHook,
+                "Spawn must acquire the input lock before the test hook fires");
+        }
+
+        [Fact]
+        public void OnConfirm_ReleasesInputLock()
+        {
+            // catches: the confirm path leaking the input lock — would leave
+            // the player unable to interact with KSC / vessel controls after
+            // a successful route creation until they reload. RemoveControlLock
+            // must run in DismissIfOpen on the "confirmed" path.
+            RouteCreationDialog.TestHookForConfirm = () =>
+                new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    Name = "lock-release-confirm",
+                    DispatchIntervalSeconds = 1200.0,
+                    OutcomeAction = "confirm"
+                };
+
+            RouteCreationDialog.TryShow(BuildEligibleTree(out _));
+
+            Assert.False(RouteCreationDialog.IsLockAcquiredForTesting,
+                "OnConfirm must release the input lock through DismissIfOpen");
+        }
+
+        [Fact]
+        public void OnCancel_ReleasesInputLock()
+        {
+            // catches: the cancel path leaking the input lock — same lockout
+            // hazard as the confirm path, but on the player-aborted side.
+            // Both buttons funnel through DismissIfOpen which must
+            // RemoveControlLock.
+            RouteCreationDialog.TestHookForConfirm = () =>
+                new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+
+            RouteCreationDialog.TryShow(BuildEligibleTree(out _));
+
+            Assert.False(RouteCreationDialog.IsLockAcquiredForTesting,
+                "OnCancel must release the input lock through DismissIfOpen");
+        }
+
+        [Fact]
+        public void DismissIfOpen_FromBuildRejected_ReleasesInputLock()
+        {
+            // catches: the build-rejected dismissal branch leaking the input
+            // lock — invalid interval reaches DismissIfOpen("build-rejected")
+            // and that path must also release the lock. Without this, an
+            // invalid interval would lock the player out of all controls
+            // until reload.
+            RouteCreationDialog.TestHookForConfirm = () =>
+                new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    Name = "lock-release-rejected",
+                    DispatchIntervalSeconds = -1.0,
+                    OutcomeAction = "confirm"
+                };
+
+            RouteCreationDialog.TryShow(BuildEligibleTree(out _));
+
+            Assert.False(RouteCreationDialog.IsLockAcquiredForTesting,
+                "DismissIfOpen('build-rejected') must release the input lock");
+        }
+
+        // -----------------------------------------------------------------
         // MergeDialog signature regression
         // -----------------------------------------------------------------
 
