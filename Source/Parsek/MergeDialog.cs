@@ -790,6 +790,26 @@ namespace Parsek
             {
                 new DialogGUIButton("Merge to Timeline", () =>
                 {
+                    // MED 7 (PR #876 review): defensive guard against a future
+                    // caller routing a Re-Fly-active state through this dialog.
+                    // By design, an active ReFlySessionMarker is handled by
+                    // the first dialog's ReFly hook before scoped switch-
+                    // segment discard ever opens the secondary dialog — so
+                    // by the time we get here, no ReFly should be active.
+                    // If something slips, MergeCommit would silently bypass
+                    // the Re-Fly supersede pipeline; refuse instead. The
+                    // player can retry; the regular ReFly dialog path
+                    // handles a Re-Fly-active state correctly.
+                    if (ParsekScenario.Instance?.ActiveReFlySessionMarker != null)
+                    {
+                        var refusedMarker = ParsekScenario.Instance.ActiveReFlySessionMarker;
+                        ParsekLog.Warn("SwitchSegment",
+                            $"unexpected-refly-active-in-secondary-dialog: Merge refused " +
+                            $"sess={refusedMarker.SessionId ?? "<no-id>"} " +
+                            $"tree={pending.Id ?? "<none>"} " +
+                            $"reason=refly-active");
+                        return;
+                    }
                     ParsekLog.Info("SwitchSegment",
                         "Secondary pending-tree dialog: Merge chosen");
                     var decisions = BuildDefaultVesselDecisions(pending, null, null);
@@ -805,6 +825,22 @@ namespace Parsek
                 }),
                 new DialogGUIButton("Discard", () =>
                 {
+                    // MED 7 (PR #876 review): mirror the Merge-handler guard
+                    // defensively. The discard path normally won't reach the
+                    // ReFly state machine, but bail out the same way if a
+                    // Re-Fly marker is somehow still armed when this dialog
+                    // opens — the regular ReFly discard path is the only
+                    // one that knows how to tear down a Re-Fly attempt.
+                    if (ParsekScenario.Instance?.ActiveReFlySessionMarker != null)
+                    {
+                        var refusedMarker = ParsekScenario.Instance.ActiveReFlySessionMarker;
+                        ParsekLog.Warn("SwitchSegment",
+                            $"unexpected-refly-active-in-secondary-dialog: Discard refused " +
+                            $"sess={refusedMarker.SessionId ?? "<no-id>"} " +
+                            $"tree={pending.Id ?? "<none>"} " +
+                            $"reason=refly-active");
+                        return;
+                    }
                     ParsekLog.Info("SwitchSegment",
                         "Secondary pending-tree dialog: Discard chosen");
                     int discardedRecordingCount = pending.Recordings?.Count ?? 0;

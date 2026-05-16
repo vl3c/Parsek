@@ -333,12 +333,19 @@ namespace Parsek
         /// caller has already flushed the parent and will perform the BG-map
         /// removal after the helper returns.</para>
         /// </summary>
+        // LOW 10 (PR #876 review): the helper does NOT take a focusedRootPartPid
+        // parameter. `Recording` has no field that corresponds to "root part PID
+        // at vessel snapshot time" (peers store vessel PIDs and dock-target
+        // vessel PID only), so a parameter that only fed a log line was dropped
+        // to avoid implying a stored field exists. Re-add it ONLY if you also
+        // add a real Recording field (e.g. `RootPartPersistentId`) and assign
+        // it from the parameter here — passing it purely for diagnostics fakes
+        // a contract the type does not carry.
         internal static SwitchContinuationCreationResult CreateSwitchContinuationSegment(
             RecordingTree tree,
             string parentRecordingIdOrNull,
             uint focusedVesselPersistentId,
             string focusedVesselName,
-            uint focusedRootPartPid,
             double switchUT,
             SwitchSegmentEntryReason entryReason,
             Guid intentId,
@@ -473,7 +480,7 @@ namespace Parsek
             // source PID, focused PID, reason, UT).
             ParsekLog.Info("SwitchSegment",
                 string.Format(CultureInfo.InvariantCulture,
-                    "created intentId={0} sessionId={1} treeId={2} parentRecId={3} segmentRecId={4} branchPointId={5} sourcePid={6} focusedPid={7} focusedName='{8}' rootPartPid={9} reason={10} ut={11}",
+                    "created intentId={0} sessionId={1} treeId={2} parentRecId={3} segmentRecId={4} branchPointId={5} sourcePid={6} focusedPid={7} focusedName='{8}' reason={9} ut={10}",
                     intentId.ToString("D", CultureInfo.InvariantCulture),
                     sessionId.ToString("D", CultureInfo.InvariantCulture),
                     tree.Id ?? "<null>",
@@ -483,7 +490,6 @@ namespace Parsek
                     sourceVesselPersistentId,
                     focusedVesselPersistentId,
                     focusedVesselName ?? string.Empty,
-                    focusedRootPartPid,
                     entryReason,
                     switchUT.ToString("R", CultureInfo.InvariantCulture)));
 

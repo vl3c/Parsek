@@ -1360,6 +1360,14 @@ namespace Parsek
             if (events == null || events.Count == 0)
                 return false;
 
+            // LOW 15 (PR #876 review): the loop short-circuits on the first
+            // non-marker-owned committed-overlap event via the `break` below,
+            // so save-time cost is O(events-until-first-hit), not O(events).
+            // Untagged + marker-owned + unrelated entries fall through to the
+            // next iteration; the diagnostic counters under the loop summarize
+            // the skip distribution so a saturated tail still leaves a trail
+            // when the predicate genuinely needs to walk every event before
+            // returning false.
             bool sawNonMarkerOwnedOverlap = false;
             int markerOwnedSkipped = 0;
             int unrelatedSkipped = 0;

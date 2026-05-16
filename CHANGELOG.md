@@ -140,6 +140,7 @@ All notable changes to Parsek are documented here.
 ### Internals
 
 - Address PR #876 review: defer scene transition behind secondary dialog, plus assorted observability and reliability follow-ups.
+- PR #876 follow-up: address remaining review observations (secondary-dialog ReFly guard, helper parameter usage, patch-resolution Warn-once, additional code comments).
 - Phase A follow-up: fixed scenario sidecar-refresh `SwitchSegmentSessionId` preservation; added helper refusal-path tests; aligned resolver terminal-leaf semantics with creator.
 - New `[Engine] engine-frame-iter` log line emits a sampled snapshot per second (with a `suppressed=N` counter) when `ghostRenderTracing` is on, listing every iterated trajectory's id, skip reason, anchor-stability flag, renderable-data flag, ghost-state slot presence, and end UT. Bypasses the normal phase/detailed-window gates so a future ghost-vanish regression repro can definitively pin which gate dropped the ghost.
 - Background recorder diagnostics now emit PR0 Re-Fly debris frame telemetry (`frameContract=`, guarded `parentDriftFromRecorded=`, seed source metadata, and active-marker metadata) without changing resolver, playback, or save-format behavior. The seed fallback source is logged as `live-warn-fallback` when recorded/queued parent seed resolution fails.

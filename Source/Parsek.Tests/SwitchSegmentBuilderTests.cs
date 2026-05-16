@@ -106,7 +106,7 @@ namespace Parsek.Tests
 
             var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 tree, parent.RecordingId, focusedVesselPersistentId: 999u,
-                focusedVesselName: "Parent", focusedRootPartPid: 12345u,
+                focusedVesselName: "Parent",
                 switchUT: switchUT,
                 entryReason: SwitchSegmentEntryReason.TrackingStationFly,
                 intentId: intentId, sessionId: sessionId,
@@ -188,7 +188,6 @@ namespace Parsek.Tests
                 tree, parentRecordingIdOrNull: null,
                 focusedVesselPersistentId: 5555u,
                 focusedVesselName: "Newcomer",
-                focusedRootPartPid: 100000u,
                 switchUT: 42.0,
                 entryReason: SwitchSegmentEntryReason.MapSwitchTo,
                 intentId: intentId, sessionId: sessionId,
@@ -234,7 +233,7 @@ namespace Parsek.Tests
             string newBpId = Guid.NewGuid().ToString("N");
 
             var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
-                tree, parent.RecordingId, 999u, "Parent", 0u,
+                tree, parent.RecordingId, 999u, "Parent",
                 switchUT: 150.0,
                 entryReason: SwitchSegmentEntryReason.KscMarkerFly,
                 intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
@@ -274,7 +273,6 @@ namespace Parsek.Tests
                 tree, parentRecordingIdOrNull: "does-not-exist",
                 focusedVesselPersistentId: 1u,
                 focusedVesselName: "Nobody",
-                focusedRootPartPid: 0u,
                 switchUT: 0.0,
                 entryReason: SwitchSegmentEntryReason.TrackingStationFly,
                 intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
@@ -410,7 +408,7 @@ namespace Parsek.Tests
                 tree, parentRecordingIdOrNull: null,
                 focusedVesselPersistentId: 700u,
                 focusedVesselName: "VesselA",
-                focusedRootPartPid: 0u, switchUT: 99.0,
+                switchUT: 99.0,
                 entryReason: SwitchSegmentEntryReason.MapSwitchTo,
                 intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
                 newRecordingId: newRecId,
@@ -461,7 +459,7 @@ namespace Parsek.Tests
             int pre_u2_PointCount = unrelated2.Points.Count;
 
             var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
-                tree, parent.RecordingId, 1u, "Parent", 0u, 150.0,
+                tree, parent.RecordingId, 1u, "Parent", 150.0,
                 SwitchSegmentEntryReason.TrackingStationFly,
                 Guid.NewGuid(), Guid.NewGuid(),
                 Guid.NewGuid().ToString("N"),
@@ -496,7 +494,7 @@ namespace Parsek.Tests
             var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 tree, parentRecordingIdOrNull: null,
                 focusedVesselPersistentId: 1u, focusedVesselName: "V",
-                focusedRootPartPid: 0u, switchUT: 0.0,
+                switchUT: 0.0,
                 entryReason: SwitchSegmentEntryReason.TrackingStationFly,
                 intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
                 newRecordingId: newRecId, newBranchPointId: "ignored",
@@ -526,7 +524,6 @@ namespace Parsek.Tests
                 parentRecordingIdOrNull: null,
                 focusedVesselPersistentId: 1u,
                 focusedVesselName: "V",
-                focusedRootPartPid: 0u,
                 switchUT: 0.0,
                 entryReason: SwitchSegmentEntryReason.TrackingStationFly,
                 intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
@@ -558,7 +555,6 @@ namespace Parsek.Tests
                 tree, parentRecordingIdOrNull: null,
                 focusedVesselPersistentId: 1u,
                 focusedVesselName: "V",
-                focusedRootPartPid: 0u,
                 switchUT: 0.0,
                 entryReason: SwitchSegmentEntryReason.TrackingStationFly,
                 intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
@@ -596,7 +592,6 @@ namespace Parsek.Tests
                 tree, parentRecordingIdOrNull: null,
                 focusedVesselPersistentId: 1u,
                 focusedVesselName: "V",
-                focusedRootPartPid: 0u,
                 switchUT: 0.0,
                 entryReason: SwitchSegmentEntryReason.TrackingStationFly,
                 intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),
@@ -642,7 +637,6 @@ namespace Parsek.Tests
                 tree, parent.RecordingId,
                 focusedVesselPersistentId: 5u,
                 focusedVesselName: "Parent",
-                focusedRootPartPid: 0u,
                 switchUT: 75.0,
                 entryReason: SwitchSegmentEntryReason.TrackingStationFly,
                 intentId: Guid.NewGuid(), sessionId: Guid.NewGuid(),

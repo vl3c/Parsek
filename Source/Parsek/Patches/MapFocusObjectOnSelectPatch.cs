@@ -75,6 +75,15 @@ namespace Parsek.Patches
                 ? Enum.Parse(FocusModeType, "OwnedVessel")
                 : null;
 
+        // LOW 12 (PR #876 review): once-protection for TargetMethod miss Warns.
+        // Harmony's patch-resolution machinery may call TargetMethod multiple
+        // times across patcher passes; without this flag, a real KSP-version
+        // mismatch (FocusObject renamed, OnSelect override moved) would spam
+        // identical Warns at every retry. The flag is per-AppDomain one-shot
+        // and intentionally never resets — same lifetime as
+        // ParsekProcess.ProcessSessionId.
+        private static bool _missLogged;
+
         // Harmony invokes TargetMethod() to resolve the target. The explicit
         // MethodInfo lookup (non-public override) sidesteps any attribute-time
         // resolution surprise that could throw if the override is materialized on
@@ -83,8 +92,12 @@ namespace Parsek.Patches
         {
             if (FocusObjectType == null)
             {
-                ParsekLog.Warn("SwitchIntentPatch",
-                    "MapFocusObjectOnSelectPatch: FocusObject type not found; patch will not be applied");
+                if (!_missLogged)
+                {
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        "MapFocusObjectOnSelectPatch: FocusObject type not found; patch will not be applied");
+                    _missLogged = true;
+                }
                 return null;
             }
             MethodInfo method = FocusObjectType.GetMethod(
@@ -92,8 +105,12 @@ namespace Parsek.Patches
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             if (method == null)
             {
-                ParsekLog.Warn("SwitchIntentPatch",
-                    $"MapFocusObjectOnSelectPatch: OnSelect method not found on {FocusObjectType.FullName}; patch will not be applied");
+                if (!_missLogged)
+                {
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        $"MapFocusObjectOnSelectPatch: OnSelect method not found on {FocusObjectType.FullName}; patch will not be applied");
+                    _missLogged = true;
+                }
                 return null;
             }
             return method;

@@ -8057,12 +8057,13 @@ namespace Parsek
             // the parent recording, not the new continuation.
             string priorActiveRecordingId = activeTree.ActiveRecordingId;
 
+            // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
+            // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecId,
                 newPid,
                 newVessel.vesselName ?? "Unknown",
-                newVessel.rootPart != null ? newVessel.rootPart.persistentId : 0u,
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,
@@ -8253,12 +8254,13 @@ namespace Parsek
             // already null — the parent was backgrounded — but be defensive).
             string priorActiveRecordingId = activeTree.ActiveRecordingId;
 
+            // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
+            // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecId,
                 newPid,
                 newVessel.vesselName ?? "Unknown",
-                newVessel.rootPart != null ? newVessel.rootPart.persistentId : 0u,
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,
@@ -8360,12 +8362,13 @@ namespace Parsek
             string priorActiveRecordingId = activeTree.ActiveRecordingId;
 
             // Standalone path: parent is null, no branch-point id needed.
+            // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
+            // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecordingIdOrNull: null,
                 newPid,
                 newVessel.vesselName ?? "Unknown",
-                newVessel.rootPart != null ? newVessel.rootPart.persistentId : 0u,
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,
@@ -8531,6 +8534,15 @@ namespace Parsek
             // before the new continuation takes over. CreateSwitchContinuationSegment
             // already overwrote tree.ActiveRecordingId — temporarily swap it back
             // so FlushRecorderToTreeRecording targets the parent.
+            //
+            // LOW 13 (PR #876 review) INVARIANT: this swap-back relies on the
+            // entire flush completing synchronously on the Unity main thread.
+            // Do NOT introduce a `yield return` or `await` between the swap-to-
+            // prior and the swap-back -- a coroutine yield here would leak a
+            // stale ActiveRecordingId to any callsite that reads it next frame
+            // (including the recorder's own sampling loop). If you need async
+            // work in the flush, capture the prior id into a local, do the
+            // async, then re-acquire the tree state and recompute the swap.
             if (recorder != null && recorder.IsRecording
                 && !string.IsNullOrEmpty(priorActiveRecordingId)
                 && !string.Equals(priorActiveRecordingId, newRecordingId,

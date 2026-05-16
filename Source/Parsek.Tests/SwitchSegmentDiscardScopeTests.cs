@@ -1128,5 +1128,120 @@ namespace Parsek.Tests
             Assert.Contains("InvokePostChoiceSafely(", discardSlice);
             Assert.DoesNotContain("InvokePostChoiceSafely(", cancelSlice);
         }
+
+        // -----------------------------------------------------------------
+        // MED 7 (PR #876 review): the secondary dialog's Merge / Discard
+        // handlers refuse to act when an unexpected ReFlySessionMarker is
+        // armed at terminal-choice time. By design, the first dialog's
+        // ReFly hook handles Re-Fly state before scoped switch-segment
+        // discard ever opens the secondary dialog, so a Re-Fly marker
+        // here is a "should never happen" path that historically would
+        // have silently bypassed the Re-Fly supersede pipeline by routing
+        // straight through MergeCommit / DiscardPendingTreeAndRecalculate.
+        // The guard logs a Warn under [SwitchSegment] and bails.
+        //
+        // ShowSecondaryPendingDiscardDialog cannot be driven directly from
+        // xUnit (Unity PopupDialog.SpawnPopupDialog is required to surface
+        // the button lambdas to a caller). Source-text gates pin the four
+        // anchors that together guarantee the guard cannot regress:
+        // (1) the Merge handler reads ActiveReFlySessionMarker and
+        //     short-circuits on non-null, (2) the Discard handler does
+        //     the same, (3) both log under [SwitchSegment] with the
+        //     unexpected-refly-active-in-secondary-dialog tag, (4) the
+        //     refusal returns before MergeCommit /
+        //     DiscardPendingTreeAndRecalculate run.
+        // -----------------------------------------------------------------
+
+        // Fails if: the secondary dialog Merge handler no longer guards
+        // against an unexpected armed ReFlySessionMarker, or stops logging
+        // the refusal under [SwitchSegment].
+        [Fact]
+        public void SecondaryDialog_Merge_RefusesWhenReFlyMarkerActive_LogsWarn()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string path = Path.Combine(projectRoot,
+                "Source", "Parsek", "MergeDialog.cs");
+            string source = File.ReadAllText(path);
+
+            int secondaryOpener = source.IndexOf(
+                "internal static void ShowSecondaryPendingDiscardDialog(");
+            Assert.True(secondaryOpener > 0,
+                "ShowSecondaryPendingDiscardDialog opener not found");
+            int secondaryEnd = source.IndexOf(
+                "private static void InvokePostChoiceSafely",
+                secondaryOpener);
+            Assert.True(secondaryEnd > secondaryOpener);
+            string secondaryBody = source.Substring(
+                secondaryOpener, secondaryEnd - secondaryOpener);
+
+            int mergeBtn = secondaryBody.IndexOf("\"Merge to Timeline\"");
+            int discardBtn = secondaryBody.IndexOf("\"Discard\"");
+            Assert.True(mergeBtn > 0 && discardBtn > mergeBtn);
+            string mergeSlice = secondaryBody.Substring(mergeBtn, discardBtn - mergeBtn);
+
+            // (1) Merge handler reads ActiveReFlySessionMarker.
+            Assert.Contains("ActiveReFlySessionMarker", mergeSlice);
+
+            // (2) Refuses on non-null with a Warn under [SwitchSegment].
+            Assert.Contains("unexpected-refly-active-in-secondary-dialog", mergeSlice);
+            Assert.Contains("ParsekLog.Warn(\"SwitchSegment\"", mergeSlice);
+            Assert.Contains("Merge refused", mergeSlice);
+
+            // (3) Refusal returns before MergeCommit runs. The MergeCommit
+            //     call must appear AFTER the Warn so the guard's `return`
+            //     prevents MergeCommit from executing.
+            int warnInMerge = mergeSlice.IndexOf("unexpected-refly-active-in-secondary-dialog");
+            int mergeCommitInMerge = mergeSlice.IndexOf("MergeCommit(");
+            Assert.True(warnInMerge > 0 && mergeCommitInMerge > warnInMerge,
+                "Warn must precede MergeCommit so the guard's return skips the commit");
+        }
+
+        // Fails if: the secondary dialog Discard handler no longer guards
+        // against an unexpected armed ReFlySessionMarker, or stops logging
+        // the refusal under [SwitchSegment].
+        [Fact]
+        public void SecondaryDialog_Discard_RefusesWhenReFlyMarkerActive_LogsWarn()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string path = Path.Combine(projectRoot,
+                "Source", "Parsek", "MergeDialog.cs");
+            string source = File.ReadAllText(path);
+
+            int secondaryOpener = source.IndexOf(
+                "internal static void ShowSecondaryPendingDiscardDialog(");
+            Assert.True(secondaryOpener > 0,
+                "ShowSecondaryPendingDiscardDialog opener not found");
+            int secondaryEnd = source.IndexOf(
+                "private static void InvokePostChoiceSafely",
+                secondaryOpener);
+            Assert.True(secondaryEnd > secondaryOpener);
+            string secondaryBody = source.Substring(
+                secondaryOpener, secondaryEnd - secondaryOpener);
+
+            int discardBtn = secondaryBody.IndexOf("\"Discard\"");
+            int cancelBtn = secondaryBody.IndexOf("\"Cancel\"");
+            Assert.True(discardBtn > 0 && cancelBtn > discardBtn);
+            string discardSlice = secondaryBody.Substring(discardBtn, cancelBtn - discardBtn);
+
+            // (1) Discard handler reads ActiveReFlySessionMarker.
+            Assert.Contains("ActiveReFlySessionMarker", discardSlice);
+
+            // (2) Refuses on non-null with a Warn under [SwitchSegment].
+            Assert.Contains("unexpected-refly-active-in-secondary-dialog", discardSlice);
+            Assert.Contains("ParsekLog.Warn(\"SwitchSegment\"", discardSlice);
+            Assert.Contains("Discard refused", discardSlice);
+
+            // (3) Refusal returns before DiscardPendingTreeAndRecalculate
+            //     runs. The discard call must appear AFTER the Warn so the
+            //     guard's `return` prevents whole-tree discard from running.
+            int warnInDiscard = discardSlice.IndexOf("unexpected-refly-active-in-secondary-dialog");
+            int discardCallInDiscard = discardSlice.IndexOf("DiscardPendingTreeAndRecalculate");
+            Assert.True(warnInDiscard > 0 && discardCallInDiscard > warnInDiscard,
+                "Warn must precede DiscardPendingTreeAndRecalculate so the guard's return skips the discard");
+        }
     }
 }
