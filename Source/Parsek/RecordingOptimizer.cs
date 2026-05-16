@@ -25,7 +25,61 @@ namespace Parsek
         /// </summary>
         internal static bool CanAutoMerge(Recording a, Recording b)
         {
+            // NOTE: Two defenses prevent HEAD+TIP from being re-merged after Re-Fly's
+            // SplitOriginAtRewindUT splits them:
+            //
+            //   1. Explicit supersede-row guard (below): rejects merging if either
+            //      `a` or `b` appears as `OldRecordingId` in scenario.RecordingSupersedes.
+            //      TIP is on the OldRecordingId side of the `TIP -> fork` row written
+            //      by SupersedeCommit.AppendRelations. Robust, by-design defense.
+            //
+            //   2. Incidental ghosting-trigger defense (further down): the rewindUT BP
+            //      is at a CRASH/DECOUPLE/STAGING/BREAKUP point, so TIP gets a
+            //      ghosting-trigger PartEvent (Decoupled/Destroyed) at UT==rewindUT
+            //      and HasGhostingTriggerEvents(TIP) returns true. This defends the
+            //      typical case even without defense (1), but a future PartEvent-type
+            //      refactor that removed a trigger type would silently re-open the bug.
+            //      Defense (1) is the load-bearing one — keep it.
             if (a == null || b == null) return false;
+
+            // Guard against re-merging HEAD/TIP across a supersede boundary.
+            //
+            // Background: Re-Fly's SplitOriginAtRewindUT (RecordingTreeSplitter) splits
+            // the origin recording into HEAD (visible, kept on the timeline) and TIP
+            // (superseded by the fork) at the rewind UT. After the merge commits, HEAD
+            // and TIP are two adjacent chain siblings sharing a ChainId. Without this
+            // guard, the optimizer's next pass could see HEAD+TIP as merge candidates,
+            // glue them back together, and silently undo the split.
+            //
+            // In practice the rewindUT BP is at a CRASH/DECOUPLE/STAGING/BREAKUP point,
+            // so TIP gets a Decoupled/Destroyed PartEvent at UT==rewindUT and
+            // HasGhostingTriggerEvents(TIP) returns true → CanAutoMerge already rejects.
+            // But that defense is incidental — a future PartEvent-type refactor that
+            // removed a trigger type from the list at GhostingTriggerClassifier.cs
+            // would silently re-open the bug. The explicit supersede-row check below
+            // makes the defense robust.
+            //
+            // Uses ReferenceEquals(null, scenario) (not `scenario != null`) to bypass
+            // Unity's overloaded == operator that produces false positives in unit-test
+            // fixtures where no scenario is installed. Same pattern as EffectiveState /
+            // MergeJournalOrchestrator.
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario))
+            {
+                var supersedes = scenario.RecordingSupersedes;
+                if (supersedes != null && supersedes.Count > 0)
+                {
+                    if (EffectiveState.IsSupersededByRelation(a, supersedes)
+                        || EffectiveState.IsSupersededByRelation(b, supersedes))
+                    {
+                        ParsekLog.Verbose("Optimizer",
+                            $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
+                            "— at least one is on the OldRecordingId side of a supersede row " +
+                            "(post-split HEAD/TIP invariant)");
+                        return false;
+                    }
+                }
+            }
 
             // Must be in the same chain, consecutive, primary branch
             if (string.IsNullOrEmpty(a.ChainId) || a.ChainId != b.ChainId) return false;
