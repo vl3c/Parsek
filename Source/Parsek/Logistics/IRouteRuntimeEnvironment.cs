@@ -2,8 +2,8 @@ namespace Parsek.Logistics
 {
     /// <summary>
     /// Delegate surface for runtime queries the pure dispatch evaluator cannot
-    /// perform itself. Implementations supply live KSP state (Vessels, Funding,
-    /// HighLogic.CurrentGame.Mode, etc.); tests supply fakes so
+    /// perform itself. Implementations supply live KSP state (live vessels,
+    /// career funds, game mode, etc.); tests supply fakes so
     /// <see cref="RouteDispatchEvaluator"/> can be exercised entirely in xUnit.
     /// </summary>
     internal interface IRouteRuntimeEnvironment
