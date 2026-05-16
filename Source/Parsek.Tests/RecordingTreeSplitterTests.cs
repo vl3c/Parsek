@@ -262,6 +262,71 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // 3b. Stale ExplicitStartUT must not lure splitter into empty-HEAD split
+        // =====================================================================
+        //
+        // Regression for the build-PR-872 phantom STASH entry: a recording whose
+        // sampled content starts at the rewind UT (no pre-rewind data) but whose
+        // `ExplicitStartUT` carries a stale earlier value would, under the old
+        // `Recording.StartUT`-based strict-span check, pass the splitter's gate
+        // and reach `RecordingOptimizer.SplitAtSection`. The section-boundary
+        // partition there ignores `ExplicitStartUT`, so HEAD ended up empty
+        // (0 Points / 0 sections / 0 OrbitSegments) while still carrying the
+        // origin's id + terminal state + slot/chain metadata; `IsPreRewindCarveOut`
+        // then protected that empty HEAD from the supersede write-set as a
+        // PreRewindChainHead and the user saw a phantom STASH entry on the slot.
+        // The strict-span check now reads from `TryGetActualTrajectoryBounds`,
+        // which ignores `ExplicitStartUT`.
+
+        [Fact]
+        public void SplitOriginAtRewindUT_StaleExplicitStartUT_NoEmptyHeadSplit()
+        {
+            // Actual content [82.96, 92.72]; rewindUT == 82.96 so the recording
+            // has no pre-rewind sampled content.
+            var origin = BuildRecording("rec_stale", startUT: 82.96, endUT: 92.72,
+                midUT: 88.0, treeId: "tree_stale",
+                terminal: TerminalState.Destroyed);
+            // Stale `ExplicitStartUT` pointing before the rewind UT. Mirrors the
+            // failure mode observed in saves where an earlier optimizer pass
+            // trimmed leading Points but left `ExplicitStartUT` behind.
+            origin.ExplicitStartUT = 82.4;
+            InstallOriginInTree(origin, "tree_stale");
+
+            // Sanity: blended `StartUT` returns the stale 82.4, but actual
+            // bounds report 82.96 — exactly the divergence the bug exploited.
+            Assert.Equal(82.4, origin.StartUT);
+            Assert.True(origin.TryGetActualTrajectoryBounds(
+                out double actualStart, out double actualEnd));
+            Assert.Equal(82.96, actualStart);
+            Assert.Equal(92.72, actualEnd);
+
+            var marker = BuildMarker(origin, rewindUT: 82.96);
+            string markerTargetBefore = marker.SupersedeTargetId;
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.True(result.Skipped);
+            Assert.Equal("OriginDoesNotSpanRewindUT", result.SkipReason);
+            // No TIP was created.
+            Assert.Null(result.TipRecordingId);
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            // Marker untouched so the caller's whole-recording supersede row
+            // still names origin as the target.
+            Assert.Equal(markerTargetBefore, marker.SupersedeTargetId);
+            // Origin payload untouched — Points / TrackSections still describe
+            // the live post-rewind history (no empty-HEAD trim happened).
+            Assert.Equal(3, origin.Points.Count);
+            Assert.Single(origin.TrackSections);
+            // Skip log reports both views so a reader can spot stale
+            // `ExplicitStartUT` at a glance.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("actual trajectory bounds [82.96,92.72]")
+                && l.Contains("blended bounds=[82.40,92.72]"));
+        }
+
+        // =====================================================================
         // 4. NaN rewindUT -> Skipped
         // =====================================================================
 

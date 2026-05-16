@@ -481,8 +481,33 @@ namespace Parsek
 
             // Strict span check: origin must extend on both sides of rewindUT
             // by more than the sampler-jitter tolerance.
-            if (!(origin.StartUT < rewindUT - epsilon)
-                || !(origin.EndUT > rewindUT + epsilon))
+            //
+            // Pass 7 review: read the bounds from actual sampled content
+            // (Points / OrbitSegments / playable TrackSections) rather than
+            // from `Recording.StartUT` / `Recording.EndUT`. The property
+            // getters blend in `ExplicitStartUT` / `ExplicitEndUT`, which can
+            // carry stale metadata from earlier in the recording's life —
+            // e.g. a recording whose first samples were trimmed by a prior
+            // optimizer pass but whose ExplicitStartUT still points at the
+            // original sampler-stamped UT. Trusting that blended value here
+            // walks the splitter into "split a recording that has no
+            // pre-rewind content": `RecordingOptimizer.SplitAtSection`
+            // partitions on the section boundary, produces a 0-pt/0-section
+            // HEAD that still carries origin's id + terminal state +
+            // slot/chain metadata, and `IsPreRewindCarveOut` then protects
+            // that empty HEAD from the supersede write-set as a
+            // PreRewindChainHead — leaving a phantom STASH entry visible to
+            // the user. See `docs/dev/todo-and-known-bugs.md` "splitter
+            // empty HEAD". Falling back to whole-recording supersede here is
+            // correct: the recording has no actual data to preserve as
+            // launch portion.
+            double actualStartUT;
+            double actualEndUT;
+            bool hasActualBounds = origin.TryGetActualTrajectoryBounds(
+                out actualStartUT, out actualEndUT);
+            if (!hasActualBounds
+                || !(actualStartUT < rewindUT - epsilon)
+                || !(actualEndUT > rewindUT + epsilon))
             {
                 // Pass 5 review L5: this skip means the splitter is falling
                 // back to whole-recording supersede — the bug the PR fixes
@@ -492,9 +517,15 @@ namespace Parsek
                 // need to grep this in KSP.log; Info is the right level
                 // (consistent with the other guard paths above, which all
                 // use Warn / Info — only this one was at Verbose).
+                string actualBoundsStr = hasActualBounds
+                    ? "[" + actualStartUT.ToString("F2", ic) + ","
+                        + actualEndUT.ToString("F2", ic) + "]"
+                    : "<no sampled content>";
                 ParsekLog.Info(Tag,
-                    $"SplitOriginAtRewindUT: skip — origin '{origin.RecordingId}' UT bounds " +
-                    $"[{origin.StartUT.ToString("F2", ic)},{origin.EndUT.ToString("F2", ic)}] " +
+                    $"SplitOriginAtRewindUT: skip — origin '{origin.RecordingId}' actual " +
+                    $"trajectory bounds {actualBoundsStr} " +
+                    $"(blended bounds=[{origin.StartUT.ToString("F2", ic)}," +
+                    $"{origin.EndUT.ToString("F2", ic)}]) " +
                     $"do not strictly span rewindUT={rewindUT.ToString("F2", ic)} " +
                     $"(epsilon={epsilon.ToString("R", ic)}). " +
                     "Falling back to whole-recording supersede — the launch row " +
