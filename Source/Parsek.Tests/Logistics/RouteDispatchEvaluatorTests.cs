@@ -54,6 +54,16 @@ namespace Parsek.Tests.Logistics
                 return EndpointResolvable;
             }
 
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
+            {
+                // The evaluator tests never read the live Vessel — they only
+                // care about the success flag. Mirror TryResolveEndpoint and
+                // surface a null vessel reference (instantiating a real Vessel
+                // would drag in KSP statics and break the xUnit-only contract).
+                vessel = null;
+                return TryResolveEndpoint(endpoint, out reason);
+            }
+
             public bool OriginHasCargo(Route route, out string lackingResource)
             {
                 lackingResource = OriginHasCargoResult ? string.Empty : OriginLackingResource;
@@ -462,6 +472,12 @@ namespace Parsek.Tests.Logistics
                 StopCallCount++;
                 reason = string.Empty;
                 return true;
+            }
+
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
+            {
+                vessel = null;
+                return TryResolveEndpoint(endpoint, out reason);
             }
 
             public bool OriginHasCargo(Route route, out string lackingResource)

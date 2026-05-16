@@ -745,7 +745,7 @@ Future route analysis produces:
 
 **Trigger:** The route scheduler (`RouteScheduler`) runs each physics frame (or once per second during warp) in all scenes via `RouteOrchestrator`, called from `ParsekScenario.Update`.
 
-**v0 status (item 5):** The entrypoint is `RouteOrchestrator.Tick(currentUT)`, called from `ParsekScenario.Update` with a UT-delta accumulator at `RouteOrchestrator.TickIntervalSec` cadence. v0 implements the dispatch-decision chain and emits `RouteDispatched` + `RouteCargoDebited` (and `RouteEndpointLost` on resolution failure) ledger rows, but stops at `PendingDeliveryUT` — the actual cargo / funds mutation and the `RouteCargoDelivered` row are item 6.
+**v0 status (items 5+6):** The entrypoint is `RouteOrchestrator.Tick(currentUT)`, called from `ParsekScenario.Update` with a UT-delta accumulator at `RouteOrchestrator.TickIntervalSec` cadence. Dispatch and delivery are end-to-end for KSC-origin single-stop routes: the dispatch-decision chain emits `RouteDispatched` + `RouteCargoDebited` (and `RouteEndpointLost` on resolution failure); when `PendingDeliveryUT` elapses the pre-evaluator delivery hook applies the manifest to the destination vessel (loaded `PartResource` writes or unloaded `ProtoPartResourceSnapshot` writes for resources; `ModuleInventoryPart` slot stores for inventory), debits Career KSC-origin funds via `Funding.Instance`, and emits `RouteCargoDelivered` with actual-vs-requested amounts. Idempotent against ELS replay via `(RouteId, RouteCycleId)`.
 
 **For each route with Status in {Active, WaitingForResources, WaitingForFunds, DestinationFull} and `NextDispatchUT <= currentUT`:**
 

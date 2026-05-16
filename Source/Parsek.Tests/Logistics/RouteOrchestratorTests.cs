@@ -81,6 +81,18 @@ namespace Parsek.Tests.Logistics
                 return EndpointResolvable;
             }
 
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
+            {
+                // Orchestrator-dispatch tests in this class never exercise the
+                // delivery applier's vessel resolution; delivery-applier tests
+                // live in RouteOrchestratorDeliveryTests with their own fake.
+                // Surface a null Vessel here to mirror the dispatch-only
+                // resolver shape — instantiating a real Vessel would drag in
+                // KSP statics and break the xUnit-only contract.
+                vessel = null;
+                return TryResolveEndpoint(endpoint, out reason);
+            }
+
             public bool OriginHasCargo(Route route, out string lackingResource)
             {
                 OnAnyCall?.Invoke();
@@ -227,28 +239,53 @@ namespace Parsek.Tests.Logistics
             Assert.True(route.PendingDeliveryUT.HasValue);
             Assert.Equal(200.0, route.PendingDeliveryUT.Value);
             Assert.Equal(0, route.PendingStopIndex);
-            // CRITICAL: status stays InTransit until item-6 delivery wiring lands.
+            // CRITICAL: the arrival applier runs BEFORE Phase B's delivery
+            // hook checks pending state, so within this single tick the status
+            // stays InTransit. The next tick where PendingDeliveryUT <=
+            // currentUT applies the delivery (covered by
+            // RouteOrchestratorDeliveryTests).
             Assert.Equal(RouteStatus.InTransit, route.Status);
         }
 
-        // catches: re-arrival overwriting item-6 intent (a second tick after
-        // arrival must NOT bump PendingDeliveryUT forward).
+        // catches: a pending delivery whose UT lies in the past being IGNORED.
+        // Item 6 Phase B added the delivery applier hook; a tick where
+        // PendingDeliveryUT <= currentUT must consume the pending state. This
+        // test goes through the full Tick → ProcessOneRoute → ApplyDelivery
+        // path; the orchestrator-level fake can't supply a non-null Vessel
+        // reference (xUnit-only contract), so ApplyDelivery's null-vessel
+        // guard treats it as endpoint-lost-at-delivery. That's the correct
+        // production behavior when the destination vessel is unresolvable at
+        // delivery time — funds NOT debited, RouteCargoDelivered NOT emitted,
+        // status flipped to EndpointLost. The happy-path (live Vessel)
+        // coverage lives in RouteOrchestratorDeliveryTests via the testable
+        // ApplyDeliveryFromPlan helper.
         [Fact]
-        public void Tick_InTransitArrival_DoesNotResetPendingDeliveryUT()
+        public void Tick_PendingDeliveryDue_NullVessel_RoutesToEndpointLost()
         {
             var route = BuildActiveDueKscRoute();
             route.Status = RouteStatus.InTransit;
             route.CurrentCycleStartUT = 100.0;
             route.TransitDuration = 60.0;
             route.PendingDeliveryUT = 150.0; // earlier tick already set it
+            route.PendingStopIndex = 0;
+            // Push NextDispatchUT well into the future so the post-delivery
+            // eval doesn't re-fire on the same tick.
+            route.NextDispatchUT = 1_000_000.0;
             RouteStore.AddRoute(route);
+            // Default fake env returns (resolvable=true, vessel=null) which is
+            // the test-mode signal for ApplyDelivery to abort to EndpointLost.
             var env = new FakeRouteRuntimeEnvironment();
 
             RouteOrchestrator.Tick(200.0, env);
 
-            // Evaluator should short-circuit to Skip(in-transit-pending) because
-            // PendingDeliveryUT is already set; orchestrator must not touch it.
-            Assert.Equal(150.0, route.PendingDeliveryUT.Value);
+            // Pending fields cleared, status flipped, EndpointLost row emitted,
+            // NO RouteCargoDelivered row, NO CompletedCycles increment.
+            Assert.False(route.PendingDeliveryUT.HasValue);
+            Assert.Equal(-1, route.PendingStopIndex);
+            Assert.Equal(RouteStatus.EndpointLost, route.Status);
+            Assert.Equal(0, route.CompletedCycles);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.RouteEndpointLost);
         }
 
         // catches: wait state silently advancing NextDispatchUT (would let a
