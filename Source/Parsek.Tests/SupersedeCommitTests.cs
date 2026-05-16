@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -3051,6 +3052,13 @@ namespace Parsek.Tests
                 rec.ExplicitStartUT = row.startUT;
                 rec.IsDebris = row.isDebris;
                 if (row.isDebris) rec.DebrisParentRecordingId = row.parent;
+                // Pass 7: IsPreRewindCarveOut now reads bounds from
+                // TryGetActualTrajectoryBounds (sampled content only). Add
+                // a single Point at the row's startUT so the debris has
+                // actual bounds matching its Explicit metadata; otherwise
+                // the predicate falls through and pre-rewind debris would
+                // erroneously receive supersede rows in this fixture.
+                rec.Points.Add(new TrajectoryPoint { ut = row.startUT });
                 recordings.Add(rec);
             }
             InstallTree(treeId, recordings, bps);
@@ -3444,6 +3452,38 @@ namespace Parsek.Tests
         // Task A3 would have shipped a unified `rewindUT - eps` cutoff for
         // BOTH predicates, making HEAD's `EndUT == rewindUT` fail the test
         // and reintroducing the very bug Task A1-A8 exists to fix.
+        //
+        // Pass 7: both predicates now read bounds from
+        // `Recording.TryGetActualTrajectoryBounds` (sampled content only,
+        // ExplicitStartUT/EndUT excluded). Fixtures below carry a minimal
+        // two-Point trajectory matching their Explicit bounds so the
+        // predicate has actual content to evaluate; the bounds happen to
+        // equal Explicit*UT in these tests but the assertions exercise the
+        // ACTUAL view.
+
+        private static void StampActualBounds(Recording rec, double startUT, double endUT)
+        {
+            // Add minimal Points so `HasActualTrajectoryBounds` is true and
+            // `TryGetActualTrajectoryBounds` returns the supplied range.
+            // Pass 7 of fix-supersede-identity-scope: `IsPreRewindCarveOut`
+            // now reads bounds from sampled content, not the
+            // ExplicitStartUT/EndUT-blended view.
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = startUT,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+            if (endUT > startUT)
+            {
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = endUT,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                });
+            }
+        }
 
         [Fact]
         public void IsPreRewindCarveOut_PreRewindDebris_ReturnsTrueWithReason()
@@ -3464,6 +3504,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 22.5, // < 34.0 - 0.05
                 ExplicitEndUT = 28.0,
             };
+            StampActualBounds(debris, 22.5, 28.0);
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
                 debris, marker, out var reason);
@@ -3509,6 +3550,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 8.42,
                 ExplicitEndUT = 34.0, // == rewindUT exactly
             };
+            StampActualBounds(head, 8.42, 34.0);
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
                 head, marker, out var reason);
@@ -3553,6 +3595,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 12.0,
                 ExplicitEndUT = 34.0, // same as rewindUT — but DIFFERENT chain
             };
+            StampActualBounds(unrelatedSiblingEndingAtRewind, 12.0, 34.0);
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
                 unrelatedSiblingEndingAtRewind, marker, out var reason);
@@ -3584,6 +3627,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 8.0,
                 ExplicitEndUT = 34.0,
             };
+            StampActualBounds(head, 8.0, 34.0);
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
                 head, marker, out var reason);
@@ -3631,6 +3675,8 @@ namespace Parsek.Tests
                 ExplicitStartUT = 60.0,
                 ExplicitEndUT = 90.0,
             };
+            StampActualBounds(fork1Head2, 34.0, 60.0);
+            StampActualBounds(tip2, 60.0, 90.0);
             RecordingStore.AddCommittedInternal(fork1Head2);
             RecordingStore.AddCommittedInternal(tip2);
 
@@ -3674,6 +3720,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 34.0,
                 ExplicitEndUT = 52.0,
             };
+            StampActualBounds(tip, 34.0, 52.0);
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
                 tip, marker, out var reason);
@@ -3706,6 +3753,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 8.0,
                 ExplicitEndUT = 52.0,
             };
+            StampActualBounds(spanningOrigin, 8.0, 52.0);
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
                 spanningOrigin, marker, out var reason);
@@ -3738,6 +3786,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 20.0, // < 34.0 - 0.05
                 ExplicitEndUT = 34.0,  // == rewindUT
             };
+            StampActualBounds(debrisAtBoundary, 20.0, 34.0);
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
                 debrisAtBoundary, marker, out var reason);
@@ -3770,6 +3819,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 20.0, // < 34.0 - 0.05
                 ExplicitEndUT = 28.0,
             };
+            StampActualBounds(debris, 20.0, 28.0);
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
                 debris, marker, out var reason);
@@ -3800,6 +3850,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 5.0,
                 ExplicitEndUT = 10.0,
             };
+            StampActualBounds(debris, 5.0, 10.0);
             var head = new Recording
             {
                 RecordingId = "rec_head_nomarker",
@@ -3807,6 +3858,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 0.0,
                 ExplicitEndUT = 34.0,
             };
+            StampActualBounds(head, 0.0, 34.0);
 
             Assert.False(SupersedeCommit.IsPreRewindCarveOut(
                 debris, marker, out var debrisReason));
@@ -3815,6 +3867,165 @@ namespace Parsek.Tests
             Assert.False(SupersedeCommit.IsPreRewindCarveOut(
                 head, marker, out var headReason));
             Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, headReason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NoActualTrajectoryBounds_NotCarvedOut()
+        {
+            // Pass 7 regression test (consumer-side defense): a recording
+            // with no Points / OrbitSegments / playable TrackSections must
+            // never be carved out, even if its (Explicit-only or all-zero)
+            // metadata satisfies every other predicate. This pins the bug
+            // class closed against:
+            //   1. Future producer regressions that recreate empty HEADs.
+            //   2. Legacy saves authored under the pre-Pass-7 splitter,
+            //      which may carry an empty HEAD whose chain shape still
+            //      matches TIP (StartUT=EndUT=0, ChainId set, ChainIndex<TIP).
+            // The carve-out's contract is "keep visible recordings whose
+            // data predates the rewind". Zero content = no launch portion
+            // to protect; the recording should fall through to a normal
+            // whole-recording supersede row.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_pass7",
+                IsDebris = false,
+                ChainId = "chain_pass7",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(tip, 34.0, 52.0);
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_pass7",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+
+            // Empty HEAD that satisfies the chain-head predicate on metadata
+            // but has zero sampled content. Bounds default to StartUT=0,
+            // EndUT=0; chain shape matches TIP at ChainIndex 0 vs 1.
+            var emptyHead = new Recording
+            {
+                RecordingId = "rec_empty_head_pass7",
+                IsDebris = false,
+                ChainId = "chain_pass7",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                // Deliberately no Points / TrackSections / OrbitSegments —
+                // exercises the no-actual-bounds branch.
+                ExplicitStartUT = double.NaN,
+                ExplicitEndUT = double.NaN,
+            };
+            Assert.False(emptyHead.HasActualTrajectoryBounds);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                emptyHead, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_StaleExplicitStartUT_DebrisDoesNotEscape()
+        {
+            // Pass 7 regression test: a debris recording that physically
+            // separated AFTER the rewind UT but carries an inherited
+            // ExplicitStartUT < rewindUT (set when the debris child was
+            // first created, anchored to the parent's branchUT) must NOT
+            // be carved out as pre-rewind. Reading bounds from sampled
+            // content prevents the misclassification.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var debris = new Recording
+            {
+                RecordingId = "rec_debris_stale_start",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin_stale",
+                // Stale logical start (parent's branchUT). Sampled content
+                // actually starts at UT=40 — strictly post-rewind.
+                ExplicitStartUT = 8.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(debris, 40.0, 52.0);
+
+            // Sanity: blended StartUT exposes the stale Explicit value, but
+            // actual bounds match the sampled content.
+            Assert.Equal(8.0, debris.StartUT);
+            Assert.True(debris.TryGetActualTrajectoryBounds(
+                out double actualStart, out _));
+            Assert.Equal(40.0, actualStart);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                debris, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_StaleExplicitEndUT_GenuineHeadStillCarvedOut()
+        {
+            // Pass 7 regression test: a genuine HEAD half whose actual data
+            // ends at rewindUT but whose stale ExplicitEndUT carries a
+            // POST-rewind value must STILL be carved out (its actual content
+            // is pre-rewind launch data — the stale metadata must not block
+            // protection). Reading bounds from sampled content lets the
+            // predicate fire.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_stale_end",
+                IsDebris = false,
+                ChainId = "chain_stale_end",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(tip, 34.0, 52.0);
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_stale_end",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_head_stale_end",
+                IsDebris = false,
+                ChainId = "chain_stale_end",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                ExplicitStartUT = 8.42,
+                // Stale ExplicitEndUT carried over from before some trim
+                // pass — sits past rewindUT + epsilon.
+                ExplicitEndUT = 99.0,
+            };
+            // Actual sampled content ends at the rewind UT.
+            StampActualBounds(head, 8.42, 34.0);
+
+            // Sanity: blended EndUT exposes the stale Explicit value; actual
+            // bounds reflect the sampled content.
+            Assert.Equal(99.0, head.EndUT);
+            Assert.True(head.TryGetActualTrajectoryBounds(out _, out double actualEnd));
+            Assert.Equal(34.0, actualEnd);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                head, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
         }
 
         [Fact]
@@ -3841,6 +4052,7 @@ namespace Parsek.Tests
             head.ChainId = chainId;
             head.ChainBranch = 0;
             head.ChainIndex = 0;
+            StampActualBounds(head, 8.42, 34.0);
 
             var tip = Rec(tipId, treeId,
                 state: MergeState.Immutable, terminal: TerminalState.Destroyed);
@@ -3849,6 +4061,7 @@ namespace Parsek.Tests
             tip.ChainId = chainId;
             tip.ChainBranch = 0;
             tip.ChainIndex = 1;
+            StampActualBounds(tip, 34.0, 52.0);
 
             InstallTree(treeId,
                 new List<Recording> { head, tip },
@@ -3911,6 +4124,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 34.0,
                 ExplicitEndUT = 52.0,
             };
+            StampActualBounds(tip, 34.0, 52.0);
             RecordingStore.AddCommittedInternal(tip);
 
             var marker = new ReFlySessionMarker
@@ -3929,6 +4143,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 22.0,
                 ExplicitEndUT = 28.0,
             };
+            StampActualBounds(debris, 22.0, 28.0);
             Assert.True(SupersedeCommit.IsPreRewindDebris(debris, marker));
 
             var head = new Recording
@@ -3941,6 +4156,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 8.0,
                 ExplicitEndUT = 34.0,
             };
+            StampActualBounds(head, 8.0, 34.0);
             // IsPreRewindCarveOut would return true (PreRewindChainHead),
             // but the wrapper is debris-only and must return false.
             Assert.True(SupersedeCommit.IsPreRewindCarveOut(head, marker, out var reason));

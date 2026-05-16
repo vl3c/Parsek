@@ -477,11 +477,26 @@ namespace Parsek
             // = rewindUT - epsilon (StartUT < cutoff means "started
             // strictly before the rewind"; the epsilon absorbs
             // sampler jitter forward of the rewind point).
+            //
+            // Pass 7 review: read bounds from sampled content (not
+            // `Recording.StartUT`'s ExplicitStartUT-blended view). Debris
+            // recordings frequently carry `ExplicitStartUT` set to the
+            // parent's branchUT (the logical/intended start), which can be
+            // strictly earlier than the debris's first sampled Point. The
+            // blended view would falsely classify post-rewind debris as
+            // pre-rewind and escape the supersede write-set. The
+            // `TryGetActualTrajectoryBounds` short-circuit also closes the
+            // empty-recording case: a recording with no sampled content
+            // has no launch portion to protect, so the predicate
+            // unconditionally fails — see the
+            // `IsPreRewindCarveOut_NoActualTrajectoryBounds_NotCarvedOut`
+            // regression test in `SupersedeCommitTests.cs`.
             double debrisCutoff = ComputePreRewindCutoff(marker);
             if (!double.IsNaN(debrisCutoff)
                 && rec.IsDebris
                 && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
-                && rec.StartUT < debrisCutoff)
+                && rec.TryGetActualTrajectoryBounds(out double recActualStart, out _)
+                && recActualStart < debrisCutoff)
             {
                 reason = PreRewindCarveOutReason.PreRewindDebris;
                 return true;
@@ -535,11 +550,22 @@ namespace Parsek
                 !double.IsNaN(marker.RewindPointUT) && marker.RewindPointUT > 0.0
                     ? marker.RewindPointUT + EffectiveState.PidPeerStartUtEpsilonSeconds
                     : double.NaN;
+            // Pass 7 review: read EndUT from sampled content for the same
+            // reason as the debris case above — blended `Recording.EndUT`
+            // can carry a stale `ExplicitEndUT` (post-rewind value on a
+            // recording whose actual data stops before the rewind) and
+            // would erroneously keep the recording visible. The
+            // `TryGetActualTrajectoryBounds` predicate also unconditionally
+            // fails for a recording with no sampled content (the bug
+            // class this PR exists to close at the consumer side too: a
+            // post-split empty HEAD whose `EndUT=0` would otherwise
+            // tautologically satisfy `EndUT <= rewindUT + epsilon`).
             if (!double.IsNaN(headCutoff)
                 && !rec.IsDebris
                 && !string.IsNullOrEmpty(marker.SupersedeTargetId)
                 && !string.IsNullOrEmpty(rec.ChainId)
-                && rec.EndUT <= headCutoff)
+                && rec.TryGetActualTrajectoryBounds(out _, out double recActualEnd)
+                && recActualEnd <= headCutoff)
             {
                 Recording tip = preResolvedTip
                     ?? FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId);
