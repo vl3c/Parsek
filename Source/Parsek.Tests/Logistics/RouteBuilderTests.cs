@@ -223,7 +223,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(source.EndUT, sref.EndUT);
 
             // Hash must match the same computation the store does.
-            string expected = RouteStore.ComputeRouteProofHashFromRecording(source);
+            string expected = RouteProofHasher.ComputeRouteProofHashFromRecording(source);
             Assert.Equal(expected, sref.RouteProofHash);
         }
 

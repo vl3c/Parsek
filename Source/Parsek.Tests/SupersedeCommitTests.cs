@@ -2474,7 +2474,7 @@ namespace Parsek.Tests
                 SidecarEpoch = rec_origin.SidecarEpoch,
                 StartUT = rec_origin.StartUT,
                 EndUT = rec_origin.EndUT,
-                RouteProofHash = RouteStore.ComputeRouteProofHashFromRecording(rec_origin)
+                RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec_origin)
             };
             var route = new RouteFixtureBuilder()
                 .WithId("route-superseded-origin")

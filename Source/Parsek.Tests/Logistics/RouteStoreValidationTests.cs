@@ -139,7 +139,7 @@ namespace Parsek.Tests.Logistics
                 SidecarEpoch = rec.SidecarEpoch,
                 StartUT = rec.StartUT,
                 EndUT = rec.EndUT,
-                RouteProofHash = RouteStore.ComputeRouteProofHashFromRecording(rec)
+                RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec)
             };
         }
 

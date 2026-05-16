@@ -7,7 +7,7 @@ namespace Parsek.Tests.Logistics
 {
     /// <summary>
     /// Phase 5 of the Route store plan: pin
-    /// <see cref="RouteStore.ComputeRouteProofHashFromRecording"/> against
+    /// <see cref="RouteProofHasher.ComputeRouteProofHashFromRecording"/> against
     /// silent fingerprint drift. Each test names the regression it catches.
     /// </summary>
     [Collection("Sequential")]
@@ -104,11 +104,11 @@ namespace Parsek.Tests.Logistics
         {
             Recording rec = RecordingWithProof();
 
-            string first = RouteStore.ComputeRouteProofHashFromRecording(rec);
-            string second = RouteStore.ComputeRouteProofHashFromRecording(rec);
+            string first = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
+            string second = RouteProofHasher.ComputeRouteProofHashFromRecording(rec);
 
             Assert.Equal(first, second);
-            Assert.NotEqual(RouteStore.NoRouteProofSentinel, first);
+            Assert.NotEqual(RouteProofHasher.NoRouteProofSentinel, first);
         }
 
         // catches: changing the empty-state behavior silently — empty proof
@@ -119,11 +119,11 @@ namespace Parsek.Tests.Logistics
             var emptyA = new Recording { RecordingId = "rec-empty-A" };
             var emptyB = new Recording { RecordingId = "rec-empty-B" };
 
-            string hashA = RouteStore.ComputeRouteProofHashFromRecording(emptyA);
-            string hashB = RouteStore.ComputeRouteProofHashFromRecording(emptyB);
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(emptyA);
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(emptyB);
 
-            Assert.Equal(RouteStore.NoRouteProofSentinel, hashA);
-            Assert.Equal(RouteStore.NoRouteProofSentinel, hashB);
+            Assert.Equal(RouteProofHasher.NoRouteProofSentinel, hashA);
+            Assert.Equal(RouteProofHasher.NoRouteProofSentinel, hashB);
             // Sentinel comparison is INTENTIONALLY equal regardless of
             // unrelated fields — the contract is "no proof, no fingerprint."
             Assert.Equal(hashA, hashB);
@@ -137,11 +137,11 @@ namespace Parsek.Tests.Logistics
         public void Hash_DiffersOnTransferTargetVesselPid()
         {
             Recording recA = RecordingWithProof();
-            string hashA = RouteStore.ComputeRouteProofHashFromRecording(recA);
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
 
             Recording recB = RecordingWithProof();
             recB.RouteConnectionWindows[0].TransferTargetVesselPid = 9999u;
-            string hashB = RouteStore.ComputeRouteProofHashFromRecording(recB);
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
 
             Assert.NotEqual(hashA, hashB);
         }
@@ -152,11 +152,11 @@ namespace Parsek.Tests.Logistics
         public void Hash_DiffersOnDockUT()
         {
             Recording recA = RecordingWithProof();
-            string hashA = RouteStore.ComputeRouteProofHashFromRecording(recA);
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
 
             Recording recB = RecordingWithProof();
             recB.RouteConnectionWindows[0].DockUT = 999.0;
-            string hashB = RouteStore.ComputeRouteProofHashFromRecording(recB);
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
 
             Assert.NotEqual(hashA, hashB);
         }
@@ -168,11 +168,11 @@ namespace Parsek.Tests.Logistics
         public void Hash_DiffersOnEndpointInventoryItemIdentityHash()
         {
             Recording recA = RecordingWithProof();
-            string hashA = RouteStore.ComputeRouteProofHashFromRecording(recA);
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
 
             Recording recB = RecordingWithProof();
             recB.RouteConnectionWindows[0].DockEndpointInventory[0].IdentityHash = "totally-different-identity";
-            string hashB = RouteStore.ComputeRouteProofHashFromRecording(recB);
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
 
             Assert.NotEqual(hashA, hashB);
         }
@@ -184,7 +184,7 @@ namespace Parsek.Tests.Logistics
         public void Hash_StableOnInventoryItemReorder()
         {
             Recording recA = RecordingWithProof();
-            string hashA = RouteStore.ComputeRouteProofHashFromRecording(recA);
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
 
             Recording recB = RecordingWithProof();
             // Reverse the two items in DockEndpointInventory.
@@ -193,7 +193,7 @@ namespace Parsek.Tests.Logistics
             inv[0] = inv[1];
             inv[1] = tmp;
 
-            string hashB = RouteStore.ComputeRouteProofHashFromRecording(recB);
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
 
             Assert.Equal(hashA, hashB);
         }
@@ -205,11 +205,11 @@ namespace Parsek.Tests.Logistics
         public void Hash_DiffersOnOriginProofStartDockedOriginVesselPid()
         {
             Recording recA = RecordingWithProof();
-            string hashA = RouteStore.ComputeRouteProofHashFromRecording(recA);
+            string hashA = RouteProofHasher.ComputeRouteProofHashFromRecording(recA);
 
             Recording recB = RecordingWithProof();
             recB.RouteOriginProof.StartDockedOriginVesselPid = 11111u;
-            string hashB = RouteStore.ComputeRouteProofHashFromRecording(recB);
+            string hashB = RouteProofHasher.ComputeRouteProofHashFromRecording(recB);
 
             Assert.NotEqual(hashA, hashB);
         }

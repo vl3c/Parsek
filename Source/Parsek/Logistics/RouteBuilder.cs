@@ -112,7 +112,7 @@ namespace Parsek.Logistics
                     SidecarEpoch = source.SidecarEpoch,
                     StartUT = source.StartUT,
                     EndUT = source.EndUT,
-                    RouteProofHash = RouteStore.ComputeRouteProofHashFromRecording(source)
+                    RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(source)
                 }
             };
 
