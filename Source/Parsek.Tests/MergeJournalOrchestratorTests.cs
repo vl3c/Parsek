@@ -609,6 +609,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CrashAtTreeMerge_Finisher_DrivesForwardThroughSplit()
+        {
+            // Bug fix-refly-abandon-and-fork-persist §Bug2b: TreeMerge is a
+            // post-Begin-durable phase, so a crash with disk-phase=TreeMerge
+            // must drive forward through Split → Supersede → … → Complete
+            // via CompleteFromPostDurable. IsKnownPostBeginPhase(TreeMerge)
+            // returning true is what routes the dispatch.
+            var (scenario, provisional) = MakeStandardFixture();
+            TryRunWithFault(MergeJournalOrchestrator.Phase.TreeMerge,
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeJournal.Phases.TreeMerge,
+                scenario.ActiveMergeJournal.Phase);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            // Pre-finisher: only begin + treemerge fired.
+            Assert.Equal(new[] { "begin", "treemerge" }, durableSaveCheckpoints);
+
+            MergeJournalOrchestrator.RunFinisher();
+
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=TreeMerge"));
+        }
+
+        [Fact]
         public void CrashAtRpReap_Finisher_CompletesRemaining_JournalCleared()
         {
             var (scenario, provisional) = MakeStandardFixture();

@@ -231,6 +231,26 @@ namespace Parsek.Tests
                 l.Contains($"{origin.RecordingId} -> {tip.RecordingId}"));
         }
 
+        [Fact]
+        public void SplitOriginAtRewindUT_NoPromotion_WhenActiveIdDiffersFromOrigin()
+        {
+            // §Bug2c guard: the promotion is gated on tree.ActiveRecordingId
+            // currently referencing origin.RecordingId. If a prior session
+            // already promoted it to a different id (e.g. nested Re-Fly),
+            // the splitter must NOT overwrite that.
+            var origin = BuildRecording("rec_origin", startUT: 8.0, endUT: 53.0,
+                midUT: 34.0, treeId: "tree_4",
+                terminal: TerminalState.Destroyed);
+            var tree = InstallOriginInTree(origin, "tree_4");
+            tree.ActiveRecordingId = "rec_unrelated_active";
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            Assert.Equal("rec_unrelated_active", tree.ActiveRecordingId);
+        }
+
         // =====================================================================
         // 2. Origin entirely pre-rewind -> Skipped
         // =====================================================================
