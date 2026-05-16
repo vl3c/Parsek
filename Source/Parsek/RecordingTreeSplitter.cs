@@ -112,6 +112,23 @@ namespace Parsek
             /// mutated marker even when called from outside the original
             /// stack frame (tests or future call sites). Null if the
             /// splitter hasn't reached step 2.10 yet.
+            ///
+            /// <para><b>Reference-stability invariant (Pass 6 review M2):</b>
+            /// rollback writes back to the marker via this captured reference,
+            /// NOT via <c>scenario.ActiveReFlySessionMarker</c>. The two are
+            /// the same object on the production single-threaded Unity main
+            /// thread, so this is safe today. If a future change introduces
+            /// a code path that can clear <c>scenario.ActiveReFlySessionMarker</c>
+            /// between step 2.10's mutation and the rollback (e.g. a Unity
+            /// coroutine yield, an async load) — the captured reference still
+            /// resolves to the original mutated marker object, so rollback's
+            /// SupersedeTargetId restore writes to the orphaned marker rather
+            /// than the now-live scenario state. Either re-resolve via
+            /// <c>scenario.ActiveReFlySessionMarker</c> at rollback time, or
+            /// gate the rollback step on the captured reference still matching
+            /// the scenario's live marker. Today's call graph guarantees both
+            /// invariants, so the capture-and-restore pattern works without
+            /// additional checks.</para>
             /// </summary>
             internal ReFlySessionMarker MarkerForRollback;
 
@@ -377,6 +394,19 @@ namespace Parsek
                         $"'{origin.RecordingId}' is already TIP on chain {origin.ChainId} " +
                         $"(predecessor HEAD={predecessor.RecordingId} at chainIndex=" +
                         $"{predecessor.ChainIndex.ToString(ic)}); replaying post-split steps");
+                    // Pass 6 review L2: this idempotent re-entry path does NOT
+                    // populate snapshotReplay.ChainSiblingsBefore. Safe today
+                    // because RunPostSplitSteps' post-split work (BP reparent,
+                    // debris reparent, anchor rewrite, ledger retag, milestone
+                    // retag, marker mutation, BG map rebuild) doesn't touch
+                    // any sibling's ChainIndex — only the SplitAtUT call in
+                    // the fresh-split path mutates ChainIndex via ReindexChain.
+                    // If a future change adds chain-reshuffle work to
+                    // RunPostSplitSteps, this branch's rollback won't be able
+                    // to restore the pre-call ChainIndex state and the
+                    // recovery may produce a corrupted chain. Capture
+                    // ChainSiblingsBefore here defensively if that ever
+                    // changes.
                     var snapshotReplay = new SplitSnapshot
                     {
                         TreeId = predecessor.TreeId,
@@ -495,6 +525,15 @@ namespace Parsek
                 // nothing new to mutate) and downstream steps 6-13 each are
                 // for-each-row-rewrite-once and become no-ops once their
                 // predicate no longer matches.
+                //
+                // Pass 6 review L2: like the LooksLikeAlreadyMutatedClosureRoot
+                // branch below, this path does NOT capture ChainSiblingsBefore.
+                // Safe today because RunPostSplitSteps doesn't reshuffle
+                // ChainIndex — only the fresh-split path's ReindexChain does
+                // — and the existing TIP is already in its post-split
+                // position. If a future change adds chain-reshuffle work to
+                // RunPostSplitSteps, this branch's rollback would lose the
+                // pre-call ChainIndex map.
                 var snapshot = new SplitSnapshot
                 {
                     TreeId = origin.TreeId,
