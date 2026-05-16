@@ -26,6 +26,7 @@ All notable changes to Parsek are documented here.
 - Active-as-target dock route proof now restores endpoint coordinates from the dock event or absorbed background snapshot instead of looking up an already-merged-away vessel.
 - Added in-game logistics route-proof tests for dock endpoint PID/coordinate capture and live stock inventory payload identity moves.
 - Aligned the logistics transfer contract with stock behavior. Loaded tank edits should use stock `Part.TransferResource()` after explicit flow checks, while exact inventory delivery must preserve canonical `STOREDPART` payloads and avoid part-name-only removal helpers.
+- Reserved route action types 23-27 and registered a Route ledger module (skeleton only; no user-visible behavior, the scheduler that emits these actions has not been built yet).
 
 ### UI
 
