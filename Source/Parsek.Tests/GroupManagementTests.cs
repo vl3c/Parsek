@@ -229,8 +229,8 @@ namespace Parsek.Tests
         public void PruneUnusedHierarchyEntries_KeepsLiveAncestorsAndRemovesStaleAutoGroups()
         {
             GroupHierarchyStore.groupParents["Kerbal X / Debris"] = "Kerbal X";
-            GroupHierarchyStore.groupParents["Kerbal X (2) / Debris"] = "Kerbal X (2)";
-            GroupHierarchyStore.hiddenGroups.Add("Kerbal X (2) / Debris");
+            GroupHierarchyStore.groupParents["Kerbal X #2 / Debris"] = "Kerbal X #2";
+            GroupHierarchyStore.hiddenGroups.Add("Kerbal X #2 / Debris");
 
             var liveMain = new Recording
             {
@@ -248,7 +248,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec-old-superseded",
                 VesselName = "Old Booster",
-                RecordingGroups = new List<string> { "Kerbal X (2) / Debris" }
+                RecordingGroups = new List<string> { "Kerbal X #2 / Debris" }
             };
             var newSuperseding = new Recording
             {
@@ -278,8 +278,8 @@ namespace Parsek.Tests
             Assert.Equal(2, removed);
             Assert.True(GroupHierarchyStore.TryGetGroupParent("Kerbal X / Debris", out var parent));
             Assert.Equal("Kerbal X", parent);
-            Assert.False(GroupHierarchyStore.HasGroupParent("Kerbal X (2) / Debris"));
-            Assert.DoesNotContain("Kerbal X (2) / Debris", GroupHierarchyStore.HiddenGroups);
+            Assert.False(GroupHierarchyStore.HasGroupParent("Kerbal X #2 / Debris"));
+            Assert.DoesNotContain("Kerbal X #2 / Debris", GroupHierarchyStore.HiddenGroups);
             Assert.Contains(logLines, l =>
                 l.Contains("[GroupHierarchy]")
                 && l.Contains("Pruned stale group hierarchy")

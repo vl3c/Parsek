@@ -12,6 +12,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Auto-generated group disambiguation collided with the count badge in the recordings table
+
+- ~~Launching a second vessel named "Kerbal X" produced an auto-generated mission group called `Kerbal X (2)`. The recordings-table button label is rendered as `{groupName} ({memberCount})` (see `RecordingsTableUI.cs:1839`, `:2368`), so the second mission's row showed up as `Kerbal X (2) (3)` — two parenthesised numbers side by side, one a mission index and one a recording count, with nothing in the label distinguishing them. Debris subgroups inherited the same ambiguity: `Kerbal X (2) / Debris (7)`.~~
+
+**Root cause:** `RecordingGroupStore.GenerateUniqueGroupName` (`RecordingGroupStore.cs:766-774`) used `$"{baseName} ({n})"` to disambiguate duplicates, identical in shape to the trailing `({memberCount})` the UI appends to every group button.
+
+**Fix:** Switched the disambiguation suffix to `#N` — `$"{baseName} #{n}"`. The button label now reads `Kerbal X #2 (3)`: the `#2` is unambiguously a mission index, the `(3)` unambiguously a count. Debris subgroups follow naturally: `Kerbal X #2 / Debris (7)`. The legacy safety-fallback path (used when 999 candidates exhaust) was switched to `#{guid6}` for the same reason. Defense in depth: the loop also skips the legacy `(N)` form when scanning for the next free slot, so a save that still carries pre-fix `(N)` group names won't have its sequence renumbered into collisions with the new `#N` form.
+
+**Scope:** Auto-generated mission/chain group disambiguation only. The UI-internal "Group 1", "Group 2" sequence used by user-created empty groups (`RecordingsTableUI.cs:3515`) was already unambiguous and is unchanged. Existing saves are not migrated — pre-fix `Kerbal X (2)` group names persist as plain strings; the player can rename them via the table if they want the new style.
+
+**Coverage:** `UniqueGroupNameTests` covers the new format end-to-end. `SecondUse_AppendsHashSuffix2` and `ThirdUse_AppendsHashSuffix3` pin the basic increment behavior, `CaseInsensitive_DetectsCollision` and `GapInSequence_FillsFirstAvailable` pin the dedup semantics, and the new `LegacyParensFormatInExistingNames_SkippedToKeepSequenceCoherent` asserts that a save with `Flea` + `Flea (2)` bumps the next launch to `Flea #3` (not `Flea #2`) so the visible sequence stays coherent. `GroupManagementTests.PruneUnusedHierarchyEntries_KeepsLiveAncestorsAndRemovesStaleAutoGroups` was updated to use the new format so its hardcoded hierarchy reflects the new contract.
+
+**Status:** CLOSED 2026-05-16.
+
+---
+
 ## Done - v0.9.2 BG-tracked vessel mis-classified as Landed after destructive crash
 
 - ~~In `logs/2026-05-15_2031_refly-upper-stage-landed-not-destroyed/`, a Kerbal X probe (`f1b0b615…`, pid=2117351655) recorded with `terminalState = 1` (Landed) even though the player let it fall and explode. The probe's core part `probeStackLarge` (pid=723919894) died at UT 363.73 alongside engines and winglets; only `Decoupler.2` (pid=3087746488) survived. KSP packed the 1-part remnant for orbit at vel ≈ 280 m/s with `vessel.situation = LANDED` (situation is set purely by terrain proximity), and the BG `FinalizerCache` `background_go_on_rails` refresh accepted that as a terminal Landed verdict via `TryBuildSurfaceTerminalCache` (`RecordingFinalizationCacheProducer.cs:743`). Earlier `BackgroundLoaded` refreshes had four times in a row tagged the recording `subsurface-destroyed-suppressed`, but the on-rails refresh short-circuited on the surface-situation read before the ballistic extrapolation could re-emit the destroyed verdict.~~
