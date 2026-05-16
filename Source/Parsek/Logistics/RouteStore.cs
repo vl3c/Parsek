@@ -261,6 +261,15 @@ namespace Parsek.Logistics
         /// unless a source problem is detected (in which case they transition through the same
         /// rules as Active routes — a missing source is more urgent than a pause).
         /// </summary>
+        /// <remarks>
+        /// Called from <see cref="ParsekScenario.OnLoad"/> and from
+        /// <see cref="SupersedeCommit.FlipMergeStateAndClearTransient"/> after a
+        /// re-fly supersede commits the new state. New ERS-mutating code paths
+        /// must add a RevalidateSources call or document why staleness is
+        /// acceptable until next save/load — otherwise routes pointing at the
+        /// newly-mutated recordings will retain their pre-mutation status until
+        /// the next save/load cycle.
+        /// </remarks>
         /// <param name="reason">Free-form audit string included in every transition log line.</param>
         /// <returns>The number of routes whose status changed during this pass.</returns>
         internal static int RevalidateSources(string reason)
