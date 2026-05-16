@@ -1,6 +1,6 @@
 # Segment-scoped auto-record for stock Fly / Switch-To buttons
 
-Status: draft plan for review, no implementation yet.
+Status: implemented — see commits 5a472507..HEAD on `switch-fly-autorecord` for the Phase A-E work plus the Phase F follow-ups (review fixes, save/load tests, in-game test promotion, doc polish). Manual smoke pass pending; see `docs/dev/manual-testing/switch-fly-autorecord.md` for the 12-item player checklist.
 
 Worktree: `Parsek-plan-switch-fly-segments`
 

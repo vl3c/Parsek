@@ -8,16 +8,9 @@ All notable changes to Parsek are documented here.
 
 ### Breaking Changes
 
-- Recording format bumped v0 -> v1 to reserve a `VesselSwitchContinuation` branch type for upcoming switch/Fly auto-record. Per pre-1.0 no-backwards-compat policy, v0 saves are rejected at load with reason `format-version-mismatch`.
-- New optional `Recording.SwitchSegmentSessionId` ownership field (forward-compatible v1 extension) reserved for upcoming switch/Fly segment ownership. Defaults to null and is omitted from saves when unset; independent from the Re-Fly-owned `CreatingSessionId`.
-- Added `StockActionIntentMarker` + `SwitchSegmentSession` scenario serialization for upcoming switch/Fly auto-record.
-- Added `SwitchSegmentBuilder` pure helper for switch/Fly continuation segment creation with terminal-leaf resolver.
-- Added per-source auto-record settings: TS Fly, KSC marker Fly, Map Switch-To (all default ON).
-- Added Harmony patches arming stock-action intent on Tracking Station Fly, KSC marker Fly, and Map view Switch To buttons.
-- Wired the stock-action intent consume site so Tracking Station Fly, KSC marker Fly, and Map view Switch To clicks immediately start a new switch-continuation segment for the focused vessel and disarm the first-modification fallback for that switch.
-- Switch-segment consume now binds the live FlightRecorder to the new segment's recording id so trajectory samples flow immediately.
-- Narrowed #866 committed-tree-restore suppression so switch-segment marker-owned new recording ids retain event persistence, dirty sidecar saves, and milestone flushes even when a restore attempt is armed.
-- Scene-exit Discard after a switch/Fly action now removes only the switch segment and preserves committed history; Merge commits the segment under the committed timeline. Dialog copy reflects the player's entry path (Fly vs Switch To). When pre-existing pending changes remain after a scoped Discard, a second whole-pending-tree Merge / Discard / Cancel dialog is shown before the scene exit completes.
+- Recording format bumped v0 -> v1; pre-1.0 saves are rejected with reason `format-version-mismatch`.
+- Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id; per-source toggles in Settings let the player disable any of the three sources.
+- Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog whose copy reflects the entry verb (Fly vs Switch To); Discard removes only the new segment and preserves committed history, and a second whole-pending dialog appears when pre-existing pending changes still need a disposition.
 - Reset the private-development recording/rendering schema baseline to v0. Old pre-reset Parsek recordings, sidecars, and career ledger entries are rejected with explicit reasons rather than migrated.
 - Reset pannotations sidecars through new `PNA0`/`PNC0` magic and v0 cache schema stamps.
 - Removed the historical recording-format compatibility ladder from the current trajectory codec. Old `PRKB`/`PRKS` sidecars and pre-reset pannotations magic tags are treated as unsupported.
