@@ -348,6 +348,28 @@ namespace Parsek
             if (LooksLikeAlreadyMutatedClosureRoot(origin, rewindUT, epsilon))
             {
                 Recording predecessor = TryFindChainPredecessor(origin);
+                // Pass 5 review M5: TryFindChainPredecessor matches purely on
+                // (ChainId, ChainBranch, ChainIndex-1). A pre-existing env-class
+                // chain sibling at that slot (whose EndUT is the env-transition
+                // UT, not rewindUT) would silently pass the predicate. Verify
+                // the predecessor actually was HEAD by checking its EndUT
+                // sits within epsilon of rewindUT. Mismatch → abort the
+                // idempotent re-entry (falls through to the strict-span check
+                // below, which either runs a fresh split or skips).
+                if (predecessor != null
+                    && Math.Abs(predecessor.EndUT - rewindUT) >= epsilon)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"SplitOriginAtRewindUT: idempotent re-entry aborted — chain " +
+                        $"predecessor '{predecessor.RecordingId}' ends at " +
+                        $"{predecessor.EndUT.ToString("F2", ic)} but rewindUT=" +
+                        $"{rewindUT.ToString("F2", ic)} " +
+                        $"(epsilon={epsilon.ToString("R", ic)}). Predecessor is not " +
+                        "HEAD — likely an env-class sibling at ChainIndex-1 from a " +
+                        "prior optimizer split. Treating closure root as fresh-split " +
+                        "candidate instead of replaying post-split steps.");
+                    predecessor = null;
+                }
                 if (predecessor != null)
                 {
                     ParsekLog.Info(Tag,
@@ -374,16 +396,79 @@ namespace Parsek
                 }
             }
 
+            // Pass 5 review M3: env-homogeneous-origin invariant check.
+            // The splitter assumes origin's TrackSections are all one env-class
+            // (origin is one segment of an already-env-split chain). The
+            // invariant lives in MergeDialog's ordering: RunOptimizationPass
+            // runs BEFORE TryCommitReFlySupersede, so by split time origin
+            // is env-homogeneous. Same ordering on the OnLoad recovery path
+            // (ParsekScenario.OnLoad runs optimization before RunFinisher).
+            //
+            // If a future change adds a third RunMerge entry point that skips
+            // optimization, the splitter would produce HEAD/TIP halves with
+            // internal env-class boundaries; a subsequent RunOptimizationPass
+            // would env-split TIP into TIP_a + TIP_b, but only TIP_a (with
+            // the original recording id) carries the supersede row written
+            // at merge time. TIP_b would escape as a visible recording covering
+            // part of the post-rewind UT range — recreating the bug for that
+            // fragment.
+            //
+            // Defensive log: walk origin.TrackSections counting distinct
+            // env-classes. >1 means the invariant is violated — surface a
+            // Warn naming the env-class transitions so a future maintainer
+            // can fix the caller (typically: ensure RunOptimizationPass is
+            // called on the closure root before reaching the splitter). We
+            // proceed with the split anyway — HEAD/TIP at the rewind UT is
+            // still produced correctly; the warning surfaces the
+            // misconfiguration without blocking the merge.
+            if (origin.TrackSections != null && origin.TrackSections.Count > 1)
+            {
+                SegmentEnvironment firstEnv = origin.TrackSections[0].environment;
+                int distinctEnvClasses = 1;
+                for (int i = 1; i < origin.TrackSections.Count; i++)
+                {
+                    if (origin.TrackSections[i].environment != firstEnv)
+                    {
+                        distinctEnvClasses++;
+                        firstEnv = origin.TrackSections[i].environment;
+                    }
+                }
+                if (distinctEnvClasses > 1)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"SplitOriginAtRewindUT: env-homogeneous-origin invariant " +
+                        $"violated — origin '{origin.RecordingId}' carries " +
+                        $"{distinctEnvClasses.ToString(ic)} distinct env-class runs " +
+                        $"across {origin.TrackSections.Count.ToString(ic)} TrackSections. " +
+                        "RunOptimizationPass should have env-split this recording " +
+                        "before the splitter sees it (MergeDialog → CommitPendingTree → " +
+                        "RunOptimizationPass → TryCommitReFlySupersede, or " +
+                        "ParsekScenario.OnLoad → RunOptimizationPass → RunFinisher). " +
+                        "Proceeding with split anyway; a subsequent optimizer pass " +
+                        "may produce TIP fragments that escape the supersede write-set.");
+                }
+            }
+
             // Strict span check: origin must extend on both sides of rewindUT
             // by more than the sampler-jitter tolerance.
             if (!(origin.StartUT < rewindUT - epsilon)
                 || !(origin.EndUT > rewindUT + epsilon))
             {
-                ParsekLog.Verbose(Tag,
+                // Pass 5 review L5: this skip means the splitter is falling
+                // back to whole-recording supersede — the bug the PR fixes
+                // remains present for this one recording (its launch row
+                // will be hidden in the timeline). Operators triaging
+                // "I clicked Re-Fly but my launch row still disappeared"
+                // need to grep this in KSP.log; Info is the right level
+                // (consistent with the other guard paths above, which all
+                // use Warn / Info — only this one was at Verbose).
+                ParsekLog.Info(Tag,
                     $"SplitOriginAtRewindUT: skip — origin '{origin.RecordingId}' UT bounds " +
                     $"[{origin.StartUT.ToString("F2", ic)},{origin.EndUT.ToString("F2", ic)}] " +
                     $"do not strictly span rewindUT={rewindUT.ToString("F2", ic)} " +
-                    $"(epsilon={epsilon.ToString("R", ic)})");
+                    $"(epsilon={epsilon.ToString("R", ic)}). " +
+                    "Falling back to whole-recording supersede — the launch row " +
+                    "for this recording will be hidden in the timeline.");
                 return new SplitOriginResult
                 {
                     Skipped = true,
@@ -901,23 +986,36 @@ namespace Parsek
             }
 
             // Step 4: walk the ledger in reverse and undo every recorded mutation.
+            // Track whether a ledger-action retag was undone — gates the
+            // Ledger.BumpStateVersion below (Pass 5 review L6: success path
+            // only bumps Ledger when ActionsRetagged > 0; rollback should
+            // mirror that asymmetry so a no-action rollback doesn't trigger
+            // an unnecessary ELS cache rebuild on large saves).
             int ledgerEntries = snapshot.Ledger != null ? snapshot.Ledger.Count : 0;
+            bool hadLedgerActionRetag = false;
             if (snapshot.Ledger != null)
             {
                 for (int i = snapshot.Ledger.Count - 1; i >= 0; i--)
                 {
+                    if (snapshot.Ledger[i].EntryKind == SplitMutationLedger.Kind.LedgerActionRetag)
+                        hadLedgerActionRetag = true;
                     SplitMutationLedger.Undo(snapshot.Ledger[i]);
                 }
             }
 
-            // Step 5: bump state version counters AGAIN. Observers that read the
-            // half-mutated state see the post-rollback bump and invalidate their
-            // caches; decrementing is not safe because cached deltas may have
-            // already propagated. Bump Ledger + invoke OnTimelineDataChanged so
-            // ELS and milestone overlays rebuild.
+            // Step 5: bump state version counters so observers that read the
+            // half-mutated state invalidate their caches. RecordingStore is
+            // bumped unconditionally — the rollback path always at least
+            // touched origin reference / TIP insertion / chain reindex, so
+            // the store is dirty. Ledger + LedgerOrchestrator are bumped
+            // only when a ledger-action retag was actually undone — mirrors
+            // the success path's gating at RunPostSplitSteps line 783.
             RecordingStore.BumpStateVersion();
-            Ledger.BumpStateVersion();
-            LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+            if (hadLedgerActionRetag)
+            {
+                Ledger.BumpStateVersion();
+                LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+            }
 
             ParsekLog.Warn(Tag,
                 $"RollBackInMemory: rolled back split " +

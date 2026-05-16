@@ -477,6 +477,143 @@ namespace Parsek.Tests
             Assert.True(rec.OrbitSegments[0].isPredicted);
         }
 
+        [Fact]
+        public void SplitAtUT_TailClonesHyperbolicOrbitSegment_PreservesKeplerElements()
+        {
+            // Pass 5 review L4: SplitAtSection's tail-clone is a struct
+            // value-copy with adjusted startUT — Kepler elements describe
+            // the whole conic regardless of eccentricity, so the same
+            // value-copy is correct for elliptical, parabolic, and
+            // hyperbolic. This test pins the hyperbolic case (escape
+            // trajectory, e > 1, a < 0 by Kepler convention) so a future
+            // refactor that adds anything non-value-copy (orbit-state
+            // propagation, epoch renormalization, semi-major-axis
+            // normalization) is caught immediately.
+            //
+            // Fixture mirrors the elliptical happy-path: null frames so
+            // TrySyncFlat doesn't rebuild, isPredicted=true so Ensure
+            // doesn't materialize a checkpoint section.
+            var rec = new Recording { RecordingId = "rec-orbit-hyperbolic" };
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(34.0));
+            rec.Points.Add(PointAt(53.0));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 8.0,
+                endUT = 53.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = null,
+            });
+            // e=1.5 > 1 → hyperbolic; a<0 by Kepler convention for
+            // hyperbolic orbits. semi-major-axis as negative makes the
+            // ellipse formula degenerate — only Kepler-conic-handling code
+            // should accept this struct without normalization.
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 20.0,
+                endUT = 50.0,
+                bodyName = "Kerbin",
+                inclination = 30.0,
+                eccentricity = 1.5,
+                semiMajorAxis = -800000.0,
+                longitudeOfAscendingNode = 60.0,
+                argumentOfPeriapsis = 120.0,
+                meanAnomalyAtEpoch = -0.7,
+                epoch = 20.0,
+                isPredicted = true,
+            });
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(20.0, rec.OrbitSegments[0].startUT);
+            Assert.Equal(34.0, rec.OrbitSegments[0].endUT);
+
+            // TIP carries an identical Kepler-element copy with startUT
+            // bumped to splitUT. Negative semi-major-axis preserved.
+            Assert.Single(tip.OrbitSegments);
+            var tipSeg = tip.OrbitSegments[0];
+            Assert.Equal(34.0, tipSeg.startUT);
+            Assert.Equal(50.0, tipSeg.endUT);
+            Assert.Equal("Kerbin", tipSeg.bodyName);
+            Assert.Equal(30.0, tipSeg.inclination);
+            Assert.Equal(1.5, tipSeg.eccentricity);
+            Assert.Equal(-800000.0, tipSeg.semiMajorAxis);
+            Assert.Equal(60.0, tipSeg.longitudeOfAscendingNode);
+            Assert.Equal(120.0, tipSeg.argumentOfPeriapsis);
+            Assert.Equal(-0.7, tipSeg.meanAnomalyAtEpoch);
+            Assert.Equal(20.0, tipSeg.epoch);
+            Assert.True(tipSeg.isPredicted);
+        }
+
+        [Fact]
+        public void SplitAtUT_TailClonesParabolicOrbitSegment_PreservesKeplerElements()
+        {
+            // Pass 5 review L4: e=1.0 exactly is the parabolic edge case.
+            // Some Kepler implementations special-case e==1 because the
+            // ellipse formula has a singularity there. The tail-clone is
+            // pure struct value-copy so the parabolic markers (e=1.0,
+            // whatever the codebase chooses to store for semiMajorAxis in
+            // the parabolic case — typically a sentinel like double.PositiveInfinity
+            // or a very large value) must round-trip identically.
+            //
+            // Most KSP saves never see e=1.0 exactly in stock; mods like
+            // Trajectories / Principia / RealSolarSystem do produce them
+            // during transfer planning. Lock the contract now.
+            var rec = new Recording { RecordingId = "rec-orbit-parabolic" };
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(34.0));
+            rec.Points.Add(PointAt(53.0));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 8.0,
+                endUT = 53.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = null,
+            });
+            // Parabolic markers chosen to surface any "normalize to ellipse"
+            // bug: e=1.0 exactly, semiMajorAxis = a large finite value
+            // (real codebases may use infinity, NaN, or a sentinel — the
+            // test just locks whatever the splitter sees).
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 20.0,
+                endUT = 50.0,
+                bodyName = "Kerbin",
+                inclination = 0.0,
+                eccentricity = 1.0,
+                semiMajorAxis = 1e15, // very large; parabolic sentinel
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = 20.0,
+                isPredicted = true,
+            });
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Single(rec.OrbitSegments);
+
+            Assert.Single(tip.OrbitSegments);
+            var tipSeg = tip.OrbitSegments[0];
+            Assert.Equal(34.0, tipSeg.startUT);
+            Assert.Equal(50.0, tipSeg.endUT);
+            Assert.Equal(1.0, tipSeg.eccentricity);
+            Assert.Equal(1e15, tipSeg.semiMajorAxis);
+            Assert.Equal(0.0, tipSeg.inclination);
+            Assert.Equal(20.0, tipSeg.epoch);
+        }
+
         #endregion
 
         #region Straddle-section checkpoints partition

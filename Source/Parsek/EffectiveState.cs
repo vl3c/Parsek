@@ -156,6 +156,25 @@ namespace Parsek
         internal static string EffectiveTipRecordingId(
             string originRecordingId,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
+            => EffectiveTipRecordingId(originRecordingId, supersedes, recById: null);
+
+        /// <summary>
+        /// Hot-loop overload of
+        /// <see cref="EffectiveTipRecordingId(string, IReadOnlyList{RecordingSupersedeRelation})"/>
+        /// taking a pre-built id → recording index. The walker's chain-hop
+        /// branch does a <see cref="FindRecordingById"/> call on every
+        /// iteration; without the index that's an O(N) linear scan of
+        /// <see cref="RecordingStore.CommittedRecordings"/>. Batch callers
+        /// (e.g. <see cref="ResolveRewindPointSlotIndexForRecording"/>
+        /// iterating <c>rp.ChildSlots</c>) build the index once before the
+        /// loop and pass it in. Pass <c>null</c> to fall back to the linear
+        /// scan (single-shot callers, tests, the legacy overload above).
+        /// Pass 5 review M2.
+        /// </summary>
+        internal static string EffectiveTipRecordingId(
+            string originRecordingId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyDictionary<string, Recording> recById)
         {
             if (string.IsNullOrEmpty(originRecordingId))
                 return null;
@@ -169,7 +188,7 @@ namespace Parsek
                 // Chain hop: only fires when current is a chain member with a
                 // resolvable tip distinct from itself. Uses the existing tree
                 // scan in ResolveChainTerminalRecording.
-                Recording currentRec = FindRecordingById(current);
+                Recording currentRec = LookupRecordingId(current, recById);
                 if (currentRec != null && !string.IsNullOrEmpty(currentRec.ChainId))
                 {
                     Recording chainTip = ResolveChainTerminalRecording(currentRec);
@@ -243,6 +262,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pass 5 review M2: dict-aware lookup. Returns
+        /// <paramref name="recById"/>[<paramref name="recordingId"/>] when
+        /// the index is present, falling back to
+        /// <see cref="FindRecordingById"/>'s linear scan otherwise. Batches
+        /// of walker calls (the hot path in
+        /// <see cref="ResolveRewindPointSlotIndexForRecording"/>) build the
+        /// index once and pass it through to amortize lookups across the
+        /// slot loop.
+        /// </summary>
+        private static Recording LookupRecordingId(
+            string recordingId,
+            IReadOnlyDictionary<string, Recording> recById)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            if (recById != null && recById.TryGetValue(recordingId, out var rec))
+                return rec;
+            return FindRecordingById(recordingId);
+        }
+
+        /// <summary>
+        /// Pass 5 review M2: builds the id → recording index used by the
+        /// walker / forward-trail dict overloads. Equivalent to
+        /// <see cref="SupersedeCommit"/>'s internal builder but lives here
+        /// so EffectiveState's hot batch callers (in particular
+        /// <see cref="ResolveRewindPointSlotIndexForRecording"/>) don't need
+        /// to cross-reference another file's private helper. Returns an
+        /// empty dictionary on null store.
+        /// </summary>
+        internal static Dictionary<string, Recording> BuildRecordingIdIndex()
+        {
+            var index = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            var source = RecordingStore.CommittedRecordings;
+            if (source == null) return index;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var rec = source[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (!index.ContainsKey(rec.RecordingId))
+                    index.Add(rec.RecordingId, rec);
+            }
+            return index;
+        }
+
+        /// <summary>
         /// True iff <paramref name="rec"/> is visible per design §3.1:
         /// <c>MergeState != NotCommitted</c> AND walking forward from
         /// <c>rec.RecordingId</c> via <paramref name="supersedes"/> lands on
@@ -273,6 +336,12 @@ namespace Parsek
                 return -1;
 
             var effectiveSupersedes = supersedes ?? Array.Empty<RecordingSupersedeRelation>();
+            // Pass 5 review M2: build the id → recording index once before
+            // the slot loop. Both EffectiveTipRecordingId and
+            // IsInSupersedeForwardTrail iterate FindRecordingById in their
+            // chain-hop branches; the dict overload amortizes those scans
+            // across every slot iteration.
+            Dictionary<string, Recording> recById = null;
             for (int i = 0; i < rp.ChildSlots.Count; i++)
             {
                 var slot = rp.ChildSlots[i];
@@ -287,12 +356,13 @@ namespace Parsek
                 // a fork can match its slot's origin even when a rewind-UT split
                 // separates the slot's origin id (HEAD) from the supersede target
                 // (TIP) via a chain hop before the supersede edge to fork.
-                string compositeEffective = EffectiveTipRecordingId(origin, effectiveSupersedes);
+                if (recById == null) recById = BuildRecordingIdIndex();
+                string compositeEffective = EffectiveTipRecordingId(origin, effectiveSupersedes, recById);
                 if (!string.IsNullOrEmpty(compositeEffective)
                     && !string.Equals(compositeEffective, effective, StringComparison.Ordinal)
                     && string.Equals(compositeEffective, rec.RecordingId, StringComparison.Ordinal))
                     return i;
-                if (IsInSupersedeForwardTrail(origin, rec.RecordingId, effectiveSupersedes))
+                if (IsInSupersedeForwardTrail(origin, rec.RecordingId, effectiveSupersedes, recById))
                     return i;
             }
 
@@ -303,6 +373,21 @@ namespace Parsek
             string originRecordingId,
             string targetRecordingId,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
+            => IsInSupersedeForwardTrail(originRecordingId, targetRecordingId, supersedes, recById: null);
+
+        /// <summary>
+        /// Pass 5 review M2: dict-aware overload, mirrors
+        /// <see cref="EffectiveTipRecordingId(string, IReadOnlyList{RecordingSupersedeRelation}, IReadOnlyDictionary{string, Recording})"/>.
+        /// The BFS frontier in this method also does
+        /// <see cref="FindRecordingById"/> on every dequeue for the chain-hop
+        /// branch — pre-built index amortizes the same linear scan across
+        /// the search.
+        /// </summary>
+        private static bool IsInSupersedeForwardTrail(
+            string originRecordingId,
+            string targetRecordingId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyDictionary<string, Recording> recById)
         {
             // Needed for hybrid legacy-star plus new-linear graphs where a
             // mid-chain recording is still part of the slot even when it is no
@@ -330,7 +415,7 @@ namespace Parsek
                 // chain tip if it's a distinct recording id. Visited guard
                 // prevents revisiting; reaching the target via chain alone
                 // counts as in-trail.
-                Recording currentRec = FindRecordingById(current);
+                Recording currentRec = LookupRecordingId(current, recById);
                 if (currentRec != null && !string.IsNullOrEmpty(currentRec.ChainId))
                 {
                     Recording chainTip = ResolveChainTerminalRecording(currentRec);
