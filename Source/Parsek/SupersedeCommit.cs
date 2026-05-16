@@ -202,10 +202,26 @@ namespace Parsek
                 }
             }
 
+            // Pre-rewind debris filter (see IsPreRewindDebris): debris
+            // recordings that physically separated before the rewind point
+            // are independent vessel histories that the re-fly does not
+            // redo, so they are excluded from the supersede write-set AND
+            // from the returned subtree so the downstream tombstone scan
+            // (CommitSupersede / MergeJournalOrchestrator route this return
+            // value into CommitTombstones) leaves their attributed ledger
+            // actions alone too. The session-suppressed closure walk itself
+            // is intentionally unchanged: closure inclusion still drives
+            // PR #858's render carve-out and PR #860's watch-mode /
+            // map-presence scoping while the active session is live; the
+            // write-set filter is the commit-time policy decision.
+            var preRewindDebrisIds = new HashSet<string>(StringComparer.Ordinal);
+            Dictionary<string, Recording> recById = null;
+
             int added = 0;
             int skippedExisting = 0;
             int skippedSelfLink = 0;
             int skippedExtraSelfLink = 0;
+            int skippedPreRewindDebris = 0;
             if (subtree != null)
             {
                 foreach (string oldId in subtree)
@@ -253,6 +269,33 @@ namespace Parsek
                             $"CommitSupersede: skip existing relation old={oldId} new={newRecordingId}");
                         continue;
                     }
+                    // Pre-rewind debris is filtered LAST so the existing
+                    // skip-counter contracts (self-link / extra-self-link /
+                    // existing-relation) keep their meaning. Build the
+                    // id->Recording index lazily; most batches are tiny and
+                    // the closure already filtered out null entries.
+                    //
+                    // A `TryGetValue` miss (closure id not in
+                    // `CommittedRecordings` — defensive, the closure walk
+                    // builds itself from the same store) short-circuits the
+                    // `&&` and falls through to row-write. That preserves the
+                    // pre-fix default ("write the row") for the anomalous
+                    // case where the row's Recording is gone but its id is
+                    // still in the closure.
+                    if (recById == null)
+                        recById = BuildCommittedRecordingIndex();
+                    Recording rec;
+                    if (recById.TryGetValue(oldId, out rec)
+                        && IsPreRewindDebris(rec, marker))
+                    {
+                        skippedPreRewindDebris++;
+                        preRewindDebrisIds.Add(oldId);
+                        ParsekLog.Verbose(Tag,
+                            $"AppendRelations: skip pre-rewind debris old={oldId} new={newRecordingId} " +
+                            $"(startUT={rec.StartUT.ToString("R", ic)} cutoff={ComputePreRewindCutoff(marker).ToString("R", ic)} " +
+                            $"parent={rec.DebrisParentRecordingId ?? "<null>"})");
+                        continue;
+                    }
                     var rel = new RecordingSupersedeRelation
                     {
                         RelationId = "rsr_" + Guid.NewGuid().ToString("N"),
@@ -273,9 +316,106 @@ namespace Parsek
                 $"(origin={originId ?? "<none>"} subtreeCount={subtreeCount.ToString(ic)} " +
                 $"skippedExisting={skippedExisting.ToString(ic)} " +
                 $"skippedSelfLink={skippedSelfLink.ToString(ic)} " +
-                $"skippedExtraSelfLink={skippedExtraSelfLink.ToString(ic)})");
+                $"skippedExtraSelfLink={skippedExtraSelfLink.ToString(ic)} " +
+                $"skippedPreRewindDebris={skippedPreRewindDebris.ToString(ic)})");
 
-            return subtree ?? new List<string>();
+            // Filter pre-rewind debris out of the returned subtree so the
+            // downstream tombstone scope (CommitTombstones) leaves ledger
+            // actions attributed to those recordings alone. The closure
+            // itself remains unfiltered.
+            if (preRewindDebrisIds.Count == 0)
+                return subtree ?? new List<string>();
+            var filtered = new List<string>(subtree.Count - preRewindDebrisIds.Count);
+            foreach (var id in subtree)
+                if (!preRewindDebrisIds.Contains(id))
+                    filtered.Add(id);
+            return filtered;
+        }
+
+        /// <summary>
+        /// True iff <paramref name="rec"/> is a debris recording whose
+        /// <see cref="Recording.StartUT"/> lies strictly before the re-fly's
+        /// pre-rewind cutoff (see <see cref="ComputePreRewindCutoff"/>). Such
+        /// debris was a physically independent vessel established before the
+        /// rewind point — the re-fly does not redo its flight — so it must
+        /// not receive a <see cref="RecordingSupersedeRelation"/> at commit
+        /// and its attributed ledger actions must not be tombstoned.
+        ///
+        /// <para>Closure semantics (PR #858 render carve-out and PR #860
+        /// watch-mode / map-presence scoping) are unaffected — pre-rewind
+        /// debris stays in <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>
+        /// during the active re-fly session, and only the supersede write-set
+        /// is filtered at commit time.</para>
+        ///
+        /// <para>Defensive guards: a debris recording without a
+        /// <see cref="Recording.DebrisParentRecordingId"/> (legacy v11 data)
+        /// is not classified pre-rewind by this gate — it has no v12
+        /// ownership link to anchor the topology decision against and so
+        /// follows the unfiltered legacy path. A non-debris recording is
+        /// never classified pre-rewind regardless of StartUT.</para>
+        /// </summary>
+        internal static bool IsPreRewindDebris(Recording rec, ReFlySessionMarker marker)
+        {
+            if (rec == null || marker == null) return false;
+            if (!rec.IsDebris) return false;
+            if (string.IsNullOrEmpty(rec.DebrisParentRecordingId)) return false;
+            double cutoff = ComputePreRewindCutoff(marker);
+            // NaN cutoff (marker has no usable UT — both RewindPointUT and
+            // InvokedUT are NaN / non-positive) collapses to the pre-fix
+            // default: write the supersede row. This preserves behavior on
+            // legacy markers and on any defensive caller that hands us a
+            // half-populated marker, at the cost of leaving the rare
+            // legacy case un-fixed. Acceptable per the no-backward-compat
+            // policy for pre-1.0 saves.
+            if (double.IsNaN(cutoff)) return false;
+            return rec.StartUT < cutoff;
+        }
+
+        /// <summary>
+        /// Computes the cutoff UT below which a debris recording is treated
+        /// as pre-rewind by <see cref="IsPreRewindDebris"/>. Prefers
+        /// <see cref="ReFlySessionMarker.RewindPointUT"/> (added in PR #858
+        /// as the stable, drift-immune <c>rp.UT</c> capture — see
+        /// <c>RewindInvoker.AtomicMarkerWrite</c>) and falls back to
+        /// <see cref="ReFlySessionMarker.InvokedUT"/> for legacy markers
+        /// persisted before the field shipped. Both branches subtract
+        /// <see cref="EffectiveState.PidPeerStartUtEpsilonSeconds"/> to
+        /// absorb sampler-stamped float rounding on
+        /// <see cref="Recording.StartUT"/> — same epsilon and rationale as
+        /// <see cref="EffectiveState.EnqueuePidPeerSiblings"/>. Returns
+        /// <c>double.NaN</c> only when neither field carries a usable
+        /// (non-NaN, strictly positive) value; callers must treat NaN as
+        /// "no cutoff available" and fall back to legacy behavior.
+        /// </summary>
+        internal static double ComputePreRewindCutoff(ReFlySessionMarker marker)
+        {
+            if (marker == null) return double.NaN;
+            if (!double.IsNaN(marker.RewindPointUT) && marker.RewindPointUT > 0.0)
+                return marker.RewindPointUT - EffectiveState.PidPeerStartUtEpsilonSeconds;
+            if (!double.IsNaN(marker.InvokedUT) && marker.InvokedUT > 0.0)
+                return marker.InvokedUT - EffectiveState.PidPeerStartUtEpsilonSeconds;
+            return double.NaN;
+        }
+
+        private static Dictionary<string, Recording> BuildCommittedRecordingIndex()
+        {
+            var index = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return index;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                // Tolerate duplicate ids (defensive: stale store entries).
+                // First-wins here vs. EffectiveState.ComputeSubtreeClosureInternal's
+                // last-wins (`recById[id] = r`) is a cosmetic divergence — duplicate
+                // ids in CommittedRecordings are pathological and either policy
+                // resolves to "some entry"; we just need a stable Recording reference
+                // to feed IsPreRewindDebris.
+                if (!index.ContainsKey(rec.RecordingId))
+                    index.Add(rec.RecordingId, rec);
+            }
+            return index;
         }
 
         /// <summary>
