@@ -839,15 +839,27 @@ namespace Parsek
             int recordingsScanned = 0;
             int carveOutSkipped = 0;
             Dictionary<string, Recording> recById = null;
+            // Pass 4 follow-up micro-optimization (matches AppendRelations):
+            // pre-resolve TIP once so the chain-head case in
+            // IsPreRewindCarveOut skips its per-call O(N) store scan. TIP id
+            // is constant across every iteration of this loop.
+            Recording tipForCarveOut = null;
+            bool tipResolved = false;
             foreach (var id in subtree)
             {
                 if (string.IsNullOrEmpty(id)) continue;
                 recordingsScanned++;
                 if (recById == null)
                     recById = BuildRecordingIdIndex();
+                if (!tipResolved)
+                {
+                    if (!string.IsNullOrEmpty(marker.SupersedeTargetId))
+                        recById.TryGetValue(marker.SupersedeTargetId, out tipForCarveOut);
+                    tipResolved = true;
+                }
                 Recording rec;
                 if (recById.TryGetValue(id, out rec)
-                    && SupersedeCommit.IsPreRewindCarveOut(rec, marker, out _))
+                    && SupersedeCommit.IsPreRewindCarveOut(rec, marker, tipForCarveOut, out _))
                 {
                     carveOutSkipped++;
                     ParsekLog.Verbose(Tag,

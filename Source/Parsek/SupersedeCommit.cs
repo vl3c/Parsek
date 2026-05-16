@@ -268,6 +268,14 @@ namespace Parsek
             // write-set filter is the commit-time policy decision.
             var preRewindCarveOutIds = new HashSet<string>(StringComparer.Ordinal);
             Dictionary<string, Recording> recById = null;
+            // Pass 4 follow-up micro-optimization: pre-resolve TIP once so
+            // IsPreRewindCarveOut's chain-head case skips its per-call O(N)
+            // store scan. TIP id is constant across every iteration (it's
+            // marker.SupersedeTargetId), so a one-shot lookup at the top
+            // amortizes correctly for any subtree size.
+            Recording tipForCarveOut = !string.IsNullOrEmpty(marker.SupersedeTargetId)
+                ? FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId)
+                : null;
 
             int added = 0;
             int skippedExisting = 0;
@@ -339,7 +347,7 @@ namespace Parsek
                     Recording rec;
                     PreRewindCarveOutReason carveOutReason;
                     if (recById.TryGetValue(oldId, out rec)
-                        && IsPreRewindCarveOut(rec, marker, out carveOutReason))
+                        && IsPreRewindCarveOut(rec, marker, tipForCarveOut, out carveOutReason))
                     {
                         skippedPreRewindCarveOut++;
                         preRewindCarveOutIds.Add(oldId);
@@ -441,6 +449,27 @@ namespace Parsek
             Recording rec, ReFlySessionMarker marker,
             out PreRewindCarveOutReason reason)
         {
+            return IsPreRewindCarveOut(rec, marker, preResolvedTip: null, out reason);
+        }
+
+        /// <summary>
+        /// Hot-loop overload of <see cref="IsPreRewindCarveOut(Recording, ReFlySessionMarker, out PreRewindCarveOutReason)"/>
+        /// taking a pre-resolved TIP recording so the chain-head case skips its
+        /// per-call O(N) <see cref="RecordingStore.CommittedRecordings"/>
+        /// linear scan. The TIP id is read from
+        /// <see cref="ReFlySessionMarker.SupersedeTargetId"/> and is the
+        /// same value across every iteration of <see cref="AppendRelations"/>'s
+        /// subtree loop and
+        /// <see cref="MergeJournalOrchestrator"/>'s <c>RebuildSubtree</c> loop,
+        /// so callers hoist the resolution once. Pass <c>null</c> to fall back
+        /// to the internal lookup (single-shot callers, tests, the
+        /// <see cref="IsPreRewindDebris"/> wrapper).
+        /// </summary>
+        internal static bool IsPreRewindCarveOut(
+            Recording rec, ReFlySessionMarker marker,
+            Recording preResolvedTip,
+            out PreRewindCarveOutReason reason)
+        {
             reason = PreRewindCarveOutReason.None;
             if (rec == null || marker == null) return false;
 
@@ -512,7 +541,8 @@ namespace Parsek
                 && !string.IsNullOrEmpty(rec.ChainId)
                 && rec.EndUT <= headCutoff)
             {
-                Recording tip = FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId);
+                Recording tip = preResolvedTip
+                    ?? FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId);
                 if (tip != null
                     && !string.IsNullOrEmpty(tip.ChainId)
                     && string.Equals(rec.ChainId, tip.ChainId, StringComparison.Ordinal)
