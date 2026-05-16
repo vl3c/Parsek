@@ -485,22 +485,25 @@ namespace Parsek
             // Pass 7 review: read the bounds from actual sampled content
             // (Points / OrbitSegments / playable TrackSections) rather than
             // from `Recording.StartUT` / `Recording.EndUT`. The property
-            // getters blend in `ExplicitStartUT` / `ExplicitEndUT`, which can
-            // carry stale metadata from earlier in the recording's life —
-            // e.g. a recording whose first samples were trimmed by a prior
-            // optimizer pass but whose ExplicitStartUT still points at the
-            // original sampler-stamped UT. Trusting that blended value here
-            // walks the splitter into "split a recording that has no
-            // pre-rewind content": `RecordingOptimizer.SplitAtSection`
-            // partitions on the section boundary, produces a 0-pt/0-section
-            // HEAD that still carries origin's id + terminal state +
-            // slot/chain metadata, and `IsPreRewindCarveOut` then protects
-            // that empty HEAD from the supersede write-set as a
-            // PreRewindChainHead — leaving a phantom STASH entry visible to
-            // the user. See `docs/dev/todo-and-known-bugs.md` "splitter
-            // empty HEAD". Falling back to whole-recording supersede here is
-            // correct: the recording has no actual data to preserve as
-            // launch portion.
+            // getters blend in `ExplicitStartUT` / `ExplicitEndUT`, which
+            // legitimately differ from sampled content — e.g. a child
+            // recording branched off at branchUT carries
+            // `ExplicitStartUT = branchUT` (set when the branch was created)
+            // even when the sampler's first Point lands a frame or two
+            // later. Trusting that blended view here walks the splitter
+            // into "split a recording that has no pre-rewind content":
+            // `RecordingOptimizer.SplitAtSection` partitions on the section
+            // boundary (NOT on ExplicitStartUT), produces a
+            // 0-pt/0-section HEAD that still carries origin's id +
+            // terminal state + slot/chain metadata, and
+            // `IsPreRewindCarveOut` then protects that empty HEAD from the
+            // supersede write-set as a PreRewindChainHead — leaving a
+            // phantom STASH entry visible to the user. See the "Pass 7
+            // review fix" paragraph under "Done - v0.9.2 Re-Fly of a
+            // recording spanning the rewind UT wholly superseded it" in
+            // `docs/dev/todo-and-known-bugs.md`. Falling back to
+            // whole-recording supersede here is correct when no actual
+            // pre-rewind data exists.
             double actualStartUT;
             double actualEndUT;
             bool hasActualBounds = origin.TryGetActualTrajectoryBounds(
@@ -510,16 +513,18 @@ namespace Parsek
                 || !(actualEndUT > rewindUT + epsilon))
             {
                 // Pass 5 review L5: this skip means the splitter is falling
-                // back to whole-recording supersede — the bug the PR fixes
-                // remains present for this one recording (its launch row
-                // will be hidden in the timeline). Operators triaging
-                // "I clicked Re-Fly but my launch row still disappeared"
-                // need to grep this in KSP.log; Info is the right level
-                // (consistent with the other guard paths above, which all
-                // use Warn / Info — only this one was at Verbose).
+                // back to whole-recording supersede. For most paths through
+                // this guard, "the launch row for this recording will be
+                // hidden in the timeline" — the original framing. For the
+                // Pass 7 stale-Explicit subset (no sampled content strictly
+                // before rewindUT), there is no launch portion to hide in
+                // the first place; whole-recording supersede is the
+                // correct outcome. The unified message covers both:
+                // operators triaging either case can grep this string and
+                // the actual+blended bounds disambiguate which subset they
+                // hit. Info level matches the other splitter guards.
                 string actualBoundsStr = hasActualBounds
-                    ? "[" + actualStartUT.ToString("F2", ic) + ","
-                        + actualEndUT.ToString("F2", ic) + "]"
+                    ? $"[{actualStartUT.ToString("F2", ic)},{actualEndUT.ToString("F2", ic)}]"
                     : "<no sampled content>";
                 ParsekLog.Info(Tag,
                     $"SplitOriginAtRewindUT: skip — origin '{origin.RecordingId}' actual " +
@@ -528,8 +533,10 @@ namespace Parsek
                     $"{origin.EndUT.ToString("F2", ic)}]) " +
                     $"do not strictly span rewindUT={rewindUT.ToString("F2", ic)} " +
                     $"(epsilon={epsilon.ToString("R", ic)}). " +
-                    "Falling back to whole-recording supersede — the launch row " +
-                    "for this recording will be hidden in the timeline.");
+                    "Falling back to whole-recording supersede. " +
+                    "If origin had pre-rewind sampled content its launch row " +
+                    "will be hidden in the timeline; for the stale-Explicit " +
+                    "no-content subset, whole-recording supersede is the correct outcome.");
                 return new SplitOriginResult
                 {
                     Skipped = true,
@@ -818,7 +825,20 @@ namespace Parsek
                     {
                         continue;
                     }
-                    if (!(d.StartUT >= rewindUT)) continue;
+                    // Pass 7 review: read the debris's start from sampled
+                    // content (not `Recording.StartUT`'s ExplicitStartUT-blended
+                    // view). Debris recordings frequently carry
+                    // `ExplicitStartUT = parent.branchUT` (set when the debris
+                    // child is created — see e.g. `ParsekFlight.cs:5910`),
+                    // which can be earlier than the debris's first sampled
+                    // Point. Trusting that blended value here would leave
+                    // genuinely-post-rewind debris parented to HEAD when it
+                    // should follow TIP. Skip debris with no sampled content
+                    // at all (`HasActualTrajectoryBounds == false`): nothing
+                    // to reparent without an actual UT to compare.
+                    if (!d.TryGetActualTrajectoryBounds(out double debrisActualStart, out _))
+                        continue;
+                    if (!(debrisActualStart >= rewindUT)) continue;
                     snapshot.Ledger.Add(SplitMutationLedger.DebrisParent(
                         d, origin.RecordingId, tip.RecordingId));
                     d.DebrisParentRecordingId = tip.RecordingId;

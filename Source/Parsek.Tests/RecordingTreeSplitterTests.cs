@@ -327,6 +327,112 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // 3c. Symmetric stale ExplicitEndUT must not lure splitter into empty-TIP
+        // =====================================================================
+        //
+        // Mirror direction of case 3b: a recording whose actual content ENDS
+        // before the rewind UT but whose `ExplicitEndUT` carries a later stale
+        // value. Without the actual-bounds gate, the splitter's strict-span
+        // check (and `SplitAtUT`'s own precondition) would happily proceed,
+        // `SplitAtSection`'s section-boundary partition would push everything
+        // into HEAD and leave TIP with zero content — a phantom on the
+        // post-rewind side instead of the pre-rewind side. Same fix as 3b:
+        // the actual-bounds view at the strict-span gate catches both
+        // directions of "data doesn't strictly span rewindUT" symmetrically.
+
+        [Fact]
+        public void SplitOriginAtRewindUT_StaleExplicitEndUT_NoEmptyTipSplit()
+        {
+            // Actual content [80.0, 82.5]; rewindUT == 82.96 is past the
+            // last sampled point. No real post-rewind data to put in TIP.
+            var origin = BuildRecording("rec_stale_end", startUT: 80.0, endUT: 82.5,
+                midUT: 81.2, treeId: "tree_stale_end",
+                terminal: TerminalState.Destroyed);
+            // Stale `ExplicitEndUT` pointing past the rewind UT — mirrors a
+            // recording that was once longer but had its post-rewind tail
+            // trimmed by an earlier optimizer pass without clearing the
+            // explicit bound.
+            origin.ExplicitEndUT = 92.72;
+            InstallOriginInTree(origin, "tree_stale_end");
+
+            // Sanity: blended `EndUT` returns the stale 92.72, but actual
+            // bounds report 82.5 — exactly the divergence the bug would
+            // exploit in the mirror direction.
+            Assert.Equal(92.72, origin.EndUT);
+            Assert.True(origin.TryGetActualTrajectoryBounds(
+                out double actualStart, out double actualEnd));
+            Assert.Equal(80.0, actualStart);
+            Assert.Equal(82.5, actualEnd);
+
+            var marker = BuildMarker(origin, rewindUT: 82.96);
+            string markerTargetBefore = marker.SupersedeTargetId;
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.True(result.Skipped);
+            Assert.Equal("OriginDoesNotSpanRewindUT", result.SkipReason);
+            Assert.Null(result.TipRecordingId);
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            Assert.Equal(markerTargetBefore, marker.SupersedeTargetId);
+            Assert.Equal(3, origin.Points.Count);
+            Assert.Single(origin.TrackSections);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("actual trajectory bounds [80.00,82.50]")
+                && l.Contains("blended bounds=[80.00,92.72]"));
+        }
+
+        // =====================================================================
+        // 3d. Recording with no sampled content at all -> Skipped
+        // =====================================================================
+        //
+        // Covers the `<no sampled content>` log-branch string in the new
+        // skip-message format. A Recording carrying only ExplicitStartUT /
+        // ExplicitEndUT but zero Points / TrackSections / OrbitSegments
+        // (pre-sampling transient state, or a synthesized fixture) reaches
+        // `TryGetActualTrajectoryBounds`-returns-false and the strict-span
+        // gate rejects with the `<no sampled content>` log payload.
+
+        [Fact]
+        public void SplitOriginAtRewindUT_NoActualBounds_NoSplit()
+        {
+            var origin = new Recording
+            {
+                RecordingId = "rec_explicit_only",
+                VesselName = "rec_explicit_only",
+                TreeId = "tree_explicit_only",
+                MergeState = MergeState.Immutable,
+                // Explicit bounds that span the rewind UT, but no Points /
+                // TrackSections / OrbitSegments — `TryGetActualTrajectoryBounds`
+                // returns false.
+                ExplicitStartUT = 70.0,
+                ExplicitEndUT = 100.0,
+            };
+            InstallOriginInTree(origin, "tree_explicit_only");
+
+            Assert.False(origin.HasActualTrajectoryBounds);
+            // Blended view would happily span the rewind point — the old
+            // gate would have proceeded.
+            Assert.Equal(70.0, origin.StartUT);
+            Assert.Equal(100.0, origin.EndUT);
+
+            var marker = BuildMarker(origin, rewindUT: 85.0);
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.True(result.Skipped);
+            Assert.Equal("OriginDoesNotSpanRewindUT", result.SkipReason);
+            Assert.Null(result.TipRecordingId);
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("actual trajectory bounds <no sampled content>")
+                && l.Contains("blended bounds=[70.00,100.00]"));
+        }
+
+        // =====================================================================
         // 4. NaN rewindUT -> Skipped
         // =====================================================================
 
