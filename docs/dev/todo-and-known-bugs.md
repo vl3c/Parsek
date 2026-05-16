@@ -12,6 +12,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Closed - v0.9.2 Re-Fly abandon-and-retry leaks NotCommitted provisional + closure walk poisons it
+
+**Evidence:** `logs/2026-05-16_2226_pr872-groups-investigation/s11-save-evidence/` — `rec_675a9193` (Kerbal X #2) and `rec_3cdedee5` (Kerbal X #3) appear as `NotCommitted` provisional recordings in `persistent.sfs:1646` and `:2558`, each with `creatingSessionId` naming a session whose marker was cleared at retry time. The next session's `AppendRelations` closure walk found them as PID peers of the new TIP and wrote invalid supersede rows `oldRecordingId=rec_675a9193 → newRecordingId=rec_3993fbe2` (`:3046`) and `oldRecordingId=rec_3cdedee5 → newRecordingId=rec_f944e1e4` (`:3086`). NotCommitted is the in-progress-provisional state and must never appear as a supersede source — an invariant violation of the data model.
+
+**Fix (PR — `fix-refly-abandon-and-fork-persist` branch):** Four-layer defense.
+
+- Primary: `RewindInvoker.ReapPriorProvisionalsForRp` hoisted outside `AtomicMarkerWrite`'s try block. Walks `RecordingStore.CommittedRecordings`, every committed tree's `Recordings` dict, the pending tree, and the live active tree; removes orphan NotCommitted recordings whose `ProvisionalForRpId` matches the new session's RP and whose `CreatingSessionId` differs. Sidecar files deleted.
+- Structural: `LoadTimeSweep.RemoveDiscardRecordings` extended to walk every tree dict instead of only the flat list. Previously, `RemoveCommittedInternal` only touched the flat list and `FinalizeTreeCommit` re-added the zombie from the tree dict on the next commit pass.
+- Secondary: `EffectiveState.EnqueueChainSiblings` / `EnqueuePidPeerSiblings` skip NotCommitted candidates with a `Warn` log.
+- Tertiary: `SupersedeCommit.AppendRelations` refuses to write a row whose `oldRecordingId` resolves to a NotCommitted recording (`#if DEBUG throw, else Warn-and-skip` mirroring `ValidateSupersedeTarget`).
+
+Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
+
+**Status:** CLOSED.
+
+---
+
+## Closed - v0.9.2 In-place-continuation fork dropped from RECORDING_TREE on save
+
+**Evidence:** `logs/2026-05-16_2226_pr872-groups-investigation/s11-save-evidence/` — fork `rec_12b7252f…` (the post-rewind continuation of Kerbal X #1, committed `Immutable` at runtime and referenced by the supersede table + tombstones) has all four sidecar files on disk (`.prec`, `.pann`, `_vessel.craft`, `_ghost.craft`) but zero RECORDING nodes anywhere in `persistent.sfs`. Tree `cde7313f…` has `activeRecordingId = 575240c7…` (the HEAD launch) instead of pointing at the fork. The user sees the launch row but no post-rewind continuation in the recordings table — and the cited evidence's `[Anchor] recorded-relative-unresolved: reason=focus-tree-missing recordingId=rec_12b7252f` confirms downstream consumers couldn't find it either.
+
+**Fix (PR — `fix-refly-abandon-and-fork-persist` branch):** Three sub-fixes that work together.
+
+- §2c: `RecordingTreeSplitter.SplitOriginAtRewindUT` Step 2.12 now actively promotes `tree.ActiveRecordingId` from HEAD to TIP (instead of just verbose-logging the invariant). `SplitSnapshot.PreSplitActiveRecordingId` / `ActiveRecordingIdMutated` capture the pre-mutation value; `RollBackInMemory` restores it.
+- §2a: `RecordingStore.CommitTree` gains a union path that fires when the live Re-Fly marker references the tree being committed. `TryUnionActiveReFlyTreeIntoCommitted` merges incoming-only ids into the existing committed tree (preserving pre-existing debris pruned by `trim-scope=ActiveRecOnly`). `tree` is reassigned to the merged object so the 6 downstream helpers see the canonical post-union view.
+- §2b: New `MergeJournal.Phases.TreeMerge` between `Begin` and `Split`, with its own DurableSave barrier. `RunMerge` invokes `MigrateActiveReFlyForkIntoCommittedTree` at Step 1.4 to copy the fork from the active tree into `committedTree.Recordings` and promote `ActiveRecordingId` to the fork id. Gated on `marker.InPlaceContinuation`. `CompleteFromPostDurable` learned the new phase via the updated `IsPostDurablePhase` / `IsKnownPostBeginPhase` predicates. Phase count 10→11, durable-save barrier count 5→6.
+
+Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
+
+**Status:** CLOSED.
+
+---
+
 ## Open - v0.9.2 Re-fly provisional Relative section anchored to fast-separating sibling causes chaotic ghost playback during watch mode
 
 **Evidence:** Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. User entered watch mode at 22:56:02 after committing three nested re-flies on the same save. During the 27-second watch window (until 22:56:29), `GhostRenderTrace` fired **281 `reason=large-delta` events** — all concentrated on the three re-fly provisional recordings:
