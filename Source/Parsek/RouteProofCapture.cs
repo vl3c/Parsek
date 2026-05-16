@@ -117,6 +117,158 @@ namespace Parsek
             return OriginProofDetection.NoExternalCoupling;
         }
 
+        /// <summary>
+        /// Logistics start-docked origin proof producer (pure / static).
+        /// Handles the gloops-mode early-skip, null-snapshot warn-skip, the
+        /// <see cref="TryResolveStartDockedOriginPartner"/> dispatch, and the per-branch
+        /// log emission. Returns the populated <paramref name="proof"/> +
+        /// <paramref name="transportPartPersistentIds"/> on the Captured branch and
+        /// <c>null</c> on every benign-or-degenerate branch.
+        ///
+        /// <paramref name="vesselContext"/> is interpolated into log strings as
+        /// <c>vessel='{vesselContext}'</c>. Production passes the live vessel name;
+        /// tests pass <c>&lt;test&gt;</c>.
+        ///
+        /// <paramref name="recordingVesselId"/> is interpolated into log strings as
+        /// <c>recId={recordingVesselId}</c>.
+        ///
+        /// Both <see cref="FlightRecorder.CaptureStartRouteOriginProofIfDocked"/> and the
+        /// unit tests call this helper directly so the producer logic stays in one place.
+        /// </summary>
+        internal static void BuildStartRouteOriginProof(
+            int activeVesselSituation,
+            bool activeVesselIsEva,
+            IReadOnlyList<OriginPartnerCandidate> candidates,
+            ConfigNode snapshot,
+            bool isGloopsMode,
+            string vesselContext,
+            uint recordingVesselId,
+            out RouteOriginProof proof,
+            out List<uint> transportPartPersistentIds)
+        {
+            proof = null;
+            transportPartPersistentIds = null;
+
+            if (isGloopsMode)
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"RouteOriginProof skipped: gloops mode recId={recordingVesselId} vessel='{vesselContext}'");
+                return;
+            }
+            if (snapshot == null)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"RouteOriginProof skipped: no last good snapshot recId={recordingVesselId} " +
+                    $"vessel='{vesselContext}'");
+                return;
+            }
+
+            int candidateCount = candidates?.Count ?? 0;
+            OriginProofDetection outcome = TryResolveStartDockedOriginPartner(
+                activeVesselSituation,
+                activeVesselIsEva,
+                candidates ?? new List<OriginPartnerCandidate>(),
+                out uint partnerPid);
+
+            switch (outcome)
+            {
+                case OriginProofDetection.Captured:
+                {
+                    var transportPids = VesselSpawner.CollectPartPersistentIds(snapshot);
+                    Dictionary<string, ResourceAmount> startRes =
+                        VesselSpawner.ExtractResourceManifest(snapshot, transportPids);
+                    List<InventoryPayloadItem> startInv =
+                        VesselSpawner.ExtractInventoryPayloadItems(snapshot, transportPids);
+
+                    proof = new RouteOriginProof
+                    {
+                        StartDockedOriginVesselPid = partnerPid,
+                        StartTransportResources = startRes,
+                        StartTransportInventory = startInv,
+                    };
+                    transportPartPersistentIds = transportPids;
+
+                    ParsekLog.Info("Recorder",
+                        $"RouteOriginProof captured: recId={recordingVesselId} vessel='{vesselContext}' " +
+                        $"partnerPid={partnerPid} candidates={candidateCount} " +
+                        $"transportParts={transportPids?.Count ?? 0} " +
+                        $"startRes={startRes?.Count ?? 0} startInv={startInv?.Count ?? 0}");
+                    break;
+                }
+                case OriginProofDetection.NoExternalCoupling:
+                    ParsekLog.Verbose("Recorder",
+                        $"RouteOriginProof skipped: no external coupling recId={recordingVesselId} " +
+                        $"vessel='{vesselContext}' candidates={candidateCount} isEva={activeVesselIsEva}");
+                    break;
+                case OriginProofDetection.ActiveVesselPrelaunch:
+                    ParsekLog.Verbose("Recorder",
+                        $"RouteOriginProof skipped: active vessel PRELAUNCH recId={recordingVesselId} " +
+                        $"vessel='{vesselContext}' candidates={candidateCount}");
+                    break;
+                case OriginProofDetection.PartnerPrelaunch:
+                    ParsekLog.Verbose("Recorder",
+                        $"RouteOriginProof skipped: partner PRELAUNCH recId={recordingVesselId} " +
+                        $"vessel='{vesselContext}' candidates={candidateCount}");
+                    break;
+                case OriginProofDetection.PartnerPidZero:
+                    ParsekLog.Warn("Recorder",
+                        $"RouteOriginProof skipped: partner pid=0 recId={recordingVesselId} " +
+                        $"vessel='{vesselContext}' candidates={candidateCount}");
+                    break;
+                case OriginProofDetection.PartnerAmbiguous:
+                {
+                    var distinctPids = new List<uint>();
+                    if (candidates != null)
+                    {
+                        for (int i = 0; i < candidates.Count; i++)
+                        {
+                            uint pid = candidates[i].ParentVesselPersistentId;
+                            if (pid == 0) continue;
+                            if (candidates[i].ParentVesselSituation == (int)Vessel.Situations.PRELAUNCH) continue;
+                            if (!distinctPids.Contains(pid)) distinctPids.Add(pid);
+                        }
+                    }
+                    ParsekLog.Warn("Recorder",
+                        $"RouteOriginProof skipped: ambiguous partners recId={recordingVesselId} " +
+                        $"vessel='{vesselContext}' candidates={candidateCount} " +
+                        $"distinctPartnerPids=[{string.Join(",", distinctPids)}]");
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Forwards a start-time <see cref="RouteOriginProof"/> onto a captured
+        /// <see cref="Recording"/>, re-extracting the end transport manifests scoped to
+        /// the same part-pid set captured at start. No-op when either input is null —
+        /// callers do not need to guard.
+        ///
+        /// Both <see cref="FlightRecorder.BuildCaptureRecording"/> and the unit tests
+        /// call this helper directly so the forwarding logic stays in one place. The
+        /// v0 decoupled-parts contract note lives at the production callsite — see
+        /// <c>FlightRecorder.BuildCaptureRecording</c>.
+        /// </summary>
+        internal static void AttachEndManifestsAndForwardToCapture(
+            Recording capture,
+            RouteOriginProof pendingProof,
+            ICollection<uint> pendingStartPartPersistentIds)
+        {
+            if (capture == null || pendingProof == null || pendingStartPartPersistentIds == null)
+                return;
+
+            pendingProof.EndTransportResources =
+                VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot, pendingStartPartPersistentIds);
+            pendingProof.EndTransportInventory =
+                VesselSpawner.ExtractInventoryPayloadItems(capture.VesselSnapshot, pendingStartPartPersistentIds);
+            capture.RouteOriginProof = pendingProof;
+            ParsekLog.Verbose("Recorder",
+                $"BuildCaptureRecording: forwarded RouteOriginProof partner={pendingProof.StartDockedOriginVesselPid} " +
+                $"startRes={pendingProof.StartTransportResources?.Count ?? 0} " +
+                $"endRes={pendingProof.EndTransportResources?.Count ?? 0} " +
+                $"startInv={pendingProof.StartTransportInventory?.Count ?? 0} " +
+                $"endInv={pendingProof.EndTransportInventory?.Count ?? 0}");
+        }
+
         internal static RouteConnectionWindow BuildDockRouteConnectionWindow(
             double dockUT,
             uint transferTargetVesselPid,

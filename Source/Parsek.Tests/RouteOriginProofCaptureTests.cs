@@ -10,16 +10,22 @@ namespace Parsek.Tests
     /// Tests for the RouteOriginProof producer split across three layers:
     ///   1. Pure helper <see cref="RouteProofCapture.TryResolveStartDockedOriginPartner"/>
     ///      — decision contract under every input combination.
-    ///   2. Producer log-assertion tests via the FlightRecorder test seam — verify the
-    ///      log line for each branch (Info on Captured, Warn on degenerate states,
-    ///      Verbose on benign rejections).
-    ///   3. End-to-end forwarding through <c>ApplyRouteOriginProofToCaptureForTesting</c>
+    ///   2. Producer log-assertion tests against <see cref="RouteProofCapture.BuildStartRouteOriginProof"/>
+    ///      — verify the log line for each branch (Info on Captured, Warn on degenerate
+    ///      states, Verbose on benign rejections).
+    ///   3. End-to-end forwarding through <see cref="RouteProofCapture.AttachEndManifestsAndForwardToCapture"/>
     ///      including round-trip through <see cref="RouteProofCodec"/>.
+    ///
+    /// Both helpers live in <c>RouteProofCapture</c> and back both the production
+    /// callsites in <c>FlightRecorder</c> and these tests — there is no
+    /// FlightRecorder-side test seam.
     /// </summary>
     [Collection("Sequential")]
     public class RouteOriginProofCaptureTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
+        private const string TestVesselContext = "<test>";
+        private const uint TestRecordingVesselId = 0u;
 
         public RouteOriginProofCaptureTests()
         {
@@ -205,7 +211,6 @@ namespace Parsek.Tests
         {
             // FAILS IF: the captured branch does not emit an Info-level [Recorder] line
             // including the partner pid (player-visible in KSP.log).
-            var recorder = new FlightRecorder();
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank",
                 MakeResource("LiquidFuel", 80.0, 100.0)));
             var candidates = new List<OriginPartnerCandidate>
@@ -213,11 +218,16 @@ namespace Parsek.Tests
                 new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
             };
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: snapshot);
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof _,
+                out List<uint> _);
 
             Assert.Contains(logLines, l => l.Contains("[INFO]")
                 && l.Contains("[Recorder]")
@@ -229,14 +239,18 @@ namespace Parsek.Tests
         public void NoExternalCouplingBranch_LogsVerbose()
         {
             // FAILS IF: the empty-candidates branch is silent or misclassified.
-            var recorder = new FlightRecorder();
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: new List<OriginPartnerCandidate>(),
-                snapshot: snapshot);
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof _,
+                out List<uint> _);
 
             Assert.Contains(logLines, l => l.Contains("[Recorder]")
                 && l.Contains("no external coupling"));
@@ -247,18 +261,22 @@ namespace Parsek.Tests
         {
             // FAILS IF: a PRELAUNCH active vessel does not log the specific PRELAUNCH
             // branch label (and instead falls through to a generic skip).
-            var recorder = new FlightRecorder();
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
                 new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
             };
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.PRELAUNCH,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: snapshot);
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof _,
+                out List<uint> _);
 
             Assert.Contains(logLines, l => l.Contains("[Recorder]")
                 && l.Contains("active vessel PRELAUNCH"));
@@ -269,18 +287,22 @@ namespace Parsek.Tests
         {
             // FAILS IF: a launchpad clamp / pre-launch parent vessel is not reported
             // through the dedicated partner PRELAUNCH branch.
-            var recorder = new FlightRecorder();
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
                 new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.PRELAUNCH),
             };
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: snapshot);
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof _,
+                out List<uint> _);
 
             Assert.Contains(logLines, l => l.Contains("[Recorder]")
                 && l.Contains("partner PRELAUNCH"));
@@ -291,18 +313,22 @@ namespace Parsek.Tests
         {
             // FAILS IF: a partner pid of 0 is treated as a benign Verbose case rather
             // than the Warn-worthy degenerate state it represents.
-            var recorder = new FlightRecorder();
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
                 new OriginPartnerCandidate(100, 0, (int)Vessel.Situations.ORBITING),
             };
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: snapshot);
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof _,
+                out List<uint> _);
 
             Assert.Contains(logLines, l => l.Contains("[WARN]")
                 && l.Contains("[Recorder]")
@@ -314,7 +340,6 @@ namespace Parsek.Tests
         {
             // FAILS IF: two distinct valid partners are not flagged at Warn level OR
             // the log does not include both candidate pids for diagnostics.
-            var recorder = new FlightRecorder();
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
@@ -322,11 +347,16 @@ namespace Parsek.Tests
                 new OriginPartnerCandidate(101, 9002, (int)Vessel.Situations.ORBITING),
             };
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: snapshot);
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof _,
+                out List<uint> _);
 
             Assert.Contains(logLines, l => l.Contains("[WARN]")
                 && l.Contains("[Recorder]")
@@ -340,20 +370,24 @@ namespace Parsek.Tests
         {
             // FAILS IF: gloops-mode recordings (ghost-only) attempt to capture an origin
             // proof or fail to log the gloops-skip branch.
-            var recorder = new FlightRecorder { IsGloopsMode = true };
             ConfigNode snapshot = MakeVessel(MakePart(100, "fuelTank"));
             var candidates = new List<OriginPartnerCandidate>
             {
                 new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
             };
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: snapshot);
+                snapshot: snapshot,
+                isGloopsMode: true,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> _);
 
-            Assert.Null(recorder.PendingRouteOriginProofForTesting);
+            Assert.Null(proof);
             Assert.Contains(logLines, l => l.Contains("[Recorder]")
                 && l.Contains("gloops mode"));
         }
@@ -363,25 +397,29 @@ namespace Parsek.Tests
         {
             // FAILS IF: missing lastGoodVesselSnapshot does not Warn-log a skip and
             // instead crashes inside the manifest extractor.
-            var recorder = new FlightRecorder();
             var candidates = new List<OriginPartnerCandidate>
             {
                 new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
             };
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: null);
+                snapshot: null,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> _);
 
-            Assert.Null(recorder.PendingRouteOriginProofForTesting);
+            Assert.Null(proof);
             Assert.Contains(logLines, l => l.Contains("[WARN]")
                 && l.Contains("[Recorder]")
                 && l.Contains("no last good snapshot"));
         }
 
-        // ---------- Producer-integration tests (the test seam) ----------
+        // ---------- Producer-integration tests ----------
 
         [Fact]
         public void CaptureProducer_DockedStart_FillsRouteOriginProof()
@@ -389,7 +427,6 @@ namespace Parsek.Tests
             // FAILS IF: the producer either fails to build the proof on the captured
             // branch, picks the wrong partner pid, or extracts manifests from a part
             // pid set that does NOT correspond to the transport snapshot.
-            var recorder = new FlightRecorder();
             ConfigNode transportSnapshot = MakeVessel(
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)),
                 MakePart(101, "transportInv",
@@ -399,13 +436,17 @@ namespace Parsek.Tests
                 new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
             };
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: transportSnapshot);
+                snapshot: transportSnapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> transportPartPids);
 
-            RouteOriginProof proof = recorder.PendingRouteOriginProofForTesting;
             Assert.NotNull(proof);
             Assert.Equal(9001u, proof.StartDockedOriginVesselPid);
             Assert.NotNull(proof.StartTransportResources);
@@ -414,14 +455,13 @@ namespace Parsek.Tests
             Assert.Single(proof.StartTransportInventory);
             Assert.Equal("evaJetpack", proof.StartTransportInventory[0].PartName);
 
-            IReadOnlyList<uint> pids = recorder.PendingRouteOriginProofStartPartPidsForTesting;
-            Assert.NotNull(pids);
-            Assert.Contains(100u, pids);
-            Assert.Contains(101u, pids);
+            Assert.NotNull(transportPartPids);
+            Assert.Contains(100u, transportPartPids);
+            Assert.Contains(101u, transportPartPids);
 
             // End manifests are NOT filled by the start-time producer — they only
-            // populate inside BuildCaptureRecording's forwarding block. Verify the
-            // contract here so end manifests don't drift in later refactors.
+            // populate inside the forwarding helper. Verify the contract here so end
+            // manifests don't drift in later refactors.
             Assert.Null(proof.EndTransportResources);
             Assert.Null(proof.EndTransportInventory);
         }
@@ -431,18 +471,22 @@ namespace Parsek.Tests
         {
             // FAILS IF: a no-coupling start somehow ends up with a non-null pending
             // proof, which would silently grant the recording origin-debit authority.
-            var recorder = new FlightRecorder();
             ConfigNode snapshot = MakeVessel(
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)));
 
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: new List<OriginPartnerCandidate>(),
-                snapshot: snapshot);
+                snapshot: snapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> transportPartPids);
 
-            Assert.Null(recorder.PendingRouteOriginProofForTesting);
-            Assert.Null(recorder.PendingRouteOriginProofStartPartPidsForTesting);
+            Assert.Null(proof);
+            Assert.Null(transportPartPids);
         }
 
         [Fact]
@@ -451,18 +495,22 @@ namespace Parsek.Tests
             // FAILS IF: end manifests are extracted from the wrong part set (e.g. the
             // whole capture snapshot including the depot-side parts that fused at dock)
             // or fail to populate at all when the proof exists.
-            var recorder = new FlightRecorder();
             ConfigNode startSnapshot = MakeVessel(
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)));
             var candidates = new List<OriginPartnerCandidate>
             {
                 new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
             };
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: startSnapshot);
+                snapshot: startSnapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> transportPartPids);
 
             // Simulate the post-flight capture snapshot: transport part 100 has burned
             // fuel, and an unrelated part 200 (e.g. picked up during the run) carries
@@ -476,7 +524,7 @@ namespace Parsek.Tests
                 VesselSnapshot = endSnapshot,
             };
 
-            recorder.ApplyRouteOriginProofToCaptureForTesting(capture);
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(capture, proof, transportPartPids);
 
             Assert.NotNull(capture.RouteOriginProof);
             Assert.Equal(9001u, capture.RouteOriginProof.StartDockedOriginVesselPid);
@@ -493,7 +541,6 @@ namespace Parsek.Tests
         {
             // FAILS IF: any of the five proof fields (partner pid + start/end res +
             // start/end inv) is lost on the round trip through ConfigNode.
-            var recorder = new FlightRecorder();
             ConfigNode startSnapshot = MakeVessel(
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)),
                 MakePart(101, "transportInv",
@@ -502,11 +549,16 @@ namespace Parsek.Tests
             {
                 new OriginPartnerCandidate(100, 9001, (int)Vessel.Situations.ORBITING),
             };
-            recorder.CaptureStartRouteOriginProofIfDockedForTesting(
+            RouteProofCapture.BuildStartRouteOriginProof(
                 activeVesselSituation: (int)Vessel.Situations.ORBITING,
                 activeVesselIsEva: false,
                 candidates: candidates,
-                snapshot: startSnapshot);
+                snapshot: startSnapshot,
+                isGloopsMode: false,
+                vesselContext: TestVesselContext,
+                recordingVesselId: TestRecordingVesselId,
+                out RouteOriginProof proof,
+                out List<uint> transportPartPids);
 
             ConfigNode endSnapshot = MakeVessel(
                 MakePart(100, "transportTank", MakeResource("LiquidFuel", 25.0, 100.0)),
@@ -517,7 +569,7 @@ namespace Parsek.Tests
                 RecordingId = Guid.NewGuid().ToString("N"),
                 VesselSnapshot = endSnapshot,
             };
-            recorder.ApplyRouteOriginProofToCaptureForTesting(capture);
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(capture, proof, transportPartPids);
 
             var node = new ConfigNode("ROOT");
             RouteProofCodec.SerializeRouteProofMetadata(node, capture);

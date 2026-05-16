@@ -6334,37 +6334,33 @@ namespace Parsek
         /// <summary>
         /// Logistics start-docked origin proof producer. Inspects the live vessel for
         /// externally-coupled parts (i.e. a docking port whose part.parent.vessel is a
-        /// different vessel) and, when exactly one valid non-KSC partner exists,
-        /// captures the start transport manifests scoped to the part-pid set found in
-        /// <see cref="lastGoodVesselSnapshot"/>.
-        ///
-        /// Decision flow is delegated to <see cref="RouteProofCapture.TryResolveStartDockedOriginPartner"/>
-        /// (pure helper). All logging (Info on capture, Warn on degenerate KSP state,
-        /// Verbose on benign rejection) happens here so the helper stays unit-testable.
+        /// different vessel) and delegates the gloops/null-snapshot guards, the resolver
+        /// dispatch, the per-branch logging, and the proof construction to
+        /// <see cref="RouteProofCapture.BuildStartRouteOriginProof"/>. This method's
+        /// own responsibility is just the live-Vessel work: null-vessel guard plus
+        /// candidate construction from <c>v.parts</c>.
         /// </summary>
         private void CaptureStartRouteOriginProofIfDocked(Vessel v)
         {
             pendingRouteOriginProof = null;
             pendingRouteOriginProofStartPartPids = null;
 
+            // Gloops-mode early-skip: matches the helper's gloops branch but lets the
+            // production path avoid candidate construction when there's nothing to do.
             if (IsGloopsMode)
             {
                 ParsekLog.Verbose("Recorder",
                     $"RouteOriginProof skipped: gloops mode recId={RecordingVesselId} vessel='{v?.vesselName}'");
                 return;
             }
+            // Live-vessel-only guard: candidates can only be built from a live
+            // Vessel.parts list, so this guard stays in production rather than
+            // moving into the pure helper.
             if (v == null || v.parts == null)
             {
                 ParsekLog.Warn("Recorder",
                     $"RouteOriginProof skipped: no live parts at record_start recId={RecordingVesselId} " +
                     $"vessel='{v?.vesselName}'");
-                return;
-            }
-            if (lastGoodVesselSnapshot == null)
-            {
-                ParsekLog.Warn("Recorder",
-                    $"RouteOriginProof skipped: no last good snapshot recId={RecordingVesselId} " +
-                    $"vessel='{v.vesselName}'");
                 return;
             }
 
@@ -6384,216 +6380,16 @@ namespace Parsek
                     (int)parentVessel.situation));
             }
 
-            int activeSituation = (int)v.situation;
-            bool activeIsEva = v.isEVA;
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
-                activeSituation,
-                activeIsEva,
-                candidates,
-                out uint partnerPid);
-
-            switch (outcome)
-            {
-                case OriginProofDetection.Captured:
-                {
-                    var transportPids = VesselSpawner.CollectPartPersistentIds(lastGoodVesselSnapshot);
-                    Dictionary<string, ResourceAmount> startRes =
-                        VesselSpawner.ExtractResourceManifest(lastGoodVesselSnapshot, transportPids);
-                    List<InventoryPayloadItem> startInv =
-                        VesselSpawner.ExtractInventoryPayloadItems(lastGoodVesselSnapshot, transportPids);
-
-                    pendingRouteOriginProof = new RouteOriginProof
-                    {
-                        StartDockedOriginVesselPid = partnerPid,
-                        StartTransportResources = startRes,
-                        StartTransportInventory = startInv,
-                    };
-                    pendingRouteOriginProofStartPartPids = transportPids;
-
-                    ParsekLog.Info("Recorder",
-                        $"RouteOriginProof captured: recId={RecordingVesselId} vessel='{v.vesselName}' " +
-                        $"partnerPid={partnerPid} candidates={candidates.Count} " +
-                        $"transportParts={transportPids?.Count ?? 0} " +
-                        $"startRes={startRes?.Count ?? 0} startInv={startInv?.Count ?? 0}");
-                    break;
-                }
-                case OriginProofDetection.NoExternalCoupling:
-                    ParsekLog.Verbose("Recorder",
-                        $"RouteOriginProof skipped: no external coupling recId={RecordingVesselId} " +
-                        $"vessel='{v.vesselName}' candidates={candidates.Count} isEva={activeIsEva}");
-                    break;
-                case OriginProofDetection.ActiveVesselPrelaunch:
-                    ParsekLog.Verbose("Recorder",
-                        $"RouteOriginProof skipped: active vessel PRELAUNCH recId={RecordingVesselId} " +
-                        $"vessel='{v.vesselName}' candidates={candidates.Count}");
-                    break;
-                case OriginProofDetection.PartnerPrelaunch:
-                    ParsekLog.Verbose("Recorder",
-                        $"RouteOriginProof skipped: partner PRELAUNCH recId={RecordingVesselId} " +
-                        $"vessel='{v.vesselName}' candidates={candidates.Count}");
-                    break;
-                case OriginProofDetection.PartnerPidZero:
-                    ParsekLog.Warn("Recorder",
-                        $"RouteOriginProof skipped: partner pid=0 recId={RecordingVesselId} " +
-                        $"vessel='{v.vesselName}' candidates={candidates.Count}");
-                    break;
-                case OriginProofDetection.PartnerAmbiguous:
-                {
-                    var distinctPids = new List<uint>();
-                    for (int i = 0; i < candidates.Count; i++)
-                    {
-                        uint pid = candidates[i].ParentVesselPersistentId;
-                        if (pid == 0) continue;
-                        if (candidates[i].ParentVesselSituation == (int)Vessel.Situations.PRELAUNCH) continue;
-                        if (!distinctPids.Contains(pid)) distinctPids.Add(pid);
-                    }
-                    ParsekLog.Warn("Recorder",
-                        $"RouteOriginProof skipped: ambiguous partners recId={RecordingVesselId} " +
-                        $"vessel='{v.vesselName}' candidates={candidates.Count} " +
-                        $"distinctPartnerPids=[{string.Join(",", distinctPids)}]");
-                    break;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Test seam: drives <see cref="CaptureStartRouteOriginProofIfDocked"/> with synthetic
-        /// candidate data so unit tests can exercise the producer without a live Vessel.
-        /// Production code must NEVER call this.
-        /// </summary>
-        internal void CaptureStartRouteOriginProofIfDockedForTesting(
-            int activeVesselSituation,
-            bool activeVesselIsEva,
-            IReadOnlyList<OriginPartnerCandidate> candidates,
-            ConfigNode snapshot)
-        {
-            pendingRouteOriginProof = null;
-            pendingRouteOriginProofStartPartPids = null;
-            lastGoodVesselSnapshot = snapshot;
-
-            if (IsGloopsMode)
-            {
-                ParsekLog.Verbose("Recorder",
-                    $"RouteOriginProof skipped: gloops mode recId={RecordingVesselId} vessel='<test>'");
-                return;
-            }
-            if (snapshot == null)
-            {
-                ParsekLog.Warn("Recorder",
-                    $"RouteOriginProof skipped: no last good snapshot recId={RecordingVesselId} vessel='<test>'");
-                return;
-            }
-
-            int candidateCount = candidates?.Count ?? 0;
-            OriginProofDetection outcome = RouteProofCapture.TryResolveStartDockedOriginPartner(
-                activeVesselSituation,
-                activeVesselIsEva,
-                candidates ?? new List<OriginPartnerCandidate>(),
-                out uint partnerPid);
-
-            switch (outcome)
-            {
-                case OriginProofDetection.Captured:
-                {
-                    var transportPids = VesselSpawner.CollectPartPersistentIds(snapshot);
-                    Dictionary<string, ResourceAmount> startRes =
-                        VesselSpawner.ExtractResourceManifest(snapshot, transportPids);
-                    List<InventoryPayloadItem> startInv =
-                        VesselSpawner.ExtractInventoryPayloadItems(snapshot, transportPids);
-
-                    pendingRouteOriginProof = new RouteOriginProof
-                    {
-                        StartDockedOriginVesselPid = partnerPid,
-                        StartTransportResources = startRes,
-                        StartTransportInventory = startInv,
-                    };
-                    pendingRouteOriginProofStartPartPids = transportPids;
-
-                    ParsekLog.Info("Recorder",
-                        $"RouteOriginProof captured: recId={RecordingVesselId} vessel='<test>' " +
-                        $"partnerPid={partnerPid} candidates={candidateCount} " +
-                        $"transportParts={transportPids?.Count ?? 0} " +
-                        $"startRes={startRes?.Count ?? 0} startInv={startInv?.Count ?? 0}");
-                    break;
-                }
-                case OriginProofDetection.NoExternalCoupling:
-                    ParsekLog.Verbose("Recorder",
-                        $"RouteOriginProof skipped: no external coupling recId={RecordingVesselId} " +
-                        $"vessel='<test>' candidates={candidateCount} isEva={activeVesselIsEva}");
-                    break;
-                case OriginProofDetection.ActiveVesselPrelaunch:
-                    ParsekLog.Verbose("Recorder",
-                        $"RouteOriginProof skipped: active vessel PRELAUNCH recId={RecordingVesselId} " +
-                        $"vessel='<test>' candidates={candidateCount}");
-                    break;
-                case OriginProofDetection.PartnerPrelaunch:
-                    ParsekLog.Verbose("Recorder",
-                        $"RouteOriginProof skipped: partner PRELAUNCH recId={RecordingVesselId} " +
-                        $"vessel='<test>' candidates={candidateCount}");
-                    break;
-                case OriginProofDetection.PartnerPidZero:
-                    ParsekLog.Warn("Recorder",
-                        $"RouteOriginProof skipped: partner pid=0 recId={RecordingVesselId} " +
-                        $"vessel='<test>' candidates={candidateCount}");
-                    break;
-                case OriginProofDetection.PartnerAmbiguous:
-                {
-                    var distinctPids = new List<uint>();
-                    if (candidates != null)
-                    {
-                        for (int i = 0; i < candidates.Count; i++)
-                        {
-                            uint pid = candidates[i].ParentVesselPersistentId;
-                            if (pid == 0) continue;
-                            if (candidates[i].ParentVesselSituation == (int)Vessel.Situations.PRELAUNCH) continue;
-                            if (!distinctPids.Contains(pid)) distinctPids.Add(pid);
-                        }
-                    }
-                    ParsekLog.Warn("Recorder",
-                        $"RouteOriginProof skipped: ambiguous partners recId={RecordingVesselId} " +
-                        $"vessel='<test>' candidates={candidateCount} " +
-                        $"distinctPartnerPids=[{string.Join(",", distinctPids)}]");
-                    break;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Test seam: read-only accessor for the start-time origin proof producer's
-        /// pending output. Production callers must use <see cref="BuildCaptureRecording"/>
-        /// which forwards the proof onto the captured <see cref="Recording"/> object.
-        /// </summary>
-        internal RouteOriginProof PendingRouteOriginProofForTesting => pendingRouteOriginProof;
-
-        /// <summary>
-        /// Test seam: read-only accessor for the transport part-pid set captured alongside
-        /// the start manifest. Used by Phase 3 forwarding tests to assert end-manifest scope.
-        /// </summary>
-        internal IReadOnlyList<uint> PendingRouteOriginProofStartPartPidsForTesting =>
-            pendingRouteOriginProofStartPartPids;
-
-        /// <summary>
-        /// Test seam: drives <see cref="BuildCaptureRecording"/>'s RouteOriginProof
-        /// forwarding block from a synthetic capture so Phase 3 tests can exercise
-        /// the end-manifest extraction without a live Vessel.
-        /// </summary>
-        internal void ApplyRouteOriginProofToCaptureForTesting(Recording capture)
-        {
-            if (capture == null) return;
-            if (pendingRouteOriginProof != null && pendingRouteOriginProofStartPartPids != null)
-            {
-                pendingRouteOriginProof.EndTransportResources =
-                    VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot, pendingRouteOriginProofStartPartPids);
-                pendingRouteOriginProof.EndTransportInventory =
-                    VesselSpawner.ExtractInventoryPayloadItems(capture.VesselSnapshot, pendingRouteOriginProofStartPartPids);
-                capture.RouteOriginProof = pendingRouteOriginProof;
-                ParsekLog.Verbose("Recorder",
-                    $"BuildCaptureRecording: forwarded RouteOriginProof partner={pendingRouteOriginProof.StartDockedOriginVesselPid} " +
-                    $"startRes={pendingRouteOriginProof.StartTransportResources?.Count ?? 0} " +
-                    $"endRes={pendingRouteOriginProof.EndTransportResources?.Count ?? 0} " +
-                    $"startInv={pendingRouteOriginProof.StartTransportInventory?.Count ?? 0} " +
-                    $"endInv={pendingRouteOriginProof.EndTransportInventory?.Count ?? 0}");
-            }
+            RouteProofCapture.BuildStartRouteOriginProof(
+                activeVesselSituation: (int)v.situation,
+                activeVesselIsEva: v.isEVA,
+                candidates: candidates,
+                snapshot: lastGoodVesselSnapshot,
+                isGloopsMode: false, // already handled above; helper still defensively re-checks
+                vesselContext: v.vesselName,
+                recordingVesselId: RecordingVesselId,
+                out pendingRouteOriginProof,
+                out pendingRouteOriginProofStartPartPids);
         }
 
         /// <summary>
@@ -6980,20 +6776,10 @@ namespace Parsek
             // captured at start. v0 limitation: if the transport decoupled parts between
             // start and end, those parts are absent from capture.VesselSnapshot and silently
             // drop out of the end manifest. Acceptable for the logistics v0 contract.
-            if (pendingRouteOriginProof != null && pendingRouteOriginProofStartPartPids != null)
-            {
-                pendingRouteOriginProof.EndTransportResources =
-                    VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot, pendingRouteOriginProofStartPartPids);
-                pendingRouteOriginProof.EndTransportInventory =
-                    VesselSpawner.ExtractInventoryPayloadItems(capture.VesselSnapshot, pendingRouteOriginProofStartPartPids);
-                capture.RouteOriginProof = pendingRouteOriginProof;
-                ParsekLog.Verbose("Recorder",
-                    $"BuildCaptureRecording: forwarded RouteOriginProof partner={pendingRouteOriginProof.StartDockedOriginVesselPid} " +
-                    $"startRes={pendingRouteOriginProof.StartTransportResources?.Count ?? 0} " +
-                    $"endRes={pendingRouteOriginProof.EndTransportResources?.Count ?? 0} " +
-                    $"startInv={pendingRouteOriginProof.StartTransportInventory?.Count ?? 0} " +
-                    $"endInv={pendingRouteOriginProof.EndTransportInventory?.Count ?? 0}");
-            }
+            RouteProofCapture.AttachEndManifestsAndForwardToCapture(
+                capture,
+                pendingRouteOriginProof,
+                pendingRouteOriginProofStartPartPids);
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);
