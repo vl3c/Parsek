@@ -151,6 +151,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `ParsekProcess.cs` - process-wide static identity helper holding the AppDomain-lifetime `ProcessSessionId` GUID used by stock-action intent markers to detect cross-run orphaned saves.
 - `StockActionIntentMarker.cs` - positive intent marker armed only by confirmed stock-UI Fly / Switch-To click handlers; carries TTL + UT + `ProcessSessionId` and a pure `EvaluateStaleness` predicate for the FLIGHT-side consume site.
 - `SwitchSegmentSession.cs` - live segment-attempt marker armed when a switch/Fly click actually starts a new segment in FLIGHT, owned by `ParsekScenario` and serialized through OnSave/OnLoad so scoped Discard survives save/reload.
+- `SwitchSegmentBuilder.cs` - pure tree-mutation helper for switch/Fly continuation segments: `ResolveSwitchContinuationParent` walks PID-coherent terminal leaves and `CreateSwitchContinuationSegment` attaches a new `VesselSwitchContinuation` branch + recording under the chosen parent (or standalone). Pure with respect to Unity and background-recorder state; the live-side wrapper handles parent-side BG flush and BG-map removal.
 
 ## Worktree Workflow
 
