@@ -217,6 +217,18 @@ namespace Parsek.Tests
                 && l.Contains("Split origin rec_origin at UT=34.00")
                 && l.Contains("HEAD=[8.00..34.00]")
                 && l.Contains($"TIP={tip.RecordingId}"));
+
+            // Bug fix-refly-abandon-and-fork-persist §Bug2c: Step 2.12
+            // actively promotes tree.ActiveRecordingId from HEAD (origin)
+            // to TIP. Previous behavior left it pointing at HEAD (the
+            // pre-rewind portion), which is the wrong "live recording"
+            // for an in-place continuation. MigrateActiveReFlyForkInto-
+            // CommittedTree (§Bug2b) further refines this to the fork id.
+            Assert.Equal(tip.RecordingId, tree.ActiveRecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]") &&
+                l.Contains("Step12: promoted tree.ActiveRecordingId") &&
+                l.Contains($"{origin.RecordingId} -> {tip.RecordingId}"));
         }
 
         // =====================================================================
