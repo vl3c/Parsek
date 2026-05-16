@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using Contracts;
+using HarmonyLib;
 using KSP.UI;
 using KSP.UI.Screens;
 using UnityEngine;
@@ -20417,6 +20418,82 @@ namespace Parsek.InGameTests
             public string BodyName { get; set; }
             public PatchedConicTransitionType EndTransition { get; set; }
             public IPatchedConicOrbitPatch NextPatch { get; set; }
+        }
+
+        // ----------------------------------------------------------------
+        // Phase B.2 Harmony-patch registration stubs. Full end-to-end
+        // arming / consuming behavior is covered by Phase F in-game tests;
+        // these stubs confirm the three patches are registered with Harmony
+        // at startup and bound to the correct stock targets. Each stub picks
+        // the scene that the corresponding stock UI button is clicked from.
+        // ----------------------------------------------------------------
+
+        private const string ParsekHarmonyId = "com.parsek.mod";
+
+        private static bool ParsekHarmonyHasPatchOn(MethodBase target)
+        {
+            if (target == null)
+                return false;
+            var info = Harmony.GetPatchInfo(target);
+            if (info == null)
+                return false;
+            return info.Owners != null && info.Owners.Contains(ParsekHarmonyId);
+        }
+
+        [InGameTest(
+            Category = "SwitchIntentPatch",
+            Description = "Tracking Station Fly arming patch is registered with Harmony",
+            Scene = GameScenes.TRACKSTATION)]
+        public void TrackingStationFlyPatch_RegisteredWithHarmony()
+        {
+            // Fails if: the patch is not registered at Harmony startup (e.g.,
+            // class was removed, [HarmonyPatch] attribute was dropped, or
+            // ParsekHarmony.Awake skipped it due to a load-order failure).
+            MethodInfo target = typeof(SpaceTracking).GetMethod(
+                "FlyVessel",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(target, "SpaceTracking.FlyVessel must resolve");
+            InGameAssert.IsTrue(
+                ParsekHarmonyHasPatchOn(target),
+                "Harmony.GetPatchInfo(SpaceTracking.FlyVessel) must list com.parsek.mod as an owner");
+        }
+
+        [InGameTest(
+            Category = "SwitchIntentPatch",
+            Description = "KSC marker Fly arming patch is registered with Harmony",
+            Scene = GameScenes.SPACECENTER)]
+        public void KscVesselMarkerFlyPatch_RegisteredWithHarmony()
+        {
+            // Fails if: the patch is not registered at Harmony startup.
+            MethodInfo target = typeof(KSCVesselMarkers).GetMethod(
+                "FlyVessel",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(Vessel) },
+                modifiers: null);
+            InGameAssert.IsNotNull(target, "KSCVesselMarkers.FlyVessel(Vessel) must resolve");
+            InGameAssert.IsTrue(
+                ParsekHarmonyHasPatchOn(target),
+                "Harmony.GetPatchInfo(KSCVesselMarkers.FlyVessel) must list com.parsek.mod as an owner");
+        }
+
+        [InGameTest(
+            Category = "SwitchIntentPatch",
+            Description = "Map FocusObject OnSelect arming patch is registered with Harmony",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelectPatch_RegisteredWithHarmony()
+        {
+            // Fails if: the patch is not registered at Harmony startup (e.g.,
+            // FocusObject namespace renamed, OnSelect method missing).
+            System.Type focusObjectType = typeof(
+                KSP.UI.Screens.Mapview.MapContextMenuOptions.FocusObject);
+            MethodInfo target = focusObjectType.GetMethod(
+                "OnSelect",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(target, "FocusObject.OnSelect must resolve");
+            InGameAssert.IsTrue(
+                ParsekHarmonyHasPatchOn(target),
+                "Harmony.GetPatchInfo(FocusObject.OnSelect) must list com.parsek.mod as an owner");
         }
     }
 }

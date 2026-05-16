@@ -479,6 +479,69 @@ namespace Parsek.Patches
         }
     }
 
+    /// <summary>
+    /// Arms a <see cref="StockActionIntentMarker"/> when the player clicks Fly on
+    /// a real (non-ghost) vessel in the Tracking Station. Composes with the sibling
+    /// <see cref="GhostTrackingFlyPatch"/> ghost-blocker by mirroring its ghost guard
+    /// and returning <c>true</c> unconditionally — this patch never blocks the
+    /// original. The marker authorizes immediate switch-segment start when the FLIGHT
+    /// scene-load tail consumes it in Phase C.
+    ///
+    /// Decompiled SpaceTracking.FlyVessel (KSP 1.12.5 Assembly-CSharp.dll, load-bearing
+    /// excerpt): the method calls <c>GamePersistence.SaveGame("persistent", ...)</c>
+    /// then <c>FlightDriver.StartAndFocusVessel("persistent", FlightGlobals.Vessels.IndexOf(v))</c>,
+    /// which transitions to FLIGHT. The Prefix arms BEFORE the save+scene-transition
+    /// so the serialized marker survives into FLIGHT. The method is <c>void</c>, so
+    /// there is no synchronous early-return signal a Postfix could read for refusal
+    /// cleanup; cross-run-orphan + TTL handle the leak case where the scene
+    /// transition never completes.
+    /// </summary>
+    [HarmonyPatch(typeof(SpaceTracking), "FlyVessel")]
+    [HarmonyAfter("com.parsek.mod")] // ordered AFTER GhostTrackingFlyPatch so its ghost-block runs first
+    internal static class SwitchIntentTrackingStationFlyPatch
+    {
+        static void Prefix(Vessel v)
+        {
+            // Ghost-block guard mirror: if the sibling GhostTrackingFlyPatch
+            // would have returned false (cancelling the body), we must NOT arm
+            // an intent because the scene transition will not happen.
+            if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return;
+
+            var settings = ParsekSettings.Current;
+            if (settings != null && !settings.autoRecordOnTsFly)
+            {
+                ParsekLog.Verbose("SwitchIntentPatch",
+                    $"TS Fly intent not armed: setting-off targetPid={v.persistentId} vessel='{v.vesselName ?? "(unknown)"}'");
+                return;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"TS Fly intent not armed: ParsekScenario.Instance is null targetPid={v.persistentId}");
+                return;
+            }
+
+            var marker = new StockActionIntentMarker
+            {
+                IntentId = Guid.NewGuid(),
+                Action = StockActionType.TrackingStationFly,
+                TargetVesselPersistentId = v.persistentId,
+                SourceScene = StockActionSourceScene.TrackingStation,
+                CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
+                CapturedUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
+                ProcessSessionId = ParsekProcess.ProcessSessionId,
+            };
+            scenario.ArmStockActionIntent(marker);
+            ParsekLog.Info("SwitchIntentPatch",
+                $"TS Fly intent armed: intentId={marker.IntentId:D} action={marker.Action} " +
+                $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
+                $"capturedUT={marker.CapturedUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+    }
+
     [HarmonyPatch(typeof(SpaceTracking), "OnVesselDeleteConfirm")]
     internal static class GhostTrackingDeletePatch
     {

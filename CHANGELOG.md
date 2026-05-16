@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 - Added `StockActionIntentMarker` + `SwitchSegmentSession` scenario serialization for upcoming switch/Fly auto-record.
 - Added `SwitchSegmentBuilder` pure helper for switch/Fly continuation segment creation with terminal-leaf resolver.
 - Added per-source auto-record settings: TS Fly, KSC marker Fly, Map Switch-To (all default ON).
+- Added Harmony patches arming stock-action intent on Tracking Station Fly, KSC marker Fly, and Map view Switch To buttons.
 - Reset the private-development recording/rendering schema baseline to v0. Old pre-reset Parsek recordings, sidecars, and career ledger entries are rejected with explicit reasons rather than migrated.
 - Reset pannotations sidecars through new `PNA0`/`PNC0` magic and v0 cache schema stamps.
 - Removed the historical recording-format compatibility ladder from the current trajectory codec. Old `PRKB`/`PRKS` sidecars and pre-reset pannotations magic tags are treated as unsupported.
