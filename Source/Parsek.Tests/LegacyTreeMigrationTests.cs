@@ -1278,6 +1278,16 @@ namespace Parsek.Tests
         [InlineData(GameActionType.FundsInitial,         false)]
         [InlineData(GameActionType.ScienceInitial,       false)]
         [InlineData(GameActionType.ReputationInitial,    false)]
+        // Route skeleton (design doc §6): RouteModule does not move resource pools;
+        // it only tracks dispatch / pause / endpoint-lost counters. When the future
+        // dispatch integration wires KSC funds charges through RouteCargoDebited,
+        // its expected here flips to true and this test forces the corresponding
+        // classifier switch update.
+        [InlineData(GameActionType.RouteDispatched,      false)]
+        [InlineData(GameActionType.RouteCargoDebited,    false)]
+        [InlineData(GameActionType.RouteCargoDelivered,  false)]
+        [InlineData(GameActionType.RoutePaused,          false)]
+        [InlineData(GameActionType.RouteEndpointLost,    false)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

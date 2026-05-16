@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
@@ -31,7 +32,52 @@ namespace Parsek
         StrategyDeactivate    = 19,
         FundsInitial          = 20,
         ScienceInitial        = 21,
-        ReputationInitial     = 22
+        ReputationInitial     = 22,
+
+        // ---- Route actions (logistics supply routes; design doc §6 / §10) ----
+
+        /// <summary>
+        /// Scheduler decided the cycle is good to go after destination + origin + funds
+        /// checks (design doc §6.1 step 5). Carries <c>RouteId</c>, <c>RouteCycleId</c>,
+        /// and the scheduled dispatch UT. Resumes immediately after a <see cref="RoutePaused"/>
+        /// row — there is no explicit RouteUnpaused/RouteResumed type because the next
+        /// RouteDispatched IS the resumption signal.
+        /// </summary>
+        RouteDispatched       = 23,
+
+        /// <summary>
+        /// Physical/funds debit applied to origin (design doc §6.1 step 5 / §6.3): non-KSC
+        /// resource or inventory removal, or KSC funds charge in Career. Separated from
+        /// <see cref="RouteDispatched"/> so a future module can sequence the actual debit
+        /// at a different tier slot from the dispatch decision (e.g. so the funds module
+        /// can reuse its existing ContractFail-style penalty path for the KSC charge while
+        /// the route module owns the dispatch counter).
+        /// </summary>
+        RouteCargoDebited     = 24,
+
+        /// <summary>
+        /// Delivery boundary reached (design doc §6.3). Carries the actual per-resource
+        /// delivery manifest. For partial-fill (§10.5) the requested manifest is also
+        /// carried so the player can see requested-vs-actual instead of silent loss.
+        /// </summary>
+        RouteCargoDelivered   = 25,
+
+        /// <summary>
+        /// Player Pause action, OR auto-pause when status transitions to EndpointLost /
+        /// MissingSourceRecording / SourceChanged (design doc §6.6, §10.6). The reason is
+        /// captured in <see cref="GameAction.RouteEndpointReason"/>. §10.6 needs this row
+        /// in the timeline so revert past a dispatch can correctly suspend future cycles.
+        /// </summary>
+        RoutePaused           = 26,
+
+        /// <summary>
+        /// Endpoint resolution failed (design doc §10.1, §10.2). Distinct from
+        /// <see cref="RoutePaused"/> because the recovery contract differs — endpoint
+        /// loss may auto-recover through surface-proximity fallback while a player pause
+        /// can only be cleared by explicit unpause. Reason text is in
+        /// <see cref="GameAction.RouteEndpointReason"/>.
+        /// </summary>
+        RouteEndpointLost     = 27
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -332,6 +378,85 @@ namespace Parsek
         /// <summary>One-time reputation cost on activation.</summary>
         public float SetupReputationCost;
 
+        // ---- Route fields ----
+
+        /// <summary>
+        /// Stable identifier of the logistics route this action belongs to
+        /// (design doc §6, §10). Null on non-route actions. Skeleton-only:
+        /// route entities themselves are not yet defined in the codebase, so
+        /// this is treated as opaque string identity.
+        /// </summary>
+        public string RouteId;
+
+        /// <summary>
+        /// Per-dispatch cycle identifier — groups one
+        /// <see cref="GameActionType.RouteDispatched"/> row with its matching
+        /// <see cref="GameActionType.RouteCargoDebited"/> and
+        /// <see cref="GameActionType.RouteCargoDelivered"/> rows. Used by future
+        /// dispatch/delivery walkers to correlate within-cycle effects. Null on
+        /// non-cycle-scoped route actions (e.g. <see cref="GameActionType.RoutePaused"/>
+        /// at the route level, not a specific cycle).
+        /// </summary>
+        public string RouteCycleId;
+
+        /// <summary>
+        /// 0-based stop index inside the route's stop list (design doc §6.3). Sentinel
+        /// value -1 means "not applicable / route-level event". v1 routes have a single
+        /// stop (§11), so the only non-sentinel value in v1 will be 0. Persisted as a
+        /// non-negative integer so future multi-stop routes can populate it without a
+        /// schema change.
+        /// </summary>
+        public int RouteStopIndex = -1;
+
+        /// <summary>
+        /// Per-resource signed delivered/debited amount keyed by stock resource name
+        /// (design doc §6.3, §6.5). For <see cref="GameActionType.RouteCargoDelivered"/>
+        /// the value is positive amount actually delivered to the destination
+        /// (post-clamp by <c>maxAmount</c>). For <see cref="GameActionType.RouteCargoDebited"/>
+        /// the value is positive amount removed from the origin. Both directions
+        /// intentionally store positive magnitudes — the action type carries the sign.
+        /// <para>
+        /// <c>maxAmount</c> is deliberately NOT carried — delivery is amount-only
+        /// (design doc §11, §6.5). Tank capacity is a destination property and is
+        /// re-read each tick by the scheduler; carrying it on the ledger row would
+        /// be a stale snapshot.
+        /// </para>
+        /// <para>Null or empty when the action carries no resource manifest (e.g. the
+        /// KSC-funds-only debit case, where <see cref="RouteKscFundsCost"/> is set instead).</para>
+        /// </summary>
+        public Dictionary<string, double> RouteResourceManifest;
+
+        /// <summary>
+        /// Requested per-resource delivery amounts, populated only on
+        /// <see cref="GameActionType.RouteCargoDelivered"/> rows where the actual delivery
+        /// was partially filled (design doc §10.5). Same keying as
+        /// <see cref="RouteResourceManifest"/>. Null when the actual delivery met the
+        /// request in full — saves a few bytes on the common case. The pair
+        /// (requested, actual) is what UI / future dispatch tuning reads to expose
+        /// "delivered X / Y" badges.
+        /// </summary>
+        public Dictionary<string, double> RouteRequestedResourceManifest;
+
+        /// <summary>
+        /// KSC funds charge in funds-units (design doc §6.1 step 5: the Career-mode
+        /// KSC-origin dispatch cost). Zero when the dispatch had no KSC funds component
+        /// (Science / Sandbox modes or non-KSC origins). Stored on
+        /// <see cref="GameActionType.RouteCargoDebited"/> rows.
+        /// </summary>
+        public float RouteKscFundsCost;
+
+        /// <summary>
+        /// Short human/machine-readable reason for a
+        /// <see cref="GameActionType.RoutePaused"/> or
+        /// <see cref="GameActionType.RouteEndpointLost"/> row (design doc §6.6, §10.1,
+        /// §10.2, §10.15, §10.16). Typical values: <c>"PlayerPause"</c>,
+        /// <c>"AutoPause:EndpointLost"</c>, <c>"AutoPause:MissingSourceRecording"</c>,
+        /// <c>"AutoPause:SourceChanged"</c>, <c>"EndpointLost:OrbitalNoFallback"</c>.
+        /// Free-form by design — the route module logs it but does not branch on it,
+        /// so adding new reasons is a non-breaking change.
+        /// </summary>
+        public string RouteEndpointReason;
+
         // ---- Initial seed fields ----
 
         /// <summary>Career starting funds, extracted from save file.</summary>
@@ -500,6 +625,21 @@ namespace Parsek
                 case GameActionType.ReputationInitial:
                     SerializeReputationInitial(node);
                     break;
+                case GameActionType.RouteDispatched:
+                    SerializeRouteDispatched(node);
+                    break;
+                case GameActionType.RouteCargoDebited:
+                    SerializeRouteCargoDebited(node);
+                    break;
+                case GameActionType.RouteCargoDelivered:
+                    SerializeRouteCargoDelivered(node);
+                    break;
+                case GameActionType.RoutePaused:
+                    SerializeRoutePaused(node);
+                    break;
+                case GameActionType.RouteEndpointLost:
+                    SerializeRouteEndpointLost(node);
+                    break;
             }
         }
 
@@ -618,6 +758,21 @@ namespace Parsek
                     break;
                 case GameActionType.ReputationInitial:
                     DeserializeReputationInitial(node, a);
+                    break;
+                case GameActionType.RouteDispatched:
+                    DeserializeRouteDispatched(node, a);
+                    break;
+                case GameActionType.RouteCargoDebited:
+                    DeserializeRouteCargoDebited(node, a);
+                    break;
+                case GameActionType.RouteCargoDelivered:
+                    DeserializeRouteCargoDelivered(node, a);
+                    break;
+                case GameActionType.RoutePaused:
+                    DeserializeRoutePaused(node, a);
+                    break;
+                case GameActionType.RouteEndpointLost:
+                    DeserializeRouteEndpointLost(node, a);
                     break;
             }
 
@@ -971,6 +1126,157 @@ namespace Parsek
         private static void DeserializeReputationInitial(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "initialReputation", out a.InitialReputation);
+        }
+
+        // ---- Route action serialization helpers ----
+        //
+        // Manifest encoding: each non-zero/non-empty manifest serializes as one
+        //   resource = <name>|<amount-R-invariant>
+        // line per entry. Skipping zero/null fields keeps the on-disk shape small
+        // and lets future readers detect "no manifest" via the absence of the key.
+
+        private void SerializeRouteDispatched(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+        }
+
+        private static void DeserializeRouteDispatched(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+        }
+
+        private void SerializeRouteCargoDebited(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            WriteResourceManifest(n, "resource", RouteResourceManifest);
+            if (RouteKscFundsCost != 0f)
+                n.AddValue("routeKscFundsCost", RouteKscFundsCost.ToString("R", IC));
+        }
+
+        private static void DeserializeRouteCargoDebited(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteResourceManifest = ReadResourceManifest(n, "resource");
+            TryParseFloat(n, "routeKscFundsCost", out a.RouteKscFundsCost);
+        }
+
+        private void SerializeRouteCargoDelivered(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            WriteResourceManifest(n, "resource", RouteResourceManifest);
+            WriteResourceManifest(n, "requestedResource", RouteRequestedResourceManifest);
+        }
+
+        private static void DeserializeRouteCargoDelivered(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteResourceManifest = ReadResourceManifest(n, "resource");
+            a.RouteRequestedResourceManifest = ReadResourceManifest(n, "requestedResource");
+        }
+
+        private void SerializeRoutePaused(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            if (!string.IsNullOrEmpty(RouteEndpointReason))
+                n.AddValue("routeEndpointReason", RouteEndpointReason);
+        }
+
+        private static void DeserializeRoutePaused(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteEndpointReason = n.GetValue("routeEndpointReason");
+        }
+
+        private void SerializeRouteEndpointLost(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            if (!string.IsNullOrEmpty(RouteEndpointReason))
+                n.AddValue("routeEndpointReason", RouteEndpointReason);
+        }
+
+        private static void DeserializeRouteEndpointLost(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteEndpointReason = n.GetValue("routeEndpointReason");
+        }
+
+        /// <summary>
+        /// Writes route-common identity fields (RouteId, RouteCycleId, RouteStopIndex).
+        /// Sentinel <c>RouteStopIndex == -1</c> is skipped so a not-applicable stop index
+        /// does not pollute the on-disk shape.
+        /// </summary>
+        private void WriteRouteCommon(ConfigNode n)
+        {
+            if (!string.IsNullOrEmpty(RouteId))
+                n.AddValue("routeId", RouteId);
+            if (!string.IsNullOrEmpty(RouteCycleId))
+                n.AddValue("routeCycleId", RouteCycleId);
+            if (RouteStopIndex >= 0)
+                n.AddValue("routeStopIndex", RouteStopIndex.ToString(IC));
+        }
+
+        private static void ReadRouteCommon(ConfigNode n, GameAction a)
+        {
+            a.RouteId = n.GetValue("routeId");
+            a.RouteCycleId = n.GetValue("routeCycleId");
+            string stopStr = n.GetValue("routeStopIndex");
+            if (stopStr != null && int.TryParse(stopStr, NumberStyles.Integer, IC, out int idx))
+                a.RouteStopIndex = idx;
+            else
+                a.RouteStopIndex = -1;
+        }
+
+        /// <summary>
+        /// Writes a manifest as one <c><paramref name="key"/> = name|amount</c> line per
+        /// non-zero entry. Empty / null manifests write nothing.
+        /// </summary>
+        private static void WriteResourceManifest(ConfigNode n, string key, Dictionary<string, double> manifest)
+        {
+            if (manifest == null || manifest.Count == 0)
+                return;
+
+            foreach (var kv in manifest)
+            {
+                if (string.IsNullOrEmpty(kv.Key))
+                    continue;
+                n.AddValue(key, kv.Key + "|" + kv.Value.ToString("R", IC));
+            }
+        }
+
+        /// <summary>
+        /// Reads all values for <paramref name="key"/> back into a manifest dict. Returns
+        /// null when no values are present so callers can distinguish "absent" from "empty".
+        /// </summary>
+        private static Dictionary<string, double> ReadResourceManifest(ConfigNode n, string key)
+        {
+            string[] raws = n.GetValues(key);
+            if (raws == null || raws.Length == 0)
+                return null;
+
+            var dict = new Dictionary<string, double>(raws.Length, StringComparer.Ordinal);
+            for (int i = 0; i < raws.Length; i++)
+            {
+                string raw = raws[i];
+                if (string.IsNullOrEmpty(raw))
+                    continue;
+                int sep = raw.IndexOf('|');
+                if (sep <= 0 || sep == raw.Length - 1)
+                {
+                    ParsekLog.Warn("GameAction",
+                        $"Route manifest entry malformed under key '{key}': '{raw}' (expected 'name|amount')");
+                    continue;
+                }
+                string name = raw.Substring(0, sep);
+                string amountStr = raw.Substring(sep + 1);
+                if (!double.TryParse(amountStr, NS, IC, out double amount))
+                {
+                    ParsekLog.Warn("GameAction",
+                        $"Route manifest amount unparseable under key '{key}' for resource '{name}': '{amountStr}'");
+                    continue;
+                }
+                dict[name] = amount;
+            }
+            return dict.Count == 0 ? null : dict;
         }
 
         // ---- Parse helpers ----
