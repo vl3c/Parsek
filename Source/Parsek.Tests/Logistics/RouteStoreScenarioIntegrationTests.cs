@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using Parsek;
 using Parsek.Logistics;
 using Parsek.Tests.Generators;
@@ -13,8 +15,11 @@ namespace Parsek.Tests.Logistics
     /// ConfigNode — the same surface that <c>ParsekScenario.OnSave</c> /
     /// <c>OnLoad</c> drives in production. Driving the real
     /// <see cref="ParsekScenario"/> lifecycle from a unit test requires the
-    /// live <see cref="ScenarioModule"/> harness, so we exercise the
-    /// integration through the same public seams the scenario uses.
+    /// live <see cref="ScenarioModule"/> harness (Planetarium / Unity
+    /// MonoBehaviour coroutines / GameEvents), so we exercise the integration
+    /// through the same public seams the scenario uses, plus one source-text
+    /// gate that catches deletion of the hookup itself
+    /// (<see cref="Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec"/>).
     /// </summary>
     [Collection("Sequential")]
     public class RouteStoreScenarioIntegrationTests : System.IDisposable
@@ -190,6 +195,51 @@ namespace Parsek.Tests.Logistics
 
             Assert.False(scenarioNode.HasNode("ROUTES"),
                 "Stale ROUTES wrapper must be stripped on empty-store save");
+        }
+
+        // catches: a future edit to ParsekScenario.OnSave or OnLoad that drops
+        // the RouteStore.SaveRoutesTo / LoadRoutesFrom hookup. The granular
+        // tests in this class drive the codec directly and would NOT catch a
+        // missing hookup — only this test does.
+        //
+        // The intended shape was to instantiate ParsekScenario, call
+        // .OnSave(node), reset stores, call .OnLoad(node), and round-trip
+        // through the real lifecycle. That cannot run from xUnit: OnSave's
+        // game-state phase calls Planetarium.GetUniversalTime() unguarded
+        // (ParsekScenario.cs:1156) BEFORE the routes phase runs, and OnLoad
+        // calls it unguarded for reconcileUT (ParsekScenario.cs:2229) plus
+        // depends on stateRecorder.Subscribe / SubscribeVesselLifecycleEvents
+        // (Unity GameEvents) and StartCoroutine (Unity MonoBehaviour
+        // lifecycle). None of those have test stubs in this project, and no
+        // test in Parsek.Tests currently drives the real OnSave/OnLoad. A
+        // source-text gate is the only thing that reliably catches a literal
+        // deletion of the four hookup lines without requiring scaffolding
+        // that does not yet exist; the codebase already uses this pattern
+        // (see ChainSaveLoadTests.ChainStateNotPersistedInScenario and
+        // GrepAuditTests for ERS / ELS).
+        [Fact]
+        public void Scenario_OnSaveAndOnLoad_InvokeRouteStoreCodec()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string scenarioPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekScenario.cs");
+
+            // Fallback path if the test runs from an unusual working dir.
+            if (!File.Exists(scenarioPath))
+            {
+                scenarioPath = Path.Combine(projectRoot,
+                    "Parsek", "ParsekScenario.cs");
+            }
+
+            Assert.True(File.Exists(scenarioPath),
+                $"ParsekScenario.cs not found at {scenarioPath}");
+
+            string source = File.ReadAllText(scenarioPath);
+
+            Assert.Contains("RouteStore.SaveRoutesTo(node)", source);
+            Assert.Contains("RouteStore.LoadRoutesFrom(node)", source);
         }
     }
 }
