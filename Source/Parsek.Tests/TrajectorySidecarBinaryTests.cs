@@ -45,9 +45,12 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        // Current format is v1 (bumped from v0 in the VesselSwitchContinuation
+        // commit). The `BinaryV0` encoding label is historical — it represents
+        // whichever binary version is currently supported.
         [InlineData(-1, (int)TrajectorySidecarEncoding.UnknownBinary, false, "format-version-mismatch")]
-        [InlineData(0, (int)TrajectorySidecarEncoding.BinaryV0, true, null)]
-        [InlineData(1, (int)TrajectorySidecarEncoding.UnknownBinary, false, "format-version-mismatch")]
+        [InlineData(0, (int)TrajectorySidecarEncoding.UnknownBinary, false, "format-version-mismatch")]
+        [InlineData(1, (int)TrajectorySidecarEncoding.BinaryV0, true, null)]
         [InlineData(13, (int)TrajectorySidecarEncoding.UnknownBinary, false, "format-version-mismatch")]
         public void TryProbe_MapsVersionToEncodingAndSupport(
             int version,

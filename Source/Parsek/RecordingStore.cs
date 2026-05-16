@@ -102,7 +102,7 @@ namespace Parsek
             public int ForcedSelfRewindDropCount => ForcedSelfRewindDropIds.Count;
         }
 
-        public const int CurrentRecordingFormatVersion = 0;
+        public const int CurrentRecordingFormatVersion = 1;
         public const int CurrentRecordingSchemaGeneration = 1;
 
         /// <summary>
