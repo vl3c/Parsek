@@ -1179,6 +1179,26 @@ namespace Parsek
             ReFlySessionMarker marker;
             try
             {
+                // Bug fix-refly-abandon-and-fork-persist §Bug1: before this
+                // session adds its provisional, reap any prior NotCommitted
+                // provisional that targets the same RewindPoint from a
+                // different (now-abandoned) session. The user just clicked
+                // Re-Fly on the same RP slot, so the prior attempt's
+                // provisional is orphaned by construction. Without this
+                // reap, the orphan survives in tree.Recordings dicts and
+                // gets re-added to RecordingStore.CommittedRecordings by
+                // FinalizeTreeCommit (RecordingStore.cs:1363-1386), and the
+                // next merge's AppendRelations closure walk writes an
+                // invalid `old=<NotCommitted-orphan> → new=<new-fork>`
+                // supersede row.
+                int reaped = ReapPriorProvisionalsForRp(rp.RewindPointId, sessionId);
+                if (reaped > 0)
+                {
+                    ParsekLog.Info(SessionTag,
+                        $"AtomicMarkerWrite: reaped {reaped} prior NotCommitted provisional(s) " +
+                        $"for rp={rp.RewindPointId} before new sess={sessionId}");
+                }
+
                 // BuildProvisionalRecording previously also wrote
                 // `SupersedeTargetId = selected.OriginChildRecordingId` as
                 // a placeholder; that initial assignment was removed
@@ -1393,6 +1413,149 @@ namespace Parsek
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Bug fix-refly-abandon-and-fork-persist §Bug1: before a new Re-Fly
+        /// session attaches its provisional to the same RewindPoint, reap any
+        /// prior NotCommitted provisional from an earlier (abandoned) session
+        /// targeting that RP. The retry path's marker clear (in
+        /// <c>End reason=retry</c>) does not touch the prior provisional
+        /// Recording, and <see cref="LoadTimeSweep.RemoveDiscardRecordings"/>
+        /// historically only removed the recording from the flat
+        /// <c>committedRecordings</c> list — its node in the owning tree's
+        /// <c>Recordings</c> dict survived. <see cref="RecordingStore.FinalizeTreeCommit"/>
+        /// (<c>RecordingStore.cs:1363-1386</c>) then re-added it on the next
+        /// commit pass, and the closure walk in
+        /// <see cref="EffectiveState.EnqueuePidPeerSiblings"/> enqueued the
+        /// orphan as a same-PID peer of the new TIP, ultimately writing an
+        /// invalid <c>RECORDING_SUPERSEDE_RELATION</c> with
+        /// <c>oldRecordingId</c> pointing at a NotCommitted recording — a
+        /// data-model invariant violation.
+        ///
+        /// <para>
+        /// This helper walks every collection that can hold a Recording:
+        /// the flat <see cref="RecordingStore.CommittedRecordings"/> list,
+        /// every committed tree's <c>Recordings</c> dict, the pending tree,
+        /// and the live active tree (the s11 evidence case — the zombie was
+        /// reachable only from <see cref="ParsekFlight.ActiveTreeForSerialization"/>).
+        /// Sidecar files on disk are also removed so a future
+        /// <c>CleanOrphanFiles</c> pass does not warn about them.
+        /// </para>
+        ///
+        /// <para>
+        /// Idempotent: a second invocation finds no victims and returns 0.
+        /// Crash-safe: the reap runs BEFORE the new session's marker is
+        /// written, so a mid-reap crash leaves the next OnLoad's
+        /// <see cref="LoadTimeSweep"/> to mop up any half-reaped orphans
+        /// (their <c>CreatingSessionId</c> still names a session with no
+        /// live marker).
+        /// </para>
+        /// </summary>
+        internal static int ReapPriorProvisionalsForRp(string rpId, string newSessionId)
+        {
+            if (string.IsNullOrEmpty(rpId))
+                return 0;
+
+            // 1. Identify victims: NotCommitted, tagged to this RP, from a
+            //    different session. Snapshot the ids first (don't mutate
+            //    CommittedRecordings during iteration).
+            var victimIds = new List<string>();
+            var victimRecs = new List<Recording>();
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (rec.MergeState != MergeState.NotCommitted) continue;
+                if (!string.Equals(rec.ProvisionalForRpId, rpId, StringComparison.Ordinal)) continue;
+                if (string.Equals(rec.CreatingSessionId, newSessionId, StringComparison.Ordinal)) continue;
+                if (string.IsNullOrEmpty(rec.RecordingId)) continue;
+
+                victimIds.Add(rec.RecordingId);
+                victimRecs.Add(rec);
+            }
+
+            if (victimIds.Count == 0)
+                return 0;
+
+            // 2. Remove victims from every collection that can hold them.
+            //    Track removal counts per collection for the per-victim log so
+            //    a future regression can identify which collection retained
+            //    the leak.
+            int totalReaped = 0;
+            for (int v = 0; v < victimIds.Count; v++)
+            {
+                string id = victimIds[v];
+                var rec = victimRecs[v];
+                string priorSess = rec.CreatingSessionId ?? "<no-sess>";
+
+                // Flat list.
+                bool fromFlatList = RecordingStore.RemoveCommittedById(id);
+
+                // Every committed tree's Recordings dict + BackgroundMap.
+                int fromCommittedTrees = 0;
+                var committedTrees = RecordingStore.CommittedTrees;
+                if (committedTrees != null)
+                {
+                    for (int t = 0; t < committedTrees.Count; t++)
+                    {
+                        var tree = committedTrees[t];
+                        if (tree?.Recordings != null && tree.Recordings.Remove(id))
+                        {
+                            tree.RebuildBackgroundMap();
+                            fromCommittedTrees++;
+                        }
+                    }
+                }
+
+                // Pending tree.
+                bool fromPendingTree = false;
+                var pending = RecordingStore.PendingTree;
+                if (pending?.Recordings != null && pending.Recordings.Remove(id))
+                {
+                    pending.RebuildBackgroundMap();
+                    fromPendingTree = true;
+                }
+
+                // Live active tree (the s11 evidence case).
+                bool fromActiveTree = false;
+                var active = ParsekFlight.Instance?.ActiveTreeForSerialization;
+                if (active?.Recordings != null && active.Recordings.Remove(id))
+                {
+                    active.RebuildBackgroundMap();
+                    fromActiveTree = true;
+                }
+
+                // Sidecar files on disk.
+                try { RecordingStore.DeleteRecordingFiles(rec); }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(SessionTag,
+                        $"ReapPriorProvisional: DeleteRecordingFiles threw for rec={id}: {ex.Message}");
+                }
+
+                ParsekLog.Info(SessionTag,
+                    $"ReapPriorProvisional: removed orphan rec={id} priorSess={priorSess} " +
+                    $"newSess={newSessionId} rp={rpId} " +
+                    $"removedFromFlatList={fromFlatList} " +
+                    $"removedFromCommittedTrees={fromCommittedTrees.ToString(CultureInfo.InvariantCulture)} " +
+                    $"removedFromPendingTree={fromPendingTree} " +
+                    $"removedFromActiveTree={fromActiveTree}");
+                totalReaped++;
+            }
+
+            // 3. Bump supersede state version once at the end so ERS rebuilds.
+            //    Use ReferenceEquals to skip Unity's null-check override (so a
+            //    test fixture scenario without a Unity lifecycle still works).
+            if (totalReaped > 0)
+            {
+                var scenario = ParsekScenario.Instance;
+                if (!object.ReferenceEquals(null, scenario))
+                    scenario.BumpSupersedeStateVersion();
+            }
+
+            return totalReaped;
         }
 
         /// <summary>

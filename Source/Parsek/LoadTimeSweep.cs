@@ -1138,19 +1138,69 @@ namespace Parsek
             {
                 var rec = discard[i];
                 if (rec == null) continue;
-                bool ok = RecordingStore.RemoveCommittedInternal(rec);
+
+                // Bug fix-refly-abandon-and-fork-persist §Bug1 structural leak:
+                // RemoveCommittedInternal only removes from the flat list. The
+                // recording's node in its owning tree's Recordings dict survives
+                // and FinalizeTreeCommit (RecordingStore.cs:1363-1386) re-adds
+                // it to committedRecordings on the next commit pass. Walk every
+                // tree dict here so the zombie cannot be resurrected.
+                bool fromFlatList = RecordingStore.RemoveCommittedInternal(rec);
+                int fromCommittedTrees = 0;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                {
+                    var committedTrees = RecordingStore.CommittedTrees;
+                    if (committedTrees != null)
+                    {
+                        for (int t = 0; t < committedTrees.Count; t++)
+                        {
+                            var tree = committedTrees[t];
+                            if (tree?.Recordings != null && tree.Recordings.Remove(rec.RecordingId))
+                            {
+                                tree.RebuildBackgroundMap();
+                                fromCommittedTrees++;
+                            }
+                        }
+                    }
+                }
+                bool fromPendingTree = false;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                {
+                    var pending = RecordingStore.PendingTree;
+                    if (pending?.Recordings != null && pending.Recordings.Remove(rec.RecordingId))
+                    {
+                        pending.RebuildBackgroundMap();
+                        fromPendingTree = true;
+                    }
+                }
+                bool fromActiveTree = false;
+                if (!string.IsNullOrEmpty(rec.RecordingId))
+                {
+                    var active = ParsekFlight.Instance?.ActiveTreeForSerialization;
+                    if (active?.Recordings != null && active.Recordings.Remove(rec.RecordingId))
+                    {
+                        active.RebuildBackgroundMap();
+                        fromActiveTree = true;
+                    }
+                }
+
+                bool ok = fromFlatList || fromCommittedTrees > 0 || fromPendingTree || fromActiveTree;
                 if (ok)
                 {
                     ParsekLog.Info(RewindTag,
                         $"Zombie discarded rec={rec.RecordingId ?? "<no-id>"} " +
                         $"sess={rec.CreatingSessionId ?? "<no-sess>"} " +
-                        $"supersedeTarget={rec.SupersedeTargetId ?? "<none>"}");
+                        $"supersedeTarget={rec.SupersedeTargetId ?? "<none>"} " +
+                        $"removedFromFlatList={fromFlatList} " +
+                        $"removedFromCommittedTrees={fromCommittedTrees.ToString(CultureInfo.InvariantCulture)} " +
+                        $"removedFromPendingTree={fromPendingTree} " +
+                        $"removedFromActiveTree={fromActiveTree}");
                     removed++;
                 }
                 else
                 {
                     ParsekLog.Verbose(RewindTag,
-                        $"Zombie recording not found in committed list rec={rec.RecordingId ?? "<no-id>"}");
+                        $"Zombie recording not found in any collection rec={rec.RecordingId ?? "<no-id>"}");
                 }
             }
             ParsekLog.Info(RewindTag,
