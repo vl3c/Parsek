@@ -167,7 +167,7 @@ namespace Parsek.Tests.Logistics
             Assert.False(RouteCreationDialog.DialogOpenForTesting);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteUI]")
+                && l.Contains("[Route]")
                 && l.Contains("committedTree=null"));
         }
 
@@ -193,7 +193,7 @@ namespace Parsek.Tests.Logistics
             Assert.False(hookFired);
             Assert.False(RouteCreationDialog.DialogOpenForTesting);
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteUI]")
+                l.Contains("[Route]")
                 && l.Contains("not eligible"));
         }
 
@@ -246,7 +246,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Active, route.Status);
             Assert.False(RouteCreationDialog.DialogOpenForTesting);
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteUI]")
+                l.Contains("[Route]")
                 && l.Contains("route created"));
         }
 
@@ -276,7 +276,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.Empty(RouteStore.CommittedRoutes);
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteUI]")
+                l.Contains("[Route]")
                 && l.Contains("no longer eligible"));
         }
 
@@ -302,7 +302,7 @@ namespace Parsek.Tests.Logistics
             // production dialog would log a screen message; the test path
             // dismisses cleanly.
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteUI]")
+                l.Contains("[Route]")
                 && l.Contains("BuildRoute rejected")
                 && l.Contains("interval-invalid"));
         }
@@ -324,7 +324,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.Empty(RouteStore.CommittedRoutes);
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteUI]")
+                l.Contains("[Route]")
                 && l.Contains("canceled"));
         }
 
@@ -352,7 +352,7 @@ namespace Parsek.Tests.Logistics
             Assert.Null(RouteCreationDialog.CachedResultForTesting);
             Assert.Null(RouteCreationDialog.CachedTreeForTesting);
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteUI]")
+                l.Contains("[Route]")
                 && l.Contains("dialog dismissed"));
         }
 

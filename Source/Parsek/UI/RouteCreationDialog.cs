@@ -23,7 +23,7 @@ namespace Parsek
     /// </remarks>
     internal static class RouteCreationDialog
     {
-        private const string Tag = "RouteUI";
+        private const string Tag = "Route";
         private const string DialogName = "ParsekRouteCreation";
         private const string LockId = "ParsekRouteCreationDialog";
 

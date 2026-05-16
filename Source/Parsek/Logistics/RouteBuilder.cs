@@ -13,14 +13,13 @@ namespace Parsek.Logistics
     /// dialog or PopupDialog.
     /// </summary>
     /// <remarks>
-    /// Logs every decision branch under the <c>RouteUI</c> subsystem tag so the
-    /// dialog's player-facing logs are co-located in <c>KSP.log</c>. The
-    /// internal store-level invariants stay on <c>RouteStore</c> and emit under
-    /// the <c>RouteStore</c> tag.
+    /// Logs every decision branch under the unified <c>Route</c> subsystem tag
+    /// so the route subsystem's logs are co-located in <c>KSP.log</c> with the
+    /// store, codec, analysis, dialog, and ledger module log sites.
     /// </remarks>
     internal static class RouteBuilder
     {
-        private const string Tag = "RouteUI";
+        private const string Tag = "Route";
 
         /// <summary>
         /// Player-controlled fields that the dialog collects before commit.

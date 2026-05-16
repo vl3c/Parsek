@@ -131,12 +131,12 @@ namespace Parsek.Logistics
             RouteStatus prev = Status;
             if (prev == next)
             {
-                ParsekLog.Verbose("RouteStore",
+                ParsekLog.Verbose("Route",
                     $"Route {ShortIdForLog()} stay={prev} reason={reason ?? "<none>"}");
                 return;
             }
             Status = next;
-            ParsekLog.Info("RouteStore",
+            ParsekLog.Info("Route",
                 $"Route {ShortIdForLog()} {prev}→{next} reason={reason ?? "<none>"}");
         }
 

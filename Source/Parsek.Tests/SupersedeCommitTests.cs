@@ -2500,11 +2500,11 @@ namespace Parsek.Tests
             // RevalidateSources logs its summary; the per-route transition
             // line names the audit reason "Supersede".
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteStore]")
+                l.Contains("[Route]")
                 && l.Contains("RevalidateSources")
                 && l.Contains("reason=Supersede"));
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteStore]")
+                l.Contains("[Route]")
                 && l.Contains("Active")
                 && l.Contains("MissingSourceRecording")
                 && l.Contains("Supersede/MissingSourceRecording/source-not-in-ers"));

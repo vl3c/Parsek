@@ -56,7 +56,7 @@ namespace Parsek.Logistics
 
                     if (window != null)
                     {
-                        ParsekLog.Info("Logistics",
+                        ParsekLog.Info("Route",
                             $"RouteAnalysis rejected: multiple completed windows tree={tree.Id ?? "<none>"}");
                         return new RouteAnalysisResult
                         {
@@ -109,7 +109,7 @@ namespace Parsek.Logistics
         {
             if (!HasEndpointProof(window))
             {
-                ParsekLog.Info("Logistics",
+                ParsekLog.Info("Route",
                     $"RouteAnalysis rejected: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"} targetPid={window.TransferTargetVesselPid} " +
                     $"kind={window.TransferKind} situation={window.TransferEndpointSituation} " +
@@ -124,7 +124,7 @@ namespace Parsek.Logistics
 
             if (HasMixedPickupDelivery(window))
             {
-                ParsekLog.Info("Logistics",
+                ParsekLog.Info("Route",
                     $"RouteAnalysis rejected: mixed pickup/delivery source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"}");
                 return new RouteAnalysisResult
@@ -141,7 +141,7 @@ namespace Parsek.Logistics
             if ((resources == null || resources.Count == 0) &&
                 (inventory == null || inventory.Count == 0))
             {
-                ParsekLog.Info("Logistics",
+                ParsekLog.Info("Route",
                     $"RouteAnalysis rejected: no delivery manifest source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"}");
                 return new RouteAnalysisResult
@@ -152,7 +152,7 @@ namespace Parsek.Logistics
                 };
             }
 
-            ParsekLog.Info("Logistics",
+            ParsekLog.Info("Route",
                 $"RouteAnalysis eligible: source={source?.RecordingId ?? "<none>"} " +
                 $"window={window.WindowId ?? "<none>"} resources={resources?.Count ?? 0} " +
                 $"inventory={inventory?.Count ?? 0}");
@@ -169,7 +169,7 @@ namespace Parsek.Logistics
 
         private static RouteAnalysisResult MissingProof()
         {
-            ParsekLog.Info("Logistics", "RouteAnalysis rejected: missing route proof");
+            ParsekLog.Info("Route", "RouteAnalysis rejected: missing route proof");
             return new RouteAnalysisResult { Status = RouteAnalysisStatus.MissingRouteProof };
         }
 
