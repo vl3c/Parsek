@@ -28,6 +28,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.2 Auto-generated group disambiguation collided with the count badge in the recordings table
+
+- ~~Launching a second vessel named "Kerbal X" produced an auto-generated mission group called `Kerbal X (2)`. The recordings-table button label is rendered as `{groupName} ({memberCount})` (see `RecordingsTableUI.cs:1839`, `:2368`), so the second mission's row showed up as `Kerbal X (2) (3)` — two parenthesised numbers side by side, one a mission index and one a recording count, with nothing in the label distinguishing them. Debris subgroups inherited the same ambiguity: `Kerbal X (2) / Debris (7)`.~~
+
+**Root cause:** `RecordingGroupStore.GenerateUniqueGroupName` (`RecordingGroupStore.cs:766-774`) used `$"{baseName} ({n})"` to disambiguate duplicates, identical in shape to the trailing `({memberCount})` the UI appends to every group button.
+
+**Fix:** Switched the disambiguation suffix to `#N` — `$"{baseName} #{n}"`. The button label now reads `Kerbal X #2 (3)`: the `#2` is unambiguously a mission index, the `(3)` unambiguously a count. Debris subgroups follow naturally: `Kerbal X #2 / Debris (7)`. The legacy safety-fallback path (used when 999 candidates exhaust) was switched to `#{guid6}` for the same reason. Defense in depth: the loop also skips the legacy `(N)` form when scanning for the next free slot, so a save that still carries pre-fix `(N)` group names won't have its sequence renumbered into collisions with the new `#N` form.
+
+**Scope:** Auto-generated mission/chain group disambiguation only. The UI-internal "Group 1", "Group 2" sequence used by user-created empty groups (`RecordingsTableUI.cs:3515`) was already unambiguous and is unchanged. Existing saves are not migrated — pre-fix `Kerbal X (2)` group names persist as plain strings; the player can rename them via the table if they want the new style.
+
+**Coverage:** `UniqueGroupNameTests` covers the new format end-to-end. `SecondUse_AppendsHashSuffix2` and `ThirdUse_AppendsHashSuffix3` pin the basic increment behavior, `CaseInsensitive_DetectsCollision` and `GapInSequence_FillsFirstAvailable` pin the dedup semantics, and the new `LegacyParensFormatInExistingNames_SkippedToKeepSequenceCoherent` asserts that a save with `Flea` + `Flea (2)` bumps the next launch to `Flea #3` (not `Flea #2`) so the visible sequence stays coherent. `GroupManagementTests.PruneUnusedHierarchyEntries_KeepsLiveAncestorsAndRemovesStaleAutoGroups` was updated to use the new format so its hardcoded hierarchy reflects the new contract.
+
+**Status:** CLOSED 2026-05-16.
+
+---
+
 ## Open - v0.9.2 Watch button greyed out for short crashed recordings whose playback window has closed
 
 **Evidence:** Same 2026-05-16 user repro. After the split fix above lands, Kerbal X (2)'s HEAD row stays in the recordings table but its Watch button remains greyed out when the player returns to KSC well after the recording's `EndUT`. The ghost playback engine treats a recording as visible only inside its `[StartUT, EndUT]` range — once `currentUT > EndUT`, `hasGhost = false` and `IsWatchButtonEnabled` returns false. This is a separate root cause from the supersede-identity bug.

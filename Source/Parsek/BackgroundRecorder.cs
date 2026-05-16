@@ -3580,10 +3580,18 @@ namespace Parsek
                 // already produces its own warn inside ApplyTrajectoryPointToRecording.
                 if (ApplyTrajectoryPointToRecording(treeRec, initialTrajectoryPoint))
                 {
-                    ParsekLog.Info("BgRecorder",
-                        $"Initial trajectory point seeded (on-rails): pid={vesselPid} " +
-                        $"ut={initialTrajectoryPoint.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                        $"alt={initialTrajectoryPoint.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
+                    ParsekLog.Info("BgRecorder", string.Format(CultureInfo.InvariantCulture,
+                        "Initial trajectory point seeded (on-rails): pid={0} ut={1:F2} " +
+                        "lat={2:F4} lon={3:F4} alt={4:F0} vel=({5:F2},{6:F2},{7:F2}) |vel|={8:F2}",
+                        vesselPid,
+                        initialTrajectoryPoint.ut,
+                        initialTrajectoryPoint.latitude,
+                        initialTrajectoryPoint.longitude,
+                        initialTrajectoryPoint.altitude,
+                        initialTrajectoryPoint.velocity.x,
+                        initialTrajectoryPoint.velocity.y,
+                        initialTrajectoryPoint.velocity.z,
+                        initialTrajectoryPoint.velocity.magnitude));
                 }
             }
 
@@ -3635,8 +3643,13 @@ namespace Parsek
                     treeRec.ExplicitEndUT = ut;
                 }
 
+                string atmoOrbitShape = v.orbit != null
+                    ? string.Format(CultureInfo.InvariantCulture,
+                        " sma={0:F1} ecc={1:F4} periAlt={2:F1} apoAlt={3:F1}",
+                        v.orbit.semiMajorAxis, v.orbit.eccentricity, v.orbit.PeA, v.orbit.ApA)
+                    : "";
                 ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (atmosphere, skip orbit): pid={vesselPid} " +
-                    $"body={v.mainBody?.name} alt={v.altitude:F0} atmoDepth={v.mainBody.atmosphereDepth:F0}");
+                    $"body={v.mainBody?.name} alt={v.altitude:F0} atmoDepth={v.mainBody.atmosphereDepth:F0}{atmoOrbitShape}");
             }
             else if (v.orbit != null)
             {
@@ -3658,8 +3671,16 @@ namespace Parsek
                     treeRec.ExplicitEndUT = ut;
                 }
 
-                ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (orbiting): pid={vesselPid} " +
-                    $"body={v.mainBody?.name} sma={v.orbit.semiMajorAxis:F1}");
+                ParsekLog.Verbose("BgRecorder", string.Format(CultureInfo.InvariantCulture,
+                    "On-rails state initialized (orbiting): pid={0} body={1} sma={2:F1} ecc={3:F4} " +
+                    "periAlt={4:F1} apoAlt={5:F1} inc={6:F2}",
+                    vesselPid,
+                    v.mainBody?.name,
+                    v.orbit.semiMajorAxis,
+                    v.orbit.eccentricity,
+                    v.orbit.PeA,
+                    v.orbit.ApA,
+                    v.orbit.inclination));
             }
             else
             {
@@ -6590,10 +6611,18 @@ namespace Parsek
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
 
-            ParsekLog.Info("BgRecorder",
-                $"Initial trajectory point seeded: pid={state.vesselPid} " +
-                $"ut={point.ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"alt={point.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
+            ParsekLog.Info("BgRecorder", string.Format(CultureInfo.InvariantCulture,
+                "Initial trajectory point seeded: pid={0} ut={1:F2} " +
+                "lat={2:F4} lon={3:F4} alt={4:F0} vel=({5:F2},{6:F2},{7:F2}) |vel|={8:F2}",
+                state.vesselPid,
+                point.ut,
+                point.latitude,
+                point.longitude,
+                point.altitude,
+                point.velocity.x,
+                point.velocity.y,
+                point.velocity.z,
+                point.velocity.magnitude));
         }
 
         internal static bool ApplyTrajectoryPointToRecording(Recording treeRec, TrajectoryPoint point)
