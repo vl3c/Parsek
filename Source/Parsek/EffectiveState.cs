@@ -188,6 +188,29 @@ namespace Parsek
                 // Chain hop: only fires when current is a chain member with a
                 // resolvable tip distinct from itself. Uses the existing tree
                 // scan in ResolveChainTerminalRecording.
+                //
+                // Pass 6 review M1 — mid-chain supersede invariant:
+                // This walker hops chain-tip BEFORE checking the supersede
+                // table. For a chain {A0, A1, A2} with a supersede edge
+                // anchored at the chain TIP (A2 → B), the walker correctly
+                // hops A0 → A2 → B. But for a supersede edge anchored at a
+                // NON-tip chain member (e.g. A1 → B), the walker would hop
+                // A0 → A2 and exit (A2 has no supersede edge), silently
+                // routing past B. This is currently safe because every
+                // splitter-produced supersede targets the chain TIP by
+                // design: RecordingTreeSplitter.SplitOriginAtRewindUT
+                // creates HEAD/TIP as chain siblings with TIP at the higher
+                // index, and AppendRelations writes the row at TIP. The
+                // assumption holds for nested Re-Fly because each Re-Fly
+                // creates a fresh chain with TIP at the highest ChainIndex.
+                //
+                // If a future feature introduces a mid-chain supersede
+                // (e.g. retro-active history surgery, branch-edit), the
+                // walker must be reworked to enumerate supersede edges on
+                // every chain member, not just the tip — see the test
+                // EffectiveTipRecordingId_MidChainSupersede_AssumptionHolds
+                // for a concrete fixture showing the current (correct-by-
+                // assumption) behavior.
                 Recording currentRec = LookupRecordingId(current, recById);
                 if (currentRec != null && !string.IsNullOrEmpty(currentRec.ChainId))
                 {

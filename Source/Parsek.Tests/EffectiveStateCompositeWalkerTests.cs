@@ -326,5 +326,60 @@ namespace Parsek.Tests
             string tip = EffectiveState.EffectiveTipRecordingId("rec_HEAD1", sups);
             Assert.Equal("rec_fork2", tip);
         }
+
+        // =====================================================================
+        // 8. Mid-chain supersede assumption pinning (Pass 6 review M1)
+        //
+        // The walker hops chain-tip BEFORE checking the supersede table. For a
+        // splitter-produced supersede (always anchored at the chain TIP) this
+        // is correct. For a hypothetical mid-chain supersede (e.g. A1 → B on
+        // a chain {A0, A1, A2}), the walker silently routes past B by going
+        // A0 → chain-tip(A2) → no supersede edge → return A2.
+        //
+        // Today no production code creates a mid-chain supersede — splits
+        // always supersede the chain TIP. This test PINS the current
+        // (correct-by-assumption) behavior so a future change that introduces
+        // mid-chain supersedes can find this test, see that A1 → B is
+        // expected to be skipped, and rework the walker to enumerate
+        // supersede edges on every chain member (not just the tip).
+        // =====================================================================
+
+        [Fact]
+        public void EffectiveTipRecordingId_MidChainSupersede_AssumptionHolds()
+        {
+            // Chain {A0, A1, A2}; supersede anchored at A1 (mid-chain, NOT tip).
+            var a0 = Rec("rec_A0", chainIndex: 0);
+            var a1 = Rec("rec_A1", chainIndex: 1);
+            var a2 = Rec("rec_A2", chainIndex: 2);
+            RegisterTreeWithChain("tree_midchain", "chain_midchain", a0, a1, a2);
+
+            var b = Rec("rec_B");
+            RegisterStandalone(b);
+
+            var sups = new List<RecordingSupersedeRelation>
+            {
+                Rel("rec_A1", "rec_B"),  // mid-chain supersede
+            };
+
+            // Walker hops chain-tip first: A0 → A2 (chain-tip). A2 has no
+            // supersede edge in the table. Walker exits with A2 — silently
+            // routing past the mid-chain B target. This is the assumption
+            // documented in EffectiveTipRecordingId's "Pass 6 review M1"
+            // comment block.
+            string tip = EffectiveState.EffectiveTipRecordingId("rec_A0", sups);
+            Assert.Equal("rec_A2", tip);
+
+            // For comparison, a supersede anchored at the chain TIP routes
+            // correctly. This pins the "splitter-produced supersedes always
+            // target the tip" invariant — if the walker is ever reworked to
+            // handle mid-chain supersedes, this second assertion must still
+            // pass.
+            var sups2 = new List<RecordingSupersedeRelation>
+            {
+                Rel("rec_A2", "rec_B"),  // tip-anchored supersede
+            };
+            string tip2 = EffectiveState.EffectiveTipRecordingId("rec_A0", sups2);
+            Assert.Equal("rec_B", tip2);
+        }
     }
 }
