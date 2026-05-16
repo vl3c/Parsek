@@ -2235,9 +2235,13 @@ namespace Parsek
 
                 // Supply routes (design §4.7). Loads after recordings + ledger so
                 // Phase 5 source-ref validation has the ERS / ELS data it needs.
-                // Phase 5 inserts the revalidation call immediately after this line.
+                // RevalidateSources is folded into the "routes" phase: load + validate
+                // is one logical operation, and missing-source / fingerprint-drift
+                // transitions must run on every load before any UI / scheduler sees
+                // a stale Active status.
                 loadPhase = "routes";
                 RouteStore.LoadRoutesFrom(node);
+                RouteStore.RevalidateSources("OnLoad");
 
                 // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
                 // may exist but have not loaded their save data yet (KSP loads scenarios in

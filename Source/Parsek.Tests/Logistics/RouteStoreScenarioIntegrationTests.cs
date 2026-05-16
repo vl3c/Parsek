@@ -240,6 +240,10 @@ namespace Parsek.Tests.Logistics
 
             Assert.Contains("RouteStore.SaveRoutesTo(node)", source);
             Assert.Contains("RouteStore.LoadRoutesFrom(node)", source);
+            // Phase 5: revalidate every route's SourceRefs against ERS
+            // immediately after load. Catches a future edit that drops the
+            // validation hook even if the load call survives.
+            Assert.Contains("RouteStore.RevalidateSources(\"OnLoad\")", source);
         }
     }
 }

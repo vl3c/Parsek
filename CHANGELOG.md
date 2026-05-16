@@ -28,6 +28,7 @@ All notable changes to Parsek are documented here.
 - Aligned the logistics transfer contract with stock behavior. Loaded tank edits should use stock `Part.TransferResource()` after explicit flow checks, while exact inventory delivery must preserve canonical `STOREDPART` payloads and avoid part-name-only removal helpers.
 - Reserved route action types 23-27 and registered a Route ledger module (skeleton only; no user-visible behavior, the scheduler that emits these actions has not been built yet).
 - Committed supply routes now persist across save/load via the new RouteStore. Empty stores write no ROUTES node, so saves without routes load unchanged.
+- Supply routes now revalidate their source recordings against the effective recording set on every load. Routes whose source is deleted or filtered out by a Re-Fly supersede transition to MissingSourceRecording, routes whose source has been rewritten (sidecar epoch bump or route-proof drift) transition to SourceChanged; once-missing routes auto-recover to Active when the source comes back with a matching fingerprint, while SourceChanged routes stay disabled until explicitly recreated.
 
 ### UI
 
