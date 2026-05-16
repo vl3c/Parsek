@@ -42,6 +42,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - Logistics dispatch scheduler stops at PendingDeliveryUT
+
+- Item 5 (dispatch scheduler) lands the per-tick orchestrator + ledger-row intent emission but defers the actual cargo / funds mutation to item 6 (delivery execution). A v0 route that reaches the transit-duration boundary transitions to `InTransit` with `PendingDeliveryUT` set, then stays in that state indefinitely — nothing consumes the pending-delivery signal yet.
+
+**Workaround:** None needed at the player level. v0 builds can create routes via the post-commit prompt, but those routes will never actually deliver cargo until item 6 ships.
+
+**Item-6 scope:**
+
+1. Watch for `Route.PendingDeliveryUT.HasValue && Route.Status == InTransit` in the orchestrator's per-tick eval.
+2. For each pending delivery: resolve the endpoint vessel (loaded vs unloaded path), apply the cargo manifest (`Part.TransferResource` for loaded; `ProtoPartResourceSnapshot.amount` edits for unloaded), apply the inventory delivery (`STOREDPART` ConfigNode mutation for unloaded, `ModuleInventoryPart.StoreCargoPartAtSlot` for loaded), emit `RouteCargoDelivered` action through the ledger.
+3. On successful delivery: clear `PendingDeliveryUT` + `PendingStopIndex`, transition `Status` → `Active`, increment `CompletedCycles`.
+4. Career-only: actually debit `Funding.Instance.AddFunds(-cost, TransactionReasons.VesselRollout)` for KSC-origin routes (the intent row already exists from item 5's `RouteCargoDebited`).
+
+**Status:** OPEN. Filed 2026-05-16 alongside item-5 dispatch-scheduler landing.
+
+---
+
 ## Done - v0.9.2 Auto-generated group disambiguation collided with the count badge in the recordings table
 
 - ~~Launching a second vessel named "Kerbal X" produced an auto-generated mission group called `Kerbal X (2)`. The recordings-table button label is rendered as `{groupName} ({memberCount})` (see `RecordingsTableUI.cs:1839`, `:2368`), so the second mission's row showed up as `Kerbal X (2) (3)` — two parenthesised numbers side by side, one a mission index and one a recording count, with nothing in the label distinguishing them. Debris subgroups inherited the same ambiguity: `Kerbal X (2) / Debris (7)`.~~
