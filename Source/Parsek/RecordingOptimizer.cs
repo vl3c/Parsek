@@ -25,7 +25,61 @@ namespace Parsek
         /// </summary>
         internal static bool CanAutoMerge(Recording a, Recording b)
         {
+            // NOTE: Two defenses prevent HEAD+TIP from being re-merged after Re-Fly's
+            // SplitOriginAtRewindUT splits them:
+            //
+            //   1. Explicit supersede-row guard (below): rejects merging if either
+            //      `a` or `b` appears as `OldRecordingId` in scenario.RecordingSupersedes.
+            //      TIP is on the OldRecordingId side of the `TIP -> fork` row written
+            //      by SupersedeCommit.AppendRelations. Robust, by-design defense.
+            //
+            //   2. Incidental ghosting-trigger defense (further down): the rewindUT BP
+            //      is at a CRASH/DECOUPLE/STAGING/BREAKUP point, so TIP gets a
+            //      ghosting-trigger PartEvent (Decoupled/Destroyed) at UT==rewindUT
+            //      and HasGhostingTriggerEvents(TIP) returns true. This defends the
+            //      typical case even without defense (1), but a future PartEvent-type
+            //      refactor that removed a trigger type would silently re-open the bug.
+            //      Defense (1) is the load-bearing one — keep it.
             if (a == null || b == null) return false;
+
+            // Guard against re-merging HEAD/TIP across a supersede boundary.
+            //
+            // Background: Re-Fly's SplitOriginAtRewindUT (RecordingTreeSplitter) splits
+            // the origin recording into HEAD (visible, kept on the timeline) and TIP
+            // (superseded by the fork) at the rewind UT. After the merge commits, HEAD
+            // and TIP are two adjacent chain siblings sharing a ChainId. Without this
+            // guard, the optimizer's next pass could see HEAD+TIP as merge candidates,
+            // glue them back together, and silently undo the split.
+            //
+            // In practice the rewindUT BP is at a CRASH/DECOUPLE/STAGING/BREAKUP point,
+            // so TIP gets a Decoupled/Destroyed PartEvent at UT==rewindUT and
+            // HasGhostingTriggerEvents(TIP) returns true → CanAutoMerge already rejects.
+            // But that defense is incidental — a future PartEvent-type refactor that
+            // removed a trigger type from the list at GhostingTriggerClassifier.cs
+            // would silently re-open the bug. The explicit supersede-row check below
+            // makes the defense robust.
+            //
+            // Uses ReferenceEquals(null, scenario) (not `scenario != null`) to bypass
+            // Unity's overloaded == operator that produces false positives in unit-test
+            // fixtures where no scenario is installed. Same pattern as EffectiveState /
+            // MergeJournalOrchestrator.
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario))
+            {
+                var supersedes = scenario.RecordingSupersedes;
+                if (supersedes != null && supersedes.Count > 0)
+                {
+                    if (EffectiveState.IsSupersededByRelation(a, supersedes)
+                        || EffectiveState.IsSupersededByRelation(b, supersedes))
+                    {
+                        ParsekLog.Verbose("Optimizer",
+                            $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
+                            "— at least one is on the OldRecordingId side of a supersede row " +
+                            "(post-split HEAD/TIP invariant)");
+                        return false;
+                    }
+                }
+            }
 
             // Must be in the same chain, consecutive, primary branch
             if (string.IsNullOrEmpty(a.ChainId) || a.ChainId != b.ChainId) return false;
@@ -875,19 +929,55 @@ namespace Parsek
             original.TrackSections.RemoveRange(sectionIndex, original.TrackSections.Count - sectionIndex);
             TrimFirstHalfTrackSectionsAtSplit(original.TrackSections, splitUT);
 
-            // 7. Partition OrbitSegments by UT
+            // 7. Partition OrbitSegments by UT.
+            //    Whole post-split segments (startUT >= splitUT) move to TIP.
+            //    A straddler (startUT < splitUT < endUT) is HEAD-trimmed by
+            //    TrimFirstHalfOrbitSegmentsAtSplit (endUT clamped to splitUT) AND
+            //    tail-cloned into TIP so the post-split portion of the orbit is
+            //    preserved. The orbit's Kepler elements describe the WHOLE conic
+            //    (inclination, eccentricity, semiMajorAxis, LAN, AoP,
+            //    meanAnomalyAtEpoch, epoch, bodyName, isPredicted,
+            //    orbitalFrameRotation, angularVelocity) and remain valid for both
+            //    halves — only startUT / endUT differ.
             if (original.HasOrbitSegments)
             {
                 second.OrbitSegments = new List<OrbitSegment>();
+
+                // Build tail-clones for any straddling segment BEFORE the
+                // whole-segment moves, so the clones can be inserted at the
+                // front of TIP's list in UT-ascending order.
+                List<OrbitSegment> tailClones = CreateTailHalfOrbitSegmentsAtSplit(
+                    original.OrbitSegments, splitUT);
+
+                int wholeMoved = 0;
                 for (int i = original.OrbitSegments.Count - 1; i >= 0; i--)
                 {
                     if (original.OrbitSegments[i].startUT >= splitUT)
                     {
                         second.OrbitSegments.Insert(0, original.OrbitSegments[i]);
                         original.OrbitSegments.RemoveAt(i);
+                        wholeMoved++;
                     }
                 }
+
+                // Tail-clones precede every wholly-post-split segment in UT
+                // order because each clone's startUT == splitUT, which is by
+                // definition <= the startUT of any wholly-post-split segment.
+                for (int i = 0; i < tailClones.Count; i++)
+                {
+                    second.OrbitSegments.Insert(i, tailClones[i]);
+                }
+
                 TrimFirstHalfOrbitSegmentsAtSplit(original.OrbitSegments, splitUT);
+
+                if (wholeMoved > 0 || tailClones.Count > 0)
+                {
+                    ParsekLog.Verbose("Optimizer",
+                        $"SplitAtSection: partitioned OrbitSegments at UT=" +
+                        $"{splitUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"(whole moved={wholeMoved.ToString(CultureInfo.InvariantCulture)}, " +
+                        $"tail-clones={tailClones.Count.ToString(CultureInfo.InvariantCulture)})");
+                }
             }
 
             // 8. Clone GhostVisualSnapshot (safe: CanAutoSplit ensures no ghosting triggers).
@@ -1067,6 +1157,395 @@ namespace Parsek
             return second;
         }
 
+        /// <summary>
+        /// Splits a recording at an arbitrary UT (typically the Re-Fly rewind-point UT)
+        /// into HEAD (in-place, covers [original.StartUT, splitUT]) and TIP (returned,
+        /// covers [splitUT, original.EndUT]). If the splitUT falls inside an existing
+        /// TrackSection the section is cloned into a head/tail pair at splitUT before
+        /// delegating to <see cref="SplitAtSection"/>. The returned Recording has a
+        /// fresh-but-blank state: callers must assign <c>RecordingId</c>, chain linkage,
+        /// tree wiring, and sidecar files.
+        ///
+        /// Returns null (without mutating <paramref name="original"/>) on any guard
+        /// failure: bad pre-conditions (null input, NaN splitUT, recording's UT bounds
+        /// don't strictly span splitUT) or a v13 debris contract violation (post-split
+        /// half ends up with fewer than 2 bodyFixedFrames samples). Straddling
+        /// OrbitSegments are safe — <see cref="SplitAtSection"/>'s OrbitSegments
+        /// partition tail-clones them into TIP at startUT=splitUT (the Kepler
+        /// elements describe the whole conic, so a value-copy plus startUT update
+        /// is sufficient). The boundary-seam case logs an override Warn but does
+        /// not return null. Caller treats null as "skip the split for this
+        /// recording" and falls back to its today-behavior path.
+        /// </summary>
+        internal static Recording SplitAtUT(Recording original, double splitUT)
+        {
+            // 1. Pre-conditions (fail-loud Warn + null on violation)
+            if (original == null)
+            {
+                ParsekLog.Warn("Optimizer",
+                    "SplitAtUT: precondition violation — original recording is null");
+                return null;
+            }
+            if (double.IsNaN(splitUT))
+            {
+                ParsekLog.Warn("Optimizer",
+                    $"SplitAtUT: precondition violation — splitUT is NaN " +
+                    $"(recording={original.RecordingId})");
+                return null;
+            }
+            double recStart = original.StartUT;
+            double recEnd = original.EndUT;
+            if (!(recStart < splitUT) || !(recEnd > splitUT))
+            {
+                ParsekLog.Warn("Optimizer",
+                    $"SplitAtUT: precondition violation — recording {original.RecordingId} " +
+                    $"UT bounds [{recStart.ToString("F2", CultureInfo.InvariantCulture)}," +
+                    $"{recEnd.ToString("F2", CultureInfo.InvariantCulture)}] do not strictly span " +
+                    $"splitUT={splitUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                return null;
+            }
+
+            // 2. (Removed) Orbit-segment-straddle guard. Straddling OrbitSegments are
+            //    now handled in SplitAtSection's partition step by tail-cloning the
+            //    straddler into TIP at startUT=splitUT (Kepler elements describe the
+            //    whole conic — a value-copy plus startUT update is sufficient). See
+            //    SplitAtSection step 7 and CreateTailHalfOrbitSegmentsAtSplit.
+
+            // 3. Ensure checkpoint sections (mirrors SplitAtSection's call at line 776-779).
+            //
+            // Pass 2 review Opus-H2 (byte-identical contract): Ensure may
+            // clip checkpoint sections, append new sections, re-sort
+            // TrackSections, rebuild the flat orbit cache, and reset
+            // CachedStats — all in place on `original`. The plan §r4
+            // mutation-ordering rule requires "a guarded return leaves
+            // the input recording byte-identical." Snapshot the affected
+            // fields BEFORE Ensure so the v13 guard / gap-fallback /
+            // boundary-search guarded-return paths below can restore.
+            //
+            // Cheap on the happy path: list shallow-copies of structs,
+            // never used unless we hit a guarded return. TrackSection and
+            // OrbitSegment are value types; Ensure replaces struct values
+            // in list slots and (for OrbitSegments rebuild) assigns a
+            // fresh list reference — the snapshot captures the old
+            // contents either way.
+            List<TrackSection> trackSectionsPreEnsure = original.TrackSections != null
+                ? new List<TrackSection>(original.TrackSections)
+                : null;
+            List<OrbitSegment> orbitSegmentsPreEnsure = original.OrbitSegments != null
+                ? new List<OrbitSegment>(original.OrbitSegments)
+                : null;
+            var cachedStatsPreEnsure = original.CachedStats;
+            int cachedStatsPointCountPreEnsure = original.CachedStatsPointCount;
+
+            var ensureStats = RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                original,
+                markDirty: false,
+                context: "RecordingOptimizer.SplitAtUT");
+
+            // Pass 3 review subtle gap: the prior gate keyed on
+            // `ensureStats.Changed`, which is true only when sections were
+            // Added / Clipped / SkippedCovered. But Ensure's cleanup block at
+            // OrbitSegmentCheckpointBridge.cs:188 also fires its CachedStats
+            // wipe under `Changed || sorted` — a pure-re-sort case
+            // (sorted=true, Changed=false) wipes CachedStats but the
+            // Changed flag stays false. Restoration is cheap (list-clear +
+            // AddRange of struct values), and this is only reached on
+            // guarded null returns (off the hot path). Drop the gate and
+            // always restore.
+            void RestorePreEnsureSnapshot()
+            {
+                if (trackSectionsPreEnsure != null)
+                {
+                    if (original.TrackSections == null)
+                        original.TrackSections = new List<TrackSection>(trackSectionsPreEnsure);
+                    else
+                    {
+                        original.TrackSections.Clear();
+                        original.TrackSections.AddRange(trackSectionsPreEnsure);
+                    }
+                }
+                if (orbitSegmentsPreEnsure != null)
+                {
+                    if (original.OrbitSegments == null)
+                        original.OrbitSegments = new List<OrbitSegment>(orbitSegmentsPreEnsure);
+                    else
+                    {
+                        original.OrbitSegments.Clear();
+                        original.OrbitSegments.AddRange(orbitSegmentsPreEnsure);
+                    }
+                }
+                original.CachedStats = cachedStatsPreEnsure;
+                original.CachedStatsPointCount = cachedStatsPointCountPreEnsure;
+                ParsekLog.Verbose("Optimizer",
+                    $"SplitAtUT: restored pre-Ensure snapshot on guarded return for " +
+                    $"{original.RecordingId} (Ensure stats added={ensureStats.Added} " +
+                    $"clipped={ensureStats.Clipped} changed={ensureStats.Changed})");
+            }
+
+            // 4. Find or insert TrackSection boundary at splitUT.
+            //    All work happens in LOCAL variables; original.TrackSections is mutated
+            //    only after every guard below passes (mutation-ordering invariant).
+            const double epsilon = EffectiveState.PidPeerStartUtEpsilonSeconds;
+            int sectionIndex = -1;
+            bool syntheticBoundaryInserted = false;
+            int straddleIndex = -1;
+
+            if (original.TrackSections != null && original.TrackSections.Count > 0)
+            {
+                for (int i = 0; i < original.TrackSections.Count; i++)
+                {
+                    var s = original.TrackSections[i];
+                    if (s.startUT <= splitUT && splitUT < s.endUT)
+                    {
+                        straddleIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            if (straddleIndex >= 0)
+            {
+                var straddle = original.TrackSections[straddleIndex];
+                if (Math.Abs(straddle.startUT - splitUT) < epsilon)
+                {
+                    // splitUT aligns within epsilon to an existing section boundary.
+                    // Use that section's index directly; no synthetic insertion.
+                    sectionIndex = straddleIndex;
+                }
+                else
+                {
+                    // splitUT falls in the interior of a section. Build head + tail
+                    // clones in LOCAL variables before mutating original.TrackSections.
+                    if (straddle.isBoundarySeam)
+                    {
+                        ParsekLog.Warn("Optimizer",
+                            $"SplitAtUT: synthetic rewindUT split overriding seam protection " +
+                            $"on section {straddleIndex} of recording {original.RecordingId} — " +
+                            "single one-off override for re-fly commit");
+                    }
+
+                    // Partition straddle.checkpoints by UT (mirrors SplitAtSection
+                    // step 7's top-level OrbitSegment partition). Without this,
+                    // both halves would inherit the full pre-split checkpoints list
+                    // verbatim, and TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail
+                    // (called downstream by SplitAtSection) could rebuild TIP's
+                    // OrbitSegments from those un-partitioned checkpoints via
+                    // RebuildOrbitSegmentsFromTrackSections, silently undoing the
+                    // tail-clone work A7 added to SplitAtSection. The same logic also
+                    // protects HEAD's `TrimFirstHalfTrackSectionsAtSplit` pass — because
+                    // headSection.endUT is already set to splitUT below, that pass would
+                    // not re-trim the head's checkpoints either. Whole pre-split
+                    // checkpoints go to head; whole post-split go to tail; straddlers
+                    // are head-trimmed (endUT clamped to splitUT) into head AND
+                    // tail-cloned (startUT set to splitUT) into tail. Kepler elements
+                    // describe the whole conic so a struct value-copy is sufficient.
+                    List<OrbitSegment> headCheckpoints = null;
+                    List<OrbitSegment> tailCheckpoints = null;
+                    if (straddle.checkpoints != null)
+                    {
+                        headCheckpoints = new List<OrbitSegment>();
+                        tailCheckpoints = new List<OrbitSegment>();
+                        for (int ci = 0; ci < straddle.checkpoints.Count; ci++)
+                        {
+                            OrbitSegment cp = straddle.checkpoints[ci];
+                            if (cp.endUT <= splitUT)
+                            {
+                                headCheckpoints.Add(cp);
+                            }
+                            else if (cp.startUT >= splitUT)
+                            {
+                                tailCheckpoints.Add(cp);
+                            }
+                            else
+                            {
+                                OrbitSegment headClone = cp;
+                                headClone.endUT = splitUT;
+                                headCheckpoints.Add(headClone);
+
+                                OrbitSegment tailClone = cp;
+                                tailClone.startUT = splitUT;
+                                tailCheckpoints.Add(tailClone);
+                            }
+                        }
+                    }
+
+                    TrackSection headSection = new TrackSection
+                    {
+                        environment = straddle.environment,
+                        referenceFrame = straddle.referenceFrame,
+                        startUT = straddle.startUT,
+                        endUT = splitUT,
+                        anchorVesselId = straddle.anchorVesselId,
+                        anchorRecordingId = straddle.anchorRecordingId,
+                        sampleRateHz = straddle.sampleRateHz,
+                        source = straddle.source,
+                        // boundaryDiscontinuityMeters: preserve the head's pre-existing value
+                        boundaryDiscontinuityMeters = straddle.boundaryDiscontinuityMeters,
+                        minAltitude = straddle.minAltitude,
+                        maxAltitude = straddle.maxAltitude,
+                        // Synthetic rewind-UT split is NOT a recorder bookkeeping artifact.
+                        isBoundarySeam = false,
+                        frames = straddle.frames != null
+                            ? new List<TrajectoryPoint>() : null,
+                        bodyFixedFrames = straddle.bodyFixedFrames != null
+                            ? new List<TrajectoryPoint>() : null,
+                        checkpoints = headCheckpoints,
+                    };
+                    TrackSection tailSection = new TrackSection
+                    {
+                        environment = straddle.environment,
+                        referenceFrame = straddle.referenceFrame,
+                        startUT = splitUT,
+                        endUT = straddle.endUT,
+                        anchorVesselId = straddle.anchorVesselId,
+                        anchorRecordingId = straddle.anchorRecordingId,
+                        sampleRateHz = straddle.sampleRateHz,
+                        source = straddle.source,
+                        // Tail synthetic boundary is continuous in world space.
+                        boundaryDiscontinuityMeters = 0f,
+                        minAltitude = straddle.minAltitude,
+                        maxAltitude = straddle.maxAltitude,
+                        isBoundarySeam = false,
+                        frames = straddle.frames != null
+                            ? new List<TrajectoryPoint>() : null,
+                        bodyFixedFrames = straddle.bodyFixedFrames != null
+                            ? new List<TrajectoryPoint>() : null,
+                        checkpoints = tailCheckpoints,
+                    };
+
+                    // Partition the section's per-section frames by UT.
+                    if (straddle.frames != null)
+                    {
+                        for (int fi = 0; fi < straddle.frames.Count; fi++)
+                        {
+                            var frame = straddle.frames[fi];
+                            if (frame.ut < splitUT)
+                                headSection.frames.Add(frame);
+                            else
+                                tailSection.frames.Add(frame);
+                        }
+                    }
+
+                    // Partition v13 body-fixed primary surface samples by UT.
+                    bool hadBodyFixedFrames = straddle.bodyFixedFrames != null
+                        && straddle.bodyFixedFrames.Count > 0;
+                    if (straddle.bodyFixedFrames != null)
+                    {
+                        for (int fi = 0; fi < straddle.bodyFixedFrames.Count; fi++)
+                        {
+                            var frame = straddle.bodyFixedFrames[fi];
+                            if (frame.ut < splitUT)
+                                headSection.bodyFixedFrames.Add(frame);
+                            else
+                                tailSection.bodyFixedFrames.Add(frame);
+                        }
+                    }
+
+                    // v13 debris frame contract guard: each half must retain at least 2
+                    // bodyFixedFrames samples when the straddling section had them.
+                    if (hadBodyFixedFrames)
+                    {
+                        if (headSection.bodyFixedFrames.Count < 2)
+                        {
+                            ParsekLog.Warn("Optimizer",
+                                $"SplitAtUT: v13 debris contract — head-half bodyFixedFrames " +
+                                $"sample count {headSection.bodyFixedFrames.Count} below minimum " +
+                                $"after rewindUT split on section {straddleIndex} of recording " +
+                                $"{original.RecordingId}; skipping split");
+                            RestorePreEnsureSnapshot();
+                            return null;
+                        }
+                        if (tailSection.bodyFixedFrames.Count < 2)
+                        {
+                            ParsekLog.Warn("Optimizer",
+                                $"SplitAtUT: v13 debris contract — tail-half bodyFixedFrames " +
+                                $"sample count {tailSection.bodyFixedFrames.Count} below minimum " +
+                                $"after rewindUT split on section {straddleIndex} of recording " +
+                                $"{original.RecordingId}; skipping split");
+                            RestorePreEnsureSnapshot();
+                            return null;
+                        }
+                    }
+
+                    // All guards passed — commit the mutation by writing the head/tail
+                    // pair back to original.TrackSections.
+                    original.TrackSections[straddleIndex] = headSection;
+                    original.TrackSections.Insert(straddleIndex + 1, tailSection);
+                    sectionIndex = straddleIndex + 1;
+                    syntheticBoundaryInserted = true;
+                }
+            }
+            else
+            {
+                // splitUT lies in a gap between sections (no straddling section).
+                // Pick the index of the first section whose startUT >= splitUT.
+                if (original.TrackSections != null)
+                {
+                    for (int i = 0; i < original.TrackSections.Count; i++)
+                    {
+                        if (original.TrackSections[i].startUT >= splitUT)
+                        {
+                            sectionIndex = i;
+                            break;
+                        }
+                    }
+                    if (sectionIndex < 0)
+                    {
+                        // Pass 2 review Opus-H1: splitUT past every section's
+                        // startUT means there is no TrackSection covering
+                        // [lastSection.endUT, splitUT) — the recording's flat
+                        // Points may extend that far but no section does.
+                        // Falling through with sectionIndex = TrackSections.Count
+                        // would crash in SplitAtSection's first line
+                        // (`original.TrackSections[sectionIndex].startUT` — index
+                        // out of range). Return null with a Warn so the
+                        // splitter's caller falls back to whole-recording
+                        // supersede instead of the merge crashing on an
+                        // ArgumentOutOfRangeException.
+                        ParsekLog.Warn("Optimizer",
+                            $"SplitAtUT: defensive guard — splitUT=" +
+                            $"{splitUT.ToString("F2", CultureInfo.InvariantCulture)} is past every " +
+                            $"TrackSection's startUT for recording {original.RecordingId} " +
+                            $"(sectionCount={original.TrackSections.Count.ToString(CultureInfo.InvariantCulture)}, " +
+                            $"recBounds=[{recStart.ToString("F2", CultureInfo.InvariantCulture)}," +
+                            $"{recEnd.ToString("F2", CultureInfo.InvariantCulture)}]) — " +
+                            "skipping split (no section to anchor the cut)");
+                        RestorePreEnsureSnapshot();
+                        return null;
+                    }
+                }
+                else
+                {
+                    // Pass 2 review Opus-H1: TrackSections null on a recording
+                    // that passed the strict-span pre-condition is structurally
+                    // unexpected (sampler emits at least one section before the
+                    // recorder ever records points outside one). Defensive
+                    // null-return matches the splitter's contract.
+                    ParsekLog.Warn("Optimizer",
+                        $"SplitAtUT: defensive guard — recording {original.RecordingId} " +
+                        "has null TrackSections list; skipping split");
+                    RestorePreEnsureSnapshot();
+                    return null;
+                }
+            }
+
+            // 5. Delegate to SplitAtSection. The interpolated-boundary-point branch
+            //    (lines 797-848) handles flat point-list partitioning across the cut.
+            Recording tip = SplitAtSection(original, sectionIndex);
+
+            // 6. Success log.
+            ParsekLog.Info("Optimizer",
+                $"SplitAtUT: split {original.RecordingId} at UT=" +
+                $"{splitUT.ToString("F2", CultureInfo.InvariantCulture)} (head=[" +
+                $"{original.StartUT.ToString("F2", CultureInfo.InvariantCulture)}.." +
+                $"{original.EndUT.ToString("F2", CultureInfo.InvariantCulture)}], tail=[" +
+                $"{tip.StartUT.ToString("F2", CultureInfo.InvariantCulture)}.." +
+                $"{tip.EndUT.ToString("F2", CultureInfo.InvariantCulture)}], " +
+                $"syntheticBoundaryInserted={(syntheticBoundaryInserted ? "true" : "false")})");
+
+            return tip;
+        }
+
         private static void TrimFirstHalfTrackSectionsAtSplit(
             List<TrackSection> trackSections,
             double splitUT)
@@ -1118,6 +1597,46 @@ namespace Parsek
                         orbitSegments.RemoveAt(i);
                 }
             }
+        }
+
+        /// <summary>
+        /// Returns tail clones of every OrbitSegment in <paramref name="originalSegments"/>
+        /// that straddles <paramref name="splitUT"/> (i.e., <c>seg.startUT &lt; splitUT
+        /// &lt; seg.endUT</c>). Each clone is a value-copy of the original struct with
+        /// <c>startUT</c> set to <paramref name="splitUT"/> and <c>endUT</c> unchanged.
+        ///
+        /// All other fields (inclination, eccentricity, semiMajorAxis, LAN, AoP,
+        /// meanAnomalyAtEpoch, epoch, bodyName, isPredicted, orbitalFrameRotation,
+        /// angularVelocity) are preserved because the Kepler elements describe the
+        /// WHOLE conic — only the UT range slices it. Non-straddling segments are
+        /// NOT included in the output; those are partitioned by the caller's
+        /// whole-segment moves and head-half trim. Symmetric counterpart to
+        /// <see cref="TrimFirstHalfOrbitSegmentsAtSplit"/>.
+        ///
+        /// Output ordering mirrors input ordering: clones are emitted in the order
+        /// their originals appear in <paramref name="originalSegments"/>.
+        /// </summary>
+        private static List<OrbitSegment> CreateTailHalfOrbitSegmentsAtSplit(
+            List<OrbitSegment> originalSegments,
+            double splitUT)
+        {
+            var clones = new List<OrbitSegment>();
+            if (originalSegments == null || originalSegments.Count == 0)
+                return clones;
+
+            for (int i = 0; i < originalSegments.Count; i++)
+            {
+                OrbitSegment seg = originalSegments[i];
+                if (seg.startUT < splitUT && seg.endUT > splitUT)
+                {
+                    // Value-copy of the struct duplicates every Kepler element.
+                    OrbitSegment tail = seg;
+                    tail.startUT = splitUT;
+                    // tail.endUT unchanged.
+                    clones.Add(tail);
+                }
+            }
+            return clones;
         }
 
         /// <summary>

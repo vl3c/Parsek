@@ -201,12 +201,16 @@ namespace Parsek.Tests
         // Window 1: supersede append (Phase.Supersede just written).
         // Expected post-crash state: supersedes in memory (not yet durable),
         // no tombstones, marker present, MergeState still NotCommitted.
-        // Finisher rollback: marker + journal cleared, session-provisional
-        // removed.
+        //
+        // Under fix-supersede-identity-scope plan W2/W5 reclassification,
+        // Supersede is now post-Begin-durable: the finisher drives forward
+        // via AppendRelations idempotency (skips existing rows) + the
+        // remaining Tombstone/Finalize/Durable1Done tail rather than
+        // rolling back.
         // ================================================================
 
         [Fact]
-        public void Window1_SupersedeAppend_RollsBack_ProvisionalRemoved()
+        public void Window1_SupersedeAppend_DrivesForward_MergeCompleted()
         {
             var scenario = BuildFixture(out var provisional, out _);
             RunUntil(MergeJournalOrchestrator.Phase.Supersede, scenario, provisional);
@@ -222,22 +226,33 @@ namespace Parsek.Tests
 
             MergeJournalOrchestrator.RunFinisher();
 
+            // Drive-forward: journal cleared + marker cleared. AppendRelations
+            // re-run no-ops via the existing-rows guard; subsequent steps
+            // complete the merge.
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
-            Assert.DoesNotContain(RecordingStore.CommittedRecordings,
+            // The provisional is now Immutable (Landed terminal) and remains
+            // in the committed store — drive-forward keeps it.
+            Assert.Contains(RecordingStore.CommittedRecordings,
                 r => r != null && r.RecordingId == "rec_provisional");
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
-                l.Contains("[MergeJournal]") && l.Contains("Rolled back"));
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Supersede"));
         }
 
         // ================================================================
         // Window 2: tombstone scan (Phase.Tombstone just written).
         // Expected post-crash: supersedes + tombstones in memory; MergeState
-        // still NotCommitted; marker present. Rollback.
+        // still NotCommitted; marker present.
+        //
+        // Under W2/W5 reclassification, Tombstone is now post-Begin-durable:
+        // CommitTombstones idempotency (alreadyTombstoned dedup) lets the
+        // finisher drive forward through the remaining Finalize +
+        // Durable1Done tail.
         // ================================================================
 
         [Fact]
-        public void Window2_TombstoneScan_RollsBack_MarkerAndJournalCleared()
+        public void Window2_TombstoneScan_DrivesForward_MergeCompleted()
         {
             var scenario = BuildFixture(out var provisional, out var kerbalDeath);
             RunUntil(MergeJournalOrchestrator.Phase.Tombstone, scenario, provisional);
@@ -256,17 +271,26 @@ namespace Parsek.Tests
 
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            // Tombstone deduped: still exactly one row for the kerbal-death action.
+            Assert.Single(scenario.LedgerTombstones);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Tombstone"));
         }
 
         // ================================================================
         // Window 3: reservation recompute / MergeState flip (Phase.Finalize).
         // Expected post-crash: MergeState flipped in memory BUT Durable1
-        // never happened, so disk still shows NotCommitted + no supersedes.
-        // Rollback is still the right recovery.
+        // never happened.
+        //
+        // Under W2/W5 reclassification, Finalize is now post-Begin-durable:
+        // FlipMergeStateAndClearTransient idempotency (rewrites same fields
+        // with same inputs) lets the finisher drive forward through the
+        // Durable1Done tail.
         // ================================================================
 
         [Fact]
-        public void Window3_FinalizeFlip_RollsBack_EvenThoughMergeStateFlipped()
+        public void Window3_FinalizeFlip_DrivesForward_MergeCompleted()
         {
             var scenario = BuildFixture(out var provisional, out _);
             RunUntil(MergeJournalOrchestrator.Phase.Finalize, scenario, provisional);
@@ -284,6 +308,10 @@ namespace Parsek.Tests
 
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            // Idempotent re-run keeps the flip in place.
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Finalize"));
         }
 
         // ================================================================

@@ -24,7 +24,17 @@ namespace Parsek.Tests
             priorStoreSuppress = RecordingStore.SuppressLogging;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            RecordingStore.SuppressLogging = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            // Reset the recording store: the composite walker that ChildSlot
+            // now delegates to (EffectiveTipRecordingId) reads
+            // RecordingStore.CommittedRecordings to look up the current
+            // recording's ChainId. Tests that don't register recordings
+            // observe an empty store and a no-op chain hop, matching the
+            // pre-composite behavior.
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
         }
 
         public void Dispose()
@@ -32,6 +42,8 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = priorParsekLogSuppress;
             RecordingStore.SuppressLogging = priorStoreSuppress;
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
         }
 
         private static RecordingSupersedeRelation Rel(string oldId, string newId)
@@ -126,6 +138,76 @@ namespace Parsek.Tests
             var slot = new ChildSlot { SlotIndex = 0, OriginChildRecordingId = null };
             string eff = slot.EffectiveRecordingId(new List<RecordingSupersedeRelation> { Rel("rec_A", "rec_B") });
             Assert.Null(eff);
+        }
+
+        [Fact]
+        public void EffectiveRecordingId_SlotPointsAtChainHead_ReturnsTipAfterChainAndSupersede()
+        {
+            // Post-rewind-UT-split shape: the slot's OriginChildRecordingId
+            // names the chain HEAD (the pre-rewind half). HEAD <-> TIP are
+            // chained (TIP carries the larger ChainIndex). A supersede row
+            // TIP -> fork attaches the Re-Fly fork to the chain tip. The
+            // slot's effective recording id must follow chain HEAD -> TIP,
+            // then supersede TIP -> fork.
+            var tree = new RecordingTree
+            {
+                Id = "tree_split",
+                TreeName = "Split",
+                RootRecordingId = "rec_head",
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_head",
+                VesselName = "Kerbal X (HEAD)",
+                MergeState = MergeState.Immutable,
+                TreeId = "tree_split",
+                ChainId = "chain_split",
+                ChainIndex = 0,
+            };
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Kerbal X (TIP)",
+                MergeState = MergeState.Immutable,
+                TreeId = "tree_split",
+                ChainId = "chain_split",
+                ChainIndex = 1,
+            };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(tip);
+            RecordingStore.AddCommittedInternal(head);
+            RecordingStore.AddCommittedInternal(tip);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            var fork = new Recording
+            {
+                RecordingId = "rec_fork",
+                VesselName = "Kerbal X (fork)",
+                MergeState = MergeState.Immutable,
+            };
+            var forkTree = new RecordingTree
+            {
+                Id = "tree_fork",
+                TreeName = "Fork",
+                RootRecordingId = "rec_fork",
+            };
+            fork.TreeId = "tree_fork";
+            forkTree.AddOrReplaceRecording(fork);
+            RecordingStore.AddCommittedInternal(fork);
+            RecordingStore.AddCommittedTreeForTesting(forkTree);
+
+            var slot = new ChildSlot
+            {
+                SlotIndex = 0,
+                OriginChildRecordingId = "rec_head",
+            };
+            var sups = new List<RecordingSupersedeRelation>
+            {
+                Rel("rec_tip", "rec_fork"),
+            };
+
+            string eff = slot.EffectiveRecordingId(sups);
+            Assert.Equal("rec_fork", eff);
         }
     }
 }

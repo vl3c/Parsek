@@ -9,14 +9,49 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RecordingOptimizerTests : System.IDisposable
     {
+        private readonly List<string> logLines = new List<string>();
+
         public RecordingOptimizerTests()
         {
+            // Most tests suppress logging entirely. Tests that assert on log
+            // output flip SuppressLogging back off + register the sink locally.
             ParsekLog.SuppressLogging = true;
+            ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+            ParsekScenario.ResetInstanceForTesting();
+        }
+
+        private void EnableLogCapture()
+        {
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        private static ParsekScenario InstallScenarioWithSupersedes(
+            params RecordingSupersedeRelation[] relations)
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(relations),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            return scenario;
+        }
+
+        private static RecordingSupersedeRelation MakeSupersedeRelation(string oldId, string newId)
+        {
+            return new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_" + oldId + "_" + newId,
+                OldRecordingId = oldId,
+                NewRecordingId = newId,
+                UT = 0.0,
+            };
         }
 
         #region Helpers
@@ -366,6 +401,88 @@ namespace Parsek.Tests
         {
             Assert.False(RecordingOptimizer.CanAutoMerge(null, new Recording()));
             Assert.False(RecordingOptimizer.CanAutoMerge(new Recording(), null));
+        }
+
+        // --- Supersede-row guard (post-Re-Fly-split HEAD/TIP invariant) -----
+        //
+        // After RecordingTreeSplitter.SplitOriginAtRewindUT splits the origin
+        // recording into HEAD (visible) and TIP (superseded by fork), the two
+        // adjacent chain siblings share a ChainId. The optimizer's next pass
+        // could otherwise see them as merge candidates and glue them back
+        // together. The supersede-row guard rejects merging if either side
+        // appears as `OldRecordingId` in scenario.RecordingSupersedes.
+
+        [Fact]
+        public void CanAutoMerge_BothNonSuperseded_AllowsAsBefore()
+        {
+            // Sanity: with no supersede rows installed, the pre-fix path is
+            // still reachable. Locks in that the new guard is a no-op when
+            // there is nothing to guard against.
+            InstallScenarioWithSupersedes();
+
+            var a = MakeChainSegment("chain1", 0);
+            a.RecordingId = "head_id";
+            var b = MakeChainSegment("chain1", 1);
+            b.RecordingId = "tip_id";
+
+            Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
+        public void CanAutoMerge_RejectsHeadAndTipAfterSplit()
+        {
+            // Two adjacent chain siblings sharing ChainId / env-class — they
+            // would normally merge. A supersede row marks TIP as superseded
+            // by the fork → the guard rejects.
+            InstallScenarioWithSupersedes(MakeSupersedeRelation("tip_id", "fork_id"));
+            EnableLogCapture();
+
+            var head = MakeChainSegment("chain1", 0);
+            head.RecordingId = "head_id";
+            var tip = MakeChainSegment("chain1", 1);
+            tip.RecordingId = "tip_id";
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(head, tip));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("CanAutoMerge")
+                && l.Contains("head_id")
+                && l.Contains("tip_id")
+                && l.Contains("supersede"));
+        }
+
+        [Fact]
+        public void CanAutoMerge_RejectsWhenAIsSuperseded()
+        {
+            // Symmetric case: `a` is the OldRecordingId in the supersede row.
+            // The guard rejects regardless of which side carries the relation.
+            InstallScenarioWithSupersedes(MakeSupersedeRelation("a_id", "successor_id"));
+
+            var a = MakeChainSegment("chain1", 0);
+            a.RecordingId = "a_id";
+            var b = MakeChainSegment("chain1", 1);
+            b.RecordingId = "b_id";
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+        }
+
+        [Fact]
+        public void CanAutoMerge_NoScenario_AllowsAsBefore()
+        {
+            // Defensive: with no scenario installed (unit-test fixtures
+            // without ParsekScenario.Instance set), the supersede guard
+            // short-circuits and CanAutoMerge proceeds to its existing logic.
+            // The constructor already calls ResetInstanceForTesting() so
+            // this just verifies the short-circuit semantics.
+            ParsekScenario.ResetInstanceForTesting();
+
+            var a = MakeChainSegment("chain1", 0);
+            a.RecordingId = "head_id";
+            var b = MakeChainSegment("chain1", 1);
+            b.RecordingId = "tip_id";
+
+            Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
         }
 
         #endregion

@@ -394,7 +394,17 @@ namespace Parsek
         /// </summary>
         internal bool HasActualTrajectoryBounds => TryGetActualTrajectoryBounds(out _, out _);
 
-        private bool TryGetActualTrajectoryBounds(out double startUT, out double endUT)
+        /// <summary>
+        /// Returns the UT bounds derived strictly from sampled trajectory content
+        /// (Points, OrbitSegments, playable TrackSections), ignoring
+        /// <see cref="ExplicitStartUT"/> / <see cref="ExplicitEndUT"/>. Use this
+        /// when a caller's decision depends on the data the recording actually
+        /// carries — for example,
+        /// <c>RecordingTreeSplitter.SplitOriginAtRewindUT</c>'s strict-span check,
+        /// where a stale <see cref="ExplicitStartUT"/> would otherwise lure the
+        /// splitter into producing an empty HEAD half.
+        /// </summary>
+        internal bool TryGetActualTrajectoryBounds(out double startUT, out double endUT)
         {
             startUT = 0.0;
             endUT = 0.0;
