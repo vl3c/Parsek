@@ -147,6 +147,15 @@ namespace Parsek.Tests
             yield return new object[] { GameActionType.FundsInitial, false, false };
             yield return new object[] { GameActionType.ScienceInitial, false, false };
             yield return new object[] { GameActionType.ReputationInitial, false, false };
+            // Route skeleton (design doc §6): RouteModule is a state-tracker only —
+            // no resource mutation and no recording-scoped retry semantics. Both
+            // gates stay false until the future dispatch integration wires real
+            // cargo / funds effects through these action types.
+            yield return new object[] { GameActionType.RouteDispatched, false, false };
+            yield return new object[] { GameActionType.RouteCargoDebited, false, false };
+            yield return new object[] { GameActionType.RouteCargoDelivered, false, false };
+            yield return new object[] { GameActionType.RoutePaused, false, false };
+            yield return new object[] { GameActionType.RouteEndpointLost, false, false };
         }
 
         [Fact]

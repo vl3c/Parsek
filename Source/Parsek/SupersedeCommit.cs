@@ -1528,6 +1528,20 @@ namespace Parsek
                 case GameActionType.ScienceInitial:
                 case GameActionType.ReputationInitial:
                     return false;
+
+                // Route skeleton (design doc §6): route actions are emitted by the
+                // scheduler under a RouteId, not produced by a flight recorder. They
+                // are not "world-state changing on a recording" in the sense this
+                // predicate gates — even when a test attaches a synthetic RecordingId
+                // to one, supersede must not strict-block or retry-block on it.
+                // When future dispatch integration ties RouteCargoDelivered effects
+                // to a specific source recording's epoch, revisit this exclusion.
+                case GameActionType.RouteDispatched:
+                case GameActionType.RouteCargoDebited:
+                case GameActionType.RouteCargoDelivered:
+                case GameActionType.RoutePaused:
+                case GameActionType.RouteEndpointLost:
+                    return false;
             }
 
             if (TombstoneEligibility.IsEligible(action))
