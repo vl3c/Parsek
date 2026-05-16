@@ -390,14 +390,14 @@ namespace Parsek.Tests.Logistics
             Assert.Null(outcome.Route);
             Assert.Equal("endpoint-missing", outcome.RejectReason);
             Assert.Contains(logLines, l =>
-                l.Contains("[RouteUI]")
+                l.Contains("[Route]")
                 && l.Contains("endpoint-missing"));
         }
 
         [Fact]
-        public void Build_LogsRouteUITagOnBuildAndOnReject()
+        public void Build_LogsRouteTagOnBuildAndOnReject()
         {
-            // catches: the [RouteUI] subsystem tag or the "Built route" /
+            // catches: the [Route] subsystem tag or the "Built route" /
             // "BuildRoute rejected" log wording drifting. KSP.log is the
             // primary debugging tool; the post-mortem checker greps these
             // exact strings.
@@ -407,7 +407,7 @@ namespace Parsek.Tests.Logistics
             RouteBuilder.BuildRoute(ok, null, Inputs(), Game.Modes.SANDBOX);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteUI]")
+                && l.Contains("[Route]")
                 && l.Contains("Built route"));
 
             logLines.Clear();
@@ -420,7 +420,7 @@ namespace Parsek.Tests.Logistics
             RouteBuilder.BuildRoute(bad, null, Inputs(), Game.Modes.SANDBOX);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteUI]")
+                && l.Contains("[Route]")
                 && l.Contains("BuildRoute rejected")
                 && l.Contains("source-no-longer-eligible"));
         }

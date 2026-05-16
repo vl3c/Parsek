@@ -170,7 +170,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(0, loaded);
             foreach (string line in logLines)
             {
-                Assert.False(line.Contains("[WARN]") && line.Contains("[RouteStore]"),
+                Assert.False(line.Contains("[WARN]") && line.Contains("[Route]"),
                     "Empty round-trip must not emit any Warn");
             }
         }

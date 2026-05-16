@@ -21,7 +21,7 @@ namespace Parsek.Logistics
     /// </summary>
     internal static class RouteCodec
     {
-        private const string LogTag = "RouteStore";
+        private const string LogTag = "Route";
 
         // Node names — kept here so codec rename refactors touch one place.
         internal const string RecordingIdsNode = "RECORDING_IDS";

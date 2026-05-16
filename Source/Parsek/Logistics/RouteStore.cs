@@ -21,7 +21,7 @@ namespace Parsek.Logistics
     /// </summary>
     internal static class RouteStore
     {
-        private const string Tag = "RouteStore";
+        private const string Tag = "Route";
         private const string RoutesParentNodeName = "ROUTES";
         private const string RouteChildNodeName = "ROUTE";
 

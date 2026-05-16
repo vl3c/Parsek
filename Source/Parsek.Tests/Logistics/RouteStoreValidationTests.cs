@@ -219,7 +219,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("Active")
                 && l.Contains("MissingSourceRecording")
                 && l.Contains("source-not-in-ers"));
@@ -251,7 +251,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.SourceChanged, route.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("SourceChanged")
                 && l.Contains("sidecar-epoch"));
         }
@@ -283,7 +283,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.SourceChanged, route.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("SourceChanged")
                 && l.Contains("route-proof-hash"));
         }
@@ -311,14 +311,14 @@ namespace Parsek.Tests.Logistics
             foreach (string line in logLines)
             {
                 if (line.Contains("[INFO]")
-                    && line.Contains("[RouteStore]")
+                    && line.Contains("[Route]")
                     && line.Contains("Route route-hap")
                     && line.Contains("->"))
                 {
                     Assert.True(false, "Unexpected transition log: " + line);
                 }
                 if (line.Contains("[INFO]")
-                    && line.Contains("[RouteStore]")
+                    && line.Contains("[Route]")
                     && line.Contains("Route route-hap")
                     && line.Contains("→"))
                 {
@@ -353,7 +353,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Active, route.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("MissingSourceRecording")
                 && l.Contains("Active")
                 && l.Contains("source-restored"));
@@ -413,7 +413,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.MissingSourceRecording, route.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("MissingSourceRecording")
                 && l.Contains("source-not-in-ers"));
         }
@@ -479,7 +479,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(2, transitioned);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("RevalidateSources")
                 && l.Contains("reason=test-multi")
                 && l.Contains("routes=3")
@@ -543,7 +543,7 @@ namespace Parsek.Tests.Logistics
             // instead emit `route-proof-hash-drift id=rec-hash` — the test would fail.
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("Active→SourceChanged")
                 && l.Contains("sidecar-epoch-drift")
                 && l.Contains("id=rec-side"));
@@ -552,7 +552,7 @@ namespace Parsek.Tests.Logistics
             // (A broken inner loop would emit this instead.)
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("Active→SourceChanged")
                 && l.Contains("route-proof-hash-drift"));
         }
@@ -585,7 +585,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Active, resolved.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("route route-no")
                 && l.Contains("no SourceRefs"));
         }

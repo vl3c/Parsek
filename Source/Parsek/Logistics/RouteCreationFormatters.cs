@@ -25,9 +25,9 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Format an inventory line. Quantity > 1 emits a "<c>×N</c>" suffix;
+        /// Format an inventory line. Quantity > 1 emits a "<c>xN</c>" suffix;
         /// quantity 1 omits the multiplier. Non-empty variant names render in
-        /// parens, e.g. <c>"evaJetpack (white) ×2"</c>.
+        /// parens, e.g. <c>"evaJetpack (white) x2"</c>.
         /// </summary>
         internal static string FormatInventoryLine(InventoryPayloadItem item)
         {
@@ -39,7 +39,7 @@ namespace Parsek.Logistics
                 partLabel = partLabel + " (" + variant + ")";
 
             if (item.Quantity > 1)
-                return partLabel + " ×" + item.Quantity.ToString(IC);
+                return partLabel + " x" + item.Quantity.ToString(IC);
             return partLabel;
         }
 

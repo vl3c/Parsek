@@ -336,7 +336,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Active, route.Status);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
-                l.Contains("[RouteStore]") &&
+                l.Contains("[Route]") &&
                 l.Contains("SomeFutureValue") &&
                 l.Contains("weird-status-route"));
         }
@@ -362,7 +362,7 @@ namespace Parsek.Tests.Logistics
             Assert.Null(route);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
-                l.Contains("[RouteStore]") &&
+                l.Contains("[Route]") &&
                 l.Contains("no-stops-route") &&
                 l.Contains("STOP"));
         }
@@ -388,7 +388,7 @@ namespace Parsek.Tests.Logistics
             Assert.Null(reloaded);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
-                l.Contains("[RouteStore]") &&
+                l.Contains("[Route]") &&
                 l.Contains("route-guid-1") &&
                 l.Contains("SOURCE"));
         }

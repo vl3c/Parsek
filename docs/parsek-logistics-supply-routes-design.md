@@ -217,12 +217,12 @@ internal struct RouteEndpoint
     public double latitude;        // from dock event trajectory point
     public double longitude;
     public double altitude;
-    public uint vesselPid;         // 0 = KSC sentinel for KSC origins; non-zero for all stops and non-KSC origins
+    public uint vesselPersistentId;         // 0 = KSC sentinel for KSC origins; non-zero for all stops and non-KSC origins
     public bool isSurface;         // true = landed/splashed/prelaunch endpoint; enables surface fallback
 }
 ```
 
-`vesselPid = 0` is reserved for KSC origins where there is no stock origin vessel to resolve. Non-KSC origins and all route stops must use a non-zero vessel PID captured from the stock connection boundary.
+`vesselPersistentId = 0` is reserved for KSC origins where there is no stock origin vessel to resolve. Non-KSC origins and all route stops must use a non-zero vessel PID captured from the stock connection boundary.
 
 ### 4.4 RouteConnectionKind
 
@@ -372,7 +372,7 @@ ROUTE
         latitude = -0.0972
         longitude = -74.5577
         altitude = 75.2
-        vesselPid = 0
+        vesselPersistentId = 0
         isSurface = True
     }
 
@@ -384,7 +384,7 @@ ROUTE
             latitude = 3.2001
             longitude = -45.1234
             altitude = 612.5
-            vesselPid = 67890
+            vesselPersistentId = 67890
             isSurface = True
         }
         connectionKind = DockingPort
@@ -451,7 +451,7 @@ ROUTE
             }
         }
     }
-    // KSC-origin routes use ORIGIN.vesselPid = 0. Non-KSC origins and all STOP endpoints use real vessel PIDs.
+    // KSC-origin routes use ORIGIN.vesselPersistentId = 0. Non-KSC origins and all STOP endpoints use real vessel PIDs.
     // When Status == InTransit, pendingDeliveryUT/pendingStopIndex identify the next due boundary.
     // When Status == InTransit, currentCycleStartUT identifies the scheduler elapsed time for visual handoff.
     // When Status == WaitingForResources or WaitingForFunds, nextEligibilityCheckUT gates retry polling.
@@ -626,7 +626,7 @@ Walk the committed tree's source path chronologically:
     Verify the tree has a dock branch and a later undock/split boundary for the same window
     stop.endpoint = {
         body, lat, lon from window.EndpointAtDock or the connection-time trajectory point,
-        vesselPid = TransferTargetVesselPid,
+        vesselPersistentId = TransferTargetVesselPid,
         connectionKind = TransferKind,
         isSurface = connected endpoint vessel situation is Landed/Splashed/Prelaunch
     }
@@ -818,7 +818,7 @@ Inventory follows the same independent rule at item granularity: deliver what fi
 
 **Cancel current dispatch:** Deferred. If added later, cancellation should be explicit and should not refund already-deducted origin cargo unless the route event model explicitly records a reversible failure.
 
-**Re-target (EndpointLost recovery):** Player selects a new destination vessel in the route UI → endpoint coordinates and vesselPid updated, `Status` transitions from `EndpointLost` to `Active`. Same mechanism for origin re-targeting on non-KSC routes. Re-targeting is an explicit player intent declaration, not automatic proof that the original Supply Run visited the new vessel. The route keeps its recorded delivery and cost manifests, logs the re-target, and the UI should warn that future cycles reuse the proven transport/cargo run against the newly selected endpoint or origin. Automated surface fallback remains deliberately tight; broad endpoint generalization requires this explicit player action.
+**Re-target (EndpointLost recovery):** Player selects a new destination vessel in the route UI → endpoint coordinates and vesselPersistentId updated, `Status` transitions from `EndpointLost` to `Active`. Same mechanism for origin re-targeting on non-KSC routes. Re-targeting is an explicit player intent declaration, not automatic proof that the original Supply Run visited the new vessel. The route keeps its recorded delivery and cost manifests, logs the re-target, and the UI should warn that future cycles reuse the proven transport/cargo run against the newly selected endpoint or origin. Automated surface fallback remains deliberately tight; broad endpoint generalization requires this explicit player action.
 
 ---
 
@@ -828,11 +828,11 @@ Inventory follows the same independent rule at item granularity: deliver what fi
 
 `RouteEndpointResolver.SurfaceFallbackRadiusMeters = 50.0` in v1. The radius is deliberately tight: it allows rebuilding a surface base in-place, but avoids treating neighboring pads, rovers, or storage craft as one abstract warehouse. If this proves too restrictive for large surface installations, make it a settings-backed value later rather than silently widening v1 matching.
 
-KSC-origin routes do not resolve an origin vessel: `IsKscOrigin == true` and `Origin.vesselPid == 0` mean "charge/skip KSC funds branch according to game mode." A route stop endpoint or non-KSC origin with `vesselPid == 0` is invalid.
+KSC-origin routes do not resolve an origin vessel: `IsKscOrigin == true` and `Origin.vesselPersistentId == 0` mean "charge/skip KSC funds branch according to game mode." A route stop endpoint or non-KSC origin with `vesselPersistentId == 0` is invalid.
 
 ```
 ResolveEndpointVessel(endpoint):
-    1. Find vessel by endpoint.vesselPid in FlightGlobals.Vessels
+    1. Find vessel by endpoint.vesselPersistentId in FlightGlobals.Vessels
        → if found and compatible: return vessel
     2. If not found AND endpoint.isSurface == false:
        → return null (orbital endpoints have no fallback)
@@ -1066,11 +1066,9 @@ RouteDelivery.DeliverResources(endpointVessel, deliveryManifest)
     if unloaded:  protoPartResource.amount += amount
 ```
 
-Loaded origin debits use the same primitive with a negative amount on the proven origin resource. Logistics pre-checks flow state/mode for both signs because stock PAW transfer does so before calling the primitive. This is independent of Parsek's recording/playback/ghost systems, but not independent of the ledger. Every enabled mutation path must be driven by a route event that records target vessel identity, route id, cycle, resource/item amounts requested and actually applied, and enough before/after information for recalculation or rollback. Required modules:
+Loaded origin debits use the same primitive with a negative amount on the proven origin resource. Logistics pre-checks flow state/mode for both signs because stock PAW transfer does so before calling the primitive. This is independent of Parsek's recording/playback/ghost systems, but not independent of the ledger. Every enabled mutation path must be driven by a route event that records target vessel identity, route id, cycle, resource/item amounts requested and actually applied, and enough before/after information for recalculation or rollback.
 
-- `RouteKscFundsModule`: applies/recomputes KSC Career dispatch charges.
-- `RouteOriginDebitModule`: applies/recomputes non-KSC origin resource and inventory deductions against the proven origin vessel.
-- `RouteEndpointDeliveryModule`: applies/recomputes endpoint resource and inventory additions against the resolved endpoint vessel.
+The v0 skeleton ships a single `RouteModule` (registered at `RecalculationEngine.ModuleTier.SecondTier`, after `FundsModule`) that observes every route-scoped action type — `RouteDispatched`, `RouteCargoDebited`, `RouteCargoDelivered`, `RoutePaused`, `RouteEndpointLost` — and tracks per-route walk state. The module is observation-only: it does not yet apply KSC funds charges, debit origin resource/inventory, deliver endpoint payloads, or consult `Affordable`. Those mutations land in later phases when the scheduler that emits these actions exists. A future phase may split `RouteModule` into separate KSC-funds / origin-debit / endpoint-delivery modules if separation of concerns demands it; the action-type vocabulary already keeps that option open.
 
 If a module cannot find or safely reverse its target during epoch recomputation, it must mark the route/effect invalid and log a warning rather than silently leaving duplicated cargo behind.
 
@@ -1103,7 +1101,7 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 
 ### 15.1 Route creation
 - `[Parsek][INFO][Route] Route created: id={id} name={name} recordings={count} endpoint={body}({lat},{lon}) connection={kind} cost={manifest} kscFunds={funds}`
-- `[Parsek][INFO][Route] Route endpoint: {body}({lat},{lon}) vesselPid={pid} delivery={manifest} inventory={manifest}`
+- `[Parsek][INFO][Route] Route endpoint: {body}({lat},{lon}) vesselPersistentId={pid} delivery={manifest} inventory={manifest}`
 - `[Parsek][INFO][Route] Route analysis: chain={count} recordings, deliveryWindows={count}, acceptedStops={count}`
 - `[Parsek][INFO][Route] Route validation failed for chain: {reason}`
 
@@ -1239,8 +1237,8 @@ The roadmap defers assembly extraction to the future standalone ghost-playback b
 
 **Endpoint resolution**
 - PID exists → found. *Catches: skipping PID.*
-- KSC-origin route serializes `Origin.vesselPid = 0` and skips origin vessel resolution. *Catches: undefined KSC sentinel.*
-- Non-KSC origin with `vesselPid = 0` -> invalid. *Catches: sentinel leaking into physical origins.*
+- KSC-origin route serializes `Origin.vesselPersistentId = 0` and skips origin vessel resolution. *Catches: undefined KSC sentinel.*
+- Non-KSC origin with `vesselPersistentId = 0` -> invalid. *Catches: sentinel leaking into physical origins.*
 - PID gone, surface, nearest compatible vessel within `SurfaceFallbackRadiusMeters` → fallback. *Catches: missing fallback.*
 - PID gone, surface, nothing nearby → empty. *Catches: false match.*
 - PID gone, orbital → empty. *Catches: orbital fallback.*

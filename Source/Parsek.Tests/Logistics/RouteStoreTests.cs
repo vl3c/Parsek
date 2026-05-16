@@ -98,7 +98,7 @@ namespace Parsek.Tests.Logistics
             Assert.Same(route, RouteStore.CommittedRoutes[0]);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("Route route-A added")
                 && l.Contains("status=Active")
                 && l.Contains("stops=1"));
@@ -112,7 +112,7 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(RouteStore.CommittedRoutes);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("null route"));
         }
 
@@ -127,7 +127,7 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(RouteStore.CommittedRoutes);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("empty Id"));
         }
 
@@ -146,7 +146,7 @@ namespace Parsek.Tests.Logistics
             Assert.Same(first, RouteStore.CommittedRoutes[0]);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("duplicate id")
                 && l.Contains("dup-id"));
         }
@@ -163,7 +163,7 @@ namespace Parsek.Tests.Logistics
             Assert.False(removed);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("not found")
                 && l.Contains("does-not"));
         }
@@ -178,7 +178,7 @@ namespace Parsek.Tests.Logistics
             for (int i = 0; i < logLines.Count; i++)
             {
                 if (logLines[i].Contains("[WARN]")
-                    && logLines[i].Contains("[RouteStore]")
+                    && logLines[i].Contains("[Route]")
                     && logLines[i].Contains("null or empty id"))
                 {
                     warnCount++;
@@ -200,7 +200,7 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(RouteStore.CommittedRoutes);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("Route route-re")
                 && l.Contains("removed"));
         }
@@ -247,7 +247,7 @@ namespace Parsek.Tests.Logistics
                 "Empty store must not write a ROUTES wrapper node");
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("no routes to save"));
         }
 
@@ -304,7 +304,7 @@ namespace Parsek.Tests.Logistics
             // The Verbose breadcrumb is fine; a Warn would be noise.
             foreach (string line in logLines)
             {
-                Assert.False(line.Contains("[WARN]") && line.Contains("[RouteStore]"),
+                Assert.False(line.Contains("[WARN]") && line.Contains("[Route]"),
                     "LoadRoutesFrom on a save without routes must not emit any Warn");
             }
         }
@@ -318,7 +318,7 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(RouteStore.CommittedRoutes);
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("null parent"));
         }
 
@@ -380,7 +380,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("route-good", RouteStore.CommittedRoutes[0].Id);
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("loaded 1 route")
                 && l.Contains("1 dropped"));
         }
@@ -401,7 +401,7 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(RouteStore.CommittedRoutes);
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]")
-                && l.Contains("[RouteStore]")
+                && l.Contains("[Route]")
                 && l.Contains("ResetForTesting")
                 && l.Contains("prevCount=2"));
         }

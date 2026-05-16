@@ -13,14 +13,13 @@ namespace Parsek.Logistics
     /// dialog or PopupDialog.
     /// </summary>
     /// <remarks>
-    /// Logs every decision branch under the <c>RouteUI</c> subsystem tag so the
-    /// dialog's player-facing logs are co-located in <c>KSP.log</c>. The
-    /// internal store-level invariants stay on <c>RouteStore</c> and emit under
-    /// the <c>RouteStore</c> tag.
+    /// Logs every decision branch under the unified <c>Route</c> subsystem tag
+    /// so the route subsystem's logs are co-located in <c>KSP.log</c> with the
+    /// store, codec, analysis, dialog, and ledger module log sites.
     /// </remarks>
     internal static class RouteBuilder
     {
-        private const string Tag = "RouteUI";
+        private const string Tag = "Route";
 
         /// <summary>
         /// Player-controlled fields that the dialog collects before commit.
@@ -137,6 +136,9 @@ namespace Parsek.Logistics
                     VesselPersistentId = 0,
                     BodyName = "Kerbin",
                     // v0: launch-site coordinates resolved at dispatch time by name.
+                    // TODO: item 5 scheduler must resolve KSC coords via source ref → recording →
+                    // LaunchSiteName, going through EffectiveState.ComputeERS(). The Route does NOT
+                    // persist LaunchSiteName — only Origin.BodyName == "Kerbin" and IsKscOrigin == true.
                     Latitude = 0.0,
                     Longitude = 0.0,
                     Altitude = 0.0,

@@ -57,7 +57,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.Equal(RouteStatus.Paused, route.Status);
             Assert.Contains(logLines,
-                l => l.Contains("[RouteStore]")
+                l => l.Contains("[Route]")
                     && l.Contains("Active")
                     && l.Contains("Paused")
                     && l.Contains("reason=test"));
@@ -76,7 +76,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, added);
             string line = logLines[logLines.Count - 1];
             Assert.Contains("[VERBOSE]", line);
-            Assert.Contains("[RouteStore]", line);
+            Assert.Contains("[Route]", line);
             Assert.Contains("stay=Active", line);
             Assert.DoesNotContain("[INFO]", line);
         }
