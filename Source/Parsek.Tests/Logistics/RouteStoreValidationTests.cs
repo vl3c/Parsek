@@ -4,6 +4,9 @@ using Parsek;
 using Parsek.Logistics;
 using Parsek.Tests.Generators;
 using Xunit;
+// Disambiguate: Parsek.Logistics.RouteBuilder (production) vs. the fluent test
+// fixture in Parsek.Tests.Generators. This file uses the test fixture.
+using RouteBuilder = Parsek.Tests.Generators.RouteBuilder;
 
 namespace Parsek.Tests.Logistics
 {
