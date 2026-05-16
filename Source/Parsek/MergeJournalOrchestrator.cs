@@ -7,29 +7,38 @@ namespace Parsek
     /// <summary>
     /// Phase 10 of Rewind-to-Staging (design §5.8, §6.6, §6.9 step 2, §10.8):
     /// journaled staged-commit orchestrator for merging a re-fly session. Wraps
-    /// the in-memory <see cref="SupersedeCommit"/> steps in five crash-recovery
+    /// the in-memory <see cref="SupersedeCommit"/> steps in named crash-recovery
     /// checkpoints, persists the stable merge-path barriers to disk, and
     /// exposes the load-time finisher that resumes an interrupted merge.
     ///
     /// <para>
-    /// The 14 granular design-doc steps are consolidated into five recovery
-    /// windows (per plan Phase 10 §6.6 matrix):
+    /// The 14 granular design-doc steps are consolidated into the following
+    /// named phases (see <see cref="MergeJournal.Phases"/>):
+    /// <c>Begin → Split → Supersede → Tombstone → Finalize → Durable1Done →
+    /// RpReap → MarkerCleared → Durable2Done</c>. The <b>Split</b> phase was
+    /// introduced by Task A5 in <c>fix-supersede-identity-scope</c>; the
+    /// remaining phases are unchanged.
     /// </para>
-    /// <list type="bullet">
-    ///   <item><description><b>Supersede append</b> — relations half-written.</description></item>
-    ///   <item><description><b>Tombstone scan</b> — tombstones half-written.</description></item>
-    ///   <item><description><b>Reservation recompute</b> — tombstones done but MergeState not flipped.</description></item>
-    ///   <item><description><b>Durable save</b> — memory committed, disk not yet written.</description></item>
-    ///   <item><description><b>Reap check</b> — Durable1 done, RPs not yet reaped.</description></item>
-    /// </list>
     ///
     /// <para>
-    /// The finisher on load recovers from ANY of these windows. Phase less-than-
-    /// or-equal <see cref="MergeJournal.Phases.Finalize"/> rolls back to the
-    /// pre-merge state (the Durable1 write never happened, so disk still holds
-    /// the pre-merge snapshot). Phase greater-than-or-equal
-    /// <see cref="MergeJournal.Phases.Durable1Done"/> completes the remaining
-    /// steps (reap, marker clear, journal clear, durable saves 2 and 3).
+    /// Crash-recovery contract (updated by Task A5):
+    /// <list type="bullet">
+    ///   <item><description><see cref="MergeJournal.Phases.Begin"/> — pre-Durable1, rolls back.
+    ///   The "begin" durable write never happened from <see cref="RunFinisher"/>'s
+    ///   point of view, so the on-disk pre-merge snapshot is still authoritative.</description></item>
+    ///   <item><description><see cref="MergeJournal.Phases.Split"/> through
+    ///   <see cref="MergeJournal.Phases.Finalize"/> — drive-forward via idempotent
+    ///   re-run inside <see cref="CompleteFromPostDurable"/>. Every step is
+    ///   designed to be re-executable: <see cref="RecordingTreeSplitter.SplitOriginAtRewindUT"/>
+    ///   detects an existing TIP and skips re-creation; <see cref="SupersedeCommit.AppendRelations"/>
+    ///   skips existing rows; <see cref="SupersedeCommit.CommitTombstones"/> dedups via
+    ///   <c>alreadyTombstoned</c>; <see cref="SupersedeCommit.FlipMergeStateAndClearTransient"/>
+    ///   is value-write idempotent.</description></item>
+    ///   <item><description><see cref="MergeJournal.Phases.Durable1Done"/> onward —
+    ///   the tail completion path (reap, marker clear, journal clear, durable saves
+    ///   2 and 3). Same forward-completion path; the journal is the source of truth
+    ///   for where to resume.</description></item>
+    /// </list>
     /// </para>
     ///
     /// <para>
@@ -75,6 +84,7 @@ namespace Parsek
         {
             None,
             Begin,
+            Split,
             Supersede,
             Tombstone,
             Finalize,
@@ -198,6 +208,29 @@ namespace Parsek
             DurableSave("begin", persistSynchronously: true);
             MaybeInject(Phase.Begin);
 
+            // Step 1.5: split the origin recording at the rewind UT if it spans
+            // the rewind point. Mutates marker.SupersedeTargetId on success so the
+            // Supersede step's closure starts at TIP. SplitOriginAtRewindUT is
+            // internally transactional: it owns its stack-local SplitSnapshot and
+            // uses a try/catch inside its own body to call RollBackInMemory before
+            // throwing. The catch here only logs and re-throws.
+            RecordingTreeSplitter.SplitOriginResult splitResult;
+            try
+            {
+                splitResult = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, scenario);
+            }
+            catch (Exception ex)
+            {
+                // Inner already rolled back via its own catch + RollBackInMemory.
+                // Journal phase is still Begin on disk → next load rolls back.
+                ParsekLog.Warn(Tag,
+                    $"Split step threw {ex.GetType().Name}: {ex.Message} — inner rolled back; re-throwing");
+                throw;
+            }
+            AdvancePhase(scenario, MergeJournal.Phases.Split);
+            DurableSave("split", persistSynchronously: true);
+            MaybeInject(Phase.Split);
+
             // Step 2: supersede relations (§6.6 step 3).
             var subtree = SupersedeCommit.AppendRelations(marker, provisional, scenario);
             AdvancePhase(scenario, MergeJournal.Phases.Supersede);
@@ -306,16 +339,36 @@ namespace Parsek
                 return true;
             }
 
-            if (MergeJournal.IsPreDurablePhase(phase))
+            if (phase == MergeJournal.Phases.Begin)
             {
+                // Pre-Split rollback: clear marker, drop session-provisional
+                // recordings, remove any session-provisional RPs.
+                // SplitOriginAtRewindUT never ran durably so no split state
+                // to undo on disk.
                 RollBack(scenario, journal, sessionId, phase);
                 return true;
             }
 
-            if (MergeJournal.IsPostDurablePhase(phase))
+            if (MergeJournal.IsKnownPostBeginPhase(phase))
             {
-                CompleteFromPostDurable(scenario, journal, sessionId, phase);
-                return true;
+                try
+                {
+                    CompleteFromPostDurable(scenario, journal, sessionId, phase);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    // Drive-forward failure: surface a loud diagnostic with
+                    // manual-recovery hints and re-throw. ParsekScenario.OnLoad's
+                    // outer catch handles logging to Unity and degraded-load
+                    // continuation.
+                    ParsekLog.Warn(Tag,
+                        $"RunFinisher drive-forward FAILED at phase={phase}: {ex.GetType().Name}: {ex.Message}. " +
+                        $"Save is mid-merge and may be inconsistent. Manual recovery: copy save, " +
+                        $"clear scenario.ActiveMergeJournal and scenario.ActiveReFlySessionMarker, " +
+                        $"reload. sess={sessionId}");
+                    throw;
+                }
             }
 
             // Unknown phase string: treat as pre-durable roll-back (safer than
@@ -406,7 +459,99 @@ namespace Parsek
         {
             int stepsDriven = 0;
 
-            if (fromPhase == MergeJournal.Phases.Durable1Done)
+            // ------------------------------------------------------------------
+            // W2/W5 reclassification (fix-supersede-identity-scope plan §5):
+            // Split / Supersede / Tombstone / Finalize used to roll back on
+            // crash, but each step is idempotent on re-execution:
+            //   - SplitOriginAtRewindUT: own idempotency check on existing TIP.
+            //   - AppendRelations: skips existing rows (SupersedeCommit.cs:265-271).
+            //   - CommitTombstones: dedup via alreadyTombstoned HashSet.
+            //   - FlipMergeStateAndClearTransient: rewrites same fields with
+            //     same inputs.
+            // Each entry block re-runs its step, advances journal.Phase to
+            // the next step, then falls through. Crucially the subsequent
+            // checks use journal.Phase (the live value) rather than fromPhase
+            // (the entry value), so a resume entering at Split drives all the
+            // way through to Complete.
+            // ------------------------------------------------------------------
+
+            if (journal.Phase == MergeJournal.Phases.Split)
+            {
+                // Re-run the split idempotently. SplitOriginAtRewindUT detects
+                // an existing TIP (chain sibling at ChainIndex+1 with
+                // StartUT ≈ rewindUT) and skips re-creation; the post-split
+                // retag steps are idempotent via "predicate no longer matches"
+                // semantics. Keyed on journal.Phase (matching the blocks
+                // below) so the symmetry is obvious — at entry time
+                // journal.Phase == fromPhase, so the choice is purely stylistic
+                // here but consistent with the post-Durable1 cascade.
+                RecordingTreeSplitter.SplitOriginAtRewindUT(
+                    scenario.ActiveReFlySessionMarker, scenario);
+                AdvancePhase(scenario, MergeJournal.Phases.Supersede);
+                stepsDriven++;
+            }
+
+            if (journal.Phase == MergeJournal.Phases.Supersede)
+            {
+                // Re-run AppendRelations. Skips existing rows via the
+                // already-present-in-scenario.RecordingSupersedes guard at
+                // SupersedeCommit.cs:265-271; safe to call twice. Stash the
+                // returned subtree on the journal so the next phase can
+                // reuse it without recomputing.
+                var subtree = SupersedeCommit.AppendRelations(
+                    scenario.ActiveReFlySessionMarker,
+                    ResolveProvisional(scenario),
+                    scenario);
+                journal.RecoveredSubtreeIds = subtree;
+                AdvancePhase(scenario, MergeJournal.Phases.Tombstone);
+                stepsDriven++;
+            }
+
+            if (journal.Phase == MergeJournal.Phases.Tombstone)
+            {
+                // Re-run tombstone scan. CommitTombstones is idempotent via
+                // its own dedup pass. Use the subtree threaded by the
+                // Supersede block above when present, else recompute via
+                // RebuildSubtree (the fresh-load case where no prior block
+                // ran in this finisher invocation).
+                var marker = scenario.ActiveReFlySessionMarker;
+                var subtreeIds = journal.RecoveredSubtreeIds ?? RebuildSubtree(scenario);
+                var prov = ResolveProvisional(scenario);
+                string provisionalId = prov != null ? prov.RecordingId : null;
+                SupersedeCommit.CommitTombstones(
+                    marker,
+                    subtreeIds,
+                    provisionalId,
+                    SafeNow(),
+                    DateTime.UtcNow.ToString("o"),
+                    scenario);
+                AdvancePhase(scenario, MergeJournal.Phases.Finalize);
+                stepsDriven++;
+            }
+
+            if (journal.Phase == MergeJournal.Phases.Finalize)
+            {
+                // Re-run merge-state flip + transient clear. Idempotent —
+                // rewrites the same fields with the same inputs.
+                SupersedeCommit.FlipMergeStateAndClearTransient(
+                    scenario.ActiveReFlySessionMarker,
+                    ResolveProvisional(scenario),
+                    scenario,
+                    preserveMarker: true);
+                AdvancePhase(scenario, MergeJournal.Phases.Durable1Done);
+                DurableSave("finisher-durable1", persistSynchronously: false);
+                stepsDriven++;
+            }
+
+            // r7 review fix: the existing block was keyed on `fromPhase ==`,
+            // which only worked when the entry phase was Durable1Done. Under
+            // the new classification, an entry at Split/Supersede/Tombstone/
+            // Finalize advances journal.Phase through Durable1Done mid-
+            // function — without checking `journal.Phase ==` the tail
+            // completion (TagRpsForReap, ReapOrphanedRPs, MarkerCleared,
+            // Durable2Done) silently skips. Switch to journal.Phase to
+            // match the rest of the blocks below.
+            if (journal.Phase == MergeJournal.Phases.Durable1Done)
             {
                 TagRpsForReap(scenario.ActiveReFlySessionMarker, scenario);
                 RewindPointReaper.ReapOrphanedRPs();
@@ -605,6 +750,145 @@ namespace Parsek
         {
             try { return Planetarium.GetUniversalTime(); }
             catch { return 0.0; }
+        }
+
+        /// <summary>
+        /// Resolves the provisional fork recording for the active Re-Fly
+        /// session by looking up <c>marker.ActiveReFlyRecordingId</c> in
+        /// <see cref="RecordingStore.CommittedRecordings"/>. Used by the
+        /// <see cref="CompleteFromPostDurable"/> drive-forward path to find
+        /// the provisional for re-running AppendRelations / CommitTombstones
+        /// / FlipMergeStateAndClearTransient on a recovered journal. Returns
+        /// <c>null</c> (with a Warn log) if no marker or no committed
+        /// recording with that id is found — the caller's downstream code
+        /// must tolerate a null provisional (the underlying SupersedeCommit
+        /// helpers all early-return on null inputs).
+        /// </summary>
+        private static Recording ResolveProvisional(ParsekScenario scenario)
+        {
+            // ReferenceEquals bypasses Unity's Object == null override so a
+            // test fixture scenario without a Unity lifecycle still validates.
+            var marker = !object.ReferenceEquals(null, scenario)
+                ? scenario.ActiveReFlySessionMarker : null;
+            if (marker == null)
+            {
+                ParsekLog.Warn(Tag, "ResolveProvisional: no active marker — cannot resolve provisional");
+                return null;
+            }
+            string id = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(id))
+            {
+                ParsekLog.Warn(Tag, "ResolveProvisional: marker.ActiveReFlyRecordingId is empty");
+                return null;
+            }
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null)
+            {
+                ParsekLog.Warn(Tag, $"ResolveProvisional: RecordingStore.CommittedRecordings is null (looking for {id})");
+                return null;
+            }
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var r = committed[i];
+                if (r == null) continue;
+                if (string.Equals(r.RecordingId, id, StringComparison.Ordinal))
+                    return r;
+            }
+            ParsekLog.Warn(Tag,
+                $"ResolveProvisional: no committed recording with id={id} (marker may name a recording removed by a prior rollback)");
+            return null;
+        }
+
+        /// <summary>
+        /// Fallback subtree-closure rebuild for
+        /// <see cref="CompleteFromPostDurable"/>'s Tombstone block when
+        /// <c>journal.RecoveredSubtreeIds</c> is null on a fresh load (the
+        /// journal field is transient and not persisted). Recomputes the
+        /// subtree from the marker's current <c>SupersedeTargetId</c>
+        /// (which is TIP if Split has completed durably; origin otherwise)
+        /// via <see cref="EffectiveState.ComputeSubtreeClosureInternal"/>.
+        /// The walk is deterministic over the live recording-store + tree
+        /// state and supersede-relation additions don't affect closure
+        /// membership, so recomputation produces the identical subtree.
+        /// </summary>
+        private static IReadOnlyCollection<string> RebuildSubtree(ParsekScenario scenario)
+        {
+            // ReferenceEquals bypasses Unity's Object == null override so a
+            // test fixture scenario without a Unity lifecycle still validates.
+            var marker = !object.ReferenceEquals(null, scenario)
+                ? scenario.ActiveReFlySessionMarker : null;
+            if (marker == null) return new HashSet<string>(StringComparer.Ordinal);
+            string closureRoot = marker.SupersedeTargetId ?? marker.OriginChildRecordingId;
+            if (string.IsNullOrEmpty(closureRoot))
+                return new HashSet<string>(StringComparer.Ordinal);
+            var subtree = EffectiveState.ComputeSubtreeClosureInternal(marker, closureRoot);
+            if (subtree == null) return new HashSet<string>(StringComparer.Ordinal);
+
+            // Pass 2 review User-H1: AppendRelations filters the closure
+            // walk's chain-sibling enqueue of HEAD (and pre-rewind debris)
+            // out of the returned subtree via SupersedeCommit.IsPreRewindCarveOut
+            // (see SupersedeCommit.cs:376-386). On a fresh-load resume entering
+            // CompleteFromPostDurable at Tombstone, RecoveredSubtreeIds is null
+            // (transient, never persisted) and this fallback recomputes from
+            // scratch — without the same filter, the wider unfiltered subtree
+            // would reach CommitTombstones and falsely tombstone HEAD's
+            // pre-rewind ledger actions for any tombstone-eligible action
+            // type that lands during the launch portion. Mirror the
+            // AppendRelations filter here.
+            var filtered = new List<string>(subtree.Count);
+            int recordingsScanned = 0;
+            int carveOutSkipped = 0;
+            Dictionary<string, Recording> recById = null;
+            // Pass 4 follow-up micro-optimization (matches AppendRelations):
+            // pre-resolve TIP once so the chain-head case in
+            // IsPreRewindCarveOut skips its per-call O(N) store scan. TIP id
+            // is constant across every iteration of this loop.
+            Recording tipForCarveOut = null;
+            bool tipResolved = false;
+            foreach (var id in subtree)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                recordingsScanned++;
+                if (recById == null)
+                    recById = BuildRecordingIdIndex();
+                if (!tipResolved)
+                {
+                    if (!string.IsNullOrEmpty(marker.SupersedeTargetId))
+                        recById.TryGetValue(marker.SupersedeTargetId, out tipForCarveOut);
+                    tipResolved = true;
+                }
+                Recording rec;
+                if (recById.TryGetValue(id, out rec)
+                    && SupersedeCommit.IsPreRewindCarveOut(rec, marker, tipForCarveOut, out _))
+                {
+                    carveOutSkipped++;
+                    ParsekLog.Verbose(Tag,
+                        $"RebuildSubtree: filtered pre-rewind carve-out {id} from " +
+                        $"tombstone-resume subtree (matches AppendRelations write-set filter)");
+                    continue;
+                }
+                filtered.Add(id);
+            }
+            ParsekLog.Verbose(Tag,
+                $"RebuildSubtree: scanned={recordingsScanned.ToString(CultureInfo.InvariantCulture)} " +
+                $"carveOutSkipped={carveOutSkipped.ToString(CultureInfo.InvariantCulture)} " +
+                $"finalCount={filtered.Count.ToString(CultureInfo.InvariantCulture)}");
+            return filtered;
+        }
+
+        private static Dictionary<string, Recording> BuildRecordingIdIndex()
+        {
+            var index = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return index;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (!index.ContainsKey(rec.RecordingId))
+                    index.Add(rec.RecordingId, rec);
+            }
+            return index;
         }
     }
 }

@@ -253,8 +253,13 @@ namespace Parsek.Tests
             Assert.DoesNotContain(scenario.RewindPoints,
                 r => r.RewindPointId == "rp_persistent");
 
-            // Begin + all 3 stable durable barriers fired in order.
-            Assert.Equal(new[] { "begin", "durable1", "durable2", "durable3" },
+            // Begin + Split (new post-Begin durable barrier from
+            // fix-supersede-identity-scope plan §5) + all 3 stable durable
+            // barriers fired in order. The fixture's origin doesn't span the
+            // rewind UT so the splitter returns Skipped=true, but the Split
+            // DurableSave barrier still fires (the journal advances to
+            // Phase.Split regardless of split work).
+            Assert.Equal(new[] { "begin", "split", "durable1", "durable2", "durable3" },
                 durableSaveCheckpoints.ToArray());
 
             // §10.8 journal log contract.
@@ -480,8 +485,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CrashAtSupersede_Finisher_RollsBack_SessionRestored()
+        public void CrashAtSupersede_Finisher_DrivesForward_JournalCleared()
         {
+            // fix-supersede-identity-scope plan W2/W5 reclassification: under
+            // the new post-Split-durable barrier classification, a crash at
+            // Supersede drives forward via idempotent re-run instead of
+            // rolling back. AppendRelations skips existing rows; the
+            // remaining steps (Tombstone, Finalize, Durable1Done tail)
+            // complete the merge.
             var (scenario, provisional) = MakeStandardFixture();
             var ex = TryRunWithFault(MergeJournalOrchestrator.Phase.Supersede,
                 scenario.ActiveReFlySessionMarker, provisional);
@@ -494,15 +505,22 @@ namespace Parsek.Tests
 
             MergeJournalOrchestrator.RunFinisher();
 
+            // Drive-forward: journal cleared + marker cleared (merge
+            // completed via CompleteFromPostDurable).
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
-                l.Contains("[MergeJournal]") && l.Contains("Rolled back from phase=Supersede"));
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Supersede"));
         }
 
         [Fact]
-        public void CrashAtTombstone_Finisher_RollsBack_SessionRestored()
+        public void CrashAtTombstone_Finisher_DrivesForward_JournalCleared()
         {
+            // fix-supersede-identity-scope plan W2/W5 reclassification:
+            // Tombstone is now post-Begin-durable, drives forward via
+            // CommitTombstones idempotency (alreadyTombstoned dedup) +
+            // Finalize re-run + tail.
             var (scenario, provisional) = MakeStandardFixture();
             TryRunWithFault(MergeJournalOrchestrator.Phase.Tombstone,
                 scenario.ActiveReFlySessionMarker, provisional);
@@ -514,30 +532,35 @@ namespace Parsek.Tests
 
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
-                l.Contains("[MergeJournal]") && l.Contains("Rolled back from phase=Tombstone"));
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Tombstone"));
         }
 
         [Fact]
-        public void CrashAtFinalize_Finisher_RollsBack_SessionRestored()
+        public void CrashAtFinalize_Finisher_DrivesForward_JournalCleared()
         {
+            // fix-supersede-identity-scope plan W2/W5 reclassification:
+            // Finalize is now post-Begin-durable, drives forward via
+            // FlipMergeStateAndClearTransient idempotency (rewrites same
+            // fields with same inputs) + the existing Durable1Done tail.
             var (scenario, provisional) = MakeStandardFixture();
             TryRunWithFault(MergeJournalOrchestrator.Phase.Finalize,
                 scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeJournal.Phases.Finalize,
                 scenario.ActiveMergeJournal.Phase);
-            // MergeState already flipped in memory but Durable Save #1 never
-            // happened — disk still holds NotCommitted, so rollback is the
-            // right recovery. In-memory the flip is observable.
+            // MergeState already flipped in memory before the fault inject.
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
 
             MergeJournalOrchestrator.RunFinisher();
 
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Null(scenario.ActiveReFlySessionMarker);
+            // Idempotent re-run keeps the flip in place.
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
             Assert.Contains(logLines, l =>
-                l.Contains("[MergeJournal]") && l.Contains("Rolled back from phase=Finalize"));
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Finalize"));
         }
 
         // ================================================================
@@ -554,7 +577,10 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.Durable1Done,
                 scenario.ActiveMergeJournal.Phase);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
-            Assert.Equal(new[] { "begin", "durable1" }, durableSaveCheckpoints);
+            // "split" inserted between "begin" and "durable1" by the new
+            // post-Begin-durable Split barrier (fix-supersede-identity-scope
+            // plan §5).
+            Assert.Equal(new[] { "begin", "split", "durable1" }, durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();
 
@@ -701,7 +727,9 @@ namespace Parsek.Tests
                 scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.True(ok);
-            Assert.Equal(4, saveCalls.Count);
+            // 5 save calls: begin + split (new post-Begin durable barrier) +
+            // durable1 + durable2 + durable3.
+            Assert.Equal(5, saveCalls.Count);
             Assert.All(saveCalls, call =>
             {
                 Assert.Equal("persistent", call.saveName);
@@ -711,6 +739,7 @@ namespace Parsek.Tests
                 new[]
                 {
                     MergeJournal.Phases.Begin,
+                    MergeJournal.Phases.Split,
                     MergeJournal.Phases.Durable1Done,
                     MergeJournal.Phases.Durable2Done,
                     "<cleared>",
@@ -755,6 +784,232 @@ namespace Parsek.Tests
             Assert.Null(scenario.ActiveMergeJournal);
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeJournal]") && l.Contains("unknown phase"));
+        }
+
+        // ================================================================
+        // Split-phase orchestration (fix-supersede-identity-scope plan §5)
+        // ================================================================
+
+        /// <summary>
+        /// Builds an origin recording whose Points + TrackSection.frames
+        /// include a sample at <paramref name="midUT"/> so
+        /// <c>SplitAtSection</c>'s Unity-runtime-only Slerp interpolation
+        /// branch is bypassed when the split UT lands on midUT. Use the
+        /// same value for midUT and the planned rewindUT so the splitter
+        /// finds an existing point at the cut.
+        /// </summary>
+        private static Recording BuildSpanningOrigin(
+            string id, string treeId, double startUT, double midUT, double endUT,
+            TerminalState? terminal = null)
+        {
+            var origin = new Recording
+            {
+                RecordingId = id,
+                VesselName = id,
+                TreeId = treeId,
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = terminal,
+            };
+            origin.Points.Add(new TrajectoryPoint { ut = startUT });
+            if (midUT > startUT && midUT < endUT)
+                origin.Points.Add(new TrajectoryPoint { ut = midUT });
+            origin.Points.Add(new TrajectoryPoint { ut = endUT });
+            origin.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = startUT,
+                endUT = endUT,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = (midUT > startUT && midUT < endUT)
+                    ? new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = startUT },
+                        new TrajectoryPoint { ut = midUT },
+                        new TrajectoryPoint { ut = endUT },
+                    }
+                    : new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = startUT },
+                        new TrajectoryPoint { ut = endUT },
+                    },
+            });
+            return origin;
+        }
+
+        [Fact]
+        public void RunMerge_OriginSpansRewindUT_CallsSplitterBeforeSupersede()
+        {
+            // Install an origin recording that spans rewindUT [8..53] with
+            // rewindUT=34, plus a provisional fork. RunMerge should:
+            //  1. Advance through the Split phase + fire DurableSave("split").
+            //  2. Mutate marker.SupersedeTargetId to TIP's id (the post-split
+            //     half), so the AppendRelations closure starts at TIP.
+            //  3. The resulting supersede row points TIP → fork (not origin → fork).
+            var origin = BuildSpanningOrigin("rec_origin", "tree_1",
+                startUT: 8.0, midUT: 34.0, endUT: 53.0,
+                terminal: TerminalState.Destroyed);
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                RootRecordingId = "rec_origin",
+                ActiveRecordingId = "rec_origin",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = trees.Count - 1; i >= 0; i--)
+                if (trees[i].Id == "tree_1") trees.RemoveAt(i);
+            trees.Add(tree);
+
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = 34.0;
+            var scenario = InstallScenario(marker);
+
+            bool ok = MergeJournalOrchestrator.RunMerge(marker, provisional);
+            Assert.True(ok);
+
+            // Split barrier fired between begin and durable1.
+            Assert.Contains("split", durableSaveCheckpoints);
+            int beginIdx = durableSaveCheckpoints.IndexOf("begin");
+            int splitIdx = durableSaveCheckpoints.IndexOf("split");
+            int durable1Idx = durableSaveCheckpoints.IndexOf("durable1");
+            Assert.True(beginIdx < splitIdx && splitIdx < durable1Idx,
+                $"Expected begin({beginIdx}) < split({splitIdx}) < durable1({durable1Idx}) " +
+                $"in {string.Join(",", durableSaveCheckpoints)}");
+
+            // Splitter mutated marker.SupersedeTargetId to TIP's id (a new id).
+            // marker is cleared at merge end, so the "after" check needs the
+            // resulting supersede rows to show TIP → fork.
+            // The TIP recording is a new Recording in the committed list
+            // sharing rec_origin's ChainId with ChainIndex=1.
+            Recording head = null, tip = null;
+            foreach (var rec in RecordingStore.CommittedRecordings)
+            {
+                if (rec == null) continue;
+                if (rec.RecordingId == "rec_origin") head = rec;
+                else if (rec.TreeId == "tree_1" && rec.RecordingId != "rec_provisional"
+                    && rec.ChainIndex == 1) tip = rec;
+            }
+            Assert.NotNull(head);
+            Assert.NotNull(tip);
+            Assert.Equal(head.ChainId, tip.ChainId);
+            Assert.Equal(0, head.ChainIndex);
+            Assert.Equal(1, tip.ChainIndex);
+            Assert.Equal(34.0, head.EndUT);
+            Assert.Equal(34.0, tip.StartUT);
+
+            // The supersede row added by AppendRelations points TIP → fork,
+            // not origin → fork (the data-correctness goal of the fix).
+            Assert.Contains(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == tip.RecordingId
+                && r.NewRecordingId == "rec_provisional");
+            // HEAD is NOT superseded by fork — it's a pre-rewind chain head
+            // carved out by SupersedeCommit.IsPreRewindCarveOut.
+            Assert.DoesNotContain(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == "rec_origin"
+                && r.NewRecordingId == "rec_provisional");
+        }
+
+        [Fact]
+        public void RunMerge_OriginDoesNotSpanRewindUT_SkipsSplit()
+        {
+            // Origin lies entirely post-rewind: [40..53] with rewindUT=34.
+            // SplitOriginAtRewindUT returns Skipped=true with no mutation.
+            // The Split phase still advances (and DurableSave("split") fires)
+            // because the journal barrier is unconditional, but the marker's
+            // SupersedeTargetId is untouched so AppendRelations writes
+            // origin → fork (today's whole-recording supersede shape).
+            var origin = BuildSpanningOrigin("rec_origin", "tree_1",
+                startUT: 40.0, midUT: double.NaN, endUT: 53.0,
+                terminal: TerminalState.Destroyed);
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Test_tree_1",
+                RootRecordingId = "rec_origin",
+                ActiveRecordingId = "rec_origin",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            RecordingStore.AddRecordingWithTreeForTesting(origin, "tree_1");
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = trees.Count - 1; i >= 0; i--)
+                if (trees[i].Id == "tree_1") trees.RemoveAt(i);
+            trees.Add(tree);
+
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            var marker = Marker("rec_origin", "rec_provisional");
+            marker.RewindPointUT = 34.0;
+            var scenario = InstallScenario(marker);
+
+            bool ok = MergeJournalOrchestrator.RunMerge(marker, provisional);
+            Assert.True(ok);
+
+            // Split barrier still fires (unconditional advance + DurableSave).
+            Assert.Contains("split", durableSaveCheckpoints);
+            // No new recording inserted.
+            Assert.Equal(committedBefore, RecordingStore.CommittedRecordings.Count);
+            // origin recordings is unchanged.
+            Recording head = null;
+            foreach (var rec in RecordingStore.CommittedRecordings)
+            {
+                if (rec == null) continue;
+                if (rec.RecordingId == "rec_origin") head = rec;
+            }
+            Assert.NotNull(head);
+            Assert.Equal(40.0, head.StartUT);
+            Assert.Equal(53.0, head.EndUT);
+
+            // The supersede row uses origin's id (unchanged) as oldRecordingId.
+            Assert.Contains(scenario.RecordingSupersedes, r =>
+                r.OldRecordingId == "rec_origin"
+                && r.NewRecordingId == "rec_provisional");
+            // Splitter logged the skip.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]") && l.Contains("skip")
+                && l.Contains("do not strictly span"));
+        }
+
+        [Fact]
+        public void RunFinisher_PhaseSplit_DrivesForwardThroughComplete()
+        {
+            // Install a journal at phase=Split (post-Split DurableSave fired,
+            // crash before Supersede). RunFinisher should drive forward
+            // through Supersede → Tombstone → Finalize → Durable1Done →
+            // RpReap → MarkerCleared → Durable2Done → Complete, finishing
+            // the merge.
+            var (scenario, provisional) = MakeStandardFixture();
+
+            // Crash at Split (just after the new post-Begin durable barrier).
+            TryRunWithFault(MergeJournalOrchestrator.Phase.Split,
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeJournal.Phases.Split,
+                scenario.ActiveMergeJournal.Phase);
+            Assert.Contains("begin", durableSaveCheckpoints);
+            Assert.Contains("split", durableSaveCheckpoints);
+            Assert.DoesNotContain("durable1", durableSaveCheckpoints);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.NotCommitted, provisional.MergeState);
+
+            MergeJournalOrchestrator.RunFinisher();
+
+            // Drive-forward: marker + journal cleared, MergeState flipped.
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            Assert.Equal(2, scenario.RecordingSupersedes.Count);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Split"));
         }
 
         // ================================================================
