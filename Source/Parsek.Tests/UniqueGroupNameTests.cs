@@ -167,5 +167,60 @@ namespace Parsek.Tests
 
             Assert.Equal("Flea #3", result);
         }
+
+        [Fact]
+        public void LegacyParensFormat_OnlyLegacyVariant_BasenameStillUnique()
+        {
+            // A save that holds only "Flea (2)" (no plain "Flea") still leaves
+            // the basename "Flea" available — the legacy-only collision set
+            // must not poison the basename short-circuit. The very first call
+            // with baseName="Flea" returns "Flea" unchanged.
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                VesselName = "Flea",
+                RecordingGroups = new List<string> { "Flea (2)" }
+            });
+
+            string result = RecordingStore.GenerateUniqueGroupName("Flea");
+
+            Assert.Equal("Flea", result);
+        }
+
+        [Fact]
+        public void DualFormSameSlot_BothFormsSkipped()
+        {
+            // Pin the dual-form skip semantics when BOTH the new "#3" and
+            // legacy "(3)" forms are present at the same sequence slot. The
+            // loop should hit n=2 first (free) and return "Flea #2", leaving
+            // both "Flea #3" and "Flea (3)" alone. The skip predicate is `OR`,
+            // not `AND`, so a candidate is rejected as long as either form
+            // exists at that n.
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                VesselName = "Flea",
+                RecordingGroups = new List<string> { "Flea", "Flea #3", "Flea (3)" }
+            });
+
+            string result = RecordingStore.GenerateUniqueGroupName("Flea");
+
+            Assert.Equal("Flea #2", result);
+        }
+
+        [Fact]
+        public void DualFormMixed_NewAndLegacyAtDifferentSlots_BothSkipped()
+        {
+            // Pin the full mixed-save case: "Flea" + "Flea #2" + "Flea (3)".
+            // The loop must skip n=2 (new form exists), skip n=3 (legacy
+            // form exists), and return "Flea #4".
+            RecordingStore.AddRecordingWithTreeForTesting(new Recording
+            {
+                VesselName = "Flea",
+                RecordingGroups = new List<string> { "Flea", "Flea #2", "Flea (3)" }
+            });
+
+            string result = RecordingStore.GenerateUniqueGroupName("Flea");
+
+            Assert.Equal("Flea #4", result);
+        }
     }
 }

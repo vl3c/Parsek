@@ -741,8 +741,12 @@ namespace Parsek
 
         /// <summary>
         /// Returns a group name that doesn't collide with existing group names.
-        /// If baseName is not already used, returns it unchanged.
-        /// Otherwise appends " (2)", " (3)", etc. until a unique name is found.
+        /// If baseName is not already used, returns it unchanged. Otherwise
+        /// appends " #2", " #3", etc. until a unique name is found. The hash
+        /// prefix (vs the legacy " (2)" / " (3)" form) keeps the disambiguation
+        /// suffix visually distinct from the trailing " ({memberCount})" the
+        /// recordings table appends to every group button — see the inline
+        /// comment on the candidate loop for the full rationale.
         /// </summary>
         internal static string GenerateUniqueGroupName(
             string baseName,
