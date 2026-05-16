@@ -4,8 +4,119 @@ using System.Globalization;
 
 namespace Parsek
 {
+    /// <summary>
+    /// Candidate part-to-parent mapping used by <see cref="RouteProofCapture.TryResolveStartDockedOriginPartner"/>.
+    /// Represents one part on the active vessel whose <c>part.parent</c> belongs to a different vessel
+    /// at recording-start time (i.e. an externally-coupled coupling such as a dock or grapple).
+    /// </summary>
+    internal readonly struct OriginPartnerCandidate
+    {
+        public readonly uint PartPersistentId;
+        public readonly uint ParentVesselPersistentId;
+        public readonly int ParentVesselSituation; // (int)Vessel.Situations; -1 = unknown
+
+        internal OriginPartnerCandidate(uint partPersistentId, uint parentVesselPersistentId, int parentVesselSituation)
+        {
+            PartPersistentId = partPersistentId;
+            ParentVesselPersistentId = parentVesselPersistentId;
+            ParentVesselSituation = parentVesselSituation;
+        }
+    }
+
+    /// <summary>
+    /// Outcome of the pure start-docked origin-partner resolver. <see cref="Captured"/> is the
+    /// only branch that produces a usable partner PID; all others identify the specific reason
+    /// the recording should NOT carry a RouteOriginProof.
+    /// </summary>
+    internal enum OriginProofDetection
+    {
+        Captured,
+        NoExternalCoupling,
+        ActiveVesselPrelaunch,
+        PartnerPrelaunch,
+        PartnerPidZero,
+        PartnerAmbiguous,
+    }
+
     internal static class RouteProofCapture
     {
+        /// <summary>
+        /// Pure resolver: given the active vessel's situation/EVA flag and a list of externally
+        /// parented parts (parts whose <c>part.parent.vessel != activeVessel</c>), decide whether
+        /// a single valid non-KSC origin partner exists. No KSP dependency; logging happens at the
+        /// call site so callers can attach context (vessel name, recording id, etc.).
+        ///
+        /// Decision contract (in order):
+        ///   1. activeVesselIsEva == true          -> NoExternalCoupling
+        ///   2. activeVesselSituation == PRELAUNCH -> ActiveVesselPrelaunch
+        ///   3. empty candidate list               -> NoExternalCoupling
+        ///   4. distinct non-zero, non-PRELAUNCH partners == 1 -> Captured
+        ///      else all partner pids == 0         -> PartnerPidZero
+        ///      else all valid candidates PRELAUNCH-> PartnerPrelaunch
+        ///      else 2+ distinct valid partners    -> PartnerAmbiguous
+        /// </summary>
+        internal static OriginProofDetection TryResolveStartDockedOriginPartner(
+            int activeVesselSituation,
+            bool activeVesselIsEva,
+            IReadOnlyList<OriginPartnerCandidate> externallyParentedParts,
+            out uint partnerVesselPid)
+        {
+            partnerVesselPid = 0;
+
+            if (activeVesselIsEva)
+                return OriginProofDetection.NoExternalCoupling;
+
+            if (activeVesselSituation == (int)Vessel.Situations.PRELAUNCH)
+                return OriginProofDetection.ActiveVesselPrelaunch;
+
+            if (externallyParentedParts == null || externallyParentedParts.Count == 0)
+                return OriginProofDetection.NoExternalCoupling;
+
+            // Walk candidates; track whether ANY candidate existed at all, whether ALL of them
+            // had pid==0, whether ALL valid (pid!=0) candidates were PRELAUNCH, and the set of
+            // distinct non-zero, non-PRELAUNCH partner pids.
+            bool sawAnyCandidate = false;
+            bool sawAnyNonZeroPid = false;
+            bool sawAnyNonPrelaunchValid = false;
+            var distinctValidPids = new List<uint>();
+
+            for (int i = 0; i < externallyParentedParts.Count; i++)
+            {
+                OriginPartnerCandidate c = externallyParentedParts[i];
+                sawAnyCandidate = true;
+                if (c.ParentVesselPersistentId == 0)
+                    continue;
+                sawAnyNonZeroPid = true;
+                if (c.ParentVesselSituation == (int)Vessel.Situations.PRELAUNCH)
+                    continue;
+                sawAnyNonPrelaunchValid = true;
+                if (!distinctValidPids.Contains(c.ParentVesselPersistentId))
+                    distinctValidPids.Add(c.ParentVesselPersistentId);
+            }
+
+            if (!sawAnyCandidate)
+                return OriginProofDetection.NoExternalCoupling;
+
+            if (distinctValidPids.Count == 1)
+            {
+                partnerVesselPid = distinctValidPids[0];
+                return OriginProofDetection.Captured;
+            }
+
+            if (distinctValidPids.Count >= 2)
+                return OriginProofDetection.PartnerAmbiguous;
+
+            // distinctValidPids.Count == 0: classify why
+            if (!sawAnyNonZeroPid)
+                return OriginProofDetection.PartnerPidZero;
+
+            if (!sawAnyNonPrelaunchValid)
+                return OriginProofDetection.PartnerPrelaunch;
+
+            // Defensive: theoretically unreachable, but keep a deterministic answer.
+            return OriginProofDetection.NoExternalCoupling;
+        }
+
         internal static RouteConnectionWindow BuildDockRouteConnectionWindow(
             double dockUT,
             uint transferTargetVesselPid,
