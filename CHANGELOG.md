@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 - Wired the stock-action intent consume site so Tracking Station Fly, KSC marker Fly, and Map view Switch To clicks immediately start a new switch-continuation segment for the focused vessel and disarm the first-modification fallback for that switch.
 - Switch-segment consume now binds the live FlightRecorder to the new segment's recording id so trajectory samples flow immediately.
 - Narrowed #866 committed-tree-restore suppression so switch-segment marker-owned new recording ids retain event persistence, dirty sidecar saves, and milestone flushes even when a restore attempt is armed.
+- Scene-exit Discard after a switch/Fly action now removes only the switch segment and preserves committed history; Merge commits the segment under the committed timeline. Dialog copy reflects the player's entry path (Fly vs Switch To). When pre-existing pending changes remain after a scoped Discard, a second whole-pending-tree Merge / Discard / Cancel dialog is shown before the scene exit completes.
 - Reset the private-development recording/rendering schema baseline to v0. Old pre-reset Parsek recordings, sidecars, and career ledger entries are rejected with explicit reasons rather than migrated.
 - Reset pannotations sidecars through new `PNA0`/`PNC0` magic and v0 cache schema stamps.
 - Removed the historical recording-format compatibility ladder from the current trajectory codec. Old `PRKB`/`PRKS` sidecars and pre-reset pannotations magic tags are treated as unsupported.

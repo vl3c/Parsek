@@ -198,6 +198,19 @@ namespace Parsek
                     $"reasons=[{string.Join(",", preview.Reasons)}] " +
                     $"sess={marker.SessionId ?? "<no-id>"}");
             }
+            else if (!object.ReferenceEquals(null, reFlyScenario)
+                && reFlyScenario.ActiveSwitchSegmentSession != null)
+            {
+                // Switch/Fly segment merge: entry-reason-aware copy per plan
+                // §"Dialog and UI Copy". The dialog is asking the player to
+                // commit a switch-segment attempt, not a whole restored tree.
+                message = BuildSwitchSegmentDialogBody(
+                    reFlyScenario.ActiveSwitchSegmentSession, tree);
+                ParsekLog.Info("MergeDialog",
+                    $"Switch-segment merge dialog (post-transition): " +
+                    $"sessionId={reFlyScenario.ActiveSwitchSegmentSession.SessionId:D} " +
+                    $"entryReason={reFlyScenario.ActiveSwitchSegmentSession.EntryReason}");
+            }
             else
             {
                 // Regular tree-merge: just the headline. The spawnable=0
@@ -342,8 +355,24 @@ namespace Parsek
                 title = "Confirm Merge to Timeline";
                 mergeLabel = "Merge to Timeline";
                 discardLabel = "Discard";
-                double duration = ComputeTreeDurationRange(liveTree);
-                message = $"{liveTree.TreeName} - {FormatDuration(duration)}";
+                var switchScenario = ParsekScenario.Instance;
+                if (!object.ReferenceEquals(null, switchScenario)
+                    && switchScenario.ActiveSwitchSegmentSession != null)
+                {
+                    // Switch/Fly segment merge: entry-reason-aware copy per
+                    // plan §"Dialog and UI Copy". Pre-transition path.
+                    message = BuildSwitchSegmentDialogBody(
+                        switchScenario.ActiveSwitchSegmentSession, liveTree);
+                    ParsekLog.Info("MergeDialog",
+                        $"Switch-segment merge dialog (pre-transition): " +
+                        $"sessionId={switchScenario.ActiveSwitchSegmentSession.SessionId:D} " +
+                        $"entryReason={switchScenario.ActiveSwitchSegmentSession.EntryReason}");
+                }
+                else
+                {
+                    double duration = ComputeTreeDurationRange(liveTree);
+                    message = $"{liveTree.TreeName} - {FormatDuration(duration)}";
+                }
             }
 
             ParsekLog.Info("MergeDialog",
@@ -605,6 +634,180 @@ namespace Parsek
             => string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
 
         /// <summary>
+        /// Builds the entry-reason-aware first-dialog body for a scene-exit
+        /// merge dialog where an active <see cref="SwitchSegmentSession"/>
+        /// is armed. Per plan §"Dialog and UI Copy":
+        /// - TS Fly / KSC Fly: "Keep your new flight on '{vesselName}'? ..."
+        /// - Map Switch-To: "Keep your switch into '{vesselName}'? ..."
+        /// The shared trailing clause is "Choosing Discard returns to the
+        /// committed timeline; choosing Merge appends this segment under it."
+        /// </summary>
+        internal static string BuildSwitchSegmentDialogBody(
+            SwitchSegmentSession session, RecordingTree tree)
+        {
+            string vesselName = ResolveSwitchSegmentVesselName(session, tree);
+            string verbClause = session != null
+                && session.EntryReason == SwitchSegmentEntryReason.MapSwitchTo
+                    ? $"Keep your switch into '{vesselName}'?"
+                    : $"Keep your new flight on '{vesselName}'?";
+            return $"{verbClause} Choosing Discard returns to the committed timeline; " +
+                $"choosing Merge appends this segment under it.";
+        }
+
+        private static string ResolveSwitchSegmentVesselName(
+            SwitchSegmentSession session, RecordingTree tree)
+        {
+            const string fallback = "this vessel";
+            if (session == null || string.IsNullOrEmpty(session.ActiveSegmentRecordingId))
+                return fallback;
+            if (tree?.Recordings != null
+                && tree.Recordings.TryGetValue(session.ActiveSegmentRecordingId,
+                    out Recording rec)
+                && rec != null
+                && !string.IsNullOrEmpty(rec.VesselName))
+            {
+                return rec.VesselName;
+            }
+            // Fall back to the committed list — the recording may have been
+            // promoted on a follow-up merge or live in a different tree handle.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var c = committed[i];
+                    if (c == null) continue;
+                    if (string.Equals(c.RecordingId, session.ActiveSegmentRecordingId,
+                            System.StringComparison.Ordinal)
+                        && !string.IsNullOrEmpty(c.VesselName))
+                        return c.VesselName;
+                }
+            }
+            return fallback;
+        }
+
+        /// <summary>
+        /// Second-dialog body for the whole-pending-tree merge/discard prompt
+        /// shown after a successful scoped switch-segment Discard when
+        /// pre-existing pending changes remain. Reuses the existing
+        /// whole-pending-tree dialog wording per plan §"Final Disposition
+        /// After Scoped Discard": "The second dialog must offer Cancel
+        /// alongside Merge / Discard." The text intentionally mirrors the
+        /// regular tree-merge dialog so the player sees a familiar prompt.
+        /// </summary>
+        private static string BuildSecondaryPendingTreeDialogBody(
+            RecordingTree tree, int recordingCount)
+        {
+            string treeName = tree?.TreeName ?? "<unnamed>";
+            double duration = ComputeTreeDurationRange(tree);
+            return $"You still have {recordingCount} pending recording(s) " +
+                $"on '{treeName}' ({FormatDuration(duration)}). Merge appends them " +
+                $"to the committed timeline; Discard removes them; Cancel keeps " +
+                $"them pending.";
+        }
+
+        /// <summary>
+        /// Spawns the whole-pending-tree second dialog (Merge / Discard / Cancel)
+        /// after a successful scoped switch-segment Discard left pre-existing
+        /// pending changes behind. Plan §"Final Disposition After Scoped
+        /// Discard": "Cancel returns the player to FLIGHT with the segment-
+        /// pruned pending tree intact. Scene exit is blocked only until the
+        /// player picks one of the three; there must not be a state where the
+        /// first dialog is dismissed but the scene is half-transitioning while
+        /// the second one is waiting." The input lock contract from the first
+        /// dialog is preserved across both dialogs; only a terminal choice
+        /// here releases it.
+        /// </summary>
+        internal static void ShowSecondaryPendingDiscardDialog(RecordingTree pending)
+        {
+            if (pending == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "ShowSecondaryPendingDiscardDialog: pending tree is null - nothing to prompt");
+                ClearPendingFlag("secondary-dialog null pending tree");
+                return;
+            }
+
+            int recordingCount = pending.Recordings?.Count ?? 0;
+            ParsekLog.Info("SwitchSegment",
+                $"ShowSecondaryPendingDiscardDialog: opening whole-pending-tree dialog " +
+                $"after scoped switch-segment discard; tree='{pending.TreeName}' " +
+                $"recordings={recordingCount}");
+
+            string title = "Pending changes remain";
+            string message = BuildSecondaryPendingTreeDialogBody(pending, recordingCount);
+
+            DialogGUIButton[] buttons = new[]
+            {
+                new DialogGUIButton("Merge to Timeline", () =>
+                {
+                    ParsekLog.Info("SwitchSegment",
+                        "Secondary pending-tree dialog: Merge chosen");
+                    var decisions = BuildDefaultVesselDecisions(pending, null, null);
+                    int spawnCount = 0;
+                    foreach (var v in decisions.Values) if (v) spawnCount++;
+                    MergeCommit(pending, decisions, spawnCount);
+                }),
+                new DialogGUIButton("Discard", () =>
+                {
+                    ParsekLog.Info("SwitchSegment",
+                        "Secondary pending-tree dialog: Discard chosen");
+                    int discardedRecordingCount = pending.Recordings?.Count ?? 0;
+                    bool refreshSerializedPendingMarker =
+                        RecordingStore.HasPendingTree
+                        && RecordingStore.PendingTreeSerializedForSave;
+                    ParsekScenario.DiscardPendingTreeAndRecalculate(
+                        "secondary-dialog discard after scoped switch-segment discard");
+                    if (refreshSerializedPendingMarker)
+                    {
+                        RecordingStore.RefreshSaveAndQuicksaveAfterDiscard(
+                            "secondary-dialog whole-tree discard",
+                            discardedRecordingCount);
+                    }
+                    ClearPendingFlag("secondary-dialog discard");
+                    ParsekLog.ScreenMessage("Pending changes discarded", 2f);
+                }),
+                new DialogGUIButton("Cancel", () =>
+                {
+                    ParsekLog.Info("SwitchSegment",
+                        "Secondary pending-tree dialog: Cancel chosen; " +
+                        "pruned pending tree left intact");
+                    ClearPendingFlag("secondary-dialog cancel");
+                }),
+            };
+
+            PopupDialog.DismissPopup(DialogName);
+            // Input lock contract: keep the lock armed across both dialogs.
+            // We do not re-arm it here — the first dialog's LockInput is still
+            // in effect; ClearPendingFlag inside the button handlers releases
+            // it on a terminal choice.
+            PopupDialog popup = PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    DialogName,
+                    message,
+                    title,
+                    HighLogic.UISkin,
+                    buttons),
+                false,
+                HighLogic.UISkin);
+            if (popup != null)
+            {
+                popup.OnDismiss += () =>
+                {
+                    ClearPendingFlag("secondary popup teardown");
+                };
+            }
+            else
+            {
+                ClearPendingFlag("secondary popup spawn returned null");
+                ParsekLog.Warn("MergeDialog",
+                    "ShowSecondaryPendingDiscardDialog: SpawnPopupDialog returned null");
+            }
+        }
+
+        /// <summary>
         /// Locate the recording the active re-fly session targets. Tries the
         /// pending tree first (so the lookup works whether the dialog fires
         /// before or after `RecordingStore.CommitPendingTree`), then falls
@@ -715,6 +918,24 @@ namespace Parsek
                     "merge dialog Tree Merge", tree.Recordings.Count);
             }
 
+            // Switch/Fly segment merge hook: when an active session is armed
+            // and the commit succeeded, clear the marker (plan §"Merge and
+            // Discard Scope": "On Merge, commit the pending tree normally
+            // and clear the switch marker only after the commit succeeds.").
+            // If a committed-tree restore attempt is also armed, clear it
+            // too — the commit promoted the clone to the new committed tree.
+            var switchSegmentScenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, switchSegmentScenario)
+                && switchSegmentScenario.ActiveSwitchSegmentSession != null)
+            {
+                switchSegmentScenario.ClearSwitchSegmentSession("scoped-merge-success");
+                if (RecordingStore.HasCommittedTreeRestoreAttempt)
+                {
+                    RecordingStore.ClearCommittedTreeRestoreAttempt(
+                        "scoped-merge-success switch-segment");
+                }
+            }
+
             ClearPendingFlag("merge dialog commit button");
             OnTreeCommitted?.Invoke();
             if (spawnCount > 0)
@@ -777,6 +998,54 @@ namespace Parsek
 
             if (TryDiscardActiveReFlyAttempt(tree))
                 return true;
+
+            // Switch/Fly segment scoped Discard (plan §"Merge and Discard Scope").
+            // Mirrors the ReFly placement: try scoped first, then fall back to
+            // whole-pending-tree discard ONLY when no session was armed.
+            // When a scoped discard succeeds, the disposition decides whether
+            // to also open the second whole-pending-tree dialog.
+            string switchSegmentReason;
+            var switchSegmentDisposition =
+                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(
+                    out switchSegmentReason);
+            if (switchSegmentDisposition
+                != RecordingStore.SwitchSegmentDiscardDisposition.NoActiveSession)
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"MergeDiscard: scoped switch-segment discard succeeded " +
+                    $"disposition={switchSegmentDisposition} reason={switchSegmentReason}");
+
+                if (switchSegmentDisposition
+                    == RecordingStore.SwitchSegmentDiscardDisposition.PendingTreePrune)
+                {
+                    int remainingRecordings;
+                    int remainingBranchPoints;
+                    if (RecordingStore.HasRemainingPendingChangesAfterSegmentDiscard(
+                            out remainingRecordings, out remainingBranchPoints))
+                    {
+                        ParsekLog.Info("SwitchSegment",
+                            $"MergeDiscard: pre-existing pending changes remain after " +
+                            $"scoped discard; opening second dialog. " +
+                            $"remainingRecordings={remainingRecordings} " +
+                            $"remainingBranchPoints={remainingBranchPoints}");
+                        ShowSecondaryPendingDiscardDialog(RecordingStore.PendingTree);
+                        return true;
+                    }
+                    ParsekLog.Info("SwitchSegment",
+                        "MergeDiscard: no pre-existing pending changes after scoped " +
+                        "switch-segment discard; releasing input lock");
+                }
+                else
+                {
+                    ParsekLog.Info("SwitchSegment",
+                        "MergeDiscard: scoped switch-segment discard dropped active " +
+                        "clone; no second dialog needed");
+                }
+
+                ClearPendingFlag("merge dialog switch-segment scoped discard");
+                ParsekLog.ScreenMessage("Switch segment discarded", 2f);
+                return true;
+            }
 
             bool refreshSerializedPendingMarker =
                 RecordingStore.HasPendingTree

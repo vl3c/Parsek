@@ -2497,6 +2497,488 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Disposition path returned by <see cref="TryDiscardActiveSwitchSegmentAttempt"/>.
+        /// Drives the caller's follow-up cleanup (clone-drop vs second-dialog
+        /// check) per plan §"Final Disposition After Scoped Discard".
+        /// </summary>
+        internal enum SwitchSegmentDiscardDisposition
+        {
+            /// <summary>No active session was armed; nothing was discarded.</summary>
+            NoActiveSession = 0,
+
+            /// <summary>The segment was added inside a committed-tree restore
+            /// clone. After pruning the segment, the entire active/pending
+            /// clone wrapper is dropped and the committed-tree restore
+            /// attempt cleared. Nothing pending remains; the caller MUST
+            /// NOT open a second dialog.</summary>
+            CommittedRestoreClone = 1,
+
+            /// <summary>The segment was added to a non-committed pending
+            /// tree. After pruning the segment, the pruned pending tree
+            /// remains in the pending slot. The caller is responsible for
+            /// calling <see cref="HasRemainingPendingChangesAfterSegmentDiscard"/>
+            /// to decide whether to open the second whole-pending-tree
+            /// merge/discard dialog.</summary>
+            PendingTreePrune = 2,
+        }
+
+        /// <summary>
+        /// Scene-exit Discard hook for an armed <see cref="SwitchSegmentSession"/>.
+        /// Mirrors <see cref="MergeDialog.TryDiscardActiveReFlyAttempt"/>'s
+        /// placement: <see cref="MergeDialog.MergeDiscard"/> calls this BEFORE
+        /// falling back to the whole-pending-tree
+        /// <see cref="DiscardPendingTree"/> path, so committed mission history
+        /// is preserved when the only new pending work is the switch/Fly
+        /// segment itself.
+        ///
+        /// <para>On success, removes the session's segment recording + any
+        /// descendant marker-owned recordings + their branch points + their
+        /// game-state events + their sidecar files + the persisted
+        /// <see cref="SwitchSegmentSession"/> marker. Preserves all committed
+        /// recording IDs, their sidecars, their game-state events at or before
+        /// the switch UT, and any pre-existing pending recordings the session
+        /// did not author.</para>
+        ///
+        /// <para>Returns the disposition path so the caller can branch on
+        /// clone-restore (drop the clone, no second dialog) vs pending-tree
+        /// (check for remaining pending work and open the second dialog if
+        /// needed). Returns <see cref="SwitchSegmentDiscardDisposition.NoActiveSession"/>
+        /// when no session is armed; the caller should fall through to the
+        /// regular whole-pending-tree discard.</para>
+        ///
+        /// <para>[ERS-exempt] rationale: this is a topology cleanup helper
+        /// that mirrors the structural-id collection already done by
+        /// <see cref="MergeDialog.CollectReFlyAttemptOwnedRecordingIds"/>;
+        /// the surviving committed timeline is reconstructed via the normal
+        /// <see cref="EffectiveState"/> pipeline after the helper returns.</para>
+        /// </summary>
+        internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(
+            out string reason)
+        {
+            reason = null;
+            var scenario = ParsekScenario.Instance;
+            var session = scenario?.ActiveSwitchSegmentSession;
+            if (session == null)
+            {
+                reason = "no-active-session";
+                ParsekLog.Verbose("SwitchSegment",
+                    $"TryDiscardActiveSwitchSegmentAttempt: {reason}");
+                return SwitchSegmentDiscardDisposition.NoActiveSession;
+            }
+
+            string sessionIdStr = session.SessionId.ToString("D", CultureInfo.InvariantCulture);
+            bool isCommittedRestoreClone =
+                !string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId)
+                && (string.Equals(committedTreeRestoreAttemptTreeId, session.TreeId,
+                    StringComparison.Ordinal)
+                    || string.Equals(committedTreeRestoreAttemptTreeId, session.CommittedTreeId,
+                        StringComparison.Ordinal));
+
+            // Locate the tree the marker-owned recordings actually live in.
+            // The session.TreeId may point at the pending tree, the active
+            // (in-flight) tree, or a saved-pending-during-active-restore tree.
+            RecordingTree segmentTree = FindSegmentTreeForSession(session);
+            if (segmentTree == null)
+            {
+                reason = "session-tree-missing";
+                ParsekLog.Warn("SwitchSegment",
+                    $"TryDiscardActiveSwitchSegmentAttempt refused: " +
+                    $"sessionId={sessionIdStr} treeId={session.TreeId ?? "<null>"} " +
+                    $"reason={reason}");
+                return SwitchSegmentDiscardDisposition.NoActiveSession;
+            }
+
+            // Collect marker-owned recording ids (transitive closure of
+            // descendants whose SwitchSegmentSessionId also matches).
+            var ownedIds = CollectSwitchSegmentMarkerOwnedRecordingIds(segmentTree, session);
+            int ownedCount = ownedIds.Count;
+
+            // Snapshot session-authored branch point ids = current BPs minus
+            // PreSessionBranchPointIds baseline. Mirrors the ReFly approach.
+            HashSet<string> sessionAuthoredBpIds = CollectSessionAuthoredBranchPointIds(
+                segmentTree, session);
+
+            int purgedEvents = 0;
+            int deletedSidecars = 0;
+            if (ownedIds.Count > 0)
+            {
+                purgedEvents = GameStateStore.PurgeEventsForRecordings(
+                    ownedIds,
+                    $"SwitchSegment scoped discard sess={sessionIdStr}");
+
+                foreach (string id in ownedIds)
+                {
+                    if (string.IsNullOrEmpty(id))
+                        continue;
+                    Recording rec;
+                    if (segmentTree.Recordings != null
+                        && segmentTree.Recordings.TryGetValue(id, out rec)
+                        && rec != null)
+                    {
+                        DeleteRecordingFiles(rec);
+                        deletedSidecars++;
+                    }
+                }
+            }
+
+            int removedRecordings = RemoveRecordingIdsFromTree(segmentTree, ownedIds);
+            int removedBranchPoints = RemoveSessionAuthoredBranchPointsFromTree(
+                segmentTree, sessionAuthoredBpIds);
+
+            // Repair parent recording's ChildBranchPointId if it now points at
+            // a removed BP. Mirrors PruneSessionCreatedBranchPoints.
+            if (segmentTree.Recordings != null && sessionAuthoredBpIds.Count > 0)
+            {
+                foreach (var rec in segmentTree.Recordings.Values)
+                {
+                    if (rec == null) continue;
+                    if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                        && sessionAuthoredBpIds.Contains(rec.ParentBranchPointId))
+                    {
+                        rec.ParentBranchPointId = null;
+                        rec.MarkFilesDirty();
+                    }
+                    if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                        && sessionAuthoredBpIds.Contains(rec.ChildBranchPointId))
+                    {
+                        rec.ChildBranchPointId = null;
+                        rec.MarkFilesDirty();
+                    }
+                }
+            }
+
+            // Repair ActiveRecordingId if it pointed at a removed segment.
+            if (!string.IsNullOrEmpty(segmentTree.ActiveRecordingId)
+                && ownedIds.Contains(segmentTree.ActiveRecordingId))
+            {
+                string priorActive = segmentTree.ActiveRecordingId;
+                segmentTree.ActiveRecordingId = !string.IsNullOrEmpty(session.ParentRecordingId)
+                    && segmentTree.Recordings != null
+                    && segmentTree.Recordings.ContainsKey(session.ParentRecordingId)
+                        ? session.ParentRecordingId
+                        : null;
+                ParsekLog.Info("SwitchSegment",
+                    $"TryDiscardActiveSwitchSegmentAttempt: tree.ActiveRecordingId " +
+                    $"reset from '{priorActive}' to '{segmentTree.ActiveRecordingId ?? "<null>"}' " +
+                    $"sessionId={sessionIdStr}");
+            }
+
+            ParsekLog.Info("SwitchSegment",
+                $"TryDiscardActiveSwitchSegmentAttempt pruned: " +
+                $"sessionId={sessionIdStr} " +
+                $"intentId={session.IntentId.ToString("D", CultureInfo.InvariantCulture)} " +
+                $"entryReason={session.EntryReason} " +
+                $"treeId={segmentTree.Id ?? "<null>"} " +
+                $"ownedRecordingIds={ownedCount} " +
+                $"removedRecordings={removedRecordings} " +
+                $"removedBranchPoints={removedBranchPoints} " +
+                $"purgedEvents={purgedEvents} " +
+                $"deletedSidecars={deletedSidecars}");
+
+            scenario.ClearSwitchSegmentSession("scoped-discard");
+
+            // Final disposition.
+            if (isCommittedRestoreClone)
+            {
+                // Drop the active clone wrapper if it lives in the pending
+                // slot for this committed-tree restore. The original
+                // committed tree remains untouched in committedTrees.
+                bool droppedPending = false;
+                if (pendingTree != null
+                    && string.Equals(pendingTree.Id, committedTreeRestoreAttemptTreeId,
+                        StringComparison.Ordinal))
+                {
+                    pendingTree = null;
+                    pendingTreeState = PendingTreeState.Finalized;
+                    pendingTreeSerializedForSave = false;
+                    droppedPending = true;
+                }
+
+                ClearCommittedTreeRestoreAttempt(
+                    "switch-segment-scoped-discard committed-restore-clone");
+                GameStateRecorder.PendingScienceSubjects.Clear();
+                ClearRewindReplayTargetScope();
+
+                reason = "scoped-discard-success";
+                ParsekLog.Info("SwitchSegment",
+                    $"TryDiscardActiveSwitchSegmentAttempt disposition=committed-restore-clone " +
+                    $"sessionId={sessionIdStr} droppedPendingClone={droppedPending} " +
+                    $"committedTreeId={committedTreeRestoreAttemptTreeId ?? "<null>"}");
+                return SwitchSegmentDiscardDisposition.CommittedRestoreClone;
+            }
+
+            reason = "scoped-discard-success";
+            ParsekLog.Info("SwitchSegment",
+                $"TryDiscardActiveSwitchSegmentAttempt disposition=pending-tree-prune " +
+                $"sessionId={sessionIdStr} " +
+                $"prunedTreeId={segmentTree.Id ?? "<null>"} " +
+                $"prunedTreeRemainingRecordings={(segmentTree.Recordings?.Count ?? 0)}");
+            return SwitchSegmentDiscardDisposition.PendingTreePrune;
+        }
+
+        /// <summary>
+        /// Companion query for <see cref="TryDiscardActiveSwitchSegmentAttempt"/>.
+        /// After a successful scoped discard with disposition
+        /// <see cref="SwitchSegmentDiscardDisposition.PendingTreePrune"/>, the
+        /// caller asks whether the (now-pruned) pending tree still warrants a
+        /// follow-up whole-pending-tree merge/discard decision. Returns true
+        /// when the pending tree exists and still contains at least one
+        /// recording that is NOT in committed history — exactly the
+        /// "pre-existing pending changes" case from plan §"Final Disposition".
+        ///
+        /// <para>Disposition <see cref="SwitchSegmentDiscardDisposition.CommittedRestoreClone"/>
+        /// always returns false: the active clone was dropped, nothing pending
+        /// remains.</para>
+        /// </summary>
+        internal static bool HasRemainingPendingChangesAfterSegmentDiscard(
+            out int recordingCount,
+            out int branchPointCount)
+        {
+            recordingCount = 0;
+            branchPointCount = 0;
+            if (pendingTree == null)
+                return false;
+            if (pendingTree.Recordings != null)
+            {
+                foreach (var rec in pendingTree.Recordings.Values)
+                {
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                        continue;
+                    if (IsCommittedRecordingId(rec.RecordingId))
+                        continue;
+                    recordingCount++;
+                }
+            }
+            if (pendingTree.BranchPoints != null)
+                branchPointCount = pendingTree.BranchPoints.Count;
+            return recordingCount > 0 || branchPointCount > 0;
+        }
+
+        /// <summary>
+        /// Locates the in-memory tree that owns the active switch-segment
+        /// session. Prefers the pending tree (where scene-exit Stash usually
+        /// puts the active tree) and falls back to the live active tree, the
+        /// saved-pending-during-active-restore tree, then committed trees.
+        /// Returns null when the session's TreeId resolves to no in-memory
+        /// tree (treated as a degenerate state by the caller).
+        /// </summary>
+        private static RecordingTree FindSegmentTreeForSession(SwitchSegmentSession session)
+        {
+            if (session == null || string.IsNullOrEmpty(session.TreeId))
+                return null;
+
+            if (pendingTree != null
+                && string.Equals(pendingTree.Id, session.TreeId, StringComparison.Ordinal))
+                return pendingTree;
+
+            if (savedPendingTreeDuringActiveRestore != null
+                && string.Equals(savedPendingTreeDuringActiveRestore.Id, session.TreeId,
+                    StringComparison.Ordinal))
+                return savedPendingTreeDuringActiveRestore;
+
+            var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
+            if (activeTree != null
+                && string.Equals(activeTree.Id, session.TreeId, StringComparison.Ordinal))
+                return activeTree;
+
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    var t = committedTrees[i];
+                    if (t != null
+                        && string.Equals(t.Id, session.TreeId, StringComparison.Ordinal))
+                        return t;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Collects the transitive closure of recording IDs owned by
+        /// <paramref name="session"/> in <paramref name="tree"/>: the active
+        /// segment recording + every descendant recording whose own
+        /// <see cref="Recording.SwitchSegmentSessionId"/> stamp matches the
+        /// session id. Distinct physical-split children (Board/EVA/Breakup
+        /// during the segment that did NOT inherit the session id) stay out
+        /// of scope per plan §"Composing with existing branch types".
+        /// </summary>
+        private static HashSet<string> CollectSwitchSegmentMarkerOwnedRecordingIds(
+            RecordingTree tree, SwitchSegmentSession session)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (tree?.Recordings == null || session == null)
+                return ids;
+
+            string sessionIdStr = session.SessionId.ToString("D", CultureInfo.InvariantCulture);
+
+            // Seed: the active segment recording, even if its stamp is somehow
+            // missing (defensive — production always stamps it via
+            // SwitchSegmentBuilder.CreateSwitchContinuationSegment).
+            if (!string.IsNullOrEmpty(session.ActiveSegmentRecordingId)
+                && tree.Recordings.ContainsKey(session.ActiveSegmentRecordingId))
+            {
+                ids.Add(session.ActiveSegmentRecordingId);
+            }
+
+            // Marker-stamp scan: every recording in the tree whose stamp
+            // matches the session id is owned.
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                if (!string.IsNullOrEmpty(rec.SwitchSegmentSessionId)
+                    && string.Equals(rec.SwitchSegmentSessionId, sessionIdStr,
+                        StringComparison.Ordinal))
+                {
+                    ids.Add(rec.RecordingId);
+                }
+            }
+
+            // Descendant walk: any recording reachable via ChildBranchPointId
+            // -> branch-point ChildRecordingIds from an already-owned id is
+            // also owned ONLY when its own SwitchSegmentSessionId stamp also
+            // matches the session. Physical-split children that did not
+            // inherit the marker stamp stay out of scope.
+            bool added;
+            int safety = 0;
+            do
+            {
+                added = false;
+                if (++safety > 1024) break;
+                var snapshot = new List<string>(ids);
+                foreach (string ownedId in snapshot)
+                {
+                    Recording rec;
+                    if (!tree.Recordings.TryGetValue(ownedId, out rec) || rec == null)
+                        continue;
+                    if (string.IsNullOrEmpty(rec.ChildBranchPointId))
+                        continue;
+                    BranchPoint bp = FindSwitchSegmentBranchPointById(tree, rec.ChildBranchPointId);
+                    if (bp?.ChildRecordingIds == null)
+                        continue;
+                    for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
+                    {
+                        string childId = bp.ChildRecordingIds[i];
+                        if (string.IsNullOrEmpty(childId)) continue;
+                        if (ids.Contains(childId)) continue;
+                        Recording child;
+                        if (!tree.Recordings.TryGetValue(childId, out child) || child == null)
+                            continue;
+                        if (string.IsNullOrEmpty(child.SwitchSegmentSessionId))
+                            continue;
+                        if (!string.Equals(child.SwitchSegmentSessionId, sessionIdStr,
+                                StringComparison.Ordinal))
+                            continue;
+                        ids.Add(childId);
+                        added = true;
+                    }
+                }
+            } while (added);
+
+            return ids;
+        }
+
+        private static BranchPoint FindSwitchSegmentBranchPointById(
+            RecordingTree tree, string bpId)
+        {
+            if (tree?.BranchPoints == null || string.IsNullOrEmpty(bpId))
+                return null;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp != null && string.Equals(bp.Id, bpId, StringComparison.Ordinal))
+                    return bp;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Collects branch-point IDs authored by the active session: every
+        /// current BP not in <see cref="SwitchSegmentSession.PreSessionBranchPointIds"/>.
+        /// Mirrors <c>MergeDialog.PruneSessionCreatedBranchPoints</c>: a null
+        /// baseline is treated as "unknown" and skipped (returns empty), a
+        /// present-but-empty baseline means every current BP is session-authored.
+        /// </summary>
+        private static HashSet<string> CollectSessionAuthoredBranchPointIds(
+            RecordingTree tree, SwitchSegmentSession session)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (tree?.BranchPoints == null || session == null
+                || session.PreSessionBranchPointIds == null)
+                return ids;
+
+            var preSessionIds = new HashSet<string>(
+                session.PreSessionBranchPointIds, StringComparer.Ordinal);
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null || string.IsNullOrEmpty(bp.Id)) continue;
+                if (preSessionIds.Contains(bp.Id)) continue;
+                ids.Add(bp.Id);
+            }
+            return ids;
+        }
+
+        private static int RemoveRecordingIdsFromTree(
+            RecordingTree tree, HashSet<string> ids)
+        {
+            if (tree?.Recordings == null || ids == null || ids.Count == 0)
+                return 0;
+            int removed = 0;
+            foreach (string id in ids)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                if (tree.Recordings.Remove(id))
+                    removed++;
+            }
+            // Scrub remaining branch-point parent/child id refs that point at
+            // a removed recording.
+            if (tree.BranchPoints != null)
+            {
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    var bp = tree.BranchPoints[i];
+                    if (bp == null) continue;
+                    ScrubRecordingIdsFromList(bp.ParentRecordingIds, ids);
+                    ScrubRecordingIdsFromList(bp.ChildRecordingIds, ids);
+                }
+            }
+            return removed;
+        }
+
+        private static void ScrubRecordingIdsFromList(
+            List<string> list, HashSet<string> idsToRemove)
+        {
+            if (list == null || idsToRemove == null || idsToRemove.Count == 0)
+                return;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                if (idsToRemove.Contains(list[i]))
+                    list.RemoveAt(i);
+            }
+        }
+
+        private static int RemoveSessionAuthoredBranchPointsFromTree(
+            RecordingTree tree, HashSet<string> sessionAuthoredBpIds)
+        {
+            if (tree?.BranchPoints == null
+                || sessionAuthoredBpIds == null || sessionAuthoredBpIds.Count == 0)
+                return 0;
+            int removed = 0;
+            for (int i = tree.BranchPoints.Count - 1; i >= 0; i--)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null || string.IsNullOrEmpty(bp.Id)) continue;
+                if (!sessionAuthoredBpIds.Contains(bp.Id)) continue;
+                tree.BranchPoints.RemoveAt(i);
+                removed++;
+            }
+            return removed;
+        }
+
+        /// <summary>
         /// #434: "soft" unstash for the revert path. Clears the pending-tree slot WITHOUT
         /// deleting sidecar files or purging tagged events. Rationale: KSP's revert preserves
         /// persistent.sfs and sidecar files on both revert-to-launch (cache-driven, never
