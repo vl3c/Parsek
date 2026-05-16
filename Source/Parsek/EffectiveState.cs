@@ -134,6 +134,115 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Composite chain-then-supersede walker. From <paramref name="originRecordingId"/>,
+        /// hops alternately through chain links (via <see cref="ResolveChainTerminalRecording"/>)
+        /// and supersede edges (via <paramref name="supersedes"/>) until neither hop
+        /// advances. Cycle-safe via a single <see cref="HashSet{T}"/> shared across BOTH
+        /// hop kinds — a cross-edge cycle (e.g., chain hop A-&gt;B plus supersede hop
+        /// B-&gt;A) is rejected by the visited guard, logs a Warn under the
+        /// <c>[Supersede]</c> tag, and returns the last-visited id. Null / empty origin
+        /// returns null.
+        /// <para>
+        /// Used by callers that must follow a slot's logical tip through both
+        /// chain splits (e.g., rewind-UT split into HEAD + TIP) AND subsequent
+        /// supersede rewrites (e.g., supersede TIP -&gt; fork): <see cref="ChildSlot.EffectiveRecordingId"/>,
+        /// the <c>ResolveRewindPointSlotIndexForRecording</c> comparison hop, and the
+        /// <c>IsInSupersedeForwardTrail</c> BFS chain extension. Pure-supersede readers
+        /// (<see cref="IsVisible"/>, <see cref="IsSupersededByRelation"/>,
+        /// <see cref="ComputeERS"/>) stay on the id-local <see cref="EffectiveRecordingId(string, IReadOnlyList{RecordingSupersedeRelation})"/>
+        /// walker because chain membership alone does NOT hide a recording.
+        /// </para>
+        /// </summary>
+        internal static string EffectiveTipRecordingId(
+            string originRecordingId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (string.IsNullOrEmpty(originRecordingId))
+                return null;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            string current = originRecordingId;
+            visited.Add(current);
+
+            while (true)
+            {
+                // Chain hop: only fires when current is a chain member with a
+                // resolvable tip distinct from itself. Uses the existing tree
+                // scan in ResolveChainTerminalRecording.
+                Recording currentRec = FindRecordingById(current);
+                if (currentRec != null && !string.IsNullOrEmpty(currentRec.ChainId))
+                {
+                    Recording chainTip = ResolveChainTerminalRecording(currentRec);
+                    if (chainTip != null
+                        && !string.IsNullOrEmpty(chainTip.RecordingId)
+                        && !string.Equals(chainTip.RecordingId, current, StringComparison.Ordinal))
+                    {
+                        string nextChain = chainTip.RecordingId;
+                        if (!visited.Add(nextChain))
+                        {
+                            ParsekLog.Warn("Supersede",
+                                $"EffectiveTipRecordingId: cycle detected at chain-hop from {current} to {nextChain}; returning last-visited={current}");
+                            return current;
+                        }
+                        current = nextChain;
+                        continue;
+                    }
+                }
+
+                // Supersede hop: scan supersedes for OldRecordingId == current.
+                string next = null;
+                if (supersedes != null)
+                {
+                    for (int i = 0; i < supersedes.Count; i++)
+                    {
+                        var rel = supersedes[i];
+                        if (rel == null) continue;
+                        if (string.Equals(rel.OldRecordingId, current, StringComparison.Ordinal))
+                        {
+                            next = rel.NewRecordingId;
+                            break;
+                        }
+                    }
+                }
+
+                if (string.IsNullOrEmpty(next))
+                    return current; // neither hop advanced; current is the tip
+
+                if (!visited.Add(next))
+                {
+                    ParsekLog.Warn("Supersede",
+                        $"EffectiveTipRecordingId: cycle detected at supersede-hop from {current} to {next}; returning last-visited={current}");
+                    return current;
+                }
+                current = next;
+            }
+        }
+
+        /// <summary>
+        /// Looks up a recording in <see cref="RecordingStore.CommittedRecordings"/>
+        /// by id (ordinal compare). Returns null on null/empty id, or when no
+        /// recording matches. Used by <see cref="EffectiveTipRecordingId"/> to
+        /// resolve the chain hop without taking a dependency on
+        /// <c>SupersedeCommit.BuildCommittedRecordingIndex</c>.
+        /// </summary>
+        private static Recording FindRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return null;
+            var source = RecordingStore.CommittedRecordings;
+            if (source == null)
+                return null;
+            for (int i = 0; i < source.Count; i++)
+            {
+                var rec = source[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// True iff <paramref name="rec"/> is visible per design §3.1:
         /// <c>MergeState != NotCommitted</c> AND walking forward from
         /// <c>rec.RecordingId</c> via <paramref name="supersedes"/> lands on
@@ -174,6 +283,15 @@ namespace Parsek
                 string effective = EffectiveRecordingId(origin, effectiveSupersedes);
                 if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
                     return i;
+                // Composite tip match: follows the chain-then-supersede walker so
+                // a fork can match its slot's origin even when a rewind-UT split
+                // separates the slot's origin id (HEAD) from the supersede target
+                // (TIP) via a chain hop before the supersede edge to fork.
+                string compositeEffective = EffectiveTipRecordingId(origin, effectiveSupersedes);
+                if (!string.IsNullOrEmpty(compositeEffective)
+                    && !string.Equals(compositeEffective, effective, StringComparison.Ordinal)
+                    && string.Equals(compositeEffective, rec.RecordingId, StringComparison.Ordinal))
+                    return i;
                 if (IsInSupersedeForwardTrail(origin, rec.RecordingId, effectiveSupersedes))
                     return i;
             }
@@ -188,12 +306,16 @@ namespace Parsek
         {
             // Needed for hybrid legacy-star plus new-linear graphs where a
             // mid-chain recording is still part of the slot even when it is no
-            // longer the EffectiveRecordingId tip.
+            // longer the EffectiveRecordingId tip. Now extended with chain hops
+            // so the BFS frontier includes both supersede children AND the
+            // chain tip of each dequeued node — required after rewind-UT splits
+            // separate the slot's origin (HEAD) from the supersede edge target
+            // (TIP) via a chain link.
             if (string.IsNullOrEmpty(originRecordingId)
-                || string.IsNullOrEmpty(targetRecordingId)
-                || supersedes == null
-                || supersedes.Count == 0)
+                || string.IsNullOrEmpty(targetRecordingId))
                 return false;
+
+            bool hasSupersedes = supersedes != null && supersedes.Count > 0;
 
             var visited = new HashSet<string>(StringComparer.Ordinal);
             var queue = new Queue<string>();
@@ -203,6 +325,29 @@ namespace Parsek
             while (queue.Count > 0)
             {
                 string current = queue.Dequeue();
+
+                // Chain hop: before walking supersede edges, enqueue current's
+                // chain tip if it's a distinct recording id. Visited guard
+                // prevents revisiting; reaching the target via chain alone
+                // counts as in-trail.
+                Recording currentRec = FindRecordingById(current);
+                if (currentRec != null && !string.IsNullOrEmpty(currentRec.ChainId))
+                {
+                    Recording chainTip = ResolveChainTerminalRecording(currentRec);
+                    if (chainTip != null
+                        && !string.IsNullOrEmpty(chainTip.RecordingId)
+                        && !string.Equals(chainTip.RecordingId, current, StringComparison.Ordinal))
+                    {
+                        string nextChain = chainTip.RecordingId;
+                        if (string.Equals(nextChain, targetRecordingId, StringComparison.Ordinal))
+                            return true;
+                        if (visited.Add(nextChain))
+                            queue.Enqueue(nextChain);
+                    }
+                }
+
+                if (!hasSupersedes) continue;
+
                 for (int i = 0; i < supersedes.Count; i++)
                 {
                     var rel = supersedes[i];
