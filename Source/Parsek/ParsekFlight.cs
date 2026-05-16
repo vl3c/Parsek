@@ -13703,12 +13703,30 @@ namespace Parsek
                 }
             }
 
+            string termOrbitInfo = "";
+            if ((rec.TerminalStateValue == TerminalState.Orbiting
+                    || rec.TerminalStateValue == TerminalState.SubOrbital)
+                && !string.IsNullOrEmpty(rec.TerminalOrbitBody)
+                && rec.TerminalOrbitSemiMajorAxis > 0.0)
+            {
+                double termPeriR = rec.TerminalOrbitSemiMajorAxis * (1.0 - rec.TerminalOrbitEccentricity);
+                double termApoR = rec.TerminalOrbitSemiMajorAxis * (1.0 + rec.TerminalOrbitEccentricity);
+                termOrbitInfo = string.Format(CultureInfo.InvariantCulture,
+                    " termOrbit[body={0} epoch={1:F2} sma={2:F1} ecc={3:F4} periR={4:F1} apoR={5:F1} inc={6:F2}]",
+                    rec.TerminalOrbitBody,
+                    rec.TerminalOrbitEpoch,
+                    rec.TerminalOrbitSemiMajorAxis,
+                    rec.TerminalOrbitEccentricity,
+                    termPeriR,
+                    termApoR,
+                    rec.TerminalOrbitInclination);
+            }
             ParsekLog.Verbose("Flight",
                 $"FinalizeTreeRecordings: rec='{rec.RecordingId}' vessel='{rec.VesselName}' " +
                 $"points={rec.Points.Count} orbitSegs={rec.OrbitSegments.Count} " +
                 $"terminal={rec.TerminalStateValue?.ToString() ?? "none"} " +
                 $"maxDist={rec.MaxDistanceFromLaunch:F0}m " +
-                $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}");
+                $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}{termOrbitInfo}");
             return sceneExitLifetimeExtended && sceneExitSuppliedSnapshots;
         }
 
@@ -14076,9 +14094,22 @@ namespace Parsek
             if (rec.GhostVisualSnapshot == null)
                 rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
             rec.MarkFilesDirty();
+            string orbitInfo = "";
+            if ((ts == TerminalState.Orbiting || ts == TerminalState.SubOrbital)
+                && vessel.orbit != null)
+            {
+                orbitInfo = string.Format(CultureInfo.InvariantCulture,
+                    " orbit[body={0} sma={1:F1} ecc={2:F4} periAlt={3:F1} apoAlt={4:F1} inc={5:F2}]",
+                    vessel.orbit.referenceBody?.name ?? vessel.mainBody?.name ?? "?",
+                    vessel.orbit.semiMajorAxis,
+                    vessel.orbit.eccentricity,
+                    vessel.orbit.PeA,
+                    vessel.orbit.ApA,
+                    vessel.orbit.inclination);
+            }
             ParsekLog.Info("Flight",
                 $"{logPrefix} '{rec.RecordingId}' with stable terminal state {ts} " +
-                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit}) [#289]");
+                $"(vessel.situation={vessel.situation}, isSceneExit={isSceneExit}){orbitInfo} [#289]");
             return true;
         }
 
