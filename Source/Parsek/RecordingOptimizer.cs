@@ -1212,10 +1212,66 @@ namespace Parsek
             //    SplitAtSection step 7 and CreateTailHalfOrbitSegmentsAtSplit.
 
             // 3. Ensure checkpoint sections (mirrors SplitAtSection's call at line 776-779).
-            RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+            //
+            // Pass 2 review Opus-H2 (byte-identical contract): Ensure may
+            // clip checkpoint sections, append new sections, re-sort
+            // TrackSections, rebuild the flat orbit cache, and reset
+            // CachedStats — all in place on `original`. The plan §r4
+            // mutation-ordering rule requires "a guarded return leaves
+            // the input recording byte-identical." Snapshot the affected
+            // fields BEFORE Ensure so the v13 guard / gap-fallback /
+            // boundary-search guarded-return paths below can restore.
+            //
+            // Cheap on the happy path: list shallow-copies of structs,
+            // never used unless we hit a guarded return. TrackSection and
+            // OrbitSegment are value types; Ensure replaces struct values
+            // in list slots and (for OrbitSegments rebuild) assigns a
+            // fresh list reference — the snapshot captures the old
+            // contents either way.
+            List<TrackSection> trackSectionsPreEnsure = original.TrackSections != null
+                ? new List<TrackSection>(original.TrackSections)
+                : null;
+            List<OrbitSegment> orbitSegmentsPreEnsure = original.OrbitSegments != null
+                ? new List<OrbitSegment>(original.OrbitSegments)
+                : null;
+            var cachedStatsPreEnsure = original.CachedStats;
+            int cachedStatsPointCountPreEnsure = original.CachedStatsPointCount;
+
+            var ensureStats = RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                 original,
                 markDirty: false,
                 context: "RecordingOptimizer.SplitAtUT");
+            bool ensureMutated = ensureStats.Changed;
+
+            void RestorePreEnsureSnapshotIfMutated()
+            {
+                if (!ensureMutated) return;
+                if (trackSectionsPreEnsure != null)
+                {
+                    if (original.TrackSections == null)
+                        original.TrackSections = new List<TrackSection>(trackSectionsPreEnsure);
+                    else
+                    {
+                        original.TrackSections.Clear();
+                        original.TrackSections.AddRange(trackSectionsPreEnsure);
+                    }
+                }
+                if (orbitSegmentsPreEnsure != null)
+                {
+                    if (original.OrbitSegments == null)
+                        original.OrbitSegments = new List<OrbitSegment>(orbitSegmentsPreEnsure);
+                    else
+                    {
+                        original.OrbitSegments.Clear();
+                        original.OrbitSegments.AddRange(orbitSegmentsPreEnsure);
+                    }
+                }
+                original.CachedStats = cachedStatsPreEnsure;
+                original.CachedStatsPointCount = cachedStatsPointCountPreEnsure;
+                ParsekLog.Verbose("Optimizer",
+                    $"SplitAtUT: restored pre-Ensure snapshot on guarded return for " +
+                    $"{original.RecordingId} (Ensure had added/clipped {ensureStats.Added}+{ensureStats.Clipped} sections)");
+            }
 
             // 4. Find or insert TrackSection boundary at splitUT.
             //    All work happens in LOCAL variables; original.TrackSections is mutated
@@ -1387,6 +1443,7 @@ namespace Parsek
                                 $"sample count {headSection.bodyFixedFrames.Count} below minimum " +
                                 $"after rewindUT split on section {straddleIndex} of recording " +
                                 $"{original.RecordingId}; skipping split");
+                            RestorePreEnsureSnapshotIfMutated();
                             return null;
                         }
                         if (tailSection.bodyFixedFrames.Count < 2)
@@ -1396,6 +1453,7 @@ namespace Parsek
                                 $"sample count {tailSection.bodyFixedFrames.Count} below minimum " +
                                 $"after rewindUT split on section {straddleIndex} of recording " +
                                 $"{original.RecordingId}; skipping split");
+                            RestorePreEnsureSnapshotIfMutated();
                             return null;
                         }
                     }
@@ -1424,16 +1482,41 @@ namespace Parsek
                     }
                     if (sectionIndex < 0)
                     {
-                        // splitUT past every section's startUT. This combined with the
-                        // pre-condition (splitUT < recEnd) means there should always
-                        // have been a straddling section above; defensive fallback uses
-                        // TrackSections.Count so the second half is empty.
-                        sectionIndex = original.TrackSections.Count;
+                        // Pass 2 review Opus-H1: splitUT past every section's
+                        // startUT means there is no TrackSection covering
+                        // [lastSection.endUT, splitUT) — the recording's flat
+                        // Points may extend that far but no section does.
+                        // Falling through with sectionIndex = TrackSections.Count
+                        // would crash in SplitAtSection's first line
+                        // (`original.TrackSections[sectionIndex].startUT` — index
+                        // out of range). Return null with a Warn so the
+                        // splitter's caller falls back to whole-recording
+                        // supersede instead of the merge crashing on an
+                        // ArgumentOutOfRangeException.
+                        ParsekLog.Warn("Optimizer",
+                            $"SplitAtUT: defensive guard — splitUT=" +
+                            $"{splitUT.ToString("F2", CultureInfo.InvariantCulture)} is past every " +
+                            $"TrackSection's startUT for recording {original.RecordingId} " +
+                            $"(sectionCount={original.TrackSections.Count.ToString(CultureInfo.InvariantCulture)}, " +
+                            $"recBounds=[{recStart.ToString("F2", CultureInfo.InvariantCulture)}," +
+                            $"{recEnd.ToString("F2", CultureInfo.InvariantCulture)}]) — " +
+                            "skipping split (no section to anchor the cut)");
+                        RestorePreEnsureSnapshotIfMutated();
+                        return null;
                     }
                 }
                 else
                 {
-                    sectionIndex = 0;
+                    // Pass 2 review Opus-H1: TrackSections null on a recording
+                    // that passed the strict-span pre-condition is structurally
+                    // unexpected (sampler emits at least one section before the
+                    // recorder ever records points outside one). Defensive
+                    // null-return matches the splitter's contract.
+                    ParsekLog.Warn("Optimizer",
+                        $"SplitAtUT: defensive guard — recording {original.RecordingId} " +
+                        "has null TrackSections list; skipping split");
+                    RestorePreEnsureSnapshotIfMutated();
+                    return null;
                 }
             }
 

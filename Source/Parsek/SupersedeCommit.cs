@@ -458,20 +458,35 @@ namespace Parsek
                 return true;
             }
 
-            // Chain-head case (Task A4). A non-debris recording whose
-            // lifetime ends at the rewind UT (HEAD's EndUT == rewindUT
-            // exactly after the split). The cutoff is rewindUT + epsilon
-            // — testing the UPPER boundary against the rewind point, so
-            // the sign of the epsilon is opposite the debris case.
-            // Post-rewind chain siblings (StartUT >= rewindUT - epsilon)
-            // have EndUT > rewindUT + epsilon and so are correctly
-            // rejected here — they still receive supersede rows.
+            // Chain-head case (Task A4). The split orchestrator preserves
+            // origin's RecordingId on the HEAD half and routes the marker so
+            // marker.OriginChildRecordingId always names HEAD (see
+            // RecordingTreeSplitter.SplitOriginAtRewindUT step 2.10: the
+            // marker is only mutated on SupersedeTargetId; OriginChildRecordingId
+            // is the slot's stable origin id and stays pointing at HEAD).
+            //
+            // The carve-out's purpose is to filter exactly HEAD out of the
+            // closure walk's chain-sibling enqueue path. Earlier drafts
+            // matched on "non-debris + EndUT <= rewindUT + epsilon" only —
+            // which would also carve out unrelated closure entries that
+            // happen to end at the rewind UT (e.g. a sibling EVA recording
+            // that ended on a Board BP at exactly rewindUT, a fairing
+            // jettison recording, etc.). Those legitimately receive
+            // supersede rows. The id check below restricts the carve-out
+            // to HEAD only (Pass 2 review User-H2).
+            //
+            // RewindPointUT is the upper-boundary cutoff. Epsilon sign is
+            // OPPOSITE the debris case (lower boundary): the debris case
+            // tests StartUT < rewindUT - epsilon; the chain-head case
+            // tests EndUT <= rewindUT + epsilon.
             double headCutoff =
                 !double.IsNaN(marker.RewindPointUT) && marker.RewindPointUT > 0.0
                     ? marker.RewindPointUT + EffectiveState.PidPeerStartUtEpsilonSeconds
                     : double.NaN;
             if (!double.IsNaN(headCutoff)
                 && !rec.IsDebris
+                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && string.Equals(rec.RecordingId, marker.OriginChildRecordingId, StringComparison.Ordinal)
                 && rec.EndUT <= headCutoff)
             {
                 reason = PreRewindCarveOutReason.PreRewindChainHead;
@@ -499,9 +514,10 @@ namespace Parsek
 
         /// <summary>
         /// Computes the cutoff UT below which a debris recording is treated
-        /// as pre-rewind by <see cref="IsPreRewindDebris"/>. Prefers
-        /// <see cref="ReFlySessionMarker.RewindPointUT"/> (added in PR #858
-        /// as the stable, drift-immune <c>rp.UT</c> capture — see
+        /// as pre-rewind by the debris case of <see cref="IsPreRewindCarveOut"/>
+        /// (and by its <see cref="IsPreRewindDebris"/> back-compat wrapper).
+        /// Prefers <see cref="ReFlySessionMarker.RewindPointUT"/> (added in
+        /// PR #858 as the stable, drift-immune <c>rp.UT</c> capture — see
         /// <c>RewindInvoker.AtomicMarkerWrite</c>) and falls back to
         /// <see cref="ReFlySessionMarker.InvokedUT"/> for legacy markers
         /// persisted before the field shipped. Both branches subtract
@@ -512,6 +528,16 @@ namespace Parsek
         /// <c>double.NaN</c> only when neither field carries a usable
         /// (non-NaN, strictly positive) value; callers must treat NaN as
         /// "no cutoff available" and fall back to legacy behavior.
+        ///
+        /// <para>Note the asymmetric epsilon sign between cases of
+        /// <see cref="IsPreRewindCarveOut"/>: the debris case calls
+        /// <c>ComputePreRewindCutoff</c> for a LOWER-boundary cutoff
+        /// (<c>rewindUT - epsilon</c>); the chain-head case uses its own
+        /// inline UPPER-boundary cutoff (<c>rewindUT + epsilon</c>). Do
+        /// not "unify" the two via this helper — re-introducing the
+        /// epsilon sign symmetry would fail HEAD's <c>EndUT == rewindUT</c>
+        /// by exactly one epsilon and reopen the bug Task A1-A8 exists to
+        /// fix.</para>
         /// </summary>
         internal static double ComputePreRewindCutoff(ReFlySessionMarker marker)
         {

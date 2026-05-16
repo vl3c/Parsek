@@ -7,29 +7,38 @@ namespace Parsek
     /// <summary>
     /// Phase 10 of Rewind-to-Staging (design §5.8, §6.6, §6.9 step 2, §10.8):
     /// journaled staged-commit orchestrator for merging a re-fly session. Wraps
-    /// the in-memory <see cref="SupersedeCommit"/> steps in five crash-recovery
+    /// the in-memory <see cref="SupersedeCommit"/> steps in named crash-recovery
     /// checkpoints, persists the stable merge-path barriers to disk, and
     /// exposes the load-time finisher that resumes an interrupted merge.
     ///
     /// <para>
-    /// The 14 granular design-doc steps are consolidated into five recovery
-    /// windows (per plan Phase 10 §6.6 matrix):
+    /// The 14 granular design-doc steps are consolidated into the following
+    /// named phases (see <see cref="MergeJournal.Phases"/>):
+    /// <c>Begin → Split → Supersede → Tombstone → Finalize → Durable1Done →
+    /// RpReap → MarkerCleared → Durable2Done</c>. The <b>Split</b> phase was
+    /// introduced by Task A5 in <c>fix-supersede-identity-scope</c>; the
+    /// remaining phases are unchanged.
     /// </para>
-    /// <list type="bullet">
-    ///   <item><description><b>Supersede append</b> — relations half-written.</description></item>
-    ///   <item><description><b>Tombstone scan</b> — tombstones half-written.</description></item>
-    ///   <item><description><b>Reservation recompute</b> — tombstones done but MergeState not flipped.</description></item>
-    ///   <item><description><b>Durable save</b> — memory committed, disk not yet written.</description></item>
-    ///   <item><description><b>Reap check</b> — Durable1 done, RPs not yet reaped.</description></item>
-    /// </list>
     ///
     /// <para>
-    /// The finisher on load recovers from ANY of these windows. Phase less-than-
-    /// or-equal <see cref="MergeJournal.Phases.Finalize"/> rolls back to the
-    /// pre-merge state (the Durable1 write never happened, so disk still holds
-    /// the pre-merge snapshot). Phase greater-than-or-equal
-    /// <see cref="MergeJournal.Phases.Durable1Done"/> completes the remaining
-    /// steps (reap, marker clear, journal clear, durable saves 2 and 3).
+    /// Crash-recovery contract (updated by Task A5):
+    /// <list type="bullet">
+    ///   <item><description><see cref="MergeJournal.Phases.Begin"/> — pre-Durable1, rolls back.
+    ///   The "begin" durable write never happened from <see cref="RunFinisher"/>'s
+    ///   point of view, so the on-disk pre-merge snapshot is still authoritative.</description></item>
+    ///   <item><description><see cref="MergeJournal.Phases.Split"/> through
+    ///   <see cref="MergeJournal.Phases.Finalize"/> — drive-forward via idempotent
+    ///   re-run inside <see cref="CompleteFromPostDurable"/>. Every step is
+    ///   designed to be re-executable: <see cref="RecordingTreeSplitter.SplitOriginAtRewindUT"/>
+    ///   detects an existing TIP and skips re-creation; <see cref="SupersedeCommit.AppendRelations"/>
+    ///   skips existing rows; <see cref="SupersedeCommit.CommitTombstones"/> dedups via
+    ///   <c>alreadyTombstoned</c>; <see cref="SupersedeCommit.FlipMergeStateAndClearTransient"/>
+    ///   is value-write idempotent.</description></item>
+    ///   <item><description><see cref="MergeJournal.Phases.Durable1Done"/> onward —
+    ///   the tail completion path (reap, marker clear, journal clear, durable saves
+    ///   2 and 3). Same forward-completion path; the journal is the source of truth
+    ///   for where to resume.</description></item>
+    /// </list>
     /// </para>
     ///
     /// <para>
@@ -59,27 +68,6 @@ namespace Parsek
     /// slots all resolve to <see cref="MergeState.Immutable"/>. RPs with an
     /// open slot (NotCommitted / CommittedProvisional) stay put for a later
     /// pass.
-    /// </para>
-    ///
-    /// <para>
-    /// Phase classification (updated by Task A5 in fix-supersede-identity-scope):
-    /// only <see cref="MergeJournal.Phases.Begin"/> is pre-Durable1-rollback.
-    /// <see cref="MergeJournal.Phases.Split"/> sits between Begin and Supersede
-    /// with its own barrier (<c>DurableSave("split", persistSynchronously:
-    /// true)</c>), and runs
-    /// <see cref="RecordingTreeSplitter.SplitOriginAtRewindUT"/> to split a
-    /// Re-Fly origin recording that spans the rewind UT into HEAD + TIP.
-    /// Supersede / Tombstone / Finalize moved from rollback-on-crash to
-    /// drive-forward-via-idempotent-re-run because each step is idempotent
-    /// (<see cref="SupersedeCommit.AppendRelations"/> skips existing rows,
-    /// <see cref="SupersedeCommit.CommitTombstones"/> dedups via
-    /// <c>alreadyTombstoned</c>, <see cref="SupersedeCommit.FlipMergeStateAndClearTransient"/>
-    /// is value-write idempotent, and <c>SplitOriginAtRewindUT</c> detects an
-    /// existing TIP and skips re-creation).
-    /// <see cref="CompleteFromPostDurable"/> now entry-points at any of
-    /// Split / Supersede / Tombstone / Finalize / Durable1Done — earlier
-    /// resume points cascade through later ones via <c>journal.Phase</c>-keyed
-    /// blocks.
     /// </para>
     /// </summary>
     internal static class MergeJournalOrchestrator
@@ -834,7 +822,61 @@ namespace Parsek
             if (string.IsNullOrEmpty(closureRoot))
                 return new HashSet<string>(StringComparer.Ordinal);
             var subtree = EffectiveState.ComputeSubtreeClosureInternal(marker, closureRoot);
-            return subtree ?? new HashSet<string>(StringComparer.Ordinal);
+            if (subtree == null) return new HashSet<string>(StringComparer.Ordinal);
+
+            // Pass 2 review User-H1: AppendRelations filters the closure
+            // walk's chain-sibling enqueue of HEAD (and pre-rewind debris)
+            // out of the returned subtree via SupersedeCommit.IsPreRewindCarveOut
+            // (see SupersedeCommit.cs:376-386). On a fresh-load resume entering
+            // CompleteFromPostDurable at Tombstone, RecoveredSubtreeIds is null
+            // (transient, never persisted) and this fallback recomputes from
+            // scratch — without the same filter, the wider unfiltered subtree
+            // would reach CommitTombstones and falsely tombstone HEAD's
+            // pre-rewind ledger actions for any tombstone-eligible action
+            // type that lands during the launch portion. Mirror the
+            // AppendRelations filter here.
+            var filtered = new List<string>(subtree.Count);
+            int recordingsScanned = 0;
+            int carveOutSkipped = 0;
+            Dictionary<string, Recording> recById = null;
+            foreach (var id in subtree)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                recordingsScanned++;
+                if (recById == null)
+                    recById = BuildRecordingIdIndex();
+                Recording rec;
+                if (recById.TryGetValue(id, out rec)
+                    && SupersedeCommit.IsPreRewindCarveOut(rec, marker, out _))
+                {
+                    carveOutSkipped++;
+                    ParsekLog.Verbose(Tag,
+                        $"RebuildSubtree: filtered pre-rewind carve-out {id} from " +
+                        $"tombstone-resume subtree (matches AppendRelations write-set filter)");
+                    continue;
+                }
+                filtered.Add(id);
+            }
+            ParsekLog.Verbose(Tag,
+                $"RebuildSubtree: scanned={recordingsScanned.ToString(CultureInfo.InvariantCulture)} " +
+                $"carveOutSkipped={carveOutSkipped.ToString(CultureInfo.InvariantCulture)} " +
+                $"finalCount={filtered.Count.ToString(CultureInfo.InvariantCulture)}");
+            return filtered;
+        }
+
+        private static Dictionary<string, Recording> BuildRecordingIdIndex()
+        {
+            var index = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return index;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (!index.ContainsKey(rec.RecordingId))
+                    index.Add(rec.RecordingId, rec);
+            }
+            return index;
         }
     }
 }

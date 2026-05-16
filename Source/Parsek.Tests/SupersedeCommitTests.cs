@@ -3476,12 +3476,17 @@ namespace Parsek.Tests
         public void IsPreRewindCarveOut_PreRewindChainHead_ReturnsTrueWithReason()
         {
             // HEAD half of a post-split origin: non-debris, EndUT exactly at
-            // marker.RewindPointUT. The chain-head cutoff is rewindUT + eps
-            // (not - eps), so EndUT == rewindUT passes the predicate.
+            // marker.RewindPointUT, and rec.RecordingId == OriginChildRecordingId
+            // (the marker is routed so OriginChildRecordingId names HEAD; see
+            // RecordingTreeSplitter step 2.10 — only SupersedeTargetId is mutated,
+            // OriginChildRecordingId is preserved as the slot's stable origin id).
+            // The chain-head cutoff is rewindUT + eps (not - eps), so
+            // EndUT == rewindUT passes the predicate.
             var marker = new ReFlySessionMarker
             {
                 RewindPointUT = 34.0,
                 InvokedUT = 34.0,
+                OriginChildRecordingId = "rec_head_carveout",
                 PreSessionBranchPointIds = new List<string>(),
             };
             var head = new Recording
@@ -3497,6 +3502,69 @@ namespace Parsek.Tests
 
             Assert.True(result);
             Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NonHeadSiblingEndingAtRewindUT_NotCarvedOut()
+        {
+            // Pass 2 review User-H2: the chain-head case used to fire on any
+            // non-debris closure entry with EndUT <= rewindUT + eps. That was
+            // over-broad — closure walks enqueue PID peers, BP-children, and
+            // debris-children in addition to chain siblings, so unrelated
+            // recordings ending at rewindUT (e.g. an EVA recording that ended
+            // on a Board BP at the same UT, a fairing-jettison recording)
+            // would be carved out and silently lose their legitimate supersede
+            // row. The fix tightens the predicate to require
+            // rec.RecordingId == marker.OriginChildRecordingId so only HEAD
+            // matches.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                OriginChildRecordingId = "rec_head_actual",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var unrelatedSiblingEndingAtRewind = new Recording
+            {
+                RecordingId = "rec_eva_or_fairing",
+                IsDebris = false,
+                ExplicitStartUT = 12.0,
+                ExplicitEndUT = 34.0, // same as rewindUT — but it's NOT HEAD
+            };
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                unrelatedSiblingEndingAtRewind, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_HeadIdWithoutMarkerOriginId_NotCarvedOut()
+        {
+            // Pass 2 review User-H2: a marker missing OriginChildRecordingId
+            // (legacy or partial) must not have its chain-head case fire.
+            // The string-IsNullOrEmpty guard short-circuits.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                OriginChildRecordingId = null,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_head_no_marker_id",
+                IsDebris = false,
+                ExplicitStartUT = 8.0,
+                ExplicitEndUT = 34.0,
+            };
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                head, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
         }
 
         [Fact]
@@ -3747,6 +3815,7 @@ namespace Parsek.Tests
             {
                 RewindPointUT = 34.0,
                 InvokedUT = 34.0,
+                OriginChildRecordingId = "rec_head_wrap",
                 PreSessionBranchPointIds = new List<string>(),
             };
 

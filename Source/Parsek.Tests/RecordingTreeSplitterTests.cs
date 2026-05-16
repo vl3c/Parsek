@@ -1043,5 +1043,109 @@ namespace Parsek.Tests
                 && l.Contains("rec_origin")
                 && l.Contains(tipId));
         }
+
+        // =====================================================================
+        // 15. RollBackInMemory restores marker.SupersedeTargetId
+        //
+        // Pass 2 review Opus-H3 / User-M1: the orchestrator's step 2.10
+        // mutates marker.SupersedeTargetId from its pre-call value to TIP's
+        // id. Without snapshot capture, an exception in steps 2.11-2.13 (or
+        // any future tail step) would leave the marker pointing at TIP's
+        // about-to-be-removed id after rollback. The snapshot now carries the
+        // pre-mutation value + the marker reference; rollback restores both.
+        // =====================================================================
+
+        [Fact]
+        public void SplitOriginAtRewindUT_RollBackInMemory_RestoresMarkerSupersedeTargetId()
+        {
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 34.0,
+                treeId: "tree_15", terminal: TerminalState.Destroyed);
+            origin.ChainId = "chain_M";
+            origin.ChainIndex = 0;
+            InstallOriginInTree(origin, "tree_15");
+
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+            // Initial SupersedeTargetId — typically the origin's id before the
+            // splitter runs; could also be null on a marker that hasn't been
+            // routed yet. We pick origin.RecordingId so the post-rollback value
+            // is observably distinct from "null".
+            marker.SupersedeTargetId = origin.RecordingId;
+            string preMutationSupersedeTargetId = marker.SupersedeTargetId;
+
+            // Synthesize a snapshot mirroring a partially-completed split:
+            // step 2.10 ran (PreSplitSupersedeTargetId captured, marker
+            // mutated to TIP); steps 2.11-2.13 threw before they could be
+            // recorded into the ledger.
+            string tipId = "tip_synth_" + Guid.NewGuid().ToString("N");
+            marker.SupersedeTargetId = tipId;
+
+            // Add a synthetic TIP into the store + tree dict so rollback's
+            // step-1 removal has something to remove.
+            var tip = new Recording
+            {
+                RecordingId = tipId,
+                TreeId = "tree_15",
+                ChainId = origin.ChainId,
+                ChainBranch = origin.ChainBranch,
+                ChainIndex = 1,
+                MergeState = MergeState.Immutable,
+            };
+            RecordingStore.AddCommittedInternal(tip);
+            var tree = RecordingStore.CommittedTrees[0];
+            tree.AddOrReplaceRecording(tip);
+
+            var snapshot = new RecordingTreeSplitter.SplitSnapshot
+            {
+                TreeId = "tree_15",
+                TipAdded = true,
+                TipRecordingId = tipId,
+                MarkerForRollback = marker,
+                PreSplitSupersedeTargetId = preMutationSupersedeTargetId,
+                SupersedeTargetIdCaptured = true,
+            };
+
+            RecordingTreeSplitter.RollBackInMemory(null, snapshot);
+
+            // Marker's SupersedeTargetId restored to pre-mutation value.
+            Assert.Equal(preMutationSupersedeTargetId, marker.SupersedeTargetId);
+            // TIP gone from store + tree.
+            Assert.Null(FindCommitted(tipId));
+            Assert.False(tree.Recordings.ContainsKey(tipId));
+            // Rollback log surfaces the marker restoration.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("RollBackInMemory")
+                && l.Contains("markerRestored=true")
+                && l.Contains($"markerRestoredTo={preMutationSupersedeTargetId}"));
+        }
+
+        [Fact]
+        public void SplitOriginAtRewindUT_RollBackInMemory_MarkerUntouchedIfSupersedeTargetIdNotCaptured()
+        {
+            // Rollback path before step 2.10 ran: SupersedeTargetIdCaptured is
+            // false (default), so rollback must NOT touch marker.SupersedeTargetId.
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 34.0,
+                treeId: "tree_15b", terminal: TerminalState.Destroyed);
+            InstallOriginInTree(origin, "tree_15b");
+
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+            marker.SupersedeTargetId = "external_value_unchanged_by_rollback";
+
+            var snapshot = new RecordingTreeSplitter.SplitSnapshot
+            {
+                TreeId = "tree_15b",
+                TipAdded = false,
+                MarkerForRollback = null,
+                SupersedeTargetIdCaptured = false,
+            };
+
+            RecordingTreeSplitter.RollBackInMemory(null, snapshot);
+
+            Assert.Equal("external_value_unchanged_by_rollback", marker.SupersedeTargetId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("RollBackInMemory")
+                && l.Contains("markerRestored=false"));
+        }
     }
 }

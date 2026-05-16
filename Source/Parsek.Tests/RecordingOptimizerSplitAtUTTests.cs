@@ -840,5 +840,154 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Defensive guards (Pass 2 review Opus-H1 / Opus-H2)
+
+        [Fact]
+        public void SplitAtUT_SplitUTPastAllSectionStartUTs_ReturnsNullWithoutCrash()
+        {
+            // Pass 2 review Opus-H1: the prior gap-fallback fell through with
+            // sectionIndex = TrackSections.Count, which SplitAtSection's first
+            // line dereferenced as `original.TrackSections[Count].startUT` —
+            // ArgumentOutOfRangeException. The fix returns null with a Warn
+            // so callers (the splitter) fall back to whole-recording supersede
+            // instead of the merge crashing.
+            //
+            // Fixture: recording's flat Points extend to UT 53 but the only
+            // TrackSection covers [8..30]. splitUT=40 satisfies the
+            // strict-span pre-condition (8 < 40 < 53) but no TrackSection
+            // straddles or follows it.
+            var rec = new Recording { RecordingId = "rec-no-section-after-splitUT" };
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(20.0));
+            rec.Points.Add(PointAt(30.0));
+            rec.Points.Add(PointAt(53.0));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 8.0,
+                endUT = 30.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint>
+                {
+                    PointAt(8.0), PointAt(30.0),
+                },
+            });
+            rec.ExplicitStartUT = 8.0;
+            rec.ExplicitEndUT = 53.0;
+
+            int sectionCountBefore = rec.TrackSections.Count;
+            double sectionEndUtBefore = rec.TrackSections[0].endUT;
+            int pointsCountBefore = rec.Points.Count;
+
+            Recording tip = RecordingOptimizer.SplitAtUT(rec, 40.0);
+
+            Assert.Null(tip);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("defensive guard")
+                && l.Contains("past every")
+                && l.Contains("rec-no-section-after-splitUT"));
+
+            // Byte-identical contract: no mutation since neither Ensure (no
+            // OrbitSegments) nor the synthetic-insert path ran.
+            Assert.Equal(sectionCountBefore, rec.TrackSections.Count);
+            Assert.Equal(sectionEndUtBefore, rec.TrackSections[0].endUT);
+            Assert.Equal(pointsCountBefore, rec.Points.Count);
+        }
+
+        [Fact]
+        public void SplitAtUT_NullTrackSectionsList_ReturnsNullWithoutCrash()
+        {
+            // Pass 2 review Opus-H1: structurally pathological but the prior
+            // code would have crashed with NullReferenceException (or
+            // ArgumentOutOfRangeException on SplitAtSection's index-0 read of
+            // a null list).
+            var rec = new Recording { RecordingId = "rec-null-sections" };
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(53.0));
+            rec.TrackSections = null;
+            rec.ExplicitStartUT = 8.0;
+            rec.ExplicitEndUT = 53.0;
+
+            Recording tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.Null(tip);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("defensive guard")
+                && l.Contains("null TrackSections"));
+            Assert.Null(rec.TrackSections);
+            Assert.Equal(2, rec.Points.Count);
+        }
+
+        [Fact]
+        public void SplitAtUT_EnsureMutatedThenGapFallbackHits_RestoresPreEnsureState()
+        {
+            // Pass 2 review Opus-H2: when Ensure has run + mutated (added a
+            // checkpoint section from a top-level OrbitSegment) AND a
+            // downstream guard returns null (here: the Opus-H1 past-every-
+            // startUT case), the byte-identical contract requires the
+            // checkpoint section + CachedStats / OrbitSegments to be
+            // restored.
+            //
+            // Fixture: recording has one TrackSection at [8..30], one
+            // top-level OrbitSegment at [5..7] that Ensure will materialize
+            // into a checkpoint TrackSection. After Ensure, TrackSections
+            // are [checkpoint[5..7], section[8..30]] (sorted). splitUT=40
+            // is past every TrackSection startUT → Opus-H1 null return →
+            // restore must run.
+            var rec = new Recording { RecordingId = "rec-ensure-then-gap" };
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(53.0));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 8.0,
+                endUT = 30.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint> { PointAt(8.0), PointAt(30.0) },
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 5.0,
+                endUT = 7.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700_000.0,
+                eccentricity = 0.1,
+                inclination = 0.5,
+                isPredicted = false,
+            });
+            rec.ExplicitStartUT = 8.0;
+            rec.ExplicitEndUT = 53.0;
+
+            int trackSectionsBefore = rec.TrackSections.Count;
+            int orbitSegmentsBefore = rec.OrbitSegments.Count;
+            // CachedStats is null by default — no pre-existing cache to restore.
+
+            Recording tip = RecordingOptimizer.SplitAtUT(rec, 40.0);
+
+            Assert.Null(tip);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("defensive guard"));
+            // The restoration log fires only when ensureStats.Changed was true.
+            // The orbit at [5..7] is non-overlapping with section [8..30], so
+            // Ensure adds a checkpoint section -> stats.Changed = true ->
+            // restoration fires.
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("restored pre-Ensure snapshot"));
+
+            // Byte-identical: track sections + orbit segments back to
+            // pre-Ensure counts.
+            Assert.Equal(trackSectionsBefore, rec.TrackSections.Count);
+            Assert.Equal(orbitSegmentsBefore, rec.OrbitSegments.Count);
+            Assert.Equal(30.0, rec.TrackSections[0].endUT);
+        }
+
+        #endregion
     }
 }

@@ -105,6 +105,40 @@ namespace Parsek
             /// </summary>
             internal List<SplitMutationLedger.Entry> Ledger =
                 new List<SplitMutationLedger.Entry>();
+
+            /// <summary>
+            /// Marker reference for rollback's <see cref="ReFlySessionMarker.SupersedeTargetId"/>
+            /// restoration. Captured up front so rollback can locate the
+            /// mutated marker even when called from outside the original
+            /// stack frame (tests or future call sites). Null if the
+            /// splitter hasn't reached step 2.10 yet.
+            /// </summary>
+            internal ReFlySessionMarker MarkerForRollback;
+
+            /// <summary>
+            /// Pre-mutation value of <see cref="ReFlySessionMarker.SupersedeTargetId"/>,
+            /// captured in step 2.10 immediately BEFORE the orchestrator overwrites
+            /// it with TIP's id. Pass 2 review Opus-H3 / User-M1: any exception
+            /// in steps 2.11-2.13 (state-version bump, invariant logs, summary
+            /// log) leaves the marker pointing at TIP's about-to-be-removed id
+            /// unless rollback restores it. Without this field rollback removes
+            /// TIP from the store/tree but the marker's SupersedeTargetId
+            /// remains a dangling id reference.
+            ///
+            /// Default <c>null</c> means "marker mutation has not happened yet,
+            /// no restoration needed."
+            /// </summary>
+            internal string PreSplitSupersedeTargetId;
+
+            /// <summary>
+            /// True once step 2.10's marker.SupersedeTargetId mutation has
+            /// been recorded in the snapshot. Distinguishes "marker mutation
+            /// not yet attempted" from "marker mutation captured and rolled
+            /// back" so rollback can restore <see cref="PreSplitSupersedeTargetId"/>
+            /// (which may legitimately be null on a marker with no prior
+            /// target).
+            /// </summary>
+            internal bool SupersedeTargetIdCaptured;
         }
 
         /// <summary>
@@ -521,6 +555,19 @@ namespace Parsek
                     GetMutableCommittedRecordingsForReindex(),
                     origin.ChainId);
 
+                // Pass 2 review User-H3: BackgroundMap eligibility depends on
+                // TerminalStateValue / HasNextChainSegment / ChildBranchPointId
+                // — all of which the splitter mutates on HEAD (HEAD loses terminal
+                // state, gains TIP as chain sibling, may have its
+                // ChildBranchPointId nulled). RunOptimizationSplitPass calls
+                // RebuildBackgroundMap after its analogous insert + reindex
+                // (RecordingStore.cs:3362-3369); mirror it here so the splitter's
+                // map state matches the optimizer-split contract. Without this
+                // call, a future change to RebuildBackgroundMap's PID-collision
+                // tie-break could silently produce divergent map state between
+                // the two code paths.
+                owningTree?.RebuildBackgroundMap();
+
                 // Steps 2.6 - 2.13 are encapsulated so the idempotent re-run path
                 // can share the same code.
                 var result = RunPostSplitSteps(
@@ -718,6 +765,16 @@ namespace Parsek
             // Step 2.10: mutate marker. After this point AppendRelations'
             // closure walk starts at TIP; HEAD is reached only via chain-sibling
             // enqueue and is filtered by IsPreRewindCarveOut.
+            //
+            // Pass 2 review Opus-H3 / User-M1: capture the pre-mutation value
+            // (and the marker reference) BEFORE the overwrite so RollBackInMemory
+            // can restore SupersedeTargetId on any exception in steps 2.11-2.13.
+            // Without this, a partial-failure rollback removes TIP from the
+            // store but leaves the marker pointing at TIP's removed id —
+            // dangling reference picked up by LoadTimeSweep as an orphan.
+            snapshot.MarkerForRollback = marker;
+            snapshot.PreSplitSupersedeTargetId = marker.SupersedeTargetId;
+            snapshot.SupersedeTargetIdCaptured = true;
             marker.SupersedeTargetId = tip.RecordingId;
 
             // Step 2.11: bump RecordingStore.StateVersion to invalidate the ERS
@@ -806,6 +863,27 @@ namespace Parsek
                 }
             }
 
+            // Step 2b: restore marker.SupersedeTargetId. Pass 2 review Opus-H3
+            // / User-M1: step 2.10 may have overwritten this with TIP's id;
+            // TIP has just been removed from the store/tree, so leaving the
+            // marker pointing at it would create a dangling id that
+            // LoadTimeSweep would flag as an orphan on next load.
+            bool restoredMarker = false;
+            string preMarkerTargetForLog = null;
+            if (snapshot.SupersedeTargetIdCaptured && snapshot.MarkerForRollback != null)
+            {
+                preMarkerTargetForLog = snapshot.MarkerForRollback.SupersedeTargetId;
+                snapshot.MarkerForRollback.SupersedeTargetId = snapshot.PreSplitSupersedeTargetId;
+                restoredMarker = true;
+            }
+
+            // Step 2c: rebuild BackgroundMap for the owning tree. The splitter
+            // populated the map post-insert (User-H3); the rollback removed TIP,
+            // so the map must be rebuilt to drop the stale entry. Mirror the
+            // optimizer-split-pass pattern (RecordingStore.cs:3362-3369).
+            RecordingTree owningTreeAfterRollback = FindCommittedTreeById(snapshot.TreeId);
+            owningTreeAfterRollback?.RebuildBackgroundMap();
+
             // Step 3: restore ChainIndex map. Each sibling looked up by id;
             // ChainIndex written back. After origin reference swap the lookup
             // resolves to the clone, which is fine because the clone shares the
@@ -845,7 +923,11 @@ namespace Parsek
                 $"RollBackInMemory: rolled back split " +
                 $"(tipsRemoved={tipsRemoved.ToString(ic)} " +
                 $"chainSiblings={chainSiblingsRestored.ToString(ic)} " +
-                $"ledgerEntries={ledgerEntries.ToString(ic)})");
+                $"ledgerEntries={ledgerEntries.ToString(ic)} " +
+                $"markerRestored={(restoredMarker ? "true" : "false")} " +
+                $"markerWas={preMarkerTargetForLog ?? "<none>"} " +
+                $"markerRestoredTo={(restoredMarker ? (snapshot.PreSplitSupersedeTargetId ?? "<null>") : "<not-touched>")} " +
+                $"backgroundMapRebuilt={(owningTreeAfterRollback != null ? "true" : "false")})");
         }
 
         // -----------------------------------------------------------------
