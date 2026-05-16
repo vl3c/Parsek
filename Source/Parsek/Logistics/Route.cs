@@ -102,6 +102,25 @@ namespace Parsek.Logistics
         public int SkippedCycles;
 
         /// <summary>
+        /// Canonical save shape — writes every Route field into <paramref name="node"/>
+        /// per design §4.8. Implementation lives in <see cref="RouteCodec"/>.
+        /// </summary>
+        internal void SerializeInto(ConfigNode node)
+        {
+            RouteCodec.SerializeInto(this, node);
+        }
+
+        /// <summary>
+        /// Canonical load entry point — returns a fully populated route, or
+        /// <c>null</c> on a rejected route (missing STOP children or malformed
+        /// SOURCE entry). See <see cref="RouteCodec"/> for the reject rules.
+        /// </summary>
+        internal static Route DeserializeFrom(ConfigNode node)
+        {
+            return RouteCodec.DeserializeFrom(node);
+        }
+
+        /// <summary>
         /// Centralizes status transitions so every state change emits a log line and
         /// no caller can mutate <see cref="Status"/> directly without leaving an audit
         /// trail. Use <see cref="ParsekLog.Info"/> for genuine transitions and

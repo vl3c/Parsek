@@ -1,0 +1,618 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+
+namespace Parsek.Logistics
+{
+    /// <summary>
+    /// Canonical ConfigNode codec for <see cref="Route"/> (design §4.8).
+    ///
+    /// Save shape: a single <c>ROUTE</c> node carrying scalar fields,
+    /// <c>RECORDING_IDS</c>, <c>SOURCE_REFS</c>, <c>ORIGIN</c>, one or more
+    /// <c>STOP</c> children, plus optional <c>COST_MANIFEST</c> and
+    /// <c>INVENTORY_COST_MANIFEST</c>. Optional UT fields are omitted when
+    /// null so saves stay lean.
+    ///
+    /// Load rejects the whole route on (a) zero <c>STOP</c> children or
+    /// (b) a malformed <c>SOURCE</c> entry — returning <c>null</c> with a
+    /// warn log so partially-loaded routes never look valid downstream.
+    /// Unknown status strings map to <see cref="RouteStatus.Active"/> with
+    /// a warn log so future enum additions stay forward-compatible.
+    /// </summary>
+    internal static class RouteCodec
+    {
+        private const string LogTag = "RouteStore";
+
+        // Node names — kept here so codec rename refactors touch one place.
+        internal const string RecordingIdsNode = "RECORDING_IDS";
+        internal const string SourceRefsNode = "SOURCE_REFS";
+        internal const string SourceChildNode = "SOURCE";
+        internal const string OriginNode = "ORIGIN";
+        internal const string StopNode = "STOP";
+        internal const string EndpointNode = "ENDPOINT";
+        internal const string DeliveryManifestNode = "DELIVERY_MANIFEST";
+        internal const string InventoryDeliveryManifestNode = "INVENTORY_DELIVERY_MANIFEST";
+        internal const string CostManifestNode = "COST_MANIFEST";
+        internal const string InventoryCostManifestNode = "INVENTORY_COST_MANIFEST";
+        internal const string InventoryItemNode = "ITEM";
+        internal const string StoredPartNode = "STOREDPART";
+        internal const string StoredResourcesNode = "STORED_RESOURCES";
+        internal const string ResourceChildNode = "RESOURCE";
+
+        // -----------------------------------------------------------------
+        // Serialize
+        // -----------------------------------------------------------------
+
+        internal static void SerializeInto(Route route, ConfigNode node)
+        {
+            if (route == null || node == null)
+                return;
+
+            var ic = CultureInfo.InvariantCulture;
+
+            // --- Identity ---
+            if (!string.IsNullOrEmpty(route.Id))
+                node.AddValue("id", route.Id);
+            if (!string.IsNullOrEmpty(route.Name))
+                node.AddValue("name", route.Name);
+
+            // --- Endpoints + flags ---
+            node.AddValue("isKscOrigin", route.IsKscOrigin.ToString());
+            node.AddValue("kscDispatchFundsCost", route.KscDispatchFundsCost.ToString("R", ic));
+
+            // --- Scheduling scalars ---
+            node.AddValue("transitDuration", route.TransitDuration.ToString("R", ic));
+            node.AddValue("dispatchInterval", route.DispatchInterval.ToString("R", ic));
+            node.AddValue("dispatchWindowEpochUT", route.DispatchWindowEpochUT.ToString("R", ic));
+            node.AddValue("dispatchWindowPeriod", route.DispatchWindowPeriod.ToString("R", ic));
+            node.AddValue("nextDispatchUT", route.NextDispatchUT.ToString("R", ic));
+
+            // Optional UT scalars: write ONLY when non-null.
+            if (route.CurrentCycleStartUT.HasValue)
+                node.AddValue("currentCycleStartUT",
+                    route.CurrentCycleStartUT.Value.ToString("R", ic));
+            if (route.NextEligibilityCheckUT.HasValue)
+                node.AddValue("nextEligibilityCheckUT",
+                    route.NextEligibilityCheckUT.Value.ToString("R", ic));
+            if (route.PendingDeliveryUT.HasValue)
+                node.AddValue("pendingDeliveryUT",
+                    route.PendingDeliveryUT.Value.ToString("R", ic));
+
+            node.AddValue("currentSegmentIndex", route.CurrentSegmentIndex.ToString(ic));
+            node.AddValue("pendingStopIndex", route.PendingStopIndex.ToString(ic));
+
+            if (!string.IsNullOrEmpty(route.LinkedRouteId))
+                node.AddValue("linkedRouteId", route.LinkedRouteId);
+
+            // --- Status ---
+            node.AddValue("status", route.Status.ToString());
+            node.AddValue("pauseAfterCurrentCycle", route.PauseAfterCurrentCycle.ToString());
+            node.AddValue("completedCycles", route.CompletedCycles.ToString(ic));
+            node.AddValue("skippedCycles", route.SkippedCycles.ToString(ic));
+
+            // --- RECORDING_IDS ---
+            if (route.RecordingIds != null && route.RecordingIds.Count > 0)
+            {
+                ConfigNode ridsNode = node.AddNode(RecordingIdsNode);
+                for (int i = 0; i < route.RecordingIds.Count; i++)
+                {
+                    string rid = route.RecordingIds[i];
+                    if (!string.IsNullOrEmpty(rid))
+                        ridsNode.AddValue("id", rid);
+                }
+            }
+
+            // --- SOURCE_REFS ---
+            if (route.SourceRefs != null && route.SourceRefs.Count > 0)
+            {
+                ConfigNode refsNode = node.AddNode(SourceRefsNode);
+                for (int i = 0; i < route.SourceRefs.Count; i++)
+                {
+                    RouteSourceRef srcRef = route.SourceRefs[i];
+                    if (srcRef == null)
+                        continue;
+                    SerializeSourceRef(refsNode.AddNode(SourceChildNode), srcRef, ic);
+                }
+            }
+
+            // --- ORIGIN ---
+            SerializeEndpoint(node.AddNode(OriginNode), route.Origin, ic);
+
+            // --- STOPs ---
+            if (route.Stops != null)
+            {
+                for (int i = 0; i < route.Stops.Count; i++)
+                {
+                    RouteStop stop = route.Stops[i];
+                    if (stop == null)
+                        continue;
+                    SerializeStop(node.AddNode(StopNode), stop, ic);
+                }
+            }
+
+            // --- COST_MANIFEST (whole-route) ---
+            SerializeFlatResourceManifest(node, CostManifestNode, route.CostManifest, ic);
+
+            // --- INVENTORY_COST_MANIFEST ---
+            SerializeInventoryItems(node, InventoryCostManifestNode, route.InventoryCostManifest, ic);
+        }
+
+        // -----------------------------------------------------------------
+        // Deserialize
+        // -----------------------------------------------------------------
+
+        internal static Route DeserializeFrom(ConfigNode node)
+        {
+            if (node == null)
+                return null;
+
+            var ic = CultureInfo.InvariantCulture;
+            var inv = NumberStyles.Float;
+
+            var route = new Route();
+
+            route.Id = node.GetValue("id");
+            route.Name = node.GetValue("name");
+
+            TryParseBool(node.GetValue("isKscOrigin"), out route.IsKscOrigin);
+            TryParseDouble(node.GetValue("kscDispatchFundsCost"), inv, ic, out route.KscDispatchFundsCost);
+
+            TryParseDouble(node.GetValue("transitDuration"), inv, ic, out route.TransitDuration);
+            TryParseDouble(node.GetValue("dispatchInterval"), inv, ic, out route.DispatchInterval);
+            TryParseDouble(node.GetValue("dispatchWindowEpochUT"), inv, ic, out route.DispatchWindowEpochUT);
+            TryParseDouble(node.GetValue("dispatchWindowPeriod"), inv, ic, out route.DispatchWindowPeriod);
+            TryParseDouble(node.GetValue("nextDispatchUT"), inv, ic, out route.NextDispatchUT);
+
+            route.CurrentCycleStartUT = TryParseOptionalDouble(node.GetValue("currentCycleStartUT"), inv, ic);
+            route.NextEligibilityCheckUT = TryParseOptionalDouble(node.GetValue("nextEligibilityCheckUT"), inv, ic);
+            route.PendingDeliveryUT = TryParseOptionalDouble(node.GetValue("pendingDeliveryUT"), inv, ic);
+
+            TryParseInt(node.GetValue("currentSegmentIndex"), ic, -1, out route.CurrentSegmentIndex);
+            TryParseInt(node.GetValue("pendingStopIndex"), ic, -1, out route.PendingStopIndex);
+
+            route.LinkedRouteId = node.GetValue("linkedRouteId");
+            if (string.IsNullOrEmpty(route.LinkedRouteId))
+                route.LinkedRouteId = null;
+
+            string statusStr = node.GetValue("status");
+            route.Status = ParseStatusOrWarn(statusStr, route.Id);
+
+            TryParseBool(node.GetValue("pauseAfterCurrentCycle"), out route.PauseAfterCurrentCycle);
+            TryParseInt(node.GetValue("completedCycles"), ic, 0, out route.CompletedCycles);
+            TryParseInt(node.GetValue("skippedCycles"), ic, 0, out route.SkippedCycles);
+
+            // --- RECORDING_IDS ---
+            ConfigNode ridsNode = node.GetNode(RecordingIdsNode);
+            if (ridsNode != null)
+            {
+                string[] ids = ridsNode.GetValues("id");
+                if (ids != null)
+                {
+                    for (int i = 0; i < ids.Length; i++)
+                    {
+                        if (!string.IsNullOrEmpty(ids[i]))
+                            route.RecordingIds.Add(ids[i]);
+                    }
+                }
+            }
+
+            // --- SOURCE_REFS (route-wide reject on any malformed entry) ---
+            ConfigNode refsNode = node.GetNode(SourceRefsNode);
+            if (refsNode != null)
+            {
+                ConfigNode[] srcNodes = refsNode.GetNodes(SourceChildNode);
+                for (int i = 0; i < srcNodes.Length; i++)
+                {
+                    RouteSourceRef srcRef = DeserializeSourceRef(srcNodes[i], inv, ic);
+                    if (srcRef == null)
+                    {
+                        ParsekLog.Warn(LogTag,
+                            $"DeserializeFrom: rejecting route id={route.Id ?? "<no-id>"} " +
+                            $"because SOURCE child #{i} is missing recordingId or treeId");
+                        return null;
+                    }
+                    route.SourceRefs.Add(srcRef);
+                }
+            }
+
+            // --- ORIGIN ---
+            ConfigNode originNode = node.GetNode(OriginNode);
+            if (originNode != null)
+                route.Origin = DeserializeEndpoint(originNode, inv, ic);
+
+            // --- STOPs (reject route on empty list) ---
+            ConfigNode[] stopNodes = node.GetNodes(StopNode);
+            if (stopNodes == null || stopNodes.Length == 0)
+            {
+                ParsekLog.Warn(LogTag,
+                    $"DeserializeFrom: rejecting route id={route.Id ?? "<no-id>"} " +
+                    "because it has zero STOP children");
+                return null;
+            }
+            for (int i = 0; i < stopNodes.Length; i++)
+            {
+                route.Stops.Add(DeserializeStop(stopNodes[i], inv, ic));
+            }
+
+            // --- COST_MANIFEST ---
+            route.CostManifest = DeserializeFlatResourceManifest(node, CostManifestNode, inv, ic);
+
+            // --- INVENTORY_COST_MANIFEST ---
+            route.InventoryCostManifest = DeserializeInventoryItems(node, InventoryCostManifestNode, ic);
+
+            return route;
+        }
+
+        // -----------------------------------------------------------------
+        // SOURCE
+        // -----------------------------------------------------------------
+
+        private static void SerializeSourceRef(ConfigNode node, RouteSourceRef src, CultureInfo ic)
+        {
+            if (!string.IsNullOrEmpty(src.RecordingId))
+                node.AddValue("recordingId", src.RecordingId);
+            if (!string.IsNullOrEmpty(src.TreeId))
+                node.AddValue("treeId", src.TreeId);
+            node.AddValue("treeOrder", src.TreeOrder.ToString(ic));
+            node.AddValue("recordingFormatVersion", src.RecordingFormatVersion.ToString(ic));
+            node.AddValue("recordingSchemaGeneration", src.RecordingSchemaGeneration.ToString(ic));
+            node.AddValue("sidecarEpoch", src.SidecarEpoch.ToString(ic));
+            node.AddValue("startUT", src.StartUT.ToString("R", ic));
+            node.AddValue("endUT", src.EndUT.ToString("R", ic));
+            if (!string.IsNullOrEmpty(src.RouteProofHash))
+                node.AddValue("routeProofHash", src.RouteProofHash);
+        }
+
+        /// <summary>
+        /// Returns null if <c>recordingId</c> or <c>treeId</c> is missing —
+        /// caller must reject the whole route on null.
+        /// </summary>
+        private static RouteSourceRef DeserializeSourceRef(
+            ConfigNode node, NumberStyles inv, CultureInfo ic)
+        {
+            string recId = node.GetValue("recordingId");
+            string treeId = node.GetValue("treeId");
+            if (string.IsNullOrEmpty(recId) || string.IsNullOrEmpty(treeId))
+                return null;
+
+            var src = new RouteSourceRef
+            {
+                RecordingId = recId,
+                TreeId = treeId,
+                RouteProofHash = node.GetValue("routeProofHash")
+            };
+            TryParseInt(node.GetValue("treeOrder"), ic, 0, out src.TreeOrder);
+            TryParseInt(node.GetValue("recordingFormatVersion"), ic, 0, out src.RecordingFormatVersion);
+            TryParseInt(node.GetValue("recordingSchemaGeneration"), ic, 0, out src.RecordingSchemaGeneration);
+            TryParseInt(node.GetValue("sidecarEpoch"), ic, 0, out src.SidecarEpoch);
+            TryParseDouble(node.GetValue("startUT"), inv, ic, out src.StartUT);
+            TryParseDouble(node.GetValue("endUT"), inv, ic, out src.EndUT);
+            return src;
+        }
+
+        // -----------------------------------------------------------------
+        // ENDPOINT
+        // -----------------------------------------------------------------
+
+        private static void SerializeEndpoint(ConfigNode node, RouteEndpoint ep, CultureInfo ic)
+        {
+            if (!string.IsNullOrEmpty(ep.BodyName))
+                node.AddValue("bodyName", ep.BodyName);
+            node.AddValue("latitude", ep.Latitude.ToString("R", ic));
+            node.AddValue("longitude", ep.Longitude.ToString("R", ic));
+            node.AddValue("altitude", ep.Altitude.ToString("R", ic));
+            node.AddValue("vesselPersistentId", ep.VesselPersistentId.ToString(ic));
+            node.AddValue("isSurface", ep.IsSurface.ToString());
+        }
+
+        private static RouteEndpoint DeserializeEndpoint(
+            ConfigNode node, NumberStyles inv, CultureInfo ic)
+        {
+            var ep = new RouteEndpoint
+            {
+                BodyName = node.GetValue("bodyName")
+            };
+            TryParseDouble(node.GetValue("latitude"), inv, ic, out ep.Latitude);
+            TryParseDouble(node.GetValue("longitude"), inv, ic, out ep.Longitude);
+            TryParseDouble(node.GetValue("altitude"), inv, ic, out ep.Altitude);
+
+            string pidStr = node.GetValue("vesselPersistentId");
+            if (pidStr != null
+                && uint.TryParse(pidStr, NumberStyles.Integer, ic, out uint pid))
+            {
+                ep.VesselPersistentId = pid;
+            }
+
+            string isSurfaceStr = node.GetValue("isSurface");
+            if (isSurfaceStr != null && bool.TryParse(isSurfaceStr, out bool isSurface))
+                ep.IsSurface = isSurface;
+
+            return ep;
+        }
+
+        // -----------------------------------------------------------------
+        // STOP
+        // -----------------------------------------------------------------
+
+        private static void SerializeStop(ConfigNode node, RouteStop stop, CultureInfo ic)
+        {
+            SerializeEndpoint(node.AddNode(EndpointNode), stop.Endpoint, ic);
+            node.AddValue("connectionKind", stop.ConnectionKind.ToString());
+            node.AddValue("segmentIndexBefore", stop.SegmentIndexBefore.ToString(ic));
+            node.AddValue("deliveryOffsetSeconds", stop.DeliveryOffsetSeconds.ToString("R", ic));
+
+            SerializeFlatResourceManifest(node, DeliveryManifestNode, stop.DeliveryManifest, ic);
+            SerializeInventoryItems(node, InventoryDeliveryManifestNode, stop.InventoryDeliveryManifest, ic);
+        }
+
+        private static RouteStop DeserializeStop(
+            ConfigNode node, NumberStyles inv, CultureInfo ic)
+        {
+            var stop = new RouteStop();
+            ConfigNode endpointNode = node.GetNode(EndpointNode);
+            if (endpointNode != null)
+                stop.Endpoint = DeserializeEndpoint(endpointNode, inv, ic);
+
+            stop.ConnectionKind = ParseConnectionKind(node.GetValue("connectionKind"));
+            TryParseInt(node.GetValue("segmentIndexBefore"), ic, -1, out stop.SegmentIndexBefore);
+            TryParseDouble(node.GetValue("deliveryOffsetSeconds"), inv, ic, out stop.DeliveryOffsetSeconds);
+
+            stop.DeliveryManifest = DeserializeFlatResourceManifest(node, DeliveryManifestNode, inv, ic);
+            stop.InventoryDeliveryManifest = DeserializeInventoryItems(node, InventoryDeliveryManifestNode, ic);
+
+            return stop;
+        }
+
+        // -----------------------------------------------------------------
+        // Resource + inventory manifests
+        // -----------------------------------------------------------------
+
+        // Flat manifest: <name> = <amount> child values directly under the
+        // wrapper node (matches design §4.8 COST_MANIFEST/DELIVERY_MANIFEST
+        // shape — no nested RESOURCE { name=... amount=... } children).
+        private static void SerializeFlatResourceManifest(
+            ConfigNode parent,
+            string nodeName,
+            Dictionary<string, double> manifest,
+            CultureInfo ic)
+        {
+            if (manifest == null || manifest.Count == 0)
+                return;
+
+            ConfigNode node = parent.AddNode(nodeName);
+            foreach (var kvp in manifest)
+            {
+                if (string.IsNullOrEmpty(kvp.Key))
+                    continue;
+                node.AddValue(kvp.Key, kvp.Value.ToString("R", ic));
+            }
+        }
+
+        private static Dictionary<string, double> DeserializeFlatResourceManifest(
+            ConfigNode parent,
+            string nodeName,
+            NumberStyles inv,
+            CultureInfo ic)
+        {
+            ConfigNode node = parent.GetNode(nodeName);
+            if (node == null)
+                return null;
+
+            var manifest = new Dictionary<string, double>();
+            for (int i = 0; i < node.values.Count; i++)
+            {
+                ConfigNode.Value v = node.values[i];
+                if (string.IsNullOrEmpty(v.name))
+                    continue;
+                if (double.TryParse(v.value, inv, ic, out double amount))
+                    manifest[v.name] = amount;
+            }
+            return manifest.Count > 0 ? manifest : null;
+        }
+
+        private static void SerializeInventoryItems(
+            ConfigNode parent,
+            string nodeName,
+            List<InventoryPayloadItem> items,
+            CultureInfo ic)
+        {
+            if (items == null || items.Count == 0)
+                return;
+
+            ConfigNode parentNode = parent.AddNode(nodeName);
+            for (int i = 0; i < items.Count; i++)
+            {
+                InventoryPayloadItem item = items[i];
+                if (item == null)
+                    continue;
+
+                ConfigNode itemNode = parentNode.AddNode(InventoryItemNode);
+                if (!string.IsNullOrEmpty(item.IdentityHash))
+                    itemNode.AddValue("identityHash", item.IdentityHash);
+                if (!string.IsNullOrEmpty(item.PartName))
+                    itemNode.AddValue("partName", item.PartName);
+                if (!string.IsNullOrEmpty(item.VariantName))
+                    itemNode.AddValue("variantName", item.VariantName);
+                if (item.Quantity != 0)
+                    itemNode.AddValue("quantity", item.Quantity.ToString(ic));
+                if (item.SlotsTaken != 0)
+                    itemNode.AddValue("slotsTaken", item.SlotsTaken.ToString(ic));
+
+                SerializeResourceAmountManifest(itemNode, StoredResourcesNode, item.StoredResources, ic);
+
+                if (item.StoredPartSnapshot != null)
+                {
+                    // Verbatim STOREDPART child of ITEM — preserves payload
+                    // identity exactly (no canonicalization).
+                    ConfigNode copy = item.StoredPartSnapshot.CreateCopy();
+                    copy.name = StoredPartNode;
+                    itemNode.AddNode(copy);
+                }
+            }
+        }
+
+        private static List<InventoryPayloadItem> DeserializeInventoryItems(
+            ConfigNode parent,
+            string nodeName,
+            CultureInfo ic)
+        {
+            ConfigNode parentNode = parent.GetNode(nodeName);
+            if (parentNode == null)
+                return null;
+
+            ConfigNode[] itemNodes = parentNode.GetNodes(InventoryItemNode);
+            if (itemNodes.Length == 0)
+                return null;
+
+            var items = new List<InventoryPayloadItem>(itemNodes.Length);
+            for (int i = 0; i < itemNodes.Length; i++)
+            {
+                var item = new InventoryPayloadItem
+                {
+                    IdentityHash = itemNodes[i].GetValue("identityHash"),
+                    PartName = itemNodes[i].GetValue("partName"),
+                    VariantName = itemNodes[i].GetValue("variantName"),
+                    StoredResources = DeserializeResourceAmountManifest(
+                        itemNodes[i], StoredResourcesNode, ic)
+                };
+
+                TryParseInt(itemNodes[i].GetValue("quantity"), ic, 0, out item.Quantity);
+                TryParseInt(itemNodes[i].GetValue("slotsTaken"), ic, 0, out item.SlotsTaken);
+
+                ConfigNode snapshot = itemNodes[i].GetNode(StoredPartNode);
+                if (snapshot != null)
+                {
+                    ConfigNode copy = snapshot.CreateCopy();
+                    copy.name = StoredPartNode;
+                    item.StoredPartSnapshot = copy;
+                }
+
+                items.Add(item);
+            }
+
+            return items;
+        }
+
+        private static void SerializeResourceAmountManifest(
+            ConfigNode parent,
+            string nodeName,
+            Dictionary<string, ResourceAmount> manifest,
+            CultureInfo ic)
+        {
+            if (manifest == null || manifest.Count == 0)
+                return;
+
+            ConfigNode node = parent.AddNode(nodeName);
+            foreach (var kvp in manifest)
+            {
+                if (string.IsNullOrEmpty(kvp.Key))
+                    continue;
+                ConfigNode r = node.AddNode(ResourceChildNode);
+                r.AddValue("name", kvp.Key);
+                r.AddValue("amount", kvp.Value.amount.ToString("R", ic));
+                r.AddValue("maxAmount", kvp.Value.maxAmount.ToString("R", ic));
+            }
+        }
+
+        private static Dictionary<string, ResourceAmount> DeserializeResourceAmountManifest(
+            ConfigNode parent,
+            string nodeName,
+            CultureInfo ic)
+        {
+            ConfigNode node = parent.GetNode(nodeName);
+            if (node == null)
+                return null;
+
+            ConfigNode[] rNodes = node.GetNodes(ResourceChildNode);
+            if (rNodes.Length == 0)
+                return null;
+
+            var manifest = new Dictionary<string, ResourceAmount>();
+            var inv = NumberStyles.Float;
+            for (int i = 0; i < rNodes.Length; i++)
+            {
+                string name = rNodes[i].GetValue("name");
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                double amount = 0.0;
+                double maxAmount = 0.0;
+                double.TryParse(rNodes[i].GetValue("amount"), inv, ic, out amount);
+                double.TryParse(rNodes[i].GetValue("maxAmount"), inv, ic, out maxAmount);
+                manifest[name] = new ResourceAmount { amount = amount, maxAmount = maxAmount };
+            }
+            return manifest.Count > 0 ? manifest : null;
+        }
+
+        // -----------------------------------------------------------------
+        // Enum + primitive parsing helpers
+        // -----------------------------------------------------------------
+
+        private static RouteStatus ParseStatusOrWarn(string raw, string routeIdForLog)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return RouteStatus.Active;
+
+            if (Enum.TryParse(raw, out RouteStatus status)
+                && Enum.IsDefined(typeof(RouteStatus), status))
+            {
+                return status;
+            }
+
+            ParsekLog.Warn(LogTag,
+                $"DeserializeFrom: unknown status='{raw}' on route id={routeIdForLog ?? "<no-id>"}; " +
+                "mapping to Active. Next dispatch revalidation will re-derive a safer status if needed.");
+            return RouteStatus.Active;
+        }
+
+        private static RouteConnectionKind ParseConnectionKind(string raw)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return RouteConnectionKind.None;
+
+            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intValue)
+                && Enum.IsDefined(typeof(RouteConnectionKind), intValue))
+            {
+                return (RouteConnectionKind)intValue;
+            }
+
+            if (Enum.TryParse(raw, out RouteConnectionKind kind)
+                && Enum.IsDefined(typeof(RouteConnectionKind), kind))
+            {
+                return kind;
+            }
+
+            return RouteConnectionKind.Unknown;
+        }
+
+        private static void TryParseBool(string raw, out bool value)
+        {
+            if (raw != null && bool.TryParse(raw, out bool parsed))
+                value = parsed;
+            else
+                value = false;
+        }
+
+        private static void TryParseInt(string raw, CultureInfo ic, int defaultValue, out int value)
+        {
+            if (raw != null && int.TryParse(raw, NumberStyles.Integer, ic, out int parsed))
+                value = parsed;
+            else
+                value = defaultValue;
+        }
+
+        private static void TryParseDouble(string raw, NumberStyles inv, CultureInfo ic, out double value)
+        {
+            if (raw != null && double.TryParse(raw, inv, ic, out double parsed))
+                value = parsed;
+            else
+                value = 0.0;
+        }
+
+        private static double? TryParseOptionalDouble(string raw, NumberStyles inv, CultureInfo ic)
+        {
+            if (raw != null && double.TryParse(raw, inv, ic, out double parsed))
+                return parsed;
+            return null;
+        }
+    }
+}
