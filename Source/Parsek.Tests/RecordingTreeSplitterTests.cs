@@ -1186,6 +1186,138 @@ namespace Parsek.Tests
             Assert.Equal(2, siblingAfter.ChainIndex);
         }
 
+        // =====================================================================
+        // 17. Env-homogeneous-origin defensive log (Pass 6 review L4)
+        //
+        // Pass 5 added a defensive log at the top of SplitOriginAtRewindUT
+        // that walks origin.TrackSections counting distinct env-class runs
+        // and surfaces a Warn if > 1. The warning fires only when the
+        // upstream optimizer-ordering invariant is violated (a third
+        // RunMerge entry point skipping RunOptimizationPass), which today's
+        // production call graph never does. Pass 6 review L4: with no test
+        // exercising the violation path, a future refactor that breaks the
+        // Warn formatting / condition wouldn't be caught. Fixture: build
+        // origin with three distinct env-class TrackSections (Atmospheric →
+        // ExoBallistic → Atmospheric — the "atmospheric grazing trajectory"
+        // shape the optimizer would normally collapse / split before merge).
+        // Invoke the splitter directly. Assert the Warn fires AND the split
+        // still produces correct HEAD/TIP at the rewind UT — the defense
+        // is "log-and-proceed," not "abort."
+        // =====================================================================
+
+        [Fact]
+        public void SplitOriginAtRewindUT_OriginWithMultipleEnvClasses_LogsWarnAndProceeds()
+        {
+            // Build origin with three distinct env-class TrackSection runs:
+            // Atmospheric [8..15], ExoBallistic [15..30], Atmospheric [30..40].
+            // Total: 3 distinct env-class transitions across 3 sections —
+            // the kind of recording the optimizer should env-split before
+            // merge time but hasn't.
+            var origin = new Recording
+            {
+                RecordingId = "rec_origin_multienv",
+                VesselName = "rec_origin_multienv",
+                TreeId = "tree_multienv",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+            };
+            origin.Points.Add(PointAt(8.0));
+            origin.Points.Add(PointAt(15.0));
+            origin.Points.Add(PointAt(25.0)); // == rewindUT, bypasses Slerp
+            origin.Points.Add(PointAt(30.0));
+            origin.Points.Add(PointAt(40.0));
+            origin.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 8.0,
+                endUT = 15.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint>
+                {
+                    PointAt(8.0), PointAt(15.0),
+                },
+            });
+            origin.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 15.0,
+                endUT = 30.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint>
+                {
+                    PointAt(15.0), PointAt(25.0), PointAt(30.0),
+                },
+            });
+            origin.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 30.0,
+                endUT = 40.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint>
+                {
+                    PointAt(30.0), PointAt(40.0),
+                },
+            });
+            InstallOriginInTree(origin, "tree_multienv");
+
+            var marker = BuildMarker(origin, rewindUT: 25.0);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            // Split must NOT be aborted by the env invariant violation — the
+            // defense is log-and-proceed. HEAD/TIP at rewindUT=25 produced
+            // correctly.
+            Assert.False(result.Skipped);
+            Assert.NotNull(result.TipRecordingId);
+            Recording head = FindCommitted("rec_origin_multienv");
+            Recording tip = FindCommitted(result.TipRecordingId);
+            Assert.NotNull(head);
+            Assert.NotNull(tip);
+            Assert.Equal(8.0, head.StartUT);
+            Assert.Equal(25.0, head.EndUT);
+            Assert.Equal(25.0, tip.StartUT);
+            Assert.Equal(40.0, tip.EndUT);
+
+            // The defensive Warn fired with the env-class count.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("[WARN]")
+                && l.Contains("env-homogeneous-origin invariant violated")
+                && l.Contains("rec_origin_multienv")
+                && l.Contains("3 distinct env-class runs"));
+        }
+
+        [Fact]
+        public void SplitOriginAtRewindUT_OriginWithSingleEnvClass_DoesNotLogWarn()
+        {
+            // Control test: a normal env-homogeneous origin (one Atmospheric
+            // section spanning the rewind UT) must NOT trigger the
+            // defensive Warn. Production Re-Flys all land here.
+            var origin = BuildRecording("rec_origin_singleenv", 8.0, 40.0,
+                midUT: 25.0, treeId: "tree_singleenv",
+                terminal: TerminalState.Destroyed);
+            InstallOriginInTree(origin, "tree_singleenv");
+
+            var marker = BuildMarker(origin, rewindUT: 25.0);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("env-homogeneous-origin invariant violated"));
+        }
+
         [Fact]
         public void SplitOriginAtRewindUT_RollBackInMemory_MarkerUntouchedIfSupersedeTargetIdNotCaptured()
         {
