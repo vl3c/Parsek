@@ -572,7 +572,16 @@ namespace Parsek
                     ? new List<string>(origin.RecordingGroups) : null;
                 tip.CreatingSessionId = origin.CreatingSessionId;
                 tip.ProvisionalForRpId = origin.ProvisionalForRpId;
-                tip.SupersedeTargetId = origin.SupersedeTargetId;
+                // Pass 6 review M3: TIP must not inherit origin.SupersedeTargetId.
+                // SupersedeTargetId is the transient "what id is this provisional
+                // replacing" flag carried by NotCommitted provisionals; it has no
+                // meaning on a recording that's about to be itself superseded by
+                // the fork. LoadTimeSweep scrubs the field on next load, but
+                // until then the in-memory TIP carries a phantom id that
+                // confuses any reader that walks rec.SupersedeTargetId directly.
+                // Null it explicitly so the in-memory window matches the
+                // post-load steady state.
+                tip.SupersedeTargetId = null;
 
                 // ChildBranchPointId move: reuse the optimizer split's
                 // helper. secondStartUT == tip.StartUT (= rewindUT post-split),
@@ -1014,7 +1023,24 @@ namespace Parsek
             if (hadLedgerActionRetag)
             {
                 Ledger.BumpStateVersion();
-                LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+                // Pass 6 review L5: a misbehaving OnTimelineDataChanged
+                // subscriber must not corrupt rollback's own cleanup. If a
+                // subscriber throws, rollback would abort mid-way and the
+                // journal would be stuck at Begin on disk with partial
+                // in-memory state. Wrap in try/catch so an external throw
+                // surfaces a loud Warn but rollback completes its own work.
+                try
+                {
+                    LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+                }
+                catch (Exception invokeEx)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"RollBackInMemory: OnTimelineDataChanged subscriber threw " +
+                        $"{invokeEx.GetType().Name}: {invokeEx.Message} — " +
+                        "swallowing to let rollback complete; ELS / milestone " +
+                        "overlays may show stale data until the next state-version bump");
+                }
             }
 
             ParsekLog.Warn(Tag,
