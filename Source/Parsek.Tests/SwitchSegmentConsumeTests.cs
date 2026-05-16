@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -451,6 +453,71 @@ namespace Parsek.Tests
                     && l.Contains("cleared")
                     && l.Contains("consumed-into-segment")
                     && l.Contains(marker.IntentId.ToString("D")));
+        }
+
+        // Phase C.1: source-text gate test. The three Started* branches in
+        // ParsekFlight.TryConsumeStockActionIntent (committed-spawned-clone,
+        // bg-member-continuation, standalone / bg-lookup-failed-standalone)
+        // each create a new continuation segment via
+        // SwitchSegmentBuilder.CreateSwitchContinuationSegment and then MUST
+        // invoke BindLiveRecorderToSwitchSegment so the live FlightRecorder
+        // is bound to the new recording id and trajectory samples flow into
+        // the new segment immediately. We can't drive the live ParsekFlight
+        // path from xUnit (Vessel + FlightGlobals + Unity GameEvents are
+        // unguarded — see reference_parsek_scenario_xunit.md), so this is a
+        // source-text gate: each Created==true site must call
+        // BindLiveRecorderToSwitchSegment within a few lines, and the bind
+        // helper must emit the recorder-bound Info log line that the consume
+        // ledger relies on.
+        //
+        // Fails if: a future refactor of TryConsumeStockActionIntent /
+        // Start* drops the recorder-bind call after segment creation,
+        // silently leaving the new segment empty of trajectory samples.
+        [Fact]
+        public void Consume_StartedRoute_BindsRecorderToNewRecordingId()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string flightPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekFlight.cs");
+            Assert.True(File.Exists(flightPath),
+                $"ParsekFlight.cs not found at {flightPath}");
+            string source = File.ReadAllText(flightPath);
+
+            // Gate 1: the helper itself must exist.
+            Assert.Contains("BindLiveRecorderToSwitchSegment", source);
+            Assert.Contains("recorder-bound route=", source);
+            Assert.Contains("new-recording-id=", source);
+
+            // Gate 2: each Started* branch must call BindLiveRecorderToSwitchSegment
+            // within ~15 lines of the matching successful CreateSwitchContinuationSegment
+            // result, identified by the route tag passed to the helper. Use
+            // multiline regex so .* spans the few intervening lines.
+            //
+            // committed-spawned-clone branch:
+            Assert.Matches(new Regex(
+                @"creation\.Created[\s\S]{0,2000}?BindLiveRecorderToSwitchSegment[\s\S]{0,300}?committed-spawned-clone",
+                RegexOptions.Multiline),
+                source);
+            // bg-member-continuation branch:
+            Assert.Matches(new Regex(
+                @"BackgroundMap\.Remove\(newPid\)[\s\S]{0,400}?BindLiveRecorderToSwitchSegment[\s\S]{0,300}?bg-member-continuation",
+                RegexOptions.Multiline),
+                source);
+            // standalone / bg-lookup-failed-standalone branch:
+            Assert.Matches(new Regex(
+                @"StartedStandalone[\s\S]{0,400}?BindLiveRecorderToSwitchSegment[\s\S]{0,300}?bg-lookup-failed-standalone",
+                RegexOptions.Multiline),
+                source);
+
+            // Gate 3: the helper must mirror the canonical promote-from-background
+            // bind pattern (new FlightRecorder, ActiveTree assigned,
+            // StartRecording(isPromotion: true), PrepareSessionStateForRecorderStart).
+            Assert.Matches(new Regex(
+                @"recorder = new FlightRecorder\(\);[\s\S]{0,200}?recorder\.ActiveTree = activeTree;[\s\S]{0,400}?recorder\.StartRecording\(isPromotion: true\);[\s\S]{0,400}?PrepareSessionStateForRecorderStart\(",
+                RegexOptions.Multiline),
+                source);
         }
     }
 }

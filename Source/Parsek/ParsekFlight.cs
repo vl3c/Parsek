@@ -8035,6 +8035,12 @@ namespace Parsek
             string newBranchPointId = Guid.NewGuid().ToString("D",
                 CultureInfo.InvariantCulture);
 
+            // Capture prior ActiveRecordingId BEFORE the helper mutates it so
+            // BindLiveRecorderToSwitchSegment can flush a prior live recorder
+            // (path A or B's restore left one bound to the parent leaf) into
+            // the parent recording, not the new continuation.
+            string priorActiveRecordingId = activeTree.ActiveRecordingId;
+
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecId,
@@ -8062,6 +8068,12 @@ namespace Parsek
                     fallthroughReason: "committed-clone-helper-refused");
                 return true;
             }
+
+            // Phase C.1: bind the live recorder to the new continuation
+            // recording id so trajectory samples flow into it immediately.
+            BindLiveRecorderToSwitchSegment(
+                newVessel, priorActiveRecordingId, newRecordingId,
+                routeTag: "committed-spawned-clone", switchUT: switchUT);
 
             ArmSwitchSegmentSessionForRoute(
                 marker, sessionId, activeTree.Id, parentRecId,
@@ -8220,6 +8232,11 @@ namespace Parsek
             string newBranchPointId = Guid.NewGuid().ToString("D",
                 CultureInfo.InvariantCulture);
 
+            // Capture prior ActiveRecordingId before CreateSwitchContinuationSegment
+            // mutates it (BG-member entry typically has activeTree.ActiveRecordingId
+            // already null — the parent was backgrounded — but be defensive).
+            string priorActiveRecordingId = activeTree.ActiveRecordingId;
+
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecId,
@@ -8249,6 +8266,12 @@ namespace Parsek
             // flush so any concurrent observer of BackgroundMap still saw the
             // entry during the close.
             activeTree.BackgroundMap.Remove(newPid);
+
+            // Phase C.1: bind the live recorder to the new continuation
+            // recording id so trajectory samples flow into it immediately.
+            BindLiveRecorderToSwitchSegment(
+                newVessel, priorActiveRecordingId, newRecordingId,
+                routeTag: "bg-member-continuation", switchUT: switchUT);
 
             ArmSwitchSegmentSessionForRoute(
                 marker, sessionId, activeTree.Id, parentRecId,
@@ -8314,6 +8337,12 @@ namespace Parsek
             Guid sessionId = Guid.NewGuid();
             string newRecordingId = Guid.NewGuid().ToString("D",
                 CultureInfo.InvariantCulture);
+
+            // Capture prior ActiveRecordingId before CreateSwitchContinuationSegment
+            // mutates it (a freshly-created tree has it null; the fall-through
+            // path may have a non-null prior id from the upstream branch).
+            string priorActiveRecordingId = activeTree.ActiveRecordingId;
+
             // Standalone path: parent is null, no branch-point id needed.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
@@ -8355,6 +8384,15 @@ namespace Parsek
             SwitchSegmentEntryRoute route = fallthroughFromBgLookup
                 ? SwitchSegmentEntryRoute.FellThroughBgLookupFailed
                 : SwitchSegmentEntryRoute.StartedStandalone;
+
+            // Phase C.1: bind the live recorder to the new continuation
+            // recording id so trajectory samples flow into it immediately.
+            BindLiveRecorderToSwitchSegment(
+                newVessel, priorActiveRecordingId, newRecordingId,
+                routeTag: fallthroughFromBgLookup
+                    ? "bg-lookup-failed-standalone"
+                    : "standalone",
+                switchUT: switchUT);
 
             ArmSwitchSegmentSessionForRoute(
                 marker, sessionId, activeTree.Id, parentRecordingId: null,
@@ -8432,6 +8470,114 @@ namespace Parsek
                 PreSessionBranchPointIds = preSessionBpIds,
             };
             ParsekScenario.Instance.ArmSwitchSegmentSession(session);
+        }
+
+        /// <summary>
+        /// Phase C.1: after <see cref="SwitchSegmentBuilder.CreateSwitchContinuationSegment"/>
+        /// mutates the tree (sets <see cref="RecordingTree.ActiveRecordingId"/>
+        /// to the new continuation), this helper binds a live
+        /// <see cref="FlightRecorder"/> to the new recording so trajectory
+        /// samples flow into it immediately. Mirrors the canonical
+        /// <see cref="PromoteRecordingFromBackground"/> / <see cref="ResumeCommittedActiveRecording"/>
+        /// pattern (new <see cref="FlightRecorder"/>, <c>ActiveTree</c> set,
+        /// <see cref="FlightRecorder.StartRecording"/> with
+        /// <c>isPromotion: true</c>, <see cref="PrepareSessionStateForRecorderStart"/>).
+        ///
+        /// <para>If a prior live recorder is still bound to the now-stale
+        /// previous <see cref="RecordingTree.ActiveRecordingId"/> (committed-clone
+        /// path A or B in OnFlightReady where <c>TryRestoreCommittedTreeForSpawnedActiveVessel</c>
+        /// already installed a recorder for the parent leaf), we flush it
+        /// against the prior id first via a temporary
+        /// <see cref="RecordingTree.ActiveRecordingId"/> swap so the prior
+        /// recording keeps its accumulated samples and the new continuation
+        /// starts clean.</para>
+        /// </summary>
+        private bool BindLiveRecorderToSwitchSegment(
+            Vessel newVessel,
+            string priorActiveRecordingId,
+            string newRecordingId,
+            string routeTag,
+            double switchUT)
+        {
+            if (newVessel == null || activeTree == null
+                || string.IsNullOrEmpty(newRecordingId))
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"recorder-bind-skipped reason=null-input route={routeTag} " +
+                    $"hasVessel={newVessel != null} hasTree={activeTree != null} " +
+                    $"newRecordingId={newRecordingId ?? "<null>"}");
+                return false;
+            }
+
+            // If a prior recorder is live and bound to a different recording
+            // (e.g. OnFlightReady's TryRestoreCommittedTreeForSpawnedActiveVessel
+            // bound it to the parent leaf), flush it into the prior recording
+            // before the new continuation takes over. CreateSwitchContinuationSegment
+            // already overwrote tree.ActiveRecordingId — temporarily swap it back
+            // so FlushRecorderToTreeRecording targets the parent.
+            if (recorder != null && recorder.IsRecording
+                && !string.IsNullOrEmpty(priorActiveRecordingId)
+                && !string.Equals(priorActiveRecordingId, newRecordingId,
+                    StringComparison.Ordinal))
+            {
+                string savedActiveId = activeTree.ActiveRecordingId;
+                try
+                {
+                    activeTree.ActiveRecordingId = priorActiveRecordingId;
+                    FlushRecorderToTreeRecording(recorder, activeTree);
+                }
+                finally
+                {
+                    activeTree.ActiveRecordingId = savedActiveId;
+                }
+                ParsekLog.Info("SwitchSegment",
+                    $"recorder-prior-flushed route={routeTag} " +
+                    $"priorRecordingId={priorActiveRecordingId} " +
+                    $"newRecordingId={newRecordingId} vesselPid={newVessel.persistentId}");
+                recorder.IsRecording = false;
+                recorder = null;
+            }
+            else if (recorder != null)
+            {
+                // Recorder exists but not recording (e.g. captured-stop holding
+                // CaptureAtStop). Drop it — the new segment owns the live state.
+                ParsekLog.Info("SwitchSegment",
+                    $"recorder-prior-dropped route={routeTag} " +
+                    $"vesselPid={newVessel.persistentId} " +
+                    $"wasRecording={recorder.IsRecording}");
+                recorder = null;
+            }
+
+            // Canonical bind: mirrors PromoteRecordingFromBackground / ResumeCommittedActiveRecording.
+            recorder = new FlightRecorder();
+            recorder.ActiveTree = activeTree;
+            if (chainManager != null && chainManager.PendingBoundaryAnchor.HasValue)
+            {
+                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
+                chainManager.PendingBoundaryAnchor = null;
+            }
+            recorder.StartRecording(isPromotion: true);
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"recorder-bind-failed route={routeTag} " +
+                    $"newRecordingId={newRecordingId} vesselPid={newVessel.persistentId} " +
+                    "StartRecording returned IsRecording=false; new segment will have no samples");
+                recorder = null;
+                return false;
+            }
+
+            PrepareSessionStateForRecorderStart("BindLiveRecorderToSwitchSegment:" + routeTag);
+
+            ParsekLog.Info("SwitchSegment",
+                string.Format(CultureInfo.InvariantCulture,
+                    "recorder-bound route={0} new-recording-id={1} vessel-pid={2} vessel-name='{3}' ut={4}",
+                    routeTag,
+                    newRecordingId,
+                    newVessel.persistentId,
+                    newVessel.vesselName ?? "<unnamed>",
+                    switchUT.ToString("R", CultureInfo.InvariantCulture)));
+            return true;
         }
 
         // ---------------------------------------------------------------------
