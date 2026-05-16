@@ -240,13 +240,242 @@ namespace Parsek.Logistics
         }
 
         // -----------------------------------------------------------------
+        // Phase 5: ERS-driven source-ref validation
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// For each committed route, validate every <see cref="RouteSourceRef"/>
+        /// against the current ERS (Effective Recording Set, computed by
+        /// <see cref="EffectiveState.ComputeERS"/>). Transition status to:
+        /// <list type="bullet">
+        ///   <item><c>MissingSourceRecording</c> if any source-ref recording id is not in ERS
+        ///     (covers deletion AND supersede / rewind-retirement, since those are filtered out of ERS).</item>
+        ///   <item><c>SourceChanged</c> if every source-ref recording is in ERS but at least
+        ///     one fingerprint field has drifted.</item>
+        ///   <item><c>Active</c> recovery only from <c>MissingSourceRecording</c>: if the route
+        ///     was MissingSourceRecording and every source-ref now resolves AND fingerprints match.</item>
+        /// </list>
+        /// Routes in <see cref="RouteStatus.SourceChanged"/> do NOT auto-recover even when
+        /// fingerprints match — design §7.4 requires explicit recreation. Routes with other
+        /// non-source-related statuses (Paused, WaitingForResources, etc.) keep that status
+        /// unless a source problem is detected (in which case they transition through the same
+        /// rules as Active routes — a missing source is more urgent than a pause).
+        /// </summary>
+        /// <param name="reason">Free-form audit string included in every transition log line.</param>
+        /// <returns>The number of routes whose status changed during this pass.</returns>
+        internal static int RevalidateSources(string reason)
+        {
+            string reasonOrNone = reason ?? "<none>";
+
+            // Single ERS materialisation per pass — O(ERS size). Routes
+            // iterate this dict for O(1) source-ref lookup; computing ERS
+            // per source-ref would be O(routes * ERS).
+            var ers = EffectiveState.ComputeERS();
+            var ersById = new Dictionary<string, Recording>(StringComparer.Ordinal);
+            int ersTotal = ers != null ? ers.Count : 0;
+            int ersIndexed = 0;
+            int ersSkippedNoId = 0;
+            if (ers != null)
+            {
+                for (int i = 0; i < ers.Count; i++)
+                {
+                    var rec = ers[i];
+                    if (rec == null) continue;
+                    if (string.IsNullOrEmpty(rec.RecordingId))
+                    {
+                        ersSkippedNoId++;
+                        continue;
+                    }
+                    // ERS contract: ids are unique among visible recordings.
+                    // Use [] (overwrite) defensively in case of duplicate ids
+                    // — the last entry wins, which matches CommittedRecordings
+                    // append-order semantics.
+                    ersById[rec.RecordingId] = rec;
+                    ersIndexed++;
+                }
+            }
+            if (ersSkippedNoId > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RevalidateSources: skipped {ersSkippedNoId} ERS entry/entries with null/empty RecordingId");
+            }
+
+            int total = committedRoutes.Count;
+            int transitioned = 0;
+
+            for (int ri = 0; ri < committedRoutes.Count; ri++)
+            {
+                Route route = committedRoutes[ri];
+                if (route == null) continue;
+
+                if (route.SourceRefs == null || route.SourceRefs.Count == 0)
+                {
+                    // Defensive: Phase-2 codec rejects routes with no SOURCE
+                    // children, but a route already in memory (e.g. injected
+                    // by a test) can land here. Log + skip; status untouched.
+                    ParsekLog.Verbose(Tag,
+                        $"RevalidateSources: route {ShortId(route.Id)} has no SourceRefs, skipping (reason={reasonOrNone})");
+                    continue;
+                }
+
+                RouteStatus prev = route.Status;
+
+                // Inspect every source-ref against ERS. Stop on the first
+                // problem so the log line names the specific cause.
+                bool anyMissing = false;
+                bool anyDrift = false;
+                string firstMissingId = null;
+                string firstDriftId = null;
+                string firstDriftField = null;
+                for (int si = 0; si < route.SourceRefs.Count; si++)
+                {
+                    var sref = route.SourceRefs[si];
+                    if (sref == null || string.IsNullOrEmpty(sref.RecordingId))
+                    {
+                        // A null/blank source-ref is treated as "missing" —
+                        // there is no recording to validate against, so the
+                        // route cannot dispatch. Same end state, distinct
+                        // cause for the log.
+                        anyMissing = true;
+                        firstMissingId = sref?.RecordingId ?? "<null>";
+                        break;
+                    }
+                    if (!ersById.TryGetValue(sref.RecordingId, out Recording rec))
+                    {
+                        anyMissing = true;
+                        firstMissingId = sref.RecordingId;
+                        break;
+                    }
+                    var live = BuildLiveSourceRefForComparison(rec);
+                    string driftField;
+                    if (!FirstDifferingField(sref, live, out driftField))
+                    {
+                        // Field-by-field comparison flagged a drift; preserve
+                        // which field for the audit log line.
+                        anyDrift = true;
+                        firstDriftId = sref.RecordingId;
+                        firstDriftField = driftField;
+                        break;
+                    }
+                }
+
+                RouteStatus next = prev;
+                string cause = null;
+
+                if (anyMissing)
+                {
+                    next = RouteStatus.MissingSourceRecording;
+                    cause = $"MissingSourceRecording/source-not-in-ers id={ShortId(firstMissingId)}";
+                }
+                else if (anyDrift)
+                {
+                    next = RouteStatus.SourceChanged;
+                    cause = $"SourceChanged/{firstDriftField}-drift id={ShortId(firstDriftId)}";
+                }
+                else
+                {
+                    // No problem detected. Recovery is only allowed from
+                    // MissingSourceRecording — design §7.4 requires explicit
+                    // recreation to leave SourceChanged.
+                    if (prev == RouteStatus.MissingSourceRecording)
+                    {
+                        next = RouteStatus.Active;
+                        cause = "Active/source-restored";
+                    }
+                    else
+                    {
+                        // SourceChanged stays SourceChanged. Everything else
+                        // stays put — no spurious self-transitions.
+                        next = prev;
+                    }
+                }
+
+                if (next != prev)
+                {
+                    route.TransitionTo(next, $"{reasonOrNone}/{cause}");
+                    transitioned++;
+                }
+            }
+
+            ParsekLog.Info(Tag,
+                $"RevalidateSources reason={reasonOrNone} routes={total} transitioned={transitioned} " +
+                $"ersIndexed={ersIndexed} ersTotal={ersTotal}");
+
+            return transitioned;
+        }
+
+        // Builds a comparison-only RouteSourceRef from a live Recording so
+        // RevalidateSources can compare field-by-field. Mirrors the Phase-1
+        // capture shape; the only computed field is RouteProofHash.
+        private static RouteSourceRef BuildLiveSourceRefForComparison(Recording rec)
+        {
+            if (rec == null)
+            {
+                return new RouteSourceRef
+                {
+                    RouteProofHash = NoRouteProofSentinel
+                };
+            }
+            return new RouteSourceRef
+            {
+                RecordingId = rec.RecordingId,
+                TreeId = rec.TreeId,
+                TreeOrder = rec.TreeOrder,
+                RecordingFormatVersion = rec.RecordingFormatVersion,
+                RecordingSchemaGeneration = rec.RecordingSchemaGeneration,
+                SidecarEpoch = rec.SidecarEpoch,
+                StartUT = rec.StartUT,
+                EndUT = rec.EndUT,
+                RouteProofHash = ComputeRouteProofHashFromRecording(rec)
+            };
+        }
+
+        /// <summary>
+        /// Compares two source-refs field by field and returns true when every
+        /// field matches. On mismatch, <paramref name="differingField"/> names
+        /// the first differing field (in declaration order) so the audit log
+        /// can pinpoint the drift.
+        /// </summary>
+        private static bool FirstDifferingField(
+            RouteSourceRef a, RouteSourceRef b, out string differingField)
+        {
+            differingField = null;
+            if (a == null && b == null) return true;
+            if (a == null || b == null)
+            {
+                differingField = "ref-null";
+                return false;
+            }
+
+            if (!string.Equals(a.RecordingId, b.RecordingId, StringComparison.Ordinal))
+            { differingField = "recording-id"; return false; }
+            if (!string.Equals(a.TreeId, b.TreeId, StringComparison.Ordinal))
+            { differingField = "tree-id"; return false; }
+            if (a.TreeOrder != b.TreeOrder)
+            { differingField = "tree-order"; return false; }
+            if (a.RecordingFormatVersion != b.RecordingFormatVersion)
+            { differingField = "recording-format-version"; return false; }
+            if (a.RecordingSchemaGeneration != b.RecordingSchemaGeneration)
+            { differingField = "recording-schema-generation"; return false; }
+            if (a.SidecarEpoch != b.SidecarEpoch)
+            { differingField = "sidecar-epoch"; return false; }
+            if (!a.StartUT.Equals(b.StartUT))
+            { differingField = "start-ut"; return false; }
+            if (!a.EndUT.Equals(b.EndUT))
+            { differingField = "end-ut"; return false; }
+            if (!string.Equals(a.RouteProofHash, b.RouteProofHash, StringComparison.Ordinal))
+            { differingField = "route-proof-hash"; return false; }
+            return true;
+        }
+
+        // -----------------------------------------------------------------
         // Phase 5: route-proof fingerprint hash
         // -----------------------------------------------------------------
 
         /// <summary>
         /// Pure / static. Computes a deterministic fingerprint of the
         /// route-relevant metadata on a <see cref="Recording"/>. Used by
-        /// Phase 5 source revalidation to detect source recording rewrites
+        /// <see cref="RevalidateSources"/> to detect source recording rewrites
         /// (optimizer / re-fly). When the recording has neither
         /// <see cref="Recording.RouteConnectionWindows"/> nor
         /// <see cref="Recording.RouteOriginProof"/>, returns
