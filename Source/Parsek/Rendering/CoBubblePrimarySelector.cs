@@ -13,12 +13,24 @@ namespace Parsek.Rendering
     /// rebuild / clear.
     ///
     /// <para>
-    /// Selection rules (§10.1):
+    /// Selection rules (rule indices retain §10.1's original 1-5 numbering;
+    /// rule 6 is post-§10.1 but fires between rules 2 and 3 in evaluation
+    /// order — see the inline comment in <see cref="SelectPrimaryForPair"/>):
     /// <list type="number">
     ///   <item>Live wins. Recording carrying any
     ///   <see cref="AnchorSource.LiveSeparation"/> anchor (or matching
     ///   <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>) is primary.</item>
     ///   <item>Closest-to-live in DAG ancestry.</item>
+    ///   <item>(Rule 6, evaluated here) Non-debris over debris: when one side
+    ///   is <see cref="Recording.IsDebris"/> and the other is not, the
+    ///   non-debris side wins. Controlled vessels (probe / lander / capsule)
+    ///   are stable formation anchors; debris is not — a debris primary can
+    ///   crash or go on-rails mid-window, closing the CoBubble trace and
+    ///   stranding a controlled peer on a sibling track that ends abruptly.
+    ///   Promoting the controlled side to primary keeps it playing standalone
+    ///   Absolute (deterministic) and re-routes only the debris peer. The
+    ///   deeper recorder-side fix (parent-anchored surface for
+    ///   controlled-decoupled children) is filed in todo-and-known-bugs.md.</item>
     ///   <item>Earlier <see cref="Recording.StartUT"/> (then
     ///   <see cref="RecordingTree.TreeOrder"/>) wins.</item>
     ///   <item>Higher <see cref="TrackSection.sampleRateHz"/> at the
@@ -26,19 +38,6 @@ namespace Parsek.Rendering
     ///   <item>HR-3 deterministic tiebreaker:
     ///   <c>string.CompareOrdinal(idA, idB) &lt; 0 → A wins</c>.</item>
     /// </list>
-    /// </para>
-    /// <para>
-    /// Rule 6 (added post-§10.1) fires between rules 2 and 3 in evaluation
-    /// order: when one side is <see cref="Recording.IsDebris"/> and the other
-    /// is not, the non-debris side wins. A debris piece is never a stable
-    /// formation anchor for a controlled vessel (probe / lander / capsule)
-    /// because the debris can crash or go on-rails mid-window, closing the
-    /// CoBubble trace and stranding the controlled ghost on a sibling track
-    /// that ends abruptly. Keeping the controlled side as primary makes the
-    /// controlled ghost play standalone Absolute (deterministic), and only
-    /// the debris peer gets re-routed through it. The deeper fix (recorder
-    /// parent-anchored surface for controlled-decoupled children) is filed
-    /// in todo-and-known-bugs.md.
     /// </para>
     /// </summary>
     internal static class CoBubblePrimarySelector
