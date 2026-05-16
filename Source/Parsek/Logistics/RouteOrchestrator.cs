@@ -432,6 +432,19 @@ namespace Parsek.Logistics
             {
                 ParsekLog.Verbose(Tag,
                     $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} replay detected — already in ledger");
+                // Advance CompletedCycles symmetric with the success path in
+                // ApplyDeliveryFromPlan. The ledger says this cycle WAS
+                // delivered (the row exists), so the route's counter must
+                // reflect that completed cycle. Otherwise the next dispatch
+                // evaluator fires and computes the same cycleId (cycle-{N+S})
+                // as the replayed cycle, ApplyDispatch has no idempotency
+                // guard and emits a fresh RouteDispatched + RouteCargoDebited
+                // under that already-used cycleId, transit elapses, the
+                // delivery idempotency check trips again on the same id, and
+                // the route loops forever emitting redundant rows for cycle-N.
+                // Bumping CompletedCycles here advances the next dispatch to
+                // cycle-(N+1) so the cycle id sequence stays unique.
+                route.CompletedCycles += 1;
                 route.PendingDeliveryUT = null;
                 route.PendingStopIndex = -1;
                 // Clear any stale retry timer carried over from a pre-dispatch
@@ -478,7 +491,18 @@ namespace Parsek.Logistics
             // STEP 3: build a live capacity probe over the destination vessel.
             // Loaded (rendered, parts list populated) vs unloaded (background-
             // physics protoVessel) is decided here once; the probe handles both.
-            LiveDeliveryCapacityProbe probe = new LiveDeliveryCapacityProbe(destVessel);
+            //
+            // CAPTURE the loaded-gate ONCE per delivery and pass it explicitly
+            // into both the probe and the writers. KSP can synchronously flip
+            // <c>Vessel.loaded</c> / <c>Vessel.packed</c> mid-tick (warp
+            // boundaries, focus changes, scene events); if the probe captured
+            // the gate at construction time and the writers re-evaluated it
+            // per-call, the planner could see one source of free capacity
+            // while the writer mutates the other branch — under-fill, or
+            // writes into a snapshot that's about to be re-initialized. One
+            // source of truth, threaded through every consumer.
+            bool destinationIsLoaded = destVessel.loaded && !destVessel.packed;
+            LiveDeliveryCapacityProbe probe = new LiveDeliveryCapacityProbe(destVessel, destinationIsLoaded);
 
             // STEP 4: planner. Pure decision over the resource + inventory
             // manifest, capacity-clamped per resource and slot-aware for
@@ -492,7 +516,7 @@ namespace Parsek.Logistics
             // KSP-state mutation happens; ApplyDeliveryFromPlan owns the
             // bookkeeping (actuals, partial detection, status transition,
             // ledger row construction).
-            var liveWriters = new LiveDeliveryWriters(route, destVessel, plan);
+            var liveWriters = new LiveDeliveryWriters(route, destVessel, plan, destinationIsLoaded);
             bool isCareerKsc = env.IsCareer && route.IsKscOrigin;
             var ctx = new ApplyDeliveryContext
             {

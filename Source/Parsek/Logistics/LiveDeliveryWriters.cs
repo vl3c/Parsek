@@ -27,14 +27,22 @@ namespace Parsek.Logistics
         private readonly Route route;
         private readonly Vessel vessel;
         private readonly DeliveryPlan plan;
+        // Injected by the orchestrator (ApplyDelivery) — captured once per
+        // delivery and shared with <see cref="LiveDeliveryCapacityProbe"/> so
+        // the writer mutates the SAME branch (loaded vs unloaded) that the
+        // probe reported free capacity against. Re-evaluating
+        // <c>vessel.loaded && !vessel.packed</c> per-call would diverge if
+        // the destination transitions packed state mid-tick.
+        internal readonly bool isLoaded;
         private readonly Dictionary<string, double> actualPerResource;
         private int inventorySuccessCount;
 
-        internal LiveDeliveryWriters(Route route, Vessel vessel, DeliveryPlan plan)
+        internal LiveDeliveryWriters(Route route, Vessel vessel, DeliveryPlan plan, bool isLoaded)
         {
             this.route = route;
             this.vessel = vessel;
             this.plan = plan;
+            this.isLoaded = isLoaded;
             this.actualPerResource = new Dictionary<string, double>(
                 plan.Resources?.Count ?? 0, StringComparer.Ordinal);
             this.inventorySuccessCount = 0;
@@ -48,7 +56,11 @@ namespace Parsek.Logistics
             double actual = 0.0;
             try
             {
-                if (vessel.loaded && !vessel.packed)
+                // Use the orchestrator-captured isLoaded so probe/writer agree
+                // on which branch (loaded vs unloaded) to mutate. See class
+                // doc on <see cref="isLoaded"/> for why a per-call evaluation
+                // here would race the probe's snapshot.
+                if (isLoaded)
                 {
                     actual = WriteResourceLoaded(resourceName, amount);
                 }
@@ -86,7 +98,11 @@ namespace Parsek.Logistics
             bool stored = false;
             try
             {
-                if (vessel.loaded && !vessel.packed)
+                // Use the orchestrator-captured isLoaded so probe/writer agree
+                // on which branch (loaded vs unloaded) to mutate. See class
+                // doc on <see cref="isLoaded"/> for why a per-call evaluation
+                // here would race the probe's snapshot.
+                if (isLoaded)
                 {
                     stored = WriteInventoryLoaded(item, slot);
                 }

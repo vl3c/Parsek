@@ -390,10 +390,79 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Active, route.Status);
             Assert.False(route.PendingDeliveryUT.HasValue);
             Assert.Equal(-1, route.PendingStopIndex);
-            // CompletedCycles NOT incremented — the prior cycle owns that bump.
-            Assert.Equal(0, route.CompletedCycles);
+            // CompletedCycles MUST be advanced: the ledger row says the cycle
+            // was delivered, so the route's counter must reflect that. If it
+            // stayed at 0, the next dispatch would re-use "cycle-0" — colliding
+            // with the very row we replayed against and forever looping the
+            // dispatch/replay/dispatch redundancy. See
+            // <see cref="IdempotentReplay_ThenNextDispatch_AdvancesCycleId"/>
+            // for the no-collision contract.
+            Assert.Equal(1, route.CompletedCycles);
 
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("Delivery") && l.Contains("replay"));
+        }
+
+        // catches: P2-1 regression — replay branch failing to advance the
+        // cycle counter would let the next dispatch reuse the replayed
+        // cycleId. Pre-seed cycle-0 delivered, drive a Tick where delivery
+        // (replay) AND dispatch are both due, and assert the new dispatch
+        // emits cycle-1 (NOT cycle-0).
+        [Fact]
+        public void IdempotentReplay_ThenNextDispatch_AdvancesCycleId()
+        {
+            var route = BuildInTransitKscRoute();
+            // Both due: delivery boundary at 150 and dispatch slot at 180.
+            route.PendingDeliveryUT = 150.0;
+            route.NextDispatchUT = 180.0;
+            RouteStore.AddRoute(route);
+
+            // Pre-seed an already-delivered row for cycle-0 — the replay
+            // branch in ApplyDelivery short-circuits to "delivered-replay"
+            // and (with the P2-1 fix) bumps CompletedCycles to 1.
+            string replayedCycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles);
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 150.0,
+                RouteId = route.Id,
+                RouteCycleId = replayedCycleId,
+                RouteStopIndex = 0,
+                Sequence = 0,
+            });
+            Assert.Equal("cycle-0", replayedCycleId);
+
+            int actionsBefore = Ledger.Actions.Count;
+            var env = new EndpointLostFakeEnv();
+
+            RouteOrchestrator.Tick(200.0, env);
+
+            // Replay branch advanced CompletedCycles so the new dispatch uses
+            // the NEXT cycle id (cycle-1), not the replayed one (cycle-0).
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.Equal(RouteStatus.InTransit, route.Status);
+
+            int newCount = Ledger.Actions.Count - actionsBefore;
+            Assert.Equal(2, newCount);
+
+            // The new dispatched row pins the no-collision contract.
+            GameAction newDispatched = null;
+            GameAction newDebited = null;
+            for (int i = actionsBefore; i < Ledger.Actions.Count; i++)
+            {
+                GameAction a = Ledger.Actions[i];
+                if (a.Type == GameActionType.RouteDispatched) newDispatched = a;
+                else if (a.Type == GameActionType.RouteCargoDebited) newDebited = a;
+            }
+            Assert.NotNull(newDispatched);
+            Assert.NotNull(newDebited);
+            Assert.Equal("cycle-1", newDispatched.RouteCycleId);
+            Assert.NotEqual("cycle-0", newDispatched.RouteCycleId);
+            // The debited row is the dispatch's pair and must share the new
+            // cycleId; Sequence=1 pins it after the dispatched row at the
+            // same UT (mirrors ApplyDispatch).
+            Assert.Equal("cycle-1", newDebited.RouteCycleId);
+            Assert.Equal(newDispatched.UT, newDebited.UT);
+            Assert.True(newDebited.Sequence > newDispatched.Sequence);
         }
 
         // catches: reason string regression for UI consumers.
@@ -604,6 +673,54 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("InTransitComplete")
                 && l.Contains("already has PendingDeliveryUT")
                 && l.Contains("skipping re-set"));
+        }
+
+        // catches: P2-2 regression — probe captures isLoaded at construction
+        // time but writer re-evaluates vessel.loaded && !vessel.packed per
+        // call (or vice versa). If those diverge mid-tick (KSP synchronously
+        // transitions packed state on warp boundaries, focus changes, scene
+        // events), the planner sees one source of free capacity while the
+        // writer mutates the other branch — under-fill or write into a
+        // snapshot about to be re-initialized. Pin the contract structurally:
+        // both consumers must accept the SAME injected isLoaded and store it
+        // verbatim, so the orchestrator-side capture in ApplyDelivery is the
+        // single source of truth.
+        [Fact]
+        public void Delivery_ProbeAndWriter_UseSameLoadedGate()
+        {
+            // Same emptyish plan structure for both pure-construction cases;
+            // we are pinning the gate-threading shape, not exercising the
+            // mutation paths.
+            var plan = new DeliveryPlan(
+                Array.Empty<ResourceDeliveryLine>(),
+                Array.Empty<InventoryDeliveryLine>(),
+                isPartial: false, isZero: true);
+            var route = BuildInTransitKscRoute();
+
+            // Construct both with isLoaded=true. The probe + writer must
+            // store the value we passed in (NOT re-evaluate it from the
+            // null Vessel). A constructor that re-derives the gate from
+            // vessel.loaded would throw NRE here; a constructor that
+            // ignores the parameter would yield isLoaded=false and fail
+            // the assertion.
+            var probeLoaded = new LiveDeliveryCapacityProbe(vessel: null, isLoaded: true);
+            var writerLoaded = new LiveDeliveryWriters(route, vessel: null, plan, isLoaded: true);
+            Assert.True(probeLoaded.isLoaded);
+            Assert.True(writerLoaded.isLoaded);
+            Assert.Equal(probeLoaded.isLoaded, writerLoaded.isLoaded);
+
+            // And the symmetric unloaded case — same single source of truth.
+            var probeUnloaded = new LiveDeliveryCapacityProbe(vessel: null, isLoaded: false);
+            var writerUnloaded = new LiveDeliveryWriters(route, vessel: null, plan, isLoaded: false);
+            Assert.False(probeUnloaded.isLoaded);
+            Assert.False(writerUnloaded.isLoaded);
+            Assert.Equal(probeUnloaded.isLoaded, writerUnloaded.isLoaded);
+
+            // Cross-pairing must NOT match — defensive: confirms the field is
+            // actually consulted (a constant-true / constant-false bug would
+            // pass the symmetric checks above but fail here).
+            Assert.NotEqual(probeLoaded.isLoaded, probeUnloaded.isLoaded);
+            Assert.NotEqual(writerLoaded.isLoaded, writerUnloaded.isLoaded);
         }
 
         // catches: status gate regression — would emit RouteCargoDelivered on

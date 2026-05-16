@@ -28,12 +28,22 @@ namespace Parsek.Logistics
 
         private readonly Vessel vessel;
         private readonly HashSet<int> consumedSlots = new HashSet<int>();
-        private readonly bool isLoaded;
+        // Injected by the orchestrator (ApplyDelivery) — captured once per
+        // delivery and passed into BOTH the probe and the writer so the
+        // free-capacity calculation and the resource-mutation path read
+        // from the SAME loaded/unloaded branch. Re-evaluating
+        // <c>vessel.loaded && !vessel.packed</c> per-call would diverge
+        // if the destination vessel transitions packed state mid-tick (KSP
+        // synchronously transitions on warp boundaries, focus changes, scene
+        // events): the probe could report loaded-path free capacity while
+        // the writer mutates the unloaded-path snapshot, causing under-fill
+        // or writes into a snapshot about to be re-initialized.
+        internal readonly bool isLoaded;
 
-        internal LiveDeliveryCapacityProbe(Vessel vessel)
+        internal LiveDeliveryCapacityProbe(Vessel vessel, bool isLoaded)
         {
             this.vessel = vessel;
-            this.isLoaded = vessel != null && vessel.loaded && !vessel.packed;
+            this.isLoaded = isLoaded;
         }
 
         public double ProbeResourceFreeCapacity(string resourceName)
