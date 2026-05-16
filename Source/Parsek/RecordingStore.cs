@@ -2087,6 +2087,22 @@ namespace Parsek
                 return false;
             }
 
+            // Switch-segment narrowing (segment-scoped-switch-fly-autorecord Phase D):
+            // a marker-owned new recording id created by SwitchSegmentSession is real
+            // pending state and must survive F5/save/reload, even when a #866
+            // committed-tree restore attempt is concurrently armed. Bypass before the
+            // existing same-id cutoff / pending-only checks so the suppression contract
+            // for original committed recording ids remains unchanged.
+            if (IsMarkerOwnedSwitchSegmentRecordingId(recordingId))
+            {
+                var session = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
+                ParsekLog.Verbose("RecordingStore",
+                    $"event persistence not-suppressed reason=marker-owned-switch-segment " +
+                    $"recId={recordingId} " +
+                    $"sessionId={(session != null ? session.SessionId.ToString("D", CultureInfo.InvariantCulture) : "<null>")}");
+                return false;
+            }
+
             if (committedTreeRestoreAttemptEventCutoffs != null
                 && committedTreeRestoreAttemptEventCutoffs.TryGetValue(
                     recordingId,
@@ -2096,6 +2112,85 @@ namespace Parsek
             }
 
             return IsPendingOnlyCommittedTreeRestoreAttemptRecordingId(recordingId);
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="recordingId"/> identifies a recording
+        /// owned by the currently active <see cref="SwitchSegmentSession"/> — i.e.
+        /// the recording's <see cref="Recording.SwitchSegmentSessionId"/> matches
+        /// the live session's <c>SessionId</c>. Used by #866 suppression / save
+        /// sites to exempt marker-owned new segment recording ids from same-id
+        /// committed-tree restore-attempt suppression. Returns false when no
+        /// session is armed, no matching recording is found, or the recording's
+        /// stamp belongs to a different / no session.
+        ///
+        /// <para>Looks up the recording in committed storage, then the pending
+        /// tree, then the active tree (via <see cref="ParsekFlight.Instance"/>).
+        /// Pure ownership query: no Unity globals and no mutation of suppression
+        /// state. <c>[ERS-exempt]</c> rationale: this is a metadata-only
+        /// ownership predicate that walks the raw committed list to match by
+        /// recording id — exactly the kind of structural query the allowlist
+        /// already grants <c>RecordingStore.cs</c>.</para>
+        /// </summary>
+        internal static bool IsMarkerOwnedSwitchSegmentRecordingId(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+
+            var session = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
+            if (session == null)
+                return false;
+
+            Recording rec = FindRecordingByIdAcrossStores(recordingId);
+            if (rec == null || string.IsNullOrEmpty(rec.SwitchSegmentSessionId))
+                return false;
+
+            string activeSessionId = session.SessionId.ToString(
+                "D",
+                CultureInfo.InvariantCulture);
+            return string.Equals(
+                rec.SwitchSegmentSessionId,
+                activeSessionId,
+                StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Looks up a Recording by id across committed storage, the pending tree,
+        /// the saved-pending-during-active-restore tree, and the active tree.
+        /// Returns null if no matching recording is found anywhere. Used only by
+        /// the switch-segment ownership predicate.
+        /// </summary>
+        private static Recording FindRecordingByIdAcrossStores(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return null;
+
+            Recording rec = TryFindCommittedRecordingById(recordingId);
+            if (rec != null)
+                return rec;
+
+            if (pendingTree?.Recordings != null
+                && pendingTree.Recordings.TryGetValue(recordingId, out rec))
+            {
+                return rec;
+            }
+
+            if (savedPendingTreeDuringActiveRestore?.Recordings != null
+                && savedPendingTreeDuringActiveRestore.Recordings.TryGetValue(
+                    recordingId,
+                    out rec))
+            {
+                return rec;
+            }
+
+            var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
+            if (activeTree?.Recordings != null
+                && activeTree.Recordings.TryGetValue(recordingId, out rec))
+            {
+                return rec;
+            }
+
+            return null;
         }
 
         private static bool IsPendingOnlyCommittedTreeRestoreAttemptRecordingId(string recordingId)

@@ -1180,7 +1180,8 @@ namespace Parsek
                 if (wasDirty)
                 {
                     activeDirtyCount++;
-                    if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId))
+                    if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)
+                        && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
                     {
                         activeSkippedCommittedRestoreOverlapCount++;
                         ParsekLog.Warn("Scenario",
@@ -1190,6 +1191,22 @@ namespace Parsek
                         activeFilesCurrent = false;
                         activeRecCount++;
                         continue;
+                    }
+
+                    // Switch-segment narrowing (segment-scoped-switch-fly-autorecord
+                    // Phase D): marker-owned new segment recordings must be durable
+                    // enough to survive F5/save/reload. They share id space with the
+                    // committed-restore attempt only when both run concurrently
+                    // (e.g. a switch/Fly under a #866 clone-restore), but the new
+                    // segment id is a fresh-owned recording, not an original
+                    // committed parent. Allow the dirty sidecar save through.
+                    if (RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
+                    {
+                        var bypassSession = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
+                        ParsekLog.Verbose("Scenario",
+                            $"SaveActiveTreeIfAny: dirty sidecar save bypassed for " +
+                            $"reason=marker-owned-switch-segment recId={rec.RecordingId ?? "<no-id>"} " +
+                            $"sessionId={(bypassSession != null ? bypassSession.SessionId.ToString("D", CultureInfo.InvariantCulture) : "<null>")}");
                     }
 
                     if (ShouldSkipActiveTreeEmptySidecarOverwrite(rec))
@@ -1314,9 +1331,73 @@ namespace Parsek
                 $"OnSave: wrote external game-state files (events={GameStateStore.EventCount}, milestones={MilestoneStore.MilestoneCount})");
         }
 
+        /// <summary>
+        /// Returns true when an OnSave-time milestone flush should be deferred to
+        /// preserve the #866 same-id committed-restore-tail invariant. Defers only
+        /// when at least one pending event would persist into a milestone for a
+        /// committed-tree-restore-overlap recording that is NOT marker-owned by
+        /// the active <see cref="SwitchSegmentSession"/>. When all pending events
+        /// for overlap ids are marker-owned new segment recordings (or there are
+        /// no pending overlap-id events at all), the flush is allowed so the new
+        /// segment's events survive F5/save/reload.
+        ///
+        /// <para>Segment-scoped-switch-fly-autorecord Phase D narrowing of the
+        /// original predicate, which deferred unconditionally on any active
+        /// committed-tree restore attempt and would have lost marker-owned new-id
+        /// events across save/reload of an active switch/Fly segment.</para>
+        /// </summary>
         internal static bool ShouldDeferPendingEventMilestoneFlushForSave()
         {
-            return RecordingStore.HasCommittedTreeRestoreAttempt;
+            if (!RecordingStore.HasCommittedTreeRestoreAttempt)
+                return false;
+
+            // Phase D narrowing: enumerate pending events. Defer only if at
+            // least one event belongs to a committed-tree-restore-overlap
+            // recording that is NOT marker-owned. Untagged events and events
+            // for unrelated ids are ignored — they were never gated by the
+            // suppression contract in the first place.
+            var events = GameStateStore.Events;
+            if (events == null || events.Count == 0)
+                return false;
+
+            bool sawNonMarkerOwnedOverlap = false;
+            int markerOwnedSkipped = 0;
+            int unrelatedSkipped = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                if (string.IsNullOrEmpty(evt.recordingId))
+                {
+                    unrelatedSkipped++;
+                    continue;
+                }
+
+                if (RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(evt.recordingId))
+                {
+                    markerOwnedSkipped++;
+                    continue;
+                }
+
+                if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(evt.recordingId))
+                {
+                    sawNonMarkerOwnedOverlap = true;
+                    break;
+                }
+
+                unrelatedSkipped++;
+            }
+
+            if (!sawNonMarkerOwnedOverlap)
+            {
+                var session = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
+                ParsekLog.Verbose("Scenario",
+                    $"ShouldDeferPendingEventMilestoneFlushForSave: not-deferred " +
+                    $"reason=marker-owned-switch-segment markerOwned={markerOwnedSkipped} " +
+                    $"unrelated={unrelatedSkipped} " +
+                    $"sessionId={(session != null ? session.SessionId.ToString("D", CultureInfo.InvariantCulture) : "<null>")}");
+            }
+
+            return sawNonMarkerOwnedOverlap;
         }
 
         /// <summary>
