@@ -149,7 +149,7 @@ namespace Parsek.InGameTests
                 $"{mode}: endpoint altitude must be finite");
             InGameAssert.IsTrue(endpoint.Latitude >= -90.0 && endpoint.Latitude <= 90.0,
                 $"{mode}: endpoint latitude out of range: {endpoint.Latitude}");
-            InGameAssert.IsTrue(endpoint.Longitude >= -360.0 && endpoint.Longitude <= 360.0,
+            InGameAssert.IsTrue(endpoint.Longitude >= -180.0 && endpoint.Longitude <= 180.0,
                 $"{mode}: endpoint longitude out of expected KSP range: {endpoint.Longitude}");
 
             ParsekLog.Verbose("TestRunner",

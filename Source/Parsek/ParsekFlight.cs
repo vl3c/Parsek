@@ -9161,8 +9161,20 @@ namespace Parsek
                 }
                 else if (!recorder.IsRecording && recorder.CaptureAtStop != null)
                 {
-                    // OnPhysicsFrame already stopped us (initiator, late event)
+                    // OnPhysicsFrame already stopped us (initiator, late event).
+                    // Target-side recorders are stopped synchronously by us at the top of
+                    // this handler, never by OnPhysicsFrame, so reaching here with a
+                    // target-side recorder (recorder PID still equal to mergedPid) means
+                    // some other code path got there first -- bail out of route capture
+                    // rather than misroute the endpoint.
                     uint absorbedPid = recorder.RecordingVesselId;
+                    if (absorbedPid == mergedPid)
+                    {
+                        ParsekLog.Warn("Flight",
+                            $"onPartCouple (tree, retroactive): unexpected target-side pre-stop " +
+                            $"mergedPid={mergedPid}; skipping route endpoint capture");
+                        return;
+                    }
                     uint routeTargetPid = ResolveDockRouteTargetPid(
                         activeWasDockTarget: false,
                         mergedVesselPid: mergedPid,

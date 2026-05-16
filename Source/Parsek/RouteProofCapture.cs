@@ -123,12 +123,17 @@ namespace Parsek
             if (!TryVerifyRoutePartSetsSeparated(
                     undockSnapshots,
                     window.TransportPartPersistentIds,
-                    window.EndpointPartPersistentIds))
+                    window.EndpointPartPersistentIds,
+                    out int transportSnapshotCount,
+                    out int endpointSnapshotCount,
+                    out bool sawOverlap))
             {
                 ParsekLog.Warn("Flight",
                     $"Route window undock completion failed: split snapshots do not separate " +
                     $"transport/endpoint part PID sets window={window.WindowId ?? "<none>"} " +
-                    $"targetPid={window.TransferTargetVesselPid}");
+                    $"targetPid={window.TransferTargetVesselPid} snapshots={undockSnapshots?.Length ?? 0} " +
+                    $"transportSnapshots={transportSnapshotCount} endpointSnapshots={endpointSnapshotCount} " +
+                    $"overlap={sawOverlap}");
                 return false;
             }
 
@@ -160,8 +165,15 @@ namespace Parsek
         private static bool TryVerifyRoutePartSetsSeparated(
             ConfigNode[] snapshots,
             ICollection<uint> transportPartPersistentIds,
-            ICollection<uint> endpointPartPersistentIds)
+            ICollection<uint> endpointPartPersistentIds,
+            out int transportSnapshotCount,
+            out int endpointSnapshotCount,
+            out bool sawOverlap)
         {
+            transportSnapshotCount = 0;
+            endpointSnapshotCount = 0;
+            sawOverlap = false;
+
             if (snapshots == null ||
                 transportPartPersistentIds == null || transportPartPersistentIds.Count == 0 ||
                 endpointPartPersistentIds == null || endpointPartPersistentIds.Count == 0)
@@ -169,8 +181,6 @@ namespace Parsek
                 return false;
             }
 
-            int transportSnapshotCount = 0;
-            int endpointSnapshotCount = 0;
             for (int i = 0; i < snapshots.Length; i++)
             {
                 bool hasTransport = SnapshotContainsAnyPartPersistentId(
@@ -181,7 +191,10 @@ namespace Parsek
                     endpointPartPersistentIds);
 
                 if (hasTransport && hasEndpoint)
+                {
+                    sawOverlap = true;
                     return false;
+                }
                 if (hasTransport)
                     transportSnapshotCount++;
                 if (hasEndpoint)

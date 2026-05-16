@@ -489,6 +489,13 @@ namespace Parsek
             return items;
         }
 
+        // PART-level value names only. Module-level state (e.g. ModuleCargoPart.payloadMode,
+        // ModuleScienceExperiment rerun storage, nested ModuleInventoryPart contents) IS part
+        // of the payload identity by design -- two cargo items with different module state are
+        // not interchangeable for delivery. The in-game test
+        // InventoryPayloadIdentityHash_LiveStockMove_PreservesIdentity verifies that a live
+        // stock cargo move does not perturb module state; if KSP starts rewriting module
+        // values on inventory transfer, the contract changes and that test will fail.
         private static readonly HashSet<string> TransientStoredPartProtoValueNames =
             new HashSet<string>(StringComparer.Ordinal)
             {

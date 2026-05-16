@@ -56,8 +56,8 @@ namespace Parsek.Logistics
 
                     if (window != null)
                     {
-                        ParsekLog.Verbose("Logistics",
-                            $"RouteAnalysis: multiple completed windows tree={tree.Id ?? "<none>"}");
+                        ParsekLog.Info("Logistics",
+                            $"RouteAnalysis rejected: multiple completed windows tree={tree.Id ?? "<none>"}");
                         return new RouteAnalysisResult
                         {
                             Status = RouteAnalysisStatus.MultipleConnectionWindows
@@ -109,9 +109,11 @@ namespace Parsek.Logistics
         {
             if (!HasEndpointProof(window))
             {
-                ParsekLog.Verbose("Logistics",
-                    $"RouteAnalysis: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
-                    $"window={window.WindowId ?? "<none>"}");
+                ParsekLog.Info("Logistics",
+                    $"RouteAnalysis rejected: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
+                    $"window={window.WindowId ?? "<none>"} targetPid={window.TransferTargetVesselPid} " +
+                    $"kind={window.TransferKind} situation={window.TransferEndpointSituation} " +
+                    $"endpointAtDock={(window.EndpointAtDock.HasValue ? "yes" : "no")}");
                 return new RouteAnalysisResult
                 {
                     Status = RouteAnalysisStatus.MissingEndpointProof,
@@ -122,8 +124,8 @@ namespace Parsek.Logistics
 
             if (HasMixedPickupDelivery(window))
             {
-                ParsekLog.Verbose("Logistics",
-                    $"RouteAnalysis: mixed pickup/delivery rejected source={source?.RecordingId ?? "<none>"} " +
+                ParsekLog.Info("Logistics",
+                    $"RouteAnalysis rejected: mixed pickup/delivery source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"}");
                 return new RouteAnalysisResult
                 {
@@ -139,8 +141,8 @@ namespace Parsek.Logistics
             if ((resources == null || resources.Count == 0) &&
                 (inventory == null || inventory.Count == 0))
             {
-                ParsekLog.Verbose("Logistics",
-                    $"RouteAnalysis: no delivery manifest source={source?.RecordingId ?? "<none>"} " +
+                ParsekLog.Info("Logistics",
+                    $"RouteAnalysis rejected: no delivery manifest source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"}");
                 return new RouteAnalysisResult
                 {
@@ -150,8 +152,8 @@ namespace Parsek.Logistics
                 };
             }
 
-            ParsekLog.Verbose("Logistics",
-                $"RouteAnalysis: eligible source={source?.RecordingId ?? "<none>"} " +
+            ParsekLog.Info("Logistics",
+                $"RouteAnalysis eligible: source={source?.RecordingId ?? "<none>"} " +
                 $"window={window.WindowId ?? "<none>"} resources={resources?.Count ?? 0} " +
                 $"inventory={inventory?.Count ?? 0}");
 
@@ -167,7 +169,7 @@ namespace Parsek.Logistics
 
         private static RouteAnalysisResult MissingProof()
         {
-            ParsekLog.Verbose("Logistics", "RouteAnalysis: missing route proof");
+            ParsekLog.Info("Logistics", "RouteAnalysis rejected: missing route proof");
             return new RouteAnalysisResult { Status = RouteAnalysisStatus.MissingRouteProof };
         }
 

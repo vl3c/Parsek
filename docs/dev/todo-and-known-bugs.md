@@ -12,6 +12,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - Logistics route window dock-side baseline is post-couple
+
+- The `RouteConnectionWindow.DockTransportResources` / `DockEndpointResources` manifests captured in `ParsekFlight.CreateMergeBranch` come from the merged vessel's `mergedSnapshot` (built from the live merged vessel taken inside `onPartCouple`). By the time the snapshot is taken the parts are physically joined, so any same-frame stock crossfeed equalisation between transport and endpoint tanks of the same resource lands on the dock-side baseline, not the undock-side delta. The strict `RouteAnalysisEngine.HasMixedPickupDelivery` gate then sees `transportGain > 0` on a resource the player never intended to move and rejects the run as `MixedPickupDelivery`.
+
+**Workaround:** Re-record without crossfed same-resource tanks on both sides of the dock, or disable flow on the affected transport tanks before docking. The route-analyzer rejection logs at `Info` ("RouteAnalysis rejected: mixed pickup/delivery") so the cause is visible in `KSP.log` without raising the verbosity dial.
+
+**Fix candidates (not yet attempted):**
+
+1. Capture a pre-couple transport snapshot inside the `onPartCouple` handler before stock physics runs the same-frame couple equalisation pass, and feed it to `BuildDockRouteConnectionWindow` instead of `mergedSnapshot`. The existing `AppendStructuralEventSnapshot` runs at the right moment but feeds the trajectory pipeline, not route proof.
+2. Detect the "approximate equalisation" pattern in `RouteAnalysisEngine.HasResourcePickup` (per-resource transportGain ≈ endpointLoss within a small tolerance) and treat it as not-a-pickup. Heuristic; could mis-classify genuine pickups that happen to net out.
+
+**Status:** Known limitation accepted for the v0 route-proof metadata layer (groundwork only — no live route dispatch yet). Logged here so it does not surface as a "real" route-creation bug later. Filed 2026-05-16 alongside the second-pass review of the logistics-v0-implementation branch.
+
+---
+
 ## Done - v0.9.2 Auto-generated group disambiguation collided with the count badge in the recordings table
 
 - ~~Launching a second vessel named "Kerbal X" produced an auto-generated mission group called `Kerbal X (2)`. The recordings-table button label is rendered as `{groupName} ({memberCount})` (see `RecordingsTableUI.cs:1839`, `:2368`), so the second mission's row showed up as `Kerbal X (2) (3)` — two parenthesised numbers side by side, one a mission index and one a recording count, with nothing in the label distinguishing them. Debris subgroups inherited the same ambiguity: `Kerbal X (2) / Debris (7)`.~~
