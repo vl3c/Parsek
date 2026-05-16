@@ -136,6 +136,9 @@ namespace Parsek.Logistics
                     VesselPersistentId = 0,
                     BodyName = "Kerbin",
                     // v0: launch-site coordinates resolved at dispatch time by name.
+                    // TODO: item 5 scheduler must resolve KSC coords via source ref → recording →
+                    // LaunchSiteName, going through EffectiveState.ComputeERS(). The Route does NOT
+                    // persist LaunchSiteName — only Origin.BodyName == "Kerbin" and IsKscOrigin == true.
                     Latitude = 0.0,
                     Longitude = 0.0,
                     Altitude = 0.0,

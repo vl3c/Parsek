@@ -30,7 +30,7 @@ All notable changes to Parsek are documented here.
 - Committed supply routes now persist across save/load via the new RouteStore. Empty stores write no ROUTES node, so saves without routes load unchanged.
 - Supply routes now revalidate their source recordings against the effective recording set on every load. Routes whose source is deleted or filtered out by a Re-Fly supersede transition to MissingSourceRecording, routes whose source has been rewritten (sidecar epoch bump or route-proof drift) transition to SourceChanged; once-missing routes auto-recover to Active when the source comes back with a matching fingerprint, while SourceChanged routes stay disabled until explicitly recreated.
 - Supply route revalidation also fires after a Re-Fly supersede commits mid-session, so routes pointing at a newly-superseded source flip to MissingSourceRecording without waiting for the next save/load.
-- Committing a recording that completes a single dock window now offers a "Create Supply Route?" prompt summarizing origin, endpoint, delivery manifest, and transit time. Confirming adds the route to the store; canceling or leaving the recording ineligible has no side effect.
+- Committing a recording that completes a single dock window now offers a "Create Supply Route?" prompt summarizing origin, endpoint, delivery manifest, and transit time. v0 uses the recording's transit duration as the dispatch interval and a generated route name; in-dialog editing of those fields is deferred. Confirming adds the route to the store; canceling or leaving the recording ineligible has no side effect.
 
 ### UI
 

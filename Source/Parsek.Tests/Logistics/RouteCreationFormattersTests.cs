@@ -47,7 +47,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void FormatInventoryLine_QuantityOne_OmitsMultiplier()
         {
-            // catches: a regression that always appends "×1" for single-item
+            // catches: a regression that always appends "x1" for single-item
             // payloads, which would clutter the dialog summary and split the
             // visual hierarchy between single and multi-quantity rows.
             InventoryPayloadItem item = new InventoryPayloadItem
@@ -71,7 +71,7 @@ namespace Parsek.Tests.Logistics
                 VariantName = "white",
                 Quantity = 2
             };
-            Assert.Equal("evaJetpack (white) ×2",
+            Assert.Equal("evaJetpack (white) x2",
                 RouteCreationFormatters.FormatInventoryLine(item));
         }
 
