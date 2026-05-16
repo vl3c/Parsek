@@ -106,7 +106,7 @@ docs/                       # Design docs, roadmap, reference analyses
 ```
 
 Key source files and what they do - read the relevant one before modifying:
-- `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, input). Camera follow delegated to WatchModeController.
+- `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, input). Camera follow delegated to WatchModeController. `TryConsumeStockActionIntent` runs from `OnVesselSwitchComplete` (Map Switch-To) and `OnFlightReady` (TS Fly / KSC marker Fly) to validate an armed `StockActionIntentMarker`, pick one of three branches (committed-tree clone, BG-member continuation, standalone), mutate `activeTree` via `SwitchSegmentBuilder`, arm a fresh `SwitchSegmentSession`, clear the consumed marker, and disarm the first-modification watcher.
 - `WatchModeController.cs` - camera-follow / watch-mode state machine (enter/exit watch, camera anchoring, overlap retarget, explosion hold)
 - `GhostPlaybackEngine.cs` - ghost playback mechanics engine: owns ghostStates, per-frame positioning, loop/overlap playback, zone transitions, soft caps, reentry FX. Zero Recording references — accesses trajectories via IPlaybackTrajectory only. Future standalone mod core.
 - `ParsekPlaybackPolicy.cs` - event subscriber reacting to engine lifecycle events (spawn decisions, resource deltas, camera management, deferred spawn queue)
@@ -155,6 +155,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `StockActionIntentMarker.cs` - positive intent marker armed only by confirmed stock-UI Fly / Switch-To click handlers; carries TTL + UT + `ProcessSessionId` and a pure `EvaluateStaleness` predicate for the FLIGHT-side consume site.
 - `SwitchSegmentSession.cs` - live segment-attempt marker armed when a switch/Fly click actually starts a new segment in FLIGHT, owned by `ParsekScenario` and serialized through OnSave/OnLoad so scoped Discard survives save/reload.
 - `SwitchSegmentBuilder.cs` - pure tree-mutation helper for switch/Fly continuation segments: `ResolveSwitchContinuationParent` walks PID-coherent terminal leaves and `CreateSwitchContinuationSegment` attaches a new `VesselSwitchContinuation` branch + recording under the chosen parent (or standalone). Pure with respect to Unity and background-recorder state; the live-side wrapper handles parent-side BG flush and BG-map removal.
+- `SwitchSegmentConsume.cs` - pure consume decision predicate (`StockActionIntentConsumeDecision.Evaluate`) and the `SwitchSegmentEntryRoute` / `StockActionIntentConsumeResult` types returned by `ParsekFlight.TryConsumeStockActionIntent`. Maps staleness / setting / target-mismatch / duplicate / missed-switch-recovery outcomes to clear-reason strings and routes; branch selection (committed-clone vs BG-member vs standalone) is driven by the live-side wrapper.
 
 ## Worktree Workflow
 
