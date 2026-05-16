@@ -277,5 +277,54 @@ namespace Parsek.Tests
                 && l.Contains("cycle detected")
                 && l.Contains("supersede-hop"));
         }
+
+        // =====================================================================
+        // 7. Nested Re-Fly transitive chase (Pass 4 review L3)
+        //
+        // Two consecutive Re-Flys on the same slot produce:
+        //   chain X: HEAD1 -> TIP1 (created by first Re-Fly's splitter)
+        //   supersede: TIP1 -> fork1 (first Re-Fly's commit)
+        //   chain Y: fork1 (= HEAD2) -> TIP2 (second Re-Fly's splitter)
+        //   supersede: TIP2 -> fork2 (second Re-Fly's commit)
+        //
+        // Walking from HEAD1 must trace all four hops and return fork2.
+        // The pre-Pass-4 carve-out regression manifested in AppendRelations
+        // (separate code path), but if the composite walker had had this
+        // coverage it would have shown HEAD2 == fork1 — the same id collision
+        // that broke the id-match carve-out form. Lock the contract now.
+        // =====================================================================
+
+        [Fact]
+        public void EffectiveTipRecordingId_NestedReFly_WalksHeadOneThroughForkTwo()
+        {
+            // First Re-Fly's wreckage: chain X with HEAD1 + TIP1, supersede
+            // row TIP1 -> fork1.
+            var head1 = Rec("rec_HEAD1", chainIndex: 0);
+            var tip1 = Rec("rec_TIP1", chainIndex: 1);
+            RegisterTreeWithChain("tree_first", "chain_X", head1, tip1);
+
+            // Second Re-Fly's wreckage: chain Y with fork1 (= HEAD2) + TIP2,
+            // supersede row TIP2 -> fork2. fork1 must be on chain Y here —
+            // after the second splitter ran it shares chain Y with TIP2.
+            // Re-use the same RecordingId fork1.id by creating the recording
+            // anew and registering it under tree_second on chain_Y.
+            var head2 = Rec("rec_fork1", chainIndex: 0); // RecordingId == fork1's id
+            var tip2 = Rec("rec_TIP2", chainIndex: 1);
+            RegisterTreeWithChain("tree_second", "chain_Y", head2, tip2);
+
+            // fork2 is standalone (the second Re-Fly's provisional, not yet
+            // superseded by anything).
+            var fork2 = Rec("rec_fork2");
+            RegisterStandalone(fork2);
+
+            var sups = new List<RecordingSupersedeRelation>
+            {
+                Rel("rec_TIP1", "rec_fork1"),  // first Re-Fly commit
+                Rel("rec_TIP2", "rec_fork2"),  // second Re-Fly commit
+            };
+
+            string tip = EffectiveState.EffectiveTipRecordingId("rec_HEAD1", sups);
+            Assert.Equal("rec_fork2", tip);
+        }
     }
 }

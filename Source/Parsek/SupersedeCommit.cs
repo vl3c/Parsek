@@ -458,42 +458,100 @@ namespace Parsek
                 return true;
             }
 
-            // Chain-head case (Task A4). The split orchestrator preserves
-            // origin's RecordingId on the HEAD half and routes the marker so
-            // marker.OriginChildRecordingId always names HEAD (see
-            // RecordingTreeSplitter.SplitOriginAtRewindUT step 2.10: the
-            // marker is only mutated on SupersedeTargetId; OriginChildRecordingId
-            // is the slot's stable origin id and stays pointing at HEAD).
+            // Chain-head case (Task A4, retargeted to chain-shape match in
+            // Pass 4 after the id-match form regressed nested Re-Fly).
             //
-            // The carve-out's purpose is to filter exactly HEAD out of the
-            // closure walk's chain-sibling enqueue path. Earlier drafts
-            // matched on "non-debris + EndUT <= rewindUT + epsilon" only —
-            // which would also carve out unrelated closure entries that
-            // happen to end at the rewind UT (e.g. a sibling EVA recording
-            // that ended on a Board BP at exactly rewindUT, a fairing
-            // jettison recording, etc.). Those legitimately receive
-            // supersede rows. The id check below restricts the carve-out
-            // to HEAD only (Pass 2 review User-H2).
+            // Required for the carve-out to fire:
+            //   1. Non-debris (the debris case above handles the lower
+            //      boundary).
+            //   2. rec.EndUT <= rewindUT + epsilon (upper-boundary cutoff —
+            //      HEAD's EndUT is exactly rewindUT after the split).
+            //   3. marker.SupersedeTargetId is set (after the split, this
+            //      names TIP). NaN/empty disables this case.
+            //   4. rec shares TIP's ChainId + ChainBranch.
+            //   5. rec.ChainIndex < TIP.ChainIndex.
             //
-            // RewindPointUT is the upper-boundary cutoff. Epsilon sign is
-            // OPPOSITE the debris case (lower boundary): the debris case
-            // tests StartUT < rewindUT - epsilon; the chain-head case
-            // tests EndUT <= rewindUT + epsilon.
+            // Why chain-shape and NOT marker.OriginChildRecordingId:
+            // OriginChildRecordingId is the SLOT'S stable origin id, set when
+            // the slot was first created. For the first Re-Fly the slot's
+            // origin and the split's HEAD happen to share the id (origin
+            // becomes HEAD in place). For the SECOND Re-Fly on the same
+            // slot, the marker still carries the slot's original
+            // OriginChildRecordingId (= HEAD₁.id), but the split this pass
+            // operates on starts at fork₁ (= HEAD₂). HEAD₂.RecordingId is
+            // fork₁.id, not HEAD₁.id, so the id-match form failed to fire
+            // and HEAD₂ silently got a supersede row → fork₁'s launch
+            // portion vanished from the timeline. That's the bug class this
+            // PR was created to fix — re-introduced by the over-tightening
+            // attempt before Pass 4 corrected the predicate.
+            //
+            // Chain-shape derives correctly from split-time invariants: every
+            // split the splitter produces creates HEAD/TIP as chain siblings
+            // sharing a ChainId, with HEAD at the lower index. Pre-existing
+            // chain members at lower ChainIndex (e.g. env-class siblings
+            // from a prior optimizer split) also satisfy the predicate —
+            // they're correctly carved out as part of the same pre-rewind
+            // history.
+            //
+            // Unrelated closure entries (EVA recordings, fairing jettisons,
+            // PID peers, BP-children of unrelated recordings) live on
+            // different ChainIds and are correctly NOT carved out.
+            //
+            // Epsilon sign is OPPOSITE the debris case (lower boundary):
+            // debris tests StartUT < rewindUT - epsilon; chain-head tests
+            // EndUT <= rewindUT + epsilon. Do not unify via
+            // ComputePreRewindCutoff — re-introducing the symmetry would
+            // fail HEAD's EndUT == rewindUT by exactly one epsilon.
             double headCutoff =
                 !double.IsNaN(marker.RewindPointUT) && marker.RewindPointUT > 0.0
                     ? marker.RewindPointUT + EffectiveState.PidPeerStartUtEpsilonSeconds
                     : double.NaN;
             if (!double.IsNaN(headCutoff)
                 && !rec.IsDebris
-                && !string.IsNullOrEmpty(marker.OriginChildRecordingId)
-                && string.Equals(rec.RecordingId, marker.OriginChildRecordingId, StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(marker.SupersedeTargetId)
+                && !string.IsNullOrEmpty(rec.ChainId)
                 && rec.EndUT <= headCutoff)
             {
-                reason = PreRewindCarveOutReason.PreRewindChainHead;
-                return true;
+                Recording tip = FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId);
+                if (tip != null
+                    && !string.IsNullOrEmpty(tip.ChainId)
+                    && string.Equals(rec.ChainId, tip.ChainId, StringComparison.Ordinal)
+                    && rec.ChainBranch == tip.ChainBranch
+                    && rec.ChainIndex < tip.ChainIndex)
+                {
+                    reason = PreRewindCarveOutReason.PreRewindChainHead;
+                    return true;
+                }
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Linear-scan lookup of a recording by id from
+        /// <see cref="RecordingStore.CommittedRecordings"/>, used by
+        /// <see cref="IsPreRewindCarveOut"/>'s chain-head case to resolve TIP
+        /// from <see cref="ReFlySessionMarker.SupersedeTargetId"/>. Kept
+        /// private to this file so the lookup is a single small helper rather
+        /// than another index-builder API. AppendRelations already builds its
+        /// own id index for the closure-walk loop; for the typical subtree
+        /// size (~10 entries) the O(N) lookup per IsPreRewindCarveOut call
+        /// adds negligible cost. Returns null when not found or when the
+        /// store is empty.
+        /// </summary>
+        private static Recording FindCommittedRecordingByIdForCarveOut(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            var src = RecordingStore.CommittedRecordings;
+            if (src == null) return null;
+            for (int i = 0; i < src.Count; i++)
+            {
+                var rec = src[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
         }
 
         /// <summary>

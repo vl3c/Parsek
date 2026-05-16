@@ -3475,24 +3475,37 @@ namespace Parsek.Tests
         [Fact]
         public void IsPreRewindCarveOut_PreRewindChainHead_ReturnsTrueWithReason()
         {
-            // HEAD half of a post-split origin: non-debris, EndUT exactly at
-            // marker.RewindPointUT, and rec.RecordingId == OriginChildRecordingId
-            // (the marker is routed so OriginChildRecordingId names HEAD; see
-            // RecordingTreeSplitter step 2.10 — only SupersedeTargetId is mutated,
-            // OriginChildRecordingId is preserved as the slot's stable origin id).
-            // The chain-head cutoff is rewindUT + eps (not - eps), so
-            // EndUT == rewindUT passes the predicate.
+            // Pass 4: chain-shape predicate (not id-match). HEAD must share
+            // TIP's ChainId+ChainBranch with a lower ChainIndex and an EndUT
+            // at or before rewindUT + eps. TIP must be reachable via
+            // RecordingStore.CommittedRecordings so the lookup at
+            // FindCommittedRecordingByIdForCarveOut succeeds.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_pass4",
+                IsDebris = false,
+                ChainId = "chain_pass4",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            RecordingStore.AddCommittedInternal(tip);
+
             var marker = new ReFlySessionMarker
             {
                 RewindPointUT = 34.0,
                 InvokedUT = 34.0,
-                OriginChildRecordingId = "rec_head_carveout",
+                SupersedeTargetId = "rec_tip_pass4",
                 PreSessionBranchPointIds = new List<string>(),
             };
             var head = new Recording
             {
                 RecordingId = "rec_head_carveout",
                 IsDebris = false,
+                ChainId = "chain_pass4",
+                ChainBranch = 0,
+                ChainIndex = 0,
                 ExplicitStartUT = 8.42,
                 ExplicitEndUT = 34.0, // == rewindUT exactly
             };
@@ -3507,29 +3520,38 @@ namespace Parsek.Tests
         [Fact]
         public void IsPreRewindCarveOut_NonHeadSiblingEndingAtRewindUT_NotCarvedOut()
         {
-            // Pass 2 review User-H2: the chain-head case used to fire on any
-            // non-debris closure entry with EndUT <= rewindUT + eps. That was
-            // over-broad — closure walks enqueue PID peers, BP-children, and
-            // debris-children in addition to chain siblings, so unrelated
-            // recordings ending at rewindUT (e.g. an EVA recording that ended
-            // on a Board BP at the same UT, a fairing-jettison recording)
-            // would be carved out and silently lose their legitimate supersede
-            // row. The fix tightens the predicate to require
-            // rec.RecordingId == marker.OriginChildRecordingId so only HEAD
-            // matches.
+            // Pass 2 review User-H2: an EVA recording ending on a Board BP at
+            // exactly rewindUT lives on a DIFFERENT chain (EVA has its own
+            // vessel identity → its own ChainId). The chain-shape predicate
+            // correctly excludes it from the carve-out and lets it receive
+            // its legitimate supersede row.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_neg",
+                ChainId = "chain_main",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            RecordingStore.AddCommittedInternal(tip);
+
             var marker = new ReFlySessionMarker
             {
                 RewindPointUT = 34.0,
                 InvokedUT = 34.0,
-                OriginChildRecordingId = "rec_head_actual",
+                SupersedeTargetId = "rec_tip_neg",
                 PreSessionBranchPointIds = new List<string>(),
             };
             var unrelatedSiblingEndingAtRewind = new Recording
             {
                 RecordingId = "rec_eva_or_fairing",
                 IsDebris = false,
+                ChainId = "chain_eva", // DIFFERENT chain
+                ChainBranch = 0,
+                ChainIndex = 0,
                 ExplicitStartUT = 12.0,
-                ExplicitEndUT = 34.0, // same as rewindUT — but it's NOT HEAD
+                ExplicitEndUT = 34.0, // same as rewindUT — but DIFFERENT chain
             };
 
             bool result = SupersedeCommit.IsPreRewindCarveOut(
@@ -3540,22 +3562,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsPreRewindCarveOut_HeadIdWithoutMarkerOriginId_NotCarvedOut()
+        public void IsPreRewindCarveOut_NoSupersedeTargetIdOnMarker_NotCarvedOut()
         {
-            // Pass 2 review User-H2: a marker missing OriginChildRecordingId
-            // (legacy or partial) must not have its chain-head case fire.
-            // The string-IsNullOrEmpty guard short-circuits.
+            // Pass 4: a marker without SupersedeTargetId can't resolve TIP, so
+            // the chain-head case is unavailable. The recording falls through
+            // to the legacy "write the row" default.
             var marker = new ReFlySessionMarker
             {
                 RewindPointUT = 34.0,
                 InvokedUT = 34.0,
-                OriginChildRecordingId = null,
+                SupersedeTargetId = null,
                 PreSessionBranchPointIds = new List<string>(),
             };
             var head = new Recording
             {
-                RecordingId = "rec_head_no_marker_id",
+                RecordingId = "rec_head_no_tip_id",
                 IsDebris = false,
+                ChainId = "chain_orphan",
+                ChainBranch = 0,
+                ChainIndex = 0,
                 ExplicitStartUT = 8.0,
                 ExplicitEndUT = 34.0,
             };
@@ -3565,6 +3590,69 @@ namespace Parsek.Tests
 
             Assert.False(result);
             Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NestedReFly_HEAD2EqualsFork1_CarvedOutCorrectly()
+        {
+            // Pass 4 regression test: this is the case my Pass 2 id-match
+            // form silently failed. On the second Re-Fly of the same slot,
+            // marker.OriginChildRecordingId is the slot's stable origin
+            // (HEAD₁.id from the first Re-Fly), but the second split operates
+            // on fork₁ (which becomes HEAD₂ in place). HEAD₂.RecordingId is
+            // fork₁.id, not HEAD₁.id — the id-match form did NOT fire and
+            // HEAD₂ got a supersede row pointing at fork₂, silently re-
+            // introducing the very bug this PR exists to fix.
+            //
+            // The chain-shape predicate fires correctly because HEAD₂
+            // (= fork₁) and TIP₂ are chain siblings on a fresh ChainId Y
+            // (the second Re-Fly's chain); marker.OriginChildRecordingId
+            // doesn't participate.
+
+            // First Re-Fly's wreckage in the store (HEAD₁ + TIP₁ + fork₁,
+            // all on chain X). We only need the supersede-row consumer
+            // shape, not full topology.
+            var fork1Head2 = new Recording
+            {
+                RecordingId = "fork1_id",
+                IsDebris = false,
+                ChainId = "chain_Y",   // fresh chain from the second Re-Fly's split
+                ChainBranch = 0,
+                ChainIndex = 0,        // HEAD₂ position
+                ExplicitStartUT = 34.0, // fork₁ originally started at rewindUT₁
+                ExplicitEndUT = 60.0,   // ends at the SECOND rewindUT
+            };
+            var tip2 = new Recording
+            {
+                RecordingId = "tip2_id",
+                ChainId = "chain_Y",
+                ChainBranch = 0,
+                ChainIndex = 1,        // TIP₂ position
+                ExplicitStartUT = 60.0,
+                ExplicitEndUT = 90.0,
+            };
+            RecordingStore.AddCommittedInternal(fork1Head2);
+            RecordingStore.AddCommittedInternal(tip2);
+
+            // Second Re-Fly's marker. OriginChildRecordingId still points at
+            // the slot's original recording (HEAD₁.id) — this is what
+            // tripped my Pass 2 id-match form.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_refly_2",
+                RewindPointUT = 60.0,
+                InvokedUT = 60.0,
+                OriginChildRecordingId = "head1_id", // SLOT's stable origin
+                SupersedeTargetId = "tip2_id",        // post-second-split TIP
+                ActiveReFlyRecordingId = "fork2_id",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                fork1Head2, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
         }
 
         [Fact]
@@ -3811,11 +3899,25 @@ namespace Parsek.Tests
             // The wrapper returns true ONLY for the debris case, so a
             // chain-head match must report false through the wrapper even
             // though IsPreRewindCarveOut returns true for it.
+            // Pass 4 update: chain-shape carve-out needs a TIP installed in
+            // CommittedRecordings so the lookup at
+            // FindCommittedRecordingByIdForCarveOut resolves.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_wrap",
+                ChainId = "chain_wrap",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            RecordingStore.AddCommittedInternal(tip);
+
             var marker = new ReFlySessionMarker
             {
                 RewindPointUT = 34.0,
                 InvokedUT = 34.0,
-                OriginChildRecordingId = "rec_head_wrap",
+                SupersedeTargetId = "rec_tip_wrap",
                 PreSessionBranchPointIds = new List<string>(),
             };
 
@@ -3833,6 +3935,9 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_head_wrap",
                 IsDebris = false,
+                ChainId = "chain_wrap",
+                ChainBranch = 0,
+                ChainIndex = 0,
                 ExplicitStartUT = 8.0,
                 ExplicitEndUT = 34.0,
             };
