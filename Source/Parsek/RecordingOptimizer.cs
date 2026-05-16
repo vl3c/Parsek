@@ -1205,6 +1205,51 @@ namespace Parsek
                             "single one-off override for re-fly commit");
                     }
 
+                    // Partition straddle.checkpoints by UT (mirrors SplitAtSection
+                    // step 7's top-level OrbitSegment partition). Without this,
+                    // both halves would inherit the full pre-split checkpoints list
+                    // verbatim, and TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail
+                    // (called downstream by SplitAtSection) could rebuild TIP's
+                    // OrbitSegments from those un-partitioned checkpoints via
+                    // RebuildOrbitSegmentsFromTrackSections, silently undoing the
+                    // tail-clone work A7 added to SplitAtSection. The same logic also
+                    // protects HEAD's `TrimFirstHalfTrackSectionsAtSplit` pass — because
+                    // headSection.endUT is already set to splitUT below, that pass would
+                    // not re-trim the head's checkpoints either. Whole pre-split
+                    // checkpoints go to head; whole post-split go to tail; straddlers
+                    // are head-trimmed (endUT clamped to splitUT) into head AND
+                    // tail-cloned (startUT set to splitUT) into tail. Kepler elements
+                    // describe the whole conic so a struct value-copy is sufficient.
+                    List<OrbitSegment> headCheckpoints = null;
+                    List<OrbitSegment> tailCheckpoints = null;
+                    if (straddle.checkpoints != null)
+                    {
+                        headCheckpoints = new List<OrbitSegment>();
+                        tailCheckpoints = new List<OrbitSegment>();
+                        for (int ci = 0; ci < straddle.checkpoints.Count; ci++)
+                        {
+                            OrbitSegment cp = straddle.checkpoints[ci];
+                            if (cp.endUT <= splitUT)
+                            {
+                                headCheckpoints.Add(cp);
+                            }
+                            else if (cp.startUT >= splitUT)
+                            {
+                                tailCheckpoints.Add(cp);
+                            }
+                            else
+                            {
+                                OrbitSegment headClone = cp;
+                                headClone.endUT = splitUT;
+                                headCheckpoints.Add(headClone);
+
+                                OrbitSegment tailClone = cp;
+                                tailClone.startUT = splitUT;
+                                tailCheckpoints.Add(tailClone);
+                            }
+                        }
+                    }
+
                     TrackSection headSection = new TrackSection
                     {
                         environment = straddle.environment,
@@ -1225,8 +1270,7 @@ namespace Parsek
                             ? new List<TrajectoryPoint>() : null,
                         bodyFixedFrames = straddle.bodyFixedFrames != null
                             ? new List<TrajectoryPoint>() : null,
-                        checkpoints = straddle.checkpoints != null
-                            ? new List<OrbitSegment>(straddle.checkpoints) : null,
+                        checkpoints = headCheckpoints,
                     };
                     TrackSection tailSection = new TrackSection
                     {
@@ -1247,8 +1291,7 @@ namespace Parsek
                             ? new List<TrajectoryPoint>() : null,
                         bodyFixedFrames = straddle.bodyFixedFrames != null
                             ? new List<TrajectoryPoint>() : null,
-                        checkpoints = straddle.checkpoints != null
-                            ? new List<OrbitSegment>(straddle.checkpoints) : null,
+                        checkpoints = tailCheckpoints,
                     };
 
                     // Partition the section's per-section frames by UT.

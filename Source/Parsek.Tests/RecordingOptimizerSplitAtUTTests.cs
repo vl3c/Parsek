@@ -444,6 +444,225 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Straddle-section checkpoints partition
+
+        /// <summary>
+        /// Builds a Recording with a single OrbitalCheckpoint TrackSection
+        /// (frames=null so flat-trajectory rebuild paths are quiescent) spanning
+        /// [startUT, endUT] with the supplied <paramref name="checkpoints"/>
+        /// list. Includes a Point at exactly splitUT so SplitAtSection's
+        /// boundary-interpolation branch (Unity-runtime-only Slerp) is bypassed.
+        /// Top-level Recording.OrbitSegments is also seeded with the same
+        /// isPredicted=true segments so SplitAtSection's step 7 partition pass
+        /// behaves symmetrically with the per-section partition under test.
+        /// </summary>
+        private static Recording MakeRecordingWithSectionCheckpoints(double startUT,
+            double endUT, double splitUT, List<OrbitSegment> checkpoints,
+            string recordingId = "rec-section-cp")
+        {
+            var rec = new Recording { RecordingId = recordingId };
+            rec.Points.Add(PointAt(startUT));
+            rec.Points.Add(PointAt(splitUT));
+            rec.Points.Add(PointAt(endUT));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = startUT,
+                endUT = endUT,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = null,
+                checkpoints = checkpoints,
+            });
+            return rec;
+        }
+
+        private static OrbitSegment MakeCheckpoint(double startUT, double endUT,
+            double inclination = 0.0, double eccentricity = 0.0,
+            string bodyName = "Kerbin", bool isPredicted = true)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = bodyName,
+                inclination = inclination,
+                eccentricity = eccentricity,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = startUT,
+                isPredicted = isPredicted,
+                orbitalFrameRotation = Quaternion.identity,
+                angularVelocity = Vector3.zero,
+            };
+        }
+
+        [Fact]
+        public void SplitAtUT_StraddleSectionCheckpointsPartitionedByUT()
+        {
+            // Single TrackSection [10, 50] with two checkpoints:
+            //   cp0 [10, 30] — entirely pre-split.
+            //   cp1 [20, 40] — straddles splitUT=34.
+            // splitUT=34 falls inside the section -> synthetic boundary insert
+            // path partitions the section's checkpoints list.
+            //
+            // Expected:
+            //   headSection.checkpoints = [ [10,30], [20,34] (head-trimmed straddler) ]
+            //   tailSection.checkpoints = [ [34,40] (tail-cloned straddler) ]
+            var checkpoints = new List<OrbitSegment>
+            {
+                MakeCheckpoint(10.0, 30.0, inclination: 11.0, eccentricity: 0.11),
+                MakeCheckpoint(20.0, 40.0, inclination: 22.0, eccentricity: 0.22),
+            };
+            var rec = MakeRecordingWithSectionCheckpoints(10.0, 50.0, 34.0,
+                checkpoints, "rec-cp-straddle");
+            // Mirror the per-section checkpoints into the top-level
+            // OrbitSegments list — SplitAtSection's step 7 will partition this
+            // list symmetrically with the per-section partition under test.
+            rec.OrbitSegments.Add(MakeCheckpoint(10.0, 30.0, 11.0, 0.11));
+            rec.OrbitSegments.Add(MakeCheckpoint(20.0, 40.0, 22.0, 0.22));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+
+            // HEAD: single section [10,34] with two checkpoints.
+            Assert.Single(rec.TrackSections);
+            var headSection = rec.TrackSections[0];
+            Assert.Equal(10.0, headSection.startUT);
+            Assert.Equal(34.0, headSection.endUT);
+            Assert.NotNull(headSection.checkpoints);
+            Assert.Equal(2, headSection.checkpoints.Count);
+            // [10,30] preserved verbatim (pre-split).
+            Assert.Equal(10.0, headSection.checkpoints[0].startUT);
+            Assert.Equal(30.0, headSection.checkpoints[0].endUT);
+            Assert.Equal(11.0, headSection.checkpoints[0].inclination);
+            Assert.Equal(0.11, headSection.checkpoints[0].eccentricity);
+            Assert.True(headSection.checkpoints[0].isPredicted);
+            Assert.Equal("Kerbin", headSection.checkpoints[0].bodyName);
+            // [20,40] head-trimmed to [20,34]; Kepler elements unchanged.
+            Assert.Equal(20.0, headSection.checkpoints[1].startUT);
+            Assert.Equal(34.0, headSection.checkpoints[1].endUT);
+            Assert.Equal(22.0, headSection.checkpoints[1].inclination);
+            Assert.Equal(0.22, headSection.checkpoints[1].eccentricity);
+            Assert.True(headSection.checkpoints[1].isPredicted);
+            Assert.Equal("Kerbin", headSection.checkpoints[1].bodyName);
+
+            // TIP: single section [34,50] with one tail-cloned checkpoint.
+            Assert.Single(tip.TrackSections);
+            var tailSection = tip.TrackSections[0];
+            Assert.Equal(34.0, tailSection.startUT);
+            Assert.Equal(50.0, tailSection.endUT);
+            Assert.NotNull(tailSection.checkpoints);
+            Assert.Single(tailSection.checkpoints);
+            // [20,40] tail-cloned to [34,40]; Kepler elements unchanged.
+            Assert.Equal(34.0, tailSection.checkpoints[0].startUT);
+            Assert.Equal(40.0, tailSection.checkpoints[0].endUT);
+            Assert.Equal(22.0, tailSection.checkpoints[0].inclination);
+            Assert.Equal(0.22, tailSection.checkpoints[0].eccentricity);
+            Assert.True(tailSection.checkpoints[0].isPredicted);
+            Assert.Equal("Kerbin", tailSection.checkpoints[0].bodyName);
+        }
+
+        [Fact]
+        public void SplitAtUT_StraddleSectionCheckpointsPartition_PreservesNonStraddlingCheckpoints()
+        {
+            // Three checkpoints in a single straddling TrackSection [5, 80]:
+            //   cp0 [5,15]   — entirely pre-split, no straddle.
+            //   cp1 [20,50]  — straddles splitUT=34.
+            //   cp2 [55,80]  — entirely post-split, no straddle.
+            //
+            // Expected:
+            //   headSection.checkpoints = [ [5,15], [20,34] (trimmed) ]
+            //   tailSection.checkpoints = [ [34,50] (tail-clone), [55,80] ]
+            // All UT-ascending within each list.
+            var checkpoints = new List<OrbitSegment>
+            {
+                MakeCheckpoint(5.0, 15.0, inclination: 11.0, eccentricity: 0.11),
+                MakeCheckpoint(20.0, 50.0, inclination: 22.0, eccentricity: 0.22),
+                MakeCheckpoint(55.0, 80.0, inclination: 33.0, eccentricity: 0.33),
+            };
+            var rec = MakeRecordingWithSectionCheckpoints(5.0, 80.0, 34.0,
+                checkpoints, "rec-cp-three");
+            // Mirror at the top level so SplitAtSection's step 7 partition runs
+            // symmetrically — keeps the recording self-consistent.
+            rec.OrbitSegments.Add(MakeCheckpoint(5.0, 15.0, 11.0, 0.11));
+            rec.OrbitSegments.Add(MakeCheckpoint(20.0, 50.0, 22.0, 0.22));
+            rec.OrbitSegments.Add(MakeCheckpoint(55.0, 80.0, 33.0, 0.33));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+
+            // HEAD section checkpoints: [5,15] verbatim + [20,34] head-trimmed.
+            Assert.Single(rec.TrackSections);
+            var headSection = rec.TrackSections[0];
+            Assert.NotNull(headSection.checkpoints);
+            Assert.Equal(2, headSection.checkpoints.Count);
+            Assert.Equal(5.0, headSection.checkpoints[0].startUT);
+            Assert.Equal(15.0, headSection.checkpoints[0].endUT);
+            Assert.Equal(11.0, headSection.checkpoints[0].inclination);
+            Assert.Equal(20.0, headSection.checkpoints[1].startUT);
+            Assert.Equal(34.0, headSection.checkpoints[1].endUT);
+            Assert.Equal(22.0, headSection.checkpoints[1].inclination);
+            // UT-ascending order.
+            Assert.True(headSection.checkpoints[0].startUT < headSection.checkpoints[1].startUT);
+
+            // TIP section checkpoints: [34,50] tail-clone + [55,80] verbatim.
+            Assert.Single(tip.TrackSections);
+            var tailSection = tip.TrackSections[0];
+            Assert.NotNull(tailSection.checkpoints);
+            Assert.Equal(2, tailSection.checkpoints.Count);
+            Assert.Equal(34.0, tailSection.checkpoints[0].startUT);
+            Assert.Equal(50.0, tailSection.checkpoints[0].endUT);
+            Assert.Equal(22.0, tailSection.checkpoints[0].inclination);
+            Assert.Equal(55.0, tailSection.checkpoints[1].startUT);
+            Assert.Equal(80.0, tailSection.checkpoints[1].endUT);
+            Assert.Equal(33.0, tailSection.checkpoints[1].inclination);
+            // UT-ascending order.
+            Assert.True(tailSection.checkpoints[0].startUT < tailSection.checkpoints[1].startUT);
+        }
+
+        [Fact]
+        public void SplitAtUT_StraddleSectionWithNullCheckpoints_PreservesNullOnBothHalves()
+        {
+            // A straddling section with checkpoints=null must yield head+tail
+            // sections both with checkpoints=null. No spurious empty List<>
+            // allocation on either side.
+            var rec = new Recording { RecordingId = "rec-cp-null" };
+            // Point at splitUT=34 bypasses SplitAtSection's boundary-interpolation
+            // Slerp path (Unity-runtime-only), mirroring the other tests here.
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(34.0));
+            rec.Points.Add(PointAt(53.0));
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 8.0,
+                endUT = 53.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = null,
+                checkpoints = null,
+            });
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Single(rec.TrackSections);
+            Assert.Single(tip.TrackSections);
+            Assert.Null(rec.TrackSections[0].checkpoints);
+            Assert.Null(tip.TrackSections[0].checkpoints);
+        }
+
+        #endregion
+
         #region Boundary alignment branches
 
         [Fact]
