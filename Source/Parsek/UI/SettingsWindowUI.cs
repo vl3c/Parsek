@@ -289,6 +289,46 @@ namespace Parsek
                 s.autoMerge = autoMerge;
                 ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
             }
+
+            // Sub-section: per-source immediate auto-record on explicit UI vessel switch.
+            // The "first modification after switch" toggle above remains the fallback for
+            // non-UI focus changes (e.g. `[`/`]` cycling, missed-switch recovery); the
+            // three toggles below add immediate-segment-start for the three confirmed
+            // stock UI click handlers.
+            GUILayout.Label("Auto-record on explicit vessel switch", parentUI.GetSectionHeaderStyle());
+
+            bool autoRecordOnTsFly = GUILayout.Toggle(
+                s.autoRecordOnTsFly,
+                new GUIContent(
+                    " Auto-record on Tracking Station Fly",
+                    "When you click Fly in the Tracking Station, start a new switch-continuation segment immediately for the switched-to vessel"));
+            if (autoRecordOnTsFly != s.autoRecordOnTsFly)
+            {
+                s.autoRecordOnTsFly = autoRecordOnTsFly;
+                ParsekLog.Info("UI", $"Setting changed: autoRecordOnTsFly={s.autoRecordOnTsFly}");
+            }
+
+            bool autoRecordOnKscFly = GUILayout.Toggle(
+                s.autoRecordOnKscFly,
+                new GUIContent(
+                    " Auto-record on KSC marker Fly",
+                    "When you click Fly on a nearby-vessel marker at KSC, start a new switch-continuation segment immediately for the switched-to vessel"));
+            if (autoRecordOnKscFly != s.autoRecordOnKscFly)
+            {
+                s.autoRecordOnKscFly = autoRecordOnKscFly;
+                ParsekLog.Info("UI", $"Setting changed: autoRecordOnKscFly={s.autoRecordOnKscFly}");
+            }
+
+            bool autoRecordOnMapSwitchTo = GUILayout.Toggle(
+                s.autoRecordOnMapSwitchTo,
+                new GUIContent(
+                    " Auto-record on Map view Switch To",
+                    "When you Switch To an owned vessel from the in-flight map view, start a new switch-continuation segment immediately for the switched-to vessel"));
+            if (autoRecordOnMapSwitchTo != s.autoRecordOnMapSwitchTo)
+            {
+                s.autoRecordOnMapSwitchTo = autoRecordOnMapSwitchTo;
+                ParsekLog.Info("UI", $"Setting changed: autoRecordOnMapSwitchTo={s.autoRecordOnMapSwitchTo}");
+            }
         }
 
         private void DrawLoopingSettings(ParsekSettings s)

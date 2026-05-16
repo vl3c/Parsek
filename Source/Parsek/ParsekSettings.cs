@@ -41,6 +41,18 @@ namespace Parsek
             toolTip = "Automatically arm after switching to a real vessel and start recording on the first meaningful physical change")]
         public bool autoRecordOnFirstModificationAfterSwitch = true;
 
+        [GameParameters.CustomParameterUI("Auto-record on Tracking Station Fly",
+            toolTip = "When you click Fly in the Tracking Station, start a new switch-continuation segment immediately for the switched-to vessel")]
+        public bool autoRecordOnTsFly = true;
+
+        [GameParameters.CustomParameterUI("Auto-record on KSC marker Fly",
+            toolTip = "When you click Fly on a nearby-vessel marker at KSC, start a new switch-continuation segment immediately for the switched-to vessel")]
+        public bool autoRecordOnKscFly = true;
+
+        [GameParameters.CustomParameterUI("Auto-record on Map view Switch To",
+            toolTip = "When you Switch To an owned vessel from the in-flight map view, start a new switch-continuation segment immediately for the switched-to vessel")]
+        public bool autoRecordOnMapSwitchTo = true;
+
         [GameParameters.CustomParameterUI("Auto-merge recordings",
             toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
         public bool autoMerge = false;
