@@ -55,6 +55,9 @@ namespace Parsek.Tests
             // assert the route module saw it. This is the end-to-end registration
             // proof — accessor non-null alone could pass even if RegisterModule
             // was missed.
+            // FundsInitial seed required because RecalculateAndPatch's seed-readiness
+            // check short-circuits without one, even when the test is only verifying
+            // the route module's registration wiring.
             Ledger.AddAction(new GameAction
             {
                 UT = 0.0,
