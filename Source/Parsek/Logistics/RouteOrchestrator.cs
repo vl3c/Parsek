@@ -215,6 +215,11 @@ namespace Parsek.Logistics
             // Format is "cycle-<N>" where N = total cycles ever started for this
             // route (completed + skipped — both increment past cycles even
             // though SkippedCycles is currently informational only).
+            //
+            // Cycle id formula: cycle-{CompletedCycles + SkippedCycles}. Item-6
+            // RouteCargoDelivered must use the SAME formula so dispatch/debit/
+            // deliver triple stays aligned per cycle. First cycle is cycle-0
+            // (both counters start at 0).
             string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
 
             // Funds cost: only meaningful for Career + KSC origin. We compute it
@@ -226,7 +231,11 @@ namespace Parsek.Logistics
             if (isCareerKsc)
             {
                 computedCost = ComputeDispatchFundsCostForRoute(route);
-                route.KscDispatchFundsCost = (float)computedCost;
+                // Route.KscDispatchFundsCost is double-typed; preserve full
+                // precision here. The ledger-row cast below is the only float
+                // truncation, intentional because GameAction defines the field
+                // as float.
+                route.KscDispatchFundsCost = computedCost;
             }
 
             // RouteDispatched — the scheduler-decision marker. No manifest;
@@ -254,6 +263,9 @@ namespace Parsek.Logistics
                 RouteStopIndex = -1,
                 Sequence = 1,
                 RouteResourceManifest = CloneManifest(route.CostManifest),
+                // RouteKscFundsCost is float-typed on GameAction by design;
+                // double precision is preserved on Route.KscDispatchFundsCost
+                // for diagnostics.
                 RouteKscFundsCost = isCareerKsc ? (float)computedCost : 0f,
             };
 
@@ -566,7 +578,18 @@ namespace Parsek.Logistics
                 // every dispatch attempts as if the destination is empty —
                 // matches the design doc's "v0 minimal viable scheduler"
                 // posture.
+                //
+                // Without a log, a destination-full scenario in v0 silently
+                // dispatches and the only evidence in KSP.log is the
+                // successful dispatch line. Emit a per-route rate-limited
+                // breadcrumb so operators see the v0 limitation in context —
+                // same shape as OriginHasCargo's non-KSC stub above.
                 fullResource = string.Empty;
+                string routeId = route?.Id ?? "<none>";
+                ParsekLog.VerboseRateLimited(Tag,
+                    "route-destcap-" + routeId,
+                    $"DestinationHasCapacity: v0 stub returning true " +
+                    $"(item-6 wires real check); routeId={routeId}");
                 return true;
             }
 

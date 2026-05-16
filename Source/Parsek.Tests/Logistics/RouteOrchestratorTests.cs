@@ -57,8 +57,22 @@ namespace Parsek.Tests.Logistics
             public bool RouteHasValidSourcesResult { get; set; } = true;
             public Action OnAnyCall { get; set; }
 
+            // When non-null, any env method that receives a Route argument
+            // throws InvalidOperationException if route.Id matches. Keying on
+            // route id (instead of a global call counter) keeps the test
+            // robust to evaluator-call-order reshuffles: a future evaluator
+            // tweak that reorders origin/funds/destination/sources checks
+            // would no longer silently shift which route throws.
+            public string ThrowOnRouteId { get; set; }
+
             public int OriginHasCargoCalls;
             public int KscFundsAvailableCalls;
+
+            private void ThrowIfMatch(Route route)
+            {
+                if (ThrowOnRouteId != null && route != null && route.Id == ThrowOnRouteId)
+                    throw new InvalidOperationException("synthetic-env-failure-" + route.Id);
+            }
 
             public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
             {
@@ -70,6 +84,7 @@ namespace Parsek.Tests.Logistics
             public bool OriginHasCargo(Route route, out string lackingResource)
             {
                 OnAnyCall?.Invoke();
+                ThrowIfMatch(route);
                 OriginHasCargoCalls++;
                 lackingResource = OriginHasCargoResult ? string.Empty : OriginLackingResource;
                 return OriginHasCargoResult;
@@ -78,6 +93,7 @@ namespace Parsek.Tests.Logistics
             public bool KscFundsAvailable(Route route, out double shortfall)
             {
                 OnAnyCall?.Invoke();
+                ThrowIfMatch(route);
                 KscFundsAvailableCalls++;
                 shortfall = KscFundsAvailableResult ? 0.0 : KscFundsShortfall;
                 return KscFundsAvailableResult;
@@ -86,6 +102,7 @@ namespace Parsek.Tests.Logistics
             public bool DestinationHasCapacity(Route route, out string fullResource)
             {
                 OnAnyCall?.Invoke();
+                ThrowIfMatch(route);
                 fullResource = DestinationHasCapacityResult ? string.Empty : DestinationFullResource;
                 return DestinationHasCapacityResult;
             }
@@ -93,6 +110,7 @@ namespace Parsek.Tests.Logistics
             public bool RouteHasValidSourcesInErs(Route route)
             {
                 OnAnyCall?.Invoke();
+                ThrowIfMatch(route);
                 return RouteHasValidSourcesResult;
             }
         }
@@ -444,13 +462,14 @@ namespace Parsek.Tests.Logistics
             RouteStore.AddRoute(routeA);
             RouteStore.AddRoute(routeB);
 
-            var env = new FakeRouteRuntimeEnvironment();
-            int routesSeen = 0;
-            env.OnAnyCall = () =>
+            // Trigger the throw by route id so the test stays robust to
+            // future evaluator-call-order reshuffles. A global call-counter
+            // trigger would pass even if routeB ended up being the thrower
+            // after a reorder — and the attribution check below would be
+            // silently wrong.
+            var env = new FakeRouteRuntimeEnvironment
             {
-                routesSeen++;
-                if (routesSeen == 1)
-                    throw new InvalidOperationException("synthetic-env-failure-routeA");
+                ThrowOnRouteId = routeA.Id,
             };
 
             // The exception during routeA processing must be caught — routeB
@@ -463,8 +482,13 @@ namespace Parsek.Tests.Logistics
             // routeA aborted before status change — stays Active.
             Assert.Equal(RouteStatus.Active, routeA.Status);
 
-            // Error log entry references the route that threw.
-            Assert.Contains(logLines, l => l.Contains("[ERROR]") && l.Contains("[Route]") && l.Contains("Tick:"));
+            // Error log entry references the route that threw by its short id
+            // (orchestrator logs use ShortIdForLog which truncates to 8 chars).
+            Assert.Contains(logLines, l =>
+                l.Contains("[ERROR]")
+                && l.Contains("[Route]")
+                && l.Contains("Tick:")
+                && l.Contains(routeA.Id));
         }
 
         // catches: ERS-stale routes silently dispatching. Defensive cross-check
