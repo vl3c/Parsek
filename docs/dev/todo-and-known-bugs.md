@@ -12,6 +12,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - v0.9.2 Controlled-decoupled child vessels lack a parent-anchored recording surface (deeper fix for the CoBubble debris-anchor snap)
+
+**Evidence:** User-reported visual seam in PR #872 build, `logs/2026-05-16_2010_pr872-kerbalx-ghost-switch/KSP.log`. During Re-Fly of the Kerbal X upper stage, the lower-stage probe ghost (`b11ef3d4…`, type=Probe, hasController=True) visibly snapped mid-flight at UT 34.74 onto the trajectory of a sibling radial-booster debris piece (`fa429137…`) and crossfaded back at UT 38.76 when that debris crashed. Root cause is that controlled-decoupled children are recorded as plain Absolute by `BgRecorder` with no `DebrisParentRecordingId` and no relative-to-parent track surface — the only formation-coherence mechanism available to them is CoBubble peer-blend, which pairs them opportunistically with whichever Absolute neighbor happens to win the primary selector. PR #873 added a short-term selector guard ("non-debris-over-debris" Rule 6) so a sibling debris can never be promoted to primary against a controlled peer. The deeper fix below removes the dependence on CoBubble peer-blend for this case entirely.
+
+**Fix:** Extend the v13 debris parent-anchored contract (`Recording.DebrisParentRecordingId`, dual `frames` / `bodyFixedFrames` surfaces) to controlled-decoupled children that come off a tree they belong to: when the Coalescer classifies a child as `controlled child created` (currently the non-debris branch in `Coalescer.ProcessBreakupEvent`), also set `DebrisParentRecordingId` to the parent tree-root recording and have `BgRecorder` write a Relative `frames` surface alongside the existing Absolute `bodyFixedFrames`. Playback in re-fly then resolves the child through `RebuildFromMarker`'s parent-anchored path (the hidden pre-rewind parent ghost) instead of needing a CoBubble peer-blend window with a sibling. The CoBubble selector's Rule 6 from PR #873 stays as a safety net for cases this fix doesn't cover (e.g. cross-tree co-bubble formations).
+
+**Scope:** Recorder + Coalescer changes. The `IsDebris` flag itself stays `false` for these vessels (they really are controlled), but `DebrisParentRecordingId` becomes orthogonal to `IsDebris`. Need to audit every existing read of `DebrisParentRecordingId` to ensure it doesn't gate on `IsDebris` as a proxy. Also requires a format-version bump if existing pannotations/sidecar invariants assume `DebrisParentRecordingId != null → IsDebris == true`.
+
+**Acceptance:** Re-running the PR #872 repro shows the Kerbal X Probe ghost playing smoothly end-to-end with no mid-flight trajectory snap, regardless of whether nearby sibling debris pieces survive or crash during the playback window. In-game test or scripted xUnit fixture asserts the child plays via the parent-anchored path during re-fly (the path log line indicates the parent recording id, not a co-bubble blend window).
+
+**Status:** OPEN. Plan to be written in a separate worktree before implementation.
+
+---
+
+## Done - v0.9.2 Re-Fly controlled-child ghost snapped onto sibling debris trajectory mid-playback (CoBubble primary picked debris over controlled vessel)
+
+- ~~In `logs/2026-05-16_2010_pr872-kerbalx-ghost-switch/KSP.log`, during the Kerbal X upper-stage Re-Fly, the Kerbal X Probe ghost (`b11ef3d4…`, the booster lower stage with `hasController=True`) visibly snapped mid-flight at UT 34.74 onto the trajectory of a sibling radial-booster debris piece (`fa429137…`) and crossfaded back at UT 38.76 when that debris crashed. The cause was `CoBubblePrimarySelector.SelectPrimaryForPair` picking the debris as the CoBubble primary purely because Rule 3 (earlier `StartUT`) favored the older recording: debris StartUT 20.66 < probe StartUT 24.26, so the controlled probe became the peer and got re-routed through the debris's anchored playback for the blend window.~~
+
+**Root cause:** The §10.1 selector rule ordering (live → DAG-hops → earlier-StartUT → sample-rate → ordinal-id) has no concept of "controlled vessels make stable formation anchors, debris does not." Debris pieces are intrinsically fragile primaries — they can crash, go on-rails, or hit a structural BranchPoint mid-window, all of which truncate the saved CoBubble trace and force a peer crossfade back to peer-standalone. When the peer is a controlled vessel, that crossfade looks like a mid-flight trajectory snap rather than a smooth handoff.
+
+**Fix:** Added Rule 6 to `CoBubblePrimarySelector.SelectPrimaryForPair` between rules 2 and 3 in evaluation order: when one side of the pair has `Recording.IsDebris == true` and the other does not, the non-debris side wins. The controlled vessel becomes primary, plays its own standalone Absolute trajectory end-to-end, and the debris peer rides through the controlled side via the saved offset (if visible at all). Rule index 6 was chosen to preserve the §10.1 numbering of the original five rules; the docstring documents the evaluation-order insertion.
+
+**Scope:** Selector-only short-term fix. Does not change `CoBubbleOverlapDetector` (so the existing `.pann` traces stay valid and no schema bump is needed) and does not address the deeper recorder gap (controlled children lacking a `DebrisParentRecordingId` parent-anchored surface — see the Open entry above). The Rule 6 guard handles the user-reported regression and any future occurrence of a debris-primary-against-controlled-peer collision until the recorder-side fix lands.
+
+**Coverage:** Three new xUnit tests in `CoBubbleBlenderTests`. `PrimarySelection_NonDebrisBeatsDebris_OverridingEarlierStartUT` is the canonical fix assertion — the user's probe-vs-debris StartUT inversion (debris 20.66 / probe 24.26) yields probe as primary with `ruleIndex == 6`. `PrimarySelection_LiveStillBeatsNonDebrisRule` pins Rule 1 above Rule 6 (a live-anchored debris still wins). `PrimarySelection_BothDebris_FallsThroughToLaterRules` pins the negative direction — pairs of two debris recordings keep their existing Rule 3 behavior (earlier StartUT). All 11,803 existing tests continue to pass.
+
+**Status:** CLOSED 2026-05-16.
+
+---
+
 ## Open - v0.9.2 Stock Fly / Switch-To buttons should auto-start a segment-scoped continuation
 
 **Status:** PLANNING 2026-05-16. Plan: `docs/dev/plans/segment-scoped-switch-fly-autorecord.md`. Open decisions resolved; ready for implementation.

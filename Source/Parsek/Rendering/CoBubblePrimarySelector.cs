@@ -27,6 +27,19 @@ namespace Parsek.Rendering
     ///   <c>string.CompareOrdinal(idA, idB) &lt; 0 → A wins</c>.</item>
     /// </list>
     /// </para>
+    /// <para>
+    /// Rule 6 (added post-§10.1) fires between rules 2 and 3 in evaluation
+    /// order: when one side is <see cref="Recording.IsDebris"/> and the other
+    /// is not, the non-debris side wins. A debris piece is never a stable
+    /// formation anchor for a controlled vessel (probe / lander / capsule)
+    /// because the debris can crash or go on-rails mid-window, closing the
+    /// CoBubble trace and stranding the controlled ghost on a sibling track
+    /// that ends abruptly. Keeping the controlled side as primary makes the
+    /// controlled ghost play standalone Absolute (deterministic), and only
+    /// the debris peer gets re-routed through it. The deeper fix (recorder
+    /// parent-anchored surface for controlled-decoupled children) is filed
+    /// in todo-and-known-bugs.md.
+    /// </para>
     /// </summary>
     internal static class CoBubblePrimarySelector
     {
@@ -52,7 +65,9 @@ namespace Parsek.Rendering
         /// can include the §10.1 rule index in the Pipeline-CoBubble Info
         /// log line (P2-E). Rule indices are 1-based and match the §10.1
         /// numbering: 1=live, 2=DAG-hops, 3=earlier-StartUT,
-        /// 4=higher-sample-rate, 5=ordinal-id.
+        /// 4=higher-sample-rate, 5=ordinal-id, 6=non-debris-over-debris
+        /// (fires between rules 2 and 3 in evaluation order; index 6
+        /// preserves the §10.1 numbering for the original five rules).
         /// </summary>
         internal static Dictionary<string, string> Resolve(
             IReadOnlyList<Recording> recordings,
@@ -256,6 +271,19 @@ namespace Parsek.Rendering
             int bHop = hopCounts.TryGetValue(b.RecordingId, out int v2) ? v2 : int.MaxValue;
             if (aHop < bHop) { ruleIndex = 2; return a.RecordingId; }
             if (bHop < aHop) { ruleIndex = 2; return b.RecordingId; }
+
+            // Rule 6: non-debris wins over debris. A controlled vessel
+            // (probe / lander / capsule) makes a stable formation anchor;
+            // a debris piece does not — it can crash or go on-rails mid-
+            // window and end the CoBubble trace abruptly. When that happens
+            // and the controlled side was the peer, the controlled ghost
+            // visibly snaps onto the debris's path and back. Promoting the
+            // controlled side to primary makes it play its own standalone
+            // Absolute trajectory and routes the debris peer through it.
+            // The numbering is non-sequential to preserve §10.1's original
+            // 1-5 for the rules predating this addition.
+            if (a.IsDebris && !b.IsDebris) { ruleIndex = 6; return b.RecordingId; }
+            if (b.IsDebris && !a.IsDebris) { ruleIndex = 6; return a.RecordingId; }
 
             // Rule 3: earlier StartUT.
             if (a.StartUT < b.StartUT) { ruleIndex = 3; return a.RecordingId; }
