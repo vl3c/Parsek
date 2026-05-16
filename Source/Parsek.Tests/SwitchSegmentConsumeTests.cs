@@ -195,10 +195,17 @@ namespace Parsek.Tests
         public void Evaluate_SettingDisabled_TsFly_ReturnsUnauthorizedSetting()
             => AssertSettingDisabledRefusesConsume(StockActionType.TrackingStationFly);
 
+        // Fails if: the KSC marker Fly setting toggle is ignored at consume
+        // time (e.g. a refactor accidentally maps KscMarkerFly to the TS
+        // Fly bool, or drops the per-source check entirely). Pinned per
+        // source so a partial regression on only one action is visible.
         [Fact]
         public void Evaluate_SettingDisabled_KscFly_ReturnsUnauthorizedSetting()
             => AssertSettingDisabledRefusesConsume(StockActionType.KscMarkerFly);
 
+        // Fails if: the Map Switch-To setting toggle is ignored at consume
+        // time. Same rationale as the KSC variant - per-source coverage so
+        // a mis-wiring of one action does not hide behind another's pass.
         [Fact]
         public void Evaluate_SettingDisabled_MapSwitchTo_ReturnsUnauthorizedSetting()
             => AssertSettingDisabledRefusesConsume(StockActionType.MapSwitchTo);
@@ -293,6 +300,48 @@ namespace Parsek.Tests
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.Authorized, outcome);
         }
 
+        // Fails if: staleness checks run AFTER MissedSwitchRecovery, so a
+        // stale-cross-run marker arriving inside the recovery path is
+        // misclassified as MissedSwitchRecovery instead of StaleCrossRun.
+        // MED 8 (PR #876 review): staleness must dominate the recovery
+        // short-circuit so the diagnostic information is preserved.
+        [Fact]
+        public void Evaluate_StaleCrossRun_DuringMissedSwitchRecovery_PrefersStaleCrossRun()
+        {
+            Guid armProcess = Guid.NewGuid();
+            Guid consumeProcess = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.TrackingStationFly,
+                targetPid: 99u, processSessionId: armProcess);
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, 99u, true, consumeProcess, 100f, 1000.0,
+                missedSwitchRecoveryInProgress: true,
+                activeSessionFocusedPid: 0u);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleCrossRun,
+                outcome);
+            Assert.Equal("stale-cross-run",
+                StockActionIntentConsumeDecision.ClearReasonFor(outcome));
+            Assert.Equal(SwitchSegmentEntryRoute.Refused_StaleCrossRun,
+                StockActionIntentConsumeDecision.RouteForRefusal(outcome));
+        }
+
+        // Fails if: a TTL-expired marker arriving inside the recovery path
+        // is misclassified as MissedSwitchRecovery. Same MED 8 reorder.
+        [Fact]
+        public void Evaluate_StaleTtl_DuringMissedSwitchRecovery_PrefersTtlExpired()
+        {
+            Guid procId = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.TrackingStationFly,
+                targetPid: 99u, processSessionId: procId,
+                capturedRealtime: 100f, capturedUT: 1000.0);
+            // Elapsed = 200 - 100 = 100s, TTL = 10s → expired.
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, 99u, true, procId, 200f, 1000.0,
+                missedSwitchRecoveryInProgress: true,
+                activeSessionFocusedPid: 0u);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
+                outcome);
+        }
+
         // Fails if: the missed-switch recovery replay path consumes a still-
         // armed serialized intent. Plan §"Missed-switch recovery" requires
         // clear with stale-cross-run instead.
@@ -375,16 +424,30 @@ namespace Parsek.Tests
                 StockActionType.MapSwitchTo, settings));
         }
 
-        // Fails if: null settings (early scene load) get a true read.
+        // Fails if: null settings (early scene load race) are treated as
+        // OFF instead of mirroring the plan's default-ON for all three
+        // sources. MED 5 (PR #876 review): the old false-on-null behavior
+        // silently refused every consume during the rare race - now we
+        // default-on and log a Warn so the race is observable.
         [Fact]
-        public void IsSettingEnabledForAction_NullSettings_ReturnsFalse()
+        public void IsSettingEnabledForAction_NullSettings_ReturnsDefaultOn_AndLogsWarn()
         {
-            Assert.False(ParsekFlight.IsSettingEnabledForAction(
+            Assert.True(ParsekFlight.IsSettingEnabledForAction(
                 StockActionType.TrackingStationFly, null));
-            Assert.False(ParsekFlight.IsSettingEnabledForAction(
+            Assert.True(ParsekFlight.IsSettingEnabledForAction(
                 StockActionType.KscMarkerFly, null));
-            Assert.False(ParsekFlight.IsSettingEnabledForAction(
+            Assert.True(ParsekFlight.IsSettingEnabledForAction(
                 StockActionType.MapSwitchTo, null));
+            // At least one Warn line per call, with the diagnostic tag.
+            int warnCount = 0;
+            foreach (var line in logLines)
+            {
+                if (line.Contains("[SwitchSegment]")
+                    && line.Contains("settings-null-consuming-as-default-on"))
+                    warnCount++;
+            }
+            Assert.True(warnCount >= 3,
+                $"expected at least 3 default-on Warn log lines, saw {warnCount}");
         }
 
         // Fails if: BuildSwitchSegmentBoundaryPoint throws on a null vessel.

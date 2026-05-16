@@ -7754,7 +7754,19 @@ namespace Parsek
             StockActionType action, ParsekSettings settings)
         {
             if (settings == null)
-                return false;
+            {
+                // MED 5 (PR #876 review): plan defaults are ON for all three
+                // sources (ParsekSettings autoRecordOn{TsFly,KscFly,MapSwitchTo}
+                // all initialize to true). If ParsekSettings.Current happens
+                // to be null at consume time (early load race, scene
+                // transition tear-down), returning false would silently
+                // refuse every consume with `setting-toggled-off`. Mirror
+                // the field defaults instead and emit a Warn so the rare
+                // null-settings race is observable in KSP.log.
+                ParsekLog.Warn("SwitchSegment",
+                    $"settings-null-consuming-as-default-on: action={action}");
+                return true;
+            }
             switch (action)
             {
                 case StockActionType.TrackingStationFly: return settings.autoRecordOnTsFly;
@@ -7836,11 +7848,15 @@ namespace Parsek
                 // Defensive: a null newVessel cannot match any target. Clear
                 // with a logged reason so the marker doesn't survive into a
                 // later spurious consume.
+                // MED 6 (PR #876 review): use the dedicated Refused_NullVessel
+                // route instead of Refused_TargetMismatch so log/test
+                // observers can distinguish "no vessel at all" from
+                // "wrong vessel" (which is a real PID divergence diagnostic).
                 scenario.ClearStockActionIntent("consume-null-vessel");
                 ParsekLog.Info("SwitchIntent",
                     $"refused: reason=consume-null-vessel intentId={marker.IntentId:D} " +
                     $"action={marker.Action} markerTargetPid={marker.TargetVesselPersistentId}");
-                result.Route = SwitchSegmentEntryRoute.Refused_TargetMismatch;
+                result.Route = SwitchSegmentEntryRoute.Refused_NullVessel;
                 result.DiagnosticReason = "consume-null-vessel";
                 return result;
             }
@@ -8549,14 +8565,38 @@ namespace Parsek
             }
 
             // Canonical bind: mirrors PromoteRecordingFromBackground / ResumeCommittedActiveRecording.
-            recorder = new FlightRecorder();
-            recorder.ActiveTree = activeTree;
-            if (chainManager != null && chainManager.PendingBoundaryAnchor.HasValue)
+            // MED 4 (PR #876 review): wrap the bind in try/catch so a
+            // FlightRecorder ctor or StartRecording exception does not leave
+            // `recorder` in a partial-construction state while
+            // tree.ActiveRecordingId has already been advanced to the new
+            // segment by SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // We do NOT roll back tree.ActiveRecordingId: the segment was
+            // created and the marker is armed; the recorder failure is a
+            // sampling problem the next frame may recover from. Setting
+            // `recorder = null` lets the next frame's recorder-binding pass
+            // re-create cleanly.
+            try
             {
-                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
-                chainManager.PendingBoundaryAnchor = null;
+                recorder = new FlightRecorder();
+                recorder.ActiveTree = activeTree;
+                if (chainManager != null && chainManager.PendingBoundaryAnchor.HasValue)
+                {
+                    recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
+                    chainManager.PendingBoundaryAnchor = null;
+                }
+                recorder.StartRecording(isPromotion: true);
             }
-            recorder.StartRecording(isPromotion: true);
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"recorder-bind-threw route={routeTag} " +
+                    $"newRecordingId={newRecordingId} vesselPid={newVessel.persistentId} " +
+                    $"{ex.GetType().Name}: {ex.Message}; recorder reset to null - " +
+                    "tree.ActiveRecordingId left at new segment, next frame may rebind");
+                recorder = null;
+                return false;
+            }
+
             if (!recorder.IsRecording)
             {
                 ParsekLog.Warn("SwitchSegment",

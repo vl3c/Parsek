@@ -944,7 +944,7 @@ namespace Parsek.Tests
             string source = File.ReadAllText(path);
 
             int methodStart = source.IndexOf(
-                "internal static bool MergeDiscardWithResult");
+                "internal static MergeDiscardOutcome MergeDiscardWithResult");
             int methodEnd = source.IndexOf(
                 "internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology",
                 methodStart);
@@ -975,7 +975,7 @@ namespace Parsek.Tests
             string source = File.ReadAllText(path);
 
             int methodStart = source.IndexOf(
-                "internal static bool MergeDiscardWithResult");
+                "internal static MergeDiscardOutcome MergeDiscardWithResult");
             int methodEnd = source.IndexOf(
                 "internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology",
                 methodStart);
@@ -984,9 +984,149 @@ namespace Parsek.Tests
             Assert.Contains(
                 "RecordingStore.HasRemainingPendingChangesAfterSegmentDiscard",
                 body);
+            // HIGH 1: pre-transition path forwards the postChoice
+            // continuation so the secondary dialog's terminal handlers
+            // can run the scene transition after the player commits.
             Assert.Contains(
-                "ShowSecondaryPendingDiscardDialog(RecordingStore.PendingTree)",
+                "ShowSecondaryPendingDiscardDialog(",
                 body);
+            Assert.Contains(
+                "RecordingStore.PendingTree, postChoice",
+                body);
+        }
+
+        // -----------------------------------------------------------------
+        // HIGH 1 (PR #876 review): the pre-transition Discard path must
+        // defer the scene-load continuation while the secondary dialog is
+        // still on-screen.
+        //
+        // Plan §"Final Disposition After Scoped Discard": "Scene exit is
+        // blocked only until the player picks one of the three; there
+        // must not be a state where the first dialog is dismissed but the
+        // scene is half-transitioning while the second one is waiting."
+        //
+        // Before this fix, MergeDiscardWithResult returned true after
+        // opening the secondary dialog, and RunPreTransitionAction
+        // immediately invoked postChoice (HighLogic.LoadScene) - tearing
+        // down FLIGHT while the player was still looking at Merge /
+        // Discard / Cancel. The fix is structural: tri-state return,
+        // deferral signal, and the secondary dialog's Merge / Discard
+        // handlers re-invoke postChoice on a terminal choice; Cancel
+        // drops it.
+        // -----------------------------------------------------------------
+
+        // Fails if: any of the four structural anchors regresses such that
+        // a scene transition could fire while the secondary dialog is up.
+        // We cannot drive ShowSecondaryPendingDiscardDialog from xUnit
+        // (Unity PopupDialog needed), so we pin the wiring via source
+        // anchors.
+        [Fact]
+        public void MergeDiscard_OpensSecondaryDialog_PostChoiceDeferredUntilSecondaryTerminalChoice()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string path = Path.Combine(projectRoot,
+                "Source", "Parsek", "MergeDialog.cs");
+            string source = File.ReadAllText(path);
+
+            // (1) The tri-state enum exists and includes the deferred value.
+            // Fails if: someone collapses the contract back to bool, losing
+            // the "deferred to secondary dialog" signal between the discard
+            // helper and the pre-transition wrapper.
+            Assert.Contains("internal enum MergeDiscardOutcome", source);
+            Assert.Contains("DeferredToSecondaryDialog", source);
+            Assert.Contains("RanToCompletion", source);
+            Assert.Contains("RefusedJournalActive", source);
+
+            // (2) MergeDiscardWithResult returns DeferredToSecondaryDialog
+            // immediately after opening the secondary dialog.
+            // Fails if: a refactor reorders the return after the secondary
+            // open to return RanToCompletion, which would cause
+            // RunPreTransitionAction to run postChoice while the dialog
+            // is still up.
+            int secondaryOpenCall = source.IndexOf(
+                "ShowSecondaryPendingDiscardDialog(\r\n                            RecordingStore.PendingTree, postChoice)");
+            if (secondaryOpenCall < 0)
+            {
+                secondaryOpenCall = source.IndexOf(
+                    "ShowSecondaryPendingDiscardDialog(\n                            RecordingStore.PendingTree, postChoice)");
+            }
+            Assert.True(secondaryOpenCall > 0,
+                "secondary dialog opener call (with postChoice forward) not found");
+            int deferredReturn = source.IndexOf(
+                "return MergeDiscardOutcome.DeferredToSecondaryDialog;",
+                secondaryOpenCall);
+            Assert.True(deferredReturn > secondaryOpenCall,
+                "Deferred return must follow the secondary dialog open call");
+            Assert.True(deferredReturn - secondaryOpenCall < 600,
+                "Deferred return must be the immediate post-open action " +
+                "(was " + (deferredReturn - secondaryOpenCall) + " chars away)");
+
+            // (3) RunPreTransitionAction must understand the deferred case
+            // and skip postChoice on it.
+            // Fails if: the deferred branch falls through to the postChoice
+            // invoke at the bottom of the method.
+            int wrapperStart = source.IndexOf(
+                "private static void RunPreTransitionAction(");
+            // Locate the wrapper's closing brace by scanning to the next
+            // "private static" / "internal static" sibling declaration.
+            int wrapperNext = source.IndexOf(
+                "internal enum MergeDiscardOutcome", wrapperStart);
+            Assert.True(wrapperStart > 0 && wrapperNext > wrapperStart);
+            string wrapperBody = source.Substring(wrapperStart, wrapperNext - wrapperStart);
+            Assert.Contains(
+                "outcome == MergeDiscardOutcome.DeferredToSecondaryDialog",
+                wrapperBody);
+            Assert.Contains(
+                "deferring postChoice until secondary terminal choice",
+                wrapperBody);
+            int deferredCheck = wrapperBody.IndexOf(
+                "outcome == MergeDiscardOutcome.DeferredToSecondaryDialog");
+            int nextReturn = wrapperBody.IndexOf("return;", deferredCheck);
+            Assert.True(nextReturn > deferredCheck,
+                "Deferred branch must return before falling through");
+            // The final postChoice?.Invoke must appear AFTER the deferred
+            // return statement, not BEFORE it (so the deferred branch
+            // exits before it could be reached).
+            int finalPostChoiceInvoke = wrapperBody.IndexOf("postChoice?.Invoke", deferredCheck);
+            Assert.True(finalPostChoiceInvoke < 0
+                || finalPostChoiceInvoke > nextReturn,
+                "Deferred branch's return must precede any unguarded postChoice invoke");
+
+            // (4) ShowSecondaryPendingDiscardDialog accepts a postChoice
+            // continuation and routes it through Merge / Discard handlers
+            // (terminal) but NOT through Cancel.
+            // Fails if: the signature drops postChoice, Cancel starts
+            // invoking it, or Merge/Discard stop invoking it.
+            int secondaryOpener = source.IndexOf(
+                "internal static void ShowSecondaryPendingDiscardDialog(");
+            Assert.True(secondaryOpener > 0);
+            int secondaryEnd = source.IndexOf(
+                "private static void InvokePostChoiceSafely",
+                secondaryOpener);
+            Assert.True(secondaryEnd > secondaryOpener);
+            string secondaryBody = source.Substring(
+                secondaryOpener, secondaryEnd - secondaryOpener);
+            Assert.Contains("System.Action postChoice", secondaryBody);
+            int mergeBtn = secondaryBody.IndexOf("\"Merge to Timeline\"");
+            int discardBtn = secondaryBody.IndexOf("\"Discard\"");
+            int cancelBtn = secondaryBody.IndexOf("\"Cancel\"");
+            Assert.True(mergeBtn > 0 && discardBtn > mergeBtn && cancelBtn > discardBtn);
+            // The buttons[] array closes with `};` before the
+            // PopupDialog.SpawnPopupDialog call. Use that as the upper bound
+            // for the Cancel slice so the spawn-null fallback's
+            // InvokePostChoiceSafely call below is excluded.
+            int buttonsArrayEnd = secondaryBody.IndexOf(
+                "PopupDialog.DismissPopup(DialogName)", cancelBtn);
+            Assert.True(buttonsArrayEnd > cancelBtn,
+                "Could not locate buttons[] array end before PopupDialog.DismissPopup");
+            string mergeSlice = secondaryBody.Substring(mergeBtn, discardBtn - mergeBtn);
+            string discardSlice = secondaryBody.Substring(discardBtn, cancelBtn - discardBtn);
+            string cancelSlice = secondaryBody.Substring(cancelBtn, buttonsArrayEnd - cancelBtn);
+            Assert.Contains("InvokePostChoiceSafely(", mergeSlice);
+            Assert.Contains("InvokePostChoiceSafely(", discardSlice);
+            Assert.DoesNotContain("InvokePostChoiceSafely(", cancelSlice);
         }
     }
 }

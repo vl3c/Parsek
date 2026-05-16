@@ -502,23 +502,39 @@ namespace Parsek
             int spawnCount = 0;
             foreach (var v in decisions.Values) if (v) spawnCount++;
 
-            bool actionSucceeded;
+            MergeDiscardOutcome outcome;
             if (isMerge)
             {
                 MergeCommit(pending, decisions, spawnCount);
                 // CommitPendingTree nulls RecordingStore.PendingTree on success.
-                actionSucceeded = (RecordingStore.PendingTree == null);
+                outcome = (RecordingStore.PendingTree == null)
+                    ? MergeDiscardOutcome.RanToCompletion
+                    : MergeDiscardOutcome.RefusedJournalActive;
             }
             else
             {
-                actionSucceeded = MergeDiscardWithResult(pending);
+                outcome = MergeDiscardWithResult(pending, postChoice);
             }
 
-            if (!actionSucceeded)
+            if (outcome == MergeDiscardOutcome.RefusedJournalActive)
             {
                 ParsekLog.Warn("MergeDialog",
                     "RunPreTransitionAction: action refused (likely merge-journal-active " +
                     "guard). Skipping postChoice; player remains in flight.");
+                return;
+            }
+
+            if (outcome == MergeDiscardOutcome.DeferredToSecondaryDialog)
+            {
+                // Plan §"Final Disposition After Scoped Discard": the secondary
+                // dialog is still on-screen waiting for player input. Do NOT
+                // run postChoice here - the scene transition would tear down
+                // FLIGHT while the dialog is still up. The secondary dialog's
+                // own Merge / Discard button handlers will re-invoke
+                // postChoice on a terminal choice; Cancel drops it.
+                ParsekLog.Info("SwitchSegment",
+                    "RunPreTransitionAction: scoped discard opened secondary dialog; " +
+                    "deferring postChoice until secondary terminal choice.");
                 return;
             }
 
@@ -532,6 +548,30 @@ namespace Parsek
                     $"RunPreTransitionAction: postChoice threw " +
                     $"{ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Tri-state result of <see cref="MergeDiscardWithResult"/>. The
+        /// pre-transition caller uses this to decide whether to invoke
+        /// <c>postChoice</c> (the scene-transition continuation) immediately,
+        /// skip it (refused), or defer it until the secondary dialog reaches
+        /// a terminal choice.
+        /// </summary>
+        internal enum MergeDiscardOutcome
+        {
+            /// <summary>Discard ran end-to-end (either scoped-only or whole-tree fallback).
+            /// Caller proceeds with the scene transition.</summary>
+            RanToCompletion = 0,
+
+            /// <summary>Refused by the merge-journal-active guard or a null-tree input.
+            /// Caller must skip the scene transition; player remains in flight.</summary>
+            RefusedJournalActive = 1,
+
+            /// <summary>Scoped switch-segment discard succeeded and a secondary
+            /// whole-pending dialog was opened. Caller must NOT invoke
+            /// postChoice itself — the secondary dialog's terminal-choice
+            /// handlers re-invoke it instead.</summary>
+            DeferredToSecondaryDialog = 2,
         }
 
         internal static string FormatDuration(double seconds)
@@ -700,10 +740,12 @@ namespace Parsek
         {
             string treeName = tree?.TreeName ?? "<unnamed>";
             double duration = ComputeTreeDurationRange(tree);
-            return $"You still have {recordingCount} pending recording(s) " +
-                $"on '{treeName}' ({FormatDuration(duration)}). Merge appends them " +
-                $"to the committed timeline; Discard removes them; Cancel keeps " +
-                $"them pending.";
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            return string.Format(ic,
+                "You still have {0} pending recording(s) on '{1}' ({2}). " +
+                "Merge appends them to the committed timeline; Discard removes them; " +
+                "Cancel keeps them pending.",
+                recordingCount, treeName, FormatDuration(duration));
         }
 
         /// <summary>
@@ -718,13 +760,20 @@ namespace Parsek
         /// dialog is preserved across both dialogs; only a terminal choice
         /// here releases it.
         /// </summary>
-        internal static void ShowSecondaryPendingDiscardDialog(RecordingTree pending)
+        internal static void ShowSecondaryPendingDiscardDialog(
+            RecordingTree pending, System.Action postChoice = null)
         {
             if (pending == null)
             {
                 ParsekLog.Warn("MergeDialog",
                     "ShowSecondaryPendingDiscardDialog: pending tree is null - nothing to prompt");
                 ClearPendingFlag("secondary-dialog null pending tree");
+                // No tree to prompt for -> nothing to defer. Run the scene-
+                // transition continuation if the pre-transition caller passed
+                // one, so we don't strand the player half-way through Revert.
+                InvokePostChoiceSafely(
+                    postChoice,
+                    "ShowSecondaryPendingDiscardDialog null-tree fallback");
                 return;
             }
 
@@ -747,6 +796,12 @@ namespace Parsek
                     int spawnCount = 0;
                     foreach (var v in decisions.Values) if (v) spawnCount++;
                     MergeCommit(pending, decisions, spawnCount);
+                    // Plan §"Final Disposition After Scoped Discard": Merge
+                    // and Discard are terminal choices, so the deferred
+                    // scene transition runs now.
+                    InvokePostChoiceSafely(
+                        postChoice,
+                        "Secondary pending-tree dialog Merge terminal");
                 }),
                 new DialogGUIButton("Discard", () =>
                 {
@@ -766,6 +821,9 @@ namespace Parsek
                     }
                     ClearPendingFlag("secondary-dialog discard");
                     ParsekLog.ScreenMessage("Pending changes discarded", 2f);
+                    InvokePostChoiceSafely(
+                        postChoice,
+                        "Secondary pending-tree dialog Discard terminal");
                 }),
                 new DialogGUIButton("Cancel", () =>
                 {
@@ -773,6 +831,10 @@ namespace Parsek
                         "Secondary pending-tree dialog: Cancel chosen; " +
                         "pruned pending tree left intact");
                     ClearPendingFlag("secondary-dialog cancel");
+                    // Plan §"Final Disposition After Scoped Discard":
+                    // "Cancel returns the player to FLIGHT with the segment-
+                    // pruned pending tree intact." postChoice (which would
+                    // run scene transition) is intentionally NOT invoked.
                 }),
             };
 
@@ -804,6 +866,40 @@ namespace Parsek
                 ClearPendingFlag("secondary popup spawn returned null");
                 ParsekLog.Warn("MergeDialog",
                     "ShowSecondaryPendingDiscardDialog: SpawnPopupDialog returned null");
+                // LOW 19: tag the failure under [SwitchSegment] too so a grep
+                // of switch-segment lifecycle covers the spawn-failure case.
+                ParsekLog.Warn("SwitchSegment",
+                    "secondary-dialog spawn returned null - falling through to " +
+                    "deferred scene transition if one was passed");
+                // Popup never displayed -> nothing for the player to terminate.
+                // If a postChoice was passed, run it so we don't strand the
+                // player half-way through Revert.
+                InvokePostChoiceSafely(
+                    postChoice,
+                    "ShowSecondaryPendingDiscardDialog spawn-null fallback");
+            }
+        }
+
+        /// <summary>
+        /// Shared helper for the secondary-dialog terminal-choice handlers.
+        /// Invokes <paramref name="postChoice"/> if non-null, logs and
+        /// swallows any exception so a misbehaving continuation can't strand
+        /// the player mid-dialog. Plan §"Final Disposition After Scoped
+        /// Discard": Merge / Discard run the deferred scene transition;
+        /// Cancel and other non-terminal paths must NOT call this.
+        /// </summary>
+        private static void InvokePostChoiceSafely(System.Action postChoice, string callSite)
+        {
+            if (postChoice == null)
+                return;
+            try
+            {
+                postChoice.Invoke();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Error("MergeDialog",
+                    $"{callSite}: postChoice threw {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -963,21 +1059,31 @@ namespace Parsek
         /// </summary>
         internal static void MergeDiscard(RecordingTree tree)
         {
-            MergeDiscardWithResult(tree);
+            MergeDiscardWithResult(tree, postChoice: null);
         }
 
         /// <summary>
-        /// <see cref="MergeDiscard"/> variant that returns whether the
-        /// discard actually ran. Returns false when the merge-journal-active
-        /// guard refuses (used by the pre-transition dialog wrapper to
-        /// avoid invoking <c>postChoice</c> after a refused discard).
+        /// <see cref="MergeDiscard"/> variant that returns a tri-state
+        /// classification (<see cref="MergeDiscardOutcome"/>). Used by the
+        /// pre-transition dialog wrapper to decide whether to invoke
+        /// <c>postChoice</c> (the scene-transition continuation) immediately,
+        /// skip it after a refusal, or defer it until the secondary dialog
+        /// reaches a terminal choice.
         /// </summary>
-        internal static bool MergeDiscardWithResult(RecordingTree tree)
+        /// <param name="tree">The pending tree to discard.</param>
+        /// <param name="postChoice">Optional scene-transition continuation
+        /// forwarded to <see cref="ShowSecondaryPendingDiscardDialog"/> when
+        /// the scoped discard leaves pending changes behind. The secondary
+        /// dialog's Merge / Discard handlers invoke it on a terminal choice;
+        /// Cancel drops it. Pass null from non-pre-transition call sites
+        /// (the void wrapper <see cref="MergeDiscard"/> does).</param>
+        internal static MergeDiscardOutcome MergeDiscardWithResult(
+            RecordingTree tree, System.Action postChoice)
         {
             if (tree == null)
             {
                 ParsekLog.Warn("MergeDialog", "MergeDiscard: tree is null - nothing to discard");
-                return false;
+                return MergeDiscardOutcome.RefusedJournalActive;
             }
 
             var scenario = ParsekScenario.Instance;
@@ -987,7 +1093,7 @@ namespace Parsek
                     $"MergeDiscard: refusing - merge journal active " +
                     $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"}");
                 ParsekLog.ScreenMessage("Discard: merge in progress - retry in a moment", 3f);
-                return false;
+                return MergeDiscardOutcome.RefusedJournalActive;
             }
 
             foreach (var rec in tree.Recordings.Values)
@@ -997,7 +1103,7 @@ namespace Parsek
             }
 
             if (TryDiscardActiveReFlyAttempt(tree))
-                return true;
+                return MergeDiscardOutcome.RanToCompletion;
 
             // Switch/Fly segment scoped Discard (plan §"Merge and Discard Scope").
             // Mirrors the ReFly placement: try scoped first, then fall back to
@@ -1028,8 +1134,16 @@ namespace Parsek
                             $"scoped discard; opening second dialog. " +
                             $"remainingRecordings={remainingRecordings} " +
                             $"remainingBranchPoints={remainingBranchPoints}");
-                        ShowSecondaryPendingDiscardDialog(RecordingStore.PendingTree);
-                        return true;
+                        // Plan §"Final Disposition After Scoped Discard":
+                        // pass the scene-transition continuation through so
+                        // the secondary dialog's Merge / Discard handlers
+                        // can invoke it on a terminal choice (Cancel drops
+                        // it). This is the load-bearing seam that prevents
+                        // FLIGHT from tearing down while the secondary
+                        // dialog is still on-screen.
+                        ShowSecondaryPendingDiscardDialog(
+                            RecordingStore.PendingTree, postChoice);
+                        return MergeDiscardOutcome.DeferredToSecondaryDialog;
                     }
                     ParsekLog.Info("SwitchSegment",
                         "MergeDiscard: no pre-existing pending changes after scoped " +
@@ -1044,7 +1158,7 @@ namespace Parsek
 
                 ClearPendingFlag("merge dialog switch-segment scoped discard");
                 ParsekLog.ScreenMessage("Switch segment discarded", 2f);
-                return true;
+                return MergeDiscardOutcome.RanToCompletion;
             }
 
             bool refreshSerializedPendingMarker =
@@ -1072,7 +1186,7 @@ namespace Parsek
             ParsekLog.Info("MergeDialog",
                 $"User chose: Tree Discard (tree='{tree.TreeName}', " +
                 $"recordings={tree.Recordings.Count})");
-            return true;
+            return MergeDiscardOutcome.RanToCompletion;
         }
 
         /// <summary>

@@ -43,6 +43,12 @@ namespace Parsek
         /// to keep the existing fallback from becoming a second immediate-start source.</summary>
         Refused_MissedSwitchRecovery = 6,
 
+        /// <summary>Consume site received a null <c>newVessel</c> argument
+        /// (early scene-transition race). Cleared with reason
+        /// <c>consume-null-vessel</c>. Distinct from <see cref="Refused_TargetMismatch"/>
+        /// because the failure is "no vessel at all", not "wrong vessel".</summary>
+        Refused_NullVessel = 7,
+
         /// <summary>Started a continuation segment under a committed-tree
         /// clone (plan §"Fly / Switch-To a committed spawned vessel").</summary>
         StartedCommittedSpawnedClone = 10,
@@ -206,9 +212,13 @@ namespace Parsek
             if (marker == null)
                 return Outcome.NoIntent;
 
-            if (missedSwitchRecoveryInProgress)
-                return Outcome.MissedSwitchRecovery;
-
+            // MED 8 (PR #876 review): evaluate staleness BEFORE the missed-
+            // switch recovery short-circuit. A stale-cross-run marker
+            // arriving inside the recovery replay path is still a
+            // stale-cross-run condition first; reporting MissedSwitchRecovery
+            // loses the diagnostic signal that the marker was already stale.
+            // The recovery refusal only fires when the marker would
+            // otherwise have been Fresh.
             StockActionIntentStaleness staleness = StockActionIntentMarker.EvaluateStaleness(
                 marker, currentProcessSessionId, currentRealtime, currentUT);
             switch (staleness)
@@ -223,6 +233,9 @@ namespace Parsek
                 default:
                     break;
             }
+
+            if (missedSwitchRecoveryInProgress)
+                return Outcome.MissedSwitchRecovery;
 
             // Target-mismatch BEFORE the setting-toggled-off branch: a marker
             // armed for vessel A while the active vessel is vessel B is a

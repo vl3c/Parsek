@@ -123,11 +123,42 @@ confirm the expected log lines fired.
    vessel and fly the new segment.
 2. Trigger scene exit.
 3. In the FIRST scoped dialog, click **Discard**.
-4. Pass criteria:
+4. Pass criteria (all three sub-flows must be observable; run the test three
+   times to cover each terminal button):
    - A SECOND dialog appears for the pre-existing pending changes, with
      **Merge to Timeline / Discard / Cancel** buttons.
-   - Choosing **Cancel** at this point leaves the pre-existing pending state
-     in place AND the segment-scoped Discard already took effect.
+
+### 11a. Cancel
+1. Click **Cancel** in the second dialog.
+2. Pass criteria:
+   - Scene transition does NOT proceed; player stays in FLIGHT.
+   - The pre-existing pending state remains in place AND the segment-scoped
+     Discard already took effect.
+   - `KSP.log` shows `[SwitchSegment] Secondary pending-tree dialog: Cancel chosen`.
+
+### 11b. Merge to Timeline
+1. Re-arrange the same setup; this time click **Merge to Timeline** in the
+   second dialog.
+2. Pass criteria:
+   - Scene transition proceeds (player returns to Tracking Station / Space
+     Center).
+   - Both the pre-existing pending recordings AND the scoped-discard
+     completion commit cleanly into the committed timeline. On reload, every
+     pre-switch recording plus the surviving pre-existing pending ones are
+     present, but the switch segment itself is gone (Discard took effect).
+   - `KSP.log` shows `[SwitchSegment] scoped-merge-success` followed by the
+     regular tree-commit lines.
+
+### 11c. Discard (whole pending tree)
+1. Re-arrange the same setup; this time click **Discard** in the second
+   dialog.
+2. Pass criteria:
+   - Scene transition proceeds (player returns to Tracking Station / Space
+     Center).
+   - The full whole-pending-tree discard runs in addition to the scoped
+     discard; on reload, only the original committed state is present.
+   - `KSP.log` shows `[SwitchSegment] Secondary pending-tree dialog: Discard
+     chosen` followed by `[Recording] discard-pending-tree`.
 
 ## 12. Per-source setting toggle disables that source only
 1. In Settings → Recording, disable "Auto-record on Tracking Station Fly".

@@ -193,6 +193,43 @@ namespace Parsek.Tests
                 RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId("rec_segment_owned"));
         }
 
+        // Fails if: someone reorders the cross-store lookup in
+        // FindRecordingByIdAcrossStores and the pending-only stamp wins,
+        // leaking marker-owned behavior onto committed history. LOW 14
+        // (PR #876 review): the predicate must consult committed storage
+        // first; a pending-only Recording with the same id (but a
+        // different SwitchSegmentSessionId stamp) must NOT shadow the
+        // committed copy's result.
+        [Fact]
+        public void IsMarkerOwnedSwitchSegmentRecordingId_CommittedAndPendingHaveSameId_PrefersCommittedCopyResult()
+        {
+            MakeScenarioWithSession(out SwitchSegmentSession session);
+            string sharedId = "rec_shared";
+
+            // Committed copy: NOT stamped with the active session - it is
+            // ordinary committed history and must not be marker-owned.
+            var committedCopy = MakeRecording(
+                sharedId, "tree_test",
+                switchSegmentSessionId: null);
+            AddCommitted(committedCopy);
+
+            // Pending copy: stamped with the active session id. If the
+            // predicate walked pending storage first, it would mis-report
+            // committed history as marker-owned.
+            var pendingCopy = MakeRecording(
+                sharedId, "tree_test",
+                switchSegmentSessionId: ToSessionString(session.SessionId));
+            var pendingTree = MakeTreeWithRecordings("tree_test", pendingCopy);
+            RecordingStore.StashPendingTree(pendingTree);
+
+            // Committed-first ordering preserves committed history's
+            // non-owned status.
+            Assert.False(
+                RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(sharedId),
+                "Predicate must consult committed storage first; the pending-only " +
+                "stamp must NOT win the lookup");
+        }
+
         // -----------------------------------------------------------------
         // ShouldSuppressCommittedTreeRestoreAttemptEventPersistence
         // -----------------------------------------------------------------

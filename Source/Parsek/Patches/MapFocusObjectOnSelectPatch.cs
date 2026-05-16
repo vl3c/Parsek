@@ -225,6 +225,24 @@ namespace Parsek.Patches
 
         static void Postfix(Guid __state)
         {
+            // Contract: this Postfix uses "marker still armed under my IntentId"
+            // as a proxy for "Phase C's TryConsumeStockActionIntent didn't fire
+            // for this click, so SetActiveVessel took an early-return path."
+            // For that proxy to be reliable, the contract is:
+            //
+            //   Every refusal branch inside ParsekFlight.TryConsumeStockActionIntent
+            //   MUST call scenario.ClearStockActionIntent before returning,
+            //   regardless of route (NoIntent excepted - no marker was armed).
+            //
+            // Verified for all current refusal paths (ParsekFlight.cs around
+            // lines 7843, 7881-7882 - the `consume-null-vessel` early-return
+            // and the FormatRefusalDiagnostic + ClearStockActionIntent pair).
+            // If a future refusal path is added without clearing, this Postfix
+            // would mis-attribute it as "no consume fired" and clear with
+            // refused-no-switch - masking the real refusal reason in logs.
+            // Search for "scenario.ClearStockActionIntent" inside that method
+            // before adding any new refusal branch.
+
             // Prefix didn't arm (gate failed) — nothing to clean up.
             if (__state == Guid.Empty)
                 return;
@@ -237,7 +255,8 @@ namespace Parsek.Patches
             if (current == null)
             {
                 // Either Phase C's OnVesselSwitchComplete consumed it (success
-                // path) or another caller cleared it. Either way, nothing to do.
+                // path) or a refusal cleared it (per Contract above). Either
+                // way, nothing to do.
                 return;
             }
             if (current.IntentId != __state)
@@ -253,7 +272,10 @@ namespace Parsek.Patches
             // OnVesselSwitchComplete) didn't fire, meaning SetActiveVessel took an
             // early-return path (vessel null, already active, ClearToSave failed,
             // DiscoveryLevel != Owned) or the unloaded-vessel scene-transition
-            // branch. Clear with refused-no-switch.
+            // branch. Clear with refused-no-switch. (Per Contract above, a
+            // refusal inside TryConsumeStockActionIntent would already have
+            // cleared the marker and we would have taken the `current == null`
+            // branch earlier.)
             scenario.ClearStockActionIntent("refused-no-switch");
             ParsekLog.Info("SwitchIntentPatch",
                 $"Map Switch-To Postfix: cleared own marker intentId={__state:D} reason=refused-no-switch");

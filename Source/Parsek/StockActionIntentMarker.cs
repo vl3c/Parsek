@@ -182,9 +182,16 @@ namespace Parsek
                 return false;
             }
 
+            // LOW 17 (PR #876 review): log Verbose when an optional numeric
+            // field fails to parse, instead of silently defaulting to 0.
             uint targetPid = 0u;
-            if (!string.IsNullOrEmpty(pidStr))
-                uint.TryParse(pidStr, NumberStyles.Integer, ic, out targetPid);
+            if (!string.IsNullOrEmpty(pidStr)
+                && !uint.TryParse(pidStr, NumberStyles.Integer, ic, out targetPid))
+            {
+                ParsekLog.Verbose("SwitchSegment",
+                    $"StockActionIntentMarker.TryLoadFrom: failed to parse " +
+                    $"targetVesselPersistentId='{pidStr}' - defaulting to 0");
+            }
 
             StockActionSourceScene sourceScene;
             if (string.IsNullOrEmpty(sceneStr)
@@ -194,12 +201,22 @@ namespace Parsek
             }
 
             float realtime = 0f;
-            if (!string.IsNullOrEmpty(realtimeStr))
-                float.TryParse(realtimeStr, NumberStyles.Float, ic, out realtime);
+            if (!string.IsNullOrEmpty(realtimeStr)
+                && !float.TryParse(realtimeStr, NumberStyles.Float, ic, out realtime))
+            {
+                ParsekLog.Verbose("SwitchSegment",
+                    $"StockActionIntentMarker.TryLoadFrom: failed to parse " +
+                    $"capturedRealtime='{realtimeStr}' - defaulting to 0");
+            }
 
             double ut = 0.0;
-            if (!string.IsNullOrEmpty(utStr))
-                double.TryParse(utStr, NumberStyles.Float, ic, out ut);
+            if (!string.IsNullOrEmpty(utStr)
+                && !double.TryParse(utStr, NumberStyles.Float, ic, out ut))
+            {
+                ParsekLog.Verbose("SwitchSegment",
+                    $"StockActionIntentMarker.TryLoadFrom: failed to parse " +
+                    $"capturedUT='{utStr}' - defaulting to 0.0");
+            }
 
             Guid processSessionId;
             if (string.IsNullOrEmpty(processIdStr)

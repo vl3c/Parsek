@@ -99,10 +99,15 @@ namespace Parsek
             if (!string.IsNullOrEmpty(CommittedTreeId))
                 node.AddValue("committedTreeId", CommittedTreeId);
 
-            // Always emit the presence sentinel so absent-vs-empty round-trips
+            // Emit the presence sentinel so absent-vs-empty round-trips
             // safely. Mirror of REFLY_SESSION_MARKER's preSessionBranchPointIdsPresent.
-            node.AddValue("preSessionBranchPointIdsPresent", "true");
-            if (PreSessionBranchPointIds != null)
+            // LOW 11 (PR #876 review): the sentinel must distinguish
+            // "non-null but empty" (true) from "null" (false). Previously
+            // both wrote "true", collapsing the two states on round-trip.
+            bool present = PreSessionBranchPointIds != null;
+            node.AddValue("preSessionBranchPointIdsPresent",
+                present ? "true" : "false");
+            if (present)
             {
                 for (int i = 0; i < PreSessionBranchPointIds.Count; i++)
                 {
@@ -154,20 +159,39 @@ namespace Parsek
             string activeSegmentRecordingId = node.GetValue("activeSegmentRecordingId");
             string committedTreeId = node.GetValue("committedTreeId");
 
+            // LOW 17 (PR #876 review): log Verbose when an optional numeric
+            // field fails to parse, instead of silently defaulting to 0.
+            // A malformed save section would otherwise silently lose the
+            // source/focused PID or SwitchUT without any KSP.log signal.
             uint sourcePid = 0u;
             string sourcePidStr = node.GetValue("sourceVesselPersistentId");
-            if (!string.IsNullOrEmpty(sourcePidStr))
-                uint.TryParse(sourcePidStr, NumberStyles.Integer, ic, out sourcePid);
+            if (!string.IsNullOrEmpty(sourcePidStr)
+                && !uint.TryParse(sourcePidStr, NumberStyles.Integer, ic, out sourcePid))
+            {
+                ParsekLog.Verbose("SwitchSegment",
+                    $"TryLoadFrom: failed to parse sourceVesselPersistentId='{sourcePidStr}' " +
+                    $"- defaulting to 0");
+            }
 
             uint focusedPid = 0u;
             string focusedPidStr = node.GetValue("focusedVesselPersistentId");
-            if (!string.IsNullOrEmpty(focusedPidStr))
-                uint.TryParse(focusedPidStr, NumberStyles.Integer, ic, out focusedPid);
+            if (!string.IsNullOrEmpty(focusedPidStr)
+                && !uint.TryParse(focusedPidStr, NumberStyles.Integer, ic, out focusedPid))
+            {
+                ParsekLog.Verbose("SwitchSegment",
+                    $"TryLoadFrom: failed to parse focusedVesselPersistentId='{focusedPidStr}' " +
+                    $"- defaulting to 0");
+            }
 
             double switchUT = 0.0;
             string switchUtStr = node.GetValue("switchUT");
-            if (!string.IsNullOrEmpty(switchUtStr))
-                double.TryParse(switchUtStr, NumberStyles.Float, ic, out switchUT);
+            if (!string.IsNullOrEmpty(switchUtStr)
+                && !double.TryParse(switchUtStr, NumberStyles.Float, ic, out switchUT))
+            {
+                ParsekLog.Verbose("SwitchSegment",
+                    $"TryLoadFrom: failed to parse switchUT='{switchUtStr}' " +
+                    $"- defaulting to 0.0");
+            }
 
             var s = new SwitchSegmentSession
             {
@@ -181,12 +205,16 @@ namespace Parsek
                 EntryReason = entryReason,
                 IntentId = intentId,
                 CommittedTreeId = string.IsNullOrEmpty(committedTreeId) ? null : committedTreeId,
-                PreSessionBranchPointIds = new List<string>(),
+                // Populated below conditional on presence sentinel: a sentinel
+                // of "false" loads as null (distinguishing it from the empty
+                // list "true" sentinel). LOW 11 (PR #876 review).
+                PreSessionBranchPointIds = null,
             };
 
             string presentFlag = node.GetValue("preSessionBranchPointIdsPresent");
             if (string.Equals(presentFlag, "true", StringComparison.OrdinalIgnoreCase))
             {
+                s.PreSessionBranchPointIds = new List<string>();
                 string[] ids = node.GetValues("preSessionBranchPointId");
                 if (ids != null)
                 {
@@ -197,6 +225,15 @@ namespace Parsek
                     }
                 }
             }
+            else if (string.IsNullOrEmpty(presentFlag))
+            {
+                // Pre-LOW-11 saves had no sentinel at all (or always wrote
+                // "true"). Treat absence as empty-but-not-null so existing
+                // session-state tests round-trip unchanged. Only the
+                // explicit "false" sentinel preserves null on reload.
+                s.PreSessionBranchPointIds = new List<string>();
+            }
+            // else: presentFlag == "false" — leave PreSessionBranchPointIds null.
 
             session = s;
             return true;

@@ -122,6 +122,71 @@ namespace Parsek.Tests
             Assert.Empty(session.PreSessionBranchPointIds);
         }
 
+        // Fails if: SaveInto + TryLoadFrom collapse the null / empty / populated
+        // distinction of PreSessionBranchPointIds. LOW 11 (PR #876 review):
+        // the presence sentinel must emit "false" for null, "true" for
+        // empty or populated, so a round-trip preserves nullness exactly.
+        [Fact]
+        public void SwitchSegmentSession_PreSessionBranchPointIds_NullRoundTripsAsNull()
+        {
+            var session = BuildBaseSession();
+            session.PreSessionBranchPointIds = null;
+
+            SwitchSegmentSession restored = RoundTrip(session);
+            Assert.Null(restored.PreSessionBranchPointIds);
+        }
+
+        // Fails if: an explicitly empty list (non-null) round-trips as null.
+        [Fact]
+        public void SwitchSegmentSession_PreSessionBranchPointIds_EmptyRoundTripsAsEmpty()
+        {
+            var session = BuildBaseSession();
+            session.PreSessionBranchPointIds = new List<string>();
+
+            SwitchSegmentSession restored = RoundTrip(session);
+            Assert.NotNull(restored.PreSessionBranchPointIds);
+            Assert.Empty(restored.PreSessionBranchPointIds);
+        }
+
+        // Fails if: a populated list loses its entries on round-trip.
+        [Fact]
+        public void SwitchSegmentSession_PreSessionBranchPointIds_PopulatedRoundTripsExactly()
+        {
+            var session = BuildBaseSession();
+            session.PreSessionBranchPointIds = new List<string> { "bp_a", "bp_b" };
+
+            SwitchSegmentSession restored = RoundTrip(session);
+            Assert.NotNull(restored.PreSessionBranchPointIds);
+            Assert.Equal(new[] { "bp_a", "bp_b" }, restored.PreSessionBranchPointIds);
+        }
+
+        private static SwitchSegmentSession BuildBaseSession()
+        {
+            return new SwitchSegmentSession
+            {
+                SessionId = Guid.NewGuid(),
+                TreeId = "tree_x",
+                ParentRecordingId = "rec_parent",
+                ActiveSegmentRecordingId = "rec_seg",
+                SourceVesselPersistentId = 1u,
+                FocusedVesselPersistentId = 2u,
+                SwitchUT = 100.0,
+                EntryReason = SwitchSegmentEntryReason.TrackingStationFly,
+                IntentId = Guid.NewGuid(),
+            };
+        }
+
+        private static SwitchSegmentSession RoundTrip(SwitchSegmentSession session)
+        {
+            var parent = new ConfigNode("PARSEK");
+            session.SaveInto(parent);
+            var node = parent.GetNode(SwitchSegmentSession.NodeName);
+            Assert.NotNull(node);
+            SwitchSegmentSession restored;
+            Assert.True(SwitchSegmentSession.TryLoadFrom(node, out restored));
+            return restored;
+        }
+
         // -----------------------------------------------------------------
         // Staleness predicate: every branch covered without driving the
         // live Unity Time / Planetarium clock.
