@@ -487,13 +487,16 @@ namespace Parsek
             // way through to Complete.
             // ------------------------------------------------------------------
 
-            if (fromPhase == MergeJournal.Phases.Split)
+            if (journal.Phase == MergeJournal.Phases.Split)
             {
                 // Re-run the split idempotently. SplitOriginAtRewindUT detects
                 // an existing TIP (chain sibling at ChainIndex+1 with
                 // StartUT ≈ rewindUT) and skips re-creation; the post-split
                 // retag steps are idempotent via "predicate no longer matches"
-                // semantics.
+                // semantics. Keyed on journal.Phase (matching the blocks
+                // below) so the symmetry is obvious — at entry time
+                // journal.Phase == fromPhase, so the choice is purely stylistic
+                // here but consistent with the post-Durable1 cascade.
                 RecordingTreeSplitter.SplitOriginAtRewindUT(
                     scenario.ActiveReFlySessionMarker, scenario);
                 AdvancePhase(scenario, MergeJournal.Phases.Supersede);

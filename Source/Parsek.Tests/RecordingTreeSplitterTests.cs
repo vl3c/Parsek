@@ -952,5 +952,96 @@ namespace Parsek.Tests
             // ChainIndex restored.
             Assert.Equal(chainIndexBefore, resolved.ChainIndex);
         }
+
+        // =====================================================================
+        // 14. End-to-end: split + supersede row + RunOptimizationPass
+        //
+        // Reviewer Pass 1 Finding 5: the splitter and the optimizer's CanAutoMerge
+        // supersede-row guard are each unit-tested in isolation. This test wires
+        // them together to lock in the system-level invariant: after the splitter
+        // produces HEAD+TIP and AppendRelations writes a TIP→fork row, a later
+        // RunOptimizationPass must NOT merge HEAD+TIP back together. Without the
+        // CanAutoMerge guard, HEAD and TIP would qualify as merge candidates
+        // (same env, adjacent chain, no ghosting-trigger events in this synthetic
+        // fixture) and the optimizer would silently undo the split.
+        // =====================================================================
+
+        [Fact]
+        public void SplitThenSupersedeRow_OptimizerPreservesHeadAndTip()
+        {
+            // Step 1: build origin (homogeneous Atmospheric env so post-split
+            // halves would be auto-merge candidates without a guard).
+            var origin = BuildRecording("rec_origin", startUT: 8.0, endUT: 53.0,
+                midUT: 34.0, treeId: "tree_14",
+                terminal: TerminalState.Destroyed);
+            InstallOriginInTree(origin, "tree_14");
+
+            // Step 2: split with a null scenario (matches happy-path setup).
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+            var splitResult = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+            Assert.False(splitResult.Skipped);
+            string tipId = splitResult.TipRecordingId;
+            Recording head = FindCommitted("rec_origin");
+            Recording tip = FindCommitted(tipId);
+            Assert.NotNull(head);
+            Assert.NotNull(tip);
+            Assert.Equal(head.ChainId, tip.ChainId);
+            Assert.Equal(0, head.ChainIndex);
+            Assert.Equal(1, tip.ChainIndex);
+
+            // Step 3: install a scenario carrying the production-shaped
+            // supersede row that AppendRelations would have written
+            // (TIP -> fork). CanAutoMerge reads ParsekScenario.Instance to
+            // find this row, so a plain-CLR scenario installed via
+            // SetInstanceForTesting is all the guard needs.
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_test_14",
+                        OldRecordingId = tipId,
+                        NewRecordingId = "rec_fork",
+                        UT = 34.0,
+                        CreatedRealTime = "2026-05-16T00:00:00Z",
+                    },
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            // Step 4: run the optimizer. With the guard in place, HEAD+TIP
+            // must NOT be merged. (Without the guard, FindMergeCandidates
+            // would return (head, tip) and MergeInto would collapse them
+            // into a single recording.)
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+            RecordingStore.RunOptimizationPass();
+
+            // Step 5: assert HEAD+TIP both survived intact.
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            Recording headAfter = FindCommitted("rec_origin");
+            Recording tipAfter = FindCommitted(tipId);
+            Assert.NotNull(headAfter);
+            Assert.NotNull(tipAfter);
+            Assert.Equal(8.0, headAfter.StartUT);
+            Assert.Equal(34.0, headAfter.EndUT);
+            Assert.Equal(34.0, tipAfter.StartUT);
+            Assert.Equal(53.0, tipAfter.EndUT);
+            Assert.Equal(headAfter.ChainId, tipAfter.ChainId);
+            Assert.Equal(0, headAfter.ChainIndex);
+            Assert.Equal(1, tipAfter.ChainIndex);
+
+            // Supersede row untouched.
+            Assert.Single(scenario.RecordingSupersedes);
+            Assert.Equal(tipId, scenario.RecordingSupersedes[0].OldRecordingId);
+            Assert.Equal("rec_fork", scenario.RecordingSupersedes[0].NewRecordingId);
+
+            // Guard's Verbose log fired naming the rejected pair.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]")
+                && l.Contains("CanAutoMerge: rejecting merge")
+                && l.Contains("rec_origin")
+                && l.Contains(tipId));
+        }
     }
 }
