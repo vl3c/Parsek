@@ -3508,6 +3508,15 @@ namespace Parsek
                     ? new List<string>(original.RecordingGroups) : null;
                 second.CreatingSessionId = original.CreatingSessionId;
                 second.ProvisionalForRpId = original.ProvisionalForRpId;
+                // NOTE: same pattern as RecordingTreeSplitter Pass 6 M3 fix.
+                // Safe here because the optimizer auto-split only runs on
+                // already-committed recordings where original.SupersedeTargetId
+                // is null (the field is transient on NotCommitted provisionals
+                // only). If a future change ever calls the optimizer on a
+                // NotCommitted provisional, this inheritance would silently
+                // carry a phantom id onto `second` until LoadTimeSweep scrubs
+                // it on next load — null it explicitly in that case (mirror
+                // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
                 second.SupersedeTargetId = original.SupersedeTargetId;
 
                 // Derive SegmentBodyName from trajectory points
