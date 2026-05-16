@@ -78,6 +78,7 @@ namespace Parsek.Tests
             Assert.True(LedgerOrchestrator.IsInitialized);
             Assert.NotNull(LedgerOrchestrator.Science);
             Assert.NotNull(LedgerOrchestrator.Funds);
+            Assert.NotNull(LedgerOrchestrator.Route);
             Assert.NotNull(LedgerOrchestrator.Reputation);
             Assert.NotNull(LedgerOrchestrator.Milestones);
             Assert.NotNull(LedgerOrchestrator.Facilities);
@@ -85,7 +86,7 @@ namespace Parsek.Tests
             Assert.NotNull(LedgerOrchestrator.Strategies);
             Assert.NotNull(LedgerOrchestrator.Kerbals);
 
-            Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]") && l.Contains("8 modules registered"));
+            Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]") && l.Contains("9 modules registered"));
         }
 
         [Fact]
@@ -98,7 +99,7 @@ namespace Parsek.Tests
             int initCount = 0;
             foreach (var line in logLines)
             {
-                if (line.Contains("[LedgerOrchestrator]") && line.Contains("8 modules registered"))
+                if (line.Contains("[LedgerOrchestrator]") && line.Contains("9 modules registered"))
                     initCount++;
             }
             Assert.Equal(1, initCount);
@@ -119,6 +120,7 @@ namespace Parsek.Tests
             Assert.False(LedgerOrchestrator.IsInitialized);
             Assert.Null(LedgerOrchestrator.Science);
             Assert.Null(LedgerOrchestrator.Funds);
+            Assert.Null(LedgerOrchestrator.Route);
             Assert.Null(LedgerOrchestrator.Reputation);
             Assert.Null(LedgerOrchestrator.Milestones);
             Assert.Null(LedgerOrchestrator.Facilities);
@@ -254,7 +256,7 @@ namespace Parsek.Tests
 
             Assert.True(LedgerOrchestrator.IsInitialized);
             Assert.Contains(logLines, l =>
-                l.Contains("[LedgerOrchestrator]") && l.Contains("8 modules registered"));
+                l.Contains("[LedgerOrchestrator]") && l.Contains("9 modules registered"));
         }
 
         [Fact]
