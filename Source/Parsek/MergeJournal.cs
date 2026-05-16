@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek
@@ -49,6 +50,9 @@ namespace Parsek
         /// <summary>Wall-clock timestamp at which the staged-commit began (ISO 8601 UTC; design §5.8).</summary>
         public string StartedRealTime;
 
+        /// <summary>Transient cross-block thread inside CompleteFromPostDurable only. DO NOT add to SaveInto/LoadFrom; every other field on MergeJournal is persisted, this is the exception.</summary>
+        internal IReadOnlyCollection<string> RecoveredSubtreeIds;
+
         /// <summary>
         /// Phase vocabulary (design doc sections 5.8 + 6.6). Phase 10 of the
         /// rewind-to-staging rollout extends the single <see cref="Begin"/>
@@ -62,6 +66,7 @@ namespace Parsek
         public static class Phases
         {
             public const string Begin = "Begin";
+            public const string Split = "Split";
             public const string Supersede = "Supersede";
             public const string Tombstone = "Tombstone";
             public const string Finalize = "Finalize";
@@ -73,28 +78,63 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if <paramref name="phase"/> represents a checkpoint at
-        /// or before the first durable save — i.e. on-disk state is still the
-        /// pre-merge snapshot and any recovery must roll the in-memory merge
-        /// back (design §6.6 failure-recovery matrix).
+        /// Returns true if <paramref name="phase"/> represents the single
+        /// checkpoint that still rolls back on crash — i.e. on-disk state is
+        /// still the pre-merge snapshot and any in-memory mutation must be
+        /// undone (design §6.6 failure-recovery matrix; fix-supersede-identity-scope
+        /// plan W2/W5 reclassification). Only <see cref="Phases.Begin"/>
+        /// qualifies under the post-Split-durable-barrier classification;
+        /// Split/Supersede/Tombstone/Finalize are now post-Begin-durable and
+        /// drive forward via idempotent re-run instead of rolling back.
         /// </summary>
         public static bool IsPreDurablePhase(string phase)
         {
-            return phase == Phases.Begin
-                || phase == Phases.Supersede
-                || phase == Phases.Tombstone
-                || phase == Phases.Finalize;
+            return phase == Phases.Begin;
         }
 
         /// <summary>
         /// Returns true if <paramref name="phase"/> represents a checkpoint
-        /// after Durable Save #1 — the first durable save wrote the merged
-        /// state to disk, so recovery must complete the remaining steps
-        /// instead of rolling back.
+        /// after the Begin durable save — every phase except
+        /// <see cref="Phases.Begin"/>. Under the W2/W5 reclassification all
+        /// post-Begin phases (Split, Supersede, Tombstone, Finalize,
+        /// Durable1Done, RpReap, MarkerCleared, Durable2Done, Complete) drive
+        /// forward via idempotent re-run instead of rolling back; the Split
+        /// phase carries its own DurableSave barrier so a crash anywhere from
+        /// Split onward leaves the split-and-after mutations recoverable on
+        /// disk.
         /// </summary>
         public static bool IsPostDurablePhase(string phase)
         {
-            return phase == Phases.Durable1Done
+            return phase == Phases.Split
+                || phase == Phases.Supersede
+                || phase == Phases.Tombstone
+                || phase == Phases.Finalize
+                || phase == Phases.Durable1Done
+                || phase == Phases.RpReap
+                || phase == Phases.MarkerCleared
+                || phase == Phases.Durable2Done
+                || phase == Phases.Complete;
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="phase"/> is one of the recognized
+        /// post-Begin phase strings. Used by
+        /// <c>MergeJournalOrchestrator.RunFinisher</c>'s dispatcher to
+        /// distinguish "known phase, drive forward" from "unknown phase,
+        /// roll back defensively". Effectively a documentation alias for
+        /// <see cref="IsPostDurablePhase"/> in the new classification (because
+        /// post-Begin-durable == post-durable), but the distinct name conveys
+        /// dispatch-site intent better: dispatch asks "is this a phase we
+        /// know how to drive forward?", which is a separate question from
+        /// "is this post-durable?".
+        /// </summary>
+        public static bool IsKnownPostBeginPhase(string phase)
+        {
+            return phase == Phases.Split
+                || phase == Phases.Supersede
+                || phase == Phases.Tombstone
+                || phase == Phases.Finalize
+                || phase == Phases.Durable1Done
                 || phase == Phases.RpReap
                 || phase == Phases.MarkerCleared
                 || phase == Phases.Durable2Done
