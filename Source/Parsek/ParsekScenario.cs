@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
@@ -627,6 +628,12 @@ namespace Parsek
                 // only in Phase 1; no behavior wired to these collections yet.
                 savePhase = "rewind-staging";
                 SaveRewindStagingState(node);
+
+                // Supply routes (design §4.7). RouteStore strips any pre-existing
+                // ROUTES wrapper before writing so stale entries from a prior save
+                // cannot leak through. Empty store writes nothing.
+                savePhase = "routes";
+                RouteStore.SaveRoutesTo(node);
 
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
                 savePhase = "ghost-map-strip";
@@ -2225,6 +2232,16 @@ namespace Parsek
                     reconcileUT,
                     useCurrentUtCutoffForFutureActions:
                         IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene));
+
+                // Supply routes (design §4.7). Loads after recordings + ledger so
+                // Phase 5 source-ref validation has the ERS / ELS data it needs.
+                // RevalidateSources is folded into the "routes" phase: load + validate
+                // is one logical operation, and missing-source / fingerprint-drift
+                // transitions must run on every load before any UI / scheduler sees
+                // a stale Active status.
+                loadPhase = "routes";
+                RouteStore.LoadRoutesFrom(node);
+                RouteStore.RevalidateSources("OnLoad");
 
                 // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
                 // may exist but have not loaded their save data yet (KSP loads scenarios in
