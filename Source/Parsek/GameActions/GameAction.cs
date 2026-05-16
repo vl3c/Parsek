@@ -424,6 +424,13 @@ namespace Parsek
         /// <para>Null or empty when the action carries no resource manifest (e.g. the
         /// KSC-funds-only debit case, where <see cref="RouteKscFundsCost"/> is set instead).</para>
         /// </summary>
+        /// <remarks>
+        /// No <c>RouteInventoryManifest</c> field exists yet. The dispatch/delivery
+        /// scheduler that will emit route actions is not built, so the route-action
+        /// inventory field shape waits until that scheduler clarifies its needs. The
+        /// <see cref="InventoryPayloadItem"/> type used elsewhere by the route-proof
+        /// recording metadata is already available when that field is added.
+        /// </remarks>
         public Dictionary<string, double> RouteResourceManifest;
 
         /// <summary>
@@ -1235,6 +1242,11 @@ namespace Parsek
             if (manifest == null || manifest.Count == 0)
                 return;
 
+            // Format: "name|amount" per entry. Stock KSP resource names contain no '|'.
+            // If a future modded resource name does, the read side splits on the first
+            // '|' and treats anything after as the amount — a malformed entry would log
+            // a parse warn and be skipped. Do not change the separator without a
+            // schema-version bump and read-side fallback.
             foreach (var kv in manifest)
             {
                 if (string.IsNullOrEmpty(kv.Key))
