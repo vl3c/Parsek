@@ -6974,6 +6974,26 @@ namespace Parsek
                 ? new List<ControllerInfo>(pendingStartControllers)
                 : null;
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: forwarded {capture.Controllers?.Count ?? 0} start controller part(s)");
+
+            // Forward the start-time RouteOriginProof onto the captured recording and
+            // re-extract the end transport manifests scoped to the same part-pid set
+            // captured at start. v0 limitation: if the transport decoupled parts between
+            // start and end, those parts are absent from capture.VesselSnapshot and silently
+            // drop out of the end manifest. Acceptable for the logistics v0 contract.
+            if (pendingRouteOriginProof != null && pendingRouteOriginProofStartPartPids != null)
+            {
+                pendingRouteOriginProof.EndTransportResources =
+                    VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot, pendingRouteOriginProofStartPartPids);
+                pendingRouteOriginProof.EndTransportInventory =
+                    VesselSpawner.ExtractInventoryPayloadItems(capture.VesselSnapshot, pendingRouteOriginProofStartPartPids);
+                capture.RouteOriginProof = pendingRouteOriginProof;
+                ParsekLog.Verbose("Recorder",
+                    $"BuildCaptureRecording: forwarded RouteOriginProof partner={pendingRouteOriginProof.StartDockedOriginVesselPid} " +
+                    $"startRes={pendingRouteOriginProof.StartTransportResources?.Count ?? 0} " +
+                    $"endRes={pendingRouteOriginProof.EndTransportResources?.Count ?? 0} " +
+                    $"startInv={pendingRouteOriginProof.StartTransportInventory?.Count ?? 0} " +
+                    $"endInv={pendingRouteOriginProof.EndTransportInventory?.Count ?? 0}");
+            }
             capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
                 ? initialGhostVisualSnapshot.CreateCopy()
                 : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);
