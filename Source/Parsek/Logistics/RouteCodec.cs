@@ -21,7 +21,7 @@ namespace Parsek.Logistics
     /// </summary>
     internal static class RouteCodec
     {
-        private const string LogTag = "Route";
+        private const string Tag = "Route";
 
         // Node names — kept here so codec rename refactors touch one place.
         internal const string RecordingIdsNode = "RECORDING_IDS";
@@ -206,7 +206,7 @@ namespace Parsek.Logistics
                     RouteSourceRef srcRef = DeserializeSourceRef(srcNodes[i], inv, ic);
                     if (srcRef == null)
                     {
-                        ParsekLog.Warn(LogTag,
+                        ParsekLog.Warn(Tag,
                             $"DeserializeFrom: rejecting route id={route.Id ?? "<no-id>"} " +
                             $"because SOURCE child #{i} is missing recordingId or treeId");
                         return null;
@@ -224,7 +224,7 @@ namespace Parsek.Logistics
             ConfigNode[] stopNodes = node.GetNodes(StopNode);
             if (stopNodes == null || stopNodes.Length == 0)
             {
-                ParsekLog.Warn(LogTag,
+                ParsekLog.Warn(Tag,
                     $"DeserializeFrom: rejecting route id={route.Id ?? "<no-id>"} " +
                     "because it has zero STOP children");
                 return null;
@@ -564,7 +564,7 @@ namespace Parsek.Logistics
                 return status;
             }
 
-            ParsekLog.Warn(LogTag,
+            ParsekLog.Warn(Tag,
                 $"DeserializeFrom: unknown status='{raw}' on route id={routeIdForLog ?? "<no-id>"}; " +
                 "mapping to Active. Next dispatch revalidation will re-derive a safer status if needed.");
             return RouteStatus.Active;
