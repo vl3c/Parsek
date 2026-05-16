@@ -72,10 +72,9 @@ namespace Parsek
             /// </summary>
             PreRewindDebris = 1,
             /// <summary>
-            /// Non-debris recording whose lifetime ends at or just past the
-            /// rewind point — the HEAD half of a post-split origin
-            /// (Task A4's <c>SplitOriginAtRewindUT</c>). Dormant until that
-            /// orchestrator lands.
+            /// Non-debris recording whose <c>EndUT</c> lies at or just past
+            /// the rewind UT — the HEAD half of a post-split origin produced
+            /// by <see cref="RecordingTreeSplitter.SplitOriginAtRewindUT"/>.
             /// </summary>
             PreRewindChainHead = 2,
         }

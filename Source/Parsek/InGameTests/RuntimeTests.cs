@@ -20451,7 +20451,7 @@ namespace Parsek.InGameTests
             scenario.RewindPoints = new List<RewindPoint>();
             scenario.BumpSupersedeStateVersion();
 
-            // Bypass persistent.sfs writes — the orchestrator fires three
+            // Bypass persistent.sfs writes — the orchestrator fires five
             // synchronous DurableSave barriers (begin / split / durable1 /
             // durable2 / durable3) and we don't want to touch the player's
             // save during a Run All sweep.
