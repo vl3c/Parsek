@@ -495,6 +495,15 @@ namespace Parsek.Logistics
 
             bool hasWindows = rec.RouteConnectionWindows != null
                 && rec.RouteConnectionWindows.Count > 0;
+            // IMPORTANT: rec.RouteOriginProof == null and `new RouteOriginProof()` with
+            // all-null member lists hash DIFFERENTLY here — the null branch emits
+            // `origin=null\n` while a non-null empty proof walks AppendResourceManifest /
+            // AppendInventoryItems on the member lists. This relies on the Phase-2 codec
+            // preserving null across save/load (see Recording.cs:~713/810 where the deep
+            // clone uses `source.RouteOriginProof != null ? ... : null`). A future codec
+            // that lazily allocates an empty RouteOriginProof on load would silently
+            // flip every existing route to SourceChanged on the first revalidate pass —
+            // keep the null-preservation contract.
             bool hasOrigin = rec.RouteOriginProof != null;
             if (!hasWindows && !hasOrigin)
                 return NoRouteProofSentinel;

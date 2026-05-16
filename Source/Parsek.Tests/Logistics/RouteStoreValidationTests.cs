@@ -486,6 +486,77 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("transitioned=2"));
         }
 
+        // catches: a refactor that scans all refs and overwrites the drift field with
+        // the LAST mismatching one, or short-circuits on (anyMissing || anyDrift) before
+        // reaching ref[1]. The inner loop MUST break on the FIRST issue so the audit log
+        // names the specific cause/recording that triggered the transition.
+        //
+        // Three source-refs with DISTINCT drift causes:
+        //   ref[0] -> rec-ok-1, matches exactly (no drift)
+        //   ref[1] -> rec-sidecar-drift, sidecar-epoch drift
+        //   ref[2] -> rec-hash-drift,    route-proof-hash drift
+        // Break-on-first means the cause string reflects ref[1] (sidecar-epoch on rec-side*).
+        // If the inner loop changed `break;` to `continue;`, the cause would reflect ref[2]
+        // (route-proof-hash on rec-hash*) — that distinction is what this test pins.
+        [Fact]
+        public void Revalidate_MultiSourceRefSecondDrifts_TransitionsToSourceChanged()
+        {
+            // ref[0]: matches exactly.
+            var recOk = BuildRouteSourceRecording("rec-ok-1");
+            RecordingStore.AddRecordingWithTreeForTesting(recOk);
+            var refOk = BuildMatchingSourceRef(recOk);
+
+            // ref[1]: capture matching ref, then drift the live recording's SidecarEpoch.
+            var recSidecar = BuildRouteSourceRecording("rec-sidecar-drift", sidecarEpoch: 1);
+            RecordingStore.AddRecordingWithTreeForTesting(recSidecar);
+            var refSidecar = BuildMatchingSourceRef(recSidecar);
+            recSidecar.SidecarEpoch = 42;
+
+            // ref[2]: capture matching ref, then drift the live recording's
+            // route-proof-bearing field (UndockUT inside the connection window).
+            var recHash = BuildRouteSourceRecording("rec-hash-drift");
+            RecordingStore.AddRecordingWithTreeForTesting(recHash);
+            var refHash = BuildMatchingSourceRef(recHash);
+            recHash.RouteConnectionWindows[0].UndockUT = 8888.0;
+
+            RecordingStore.BumpStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            RouteStore.AddRoute(BuildRoute(
+                "route-multi-second-drifts",
+                RouteStatus.Active,
+                refOk, refSidecar, refHash));
+            InstallScenario();
+            logLines.Clear();
+
+            int transitioned = RouteStore.RevalidateSources("test-break-on-first");
+
+            Assert.Equal(1, transitioned);
+            Assert.True(RouteStore.TryGetRoute("route-multi-second-drifts", out Route route));
+            // Status flips to SourceChanged (NOT MissingSourceRecording — ref[0] is in ERS,
+            // proving the inner-loop saw and ACCEPTED ref[0] before reaching ref[1]).
+            Assert.Equal(RouteStatus.SourceChanged, route.Status);
+
+            // Genuine break-on-first assertion: the cause string names ref[1]'s drift
+            // (sidecar-epoch on rec-side*), NOT ref[2]'s (route-proof-hash on rec-hash*).
+            // If the inner loop is broken (scans all refs without break), this would
+            // instead emit `route-proof-hash-drift id=rec-hash` — the test would fail.
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]")
+                && l.Contains("[RouteStore]")
+                && l.Contains("Active→SourceChanged")
+                && l.Contains("sidecar-epoch-drift")
+                && l.Contains("id=rec-side"));
+
+            // Negative pin: there should be NO transition log naming ref[2]'s drift cause.
+            // (A broken inner loop would emit this instead.)
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[INFO]")
+                && l.Contains("[RouteStore]")
+                && l.Contains("Active→SourceChanged")
+                && l.Contains("route-proof-hash-drift"));
+        }
+
         // catches: NRE on an edge case — route with empty SourceRefs must
         // not crash and must not mutate status.
         [Fact]
