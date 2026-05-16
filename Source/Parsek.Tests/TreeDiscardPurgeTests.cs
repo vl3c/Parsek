@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Parsek.Logistics;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests
@@ -42,6 +44,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            RouteStore.ResetForTesting();
             TreeDiscardPurge.ResetTestOverrides();
 
             TreeDiscardPurge.DeleteQuicksaveForTesting = id =>
@@ -63,6 +66,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
+            RouteStore.ResetForTesting();
         }
 
         // ---------- Helpers -----------------------------------------------
@@ -847,6 +851,90 @@ namespace Parsek.Tests
 
             Assert.NotEqual(beforeS, scenario.SupersedeStateVersion);
             Assert.NotEqual(beforeT, scenario.TombstoneStateVersion);
+        }
+
+        // Pins the central seam in ParsekScenario.BumpSupersedeStateVersion:
+        // every ERS-invalidating bump must trigger RouteStore.RevalidateSources
+        // so the route panel does not show stale Active / InTransit until next
+        // OnLoad. Drives the bump function directly to prove the reactivity is
+        // wired at the bump-function level, not at the supersede call site
+        // only. PR #875 P2-1 flagged ~12 non-supersede bump sites whose
+        // ERS-mutating effects must propagate to route status — this central
+        // seam covers all of them with one assertion.
+        [Fact]
+        public void BumpSupersedeStateVersion_TriggersRouteRevalidationViaCentralSeam()
+        {
+            // Recording is initially in ERS. Route points at it and is Active.
+            var sourceRec = Rec("rec_central_seam", "tree_seam");
+            InstallTree("tree_seam",
+                new List<Recording> { sourceRec },
+                new List<BranchPoint>());
+
+            // Install scenario with NO supersede relations — at this point
+            // ERS contains sourceRec. The InstallScenario helper bumps the
+            // counter once internally for cache invalidation, but since the
+            // route is added AFTER the scenario is installed, that bump's
+            // revalidation pass is a no-op (route list empty).
+            var scenario = InstallScenario();
+
+            var sourceRef = new RouteSourceRef
+            {
+                RecordingId = sourceRec.RecordingId,
+                TreeId = sourceRec.TreeId,
+                TreeOrder = sourceRec.TreeOrder,
+                RecordingFormatVersion = sourceRec.RecordingFormatVersion,
+                RecordingSchemaGeneration = sourceRec.RecordingSchemaGeneration,
+                SidecarEpoch = sourceRec.SidecarEpoch,
+                StartUT = sourceRec.StartUT,
+                EndUT = sourceRec.EndUT,
+                RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(sourceRec),
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("route-central-seam")
+                .WithName("Central Seam Test Route")
+                .WithStatus(RouteStatus.Active)
+                .WithRecordingId(sourceRec.RecordingId)
+                .WithSourceRef(sourceRef)
+                .Build();
+            RouteStore.AddRoute(route);
+
+            Assert.True(RouteStore.TryGetRoute("route-central-seam", out Route preBump));
+            Assert.Equal(RouteStatus.Active, preBump.Status);
+
+            // Now install a supersede relation that ejects the source recording
+            // from ERS, but do NOT call BumpSupersedeStateVersion yet — the
+            // ERS cache is still stale (contains the recording), so the route
+            // would still see "in ERS" if RevalidateSources ran right now.
+            scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_central_seam",
+                OldRecordingId = "rec_central_seam",
+                NewRecordingId = "rec_outside",
+            });
+            logLines.Clear();
+
+            // The bump is what production paths do (~12 sites flagged in
+            // PR #875 P2-1). The central seam inside BumpSupersedeStateVersion
+            // must invalidate ERS AND drive RouteStore.RevalidateSources so
+            // the route flips to MissingSourceRecording without any caller
+            // having to remember to call RevalidateSources explicitly.
+            scenario.BumpSupersedeStateVersion();
+
+            Assert.True(RouteStore.TryGetRoute("route-central-seam", out Route postBump));
+            Assert.Equal(RouteStatus.MissingSourceRecording, postBump.Status);
+
+            // Central seam audit-log proof: RevalidateSources fired with the
+            // bump-internal reason string, and the route's per-transition log
+            // line names the same reason.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("RevalidateSources")
+                && l.Contains("reason=SupersedeStateVersion-bump"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("Active")
+                && l.Contains("MissingSourceRecording")
+                && l.Contains("SupersedeStateVersion-bump/MissingSourceRecording/source-not-in-ers"));
         }
     }
 }

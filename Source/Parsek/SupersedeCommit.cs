@@ -479,19 +479,12 @@ namespace Parsek
                     $"provisional={provisional.RecordingId ?? "<no-id>"} (was suppressed during recording)");
             }
 
-            // Mid-session route revalidation. The supersede relations + MergeState
-            // flip are now committed and the ERS cache has been invalidated above
-            // (BumpSupersedeStateVersion). Any route whose SourceRefs point at a
-            // recording that just left ERS must transition to
-            // MissingSourceRecording in-session so the future item-5 dispatch
-            // scheduler (which iterates CommittedRoutes per tick) does not fire
-            // against stale source-refs. Without this hook routes stay Active
-            // until the next save/load cycle. This single call site covers both
-            // the synchronous CommitSupersede path and the journaled
-            // MergeJournalOrchestrator.RunMerge path (which calls
-            // FlipMergeStateAndClearTransient with preserveMarker=true at
-            // §6.6 step 4) and runs once per supersede commit.
-            RouteStore.RevalidateSources("Supersede");
+            // Mid-session route revalidation is now driven by the central
+            // seam inside ParsekScenario.BumpSupersedeStateVersion above:
+            // every ERS-invalidating bump implicitly calls
+            // RouteStore.RevalidateSources("SupersedeStateVersion-bump"),
+            // covering this path plus the ~12 other bump sites identified in
+            // PR #875's P2-1 review. No explicit RevalidateSources call here.
 
             ParsekLog.Info(Tag,
                 $"provisional={provisional.RecordingId ?? "<no-id>"} mergeState={classification.NewState} terminalKind={classification.Kind} " +

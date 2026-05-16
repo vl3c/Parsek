@@ -61,10 +61,39 @@ namespace Parsek
         /// that adds / removes / clears entries in <see cref="RecordingSupersedes"/>
         /// or <see cref="RecordingRewindRetirements"/>
         /// so <see cref="EffectiveState.ComputeERS"/> knows to rebuild.
+        ///
+        /// <para>
+        /// Also triggers <see cref="RouteStore.RevalidateSources"/> so route
+        /// statuses cannot drift mid-session: every ERS-invalidating bump
+        /// implicitly drives route revalidation. The dispatch evaluator's
+        /// defensive <c>RouteHasValidSourcesInErs</c> gate would still block
+        /// incorrect dispatches if this call were missing — but the UI route
+        /// panel would show stale Active / InTransit until save/load. New
+        /// callers of <c>BumpSupersedeStateVersion</c> get route reactivity
+        /// for free; <see cref="ComputeERS"/> recursion is impossible because
+        /// <see cref="RouteStore.RevalidateSources"/> never bumps the version
+        /// counter.
+        /// </para>
         /// </summary>
         public void BumpSupersedeStateVersion()
         {
             unchecked { SupersedeStateVersion++; }
+
+            // Route subsystem reactivity: every ERS-invalidating bump must
+            // trigger route revalidation so cached Route.Status doesn't lie
+            // until next OnLoad. Wrapped in try/catch so a route-side bug
+            // cannot crash the bump path — supersede / retirement bookkeeping
+            // is load-bearing for many subsystems.
+            try
+            {
+                RouteStore.RevalidateSources("SupersedeStateVersion-bump");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Route",
+                    $"RevalidateSources from BumpSupersedeStateVersion threw " +
+                    $"{ex.GetType().Name}: {ex.Message}; route statuses may be stale until next OnLoad");
+            }
         }
 
         /// <summary>

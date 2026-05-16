@@ -12,15 +12,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - Logistics route status can drift mid-session after ERS-mutating paths
+## Done - Logistics route status can drift mid-session after ERS-mutating paths
 
-- `RouteStore.RevalidateSources` is called canonically on `ParsekScenario.OnLoad` and after `SupersedeCommit.FlipMergeStateAndClearTransient`. But about a dozen other code paths bump `ParsekScenario.SupersedeStateVersion` (which invalidates ERS) without triggering route revalidation: `TreeDiscardPurge`, `RevertInterceptor`, `RecordingStore` direct mutators, `ReconciliationBundle`, `UnfinishedFlightSealHandler`, `UnfinishedFlightStashHandler`, `LoadTimeSweep`, `MergeJournalOrchestrator`, `MergeDialog`, `RewindInvoker`. After any of these run mid-session, a route's cached `Status` (UI-visible) may say `Active` while its source recording has actually been retired / superseded.
+- ~~`RouteStore.RevalidateSources` is called canonically on `ParsekScenario.OnLoad` and after `SupersedeCommit.FlipMergeStateAndClearTransient`. But about a dozen other code paths bump `ParsekScenario.SupersedeStateVersion` (which invalidates ERS) without triggering route revalidation: `TreeDiscardPurge`, `RevertInterceptor`, `RecordingStore` direct mutators, `ReconciliationBundle`, `UnfinishedFlightSealHandler`, `UnfinishedFlightStashHandler`, `LoadTimeSweep`, `MergeJournalOrchestrator`, `MergeDialog`, `RewindInvoker`. After any of these run mid-session, a route's cached `Status` (UI-visible) may say `Active` while its source recording has actually been retired / superseded.~~
 
 **User-visible impact:** **Status-display drift only — no incorrect dispatches.** The dispatch path is defensively gated by `RouteDispatchEvaluator.EvaluateRoute` calling `env.RouteHasValidSourcesInErs(route)` (which queries the current ERS, not the cached status), so a stale-Active route in the UI will still hold in `WaitingForResources` (or skip silently) when the scheduler eval runs. The user-visible glitch is the status badge in the route panel: it shows the old status until the next save/load triggers `OnLoad` revalidation.
 
-**Fix shape (v0.x):** add `RouteStore.RevalidateSources("<source-name>")` calls at the bump sites that meaningfully retire route sources (subset of the ~12). Or: wrap `BumpSupersedeStateVersion` to fire a revalidation pass once per tick if any bumps happened.
+**Fix:** Pushed `RouteStore.RevalidateSources("SupersedeStateVersion-bump")` into the central `ParsekScenario.BumpSupersedeStateVersion` method itself (`Source/Parsek/ParsekScenario.cs:65`). Every ERS-invalidating bump now implicitly drives route revalidation — the ~12 flagged call sites (`TreeDiscardPurge`, `RevertInterceptor`, `RecordingStore` direct mutators, `ReconciliationBundle`, `UnfinishedFlightSealHandler`, `UnfinishedFlightStashHandler`, `LoadTimeSweep`, `MergeJournalOrchestrator`, `MergeDialog`, `RewindInvoker`) inherit the reactivity for free, as do future callers. The redundant explicit `RouteStore.RevalidateSources("Supersede")` call inside `SupersedeCommit.FlipMergeStateAndClearTransient` was removed since the central seam now covers that path too. The call is wrapped in try/catch so a route-side bug cannot crash the bump path. Reentrancy is impossible: `RouteStore.RevalidateSources` reads ERS via `EffectiveState.ComputeERS` (which reads but never bumps `SupersedeStateVersion`) and transitions routes via `Route.TransitionTo` (which only sets a field and logs).
 
-**Status:** Open — deferred from PR #875's final review (P2 noted; no merge blocker because dispatch is independently gated).
+**Coverage:** `TreeDiscardPurgeTests.BumpSupersedeStateVersion_TriggersRouteRevalidationViaCentralSeam` drives the bump function directly and asserts the route flips to `MissingSourceRecording` with the `SupersedeStateVersion-bump` reason string. Failure-mode verified by temporarily commenting out the seam call before commit — the new test caught the regression, then passed once the call was restored. The existing `SupersedeCommitTests.Commit_RevalidatesRouteSources_SupersededSourceFlipsRouteToMissing` was updated to assert the new audit reason since the explicit `Supersede` call site is gone.
+
+**Status:** CLOSED 2026-05-16.
 
 ---
 

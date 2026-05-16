@@ -208,8 +208,13 @@ namespace Parsek.Tests.Logistics
                 RecordingId = "rec-deleted",
                 RouteProofHash = "deadbeef00000000"
             };
-            RouteStore.AddRoute(BuildRoute("route-deleted-src", RouteStatus.Active, sourceRef));
+            // Install scenario BEFORE adding the route: ParsekScenario.
+            // BumpSupersedeStateVersion now drives RouteStore.RevalidateSources
+            // via the central seam (PR #875 P2-1), so adding the route first
+            // would let InstallScenario's internal bump pre-transition the
+            // route before this test's explicit RevalidateSources("test") call.
             InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-deleted-src", RouteStatus.Active, sourceRef));
             logLines.Clear();
 
             int transitioned = RouteStore.RevalidateSources("test");
@@ -240,8 +245,9 @@ namespace Parsek.Tests.Logistics
             RecordingStore.BumpStateVersion();
             EffectiveState.ResetCachesForTesting();
 
-            RouteStore.AddRoute(BuildRoute("route-sidecar-drift", RouteStatus.Active, sourceRef));
+            // InstallScenario before AddRoute — see Revalidate_MissingSource_… note.
             InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-sidecar-drift", RouteStatus.Active, sourceRef));
             logLines.Clear();
 
             int transitioned = RouteStore.RevalidateSources("test");
@@ -272,8 +278,9 @@ namespace Parsek.Tests.Logistics
             RecordingStore.BumpStateVersion();
             EffectiveState.ResetCachesForTesting();
 
-            RouteStore.AddRoute(BuildRoute("route-hash-drift", RouteStatus.Active, sourceRef));
+            // InstallScenario before AddRoute — see Revalidate_MissingSource_… note.
             InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-hash-drift", RouteStatus.Active, sourceRef));
             logLines.Clear();
 
             int transitioned = RouteStore.RevalidateSources("test");
@@ -340,10 +347,11 @@ namespace Parsek.Tests.Logistics
             // store. First pass would just confirm Missing; instead simulate
             // the "save restored" world by adding the recording before the
             // revalidate pass.
-            RouteStore.AddRoute(BuildRoute("route-recover", RouteStatus.MissingSourceRecording, sourceRef));
-
+            //
+            // InstallScenario before AddRoute — see Revalidate_MissingSource_… note.
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-recover", RouteStatus.MissingSourceRecording, sourceRef));
             logLines.Clear();
 
             int transitioned = RouteStore.RevalidateSources("test");
@@ -392,8 +400,8 @@ namespace Parsek.Tests.Logistics
             RecordingStore.AddRecordingWithTreeForTesting(newRec);
 
             var sourceRef = BuildMatchingSourceRef(oldRec);
-            RouteStore.AddRoute(BuildRoute("route-superseded", RouteStatus.Active, sourceRef));
 
+            // InstallScenario before AddRoute — see Revalidate_MissingSource_… note.
             // Install a supersede relation that points "rec-superseded"
             // forward to "rec-superseding". ERS filters out the old id.
             InstallScenario(new List<RecordingSupersedeRelation>
@@ -404,6 +412,7 @@ namespace Parsek.Tests.Logistics
                     NewRecordingId = "rec-superseding"
                 }
             });
+            RouteStore.AddRoute(BuildRoute("route-superseded", RouteStatus.Active, sourceRef));
             logLines.Clear();
 
             int transitioned = RouteStore.RevalidateSources("test");
@@ -451,8 +460,7 @@ namespace Parsek.Tests.Logistics
             // Route 1: Active, matches.
             var recHappy = BuildRouteSourceRecording("rec-multi-happy");
             RecordingStore.AddRecordingWithTreeForTesting(recHappy);
-            RouteStore.AddRoute(BuildRoute("route-multi-1", RouteStatus.Active,
-                BuildMatchingSourceRef(recHappy)));
+            var refHappy = BuildMatchingSourceRef(recHappy);
 
             // Route 2: missing source.
             var refMissing = new RouteSourceRef
@@ -460,7 +468,6 @@ namespace Parsek.Tests.Logistics
                 RecordingId = "rec-multi-missing",
                 RouteProofHash = "deadbeef00000000"
             };
-            RouteStore.AddRoute(BuildRoute("route-multi-2", RouteStatus.Active, refMissing));
 
             // Route 3: source-changed (sidecar drift).
             var recDrift = BuildRouteSourceRecording("rec-multi-drift", sidecarEpoch: 1);
@@ -469,9 +476,12 @@ namespace Parsek.Tests.Logistics
             recDrift.SidecarEpoch = 99;
             RecordingStore.BumpStateVersion();
             EffectiveState.ResetCachesForTesting();
-            RouteStore.AddRoute(BuildRoute("route-multi-3", RouteStatus.Active, refDrift));
 
+            // InstallScenario before AddRoute — see Revalidate_MissingSource_… note.
             InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-multi-1", RouteStatus.Active, refHappy));
+            RouteStore.AddRoute(BuildRoute("route-multi-2", RouteStatus.Active, refMissing));
+            RouteStore.AddRoute(BuildRoute("route-multi-3", RouteStatus.Active, refDrift));
             logLines.Clear();
 
             int transitioned = RouteStore.RevalidateSources("test-multi");
@@ -522,11 +532,12 @@ namespace Parsek.Tests.Logistics
             RecordingStore.BumpStateVersion();
             EffectiveState.ResetCachesForTesting();
 
+            // InstallScenario before AddRoute — see Revalidate_MissingSource_… note.
+            InstallScenario();
             RouteStore.AddRoute(BuildRoute(
                 "route-multi-second-drifts",
                 RouteStatus.Active,
                 refOk, refSidecar, refHash));
-            InstallScenario();
             logLines.Clear();
 
             int transitioned = RouteStore.RevalidateSources("test-break-on-first");

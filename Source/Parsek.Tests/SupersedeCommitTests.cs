@@ -2497,17 +2497,20 @@ namespace Parsek.Tests
 
             Assert.True(RouteStore.TryGetRoute("route-superseded-origin", out Route postCommit));
             Assert.Equal(RouteStatus.MissingSourceRecording, postCommit.Status);
-            // RevalidateSources logs its summary; the per-route transition
-            // line names the audit reason "Supersede".
+            // RevalidateSources is now driven by the central seam inside
+            // ParsekScenario.BumpSupersedeStateVersion, so the audit reason
+            // is "SupersedeStateVersion-bump" (not the prior explicit
+            // "Supersede" reason). The per-route transition line names the
+            // same reason, prefixed onto the MissingSourceRecording cause.
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]")
                 && l.Contains("RevalidateSources")
-                && l.Contains("reason=Supersede"));
+                && l.Contains("reason=SupersedeStateVersion-bump"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]")
                 && l.Contains("Active")
                 && l.Contains("MissingSourceRecording")
-                && l.Contains("Supersede/MissingSourceRecording/source-not-in-ers"));
+                && l.Contains("SupersedeStateVersion-bump/MissingSourceRecording/source-not-in-ers"));
         }
 
         // ---------- Idempotence + edge cases --------------------------------
