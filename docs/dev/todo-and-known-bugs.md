@@ -793,6 +793,18 @@ Based on the answers, the fix shape is one of: back-step only `part.transform.po
 
 ---
 
+## Done - v0.9.2 Parent-anchored debris ghosts spawn ~19 m downrange + slide ~7 m further forward on activation
+
+- ~~Parent-anchored debris ghosts (radial boosters, side debris) spawned ~19 m downrange of their recorded seed pose, then slid ~7 m further forward across the first one or two visible frames after activation. The slide was independent of (and in addition to) the post-staging FG-recorder LLA slide fixed earlier in PR 832; this one fired even on debris with valid body-fixed primary coverage.~~
+
+**Root cause:** Two activation-hide layers (the generic relative-start hide window and the activation-settle fallback) both applied to parent-anchored debris even when the recording's `bodyFixedFrames` already covered the activation UT. Holding the ghost off-screen for the hide window meant the first visible frame landed past the recorded seed, plus the activation-settle blend was lerping from a stale offset.
+
+**Fix:** activation now detects parent-anchored debris with body-fixed coverage at the activation UT and skips BOTH hide layers, so the first visible frame is the recorded seed pose itself. Bundled with the live-parent-anchor `GetWorldPos3D` (CoM) -> `vesselTransform.position` switch (tracked separately under "Live-anchor pose for relative recordings"), which removes the residual rotation/position frame mismatch that the hide window had been masking.
+
+**Status:** DONE 2026-05-16 in PR #874 cycle (CHANGELOG L129).
+
+---
+
 ## Done - SegmentPhase saved value reflects start state, not end state
 
 - Active unsplit tree leaves now persist a final endpoint `SegmentPhase`/`SegmentBodyName` instead of keeping the fork-start tag. Normal stop propagates the tagged `CaptureAtStop` phase into the active tree row using `tree.ActiveRecordingId` as the row proof (not `CaptureAtStop.RecordingId`, which is a fresh GUID). ForceStop/scene-exit finalization applies the endpoint phase after terminal orbit refresh and endpoint decision refresh, including records that already had `TerminalStateValue`. Committed chain segments and optimizer-owned non-active rows are preserved. RELATIVE sections are handled conservatively: section environment only applies when paired with terminal metadata or absolute-shadow endpoint evidence, and fallback never treats raw RELATIVE point latitude/longitude/altitude or stale start/body tags as real endpoint proof.
