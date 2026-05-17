@@ -60,14 +60,20 @@ namespace Parsek.Patches
     /// for them either (see the PR #885 commit comment in
     /// <c>VesselSpawner.SeedRigidbodyMassesForPackedSpawn</c>).
     ///
-    /// <para><b>Idempotence with PR #885 inline callers.</b>
-    /// <c>SpawnAtPosition</c> and <c>RespawnVessel</c> keep their inline
-    /// <c>SeedRigidbodyMassesForPackedSpawn</c> calls as defense in depth — if
-    /// this patch fails to apply (Harmony exception, KSP method-signature
-    /// change), the Parsek spawn entry points still cover themselves. The
-    /// seeder is idempotent (writes <c>part.rb.mass = computed-mass</c> over
-    /// the same computed value), so the duplicate log line on Parsek-spawn
-    /// paths is the only side effect.
+    /// <para><b>Single source of truth.</b>
+    /// The PR #885 inline <c>SeedRigidbodyMassesForPackedSpawn</c> calls in
+    /// <c>SpawnAtPosition</c> / <c>RespawnVessel</c> were removed in the
+    /// same change as adding this postfix. Every production caller of the
+    /// seeder helper goes through this one postfix, so the seed runs
+    /// exactly once per <c>pv.Load</c>. Removing the inline calls drops the
+    /// duplicate INFO log line on Parsek-spawn paths and removes a future
+    /// drift hazard (two seed-call sites diverging on a refactor). The
+    /// <c>ProtoVesselLoadPostfix_IsAppliedByHarmony</c> in-game test
+    /// (Spawner / SPACECENTER) is the regression guard for the new
+    /// single-point-of-failure: it asserts the postfix is in
+    /// <c>Harmony.GetPatchInfo</c> so a future KSP update that renames /
+    /// re-signatures <c>ProtoVessel.Load</c> fails loud rather than
+    /// silently letting every loaded vessel cascade-explode.
     /// </summary>
     [HarmonyPatch]
     internal static class ProtoVesselLoadRigidbodyMassSeederPatch

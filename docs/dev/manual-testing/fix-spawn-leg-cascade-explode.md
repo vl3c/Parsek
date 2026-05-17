@@ -44,9 +44,11 @@ into a clean `Kerbal Space Program/saves/<name>/`, launch KSP, and load
    attached, no `Decoupler.2`/`Rockomax16.BW`/`mediumDishAntenna` debris
    floating away.
 4. Tail `Kerbal Space Program/KSP.log`. Expected log lines:
-   - `[Parsek][INFO][Spawner] Seeded packed-spawn rb.mass for SpawnAtPosition:
-     vessel='Kerbal X' pid=<n> updated=17 ...` (or `RespawnVessel` if the
-     fallback path ran).
+   - `[Parsek][INFO][Spawner] Seeded packed-spawn rb.mass for
+     ProtoVesselLoadPostfix: vessel='Kerbal X' pid=<n> updated=17 ...`
+     (the single seeder log: PR #890 removed the previous inline
+     `SpawnAtPosition` / `RespawnVessel` log lines so the postfix is now the
+     only seed-site).
    - No `[Parsek][VERBOSE][Recorder] OnPartJointBreak diagnostics: ... breakForce=0.0
      structural=F childAttachMatchesJoint=F` entries on a `landingLeg1-2`
      child within the first 100 ms after the `Unpacking Kerbal X` line.
@@ -54,10 +56,11 @@ into a clean `Kerbal Space Program/saves/<name>/`, launch KSP, and load
      physics activation.
 5. As a control, repeat the spawn path against a stock-craft vessel without
    `ForceHeaviest` autostruts (e.g., a single-pod test rocket); confirm the
-   `Seeded packed-spawn rb.mass` log line still appears (the seeder loop
-   walks every part on every multi-part spawn; the per-part rb.mass write
-   itself is gated on the part having a non-null rigidbody and `partInfo`)
-   and the vessel still spawns and unpacks normally.
+   `Seeded packed-spawn rb.mass for ProtoVesselLoadPostfix` log line still
+   appears (the seeder loop walks every part on every multi-part spawn; the
+   per-part rb.mass write itself is gated on the part having a non-null
+   rigidbody and `partInfo`) and the vessel still spawns and unpacks
+   normally.
 
 ## Stock Save-Load Reconstruction (PR #885 Coverage Gap Follow-Up)
 

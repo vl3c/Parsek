@@ -628,7 +628,11 @@ namespace Parsek
                 if (pv.vesselRef.orbitDriver == null)
                     ParsekLog.Warn("Spawner", "Spawned vessel has no orbitDriver — may not appear in map view");
 
-                SeedRigidbodyMassesForPackedSpawn(pv.vesselRef, "RespawnVessel");
+                // rb.mass seeding is handled centrally by the
+                // ProtoVesselLoadRigidbodyMassSeederPatch Harmony postfix on
+                // ProtoVessel.Load (covers this RespawnVessel path plus stock
+                // FlightDriver / Game.AddVessel / ConstructShip paths in one
+                // place).
 
                 // Suppress g-force destruction from spawn position correction (#235)
                 pv.vesselRef.IgnoreGForces(240);
@@ -1068,7 +1072,11 @@ namespace Parsek
                 if (pv.vesselRef.orbitDriver == null)
                     ParsekLog.Warn("Spawner", "SpawnAtPosition vessel has no orbitDriver — may not appear in map view");
 
-                SeedRigidbodyMassesForPackedSpawn(pv.vesselRef, "SpawnAtPosition");
+                // rb.mass seeding is handled centrally by the
+                // ProtoVesselLoadRigidbodyMassSeederPatch Harmony postfix on
+                // ProtoVessel.Load (covers this SpawnAtPosition path plus stock
+                // FlightDriver / Game.AddVessel / ConstructShip paths in one
+                // place).
 
                 // Suppress g-force destruction from spawn position correction (#235)
                 pv.vesselRef.IgnoreGForces(240);
@@ -5485,8 +5493,7 @@ namespace Parsek
 
         // FlightIntegrator only updates Part.rb.mass for UNPACKED parts
         // (Assembly-CSharp FlightIntegrator: `if (part.packed) continue;`
-        // inside the per-part mass-update loop). A ProtoVessel.Load done by
-        // Parsek's terminal-orbit / validated-respawn spawn paths
+        // inside the per-part mass-update loop). Every ProtoVessel.Load
         // instantiates the vessel in PACKED state, so every Part.rb keeps
         // Unity's default mass=1 until the vessel is first unpacked. The
         // Part.Start chain runs UpdateAutoStrut->CycleAutoStrut->
@@ -5506,11 +5513,18 @@ namespace Parsek
         // cluster of physicsless decorative children still ranks at the
         // mass FlightIntegrator would assign at unpack).
         //
-        // Not invoked from the flag-spawn or ghost-map-presence ProtoVessel
-        // paths: those create single-part vessels with autostrutMode=Off
-        // (no autostrut anchor selection runs against them) and the
-        // Part.Start coroutine never reaches MassivePartCheck on a vessel
-        // of size 1.
+        // Single source of truth: the Patches.ProtoVesselLoadRigidbodyMassSeederPatch
+        // Harmony postfix on the internal ProtoVessel.Load(FlightState, Vessel)
+        // overload is the ONLY caller of this helper in production. The
+        // postfix covers every entry point in one place: Parsek's
+        // SpawnAtPosition / RespawnVessel paths, KSP's stock
+        // FlightDriver.StartAndFocusVessel save-load, Game.AddVessel, and
+        // the MissionSystem / ContractSystem ConstructShip coroutines. The
+        // postfix gate intentionally skips flag-spawn and ghost-map-presence
+        // ProtoVessels: those create single-part vessels with
+        // autostrutMode=Off, so the wrong-anchor failure mode cannot manifest
+        // and the Part.Start coroutine never reaches MassivePartCheck on a
+        // vessel of size 1.
         internal static float ComputeRigidbodyMassForPackedSpawn(
             float partMass,
             float resourceMass,
