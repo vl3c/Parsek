@@ -38,10 +38,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingAnchorChainVersion_CollapsesToCurrentV0()
+        public void RecordingAnchorChainVersion_CollapsesToCurrentV1()
         {
-            Assert.Equal(0, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(0, RecordingStore.CurrentRecordingFormatVersion);
+            // Format bumped 0 -> 1 with the VesselSwitchContinuation branch
+            // type (Phase A.1, segment-scoped-switch-fly-autorecord plan).
+            // Generation unchanged at 1 — additive enum value, no semantic
+            // shift to existing v0 fields.
+            // Fails if: format version is bumped (then this pin and the docs
+            // bump together) or if TrajectorySidecarBinary.CurrentBinaryVersion
+            // drifts from RecordingStore.CurrentRecordingFormatVersion.
+            Assert.Equal(1, RecordingStore.CurrentRecordingFormatVersion);
             Assert.Equal(1, RecordingStore.CurrentRecordingSchemaGeneration);
             Assert.Equal(
                 RecordingStore.CurrentRecordingFormatVersion,

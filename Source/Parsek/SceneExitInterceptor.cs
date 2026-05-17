@@ -106,6 +106,13 @@ namespace Parsek
         /// <c>ParsekScenario.cs:1660-1723</c> so the pre-transition gate
         /// matches the existing post-load gate. Pure for unit-testability;
         /// the Prefix collects live state and passes it in.
+        ///
+        /// <para>Bug C overload: kept for back-compat with existing tests.
+        /// New call sites should pass <c>switchSegmentActive</c> through
+        /// the four-argument overload below so a pre-transition dialog
+        /// fires when a switch-segment session is armed even if the live
+        /// active tree has been torn down (rapid-switch races,
+        /// vessel-destroyed-during-segment, etc.).</para>
         /// </summary>
         internal static DialogVariant ShouldShowDialogBeforeSceneChange(
             GameScenes destination,
@@ -114,7 +121,35 @@ namespace Parsek
             bool isAutoMerge,
             bool activeVesselLandedOrSplashed)
         {
-            if (!hasActiveTree)
+            return ShouldShowDialogBeforeSceneChange(
+                destination,
+                hasActiveTree: hasActiveTree,
+                reFlyActive: reFlyActive,
+                switchSegmentActive: false,
+                isAutoMerge: isAutoMerge,
+                activeVesselLandedOrSplashed: activeVesselLandedOrSplashed);
+        }
+
+        /// <summary>
+        /// Pure decision helper with the Bug C switch-segment seam (post-#876
+        /// playtest 2026-05-17). When an <see cref="SwitchSegmentSession"/>
+        /// is armed at scene-exit time, the dialog must fire even if the
+        /// live <see cref="ParsekFlight.HasActiveTree"/> check has gone false
+        /// (e.g. the focused vessel was destroyed mid-segment so
+        /// <see cref="ParsekFlight"/> tore down its active tree on
+        /// <see cref="GameEvents.onVesselWillDestroy"/>). Without this the
+        /// `Deferred merge dialog fired - pre-transition intercept missed`
+        /// post-load fallback runs against the wrong pending tree.
+        /// </summary>
+        internal static DialogVariant ShouldShowDialogBeforeSceneChange(
+            GameScenes destination,
+            bool hasActiveTree,
+            bool reFlyActive,
+            bool switchSegmentActive,
+            bool isAutoMerge,
+            bool activeVesselLandedOrSplashed)
+        {
+            if (!hasActiveTree && !switchSegmentActive)
                 return DialogVariant.None;
 
             if (reFlyActive)
@@ -171,6 +206,16 @@ namespace Parsek
             bool reFlyActive =
                 !object.ReferenceEquals(null, scenario)
                 && scenario.ActiveReFlySessionMarker != null;
+            // Bug C (post-#876 playtest 2026-05-17): include switch-segment
+            // sessions in the dialog gate so a torn-down active tree (vessel
+            // destroyed mid-segment, rapid-switch fallthrough, etc.) still
+            // surfaces the merge decision pre-transition. Without this, the
+            // deferred post-load dialog runs against whichever pending tree
+            // happens to be in the slot — which can be an orphan from a
+            // prior session, the exact symptom Bug A/B were rooted in.
+            bool switchSegmentActive =
+                !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveSwitchSegmentSession != null;
             bool isAutoMerge = ParsekScenario.IsAutoMerge;
 
             // Mirrors ShouldShowCommitApproval but reads live vessel
@@ -190,6 +235,7 @@ namespace Parsek
                 destination,
                 hasActiveTree: hasActiveTree,
                 reFlyActive: reFlyActive,
+                switchSegmentActive: switchSegmentActive,
                 isAutoMerge: isAutoMerge,
                 activeVesselLandedOrSplashed: landedOrSplashed);
         }
@@ -220,6 +266,43 @@ namespace Parsek
                 reFlyActive: reFlyActive,
                 isAutoMerge: isAutoMerge,
                 pendingRootLandedOrSplashed: pendingRootLandedOrSplashed);
+        }
+
+        /// <summary>
+        /// Bug C helper: resolve the in-memory <see cref="RecordingTree"/>
+        /// that owns the given <paramref name="session"/>, scanning the
+        /// pending slot, the active tree, and the committed-trees list in
+        /// that priority order. Returns null when the session's TreeId
+        /// resolves to no live tree (degenerate state — the caller falls
+        /// back to the normal pending-tree dialog path with a Warn log).
+        ///
+        /// <para>Priority order: Pending (sealed-but-not-yet-committed) →
+        /// Active (live activeTree on <see cref="ParsekFlight"/>, including
+        /// clone-restore wrappers) → Committed (terminal storage). The active
+        /// slot wins over committed when an in-FLIGHT clone-restore is
+        /// mid-flight, ensuring the segment-bearing clone is dialog-ed
+        /// instead of the original committed tree. Invariant: no live
+        /// <see cref="SwitchSegmentSession"/> should ever share its TreeId
+        /// with a non-clone committed tree.</para>
+        ///
+        /// <para>M3 (PR #876 round-5 review): now delegates to
+        /// <see cref="RecordingStore.TryResolveTreeById"/> — the canonical
+        /// resolver shared with
+        /// <see cref="MergeDialog.ShowPreSwitchDecisionDialog"/>. The two
+        /// callers used to walk the same slots with diverging logic; the
+        /// helper keeps them in lockstep so a future refactor cannot
+        /// recreate the inconsistency.</para>
+        /// </summary>
+        internal static RecordingTree TryResolveSessionTreeForDialog(SwitchSegmentSession session)
+        {
+            if (session == null || string.IsNullOrEmpty(session.TreeId))
+                return null;
+
+            RecordingStore.TryResolveTreeById(
+                session.TreeId,
+                out RecordingTree tree,
+                out _);
+            return tree;
         }
 
         private static bool PendingTreeRootLandedOrSplashed()
@@ -488,6 +571,50 @@ namespace Parsek
             var flight = ParsekFlight.Instance;
             if (flight == null || !flight.HasActiveTree)
             {
+                // Bug C (post-#876 playtest 2026-05-17): an armed
+                // SwitchSegmentSession with no live active tree means the
+                // session's tree is in a non-active slot — pending tree,
+                // saved-pending-during-active-restore, or already committed
+                // (the recorder having been torn down by an
+                // OnVesselWillDestroy seam mid-segment). Route the dialog
+                // to the SESSION'S tree rather than blindly grabbing
+                // RecordingStore.PendingTree, which can be an unrelated
+                // orphan from a prior switch in the same FLIGHT scene
+                // (this was the wrong-tree symptom that surfaced as Bug A).
+                var scenarioForSession = ParsekScenario.Instance;
+                var session = scenarioForSession?.ActiveSwitchSegmentSession;
+                if (session != null)
+                {
+                    RecordingTree sessionTree =
+                        SceneExitInterceptor.TryResolveSessionTreeForDialog(session);
+                    if (sessionTree != null)
+                    {
+                        if (SceneExitInterceptor.ShowDialogForTesting != null)
+                        {
+                            SceneExitInterceptor.ShowDialogForTesting(
+                                scene, SceneExitInterceptor.DialogVariant.RegularMerge);
+                            return false;
+                        }
+
+                        ParsekLog.Info("SceneExit",
+                            $"LoadScene prefix: showing pre-transition dialog for " +
+                            $"switch-segment session tree '{sessionTree.TreeName ?? "<unnamed>"}' " +
+                            $"sessionId={session.SessionId:D} dest={scene}");
+
+                        MergeDialog.ShowTreeDialog(
+                            sessionTree,
+                            labels: MergeDialog.MergeDialogButtonLabels.Default,
+                            preCommitFinalize: () => { },
+                            postChoice: SceneExitInterceptor.BuildPostChoice(scene));
+
+                        return false;
+                    }
+                    ParsekLog.Warn("SceneExit",
+                        $"LoadScene prefix: switch-segment session armed but tree " +
+                        $"id={session.TreeId ?? "<null>"} resolves to no in-memory tree " +
+                        $"sessionId={session.SessionId:D} - falling back to pending-tree branch");
+                }
+
                 var pendingVariant =
                     SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(scene);
                 if (pendingVariant == SceneExitInterceptor.DialogVariant.None)

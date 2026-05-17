@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Xunit;
 using UnityEngine;
@@ -1402,5 +1403,129 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        // ================================================================
+        // M3 (PR #876 round-5 review): shared TryResolveTreeById helper
+        // used by both SceneExitInterceptor.TryResolveSessionTreeForDialog
+        // and MergeDialog.ShowPreSwitchDecisionDialog. The two callers used
+        // to walk the same slots with diverging logic; this helper keeps
+        // them in lockstep. The Active slot lookup requires Unity (touches
+        // ParsekFlight.Instance) so we cover Pending + Committed + missing
+        // cases here and leave the Active-slot priority gate as a source-
+        // text check.
+        // ================================================================
+
+        [Fact]
+        public void TryResolveTreeById_NullOrEmptyTreeId_ReturnsFalse()
+        {
+            // Fails if: the helper returns true / sets a non-null tree for
+            // a degenerate input. Caller must Warn-log and fall back.
+            Assert.False(RecordingStore.TryResolveTreeById(
+                null, out RecordingTree t1, out var s1));
+            Assert.Null(t1);
+            Assert.Equal(RecordingStore.TreeSlotSource.None, s1);
+
+            Assert.False(RecordingStore.TryResolveTreeById(
+                string.Empty, out RecordingTree t2, out var s2));
+            Assert.Null(t2);
+            Assert.Equal(RecordingStore.TreeSlotSource.None, s2);
+        }
+
+        [Fact]
+        public void TryResolveTreeById_PendingSlotWinsOverCommitted()
+        {
+            // Fails if: a tree id present in BOTH slots resolves to the
+            // committed copy. Priority order is Pending → Active →
+            // Committed; if the same id sat in both (degenerate, but
+            // possible during in-FLIGHT clone-restore), pending wins.
+            const string treeId = "tree-priority-pending";
+            var pendingRec = new Recording { RecordingId = "r1", TreeId = treeId };
+            var pendingTree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Pending",
+                RootRecordingId = "r1",
+                ActiveRecordingId = "r1",
+            };
+            pendingTree.Recordings["r1"] = pendingRec;
+            RecordingStore.StashPendingTree(pendingTree);
+
+            // Seed a committed entry with the same id via the test seam.
+            // Reach into committedTrees via the public list accessor.
+            var committedSameId = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Committed",
+                RootRecordingId = "r-committed",
+                ActiveRecordingId = "r-committed",
+            };
+            RecordingStore.CommittedTrees.Add(committedSameId);
+
+            bool ok = RecordingStore.TryResolveTreeById(
+                treeId, out var resolved, out var slot);
+            Assert.True(ok);
+            Assert.Same(pendingTree, resolved);
+            Assert.Equal(RecordingStore.TreeSlotSource.Pending, slot);
+        }
+
+        [Fact]
+        public void TryResolveTreeById_CommittedSlotWhenPendingMissing()
+        {
+            // Fails if: the helper does not walk the CommittedTrees list
+            // when the pending slot is empty. This was the pre-#876 fix
+            // case where the pre-switch dialog stopped after pending+active
+            // and ignored Committed, while SceneExit walked all three.
+            const string treeId = "tree-committed-only";
+            var committedTree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "CommittedOnly",
+                RootRecordingId = "r-c",
+                ActiveRecordingId = "r-c",
+            };
+            RecordingStore.CommittedTrees.Add(committedTree);
+
+            bool ok = RecordingStore.TryResolveTreeById(
+                treeId, out var resolved, out var slot);
+            Assert.True(ok);
+            Assert.Same(committedTree, resolved);
+            Assert.Equal(RecordingStore.TreeSlotSource.Committed, slot);
+        }
+
+        [Fact]
+        public void TryResolveTreeById_MissingId_ReturnsFalseAndNoneSlot()
+        {
+            // Fails if: a TreeId that lives in none of the three slots
+            // returns true. Caller falls back to a stub dialog body.
+            bool ok = RecordingStore.TryResolveTreeById(
+                "tree-never-existed", out var resolved, out var slot);
+            Assert.False(ok);
+            Assert.Null(resolved);
+            Assert.Equal(RecordingStore.TreeSlotSource.None, slot);
+        }
+
+        [Fact]
+        public void TryResolveTreeById_BothCallersDelegateToSharedHelper_SourceTextGate()
+        {
+            // Fails if: SceneExitInterceptor.TryResolveSessionTreeForDialog
+            // or MergeDialog.ShowPreSwitchDecisionDialog diverges from the
+            // shared RecordingStore.TryResolveTreeById path (recreating the
+            // inconsistency that round-5 review M3 flagged).
+            string projectRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string sceneExitPath = System.IO.Path.Combine(
+                projectRoot, "Source", "Parsek", "SceneExitInterceptor.cs");
+            string mergeDialogPath = System.IO.Path.Combine(
+                projectRoot, "Source", "Parsek", "MergeDialog.cs");
+
+            string sceneExitSrc = System.IO.File.ReadAllText(sceneExitPath);
+            string mergeDialogSrc = System.IO.File.ReadAllText(mergeDialogPath);
+
+            Assert.Contains(
+                "RecordingStore.TryResolveTreeById", sceneExitSrc);
+            Assert.Contains(
+                "RecordingStore.TryResolveTreeById", mergeDialogSrc);
+        }
     }
 }

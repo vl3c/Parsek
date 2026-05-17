@@ -205,16 +205,23 @@ namespace Parsek
             }
             else
             {
-                // Regular tree-merge: just the headline. The spawnable=0
-                // advisory ("no flight branches produced a vessel that can
-                // continue flying") that used to ride here was over-
-                // explanation — when the tree's recordings are all crashed
-                // or recovered, ghost-only playback is the obvious outcome
-                // and the player already saw it happen. If any recording
-                // had survived as a flyable vessel, it would not be sitting
-                // in a pending tree at all.
-                double duration = ComputeTreeDurationRange(tree);
-                message = $"{tree.TreeName} - {FormatDuration(duration)}";
+                // Bug 3 (post-#876 playtest 2026-05-17): unified whole-tree
+                // body for both regular tree-merge and switch-segment scoped
+                // merges. The duration line distinguishes a 16s switch
+                // segment from a 30-minute launch — the bespoke entry-reason
+                // copy ("Keep your switch into ..." / "Keep your new flight
+                // on ...") that used to live here was confusing because it
+                // didn't surface the duration the player needed to tell
+                // them apart.
+                if (!object.ReferenceEquals(null, reFlyScenario)
+                    && reFlyScenario.ActiveSwitchSegmentSession != null)
+                {
+                    ParsekLog.Info("MergeDialog",
+                        $"Switch-segment merge dialog (post-transition): " +
+                        $"sessionId={reFlyScenario.ActiveSwitchSegmentSession.SessionId:D} " +
+                        $"entryReason={reFlyScenario.ActiveSwitchSegmentSession.EntryReason}");
+                }
+                message = BuildWholeTreeMergeDialogBody(tree);
             }
 
             var capturedDecisions = decisions;
@@ -347,8 +354,19 @@ namespace Parsek
                 title = "Confirm Merge to Timeline";
                 mergeLabel = "Merge to Timeline";
                 discardLabel = "Discard";
-                double duration = ComputeTreeDurationRange(liveTree);
-                message = $"{liveTree.TreeName} - {FormatDuration(duration)}";
+                // Bug 3 (post-#876 playtest 2026-05-17): unified body for both
+                // regular tree-merge and switch-segment scoped merges. See
+                // BuildWholeTreeMergeDialogBody for rationale.
+                var switchScenario = ParsekScenario.Instance;
+                if (!object.ReferenceEquals(null, switchScenario)
+                    && switchScenario.ActiveSwitchSegmentSession != null)
+                {
+                    ParsekLog.Info("MergeDialog",
+                        $"Switch-segment merge dialog (pre-transition): " +
+                        $"sessionId={switchScenario.ActiveSwitchSegmentSession.SessionId:D} " +
+                        $"entryReason={switchScenario.ActiveSwitchSegmentSession.EntryReason}");
+                }
+                message = BuildWholeTreeMergeDialogBody(liveTree);
             }
 
             ParsekLog.Info("MergeDialog",
@@ -411,6 +429,309 @@ namespace Parsek
                 ParsekLog.Warn("MergeDialog",
                     $"ShowTreeDialog (pre-transition): SpawnPopupDialog returned null for tree='{liveTree.TreeName}'");
             }
+        }
+
+        /// <summary>
+        /// Pre-switch decision dialog for the rapid Switch-To case (Map view
+        /// "Switch To" clicked while a <see cref="SwitchSegmentSession"/> is
+        /// already armed). Opens BEFORE the new stock <c>SetActiveVessel</c>
+        /// runs and presents two buttons:
+        ///
+        /// <list type="bullet">
+        /// <item><b>Merge</b>: finalize + stash + commit the prior session's
+        ///     active tree using the pre-transition merge path (same as
+        ///     scene-exit), then arm the new intent and call
+        ///     <c>FlightGlobals.SetActiveVessel(target)</c>.</item>
+        /// <item><b>Discard</b>: scoped-discard the prior session via
+        ///     <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>,
+        ///     then arm the new intent and call
+        ///     <c>FlightGlobals.SetActiveVessel(target)</c>.</item>
+        /// </list>
+        ///
+        /// <para>There is no Cancel button — Switch-To is unambiguous player
+        /// intent. The dialog only decides what to do with the prior segment
+        /// before the switch proceeds.</para>
+        ///
+        /// <para>Returns true when the dialog was spawned (caller's Prefix
+        /// returns false to skip the stock <c>OnSelect</c>). Returns false
+        /// when <see cref="PopupDialog.SpawnPopupDialog"/> returned null —
+        /// the caller's Prefix should fall back to running the original
+        /// <c>OnSelect</c> so the supersede defensive path can take over.</para>
+        /// </summary>
+        internal static bool ShowPreSwitchDecisionDialog(
+            Vessel target,
+            System.Action mergeAction,
+            System.Action discardAction,
+            RecordingTree priorTreeOverride = null)
+        {
+            if (target == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "ShowPreSwitchDecisionDialog: target vessel is null - cannot spawn dialog");
+                return false;
+            }
+            if (mergeAction == null || discardAction == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "ShowPreSwitchDecisionDialog: merge/discard action is null - cannot spawn dialog");
+                return false;
+            }
+
+            // Read prior session metadata for the dialog body (TreeName and
+            // segment duration), routed through the same shared helper as the
+            // scene-exit dialog so a 12s switch segment is visually distinct
+            // from a 30-minute launch. If the active scenario / session is
+            // unavailable for any reason, fall back to a stub body so the
+            // dialog still spawns rather than silently leaving the player
+            // stranded with no decision UI.
+            //
+            // No-session Case B (2026-05-17 follow-up): callers in the
+            // no-session pre-switch path pass the live activeTree via
+            // priorTreeOverride. We skip the session-id-based resolver
+            // and render the dialog body directly from that tree (with
+            // ResolveDialogBodyDuration falling back to tree-wide
+            // duration in the absence of a session — already supported).
+            var scenario = ParsekScenario.Instance;
+            var session = scenario != null
+                ? scenario.ActiveSwitchSegmentSession
+                : null;
+            string priorSessionIdStr = session != null
+                ? $"{session.SessionId:D}"
+                : "<none>";
+
+            // Locate the session's tree so we can render the duration body.
+            // The session.TreeId may resolve to the live activeTree (rapid
+            // Switch-To inside FLIGHT) or a pending stash. M3 (PR #876
+            // round-5 review): now uses the shared
+            // RecordingStore.TryResolveTreeById helper, the same one
+            // SceneExitInterceptor.TryResolveSessionTreeForDialog uses, so
+            // the two callers cannot diverge in the slot walk.
+            RecordingTree priorTree = null;
+            RecordingStore.TreeSlotSource priorTreeSlot =
+                RecordingStore.TreeSlotSource.None;
+            if (priorTreeOverride != null)
+            {
+                priorTree = priorTreeOverride;
+                // Case B: tree comes straight from the caller (live
+                // ActiveTreeForDisplay). No slot resolution and no
+                // committed-slot guard — Case B never crosses a
+                // CommittedTrees boundary because we hand the tree in
+                // directly.
+                priorTreeSlot = RecordingStore.TreeSlotSource.Active;
+            }
+            else
+            {
+                try
+                {
+                    if (session != null)
+                    {
+                        RecordingStore.TryResolveTreeById(
+                            session.TreeId, out priorTree, out priorTreeSlot);
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"ShowPreSwitchDecisionDialog: tree lookup threw " +
+                        $"{ex.GetType().Name}: {ex.Message} — body will use a stub");
+                    priorTree = null;
+                    priorTreeSlot = RecordingStore.TreeSlotSource.None;
+                }
+
+                // M1 (PR #876 round-5 review): if the session's tree
+                // resolved to the CommittedTrees slot specifically,
+                // refuse to spawn the dialog. The Merge button would
+                // call MergeCommit -> the M1 guard there would refuse
+                // (the tree isn't in pendingTree), and the player would
+                // see a dialog that does nothing. The session marker
+                // probably needs cleanup separately, but that is out
+                // of scope for this PR — defensive log + refuse here
+                // so we don't trigger the misbehaving Merge path.
+                // Skipped on the no-session Case B branch above
+                // because the caller passes the active tree directly.
+                if (priorTreeSlot == RecordingStore.TreeSlotSource.Committed)
+                {
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        $"bug-c-dialog-refused-session-tree-in-committed-slot " +
+                        $"priorSessionId={priorSessionIdStr} " +
+                        $"treeId={(session != null ? session.TreeId ?? "<null>" : "<no-session>")} " +
+                        $"newTargetPid={target.persistentId} — " +
+                        "Merge would no-op via the merge-commit-tree-mismatch guard");
+                    return false;
+                }
+            }
+
+            string message;
+            if (priorTree != null)
+            {
+                try
+                {
+                    message = BuildWholeTreeMergeDialogBody(priorTree);
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"ShowPreSwitchDecisionDialog: BuildWholeTreeMergeDialogBody threw " +
+                        $"{ex.GetType().Name}: {ex.Message} — using stub body");
+                    message = priorTree.TreeName ?? "<unnamed>";
+                }
+            }
+            else
+            {
+                message = session != null && !string.IsNullOrEmpty(session.TreeId)
+                    ? $"Prior switch-segment session (tree id={session.TreeId})"
+                    : "Prior switch-segment session";
+            }
+
+            const string title = "Pending switch-segment recording";
+
+            // M2 (PR #876 round-5 review): Esc must NOT dismiss this dialog —
+            // the player must commit to Merge or Discard. KSP's stock
+            // PopupDialog.Update() hard-codes `Input.GetKeyUp(KeyCode.Escape)`
+            // -> Dismiss() and has no `dismissOnEscape` flag, so we enforce
+            // the contract from OnDismiss: when teardown fires without a
+            // button click, re-spawn the same dialog so the player can't
+            // sneak past it via Esc. The button handlers set the shared
+            // `buttonClicked` flag before invoking the action, so OnDismiss
+            // knows whether to re-spawn or just clean up.
+            bool buttonClicked = false;
+
+            // MED2 (PR #876 round-6 review): gate the generic Merge / Discard
+            // log lines on the session-armed path. For Case B
+            // (priorTreeOverride != null), `priorSessionId` is always
+            // "<none>" and the Case B handler emits its own
+            // `*-chosen-no-session` log line with the priorTreeId — the
+            // generic line would be redundant noise.
+            bool isCaseB = priorTreeOverride != null;
+            DialogGUIButton[] buttons = new[]
+            {
+                new DialogGUIButton("Merge", () =>
+                {
+                    buttonClicked = true;
+                    if (!isCaseB)
+                    {
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog-merge-chosen priorSessionId={priorSessionIdStr} " +
+                            $"newTargetPid={target.persistentId}");
+                    }
+                    ClearPendingFlag("pre-switch-dialog merge button");
+                    try
+                    {
+                        mergeAction.Invoke();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Error("SwitchIntentPatch",
+                            $"pre-switch-dialog merge action threw " +
+                            $"{ex.GetType().Name}: {ex.Message}");
+                    }
+                }),
+                new DialogGUIButton("Discard", () =>
+                {
+                    buttonClicked = true;
+                    if (!isCaseB)
+                    {
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog-discard-chosen priorSessionId={priorSessionIdStr} " +
+                            $"newTargetPid={target.persistentId}");
+                    }
+                    ClearPendingFlag("pre-switch-dialog discard button");
+                    try
+                    {
+                        discardAction.Invoke();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Error("SwitchIntentPatch",
+                            $"pre-switch-dialog discard action threw " +
+                            $"{ex.GetType().Name}: {ex.Message}");
+                    }
+                }),
+            };
+
+            // Mirror the scene-exit dialog's lock/flag sequencing so input is
+            // blocked the same way and the OnDismiss teardown clears the lock
+            // even if the popup is dismissed via a non-button path.
+            PopupDialog.DismissPopup(DialogName);
+            LockInput();
+            ParsekScenario.MergeDialogPending = true;
+            // KSP's stock PopupDialog hard-codes Esc -> Dismiss() in its
+            // Update() loop with no `dismissOnEscape` flag; the boolean
+            // parameter on SpawnPopupDialog is `persistAcrossScenes`, not
+            // dismissal control. We enforce the "no Esc dismissal" contract
+            // from the OnDismiss handler below — when teardown fires without
+            // a button click, we re-spawn the same dialog.
+            PopupDialog popup = PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    DialogName,
+                    message,
+                    title,
+                    HighLogic.UISkin,
+                    buttons
+                ),
+                persistAcrossScenes: false,
+                HighLogic.UISkin
+            );
+            if (popup != null)
+            {
+                popup.OnDismiss += () =>
+                {
+                    if (buttonClicked)
+                    {
+                        ClearPendingFlag("pre-switch-dialog popup teardown");
+                        return;
+                    }
+                    // Esc / non-button teardown: re-spawn the dialog so the
+                    // player still has to make a choice. M2 (PR #876 round-5
+                    // review): the stealth-Cancel UX bug stayed silent because
+                    // OnDismiss cleared the input lock but left the prior
+                    // session armed, so the next Switch-To opened a wrong-tree
+                    // dialog. Forcing Merge/Discard is the contract.
+                    //
+                    // LOW 3 (PR #876 round-6 review): emit a case
+                    // discriminator so the reader can tell whether the
+                    // respawn was for the session-armed (Case A) or
+                    // no-session (Case B) path. `priorSessionId` is
+                    // "<none>" on Case B and the priorTreeId is the
+                    // identifying field instead.
+                    if (isCaseB)
+                    {
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog-esc-refused-respawning " +
+                            $"case=case-B-no-session " +
+                            $"priorTreeId={priorTreeOverride?.Id ?? "<null>"} " +
+                            $"newTargetPid={target.persistentId}");
+                    }
+                    else
+                    {
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog-esc-refused-respawning " +
+                            $"case=case-A-session " +
+                            $"priorSessionId={priorSessionIdStr} newTargetPid={target.persistentId}");
+                    }
+                    // Recursive re-spawn through the same helper. If THAT spawn
+                    // fails, the lock is released and we fall back to the
+                    // defensive supersede path documented at the spawn-failed
+                    // log line below. The recursion is bounded by the player's
+                    // own input — every Esc press just re-opens the dialog.
+                    ClearPendingFlag("pre-switch-dialog popup teardown (re-spawn)");
+                    ShowPreSwitchDecisionDialog(
+                        target, mergeAction, discardAction, priorTreeOverride);
+                };
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"pre-switch-dialog-opened priorSessionId={priorSessionIdStr} " +
+                    $"priorFocusedPid={(session != null ? session.FocusedVesselPersistentId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
+                    $"newTargetPid={target.persistentId}");
+                return true;
+            }
+
+            ClearPendingFlag("pre-switch-dialog spawn returned null");
+            ParsekLog.Warn("SwitchIntentPatch",
+                $"pre-switch-dialog-spawn-failed falling-back-to-stock-supersede " +
+                $"priorSessionId={priorSessionIdStr} newTargetPid={target.persistentId}");
+            return false;
         }
 
         /// <summary>
@@ -478,19 +799,19 @@ namespace Parsek
             int spawnCount = 0;
             foreach (var v in decisions.Values) if (v) spawnCount++;
 
-            bool actionSucceeded;
+            bool actionCompleted;
             if (isMerge)
             {
                 MergeCommit(pending, decisions, spawnCount);
                 // CommitPendingTree nulls RecordingStore.PendingTree on success.
-                actionSucceeded = (RecordingStore.PendingTree == null);
+                actionCompleted = (RecordingStore.PendingTree == null);
             }
             else
             {
-                actionSucceeded = MergeDiscardWithResult(pending);
+                actionCompleted = MergeDiscardRanToCompletion(pending);
             }
 
-            if (!actionSucceeded)
+            if (!actionCompleted)
             {
                 ParsekLog.Warn("MergeDialog",
                     "RunPreTransitionAction: action refused (likely merge-journal-active " +
@@ -610,6 +931,236 @@ namespace Parsek
             => string.IsNullOrEmpty(reason) ? "<unspecified>" : reason;
 
         /// <summary>
+        /// Bug 3 (post-#876 playtest 2026-05-17): unified body for the
+        /// whole-tree pre/post-transition merge dialog. Both switch-segment
+        /// (short standalone segment) and long-lived launch trees render the
+        /// same wording: "{TreeName} - {Duration}". The player tells short
+        /// segments apart from whole recordings by reading the duration.
+        /// Previously a separate <c>BuildSwitchSegmentDialogBody</c> emitted
+        /// entry-reason-aware copy ("Keep your switch into ..." / "Keep your
+        /// new flight on ..."), but the playtest report identified that
+        /// bespoke copy as confusing — the duration line is the load-bearing
+        /// distinguisher.
+        ///
+        /// <para>Bug 6 follow-up (post-#876 playtest 2026-05-17, route=
+        /// committed-spawned-clone case): when an
+        /// <see cref="SwitchSegmentSession"/> is armed AND the dialog's tree
+        /// owns the session's <c>ActiveSegmentRecordingId</c>, the duration
+        /// shown is the SEGMENT recording's elapsed time
+        /// (<c>EndUT - StartUT</c>), NOT the whole tree's span. Without this
+        /// the dialog after a committed-clone switch/Fly auto-record shows
+        /// the launch-to-present mission time (e.g. "Kerbal X - 28m") even
+        /// though the pending work is the ~10-second post-switch segment,
+        /// because the segment recording lives inside the committed-clone
+        /// tree alongside ~15 pre-existing recordings. Player mental model:
+        /// "how long did I fly after the switch" — child-debris-recording
+        /// windows after explosions are intentionally NOT included.</para>
+        ///
+        /// <para>Defensive fallbacks:</para>
+        /// <list type="bullet">
+        /// <item>session armed but <c>ActiveSegmentRecordingId</c> is null
+        ///     or not in this tree → tree-wide duration (a different tree
+        ///     is being merged than the one carrying the segment; no warn).</item>
+        /// <item>segment has <c>EndUT &lt; StartUT</c> (malformed bounds) →
+        ///     tree-wide duration + <c>[SwitchSegment]</c> Warn log.</item>
+        /// </list>
+        /// </summary>
+        internal static string BuildWholeTreeMergeDialogBody(RecordingTree tree)
+        {
+            string treeName = tree?.TreeName ?? "<unnamed>";
+            // L2 (PR #876 final review): ParsekScenario.Instance is a Unity-static
+            // touch point — its static initializer can race during scene load
+            // and throw a TypeInitializationException (or a downstream null
+            // chase). Wrap the dispatch so a broken scenario state cannot
+            // crash the dialog. Falling back to the tree-wide duration is the
+            // safe whole-launch reading; the [SwitchSegment] Warn surfaces the
+            // race in KSP.log so a real bug can still be diagnosed.
+            double duration;
+            try
+            {
+                duration = ResolveDialogBodyDuration(tree);
+            }
+            // LOW 2 (PR #876 round-6 review): defensive for Unity-runtime
+            // hazards (Planetarium.GetUniversalTime throwing during scene
+            // tear-down, ParsekScenario.Instance static initializer
+            // racing scene load, etc.). For Case A (session-active), the
+            // catch falls back from segment-scoped to tree-wide duration.
+            // For Case B (no-session, priorTreeOverride), the normal
+            // path already returns ComputeTreeDurationRange(tree) — the
+            // catch is purely a safety net there.
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"BuildWholeTreeMergeDialogBody: dialog-body-static-exception " +
+                    $"exType={ex.GetType().Name} " +
+                    $"message={ex.Message ?? "<null>"} — falling back to tree-wide duration");
+                duration = ComputeTreeDurationRange(tree);
+            }
+            return $"{treeName} - {FormatDuration(duration)}";
+        }
+
+        /// <summary>
+        /// Test seam: override the current Planetarium UT used by the
+        /// segment-aware duration path's live-recording fallback. Production
+        /// code leaves this null and the helper falls back to
+        /// <c>Planetarium.GetUniversalTime()</c>; unit tests inject a fixed
+        /// UT so the live-recording branch is exercisable without a Unity
+        /// runtime.
+        /// </summary>
+        internal static System.Func<double> NowUtProviderForTesting;
+
+        /// <summary>Clears all test seams in MergeDialog.</summary>
+        internal static void ResetTestOverrides()
+        {
+            NowUtProviderForTesting = null;
+        }
+
+        private static double CurrentUtForSegmentDuration()
+        {
+            var hook = NowUtProviderForTesting;
+            if (hook != null)
+            {
+                try { return hook(); }
+                catch { /* fall through to Planetarium */ }
+            }
+            try { return Planetarium.GetUniversalTime(); }
+            catch
+            {
+                // No Planetarium singleton (unit test without injected hook).
+                // Returning NaN forces the segment-aware branch to fall back
+                // to the persisted EndUT - StartUT computation instead of
+                // synthesizing a nonsense live duration.
+                return double.NaN;
+            }
+        }
+
+        /// <summary>
+        /// Picks the duration to render in the merge dialog body. When an
+        /// active switch-segment session targets a recording inside
+        /// <paramref name="tree"/>, prefers the segment recording's elapsed
+        /// time so the dialog distinguishes a ~10s post-switch segment from
+        /// the surrounding committed-clone tree's full mission duration.
+        /// Falls back to <see cref="ComputeTreeDurationRange"/> on:
+        /// no session armed, session missing the active segment id, segment
+        /// not present in this tree, or malformed segment bounds.
+        ///
+        /// <para>Live-recording fallback (Bug A, post-#876 playtest
+        /// 2026-05-17): a still-live segment that has only sampled its
+        /// initial point has <c>EndUT == StartUT</c> (or a stale
+        /// <c>ExplicitEndUT</c> behind <c>StartUT</c>), so
+        /// <c>EndUT - StartUT</c> rounds to zero even after ~40 seconds of
+        /// real flight. The dialog renders "0s" in that window. When the
+        /// segment looks live (<c>EndUT &lt;= StartUT</c>) AND the current
+        /// Planetarium UT is past <c>StartUT</c>, fall back to
+        /// <c>currentUT - StartUT</c>. Clamps non-finite or negative results
+        /// to <c>0</c> so a UT regression (rewind-to-staging crossing the
+        /// segment, etc.) cannot leak a nonsense duration into the UI.</para>
+        /// </summary>
+        internal static double ResolveDialogBodyDuration(RecordingTree tree)
+        {
+            var scenario = ParsekScenario.Instance;
+            var session = !object.ReferenceEquals(null, scenario)
+                ? scenario.ActiveSwitchSegmentSession
+                : null;
+            if (session == null
+                || string.IsNullOrEmpty(session.ActiveSegmentRecordingId)
+                || tree?.Recordings == null)
+            {
+                return ComputeTreeDurationRange(tree);
+            }
+
+            Recording segment;
+            if (!tree.Recordings.TryGetValue(
+                    session.ActiveSegmentRecordingId, out segment)
+                || segment == null)
+            {
+                // Different tree than the one carrying the segment: legitimate
+                // case (dialog is for tree B but session targets tree A), no
+                // warning needed. Fall back to tree-wide duration.
+                return ComputeTreeDurationRange(tree);
+            }
+
+            double startUT = segment.StartUT;
+            double endUT = segment.EndUT;
+
+            // Bug A live-recording fallback (post-#876 playtest 2026-05-17):
+            // a recording that has only sampled its initial point — or that
+            // is bound to the live recorder but has not yet been finalized —
+            // has EndUT <= StartUT. Prefer currentUT - startUT in that case
+            // so the dialog reflects the wall-clock elapsed segment time
+            // instead of rounding to 0s. This intentionally takes precedence
+            // over the malformed-segment-bounds warn below: a live-but-still
+            // sampling segment is the expected steady-state shape, not a
+            // bug, and emitting a Warn every dialog open would be noise.
+            if (endUT <= startUT)
+            {
+                double currentUT = CurrentUtForSegmentDuration();
+                if (!double.IsNaN(currentUT)
+                    && !double.IsInfinity(currentUT)
+                    && currentUT > startUT)
+                {
+                    double liveDuration = currentUT - startUT;
+                    if (liveDuration < 0.0
+                        || double.IsNaN(liveDuration)
+                        || double.IsInfinity(liveDuration))
+                    {
+                        liveDuration = 0.0;
+                    }
+                    ParsekLog.Verbose("SwitchSegment",
+                        $"BuildWholeTreeMergeDialogBody: using live segment duration " +
+                        $"recId={segment.RecordingId ?? "<null>"} " +
+                        $"durationSec={liveDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"currentUT={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"sessionId={session.SessionId:D} treeId={tree.Id ?? "<null>"}");
+                    return liveDuration;
+                }
+                if (endUT < startUT)
+                {
+                    // currentUT unavailable (no Planetarium / regression
+                    // edge) and the bounds are malformed: fall back to
+                    // tree-wide duration and Warn so a real bug surfaces.
+                    ParsekLog.Warn("SwitchSegment",
+                        $"BuildWholeTreeMergeDialogBody: malformed-segment-bounds " +
+                        $"recId={segment.RecordingId ?? "<null>"} " +
+                        $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"endUT={endUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"sessionId={session.SessionId:D} — falling back to tree-wide duration");
+                    return ComputeTreeDurationRange(tree);
+                }
+                // LOW 1 (PR #876 round-6 review): endUT == startUT and
+                // no live clock available. The function falls through to
+                // the normal-path Verbose below reporting durationSec=0,
+                // which a reader grepping for "using live segment
+                // duration" would never see. Emit a greppable
+                // `live-clock-unavailable` Verbose so the fallthrough
+                // is visible in the diagnostic trail.
+                ParsekLog.Verbose("SwitchSegment",
+                    $"BuildWholeTreeMergeDialogBody: live-clock-unavailable " +
+                    $"durationSec=0 " +
+                    $"endUT={endUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"currentUT={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"recId={segment.RecordingId ?? "<null>"} " +
+                    $"sessionId={session.SessionId:D}");
+            }
+
+            double segmentDuration = endUT - startUT;
+            if (segmentDuration < 0.0
+                || double.IsNaN(segmentDuration)
+                || double.IsInfinity(segmentDuration))
+            {
+                segmentDuration = 0.0;
+            }
+            ParsekLog.Verbose("SwitchSegment",
+                $"BuildWholeTreeMergeDialogBody: using segment duration " +
+                $"recId={segment.RecordingId ?? "<null>"} " +
+                $"durationSec={segmentDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"sessionId={session.SessionId:D} treeId={tree.Id ?? "<null>"}");
+            return segmentDuration;
+        }
+
+        /// <summary>
         /// Locate the recording the active re-fly session targets. Tries the
         /// pending tree first (so the lookup works whether the dialog fires
         /// before or after `RecordingStore.CommitPendingTree`), then falls
@@ -673,6 +1224,26 @@ namespace Parsek
                 return;
             }
 
+            // M1 (PR #876 round-5 review): RecordingStore.CommitPendingTree
+            // operates on the global pendingTree slot. If a caller routes a
+            // session-resolved tree from CommittedTrees (Bug-C dialog path),
+            // CommitPendingTree would no-op on null/mismatch and the dialog
+            // would disappear with nothing committed. Refuse the commit when
+            // the passed tree isn't the one CommitPendingTree will act on, so
+            // we never silently misbehave.
+            var pendingForGuard = RecordingStore.PendingTree;
+            if (pendingForGuard == null
+                || !object.ReferenceEquals(pendingForGuard, tree))
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"merge-commit-tree-mismatch " +
+                    $"passedTreeId={tree.Id ?? "<null>"} " +
+                    $"pendingTreeId={pendingForGuard?.Id ?? "<null>"} — " +
+                    "refusing commit (CommitPendingTree would no-op or commit the wrong tree)");
+                ClearPendingFlag("merge-commit-tree-mismatch refused");
+                return;
+            }
+
             var scenarioForAdoption = ParsekScenario.Instance;
             string activeReFlyTargetId =
                 !object.ReferenceEquals(null, scenarioForAdoption)
@@ -720,6 +1291,24 @@ namespace Parsek
                     "merge dialog Tree Merge", tree.Recordings.Count);
             }
 
+            // Switch/Fly segment merge hook: when an active session is armed
+            // and the commit succeeded, clear the marker (plan §"Merge and
+            // Discard Scope": "On Merge, commit the pending tree normally
+            // and clear the switch marker only after the commit succeeds.").
+            // If a committed-tree restore attempt is also armed, clear it
+            // too — the commit promoted the clone to the new committed tree.
+            var switchSegmentScenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, switchSegmentScenario)
+                && switchSegmentScenario.ActiveSwitchSegmentSession != null)
+            {
+                switchSegmentScenario.ClearSwitchSegmentSession("scoped-merge-success");
+                if (RecordingStore.HasCommittedTreeRestoreAttempt)
+                {
+                    RecordingStore.ClearCommittedTreeRestoreAttempt(
+                        "scoped-merge-success switch-segment");
+                }
+            }
+
             ClearPendingFlag("merge dialog commit button");
             OnTreeCommitted?.Invoke(tree);
             if (spawnCount > 0)
@@ -747,16 +1336,20 @@ namespace Parsek
         /// </summary>
         internal static void MergeDiscard(RecordingTree tree)
         {
-            MergeDiscardWithResult(tree);
+            MergeDiscardRanToCompletion(tree);
         }
 
         /// <summary>
-        /// <see cref="MergeDiscard"/> variant that returns whether the
-        /// discard actually ran. Returns false when the merge-journal-active
-        /// guard refuses (used by the pre-transition dialog wrapper to
-        /// avoid invoking <c>postChoice</c> after a refused discard).
+        /// <see cref="MergeDiscard"/> variant that returns a bool: true when
+        /// the discard ran end-to-end and the caller may proceed with any
+        /// scene-transition continuation, false when the merge-journal-active
+        /// guard refused. Bug 2 (post-#876 playtest 2026-05-17) collapsed the
+        /// tri-state outcome to bool — the secondary-dialog deferral case is
+        /// gone because the topology-based scoped Discard now sweeps the full
+        /// segment subtree and never needs a follow-up whole-tree prompt.
         /// </summary>
-        internal static bool MergeDiscardWithResult(RecordingTree tree)
+        /// <param name="tree">The pending tree to discard.</param>
+        internal static bool MergeDiscardRanToCompletion(RecordingTree tree)
         {
             if (tree == null)
             {
@@ -782,6 +1375,55 @@ namespace Parsek
 
             if (TryDiscardActiveReFlyAttempt(tree))
                 return true;
+
+            // Switch/Fly segment scoped Discard (plan §"Merge and Discard Scope").
+            // Mirrors the ReFly placement: try scoped first, then fall back to
+            // whole-pending-tree discard ONLY when no session was armed.
+            //
+            // Bug 2 (post-#876 playtest 2026-05-17): scoped Discard now sweeps
+            // the topological subtree rooted at the segment recording
+            // (descendants regardless of SwitchSegmentSessionId stamp). The
+            // old "secondary whole-pending-tree dialog when pre-existing
+            // changes remain" flow has been deleted — the broader sweep makes
+            // it unnecessary in practice, and the second dialog was
+            // confusing in playtest (e.g. an orphan debris recording from a
+            // Breakup-during-segment falsely triggered the prompt).
+            string switchSegmentReason;
+            var switchSegmentDisposition =
+                RecordingStore.TryDiscardActiveSwitchSegmentAttempt(
+                    out switchSegmentReason);
+            if (switchSegmentDisposition
+                != RecordingStore.SwitchSegmentDiscardDisposition.NoActiveSession)
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"MergeDiscard: scoped switch-segment discard succeeded " +
+                    $"disposition={switchSegmentDisposition} reason={switchSegmentReason}");
+                ClearPendingFlag("merge dialog switch-segment scoped discard");
+                ParsekLog.ScreenMessage("Switch segment discarded", 2f);
+                return true;
+            }
+
+            // M1 (PR #876 round-5 review): the whole-pending-tree branch
+            // below reads RecordingStore.PendingTree as its canonical input
+            // (DiscardPendingTreeAndRecalculate, RefreshSaveAndQuicksaveAfterDiscard
+            // and friends). A session-resolved tree from the CommittedTrees
+            // slot would diverge here and we'd discard the wrong tree (or
+            // no-op, leaving the session live). The earlier Re-Fly and
+            // switch-segment scoped branches already had their chance — at
+            // this point a tree != pending is genuinely the misrouted Bug-C
+            // case the round-5 review flagged. Refuse with Warn.
+            var pendingForGuard = RecordingStore.PendingTree;
+            if (pendingForGuard == null
+                || !object.ReferenceEquals(pendingForGuard, tree))
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"merge-discard-tree-mismatch " +
+                    $"passedTreeId={tree.Id ?? "<null>"} " +
+                    $"pendingTreeId={pendingForGuard?.Id ?? "<null>"} — " +
+                    "refusing whole-pending-tree discard (Re-Fly / switch-segment scoped branches already declined)");
+                ClearPendingFlag("merge-discard-tree-mismatch refused");
+                return false;
+            }
 
             bool refreshSerializedPendingMarker =
                 RecordingStore.HasPendingTree

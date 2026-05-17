@@ -273,6 +273,10 @@ namespace Parsek
                 recNode.AddValue("supersedeTargetId", rec.SupersedeTargetId);
             if (!string.IsNullOrEmpty(rec.ProvisionalForRpId))
                 recNode.AddValue("provisionalForRpId", rec.ProvisionalForRpId);
+            // Switch/Fly segment ownership (Phase A.2, segment-scoped-switch-fly-autorecord).
+            // Independent from CreatingSessionId, which stays exclusively Re-Fly's field.
+            if (!string.IsNullOrEmpty(rec.SwitchSegmentSessionId))
+                recNode.AddValue("switchSegmentSessionId", rec.SwitchSegmentSessionId);
 
             // Pre-Re-Fly anchor trajectory snapshot (#688 follow-up). Captured
             // at session start so Re-Fly recorded-coordinate resolvers can sample the
@@ -888,6 +892,9 @@ namespace Parsek
             rec.CreatingSessionId = recNode.GetValue("creatingSessionId");
             rec.SupersedeTargetId = recNode.GetValue("supersedeTargetId");
             rec.ProvisionalForRpId = recNode.GetValue("provisionalForRpId");
+            // Phase A.2: switch/Fly segment ownership stamp. Independent from
+            // CreatingSessionId; missing key leaves the field at default null.
+            rec.SwitchSegmentSessionId = recNode.GetValue("switchSegmentSessionId");
 
             if (!string.IsNullOrEmpty(rec.SupersedeTargetId)
                 && rec.MergeState != MergeState.NotCommitted)
