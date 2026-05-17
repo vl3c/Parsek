@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Timeline W (Watch) button now works for every launch row after a Re-Fly. The button used to render permanently disabled for any launch sitting after a superseded recording.
+- Vessels spawned at a recording's terminal orbit no longer cascade-explode the first time you Switch-To, Watch, or TS-Fly them. The fix seeds part rigidbody masses right after the spawn so landing-leg autostruts anchor to the actual heaviest part instead of whichever sibling happens to be closest.
 
 ---
 

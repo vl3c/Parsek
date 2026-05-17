@@ -628,6 +628,8 @@ namespace Parsek
                 if (pv.vesselRef.orbitDriver == null)
                     ParsekLog.Warn("Spawner", "Spawned vessel has no orbitDriver — may not appear in map view");
 
+                SeedRigidbodyMassesForPackedSpawn(pv.vesselRef, "RespawnVessel");
+
                 // Suppress g-force destruction from spawn position correction (#235)
                 pv.vesselRef.IgnoreGForces(240);
 
@@ -1065,6 +1067,8 @@ namespace Parsek
                 }
                 if (pv.vesselRef.orbitDriver == null)
                     ParsekLog.Warn("Spawner", "SpawnAtPosition vessel has no orbitDriver — may not appear in map view");
+
+                SeedRigidbodyMassesForPackedSpawn(pv.vesselRef, "SpawnAtPosition");
 
                 // Suppress g-force destruction from spawn position correction (#235)
                 pv.vesselRef.IgnoreGForces(240);
@@ -5477,6 +5481,67 @@ namespace Parsek
 
             ParsekLog.Verbose("Spawner",
                 $"Post-spawn stabilization: pid={vessel.persistentId} sit={situation} — velocity zeroed");
+        }
+
+        // FlightIntegrator only updates Part.rb.mass for UNPACKED parts
+        // (Assembly-CSharp FlightIntegrator: `if (part.packed) continue;`
+        // inside the per-part mass-update loop). A ProtoVessel.Load done by
+        // Parsek's terminal-orbit / re-fly spawn paths instantiates the
+        // vessel in PACKED state, so every Part.rb keeps Unity's default
+        // mass=1 until the vessel is first unpacked. The Part.Start chain
+        // runs UpdateAutoStrut->CycleAutoStrut->SecureAutoStruts shortly
+        // after pv.Load, while the vessel is still packed; if all rb.mass
+        // values are still the Unity default, Part.MassivePartCheck's
+        // approximate-equality branch ties at mass=1 across every part and
+        // falls into the distance tiebreaker, so ForceHeaviest legs anchor
+        // to whichever sibling part happens to be closest instead of the
+        // actual heaviest part (the fuel tank). The wrong-anchor autostrut
+        // joints survive the packed coast at breakingForce=MaxValue, and
+        // when the player Switch-To unpacks the vessel they release all at
+        // once and cascade-explode the central stack within ~40ms.
+        // Seeding rb.mass right after pv.Load is enough to keep
+        // MassivePartCheck on the real heaviest part. Matches the formula
+        // FlightIntegrator uses for unpacked parts (minus the
+        // GetPhysicslessChildMass roll-up, which only matters for
+        // physicsless siblings the autostrut ranking already ignores).
+        internal static float ComputeRigidbodyMassForPackedSpawn(
+            float partMass,
+            float resourceMass,
+            float minimumMass,
+            float minimumRBMass)
+        {
+            float effectiveMass = Mathf.Max(partMass + resourceMass, minimumMass);
+            return Mathf.Max(effectiveMass, minimumRBMass);
+        }
+
+        internal static void SeedRigidbodyMassesForPackedSpawn(Vessel vessel, string logContext)
+        {
+            if (vessel == null || vessel.parts == null) return;
+
+            int updatedCount = 0;
+            int skippedNoRb = 0;
+            int skippedNoPartInfo = 0;
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part part = vessel.parts[i];
+                if (part == null) continue;
+                if (part.rb == null) { skippedNoRb++; continue; }
+                AvailablePart partInfo = part.partInfo;
+                if (partInfo == null) { skippedNoPartInfo++; continue; }
+                float seededMass = ComputeRigidbodyMassForPackedSpawn(
+                    part.mass,
+                    part.resourceMass,
+                    partInfo.MinimumMass,
+                    partInfo.MinimumRBMass);
+                part.rb.mass = seededMass;
+                updatedCount++;
+            }
+
+            ParsekLog.Info("Spawner",
+                $"Seeded packed-spawn rb.mass for {logContext}: vessel='{vessel.vesselName}' " +
+                $"pid={vessel.persistentId} updated={updatedCount} skippedNoRb={skippedNoRb} " +
+                $"skippedNoPartInfo={skippedNoPartInfo} (defends ForceHeaviest autostrut anchor " +
+                $"selection from rb.mass=1 default on packed parts)");
         }
 
         #endregion
