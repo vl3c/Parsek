@@ -2338,14 +2338,68 @@ namespace Parsek
         /// </summary>
         internal void AutoDiscardIdleActiveTree(string reason)
         {
+            AutoDiscardActiveTreeCore(
+                reason: reason,
+                screenMessage: "Recording discarded - idle on pad",
+                ledgerRecalcReason: "suppressed-scene-exit-discard",
+                chainStopReason: "idle-on-pad auto-discard");
+        }
+
+        /// <summary>
+        /// Reason-aware variant of <see cref="AutoDiscardIdleActiveTree"/>
+        /// that lets callers override the on-screen toast and the
+        /// ledger-recalc reason string. Same teardown body as the original
+        /// entry point; introduced for the pre-switch-dialog Case B
+        /// no-session Discard handler (PR #876 round-6 review) where the
+        /// "idle on pad" toast and "suppressed-scene-exit-discard" reason
+        /// are wrong-context — the player has been actively flying out of
+        /// the bubble, not sitting on the pad.
+        /// </summary>
+        /// <param name="reason">Internal log reason (subsystem trace).</param>
+        /// <param name="screenMessage">On-screen toast shown to the player.</param>
+        /// <param name="ledgerRecalcReason">Reason string passed to
+        /// <see cref="LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions"/>;
+        /// grep-able from ledger-recalc log lines.</param>
+        internal void AutoDiscardActiveTreeWithMessage(
+            string reason,
+            string screenMessage,
+            string ledgerRecalcReason)
+        {
+            AutoDiscardActiveTreeCore(
+                reason: reason,
+                screenMessage: screenMessage,
+                ledgerRecalcReason: ledgerRecalcReason,
+                chainStopReason: reason);
+        }
+
+        /// <summary>
+        /// Shared teardown body for <see cref="AutoDiscardIdleActiveTree"/>
+        /// and <see cref="AutoDiscardActiveTreeWithMessage"/>. The screen
+        /// message and ledger-recalc reason are parameterized so the
+        /// existing idle-on-pad entry point keeps its toast/reason and the
+        /// new reason-aware entry point can supply context-appropriate
+        /// strings (e.g. the Case B Switch-To Discard handler).
+        /// </summary>
+        private void AutoDiscardActiveTreeCore(
+            string reason,
+            string screenMessage,
+            string ledgerRecalcReason,
+            string chainStopReason)
+        {
             ParsekLog.Info("Flight",
-                $"AutoDiscardIdleActiveTree: discarding live tree reason='{reason}'");
-            ScreenMessage("Recording discarded - idle on pad", 3f);
+                $"AutoDiscardActiveTreeCore: discarding live tree reason='{reason}' " +
+                $"ledgerRecalcReason='{ledgerRecalcReason}'");
+            if (!string.IsNullOrEmpty(screenMessage))
+                ScreenMessage(screenMessage, 3f);
 
             // Mirror OnSceneChangeRequested's pre-finalize prep so any
             // active continuation / gloops / transient state is cleaned
-            // up before we drop the recorder.
-            chainManager.StopAllContinuations("idle-on-pad auto-discard");
+            // up before we drop the recorder. The idle-on-pad call site
+            // historically passed the literal "idle-on-pad auto-discard"
+            // here regardless of the caller's reason; the
+            // reason-aware overload forwards its own reason so the
+            // chain-continuation log line carries the same context.
+            chainManager.StopAllContinuations(chainStopReason);
             CleanupGloopsRecorder();
             ClearSceneChangeTransientState();
 
@@ -2376,7 +2430,7 @@ namespace Parsek
             // recording.
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
-                "suppressed-scene-exit-discard");
+                ledgerRecalcReason);
         }
 
         private void FinalizeTreeOnSceneChangeCore(
@@ -2992,6 +3046,25 @@ namespace Parsek
             }
 
             uint newPid = newVessel.persistentId;
+
+            // Phase C consume: validate any armed stock-action intent marker
+            // BEFORE the first-modification watcher arms, so a successful
+            // immediate-start (committed-clone, BG-member, or standalone
+            // continuation) disarms the watcher and the player gets exactly
+            // one immediate-start path per UI click. The consume helper
+            // returns NoIntent for `[`/`]` cycling, EVA, dock/undock — those
+            // continue through the existing arm-decision flow below.
+            var consumeResult = TryConsumeStockActionIntent(newVessel);
+            if (consumeResult.StartedSegment)
+            {
+                DisarmPostSwitchAutoRecord("consumed-by-stock-action-segment");
+                LogOnVesselSwitchCompleteRecState(
+                    "OnVesselSwitchComplete:post",
+                    CaptureRecorderState(),
+                    currentVesselSwitchRecoveryDiagnosticContext);
+                return;
+            }
+
             bool trackedInActiveTree = activeTree != null
                 && activeTree.BackgroundMap.ContainsKey(newPid);
             var armDecision = EvaluatePostSwitchAutoRecordArmDecision(
@@ -7714,6 +7787,937 @@ namespace Parsek
             postSwitchAutoRecord = null;
         }
 
+        // ---------------------------------------------------------------------
+        // Phase C: stock-action intent consume — validates an armed
+        // StockActionIntentMarker on a confirmed focus change, picks one of
+        // three entry branches (committed clone, BG member, standalone),
+        // mutates the live tree through SwitchSegmentBuilder, arms a fresh
+        // SwitchSegmentSession, clears the consumed marker. The
+        // OnVesselSwitchComplete and OnFlightReady call sites disarm the
+        // first-modification watcher on every Started* route so the watcher
+        // doesn't fire a second immediate-start path. See
+        // docs/dev/plans/segment-scoped-switch-fly-autorecord.md.
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// 1:1 mapping from the stock UI action that armed the intent to the
+        /// segment session's entry reason. The two enums are kept separate so
+        /// the type system reflects "intent fired" vs "session started", but
+        /// the value mapping is direct.
+        /// </summary>
+        internal static SwitchSegmentEntryReason MapIntentActionToEntryReason(StockActionType action)
+        {
+            switch (action)
+            {
+                case StockActionType.TrackingStationFly: return SwitchSegmentEntryReason.TrackingStationFly;
+                case StockActionType.KscMarkerFly: return SwitchSegmentEntryReason.KscMarkerFly;
+                case StockActionType.MapSwitchTo: return SwitchSegmentEntryReason.MapSwitchTo;
+                default: return SwitchSegmentEntryReason.MapSwitchTo;
+            }
+        }
+
+        /// <summary>
+        /// Captures an initial boundary <see cref="TrajectoryPoint"/> for the
+        /// just-activated vessel at the consume UT, delegating to the
+        /// background recorder's well-tested absolute-point capture path.
+        /// Returns a minimal stub when <paramref name="vessel"/> lacks a body
+        /// (test fixtures, scene-load race) so the helper never throws.
+        /// </summary>
+        internal static TrajectoryPoint BuildSwitchSegmentBoundaryPoint(Vessel vessel, double ut)
+        {
+            if (vessel == null || vessel.mainBody == null)
+            {
+                return new TrajectoryPoint
+                {
+                    ut = ut,
+                    bodyName = vessel?.mainBody?.name ?? "Unknown",
+                    recordedGroundClearance = double.NaN,
+                };
+            }
+            return BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(vessel, ut);
+        }
+
+        /// <summary>
+        /// Phase C entry point: validates an armed
+        /// <see cref="StockActionIntentMarker"/>, dispatches to one of three
+        /// branch routines (committed-tree clone, BG-member continuation,
+        /// standalone), or refuses with a logged reason. The caller is
+        /// responsible for disarming the first-modification watcher on every
+        /// <see cref="SwitchSegmentEntryRoute.StartedCommittedSpawnedClone"/>
+        /// / <see cref="SwitchSegmentEntryRoute.StartedBgMemberContinuation"/>
+        /// / <see cref="SwitchSegmentEntryRoute.StartedStandalone"/>
+        /// / <see cref="SwitchSegmentEntryRoute.FellThroughBgLookupFailed"/> route.
+        ///
+        /// <para>Plan §"Behavior by Entry Path", §"Segment Creation" steps 2 and 9,
+        /// and §"Two rapid switches semantics".</para>
+        /// </summary>
+        internal StockActionIntentConsumeResult TryConsumeStockActionIntent(Vessel newVessel)
+        {
+            var result = new StockActionIntentConsumeResult
+            {
+                Route = SwitchSegmentEntryRoute.NoIntent,
+                DiagnosticReason = null,
+            };
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null)
+                return result;
+
+            StockActionIntentMarker marker = scenario.CurrentStockActionIntent;
+            if (marker == null)
+                return result;
+
+            if (newVessel == null)
+            {
+                // Defensive: a null newVessel cannot match any target. Clear
+                // with a logged reason so the marker doesn't survive into a
+                // later spurious consume.
+                // MED 6 (PR #876 review): use the dedicated Refused_NullVessel
+                // route instead of Refused_TargetMismatch so log/test
+                // observers can distinguish "no vessel at all" from
+                // "wrong vessel" (which is a real PID divergence diagnostic).
+                scenario.ClearStockActionIntent("consume-null-vessel");
+                ParsekLog.Info("SwitchIntent",
+                    $"refused: reason=consume-null-vessel intentId={marker.IntentId:D} " +
+                    $"action={marker.Action} markerTargetPid={marker.TargetVesselPersistentId}");
+                result.Route = SwitchSegmentEntryRoute.Refused_NullVessel;
+                result.DiagnosticReason = "consume-null-vessel";
+                return result;
+            }
+
+            uint newPid = newVessel.persistentId;
+
+            bool missedSwitchRecoveryActive =
+                currentVesselSwitchRecoveryDiagnosticContext.IsRecovery;
+
+            uint activeSessionFocusedPid =
+                scenario.ActiveSwitchSegmentSession?.FocusedVesselPersistentId ?? 0u;
+
+            float currentRealtime = Time.realtimeSinceStartup;
+            double currentUT = Planetarium.fetch != null
+                ? Planetarium.GetUniversalTime()
+                : marker.CapturedUT;
+
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker,
+                newPid,
+                ParsekProcess.ProcessSessionId,
+                currentRealtime,
+                currentUT,
+                missedSwitchRecoveryActive,
+                activeSessionFocusedPid);
+
+            if (outcome != StockActionIntentConsumeDecision.Outcome.Authorized
+                && outcome != StockActionIntentConsumeDecision.Outcome.NoIntent)
+            {
+                string clearReason = StockActionIntentConsumeDecision.ClearReasonFor(outcome);
+                string diag = StockActionIntentConsumeDecision.FormatRefusalDiagnostic(
+                    outcome, marker, newPid);
+                ParsekLog.Info("SwitchIntent", diag);
+                if (!string.IsNullOrEmpty(clearReason))
+                    scenario.ClearStockActionIntent(clearReason);
+                result.Route = StockActionIntentConsumeDecision.RouteForRefusal(outcome);
+                result.DiagnosticReason = clearReason;
+                return result;
+            }
+
+            if (outcome == StockActionIntentConsumeDecision.Outcome.NoIntent)
+                return result;
+
+            // Authorized — pick the entry branch. Re-snapshot context now,
+            // after the decision predicate, so any rapid second click that
+            // raced the consume site still gets the up-to-date activeTree.
+            double switchUT = currentUT;
+            uint sourcePid = TryResolvePreSwitchVesselPid(newPid);
+
+            // Two-rapid-switches different-target: close prior session.
+            var priorSession = scenario.ActiveSwitchSegmentSession;
+            if (priorSession != null
+                && priorSession.FocusedVesselPersistentId != newPid)
+            {
+                ParsekLog.Info("SwitchSegment",
+                    $"superseded-by-new-switch: prior sessionId={priorSession.SessionId:D} " +
+                    $"priorFocusedPid={priorSession.FocusedVesselPersistentId} " +
+                    $"newFocusedPid={newPid}");
+                scenario.ClearSwitchSegmentSession("superseded-by-new-switch");
+            }
+
+            // Branch selection. Order matters: the committed-spawned-vessel
+            // clone path takes precedence (plan §"Fly / Switch-To a committed
+            // spawned vessel"), then BG-member (§"Goal 4"), then standalone
+            // (§"Goal 5"). The clone branch may install activeTree if it
+            // hasn't run yet for this scene.
+            if (TryRouteCommittedSpawnedClone(newVessel, marker, switchUT, sourcePid, out result))
+                return result;
+
+            // After the clone branch refuses, activeTree may still be null
+            // (e.g. unrelated vessel with no committed match). The BG-member
+            // branch only fires when there IS a live activeTree containing
+            // the focused PID in BackgroundMap.
+            if (activeTree != null
+                && activeTree.BackgroundMap != null
+                && activeTree.BackgroundMap.ContainsKey(newPid))
+            {
+                return StartBgMemberContinuationSegment(newVessel, marker, switchUT, sourcePid);
+            }
+
+            return StartStandaloneContinuationSegment(newVessel, marker, switchUT, sourcePid,
+                fallthroughFromBgLookup: false,
+                fallthroughReason: null);
+        }
+
+        /// <summary>
+        /// Best-effort pre-switch vessel PID. For Map Switch-To the prior
+        /// active recorder still owns the source vessel; for TS Fly / KSC Fly
+        /// we're entering FLIGHT fresh and no source exists, so 0 is returned.
+        /// </summary>
+        private uint TryResolvePreSwitchVesselPid(uint newPid)
+        {
+            if (recorder != null && recorder.RecordingVesselId != 0
+                && recorder.RecordingVesselId != newPid)
+            {
+                return recorder.RecordingVesselId;
+            }
+            if (activeTree != null && !string.IsNullOrEmpty(activeTree.ActiveRecordingId))
+            {
+                Recording active;
+                if (activeTree.Recordings.TryGetValue(activeTree.ActiveRecordingId, out active)
+                    && active != null
+                    && active.VesselPersistentId != 0
+                    && active.VesselPersistentId != newPid)
+                {
+                    return active.VesselPersistentId;
+                }
+            }
+            return 0u;
+        }
+
+        /// <summary>
+        /// Attempts the committed-spawned-vessel clone branch (plan §"Fly /
+        /// Switch-To a committed spawned vessel"). Returns true and writes
+        /// <paramref name="result"/> when this branch fires (whether a segment
+        /// is started or the helper refuses with a logged reason that should
+        /// NOT fall through to BG / standalone). Returns false when the
+        /// vessel does not match any committed tree — caller continues to the
+        /// BG / standalone branches.
+        ///
+        /// <para>The #866 copy-on-write clone path may not have run yet (e.g.
+        /// when the consume site fires from <see cref="OnVesselSwitchComplete"/>
+        /// in a Map Switch-To inside the same FLIGHT scene). When activeTree
+        /// is null and a committed tree matches the focused vessel, this
+        /// helper invokes <see cref="TryRestoreCommittedTreeForSpawnedActiveVessel"/>
+        /// to install the clone, then attaches the continuation under it.</para>
+        /// </summary>
+        private bool TryRouteCommittedSpawnedClone(
+            Vessel newVessel,
+            StockActionIntentMarker marker,
+            double switchUT,
+            uint sourcePid,
+            out StockActionIntentConsumeResult result)
+        {
+            result = default;
+            uint newPid = newVessel.persistentId;
+
+            // Path A: activeTree is already the #866 clone (e.g. consume fires
+            // on OnFlightReady after restore installed it). Detect by tree
+            // identity matching a committed tree's id but recordings list
+            // matching the live mutable state.
+            bool activeIsCommittedClone = activeTree != null
+                && !string.IsNullOrEmpty(activeTree.Id)
+                && RecordingStore.CommittedTrees != null
+                && IsTreeIdInCommittedTrees(activeTree.Id);
+
+            // Path B: activeTree is null but a committed tree matches the
+            // focused PID. Pull the #866 clone through the same code path
+            // the FlightReady seam uses (TryRestoreCommittedTreeForSpawnedActiveVessel)
+            // and then attach the continuation.
+            //
+            // Bug 5 (post-#876 playtest 2026-05-17): the PID match has two
+            // shapes — direct VesselPersistentId match (an already-live
+            // committed vessel) and SpawnedVesselPersistentId match (a
+            // Parsek-spawned vessel whose live PID was minted at spawn time
+            // and stored on the committed recording by the spawn-at-end
+            // pipeline). Before this fix, the lookup checked only
+            // VesselPersistentId, so a Switch-To on a Parsek-spawned vessel
+            // fell through to standalone routing — wrong root cause for the
+            // segment created during the bug 5 playtest. We now also check
+            // SpawnedVesselPersistentId. The downstream
+            // TryRestoreCommittedTreeForSpawnedActiveVessel /
+            // TryFindCommittedTreeForSpawnedVessel pipeline already keys off
+            // SpawnedVesselPersistentId, so the restore + clone path is
+            // unchanged once we route this way.
+            if (!activeIsCommittedClone && activeTree == null)
+            {
+                bool committedMatchExists = TryFindCommittedTreeMatchingVessel(newPid);
+                if (committedMatchExists)
+                {
+                    // L5 (PR #876 final review): only emit the
+                    // `route=committed-spawned-clone` success log AFTER the
+                    // restore actually succeeds. Previously the route log
+                    // fired before the call and could be followed by
+                    // `committed-spawned-clone-restore-failed-start-standalone`,
+                    // making KSP.log readers see an aspirational intermediate
+                    // route that never took effect. Emit the failure log
+                    // directly on the restore-failure path without an earlier
+                    // route line so the FINAL route is always the only one
+                    // logged.
+                    bool restored = TryRestoreCommittedTreeForSpawnedActiveVessel();
+                    if (!restored || activeTree == null)
+                    {
+                        ParsekLog.Warn("SwitchSegment",
+                            $"committed-spawned-clone-restore-failed-start-standalone " +
+                            $"focusedPid={newPid} intentId={marker.IntentId:D}");
+                        result = StartStandaloneContinuationSegment(
+                            newVessel, marker, switchUT, sourcePid,
+                            fallthroughFromBgLookup: false,
+                            fallthroughReason: "committed-clone-restore-failed");
+                        return true;
+                    }
+                    ParsekLog.Info("SwitchSegment",
+                        $"route=committed-spawned-clone reason=focused-pid-matched-committed-tree " +
+                        $"pid={newPid} intentId={marker.IntentId:D}");
+                    activeIsCommittedClone = true;
+                }
+            }
+
+            if (!activeIsCommittedClone)
+                return false;
+
+            // Walk to the terminal-leaf parent inside the clone (the resolver
+            // is happy to walk any tree; the clone shares structure with the
+            // committed parent except for the in-flight mutations).
+            var resolution = SwitchSegmentBuilder.ResolveSwitchContinuationParent(
+                activeTree, newPid);
+            string parentRecId = resolution.Status
+                == SwitchContinuationParentStatus.UniqueTerminalLeafFound
+                    ? resolution.TerminalLeafRecordingId
+                    : null;
+
+            Guid sessionId = Guid.NewGuid();
+            string newRecordingId = Guid.NewGuid().ToString("D",
+                CultureInfo.InvariantCulture);
+            string newBranchPointId = Guid.NewGuid().ToString("D",
+                CultureInfo.InvariantCulture);
+
+            // Capture prior ActiveRecordingId BEFORE the helper mutates it so
+            // BindLiveRecorderToSwitchSegment can flush a prior live recorder
+            // (path A or B's restore left one bound to the parent leaf) into
+            // the parent recording, not the new continuation.
+            string priorActiveRecordingId = activeTree.ActiveRecordingId;
+
+            // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
+            // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                activeTree,
+                parentRecId,
+                newPid,
+                newVessel.vesselName ?? "Unknown",
+                switchUT,
+                MapIntentActionToEntryReason(marker.Action),
+                marker.IntentId,
+                sessionId,
+                newRecordingId,
+                newBranchPointId,
+                ut => BuildSwitchSegmentBoundaryPoint(newVessel, ut),
+                sourcePid);
+
+            if (!creation.Created)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"committed-clone-creation-refused-start-standalone " +
+                    $"failureReason={creation.FailureReason ?? "<null>"} " +
+                    $"focusedPid={newPid} intentId={marker.IntentId:D}");
+                result = StartStandaloneContinuationSegment(
+                    newVessel, marker, switchUT, sourcePid,
+                    fallthroughFromBgLookup: false,
+                    fallthroughReason: "committed-clone-helper-refused");
+                return true;
+            }
+
+            // Phase C.1: bind the live recorder to the new continuation
+            // recording id so trajectory samples flow into it immediately.
+            BindLiveRecorderToSwitchSegment(
+                newVessel, priorActiveRecordingId, newRecordingId,
+                routeTag: "committed-spawned-clone", switchUT: switchUT);
+
+            ArmSwitchSegmentSessionForRoute(
+                marker, sessionId, activeTree.Id, parentRecId,
+                newRecordingId, switchUT, newPid, sourcePid,
+                committedTreeId: activeTree.Id,
+                entryRoute: SwitchSegmentEntryRoute.StartedCommittedSpawnedClone);
+
+            ParsekScenario.Instance.ClearStockActionIntent("consumed-into-segment");
+            ParsekLog.Info("SwitchSegment",
+                $"route=committed-spawned-clone intentId={marker.IntentId:D} " +
+                $"sessionId={sessionId:D} treeId={activeTree.Id ?? "<null>"} " +
+                $"parentRecId={parentRecId ?? "<standalone>"} segmentRecId={newRecordingId} " +
+                $"sourcePid={sourcePid} focusedPid={newPid}");
+
+            result = new StockActionIntentConsumeResult
+            {
+                Route = SwitchSegmentEntryRoute.StartedCommittedSpawnedClone,
+                NewRecordingId = newRecordingId,
+                NewBranchPointId = newBranchPointId,
+                SessionId = sessionId,
+                DiagnosticReason = "consumed-into-segment",
+            };
+            return true;
+        }
+
+        private static bool IsTreeIdInCommittedTrees(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId)) return false;
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null) return false;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (trees[i] != null
+                    && string.Equals(trees[i].Id, treeId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Bug 5 (post-#876 playtest 2026-05-17): probes both the direct
+        /// <see cref="Recording.VesselPersistentId"/> (live committed vessel)
+        /// and <see cref="Recording.SpawnedVesselPersistentId"/> (Parsek-
+        /// spawned vessel whose live PID was minted at spawn time and stored
+        /// on the committed recording by the spawn-at-end pipeline). The
+        /// downstream <see cref="TryRestoreCommittedTreeForSpawnedActiveVessel"/>
+        /// pipeline already keys off <c>SpawnedVesselPersistentId</c> via
+        /// <see cref="TryFindCommittedTreeForSpawnedVessel"/>, so a positive
+        /// answer here lands in the same restore + clone path regardless of
+        /// which field matched.
+        ///
+        /// <para>Before this fix, the lookup checked only
+        /// <c>VesselPersistentId</c>, so a Switch-To on a Parsek-spawned
+        /// vessel fell through to standalone routing rather than the
+        /// committed-clone branch.</para>
+        /// </summary>
+        internal static bool TryFindCommittedTreeMatchingVessel(uint pid)
+        {
+            if (pid == 0u) return false;
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null) return false;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree == null || tree.Recordings == null) continue;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec == null) continue;
+                    if (rec.VesselPersistentId == pid)
+                        return true;
+                    // Bug 5: also match recordings whose Parsek-spawned vessel
+                    // is the focused one. SpawnedVesselPersistentId is set by
+                    // the spawn-at-end pipeline at the new live PID minted on
+                    // spawn; VesselPersistentId still carries the original
+                    // recording PID.
+                    if (rec.VesselSpawned
+                        && rec.SpawnedVesselPersistentId != 0
+                        && rec.SpawnedVesselPersistentId == pid)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Goal-4 branch (plan §"Fly / Switch-To a vessel that is a tracked
+        /// background member"). Flushes the BG parent via
+        /// <see cref="BackgroundRecorder.OnVesselRemovedFromBackground"/>,
+        /// resolves the terminal-leaf parent, attaches the continuation, and
+        /// removes the focused vessel from
+        /// <see cref="RecordingTree.BackgroundMap"/>. On any failure, falls
+        /// through to <see cref="StartStandaloneContinuationSegment"/> with a
+        /// <c>bg-lookup-failed-start-standalone</c> warn log.
+        /// </summary>
+        private StockActionIntentConsumeResult StartBgMemberContinuationSegment(
+            Vessel newVessel,
+            StockActionIntentMarker marker,
+            double switchUT,
+            uint sourcePid)
+        {
+            uint newPid = newVessel.persistentId;
+            var scenario = ParsekScenario.Instance;
+
+            // 1. PID-to-recording-id lookup inside activeTree.
+            string bgRecId;
+            if (activeTree.BackgroundMap == null
+                || !activeTree.BackgroundMap.TryGetValue(newPid, out bgRecId)
+                || string.IsNullOrEmpty(bgRecId))
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"bg-lookup-failed-start-standalone reason=bg-entry-missing " +
+                    $"focusedPid={newPid} intentId={marker.IntentId:D}");
+                return StartStandaloneContinuationSegment(newVessel, marker, switchUT,
+                    sourcePid, fallthroughFromBgLookup: true,
+                    fallthroughReason: "bg-entry-missing");
+            }
+
+            Recording bgRec;
+            if (activeTree.Recordings == null
+                || !activeTree.Recordings.TryGetValue(bgRecId, out bgRec)
+                || bgRec == null)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"bg-lookup-failed-start-standalone reason=recording-missing " +
+                    $"focusedPid={newPid} bgRecId={bgRecId} intentId={marker.IntentId:D}");
+                return StartStandaloneContinuationSegment(newVessel, marker, switchUT,
+                    sourcePid, fallthroughFromBgLookup: true,
+                    fallthroughReason: "recording-missing");
+            }
+
+            if (bgRec.VesselPersistentId != newPid)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"bg-lookup-failed-start-standalone reason=pid-collision " +
+                    $"focusedPid={newPid} bgRecId={bgRecId} " +
+                    $"recPid={bgRec.VesselPersistentId} intentId={marker.IntentId:D}");
+                return StartStandaloneContinuationSegment(newVessel, marker, switchUT,
+                    sourcePid, fallthroughFromBgLookup: true,
+                    fallthroughReason: "pid-collision");
+            }
+
+            // 2. Plan §"Segment Creation" step 2: close+flush BG parent at switchUT.
+            // The public OnVesselRemovedFromBackground samples the current UT
+            // internally; that is acceptable here because consume runs in the
+            // same frame as the vessel switch.
+            try
+            {
+                backgroundRecorder?.OnVesselRemovedFromBackground(newPid);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"bg-flush-failed-start-standalone focusedPid={newPid} " +
+                    $"intentId={marker.IntentId:D} ex={ex.Message}");
+                return StartStandaloneContinuationSegment(newVessel, marker, switchUT,
+                    sourcePid, fallthroughFromBgLookup: true,
+                    fallthroughReason: "bg-flush-threw");
+            }
+
+            // 3. Resolve terminal leaf in the active tree (walks from any PID
+            // match — the BG recording itself or any downstream continuation).
+            var resolution = SwitchSegmentBuilder.ResolveSwitchContinuationParent(
+                activeTree, newPid, focusedVesselRecordingIdHint: null);
+            string parentRecId = resolution.Status
+                == SwitchContinuationParentStatus.UniqueTerminalLeafFound
+                    ? resolution.TerminalLeafRecordingId
+                    : null;
+
+            if (resolution.Status == SwitchContinuationParentStatus.AmbiguousStartStandalone)
+            {
+                // Ambiguous-match: resolver already logged Warn with candidates.
+                // Per plan §"Parent Selection Risk" item 4, start standalone.
+                return StartStandaloneContinuationSegment(newVessel, marker, switchUT,
+                    sourcePid, fallthroughFromBgLookup: false,
+                    fallthroughReason: "ambiguous-parent-bg-fallthrough");
+            }
+
+            Guid sessionId = Guid.NewGuid();
+            string newRecordingId = Guid.NewGuid().ToString("D",
+                CultureInfo.InvariantCulture);
+            string newBranchPointId = Guid.NewGuid().ToString("D",
+                CultureInfo.InvariantCulture);
+
+            // Capture prior ActiveRecordingId before CreateSwitchContinuationSegment
+            // mutates it (BG-member entry typically has activeTree.ActiveRecordingId
+            // already null — the parent was backgrounded — but be defensive).
+            string priorActiveRecordingId = activeTree.ActiveRecordingId;
+
+            // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
+            // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                activeTree,
+                parentRecId,
+                newPid,
+                newVessel.vesselName ?? "Unknown",
+                switchUT,
+                MapIntentActionToEntryReason(marker.Action),
+                marker.IntentId,
+                sessionId,
+                newRecordingId,
+                newBranchPointId,
+                ut => BuildSwitchSegmentBoundaryPoint(newVessel, ut),
+                sourcePid);
+
+            if (!creation.Created)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"continuation-refused-start-standalone failureReason={creation.FailureReason ?? "<null>"} " +
+                    $"focusedPid={newPid} intentId={marker.IntentId:D}");
+                return StartStandaloneContinuationSegment(newVessel, marker, switchUT,
+                    sourcePid, fallthroughFromBgLookup: false,
+                    fallthroughReason: "helper-refused");
+            }
+
+            // 4. Plan §"Segment Creation" step 9: remove from BG map AFTER the
+            // flush so any concurrent observer of BackgroundMap still saw the
+            // entry during the close.
+            activeTree.BackgroundMap.Remove(newPid);
+
+            // Phase C.1: bind the live recorder to the new continuation
+            // recording id so trajectory samples flow into it immediately.
+            BindLiveRecorderToSwitchSegment(
+                newVessel, priorActiveRecordingId, newRecordingId,
+                routeTag: "bg-member-continuation", switchUT: switchUT);
+
+            ArmSwitchSegmentSessionForRoute(
+                marker, sessionId, activeTree.Id, parentRecId,
+                newRecordingId, switchUT, newPid, sourcePid,
+                committedTreeId: null,
+                entryRoute: SwitchSegmentEntryRoute.StartedBgMemberContinuation);
+
+            scenario.ClearStockActionIntent("consumed-into-segment");
+
+            ParsekLog.Info("SwitchSegment",
+                $"route=bg-member-continuation intentId={marker.IntentId:D} " +
+                $"sessionId={sessionId:D} treeId={activeTree.Id ?? "<null>"} " +
+                $"parentRecId={parentRecId ?? "<standalone>"} segmentRecId={newRecordingId} " +
+                $"bgRecId={bgRecId} sourcePid={sourcePid} focusedPid={newPid}");
+
+            return new StockActionIntentConsumeResult
+            {
+                Route = SwitchSegmentEntryRoute.StartedBgMemberContinuation,
+                NewRecordingId = newRecordingId,
+                NewBranchPointId = newBranchPointId,
+                SessionId = sessionId,
+                DiagnosticReason = "consumed-into-segment",
+            };
+        }
+
+        /// <summary>
+        /// Goal-5 branch (plan §"Fly / Switch-To a vessel unrelated to any
+        /// Parsek tree"). Creates a fresh <see cref="RecordingTree"/> when
+        /// none exists, then attaches a standalone continuation segment as
+        /// the root recording. Also serves as the fall-through target for
+        /// every other branch's refusal (committed-clone restore fail,
+        /// BG-lookup miss, ambiguous parent, helper refusal).
+        /// </summary>
+        private StockActionIntentConsumeResult StartStandaloneContinuationSegment(
+            Vessel newVessel,
+            StockActionIntentMarker marker,
+            double switchUT,
+            uint sourcePid,
+            bool fallthroughFromBgLookup,
+            string fallthroughReason)
+        {
+            uint newPid = newVessel.persistentId;
+            var scenario = ParsekScenario.Instance;
+
+            // Spin up a fresh tree if one isn't live. The committed-clone
+            // branch already installed activeTree when it took its path, so
+            // by here a null activeTree means we're genuinely standalone.
+            bool createdFreshTree = false;
+            if (activeTree == null)
+            {
+                activeTree = new RecordingTree
+                {
+                    Id = Guid.NewGuid().ToString("D", CultureInfo.InvariantCulture),
+                    TreeName = Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Standalone",
+                    BranchPoints = new List<BranchPoint>(),
+                };
+                if (chainManager != null)
+                    chainManager.ActiveTreeId = activeTree.Id;
+                EnsureBackgroundRecorderAttached("StartStandaloneContinuationSegment");
+                createdFreshTree = true;
+            }
+
+            Guid sessionId = Guid.NewGuid();
+            string newRecordingId = Guid.NewGuid().ToString("D",
+                CultureInfo.InvariantCulture);
+
+            // Capture prior ActiveRecordingId before CreateSwitchContinuationSegment
+            // mutates it (a freshly-created tree has it null; the fall-through
+            // path may have a non-null prior id from the upstream branch).
+            string priorActiveRecordingId = activeTree.ActiveRecordingId;
+
+            // Standalone path: parent is null, no branch-point id needed.
+            // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
+            // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                activeTree,
+                parentRecordingIdOrNull: null,
+                newPid,
+                newVessel.vesselName ?? "Unknown",
+                switchUT,
+                MapIntentActionToEntryReason(marker.Action),
+                marker.IntentId,
+                sessionId,
+                newRecordingId,
+                newBranchPointId: null,
+                ut => BuildSwitchSegmentBoundaryPoint(newVessel, ut),
+                sourcePid);
+
+            if (!creation.Created)
+            {
+                // Both branches refused (committed clone tried first, then
+                // standalone). Clear the intent so the player isn't surprised
+                // by a delayed retry on the next focus change.
+                ParsekLog.Warn("SwitchSegment",
+                    $"standalone-creation-refused failureReason={creation.FailureReason ?? "<null>"} " +
+                    $"focusedPid={newPid} intentId={marker.IntentId:D}");
+                scenario.ClearStockActionIntent("consume-helper-refused");
+                return new StockActionIntentConsumeResult
+                {
+                    Route = SwitchSegmentEntryRoute.Refused_TargetMismatch,
+                    DiagnosticReason = creation.FailureReason ?? "standalone-helper-refused",
+                };
+            }
+
+            if (createdFreshTree
+                && string.IsNullOrEmpty(activeTree.RootRecordingId))
+            {
+                activeTree.RootRecordingId = newRecordingId;
+            }
+
+            SwitchSegmentEntryRoute route = fallthroughFromBgLookup
+                ? SwitchSegmentEntryRoute.FellThroughBgLookupFailed
+                : SwitchSegmentEntryRoute.StartedStandalone;
+
+            // Phase C.1: bind the live recorder to the new continuation
+            // recording id so trajectory samples flow into it immediately.
+            BindLiveRecorderToSwitchSegment(
+                newVessel, priorActiveRecordingId, newRecordingId,
+                routeTag: fallthroughFromBgLookup
+                    ? "bg-lookup-failed-standalone"
+                    : "standalone",
+                switchUT: switchUT);
+
+            ArmSwitchSegmentSessionForRoute(
+                marker, sessionId, activeTree.Id, parentRecordingId: null,
+                newRecordingId, switchUT, newPid, sourcePid,
+                committedTreeId: null,
+                entryRoute: route);
+
+            scenario.ClearStockActionIntent("consumed-into-segment");
+
+            ParsekLog.Info("SwitchSegment",
+                $"route={(fallthroughFromBgLookup ? "bg-lookup-failed-standalone" : "standalone")} " +
+                $"intentId={marker.IntentId:D} sessionId={sessionId:D} " +
+                $"treeId={activeTree.Id ?? "<null>"} segmentRecId={newRecordingId} " +
+                $"sourcePid={sourcePid} focusedPid={newPid} " +
+                $"fallthroughReason={fallthroughReason ?? "<none>"} createdFreshTree={createdFreshTree}");
+
+            return new StockActionIntentConsumeResult
+            {
+                Route = route,
+                NewRecordingId = newRecordingId,
+                NewBranchPointId = null,
+                SessionId = sessionId,
+                DiagnosticReason = "consumed-into-segment",
+            };
+        }
+
+        /// <summary>
+        /// Builds and arms the <see cref="SwitchSegmentSession"/> for a
+        /// successfully-created segment. Centralized so every Started* route
+        /// produces identically-shaped sessions.
+        /// </summary>
+        private void ArmSwitchSegmentSessionForRoute(
+            StockActionIntentMarker marker,
+            Guid sessionId,
+            string treeId,
+            string parentRecordingId,
+            string newRecordingId,
+            double switchUT,
+            uint focusedPid,
+            uint sourcePid,
+            string committedTreeId,
+            SwitchSegmentEntryRoute entryRoute)
+        {
+            var preSessionBpIds = new List<string>();
+            if (activeTree != null && activeTree.BranchPoints != null)
+            {
+                for (int i = 0; i < activeTree.BranchPoints.Count; i++)
+                {
+                    BranchPoint bp = activeTree.BranchPoints[i];
+                    if (bp == null || string.IsNullOrEmpty(bp.Id)) continue;
+                    // Skip the just-attached continuation branch point so the
+                    // pre-session list only contains historical BPs.
+                    if (!string.IsNullOrEmpty(parentRecordingId)
+                        && bp.ChildRecordingIds != null
+                        && bp.ChildRecordingIds.Contains(newRecordingId))
+                    {
+                        continue;
+                    }
+                    preSessionBpIds.Add(bp.Id);
+                }
+            }
+
+            var session = new SwitchSegmentSession
+            {
+                SessionId = sessionId,
+                TreeId = treeId,
+                ParentRecordingId = parentRecordingId,
+                ActiveSegmentRecordingId = newRecordingId,
+                SourceVesselPersistentId = sourcePid,
+                FocusedVesselPersistentId = focusedPid,
+                SwitchUT = switchUT,
+                EntryReason = MapIntentActionToEntryReason(marker.Action),
+                IntentId = marker.IntentId,
+                CommittedTreeId = committedTreeId,
+                PreSessionBranchPointIds = preSessionBpIds,
+            };
+            ParsekScenario.Instance.ArmSwitchSegmentSession(session);
+        }
+
+        /// <summary>
+        /// Phase C.1: after <see cref="SwitchSegmentBuilder.CreateSwitchContinuationSegment"/>
+        /// mutates the tree (sets <see cref="RecordingTree.ActiveRecordingId"/>
+        /// to the new continuation), this helper binds a live
+        /// <see cref="FlightRecorder"/> to the new recording so trajectory
+        /// samples flow into it immediately. Mirrors the canonical
+        /// <see cref="PromoteRecordingFromBackground"/> / <see cref="ResumeCommittedActiveRecording"/>
+        /// pattern (new <see cref="FlightRecorder"/>, <c>ActiveTree</c> set,
+        /// <see cref="FlightRecorder.StartRecording"/> with
+        /// <c>isPromotion: true</c>, <see cref="PrepareSessionStateForRecorderStart"/>).
+        ///
+        /// <para>If a prior live recorder is still bound to the now-stale
+        /// previous <see cref="RecordingTree.ActiveRecordingId"/> (committed-clone
+        /// path A or B in OnFlightReady where <c>TryRestoreCommittedTreeForSpawnedActiveVessel</c>
+        /// already installed a recorder for the parent leaf), we flush it
+        /// against the prior id first via a temporary
+        /// <see cref="RecordingTree.ActiveRecordingId"/> swap so the prior
+        /// recording keeps its accumulated samples and the new continuation
+        /// starts clean.</para>
+        /// </summary>
+        private bool BindLiveRecorderToSwitchSegment(
+            Vessel newVessel,
+            string priorActiveRecordingId,
+            string newRecordingId,
+            string routeTag,
+            double switchUT)
+        {
+            if (newVessel == null || activeTree == null
+                || string.IsNullOrEmpty(newRecordingId))
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"recorder-bind-skipped reason=null-input route={routeTag} " +
+                    $"hasVessel={newVessel != null} hasTree={activeTree != null} " +
+                    $"newRecordingId={newRecordingId ?? "<null>"}");
+                return false;
+            }
+
+            // If a prior recorder is live and bound to a different recording
+            // (e.g. OnFlightReady's TryRestoreCommittedTreeForSpawnedActiveVessel
+            // bound it to the parent leaf), flush it into the prior recording
+            // before the new continuation takes over. CreateSwitchContinuationSegment
+            // already overwrote tree.ActiveRecordingId — temporarily swap it back
+            // so FlushRecorderToTreeRecording targets the parent.
+            //
+            // LOW 13 (PR #876 review) INVARIANT: this swap-back relies on the
+            // entire flush completing synchronously on the Unity main thread.
+            // Do NOT introduce a `yield return` or `await` between the swap-to-
+            // prior and the swap-back -- a coroutine yield here would leak a
+            // stale ActiveRecordingId to any callsite that reads it next frame
+            // (including the recorder's own sampling loop). If you need async
+            // work in the flush, capture the prior id into a local, do the
+            // async, then re-acquire the tree state and recompute the swap.
+            if (recorder != null && recorder.IsRecording
+                && !string.IsNullOrEmpty(priorActiveRecordingId)
+                && !string.Equals(priorActiveRecordingId, newRecordingId,
+                    StringComparison.Ordinal))
+            {
+                string savedActiveId = activeTree.ActiveRecordingId;
+                try
+                {
+                    activeTree.ActiveRecordingId = priorActiveRecordingId;
+                    FlushRecorderToTreeRecording(recorder, activeTree);
+                }
+                finally
+                {
+                    activeTree.ActiveRecordingId = savedActiveId;
+                }
+                ParsekLog.Info("SwitchSegment",
+                    $"recorder-prior-flushed route={routeTag} " +
+                    $"priorRecordingId={priorActiveRecordingId} " +
+                    $"newRecordingId={newRecordingId} vesselPid={newVessel.persistentId}");
+                recorder.IsRecording = false;
+                recorder = null;
+            }
+            else if (recorder != null)
+            {
+                // Recorder exists but not recording (e.g. captured-stop holding
+                // CaptureAtStop). Drop it — the new segment owns the live state.
+                ParsekLog.Info("SwitchSegment",
+                    $"recorder-prior-dropped route={routeTag} " +
+                    $"vesselPid={newVessel.persistentId} " +
+                    $"wasRecording={recorder.IsRecording}");
+                recorder = null;
+            }
+
+            // Canonical bind: mirrors PromoteRecordingFromBackground / ResumeCommittedActiveRecording.
+            // MED 4 (PR #876 review): wrap the bind in try/catch so a
+            // FlightRecorder ctor or StartRecording exception does not leave
+            // `recorder` in a partial-construction state while
+            // tree.ActiveRecordingId has already been advanced to the new
+            // segment by SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // We do NOT roll back tree.ActiveRecordingId: the segment was
+            // created and the marker is armed; the recorder failure is a
+            // sampling problem the next frame may recover from. Setting
+            // `recorder = null` lets the next frame's recorder-binding pass
+            // re-create cleanly.
+            try
+            {
+                recorder = new FlightRecorder();
+                recorder.ActiveTree = activeTree;
+                if (chainManager != null && chainManager.PendingBoundaryAnchor.HasValue)
+                {
+                    recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
+                    chainManager.PendingBoundaryAnchor = null;
+                }
+                recorder.StartRecording(isPromotion: true);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"recorder-bind-threw route={routeTag} " +
+                    $"newRecordingId={newRecordingId} vesselPid={newVessel.persistentId} " +
+                    $"{ex.GetType().Name}: {ex.Message}; recorder reset to null - " +
+                    "tree.ActiveRecordingId left at new segment, next frame may rebind");
+                recorder = null;
+                return false;
+            }
+
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"recorder-bind-failed route={routeTag} " +
+                    $"newRecordingId={newRecordingId} vesselPid={newVessel.persistentId} " +
+                    "StartRecording returned IsRecording=false; new segment will have no samples");
+                recorder = null;
+                return false;
+            }
+
+            PrepareSessionStateForRecorderStart("BindLiveRecorderToSwitchSegment:" + routeTag);
+
+            ParsekLog.Info("SwitchSegment",
+                string.Format(CultureInfo.InvariantCulture,
+                    "recorder-bound route={0} new-recording-id={1} vessel-pid={2} vessel-name='{3}' ut={4}",
+                    routeTag,
+                    newRecordingId,
+                    newVessel.persistentId,
+                    newVessel.vesselName ?? "<unnamed>",
+                    switchUT.ToString("R", CultureInfo.InvariantCulture)));
+            return true;
+        }
+
+        // ---------------------------------------------------------------------
+        // End Phase C: stock-action intent consume.
+        // ---------------------------------------------------------------------
+
         private static double NormalizeAngleDeltaDegrees(double a, double b)
         {
             double delta = Math.Abs(a - b) % 360.0;
@@ -9133,6 +10137,75 @@ namespace Parsek
                 "will skip only this pid for the lifetime of this scene");
         }
 
+        /// <summary>
+        /// Bug 1 (post-#876 playtest 2026-05-17): single dispatch point for the
+        /// stock-action intent consume helper. Called at the top of
+        /// <see cref="OnFlightReady"/> after the in-progress-restore-coroutine
+        /// skip but before <see cref="ShouldIgnoreFlightReadyReset"/>, so the
+        /// consume runs on EVERY OnFlightReady path that has a valid live active
+        /// vessel — both the "live recorder/tree already own this flight"
+        /// early-return path (TS Fly / KSC Fly after
+        /// <see cref="TryRestoreCommittedTreeForSpawnedActiveVessel"/> pre-attached
+        /// the recorder) and the full-reset path.
+        ///
+        /// <para>The consume helper's own gates (intent != null, freshness, target-
+        /// PID match) keep this a no-op when no intent is armed.</para>
+        ///
+        /// <para>Skipped intentionally when <c>restoringActiveTree=true</c> because
+        /// the restore coroutine is rebuilding <c>activeTree</c> and consume mutating
+        /// tree state mid-restore would race that coroutine. The intent marker
+        /// stays armed; the TTL handles the leak.</para>
+        ///
+        /// <para>M1 (PR #876 final review): also skipped when
+        /// <see cref="ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady"/>
+        /// is non-<c>None</c> — i.e. when <c>OnLoad</c> has scheduled a restore
+        /// coroutine that has not started yet. If the consume runs here it can
+        /// install a fresh standalone <c>activeTree</c> and bind the recorder,
+        /// then <see cref="ResetFlightReadyState"/> a few lines down nulls
+        /// both, leaving <see cref="SwitchSegmentSession.TreeId"/> pointing at
+        /// a dead tree. The restore coroutines themselves invoke this helper
+        /// once they successfully install the restored tree, so the consume
+        /// still runs — just deferred until the tree is alive. If the restore
+        /// fails or aborts, the marker's TTL handles the leak.</para>
+        /// </summary>
+        private void DispatchConsumeIntentIfArmed()
+        {
+            // M1: defer the consume when a restore is pending — the restore
+            // coroutines re-invoke this helper on success. Without this gate
+            // the consume could install a fresh standalone tree right before
+            // ResetFlightReadyState nulls it, leaving SwitchSegmentSession
+            // pointing at a dead TreeId.
+            var pendingRestoreMode =
+                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
+            if (pendingRestoreMode != ParsekScenario.ActiveTreeRestoreMode.None)
+            {
+                var pendingScenario = ParsekScenario.Instance;
+                var pendingMarker = !object.ReferenceEquals(null, pendingScenario)
+                    ? pendingScenario.CurrentStockActionIntent
+                    : null;
+                string pendingIntentId = pendingMarker != null
+                    ? pendingMarker.IntentId.ToString("D",
+                        System.Globalization.CultureInfo.InvariantCulture)
+                    : "<none>";
+                ParsekLog.Verbose("SwitchIntent",
+                    $"consume-deferred-pending-restore restoreMode={pendingRestoreMode} " +
+                    $"intentId={pendingIntentId}");
+                return;
+            }
+
+            var activeVesselForConsume = FlightGlobals.ActiveVessel;
+            if (activeVesselForConsume == null
+                || GhostMapPresence.IsGhostMapVessel(activeVesselForConsume.persistentId))
+            {
+                return;
+            }
+            var consumeResult = TryConsumeStockActionIntent(activeVesselForConsume);
+            if (consumeResult.StartedSegment)
+            {
+                DisarmPostSwitchAutoRecord("consumed-by-stock-action-segment");
+            }
+        }
+
         void OnFlightReady()
         {
             Log("Flight ready. Checking for pending recordings...");
@@ -9147,6 +10220,20 @@ namespace Parsek
                     "OnFlightReady: restore coroutine already in progress — skipping reset and dispatch");
                 return;
             }
+
+            // Bug 1 (post-#876 playtest 2026-05-17): the TS Fly / KSC marker Fly
+            // consume must run on EVERY OnFlightReady path, not only the full-reset
+            // path. When TryRestoreCommittedTreeForSpawnedActiveVessel attached the
+            // recorder pre-OnFlightReady, ShouldIgnoreFlightReadyReset returns true
+            // and the function used to bail before reaching the consume block at the
+            // bottom — so the marker armed in TS / SPACECENTER survived OnLoad but
+            // never got consumed, and the segment-scoped Merge dialog never fired.
+            // Dispatch the consume helper here at the top (after the in-progress
+            // restore coroutine skip, BEFORE ShouldIgnoreFlightReadyReset and the
+            // full-reset path). The helper's own gates (CurrentStockActionIntent
+            // != null, freshness, target-PID match) keep it a no-op when no intent
+            // is armed.
+            DispatchConsumeIntentIfArmed();
 
             var restoreMode = ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
             if (ShouldIgnoreFlightReadyReset(
@@ -9222,6 +10309,9 @@ namespace Parsek
             {
                 TryRestoreCommittedTreeForSpawnedActiveVessel();
             }
+
+            // Note: consume dispatch lives at the top of OnFlightReady — see DispatchConsumeIntentIfArmed.
+
             // Belt-and-suspenders: recover orphaned spawned vessels that survived
             // the protoVessel stripping in OnLoad (e.g., FLIGHT→FLIGHT revert where
             // SpaceCenter was never visited, or name change edge cases).
@@ -11319,6 +12409,14 @@ namespace Parsek
             {
                 restoringActiveTree = false;
             }
+
+            // M1 (PR #876 final review): dispatch any deferred consume now that
+            // the restored tree is live. DispatchConsumeIntentIfArmed at the
+            // top of OnFlightReady skips when ScheduleActiveTreeRestoreOnFlightReady
+            // is non-None to avoid racing the restore. Re-invoking here picks
+            // up an intent that survived the F5 -> reload round-trip and
+            // attaches the new switch segment to the just-restored tree.
+            DispatchConsumeIntentIfArmed();
         }
 
         /// <summary>
@@ -11452,6 +12550,14 @@ namespace Parsek
             {
                 restoringActiveTree = false;
             }
+
+            // M1 (PR #876 final review): dispatch any deferred consume now that
+            // the restored tree is live. DispatchConsumeIntentIfArmed at the
+            // top of OnFlightReady skips when ScheduleActiveTreeRestoreOnFlightReady
+            // is non-None to avoid racing the restore. Re-invoking here picks
+            // up an intent that survived the F5 -> reload round-trip and
+            // attaches the new switch segment to the just-restored tree.
+            DispatchConsumeIntentIfArmed();
         }
 
         /// <summary>
@@ -11828,6 +12934,31 @@ namespace Parsek
             return activeVesselPid != 0 && activeVesselPid == freshRolloutVesselPid;
         }
 
+        // Bug (post-#876 playtest 2026-05-17): the kerbal-x-grouping-bug repro.
+        // The matcher historically only recognised Parsek-spawned recordings
+        // (VesselSpawned=true with SpawnedVesselPersistentId equal to the live
+        // PID). Fresh-launched vessels (NEW_FROM_FILE etc.) commit recordings
+        // with VesselSpawned=false and SpawnedVesselPersistentId=0 but their
+        // VesselPersistentId equals the live PID of the vessel currently
+        // sitting in the save. When the player Map-Switch-To'd a far Kerbal X
+        // (committed mission, never Parsek-spawned), TryFindCommittedTree-
+        // MatchingVessel's broader gate routed into the committed-clone
+        // branch but this helper rejected the recording, so the consume path
+        // fell through to StartStandaloneContinuationSegment and authored a
+        // brand-new "Kerbal X" tree disjoint from the original mission tree.
+        // The new tree got its own auto-group, so the segment appeared
+        // outside the mission group in the UI.
+        //
+        // The fix: also match recordings whose VesselPersistentId equals the
+        // live PID when the recording was not Parsek-spawned. ResolveLive-
+        // TreeRecordingPidForRestore already falls back to VesselPersistentId
+        // when SpawnedVesselPersistentId is zero, and PrepareCommittedTree-
+        // RestoreForSpawnedVessel uses that helper, so the downstream
+        // restore path resumes the live recording correctly. The clear-
+        // prior-spawn-flags block in TryTakeCommittedTreeForSpawnedVessel-
+        // Restore is gated on VesselSpawned || SpawnedVesselPersistentId!=0,
+        // so the direct-PID match leaves the recording's identity fields
+        // untouched.
         internal static bool TryFindCommittedTreeForSpawnedVessel(
             IReadOnlyList<RecordingTree> committedTrees,
             uint activeVesselPid,
@@ -11848,14 +12979,18 @@ namespace Parsek
                 Recording bestMatch = null;
                 foreach (Recording rec in candidate.Recordings.Values)
                 {
-                    if (rec == null
-                        || !rec.VesselSpawned
-                        || rec.SpawnedVesselPersistentId == 0
-                        || rec.SpawnedVesselPersistentId != activeVesselPid
-                        || string.IsNullOrEmpty(rec.RecordingId))
-                    {
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                         continue;
-                    }
+
+                    bool spawnedMatch = rec.VesselSpawned
+                        && rec.SpawnedVesselPersistentId != 0
+                        && rec.SpawnedVesselPersistentId == activeVesselPid;
+                    bool directMatch = !rec.VesselSpawned
+                        && rec.SpawnedVesselPersistentId == 0
+                        && rec.VesselPersistentId != 0
+                        && rec.VesselPersistentId == activeVesselPid;
+                    if (!spawnedMatch && !directMatch)
+                        continue;
 
                     if (!IsCommittedSpawnedRecordingRestorable(candidate, rec))
                         continue;

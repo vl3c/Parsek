@@ -197,6 +197,114 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Decision_NoActiveTree_NoSwitchSegment_ReturnsNone()
+        {
+            // Fails if: the switch-segment seam mistakenly triggers a dialog
+            // when no session is armed AND no live active tree exists. The
+            // gate must remain DialogVariant.None in that case.
+            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(
+                GameScenes.SPACECENTER,
+                hasActiveTree: false,
+                reFlyActive: false,
+                switchSegmentActive: false,
+                isAutoMerge: false,
+                activeVesselLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
+        }
+
+        [Fact]
+        public void Decision_NoActiveTree_SwitchSegmentActive_ReturnsRegularMerge()
+        {
+            // Fails if: a torn-down active tree (vessel destroyed
+            // mid-segment, rapid-switch race) with an armed
+            // SwitchSegmentSession is silently passed through without a
+            // dialog. This is the Bug C minimal seam from the post-#876
+            // playtest 2026-05-17: the dialog must fire so the player can
+            // Merge or Discard the segment before the scene exits.
+            var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(
+                GameScenes.SPACECENTER,
+                hasActiveTree: false,
+                reFlyActive: false,
+                switchSegmentActive: true,
+                isAutoMerge: false,
+                activeVesselLandedOrSplashed: false);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
+        }
+
+        [Fact]
+        public void TryResolveSessionTreeForDialog_NullSession_ReturnsNull()
+        {
+            // Fails if: the helper crashes or returns a tree for a null
+            // session input. Defensive null-check is required so the
+            // Prefix can safely call it from the no-active-tree fallback.
+            var tree = SceneExitInterceptor.TryResolveSessionTreeForDialog(null);
+            Assert.Null(tree);
+        }
+
+        [Fact]
+        public void TryResolveSessionTreeForDialog_EmptyTreeId_ReturnsNull()
+        {
+            // Fails if: the helper resolves a tree for a session with no
+            // TreeId (degenerate state). Caller must Warn-log and fall
+            // back to the regular pending-tree path.
+            var session = new SwitchSegmentSession
+            {
+                SessionId = Guid.NewGuid(),
+                TreeId = null,
+            };
+            var tree = SceneExitInterceptor.TryResolveSessionTreeForDialog(session);
+            Assert.Null(tree);
+        }
+
+        [Fact]
+        public void TryResolveSessionTreeForDialog_MatchesPendingTree_Returns()
+        {
+            // Fails if: the helper does not return the pending tree when
+            // the session's TreeId matches RecordingStore.PendingTree.
+            // This is the common case for a session whose live recorder
+            // was torn down mid-segment.
+            const string treeId = "session_tree_pending";
+            RecordingStore.StashPendingTree(
+                MakePendingTree(treeId, TerminalState.Orbiting),
+                PendingTreeState.Finalized);
+
+            var session = new SwitchSegmentSession
+            {
+                SessionId = Guid.NewGuid(),
+                TreeId = treeId,
+            };
+            var tree = SceneExitInterceptor.TryResolveSessionTreeForDialog(session);
+            Assert.NotNull(tree);
+            Assert.Equal(treeId, tree.Id);
+        }
+
+        [Fact]
+        public void SceneExitInterceptor_SessionTreeResolvedFromCommitted_RefusesDialogSpawn()
+        {
+            // M1 (PR #876 round-5 review): source-text gate. Fails if: the
+            // Bug-C path is allowed to spawn a pre-switch dialog for a
+            // committed-tree-resolved session, where Merge would silently
+            // no-op via the merge-commit-tree-mismatch guard. The pre-switch
+            // dialog body returns false before LockInput in that case and
+            // logs `bug-c-dialog-refused-session-tree-in-committed-slot`.
+            string projectRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string mergeDialogPath = System.IO.Path.Combine(
+                projectRoot, "Source", "Parsek", "MergeDialog.cs");
+            string source = System.IO.File.ReadAllText(mergeDialogPath);
+
+            // The committed-slot guard must exist verbatim.
+            Assert.Contains(
+                "bug-c-dialog-refused-session-tree-in-committed-slot", source);
+            // And it must short-circuit BEFORE LockInput / popup spawn.
+            var refuseRegex = new System.Text.RegularExpressions.Regex(
+                @"TreeSlotSource\.Committed[\s\S]{0,400}?bug-c-dialog-refused-session-tree-in-committed-slot[\s\S]{0,800}?return false",
+                System.Text.RegularExpressions.RegexOptions.Multiline);
+            Assert.Matches(refuseRegex, source);
+        }
+
+        [Fact]
         public void Decision_AutoMergeOff_AnyDest_ReturnsRegularMerge()
         {
             foreach (var dest in new[]

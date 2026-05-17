@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using UnityEngine;
 using Xunit;
 
@@ -1454,6 +1455,228 @@ namespace Parsek.Tests
 
             Assert.True(restored.BackgroundMap.ContainsKey(42));
             Assert.Equal("rec_bg", restored.BackgroundMap[42]);
+        }
+
+        // --- SwitchSegmentSessionId (Phase A.2, segment-scoped-switch-fly-autorecord) ---
+
+        [Fact]
+        public void Recording_SwitchSegmentSessionId_RoundTrips()
+        {
+            // Fails if: the codec drops switchSegmentSessionId on save or load,
+            // or DeepClone/optimizer-split paths lose the stamp before persistence.
+            // The switch/Fly ownership stamp is load-bearing for discard, sidecar
+            // cleanup, and event purge of marker-owned recordings.
+            var tree = new RecordingTree
+            {
+                Id = "tree_ssid",
+                TreeName = "SwitchSession Test",
+                RootRecordingId = "rec_ssid"
+            };
+
+            var rec = new Recording
+            {
+                RecordingId = "rec_ssid",
+                VesselName = "Switch Vessel",
+                SwitchSegmentSessionId = "test-guid-abc",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
+            tree.Recordings["rec_ssid"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+            var r = restored.Recordings["rec_ssid"];
+
+            Assert.Equal("test-guid-abc", r.SwitchSegmentSessionId);
+        }
+
+        [Fact]
+        public void Recording_SwitchSegmentSessionId_NullOmitsKey()
+        {
+            // Fails if: the codec writes switchSegmentSessionId as an empty
+            // string for null-default recordings (which would pollute v1 saves
+            // and confuse a future migration that reads non-empty as "stamped"),
+            // OR if load defaults it to anything other than null when missing.
+            // Mirrors the same null-omit contract the peer ownership fields use.
+            var tree = new RecordingTree
+            {
+                Id = "tree_ssid_null",
+                TreeName = "SwitchSession Null Test",
+                RootRecordingId = "rec_ssid_null"
+            };
+
+            var rec = new Recording
+            {
+                RecordingId = "rec_ssid_null",
+                VesselName = "Plain Vessel",
+                // SwitchSegmentSessionId left at default null.
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
+            tree.Recordings["rec_ssid_null"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            // The serialized recording node must NOT carry the key when the
+            // value is null. This keeps null-default recordings byte-identical
+            // to pre-A.2 v1 saves and matches the peer ownership-field contract.
+            ConfigNode recNode = null;
+            foreach (ConfigNode child in node.GetNodes("RECORDING"))
+            {
+                if (child.GetValue("recordingId") == "rec_ssid_null")
+                {
+                    recNode = child;
+                    break;
+                }
+            }
+            Assert.NotNull(recNode);
+            Assert.False(recNode.HasValue("switchSegmentSessionId"));
+
+            var restored = RecordingTree.Load(node);
+            var r = restored.Recordings["rec_ssid_null"];
+
+            Assert.Null(r.SwitchSegmentSessionId);
+        }
+
+        [Fact]
+        public void Recording_DeepClone_CarriesSwitchSegmentSessionId()
+        {
+            // Fails if: Recording.DeepClone forgets to copy SwitchSegmentSessionId
+            // alongside the peer ownership fields (CreatingSessionId,
+            // SupersedeTargetId, ProvisionalForRpId). Without this copy, every
+            // copy-on-write clone of an active-tree recording would silently lose
+            // its switch/Fly segment ownership stamp and become an orphan that
+            // discard-by-session-id cannot reach.
+            var source = new Recording
+            {
+                RecordingId = "rec_clone_src",
+                VesselName = "Clone Source",
+                SwitchSegmentSessionId = "session-xyz-789",
+            };
+
+            var clone = Recording.DeepClone(source);
+
+            Assert.NotNull(clone);
+            Assert.Equal("session-xyz-789", clone.SwitchSegmentSessionId);
+        }
+
+        [Fact]
+        public void Recording_SwitchSegmentSessionId_DoesNotLeakIntoCreatingSessionId()
+        {
+            // Cross-contamination guard. Fails if: the codec, DeepClone, or any
+            // copy site accidentally writes SwitchSegmentSessionId through the
+            // CreatingSessionId slot (e.g. via a copy-paste bug where the new
+            // field rides on the existing Re-Fly-owned slot). The plan is
+            // explicit that CreatingSessionId remains exclusively Re-Fly's
+            // field; stamping it with a switch-segment id would silently expose
+            // the recording to LoadTimeSweep / MergeJournalOrchestrator paths
+            // and can corrupt the Re-Fly merge journal.
+            var tree = new RecordingTree
+            {
+                Id = "tree_no_leak",
+                TreeName = "No Leak Test",
+                RootRecordingId = "rec_no_leak"
+            };
+
+            var rec = new Recording
+            {
+                RecordingId = "rec_no_leak",
+                VesselName = "Isolated Vessel",
+                SwitchSegmentSessionId = "switch-only-id",
+                // CreatingSessionId intentionally left null.
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
+            tree.Recordings["rec_no_leak"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+            var r = restored.Recordings["rec_no_leak"];
+
+            Assert.Equal("switch-only-id", r.SwitchSegmentSessionId);
+            Assert.Null(r.CreatingSessionId);
+
+            // And the inverse: DeepClone of a CreatingSessionId-only source
+            // must not bleed into SwitchSegmentSessionId.
+            var refly = new Recording
+            {
+                RecordingId = "rec_refly",
+                VesselName = "Re-Fly Source",
+                CreatingSessionId = "refly-session-id",
+                // SwitchSegmentSessionId intentionally left null.
+            };
+            var reflyClone = Recording.DeepClone(refly);
+            Assert.Equal("refly-session-id", reflyClone.CreatingSessionId);
+            Assert.Null(reflyClone.SwitchSegmentSessionId);
+        }
+
+        [Fact]
+        public void Recording_RefreshFromCommittedSidecar_PreservesSwitchSegmentSessionId()
+        {
+            // Fails if: a future refactor of
+            // ParsekScenario.RefreshLoadedRecordingFromCommittedSplit (or its
+            // companion RestoreCommittedSidecarPayloadIntoActiveTreeRecording)
+            // drops the SwitchSegmentSessionId snapshot/restore lines, silently
+            // clobbering the field during sidecar refresh.
+            //
+            // The refresh paths cannot be driven from xUnit without Planetarium
+            // and Unity GameEvents (see reference_parsek_scenario_xunit.md), so
+            // we gate the contract at the source-text level: both functions must
+            // snapshot SwitchSegmentSessionId alongside the other peer ownership
+            // fields before the DeepClone overwrite and write it back
+            // afterwards. Modeled on ChainSaveLoadTests.ChainStateNotPersistedInScenario.
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string scenarioPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekScenario.cs");
+            if (!File.Exists(scenarioPath))
+            {
+                scenarioPath = Path.Combine(projectRoot,
+                    "Parsek", "ParsekScenario.cs");
+            }
+            Assert.True(File.Exists(scenarioPath),
+                $"ParsekScenario.cs not found at {scenarioPath}");
+
+            string source = File.ReadAllText(scenarioPath);
+
+            // Both refresh functions must snapshot the field (declare a local)
+            // and write it back. The two patterns below appear once per
+            // function, so we expect exactly two occurrences of each.
+            int snapshotCount = CountOccurrences(source,
+                "switchSegmentSessionId = ");
+            int restoreCount = CountOccurrences(source,
+                ".SwitchSegmentSessionId = switchSegmentSessionId;");
+            // Each refresh function: 1 snapshot ("... = loadedRec.SwitchSegmentSessionId;"
+            // or "... = target.SwitchSegmentSessionId;") + 1 restore.
+            Assert.True(snapshotCount >= 2,
+                $"Expected at least 2 snapshots of switchSegmentSessionId; got {snapshotCount}. "
+                + "Both RefreshLoadedRecordingFromCommittedSplit and "
+                + "RestoreCommittedSidecarPayloadIntoActiveTreeRecording must "
+                + "snapshot SwitchSegmentSessionId before the DeepClone overwrite.");
+            Assert.True(restoreCount >= 2,
+                $"Expected at least 2 restore writes of SwitchSegmentSessionId; got {restoreCount}. "
+                + "Both refresh paths must write switchSegmentSessionId back after "
+                + "the DeepClone overwrite, alongside the other peer ownership fields.");
+        }
+
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            if (string.IsNullOrEmpty(haystack) || string.IsNullOrEmpty(needle))
+                return 0;
+            int count = 0;
+            int idx = 0;
+            while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                idx += needle.Length;
+            }
+            return count;
         }
     }
 }

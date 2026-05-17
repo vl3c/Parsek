@@ -89,6 +89,7 @@ namespace Parsek
                 case BranchPointType.Launch:
                 case BranchPointType.Terminal:
                 case BranchPointType.Breakup:
+                case BranchPointType.VesselSwitchContinuation:
                     return false;
 
                 default:

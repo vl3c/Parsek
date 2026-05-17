@@ -303,6 +303,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsClaimingBranchPoint_VesselSwitchContinuation_ReturnsFalse()
+        {
+            // Phase A.1 of segment-scoped-switch-fly-autorecord. The branch
+            // type records a focus-switch observation boundary; no parts
+            // transfer between vessels.
+            // Fails if: someone classifies the new enum value as claiming
+            // (Dock/Board/Undock/EVA/JointBreak), or removes the explicit
+            // case in IsClaimingBranchPoint and inadvertently relies on the
+            // default arm to suppress claiming behavior.
+            Assert.False(GhostingTriggerClassifier.IsClaimingBranchPoint(
+                BranchPointType.VesselSwitchContinuation));
+        }
+
+        [Fact]
         public void IsClaimingBranchPoint_UnknownValue_ReturnsFalse()
         {
             var unknown = (BranchPointType)999;
