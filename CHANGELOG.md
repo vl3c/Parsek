@@ -8,6 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-Fly on a recording spanning the rewind point now keeps the post-rewind continuation visible in the timeline after save. The merge journal migrates the in-place fork into the committed tree at a new `TreeMerge` phase before the splitter runs, so the fork's row and active pointer survive serialization instead of being dropped to disk.
+- Re-Fly abandon-and-retry no longer leaves the prior session's provisional in the timeline as a phantom row. The new attempt reaps any abandoned attempt on the same rewind point before its closure walk runs, so the retry's supersede table cannot pick up an invalid row pointing at the orphan.
 - Timeline W (Watch) button now works for every launch row after a Re-Fly. The button used to render permanently disabled for any launch sitting after a superseded recording.
 
 ---

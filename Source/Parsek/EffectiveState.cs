@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -1276,6 +1277,27 @@ namespace Parsek
                 if (cand.ChainBranch != rec.ChainBranch) continue;
                 if (result.Contains(cand.RecordingId)) continue;
 
+                // Bug fix-refly-abandon-and-fork-persist §Bug1 secondary
+                // defense: a NotCommitted recording is by contract a
+                // session-provisional that has not yet been committed; it
+                // should never appear as a supersede source. Reaching here
+                // means RewindInvoker.ReapPriorProvisionalsForRp or
+                // LoadTimeSweep failed to remove an orphan from this tree's
+                // Recordings dict. Skip the candidate with a Warn so the
+                // closure does not enqueue it and AppendRelations does not
+                // write an invalid row.
+                if (cand.MergeState == MergeState.NotCommitted)
+                {
+                    ParsekLog.Warn("Supersede",
+                        $"EnqueueChainSiblings: skipped NotCommitted peer " +
+                        $"rec={cand.RecordingId} chain={cand.ChainId} " +
+                        $"chainBranch={cand.ChainBranch.ToString(CultureInfo.InvariantCulture)} " +
+                        $"tree={cand.TreeId} sess={cand.CreatingSessionId ?? "<none>"} " +
+                        $"(should have been reaped by AtomicMarkerWrite's " +
+                        $"ReapPriorProvisionalsForRp or by LoadTimeSweep — investigate)");
+                    continue;
+                }
+
                 result.Add(cand.RecordingId);
                 siblingsAdded++;
                 // Enqueue so the BP walk runs on this member too — covers
@@ -1338,6 +1360,24 @@ namespace Parsek
                 // peers belong in the closure.
                 double candStart = cand.StartUT;
                 if (double.IsNaN(candStart) || candStart < minStart) continue;
+
+                // Bug fix-refly-abandon-and-fork-persist §Bug1 secondary
+                // defense: identical to the EnqueueChainSiblings guard.
+                // Reaching here with a NotCommitted candidate means the
+                // marker-write-time reap failed and a prior abandoned
+                // provisional's still in the store. Skip-with-Warn rather
+                // than fail loud so a release build still ships a coherent
+                // ERS, but the Warn surfaces the underlying leak.
+                if (cand.MergeState == MergeState.NotCommitted)
+                {
+                    ParsekLog.Warn("Supersede",
+                        $"EnqueuePidPeerSiblings: skipped NotCommitted peer " +
+                        $"rec={cand.RecordingId} pid={cand.VesselPersistentId} " +
+                        $"tree={cand.TreeId} sess={cand.CreatingSessionId ?? "<none>"} " +
+                        $"(should have been reaped by AtomicMarkerWrite's " +
+                        $"ReapPriorProvisionalsForRp or by LoadTimeSweep — investigate)");
+                    continue;
+                }
 
                 result.Add(cand.RecordingId);
                 pidPeersAdded++;
