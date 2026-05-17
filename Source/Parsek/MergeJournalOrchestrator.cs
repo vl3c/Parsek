@@ -225,7 +225,7 @@ namespace Parsek
             // Gated on marker.InPlaceContinuation: non-in-place sessions
             // own their fork in a separate (new) tree and don't need
             // migration into marker.TreeId's committed tree.
-            MigrateActiveReFlyForkIntoCommittedTree(marker, provisional, scenario);
+            MigrateActiveReFlyForkIntoCommittedTree(marker, provisional);
             AdvancePhase(scenario, MergeJournal.Phases.TreeMerge);
             DurableSave("treemerge", persistSynchronously: true);
             MaybeInject(Phase.TreeMerge);
@@ -509,8 +509,7 @@ namespace Parsek
                 // Split.
                 MigrateActiveReFlyForkIntoCommittedTree(
                     scenario.ActiveReFlySessionMarker,
-                    ResolveProvisional(scenario),
-                    scenario);
+                    ResolveProvisional(scenario));
                 AdvancePhase(scenario, MergeJournal.Phases.Split);
                 stepsDriven++;
             }
@@ -793,18 +792,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolves the provisional fork recording for the active Re-Fly
-        /// session by looking up <c>marker.ActiveReFlyRecordingId</c> in
-        /// <see cref="RecordingStore.CommittedRecordings"/>. Used by the
-        /// <see cref="CompleteFromPostDurable"/> drive-forward path to find
-        /// the provisional for re-running AppendRelations / CommitTombstones
-        /// / FlipMergeStateAndClearTransient on a recovered journal. Returns
-        /// <c>null</c> (with a Warn log) if no marker or no committed
-        /// recording with that id is found — the caller's downstream code
-        /// must tolerate a null provisional (the underlying SupersedeCommit
-        /// helpers all early-return on null inputs).
-        /// </summary>
-        /// <summary>
         /// Bug fix-refly-abandon-and-fork-persist §Bug2b: migrate the
         /// in-place-continuation fork's RECORDING node from the active
         /// tree (the live transient one owned by <c>ParsekFlight</c>) into
@@ -845,10 +832,9 @@ namespace Parsek
         /// </list>
         /// </summary>
         internal static void MigrateActiveReFlyForkIntoCommittedTree(
-            ReFlySessionMarker marker, Recording provisional, ParsekScenario scenario)
+            ReFlySessionMarker marker, Recording provisional)
         {
             if (marker == null) return;
-            if (object.ReferenceEquals(null, scenario)) return;
             if (provisional == null) return;
 
             if (!marker.InPlaceContinuation)
@@ -954,6 +940,18 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, msg);
         }
 
+        /// <summary>
+        /// Resolves the provisional fork recording for the active Re-Fly
+        /// session by looking up <c>marker.ActiveReFlyRecordingId</c> in
+        /// <see cref="RecordingStore.CommittedRecordings"/>. Used by the
+        /// <see cref="CompleteFromPostDurable"/> drive-forward path to find
+        /// the provisional for re-running AppendRelations / CommitTombstones
+        /// / FlipMergeStateAndClearTransient on a recovered journal. Returns
+        /// <c>null</c> (with a Warn log) if no marker or no committed
+        /// recording with that id is found — the caller's downstream code
+        /// must tolerate a null provisional (the underlying SupersedeCommit
+        /// helpers all early-return on null inputs).
+        /// </summary>
         private static Recording ResolveProvisional(ParsekScenario scenario)
         {
             // ReferenceEquals bypasses Unity's Object == null override so a

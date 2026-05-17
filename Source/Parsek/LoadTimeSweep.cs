@@ -1144,9 +1144,14 @@ namespace Parsek
                 // recording's node in its owning tree's Recordings dict survives
                 // and FinalizeTreeCommit (RecordingStore.cs:1363-1386) re-adds
                 // it to committedRecordings on the next commit pass. Walk every
-                // tree dict here so the zombie cannot be resurrected.
+                // tree dict here so the zombie cannot be resurrected. The
+                // tree-dict walks are keyed by RecordingId, so a recording with
+                // no id can only be removed from the flat list (which uses
+                // reference equality via RemoveCommittedInternal).
                 bool fromFlatList = RecordingStore.RemoveCommittedInternal(rec);
                 int fromCommittedTrees = 0;
+                bool fromPendingTree = false;
+                bool fromActiveTree = false;
                 if (!string.IsNullOrEmpty(rec.RecordingId))
                 {
                     var committedTrees = RecordingStore.CommittedTrees;
@@ -1162,20 +1167,12 @@ namespace Parsek
                             }
                         }
                     }
-                }
-                bool fromPendingTree = false;
-                if (!string.IsNullOrEmpty(rec.RecordingId))
-                {
                     var pending = RecordingStore.PendingTree;
                     if (pending?.Recordings != null && pending.Recordings.Remove(rec.RecordingId))
                     {
                         pending.RebuildBackgroundMap();
                         fromPendingTree = true;
                     }
-                }
-                bool fromActiveTree = false;
-                if (!string.IsNullOrEmpty(rec.RecordingId))
-                {
                     var active = ParsekFlight.Instance?.ActiveTreeForSerialization;
                     if (active?.Recordings != null && active.Recordings.Remove(rec.RecordingId))
                     {

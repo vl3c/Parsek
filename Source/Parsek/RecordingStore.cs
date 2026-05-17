@@ -856,6 +856,21 @@ namespace Parsek
         /// Adds all recordings to CommittedRecordings (for ghost playback)
         /// and the tree itself to CommittedTrees (for tree-specific queries).
         /// </summary>
+        /// <summary>
+        /// Commits <paramref name="tree"/> into <see cref="CommittedTrees"/>.
+        ///
+        /// <para><b>Active-Re-Fly union side-effect (Bug fix-refly-abandon-and-fork-persist
+        /// §Bug2a)</b>: when a live <c>ParsekScenario.Instance?.ActiveReFlySessionMarker</c>
+        /// references the same tree id as <paramref name="tree"/>, the
+        /// duplicate-tree path takes a UNION rather than the strict skip-as-
+        /// duplicate. That changes the contract for any caller other than the
+        /// merge orchestrator: if a future code path commits a deliberately-
+        /// pruned tree (e.g. trim-scope=ActiveRecOnly view) while a Re-Fly
+        /// session is active, this method will merge it into the committed
+        /// copy instead of rejecting it. New callers that rely on the strict-
+        /// skip semantics MUST either (a) clear the live marker first, or
+        /// (b) confirm their use case wants the union semantics.</para>
+        /// </summary>
         public static void CommitTree(RecordingTree tree)
         {
             if (tree == null) return;
@@ -1741,6 +1756,16 @@ namespace Parsek
         ///     authored the more recent state); existing-only ids are
         ///     kept untouched (the pre-Re-Fly debris / pre-rewind chain
         ///     content that the session never touched).
+        ///     <para><b>Overwrite-loss caveat</b>: the shared-id swap is
+        ///     by-reference. Any mutations the existing committed
+        ///     Recording received between the active session's fork
+        ///     (snapshot capture) and this commit — e.g. rename, group
+        ///     reassignment, ledger-driven field updates — are silently
+        ///     replaced with the active session's older view. For the
+        ///     Re-Fly contract this is fine (the active session is the
+        ///     authority on its own recordings), but DO NOT add fields
+        ///     to <c>Recording</c> that are user-mutable outside the
+        ///     active session without revisiting this overwrite policy.</para>
         ///   </description></item>
         ///   <item><description>
         ///     <c>BranchPoints</c> keyed by <c>Id</c>: same union shape.

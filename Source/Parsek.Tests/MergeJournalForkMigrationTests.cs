@@ -96,7 +96,7 @@ namespace Parsek.Tests
             var marker = NewMarker("sess_1", "tree_1", "rec_fork", inPlace: true);
 
             MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
-                marker, fork, ParsekScenario.Instance);
+                marker, fork);
 
             // Fork is now in the committed tree.
             Assert.True(committedTree.Recordings.ContainsKey("rec_fork"));
@@ -123,7 +123,7 @@ namespace Parsek.Tests
             var marker = NewMarker("sess_1", "tree_1", "rec_fork", inPlace: false);
 
             MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
-                marker, fork, ParsekScenario.Instance);
+                marker, fork);
 
             // Committed tree unchanged.
             Assert.False(committedTree.Recordings.ContainsKey("rec_fork"));
@@ -143,7 +143,7 @@ namespace Parsek.Tests
             var marker = NewMarker("sess_1", "tree_orphan", "rec_fork", inPlace: true);
 
             MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
-                marker, fork, ParsekScenario.Instance);
+                marker, fork);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Parsek][WARN][MergeJournal]") &&
@@ -170,7 +170,7 @@ namespace Parsek.Tests
             // First call: adds fork, promotes active id → INFO log
             // (real work happened).
             MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
-                marker, fork, ParsekScenario.Instance);
+                marker, fork);
             int recsAfterFirst = committedTree.Recordings.Count;
             string activeAfterFirst = committedTree.ActiveRecordingId;
             Assert.Contains(logLines, l =>
@@ -182,7 +182,7 @@ namespace Parsek.Tests
 
             // Second call: no net change → VERBOSE log (idempotent re-run).
             MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
-                marker, fork, ParsekScenario.Instance);
+                marker, fork);
 
             Assert.Equal(recsAfterFirst, committedTree.Recordings.Count);
             Assert.Equal(activeAfterFirst, committedTree.ActiveRecordingId);
@@ -207,7 +207,7 @@ namespace Parsek.Tests
         {
             // No exceptions; defensive null-guard.
             MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
-                marker: null, provisional: null, scenario: null);
+                marker: null, provisional: null);
             // No assertions beyond "didn't throw".
         }
     }
