@@ -156,6 +156,36 @@ namespace Parsek
             /// target).
             /// </summary>
             internal bool SupersedeTargetIdCaptured;
+
+            /// <summary>
+            /// Pre-mutation value of the owning tree's
+            /// <c>ActiveRecordingId</c>, captured in Step 2.12 immediately
+            /// BEFORE the splitter promotes HEAD→TIP. Bug
+            /// fix-refly-abandon-and-fork-persist §Bug2c: Step 12 used to
+            /// only verbose-log that the pointer still referenced HEAD
+            /// (origin.RecordingId); for an in-place continuation the
+            /// active recording is conceptually the post-rewind portion
+            /// (TIP), so the splitter now actively promotes the pointer
+            /// and the rollback path must restore it.
+            ///
+            /// Default <c>null</c> means "active-id mutation has not
+            /// happened yet, no restoration needed." A non-null value is
+            /// safe to write back as-is — if the original pointer was null
+            /// then <see cref="ActiveRecordingIdMutated"/> stays false and
+            /// the rollback skips the restore.
+            /// </summary>
+            internal string PreSplitActiveRecordingId;
+
+            /// <summary>
+            /// True once Step 2.12's <c>tree.ActiveRecordingId</c> promotion
+            /// from HEAD to TIP has been recorded in the snapshot.
+            /// Distinguishes "no mutation yet" from "mutation captured and
+            /// rolled back" so rollback can restore
+            /// <see cref="PreSplitActiveRecordingId"/> unconditionally
+            /// (which may legitimately be null on a tree with no active
+            /// recording).
+            /// </summary>
+            internal bool ActiveRecordingIdMutated;
         }
 
         /// <summary>
@@ -994,8 +1024,17 @@ namespace Parsek
             // idempotent re-entry path correct too.)
             RecordingStore.BumpStateVersion();
 
-            // Step 2.12: invariant logs — tree root / active recording id
-            // should still match origin's id (HEAD preserved the id by design).
+            // Step 2.12: tree invariants + active-id promotion.
+            // - tree.RootRecordingId still references HEAD (origin.RecordingId)
+            //   because HEAD preserved origin's id by design. Verbose-log
+            //   the invariant for diagnostics.
+            // - Bug fix-refly-abandon-and-fork-persist §Bug2c: tree.
+            //   ActiveRecordingId used to be left pointing at HEAD here.
+            //   For an in-place continuation the active recording is
+            //   conceptually the post-rewind portion (TIP, soon the fork
+            //   via MigrateActiveReFlyForkIntoCommittedTree §Bug2b), so
+            //   the splitter actively promotes HEAD→TIP and captures the
+            //   prior value into the snapshot for rollback.
             if (tree != null)
             {
                 if (string.Equals(tree.RootRecordingId, origin.RecordingId, StringComparison.Ordinal))
@@ -1006,9 +1045,12 @@ namespace Parsek
                 }
                 if (string.Equals(tree.ActiveRecordingId, origin.RecordingId, StringComparison.Ordinal))
                 {
-                    ParsekLog.Verbose(Tag,
-                        $"Step12: tree.ActiveRecordingId references HEAD ({origin.RecordingId}) — " +
-                        "id preservation kept the active recording pointer valid");
+                    snapshot.PreSplitActiveRecordingId = tree.ActiveRecordingId;
+                    snapshot.ActiveRecordingIdMutated = true;
+                    tree.ActiveRecordingId = tip.RecordingId;
+                    ParsekLog.Info(Tag,
+                        $"Step12: promoted tree.ActiveRecordingId {origin.RecordingId} -> {tip.RecordingId} " +
+                        "(HEAD -> TIP after split; in-place fork migration may further promote to fork)");
                 }
             }
 
@@ -1095,6 +1137,22 @@ namespace Parsek
             RecordingTree owningTreeAfterRollback = FindCommittedTreeById(snapshot.TreeId);
             owningTreeAfterRollback?.RebuildBackgroundMap();
 
+            // Step 2d: restore tree.ActiveRecordingId. Bug
+            // fix-refly-abandon-and-fork-persist §Bug2c: Step 12 may have
+            // promoted ActiveRecordingId from HEAD to TIP; TIP has just
+            // been removed from the store/tree, so leaving the pointer at
+            // TIP would dangle. The restoration unconditionally writes
+            // back the captured pre-mutation value (which may be null on
+            // a tree with no prior active recording).
+            bool restoredActiveId = false;
+            string preActiveIdForLog = null;
+            if (snapshot.ActiveRecordingIdMutated && owningTreeAfterRollback != null)
+            {
+                preActiveIdForLog = owningTreeAfterRollback.ActiveRecordingId;
+                owningTreeAfterRollback.ActiveRecordingId = snapshot.PreSplitActiveRecordingId;
+                restoredActiveId = true;
+            }
+
             // Step 3: restore ChainIndex map. Each sibling looked up by id;
             // ChainIndex written back. After origin reference swap the lookup
             // resolves to the clone, which is fine because the clone shares the
@@ -1168,6 +1226,9 @@ namespace Parsek
                 $"markerRestored={(restoredMarker ? "true" : "false")} " +
                 $"markerWas={preMarkerTargetForLog ?? "<none>"} " +
                 $"markerRestoredTo={(restoredMarker ? (snapshot.PreSplitSupersedeTargetId ?? "<null>") : "<not-touched>")} " +
+                $"activeIdRestored={(restoredActiveId ? "true" : "false")} " +
+                $"activeIdWas={preActiveIdForLog ?? "<none>"} " +
+                $"activeIdRestoredTo={(restoredActiveId ? (snapshot.PreSplitActiveRecordingId ?? "<null>") : "<not-touched>")} " +
                 $"backgroundMapRebuilt={(owningTreeAfterRollback != null ? "true" : "false")})");
         }
 

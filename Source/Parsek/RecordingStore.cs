@@ -852,9 +852,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Commits a recording tree directly to the timeline.
-        /// Adds all recordings to CommittedRecordings (for ghost playback)
-        /// and the tree itself to CommittedTrees (for tree-specific queries).
+        /// Commits <paramref name="tree"/> into <see cref="CommittedTrees"/>.
+        /// Adds all recordings to <see cref="CommittedRecordings"/> (for ghost
+        /// playback) and the tree itself to <see cref="CommittedTrees"/> (for
+        /// tree-specific queries).
+        ///
+        /// <para><b>Active-Re-Fly union side-effect (Bug fix-refly-abandon-and-fork-persist
+        /// §Bug2a)</b>: when a live <c>ParsekScenario.Instance?.ActiveReFlySessionMarker</c>
+        /// references the same tree id as <paramref name="tree"/>, the
+        /// duplicate-tree path takes a UNION rather than the strict skip-as-
+        /// duplicate. That changes the contract for any caller other than the
+        /// merge orchestrator: if a future code path commits a deliberately-
+        /// pruned tree (e.g. trim-scope=ActiveRecOnly view) while a Re-Fly
+        /// session is active, this method will merge it into the committed
+        /// copy instead of rejecting it. New callers that rely on the strict-
+        /// skip semantics MUST either (a) clear the live marker first, or
+        /// (b) confirm their use case wants the union semantics.</para>
         /// </summary>
         public static void CommitTree(RecordingTree tree)
         {
@@ -875,6 +888,51 @@ namespace Parsek
 
                     if (!ShouldReplaceCommittedTree(committedTrees[i], tree, out var replaceReason))
                     {
+                        // Bug fix-refly-abandon-and-fork-persist §Bug2a: when
+                        // an active Re-Fly session references this tree id,
+                        // the incoming tree is by construction a partial
+                        // view (the active session may have pruned BPs
+                        // / recordings via trim-scope=ActiveRecOnly). The
+                        // strict ShouldReplaceCommittedTree gate then
+                        // rejects the merge as "incoming-missing-existing-
+                        // ids" and the session's fork — which lives only
+                        // in the incoming/active tree — is silently
+                        // dropped at OnSave time. Union the incoming's new
+                        // recordings/BPs into the existing committed tree
+                        // instead, then reassign `tree` to that merged
+                        // object so the downstream helpers
+                        // (ApplySessionMergeToRecordings through
+                        // MarkSupersededTerminalSpawnsForContinuedSources)
+                        // operate on the canonical post-union view.
+                        var liveMarker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+                        if (liveMarker != null
+                            && string.Equals(liveMarker.TreeId, tree.Id, StringComparison.Ordinal)
+                            && TryUnionActiveReFlyTreeIntoCommitted(
+                                committedTrees[i], tree, liveMarker,
+                                out int addedRecs, out int addedBps, out bool activeIdSwapped))
+                        {
+                            ParsekLog.Info("RecordingStore",
+                                $"CommitTree: unioned active-Re-Fly incoming tree id='{tree.Id}' " +
+                                $"into existing committed tree " +
+                                $"(strictGateReason={replaceReason}, " +
+                                $"addedRecordings={addedRecs} " +
+                                $"addedBranchPoints={addedBps} " +
+                                $"activeRecordingIdSwapped={activeIdSwapped} " +
+                                $"sess={liveMarker.SessionId ?? "<no-id>"})");
+                            // Reassign so downstream helpers see the
+                            // canonical merged tree, and route through the
+                            // "updated committed tree" branch of
+                            // FinalizeTreeCommit by pointing
+                            // replaceCommittedTreeIndex at the existing slot.
+                            // The strict-replace branch below would copy
+                            // group identity from existing → incoming here;
+                            // we don't need to because `tree` IS the
+                            // existing committed tree after the reassign.
+                            tree = committedTrees[i];
+                            replaceCommittedTreeIndex = i;
+                            break;
+                        }
+
                         Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
                         ParsekLog.Verbose("RecordingStore",
                             $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason}");
@@ -1673,6 +1731,169 @@ namespace Parsek
                 incoming.VesselSituation = existing.VesselSituation;
                 otherPreserved++;
             }
+        }
+
+        /// <summary>
+        /// Bug fix-refly-abandon-and-fork-persist §Bug2a: union the active-
+        /// Re-Fly incoming tree's NEW recordings and branch points into the
+        /// existing committed tree IN PLACE. Used by <see cref="CommitTree"/>
+        /// when <see cref="ShouldReplaceCommittedTree"/> rejected the
+        /// incoming as "not richer" / "missing-existing-ids" but the live
+        /// Re-Fly session marker (<paramref name="marker"/>) names this
+        /// tree — that combination means the incoming is a legitimate
+        /// active-session partial view (trim-scope=ActiveRecOnly may have
+        /// pruned BPs/recordings) and we want to keep the pre-existing
+        /// content alongside the session's new fork.
+        ///
+        /// <para><b>Union semantics</b>:
+        /// <list type="bullet">
+        ///   <item><description>
+        ///     Recordings keyed by <c>RecordingId</c>: incoming-only ids
+        ///     are added to <paramref name="existing"/>; ids present in
+        ///     both have the incoming value swapped in (the active session
+        ///     authored the more recent state); existing-only ids are
+        ///     kept untouched (the pre-Re-Fly debris / pre-rewind chain
+        ///     content that the session never touched).
+        ///     <para><b>Overwrite-loss caveat</b>: the shared-id swap is
+        ///     by-reference. Any mutations the existing committed
+        ///     Recording received between the active session's fork
+        ///     (snapshot capture) and this commit — e.g. rename, group
+        ///     reassignment, ledger-driven field updates — are silently
+        ///     replaced with the active session's older view. For the
+        ///     Re-Fly contract this is fine (the active session is the
+        ///     authority on its own recordings), but DO NOT add fields
+        ///     to <c>Recording</c> that are user-mutable outside the
+        ///     active session without revisiting this overwrite policy.</para>
+        ///   </description></item>
+        ///   <item><description>
+        ///     <c>BranchPoints</c> keyed by <c>Id</c>: same union shape.
+        ///   </description></item>
+        ///   <item><description>
+        ///     <c>RootRecordingId</c>: keep existing if non-null, else
+        ///     adopt incoming.
+        ///   </description></item>
+        ///   <item><description>
+        ///     <c>ActiveRecordingId</c>: when the live marker is present,
+        ///     prefer the incoming value (the active session is the
+        ///     authority on what "active recording" means right now);
+        ///     report whether the swap happened via the out parameter.
+        ///   </description></item>
+        /// </list>
+        /// </para>
+        ///
+        /// Returns true on success. Returns false (with all out params
+        /// zeroed) only when inputs are null or fundamentally
+        /// inconsistent — the strict-replace fallback below handles
+        /// duplicate-skip semantics in that case.
+        /// </summary>
+        private static bool TryUnionActiveReFlyTreeIntoCommitted(
+            RecordingTree existing,
+            RecordingTree incoming,
+            ReFlySessionMarker marker,
+            out int addedRecs,
+            out int addedBps,
+            out bool activeIdSwapped)
+        {
+            addedRecs = 0;
+            addedBps = 0;
+            activeIdSwapped = false;
+            if (existing == null || incoming == null || marker == null) return false;
+            if (existing.Recordings == null || incoming.Recordings == null) return false;
+
+            // Union recordings: add incoming-only, overwrite shared, keep
+            // existing-only.
+            foreach (var kvp in incoming.Recordings)
+            {
+                if (string.IsNullOrEmpty(kvp.Key) || kvp.Value == null) continue;
+                if (existing.Recordings.ContainsKey(kvp.Key))
+                {
+                    if (!ReferenceEquals(existing.Recordings[kvp.Key], kvp.Value))
+                        existing.Recordings[kvp.Key] = kvp.Value;
+                }
+                else
+                {
+                    existing.Recordings.Add(kvp.Key, kvp.Value);
+                    addedRecs++;
+                }
+            }
+
+            // Union branch points (by Id).
+            if (incoming.BranchPoints != null)
+            {
+                if (existing.BranchPoints == null)
+                    existing.BranchPoints = new List<BranchPoint>();
+                var existingBpIds = new HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < existing.BranchPoints.Count; i++)
+                {
+                    var bp = existing.BranchPoints[i];
+                    if (bp != null && !string.IsNullOrEmpty(bp.Id))
+                        existingBpIds.Add(bp.Id);
+                }
+                for (int i = 0; i < incoming.BranchPoints.Count; i++)
+                {
+                    var bp = incoming.BranchPoints[i];
+                    if (bp == null || string.IsNullOrEmpty(bp.Id)) continue;
+                    if (!existingBpIds.Contains(bp.Id))
+                    {
+                        existing.BranchPoints.Add(bp);
+                        addedBps++;
+                    }
+                }
+            }
+
+            // Root id: keep existing if set; else adopt incoming.
+            if (string.IsNullOrEmpty(existing.RootRecordingId)
+                && !string.IsNullOrEmpty(incoming.RootRecordingId))
+            {
+                existing.RootRecordingId = incoming.RootRecordingId;
+            }
+
+            // Active id: prefer incoming when an active marker exists. The
+            // marker is the authority on "what the user is doing now". The
+            // splitter's Step 2.12 promotion may have already promoted
+            // incoming.ActiveRecordingId from HEAD to TIP; the migrate
+            // helper (§Bug2b) may further promote it to the fork. Either
+            // way the incoming value is what we want.
+            if (!string.IsNullOrEmpty(incoming.ActiveRecordingId)
+                && !string.Equals(existing.ActiveRecordingId,
+                                  incoming.ActiveRecordingId,
+                                  StringComparison.Ordinal))
+            {
+                existing.ActiveRecordingId = incoming.ActiveRecordingId;
+                activeIdSwapped = true;
+            }
+
+            // RebuildBackgroundMap: the recordings dict just changed.
+            existing.RebuildBackgroundMap();
+            return true;
+        }
+
+        /// <summary>
+        /// Internal shim that lets <c>MergeJournalOrchestrator.
+        /// MigrateActiveReFlyForkIntoCommittedTree</c> call the private
+        /// union helper. The same union logic is used by
+        /// <see cref="CommitTree"/>'s active-Re-Fly path and by the
+        /// merge journal's new <c>TreeMerge</c> phase; centralizing the
+        /// semantics in <see cref="TryUnionActiveReFlyTreeIntoCommitted"/>
+        /// keeps the two call sites consistent. Returns whether the helper
+        /// produced a successful union; the shim drops the
+        /// <c>activeIdSwapped</c> out param because the merge-phase caller
+        /// reads <c>committedTree.ActiveRecordingId</c> directly to build
+        /// its log line.
+        ///
+        /// <para><b>Only caller</b>:
+        /// <c>MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree</c>
+        /// at the <c>TreeMerge</c> phase. If you're adding a third caller
+        /// or generalizing the union semantics, audit both call sites for
+        /// the "marker present + tree id matches" precondition this
+        /// helper inherits from the private callee.</para>
+        /// </summary>
+        internal static bool UnionActiveReFlyTreeIntoCommittedForMerge(
+            RecordingTree existing, RecordingTree incoming, ReFlySessionMarker marker,
+            out int addedRecs, out int addedBps)
+        {
+            return TryUnionActiveReFlyTreeIntoCommitted(
+                existing, incoming, marker, out addedRecs, out addedBps, out _);
         }
 
         private static bool ShouldReplaceCommittedTree(

@@ -359,6 +359,32 @@ namespace Parsek
                             $"debrisParent={rec.DebrisParentRecordingId ?? "<null>"})");
                         continue;
                     }
+
+                    // Bug fix-refly-abandon-and-fork-persist §Bug1 tertiary
+                    // row-write guard: a NotCommitted recording is by contract
+                    // a session-provisional that has not yet been committed; it
+                    // must never appear as `oldRecordingId` in a supersede row.
+                    // The closure-walk guards in EffectiveState already prevent
+                    // the enqueue, so reaching this row-write site implies a
+                    // synthetic / future caller bypassed those. Mirror
+                    // ValidateSupersedeTarget's #if DEBUG / release split so
+                    // a developer build crashes loudly while a shipped release
+                    // warn-and-skips a single bad row.
+                    if (rec != null && rec.MergeState == MergeState.NotCommitted)
+                    {
+                        string invariantMsg =
+                            $"AppendRelations: refusing row old={oldId} new={newRecordingId} " +
+                            $"because old is NotCommitted (sess={rec.CreatingSessionId ?? "<none>"} " +
+                            $"rp={rec.ProvisionalForRpId ?? "<none>"}); data-model " +
+                            $"invariant violated upstream — investigate";
+#if DEBUG
+                        throw new InvalidOperationException(invariantMsg);
+#else
+                        ParsekLog.Warn(Tag, invariantMsg);
+                        continue;
+#endif
+                    }
+
                     var rel = new RecordingSupersedeRelation
                     {
                         RelationId = "rsr_" + Guid.NewGuid().ToString("N"),

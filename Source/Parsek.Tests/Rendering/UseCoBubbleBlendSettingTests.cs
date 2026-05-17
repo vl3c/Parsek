@@ -35,12 +35,15 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void UseCoBubbleBlend_DefaultsTrue()
+        public void UseCoBubbleBlend_DefaultsFalse()
         {
-            // What makes it fail: a default of false would leave Phase 5
-            // co-bubble blend off for fresh installs, masking regressions.
+            // Default flipped to off during the v0.10 playtest cycle so fresh
+            // installs render Re-Fly ghosts via standalone Absolute trajectories
+            // only; opt in via the Diagnostics toggle to re-enable peer-blend.
+            // What makes it fail: a default of true would re-enable co-bubble
+            // for fresh installs and mask the standalone-rendering baseline.
             var settings = new ParsekSettings();
-            Assert.True(settings.useCoBubbleBlend);
+            Assert.False(settings.useCoBubbleBlend);
         }
 
         [Fact]
@@ -93,10 +96,12 @@ namespace Parsek.Tests.Rendering
         [Fact]
         public void UseCoBubbleBlend_DirectAssignThroughProperty_LogsInfo()
         {
+            // Default is false (off), so assigning true is the value-changing
+            // direction that exercises the property setter and notification.
             var settings = new ParsekSettings();
-            settings.useCoBubbleBlend = false;
+            settings.useCoBubbleBlend = true;
             Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
-                && l.IndexOf("true->false", StringComparison.OrdinalIgnoreCase) >= 0
+                && l.IndexOf("false->true", StringComparison.OrdinalIgnoreCase) >= 0
                 && l.Contains("useCoBubbleBlend"));
         }
     }

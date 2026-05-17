@@ -253,13 +253,16 @@ namespace Parsek.Tests
             Assert.DoesNotContain(scenario.RewindPoints,
                 r => r.RewindPointId == "rp_persistent");
 
-            // Begin + Split (new post-Begin durable barrier from
+            // Begin + TreeMerge (Bug fix-refly-abandon-and-fork-persist §Bug2b)
+            // + Split (post-Begin durable barrier from
             // fix-supersede-identity-scope plan §5) + all 3 stable durable
             // barriers fired in order. The fixture's origin doesn't span the
             // rewind UT so the splitter returns Skipped=true, but the Split
             // DurableSave barrier still fires (the journal advances to
-            // Phase.Split regardless of split work).
-            Assert.Equal(new[] { "begin", "split", "durable1", "durable2", "durable3" },
+            // Phase.Split regardless of split work). TreeMerge is gated on
+            // marker.InPlaceContinuation but the DurableSave still fires
+            // (the journal advances to TreeMerge regardless of migrate work).
+            Assert.Equal(new[] { "begin", "treemerge", "split", "durable1", "durable2", "durable3" },
                 durableSaveCheckpoints.ToArray());
 
             // §10.8 journal log contract.
@@ -577,10 +580,11 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.Durable1Done,
                 scenario.ActiveMergeJournal.Phase);
             Assert.NotNull(scenario.ActiveReFlySessionMarker);
-            // "split" inserted between "begin" and "durable1" by the new
-            // post-Begin-durable Split barrier (fix-supersede-identity-scope
-            // plan §5).
-            Assert.Equal(new[] { "begin", "split", "durable1" }, durableSaveCheckpoints);
+            // "treemerge" (Bug fix-refly-abandon-and-fork-persist §Bug2b) +
+            // "split" (fix-supersede-identity-scope plan §5) inserted
+            // between "begin" and "durable1" as post-Begin-durable barriers.
+            Assert.Equal(new[] { "begin", "treemerge", "split", "durable1" },
+                durableSaveCheckpoints);
 
             MergeJournalOrchestrator.RunFinisher();
 
@@ -602,6 +606,32 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[MergeJournal]") && l.Contains("Completed from phase=Durable1Done"));
+        }
+
+        [Fact]
+        public void CrashAtTreeMerge_Finisher_DrivesForwardThroughSplit()
+        {
+            // Bug fix-refly-abandon-and-fork-persist §Bug2b: TreeMerge is a
+            // post-Begin-durable phase, so a crash with disk-phase=TreeMerge
+            // must drive forward through Split → Supersede → … → Complete
+            // via CompleteFromPostDurable. IsKnownPostBeginPhase(TreeMerge)
+            // returning true is what routes the dispatch.
+            var (scenario, provisional) = MakeStandardFixture();
+            TryRunWithFault(MergeJournalOrchestrator.Phase.TreeMerge,
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            Assert.Equal(MergeJournal.Phases.TreeMerge,
+                scenario.ActiveMergeJournal.Phase);
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            // Pre-finisher: only begin + treemerge fired.
+            Assert.Equal(new[] { "begin", "treemerge" }, durableSaveCheckpoints);
+
+            MergeJournalOrchestrator.RunFinisher();
+
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeJournal]") && l.Contains("Completed from phase=TreeMerge"));
         }
 
         [Fact]
@@ -727,9 +757,9 @@ namespace Parsek.Tests
                 scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.True(ok);
-            // 5 save calls: begin + split (new post-Begin durable barrier) +
-            // durable1 + durable2 + durable3.
-            Assert.Equal(5, saveCalls.Count);
+            // 6 save calls: begin + treemerge (Bug fix-refly-abandon-and-fork-
+            // persist §Bug2b) + split + durable1 + durable2 + durable3.
+            Assert.Equal(6, saveCalls.Count);
             Assert.All(saveCalls, call =>
             {
                 Assert.Equal("persistent", call.saveName);
@@ -739,6 +769,7 @@ namespace Parsek.Tests
                 new[]
                 {
                     MergeJournal.Phases.Begin,
+                    MergeJournal.Phases.TreeMerge,
                     MergeJournal.Phases.Split,
                     MergeJournal.Phases.Durable1Done,
                     MergeJournal.Phases.Durable2Done,

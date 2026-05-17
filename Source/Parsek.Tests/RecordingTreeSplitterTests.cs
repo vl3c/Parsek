@@ -217,6 +217,38 @@ namespace Parsek.Tests
                 && l.Contains("Split origin rec_origin at UT=34.00")
                 && l.Contains("HEAD=[8.00..34.00]")
                 && l.Contains($"TIP={tip.RecordingId}"));
+
+            // Bug fix-refly-abandon-and-fork-persist §Bug2c: Step 2.12
+            // actively promotes tree.ActiveRecordingId from HEAD (origin)
+            // to TIP. Previous behavior left it pointing at HEAD (the
+            // pre-rewind portion), which is the wrong "live recording"
+            // for an in-place continuation. MigrateActiveReFlyForkInto-
+            // CommittedTree (§Bug2b) further refines this to the fork id.
+            Assert.Equal(tip.RecordingId, tree.ActiveRecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]") &&
+                l.Contains("Step12: promoted tree.ActiveRecordingId") &&
+                l.Contains($"{origin.RecordingId} -> {tip.RecordingId}"));
+        }
+
+        [Fact]
+        public void SplitOriginAtRewindUT_NoPromotion_WhenActiveIdDiffersFromOrigin()
+        {
+            // §Bug2c guard: the promotion is gated on tree.ActiveRecordingId
+            // currently referencing origin.RecordingId. If a prior session
+            // already promoted it to a different id (e.g. nested Re-Fly),
+            // the splitter must NOT overwrite that.
+            var origin = BuildRecording("rec_origin", startUT: 8.0, endUT: 53.0,
+                midUT: 34.0, treeId: "tree_4",
+                terminal: TerminalState.Destroyed);
+            var tree = InstallOriginInTree(origin, "tree_4");
+            tree.ActiveRecordingId = "rec_unrelated_active";
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            Assert.Equal("rec_unrelated_active", tree.ActiveRecordingId);
         }
 
         // =====================================================================
