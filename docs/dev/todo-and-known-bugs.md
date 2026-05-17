@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Timeline W button passed an ERS index to ghost-engine APIs keyed on the raw committed list
+
+- ~~User flew Kerbal X mission 1, Re-Flew it to commit a supersede subtree, then launched Kerbal X mission 2 in a separate slot. Both launches showed up in the Timeline window in flight, but only the later launch (rec id `4b1d249f…`) had a working Watch button — the earlier launch (rec id `ab25e241…`) rendered as a disabled "no ghost" button even after its ghost spawned. The recordings-table Watch button worked for the same recording, so the divergence was strictly the Timeline path.~~
+
+**Root cause:** `TimelineWindowUI.recordingIndexById` is built from `EffectiveState.ComputeERS()` so cross-link navigation stays scoped to visible recordings (`TimelineWindowUI.cs:344-358`). The watch-button code path at `TimelineWindowUI.cs:892-930` then fed that ERS index into `flight.HasActiveGhost(recIndex)` / `IsGhostOnSameBody` / `IsGhostWithinVisualRange` / `WatchedRecordingIndex` / `EnterWatchMode` / `DescribeWatchEligibilityForLogs`, all of which key on `RecordingStore.CommittedRecordings` positions (the ghost engine builds its `cachedTrajectories` from the raw list at `ParsekFlight.cs:16807-16809`, and `WatchModeController.HasActiveGhost` does `ghostStates.TryGetValue(index, …)`). After a Re-Fly's supersede write, ERS skips the superseded entries (`EffectiveState.cs:829-832`), so every recording sitting after them is at a different ERS index than committed index. `flight.HasActiveGhost(ersIndex)` therefore queried the wrong `ghostStates[]` slot — for the affected recording it was always empty, so the W button stayed disabled. Verified in the 22:55:47 log line: the engine had `Ghost #10 "Kerbal X"` (id=ab25e241, committed index 10) but the timeline transition log read `watchEval(rec=#7 …) hasGhost=False` (ERS index 7). Had the button ever flipped enabled, `EnterWatchMode(7)` would have watched whatever recording was at `CommittedRecordings[7]`, which is a different vessel entirely.
+
+**Fix:** `TimelineWindowUI` now builds its `recIndex` for the W-button path from a new `committedIndexById` dictionary, populated at cache rebuild from `RecordingStore.CommittedRecordings` rather than from `EffectiveState.ComputeERS()`. The old ERS-scoped `recordingIndexById` field and its `FindRecordingIndexById` helper had no other callers and were removed as part of the fix. `Source/Parsek/UI/TimelineWindowUI.cs` is now in `scripts/ers-els-audit-allowlist.txt` with an inline `[ERS-exempt]` comment and an allowlist rationale matching the existing physical-visibility consumer entries (RecordingsTableUI, WatchModeController). Coverage: `BuildRecordingIndexLookup_ErsAndCommittedIndicesDivergeAfterSupersede` pins the invariant against future drift between the two index spaces.
+
+**Status:** CLOSED 2026-05-17.
+
+---
+
 ## Open - v0.9.2 Re-fly provisional Relative section anchored to fast-separating sibling causes chaotic ghost playback during watch mode
 
 **Evidence:** Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. User entered watch mode at 22:56:02 after committing three nested re-flies on the same save. During the 27-second watch window (until 22:56:29), `GhostRenderTrace` fired **281 `reason=large-delta` events** — all concentrated on the three re-fly provisional recordings:

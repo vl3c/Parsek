@@ -58,6 +58,19 @@ Source/Parsek/UI/RecordingsTableUI.cs
 Source/Parsek/UI/GroupPickerUI.cs
 Source/Parsek/UI/SettingsWindowUI.cs
 
+# TimelineWindowUI builds a `committedIndexById` lookup off the raw
+# CommittedRecordings list because the W button code path feeds ghost-engine
+# APIs (HasActiveGhost / IsGhostOnSameBody / IsGhostWithinVisualRange /
+# WatchedRecordingIndex / EnterWatchMode / DescribeWatchEligibilityForLogs)
+# that are all keyed on the raw committed index. ERS indices diverge from
+# committed indices after a Re-Fly emits RecordingSupersedeRelation rows
+# (ERS skips superseded entries, shifting every later recording's position),
+# which previously left the W button permanently disabled — or, if its
+# enable predicate ever flipped true, would have entered watch on the wrong
+# recording. Same physical-visibility consumer rationale as RecordingsTableUI.cs
+# above. Documented at the call site with an inline [ERS-exempt] comment.
+Source/Parsek/UI/TimelineWindowUI.cs
+
 # RecordedRelativeAnchorPoseResolver is the shared KSC/map recorded-anchor
 # resolver introduced by Phase D. It resolves exact recording ids from the
 # raw list when the focus/anchor record is a NotCommitted active Re-Fly
