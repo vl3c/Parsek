@@ -629,10 +629,14 @@ namespace Parsek
                     ParsekLog.Warn("Spawner", "Spawned vessel has no orbitDriver — may not appear in map view");
 
                 // rb.mass seeding is handled centrally by the
-                // VesselLoadRigidbodyMassSeederPatch Harmony postfix on
-                // Vessel.Load (covers this RespawnVessel path once the
-                // freshly-spawned proto activates into physics, plus every
-                // stock save-load reconstruction in one place).
+                // PartMassivePartCheckSeederPatch Harmony prefix on
+                // Part.MassivePartCheck. The prefix lazily seeds each
+                // part's rb.mass at the exact read site during the
+                // ForceHeaviest autostrut selection, so the seed is
+                // correct for every load path (stock save-load, background
+                // activation, this RespawnVessel path once it reaches
+                // physics) without depending on coroutine-timing
+                // assumptions.
 
                 // Suppress g-force destruction from spawn position correction (#235)
                 pv.vesselRef.IgnoreGForces(240);
@@ -1074,10 +1078,14 @@ namespace Parsek
                     ParsekLog.Warn("Spawner", "SpawnAtPosition vessel has no orbitDriver — may not appear in map view");
 
                 // rb.mass seeding is handled centrally by the
-                // VesselLoadRigidbodyMassSeederPatch Harmony postfix on
-                // Vessel.Load (covers this SpawnAtPosition path once the
-                // freshly-spawned proto activates into physics, plus every
-                // stock save-load reconstruction in one place).
+                // PartMassivePartCheckSeederPatch Harmony prefix on
+                // Part.MassivePartCheck. The prefix lazily seeds each
+                // part's rb.mass at the exact read site during the
+                // ForceHeaviest autostrut selection, so the seed is
+                // correct for every load path (stock save-load, background
+                // activation, this SpawnAtPosition path once it reaches
+                // physics) without depending on coroutine-timing
+                // assumptions.
 
                 // Suppress g-force destruction from spawn position correction (#235)
                 pv.vesselRef.IgnoreGForces(240);
@@ -5514,23 +5522,25 @@ namespace Parsek
         // cluster of physicsless decorative children still ranks at the
         // mass FlightIntegrator would assign at unpack).
         //
-        // Single source of truth: the Patches.VesselLoadRigidbodyMassSeederPatch
-        // Harmony postfix on Vessel.Load() is the ONLY caller of this
-        // helper in production. ProtoVessel.Load was the previously-attempted
-        // target but it never populates vessel.parts (parts are
-        // instantiated by ProtoVessel.LoadObjects, which Vessel.Load calls
-        // before firing GameEvents.onVesselLoaded), so the seeder loop
-        // there iterated zero times for two months -- visible as
-        // updated=0 in every production seeder log line. Vessel.Load is
-        // the single entry point through which every freshly-loaded packed
-        // vessel passes (active vessel after scene load via
-        // Vessel.MakeActive, background vessels entering physics range,
-        // every Parsek SpawnAtPosition / RespawnVessel spawn once
-        // activated). The postfix gate intentionally skips flag-spawn and
-        // ghost-map-presence vessels: those are single-part with
-        // autostrutMode=Off, so the wrong-anchor failure mode cannot
-        // manifest and the Part.Start coroutine never reaches
-        // MassivePartCheck on a vessel of size 1.
+        // Production seeding is per-part lazy at the actual rb.mass read
+        // site: see Patches.PartMassivePartCheckSeederPatch. That prefix
+        // calls SeedSinglePackedPart below. The vessel-walking
+        // SeedRigidbodyMassesForPackedSpawn helper here is retained only
+        // for its tested log-format / null-guard contract; no production
+        // call site invokes it on a real vessel anymore.
+        //
+        // PR #885 placed inline calls right after pv.Load(flightState),
+        // but ilspycmd of Assembly-CSharp.dll showed that overload never
+        // populates vesselRef.parts (parts are instantiated by
+        // protoVessel.LoadObjects, called later from Vessel.Load), so the
+        // seeder loop iterated zero times in every production log line for
+        // two months. A subsequent attempt to postfix Vessel.Load found
+        // parts populated but part.rb still null (rb is created later
+        // inside the Part.Start coroutine on a future Update tick). Both
+        // mis-anchored fixes silently shipped no-op seeders. The
+        // Part.MassivePartCheck prefix sidesteps every lifecycle question:
+        // it fires AT the read site, after rb exists by virtue of having a
+        // mass field to read, so the seed lands exactly when needed.
         internal static float ComputeRigidbodyMassForPackedSpawn(
             float partMass,
             float resourceMass,
@@ -5549,7 +5559,8 @@ namespace Parsek
         // roll their mass up to the nearest physical ancestor's rb.mass.
         // Physicsless children can themselves have physicsless descendants,
         // so the walk is recursive but bounded by part-tree depth.
-        private static float SumPhysicslessChildMass(Part parent)
+        // Internal (not private) so PartMassivePartCheckSeederPatch can reuse it.
+        internal static float SumPhysicslessChildMass(Part parent)
         {
             if (parent == null || parent.children == null) return 0f;
             float total = 0f;
@@ -5576,6 +5587,27 @@ namespace Parsek
                 "partsNull=" + (partsNull ? "T" : "F") + " — " +
                 "ForceHeaviest autostrut anchor selection on this vessel falls back to " +
                 "Unity's rb.mass=1 default until first unpack";
+        }
+
+        // Single-part seeder used by PartMassivePartCheckSeederPatch.
+        // Returns true if a write happened (caller increments a counter for
+        // diagnostics). Caller is responsible for the
+        // packed / rb==1f / vesselType / ghost-map gate; this helper only
+        // refuses on hard-null conditions and the partInfo lookup.
+        internal static bool SeedSinglePackedPart(Part p)
+        {
+            if (p == null || p.rb == null) return false;
+            AvailablePart partInfo = p.partInfo;
+            if (partInfo == null) return false;
+            float physicslessChildMass = SumPhysicslessChildMass(p);
+            float seededMass = ComputeRigidbodyMassForPackedSpawn(
+                p.mass,
+                p.resourceMass,
+                physicslessChildMass,
+                partInfo.MinimumMass,
+                partInfo.MinimumRBMass);
+            p.rb.mass = seededMass;
+            return true;
         }
 
         internal static void SeedRigidbodyMassesForPackedSpawn(Vessel vessel, string logContext)

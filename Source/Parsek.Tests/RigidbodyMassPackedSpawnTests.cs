@@ -215,64 +215,108 @@ namespace Parsek.Tests
             Assert.Contains("partsNull=T", msg);
         }
 
-        // Pure-decision tests for the Vessel.Load postfix gate. The live
-        // postfix wrapper can't be invoked from xUnit because deriving
-        // `isFlag` / `isGhostMap` reads `vessel.vesselType` and
-        // `vessel.persistentId` through Unity's overloaded `Vessel == null`
+        // Pure-decision tests for the Part.MassivePartCheck prefix gate.
+        // The live wrapper can't be invoked from xUnit because reading
+        // `p.rb` / `p.vessel` goes through Unity's overloaded `Part == null`
         // operator (same ECall SecurityException constraint that forced the
-        // VesselSpawner skip-message formatter split). The gate predicate is
-        // a pure boolean function so each skip / accept branch is testable
-        // directly.
+        // VesselSpawner skip-message formatter split in PR #885). The gate
+        // predicate takes seven booleans rather than a Part, so every
+        // branch is testable directly.
+        //
+        // Convention: helper builds the all-pass tuple and tests flip one
+        // boolean at a time to pin each skip reason.
 
-        [Fact]
-        public void VesselLoadPostfix_NullVessel_SkipsSeeding()
+        private static bool CallShouldSeedPart(
+            bool partNull = false, bool rbNull = false, bool partPacked = true,
+            bool rbMassAtUnityDefault = true, bool vesselNull = false,
+            bool isFlag = false, bool isGhostMap = false)
         {
-            // Fails if: a future refactor lets the postfix call
-            // SeedRigidbodyMassesForPackedSpawn with a null Vessel; the inner
-            // loop would NRE before its own null-guard could log the skip.
-            Assert.False(VesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterVesselLoad(
-                vesselNull: true, isFlag: false, isGhostMap: false));
+            return PartMassivePartCheckSeederPatch.ShouldSeedPart(
+                partNull, rbNull, partPacked, rbMassAtUnityDefault,
+                vesselNull, isFlag, isGhostMap);
         }
 
         [Fact]
-        public void VesselLoadPostfix_FlagVessel_SkipsSeeding()
-        {
-            // Fails if: flag-spawn Vessel.Load paths (GhostVisualBuilder
-            // flag spawns once they activate into physics range) trigger the
-            // seeder. Flags are single-part vessels with autostrutMode=Off;
-            // the wrong-anchor failure mode cannot manifest and seeding them
-            // adds log noise without any benefit.
-            Assert.False(VesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterVesselLoad(
-                vesselNull: false, isFlag: true, isGhostMap: false));
-        }
-
-        [Fact]
-        public void VesselLoadPostfix_GhostMapVessel_SkipsSeeding()
-        {
-            // Fails if: ghost-map ProtoVessels (registered in
-            // GhostMapPresence.ghostMapVesselPids before pv.Load) trigger the
-            // seeder when they activate into physics range. Ghost-map vessels
-            // are intentionally lightweight single-part presences; running
-            // the seeder loop on them adds work for no benefit and could mask
-            // a missing-fix regression on the real save-load reconstruction
-            // case behind a noisy ghost log line.
-            Assert.False(VesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterVesselLoad(
-                vesselNull: false, isFlag: false, isGhostMap: true));
-        }
-
-        [Fact]
-        public void VesselLoadPostfix_StockSaveLoadVessel_SeedsRbMass()
+        public void MassivePartCheckPrefix_HappyPath_SeedsPart()
         {
             // Fails if: a future "skip-by-default" refactor of the gate ever
-            // declines to seed a normal save-load-reconstructed vessel. This
-            // is the bug-recurrence signature for the cascade reproduced in
-            // logs/2026-05-17_1944_switch-fly-edge-case/KSP.log: a packed
-            // multi-part vessel reconstructed by KSP's
-            // FlightDriver.StartAndFocusVessel must hit the seeder before
-            // first Unpack, or ForceHeaviest autostruts will misanchor and
-            // cascade-explode the central stack.
-            Assert.True(VesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterVesselLoad(
-                vesselNull: false, isFlag: false, isGhostMap: false));
+            // declines to seed a normal packed, rb-bearing part with mass at
+            // Unity default. This is the only branch that should actually
+            // mutate rb.mass.
+            Assert.True(CallShouldSeedPart());
+        }
+
+        [Fact]
+        public void MassivePartCheckPrefix_NullPart_SkipsSeeding()
+        {
+            // Fails if: a future refactor passes a null Part to the seeder;
+            // SeedSinglePackedPart would NRE before its own null guard.
+            Assert.False(CallShouldSeedPart(partNull: true));
+        }
+
+        [Fact]
+        public void MassivePartCheckPrefix_PartWithoutRigidbody_SkipsSeeding()
+        {
+            // Fails if: physicsless parts (no rb component) trigger the
+            // seeder. The seeder helper itself early-returns on rb==null,
+            // but the gate should refuse first to avoid the redundant call
+            // and so that the diagnostic counter is not spuriously bumped
+            // for parts that were never going to mutate.
+            Assert.False(CallShouldSeedPart(rbNull: true));
+        }
+
+        [Fact]
+        public void MassivePartCheckPrefix_UnpackedPart_SkipsSeeding()
+        {
+            // Fails if: unpacked parts (FlightIntegrator-managed rb.mass)
+            // are re-seeded. The seeder would rewrite an FI-corrected value
+            // (including fuel-consumption mass deltas) back to the
+            // initial-mass formula, which is stale by definition once the
+            // vessel is in physics.
+            Assert.False(CallShouldSeedPart(partPacked: false));
+        }
+
+        [Fact]
+        public void MassivePartCheckPrefix_RbMassAlreadySeeded_SkipsSeeding()
+        {
+            // Fails if: a part whose rb.mass has already been seeded (or
+            // legitimately differs from Unity's 1.0 default) is re-seeded
+            // on every subsequent MassivePartCheck call. The
+            // rbMassAtUnityDefault gate provides the implicit idempotence
+            // that bounds the seed work to one write per part per packed
+            // window.
+            Assert.False(CallShouldSeedPart(rbMassAtUnityDefault: false));
+        }
+
+        [Fact]
+        public void MassivePartCheckPrefix_NullVessel_SkipsSeeding()
+        {
+            // Fails if: a part disconnected from its vessel (mid-decouple,
+            // mid-destroy) triggers the seeder. The downstream gates
+            // (isFlag, isGhostMap) cannot evaluate without a vessel
+            // reference.
+            Assert.False(CallShouldSeedPart(vesselNull: true));
+        }
+
+        [Fact]
+        public void MassivePartCheckPrefix_FlagVessel_SkipsSeeding()
+        {
+            // Fails if: flag-spawn vessels (GhostVisualBuilder flag spawns
+            // once they reach physics) trigger the seeder. Flags are
+            // single-part with autostrutMode=Off; MassivePartCheck should
+            // never fire on them in practice, but the gate is defensive
+            // so unexpected stock or modded code paths cannot accidentally
+            // pull flag parts through the seeder.
+            Assert.False(CallShouldSeedPart(isFlag: true));
+        }
+
+        [Fact]
+        public void MassivePartCheckPrefix_GhostMapVessel_SkipsSeeding()
+        {
+            // Fails if: ghost-map ProtoVessels (registered in
+            // GhostMapPresence.ghostMapVesselPids before pv.Load) trigger
+            // the seeder. Same defensive rationale as the flag case.
+            Assert.False(CallShouldSeedPart(isGhostMap: true));
         }
     }
 }
