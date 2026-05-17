@@ -633,12 +633,91 @@ namespace Parsek
         /// new flight on ..."), but the playtest report identified that
         /// bespoke copy as confusing — the duration line is the load-bearing
         /// distinguisher.
+        ///
+        /// <para>Bug 6 follow-up (post-#876 playtest 2026-05-17, route=
+        /// committed-spawned-clone case): when an
+        /// <see cref="SwitchSegmentSession"/> is armed AND the dialog's tree
+        /// owns the session's <c>ActiveSegmentRecordingId</c>, the duration
+        /// shown is the SEGMENT recording's elapsed time
+        /// (<c>EndUT - StartUT</c>), NOT the whole tree's span. Without this
+        /// the dialog after a committed-clone switch/Fly auto-record shows
+        /// the launch-to-present mission time (e.g. "Kerbal X - 28m") even
+        /// though the pending work is the ~10-second post-switch segment,
+        /// because the segment recording lives inside the committed-clone
+        /// tree alongside ~15 pre-existing recordings. Player mental model:
+        /// "how long did I fly after the switch" — child-debris-recording
+        /// windows after explosions are intentionally NOT included.</para>
+        ///
+        /// <para>Defensive fallbacks:</para>
+        /// <list type="bullet">
+        /// <item>session armed but <c>ActiveSegmentRecordingId</c> is null
+        ///     or not in this tree → tree-wide duration (a different tree
+        ///     is being merged than the one carrying the segment; no warn).</item>
+        /// <item>segment has <c>EndUT &lt; StartUT</c> (malformed bounds) →
+        ///     tree-wide duration + <c>[SwitchSegment]</c> Warn log.</item>
+        /// </list>
         /// </summary>
         internal static string BuildWholeTreeMergeDialogBody(RecordingTree tree)
         {
             string treeName = tree?.TreeName ?? "<unnamed>";
-            double duration = ComputeTreeDurationRange(tree);
+            double duration = ResolveDialogBodyDuration(tree);
             return $"{treeName} - {FormatDuration(duration)}";
+        }
+
+        /// <summary>
+        /// Picks the duration to render in the merge dialog body. When an
+        /// active switch-segment session targets a recording inside
+        /// <paramref name="tree"/>, prefers the segment recording's elapsed
+        /// time so the dialog distinguishes a ~10s post-switch segment from
+        /// the surrounding committed-clone tree's full mission duration.
+        /// Falls back to <see cref="ComputeTreeDurationRange"/> on:
+        /// no session armed, session missing the active segment id, segment
+        /// not present in this tree, or malformed segment bounds.
+        /// </summary>
+        internal static double ResolveDialogBodyDuration(RecordingTree tree)
+        {
+            var scenario = ParsekScenario.Instance;
+            var session = !object.ReferenceEquals(null, scenario)
+                ? scenario.ActiveSwitchSegmentSession
+                : null;
+            if (session == null
+                || string.IsNullOrEmpty(session.ActiveSegmentRecordingId)
+                || tree?.Recordings == null)
+            {
+                return ComputeTreeDurationRange(tree);
+            }
+
+            Recording segment;
+            if (!tree.Recordings.TryGetValue(
+                    session.ActiveSegmentRecordingId, out segment)
+                || segment == null)
+            {
+                // Different tree than the one carrying the segment: legitimate
+                // case (dialog is for tree B but session targets tree A), no
+                // warning needed. Fall back to tree-wide duration.
+                return ComputeTreeDurationRange(tree);
+            }
+
+            double startUT = segment.StartUT;
+            double endUT = segment.EndUT;
+            if (endUT < startUT)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"BuildWholeTreeMergeDialogBody: malformed-segment-bounds " +
+                    $"recId={segment.RecordingId ?? "<null>"} " +
+                    $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"endUT={endUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"sessionId={session.SessionId:D} — falling back to tree-wide duration");
+                return ComputeTreeDurationRange(tree);
+            }
+
+            double segmentDuration = endUT - startUT;
+            ParsekLog.Verbose("SwitchSegment",
+                $"BuildWholeTreeMergeDialogBody: using segment duration " +
+                $"recId={segment.RecordingId ?? "<null>"} " +
+                $"durationSec={segmentDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"sessionId={session.SessionId:D} treeId={tree.Id ?? "<null>"}");
+            return segmentDuration;
         }
 
         /// <summary>
