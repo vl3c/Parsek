@@ -279,6 +279,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SceneExitInterceptor_SessionTreeResolvedFromCommitted_RefusesDialogSpawn()
+        {
+            // M1 (PR #876 round-5 review): source-text gate. Fails if: the
+            // Bug-C path is allowed to spawn a pre-switch dialog for a
+            // committed-tree-resolved session, where Merge would silently
+            // no-op via the merge-commit-tree-mismatch guard. The pre-switch
+            // dialog body returns false before LockInput in that case and
+            // logs `bug-c-dialog-refused-session-tree-in-committed-slot`.
+            string projectRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string mergeDialogPath = System.IO.Path.Combine(
+                projectRoot, "Source", "Parsek", "MergeDialog.cs");
+            string source = System.IO.File.ReadAllText(mergeDialogPath);
+
+            // The committed-slot guard must exist verbatim.
+            Assert.Contains(
+                "bug-c-dialog-refused-session-tree-in-committed-slot", source);
+            // And it must short-circuit BEFORE LockInput / popup spawn.
+            var refuseRegex = new System.Text.RegularExpressions.Regex(
+                @"TreeSlotSource\.Committed[\s\S]{0,400}?bug-c-dialog-refused-session-tree-in-committed-slot[\s\S]{0,800}?return false",
+                System.Text.RegularExpressions.RegexOptions.Multiline);
+            Assert.Matches(refuseRegex, source);
+        }
+
+        [Fact]
         public void Decision_AutoMergeOff_AnyDest_ReturnsRegularMerge()
         {
             foreach (var dest in new[]

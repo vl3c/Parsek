@@ -275,45 +275,34 @@ namespace Parsek
         /// that priority order. Returns null when the session's TreeId
         /// resolves to no live tree (degenerate state — the caller falls
         /// back to the normal pending-tree dialog path with a Warn log).
+        ///
+        /// <para>Priority order: Pending (sealed-but-not-yet-committed) →
+        /// Active (live activeTree on <see cref="ParsekFlight"/>, including
+        /// clone-restore wrappers) → Committed (terminal storage). The active
+        /// slot wins over committed when an in-FLIGHT clone-restore is
+        /// mid-flight, ensuring the segment-bearing clone is dialog-ed
+        /// instead of the original committed tree. Invariant: no live
+        /// <see cref="SwitchSegmentSession"/> should ever share its TreeId
+        /// with a non-clone committed tree.</para>
+        ///
+        /// <para>M3 (PR #876 round-5 review): now delegates to
+        /// <see cref="RecordingStore.TryResolveTreeById"/> — the canonical
+        /// resolver shared with
+        /// <see cref="MergeDialog.ShowPreSwitchDecisionDialog"/>. The two
+        /// callers used to walk the same slots with diverging logic; the
+        /// helper keeps them in lockstep so a future refactor cannot
+        /// recreate the inconsistency.</para>
         /// </summary>
         internal static RecordingTree TryResolveSessionTreeForDialog(SwitchSegmentSession session)
         {
             if (session == null || string.IsNullOrEmpty(session.TreeId))
                 return null;
 
-            if (RecordingStore.PendingTree != null
-                && string.Equals(
-                    RecordingStore.PendingTree.Id, session.TreeId, StringComparison.Ordinal))
-            {
-                return RecordingStore.PendingTree;
-            }
-
-            var flight = ParsekFlight.Instance;
-            if (flight != null
-                && flight.ActiveTreeForSerialization != null
-                && string.Equals(
-                    flight.ActiveTreeForSerialization.Id,
-                    session.TreeId,
-                    StringComparison.Ordinal))
-            {
-                return flight.ActiveTreeForSerialization;
-            }
-
-            var committed = RecordingStore.CommittedTrees;
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    var t = committed[i];
-                    if (t != null
-                        && string.Equals(t.Id, session.TreeId, StringComparison.Ordinal))
-                    {
-                        return t;
-                    }
-                }
-            }
-
-            return null;
+            RecordingStore.TryResolveTreeById(
+                session.TreeId,
+                out RecordingTree tree,
+                out _);
+            return tree;
         }
 
         private static bool PendingTreeRootLandedOrSplashed()

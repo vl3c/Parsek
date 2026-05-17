@@ -336,11 +336,31 @@ namespace Parsek.Patches
                 ? priorSession.SessionId.ToString("D", CultureInfo.InvariantCulture)
                 : "<none>";
 
-            // Step 1: in-flight commit of the prior tree. CommitTreeFlight
-            // also clears the SwitchSegmentSession marker via its
-            // OnTreeCommitted -> MergeDialog observer (see MergeCommit's
-            // `scoped-merge-success` clear path). Defensive: if the prior
-            // tree is gone, log and continue with the switch anyway.
+            // L8 (PR #876 round-5 review): refuse if a Re-Fly merge journal
+            // is concurrently active. CommitTreeFlight could race the
+            // journal finisher (mirrors MergeDialog.MergeDiscardRanToCompletion
+            // and TryDiscardActiveReFlyAttempt's existing guards). Player
+            // retries after the journal completes.
+            if (scenario != null && scenario.ActiveMergeJournal != null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"merge-refused-active-merge-journal " +
+                    $"priorSessionId={priorSessionIdStr} " +
+                    $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"}");
+                ParsekLog.ScreenMessage(
+                    "Switch-to merge: re-fly merge in progress - retry in a moment", 3f);
+                return;
+            }
+
+            // Step 1: in-flight commit of the prior tree. The prior session
+            // marker is cleared by the `superseded-by-new-switch` defensive
+            // branch in ParsekFlight.TryConsumeStockActionIntent after
+            // SetActiveVessel(target) below triggers OnVesselSwitchComplete.
+            // CommitTreeFlight commits the tree to storage but does not
+            // itself touch the session marker (unlike MergeCommit, which
+            // does fire OnTreeCommitted and clears via scoped-merge-success).
+            // Defensive: if the prior tree is gone, log and continue with
+            // the switch anyway.
             var flight = ParsekFlight.Instance;
             if (flight != null && flight.HasActiveTree)
             {
@@ -353,9 +373,42 @@ namespace Parsek.Patches
                 }
                 catch (Exception ex)
                 {
+                    // L2 (PR #876 round-5 review): on CommitTreeFlight
+                    // exception, activeTree may be left half-finalized.
+                    // Aborting the switch is safer than letting
+                    // ArmIntentAndSwitchTo proceed and consume against a
+                    // partial tree. The player sees a screen message,
+                    // stays on the prior vessel, and can retry; normal
+                    // recorder lifecycle or the next merge dialog will
+                    // sweep the half-finalized state.
                     ParsekLog.Error("SwitchIntentPatch",
                         $"pre-switch-dialog merge: CommitTreeFlight threw " +
-                        $"{ex.GetType().Name}: {ex.Message} - continuing with switch anyway");
+                        $"{ex.GetType().Name}: {ex.Message} - aborting switch");
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        $"pre-switch-dialog merge abort: priorSessionId={priorSessionIdStr} " +
+                        $"newTargetPid={(target != null ? target.persistentId : 0u)} - " +
+                        "player remains on prior vessel; retry the Switch-To click");
+                    ParsekLog.ScreenMessage(
+                        "Switch-to canceled: failed to commit prior recording", 4f);
+                    return;
+                }
+
+                // L3 (PR #876 round-5 review): MergeDialog.OnTreeCommitted is
+                // only fired by MergeCommit (not CommitTreeFlight), so the
+                // ParsekFlight subscriber that runs EvaluateAndApplyGhostChains
+                // doesn't fire on this path. Invoke it directly so newly
+                // committed recordings get picked up by ghost-chain
+                // evaluation immediately instead of waiting for the next
+                // scene-load.
+                try
+                {
+                    MergeDialog.OnTreeCommitted?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        $"pre-switch-dialog merge: OnTreeCommitted invoker threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - continuing with switch");
                 }
             }
             else

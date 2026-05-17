@@ -78,14 +78,29 @@ confirm the expected log lines fired.
 3. Pass criteria:
    - Only ONE segment recording is created for vessel A.
    - The second intent clears with reason `duplicate-intent-same-target`.
+   - The pre-switch Merge / Discard dialog does NOT appear (the same-target
+     consume-helper branch handles it, no dialog needed).
 
 ## 7. Rapid Switch-To from A to B to C (different targets)
-1. From FLIGHT, Switch-To vessel A via Map view.
-2. As soon as the scene returns, Switch-To vessel B.
-3. As soon as the scene returns again, Switch-To vessel C.
-4. Pass criteria:
-   - Three distinct segment recordings exist (one each for A, B, C).
-   - Each `[SwitchSegment] armed:` line carries a different `sessionId`.
+1. From FLIGHT, Switch-To vessel A via Map view. Fly long enough for the
+   segment to start recording (5+ seconds).
+2. From FLIGHT Map view, click "Switch To" on vessel B.
+3. Pass criteria for step 2: a "Pending switch-segment recording" dialog
+   opens BEFORE the switch. The dialog has two buttons: **Merge** and
+   **Discard**. There is NO Cancel button, and pressing Esc does NOT
+   dismiss the dialog (the dialog re-spawns immediately). Verify the
+   dialog body shows vessel A's tree name + a short duration matching
+   the time spent on vessel A.
+4. Click **Discard** in the dialog. The switch proceeds to vessel B; the
+   vessel A segment is removed from the recordings table.
+5. Repeat for B -> C using **Merge** this time.
+6. Pass criteria for the whole sequence:
+   - Vessel A's segment was removed (Discard branch).
+   - Vessel B's segment was committed to the timeline (Merge branch).
+   - Vessel C's session is active in the recordings table.
+   - `[SwitchIntentPatch] pre-switch-dialog-opened` fires for each rapid
+     click; `pre-switch-dialog-discard-chosen` and
+     `pre-switch-dialog-merge-chosen` log the respective button outcomes.
 
 ## 8. Scene-exit Discard scoped to the switch segment
 1. Perform test #1 (TS Fly into a committed vessel) and fly for 20+ seconds.
@@ -123,6 +138,30 @@ confirm the expected log lines fired.
    - The dialog body reads `"{TreeName} - {Duration}"` — the same template
      used by long-running launch trees. The duration line is the load-bearing
      distinguisher between a 16s segment and a 30-minute launch.
+
+## 11. Pre-switch dialog: Merge button
+1. Perform test #3 (Map Switch-To on vessel A) and fly for 15+ seconds.
+2. From Map view, Switch-To on vessel B. The pre-switch
+   "Pending switch-segment recording" dialog appears.
+3. Click **Merge**.
+4. Pass criteria:
+   - The switch to vessel B proceeds; vessel A's segment is committed
+     under its committed timeline as a new continuation row.
+   - A new switch-segment recording starts on vessel B (verify via the
+     recordings table and `[SwitchSegment] armed:` log).
+   - `[SwitchIntentPatch] pre-switch-dialog-merge-chosen` and
+     `pre-switch-dialog committed-prior-segment` appear in the log.
+
+## 12. Pre-switch dialog: Discard button
+1. Perform test #3 (Map Switch-To on vessel A) and fly for 15+ seconds.
+2. From Map view, Switch-To on vessel B. The pre-switch dialog appears.
+3. Click **Discard**.
+4. Pass criteria:
+   - The switch to vessel B proceeds; vessel A's switch-segment recording
+     is removed (subtree-scoped discard).
+   - A new switch-segment recording starts on vessel B.
+   - `[SwitchIntentPatch] pre-switch-dialog-discard-chosen` and
+     `pre-switch-dialog scoped-discard-success` appear in the log.
 
 ---
 

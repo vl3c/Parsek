@@ -213,7 +213,7 @@ namespace Parsek
                 {
                     ParsekLog.Info("MergeDialog",
                         $"Switch-segment merge dialog (post-transition): " +
-                        $"sessionId={reFlyScenario.ActiveSwitchSegmentSession.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"sessionId={reFlyScenario.ActiveSwitchSegmentSession.SessionId:D} " +
                         $"entryReason={reFlyScenario.ActiveSwitchSegmentSession.EntryReason}");
                 }
                 message = BuildWholeTreeMergeDialogBody(tree);
@@ -358,7 +358,7 @@ namespace Parsek
                 {
                     ParsekLog.Info("MergeDialog",
                         $"Switch-segment merge dialog (pre-transition): " +
-                        $"sessionId={switchScenario.ActiveSwitchSegmentSession.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"sessionId={switchScenario.ActiveSwitchSegmentSession.SessionId:D} " +
                         $"entryReason={switchScenario.ActiveSwitchSegmentSession.EntryReason}");
                 }
                 message = BuildWholeTreeMergeDialogBody(liveTree);
@@ -483,35 +483,25 @@ namespace Parsek
                 ? scenario.ActiveSwitchSegmentSession
                 : null;
             string priorSessionIdStr = session != null
-                ? session.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)
+                ? $"{session.SessionId:D}"
                 : "<none>";
 
             // Locate the session's tree so we can render the duration body.
             // The session.TreeId may resolve to the live activeTree (rapid
-            // Switch-To inside FLIGHT) or a pending stash. Defensive: when no
-            // tree resolves, build the body off whatever name we can read.
+            // Switch-To inside FLIGHT) or a pending stash. M3 (PR #876
+            // round-5 review): now uses the shared
+            // RecordingStore.TryResolveTreeById helper, the same one
+            // SceneExitInterceptor.TryResolveSessionTreeForDialog uses, so
+            // the two callers cannot diverge in the slot walk.
             RecordingTree priorTree = null;
+            RecordingStore.TreeSlotSource priorTreeSlot =
+                RecordingStore.TreeSlotSource.None;
             try
             {
-                var flight = ParsekFlight.Instance;
-                if (flight != null
-                    && flight.ActiveTreeForSerialization != null
-                    && session != null
-                    && string.Equals(
-                        flight.ActiveTreeForSerialization.Id,
-                        session.TreeId,
-                        System.StringComparison.Ordinal))
+                if (session != null)
                 {
-                    priorTree = flight.ActiveTreeForSerialization;
-                }
-                else if (RecordingStore.PendingTree != null
-                    && session != null
-                    && string.Equals(
-                        RecordingStore.PendingTree.Id,
-                        session.TreeId,
-                        System.StringComparison.Ordinal))
-                {
-                    priorTree = RecordingStore.PendingTree;
+                    RecordingStore.TryResolveTreeById(
+                        session.TreeId, out priorTree, out priorTreeSlot);
                 }
             }
             catch (System.Exception ex)
@@ -519,6 +509,27 @@ namespace Parsek
                 ParsekLog.Warn("MergeDialog",
                     $"ShowPreSwitchDecisionDialog: tree lookup threw " +
                     $"{ex.GetType().Name}: {ex.Message} — body will use a stub");
+                priorTree = null;
+                priorTreeSlot = RecordingStore.TreeSlotSource.None;
+            }
+
+            // M1 (PR #876 round-5 review): if the session's tree resolved
+            // to the CommittedTrees slot specifically, refuse to spawn the
+            // dialog. The Merge button would call MergeCommit -> the M1
+            // guard there would refuse (the tree isn't in pendingTree),
+            // and the player would see a dialog that does nothing. The
+            // session marker probably needs cleanup separately, but that
+            // is out of scope for this PR — defensive log + refuse here
+            // so we don't trigger the misbehaving Merge path.
+            if (priorTreeSlot == RecordingStore.TreeSlotSource.Committed)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"bug-c-dialog-refused-session-tree-in-committed-slot " +
+                    $"priorSessionId={priorSessionIdStr} " +
+                    $"treeId={(session != null ? session.TreeId ?? "<null>" : "<no-session>")} " +
+                    $"newTargetPid={target.persistentId} — " +
+                    "Merge would no-op via the merge-commit-tree-mismatch guard");
+                return false;
             }
 
             string message;
@@ -544,10 +555,23 @@ namespace Parsek
             }
 
             const string title = "Pending switch-segment recording";
+
+            // M2 (PR #876 round-5 review): Esc must NOT dismiss this dialog —
+            // the player must commit to Merge or Discard. KSP's stock
+            // PopupDialog.Update() hard-codes `Input.GetKeyUp(KeyCode.Escape)`
+            // -> Dismiss() and has no `dismissOnEscape` flag, so we enforce
+            // the contract from OnDismiss: when teardown fires without a
+            // button click, re-spawn the same dialog so the player can't
+            // sneak past it via Esc. The button handlers set the shared
+            // `buttonClicked` flag before invoking the action, so OnDismiss
+            // knows whether to re-spawn or just clean up.
+            bool buttonClicked = false;
+
             DialogGUIButton[] buttons = new[]
             {
                 new DialogGUIButton("Merge", () =>
                 {
+                    buttonClicked = true;
                     ParsekLog.Info("SwitchIntentPatch",
                         $"pre-switch-dialog-merge-chosen priorSessionId={priorSessionIdStr} " +
                         $"newTargetPid={target.persistentId}");
@@ -565,6 +589,7 @@ namespace Parsek
                 }),
                 new DialogGUIButton("Discard", () =>
                 {
+                    buttonClicked = true;
                     ParsekLog.Info("SwitchIntentPatch",
                         $"pre-switch-dialog-discard-chosen priorSessionId={priorSessionIdStr} " +
                         $"newTargetPid={target.persistentId}");
@@ -588,6 +613,12 @@ namespace Parsek
             PopupDialog.DismissPopup(DialogName);
             LockInput();
             ParsekScenario.MergeDialogPending = true;
+            // KSP's stock PopupDialog hard-codes Esc -> Dismiss() in its
+            // Update() loop with no `dismissOnEscape` flag; the boolean
+            // parameter on SpawnPopupDialog is `persistAcrossScenes`, not
+            // dismissal control. We enforce the "no Esc dismissal" contract
+            // from the OnDismiss handler below — when teardown fires without
+            // a button click, we re-spawn the same dialog.
             PopupDialog popup = PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
@@ -598,14 +629,34 @@ namespace Parsek
                     HighLogic.UISkin,
                     buttons
                 ),
-                false,
+                persistAcrossScenes: false,
                 HighLogic.UISkin
             );
             if (popup != null)
             {
                 popup.OnDismiss += () =>
                 {
-                    ClearPendingFlag("pre-switch-dialog popup teardown");
+                    if (buttonClicked)
+                    {
+                        ClearPendingFlag("pre-switch-dialog popup teardown");
+                        return;
+                    }
+                    // Esc / non-button teardown: re-spawn the dialog so the
+                    // player still has to make a choice. M2 (PR #876 round-5
+                    // review): the stealth-Cancel UX bug stayed silent because
+                    // OnDismiss cleared the input lock but left the prior
+                    // session armed, so the next Switch-To opened a wrong-tree
+                    // dialog. Forcing Merge/Discard is the contract.
+                    ParsekLog.Info("SwitchIntentPatch",
+                        $"pre-switch-dialog-esc-refused-respawning " +
+                        $"priorSessionId={priorSessionIdStr} newTargetPid={target.persistentId}");
+                    // Recursive re-spawn through the same helper. If THAT spawn
+                    // fails, the lock is released and we fall back to the
+                    // defensive supersede path documented at the spawn-failed
+                    // log line below. The recursion is bounded by the player's
+                    // own input — every Esc press just re-opens the dialog.
+                    ClearPendingFlag("pre-switch-dialog popup teardown (re-spawn)");
+                    ShowPreSwitchDecisionDialog(target, mergeAction, discardAction);
                 };
                 ParsekLog.Info("SwitchIntentPatch",
                     $"pre-switch-dialog-opened priorSessionId={priorSessionIdStr} " +
@@ -616,7 +667,7 @@ namespace Parsek
 
             ClearPendingFlag("pre-switch-dialog spawn returned null");
             ParsekLog.Warn("SwitchIntentPatch",
-                $"pre-switch-dialog-spawn-failed defensive-fallback-to-supersede " +
+                $"pre-switch-dialog-spawn-failed falling-back-to-stock-supersede " +
                 $"priorSessionId={priorSessionIdStr} newTargetPid={target.persistentId}");
             return false;
         }
@@ -921,7 +972,7 @@ namespace Parsek
                     $"recId={segment.RecordingId ?? "<null>"} " +
                     $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                     $"endUT={endUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"sessionId={session.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)} — falling back to tree-wide duration");
+                    $"sessionId={session.SessionId:D} — falling back to tree-wide duration");
                 return ComputeTreeDurationRange(tree);
             }
 
@@ -930,7 +981,7 @@ namespace Parsek
                 $"BuildWholeTreeMergeDialogBody: using segment duration " +
                 $"recId={segment.RecordingId ?? "<null>"} " +
                 $"durationSec={segmentDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"sessionId={session.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)} treeId={tree.Id ?? "<null>"}");
+                $"sessionId={session.SessionId:D} treeId={tree.Id ?? "<null>"}");
             return segmentDuration;
         }
 
@@ -995,6 +1046,26 @@ namespace Parsek
             if (tree == null)
             {
                 ParsekLog.Warn("MergeDialog", "MergeCommit: tree is null — nothing to commit");
+                return;
+            }
+
+            // M1 (PR #876 round-5 review): RecordingStore.CommitPendingTree
+            // operates on the global pendingTree slot. If a caller routes a
+            // session-resolved tree from CommittedTrees (Bug-C dialog path),
+            // CommitPendingTree would no-op on null/mismatch and the dialog
+            // would disappear with nothing committed. Refuse the commit when
+            // the passed tree isn't the one CommitPendingTree will act on, so
+            // we never silently misbehave.
+            var pendingForGuard = RecordingStore.PendingTree;
+            if (pendingForGuard == null
+                || !object.ReferenceEquals(pendingForGuard, tree))
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"merge-commit-tree-mismatch " +
+                    $"passedTreeId={tree.Id ?? "<null>"} " +
+                    $"pendingTreeId={pendingForGuard?.Id ?? "<null>"} — " +
+                    "refusing commit (CommitPendingTree would no-op or commit the wrong tree)");
+                ClearPendingFlag("merge-commit-tree-mismatch refused");
                 return;
             }
 
@@ -1155,6 +1226,28 @@ namespace Parsek
                 ClearPendingFlag("merge dialog switch-segment scoped discard");
                 ParsekLog.ScreenMessage("Switch segment discarded", 2f);
                 return true;
+            }
+
+            // M1 (PR #876 round-5 review): the whole-pending-tree branch
+            // below reads RecordingStore.PendingTree as its canonical input
+            // (DiscardPendingTreeAndRecalculate, RefreshSaveAndQuicksaveAfterDiscard
+            // and friends). A session-resolved tree from the CommittedTrees
+            // slot would diverge here and we'd discard the wrong tree (or
+            // no-op, leaving the session live). The earlier Re-Fly and
+            // switch-segment scoped branches already had their chance — at
+            // this point a tree != pending is genuinely the misrouted Bug-C
+            // case the round-5 review flagged. Refuse with Warn.
+            var pendingForGuard = RecordingStore.PendingTree;
+            if (pendingForGuard == null
+                || !object.ReferenceEquals(pendingForGuard, tree))
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"merge-discard-tree-mismatch " +
+                    $"passedTreeId={tree.Id ?? "<null>"} " +
+                    $"pendingTreeId={pendingForGuard?.Id ?? "<null>"} — " +
+                    "refusing whole-pending-tree discard (Re-Fly / switch-segment scoped branches already declined)");
+                ClearPendingFlag("merge-discard-tree-mismatch refused");
+                return false;
             }
 
             bool refreshSerializedPendingMarker =

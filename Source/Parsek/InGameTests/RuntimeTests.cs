@@ -21179,101 +21179,12 @@ namespace Parsek.InGameTests
                 "Intent must be null after ClearStockActionIntent");
         }
 
-        // ----------------------------------------------------------------
-        // Pre-switch Merge / Discard dialog (post-#876 playtest follow-up).
-        // The full dialog spawn requires Unity (PopupDialog.SpawnPopupDialog
-        // touches HighLogic.UISkin etc.); in-game tests below verify the
-        // pure decision branching against the live scenario state.
-        // ----------------------------------------------------------------
-
-        [InGameTest(
-            Category = "SwitchSegment",
-            Description = "Pre-switch decision opens dialog when prior session targets different vessel",
-            Scene = GameScenes.FLIGHT)]
-        public void PreSwitchDialog_DifferentTarget_OpensDialog()
-        {
-            // Fails if: a Switch-To click while a switch-segment session is
-            // armed for a different vessel does NOT trip the OpenDialog
-            // branch. This is the rapid-switch fix landing point (Bug A/B
-            // from logs/2026-05-17_1805_switch-fly-post-scene-discard-bug).
-            var decision =
-                Parsek.Patches.MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
-                    hasActiveSession: true,
-                    priorFocusedPid: 1111u,
-                    newTargetPid: 2222u,
-                    anotherDialogOpen: false);
-            InGameAssert.AreEqual(
-                Parsek.Patches.MapFocusObjectOnSelectPatch
-                    .PreSwitchDialogDecision.OpenDialog,
-                decision,
-                "Different-target Switch-To with armed prior session must open the dialog");
-        }
-
-        [InGameTest(
-            Category = "SwitchSegment",
-            Description = "Pre-switch decision skips dialog when prior session targets same vessel",
-            Scene = GameScenes.FLIGHT)]
-        public void PreSwitchDialog_SameTarget_SkipsDialog()
-        {
-            // Fails if: a duplicate Switch-To on the same vessel as the
-            // armed session opens a redundant pre-switch dialog. The
-            // existing consume helper's `duplicate-intent-same-target`
-            // branch already handles same-target clicks.
-            var decision =
-                Parsek.Patches.MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
-                    hasActiveSession: true,
-                    priorFocusedPid: 2222u,
-                    newTargetPid: 2222u,
-                    anotherDialogOpen: false);
-            InGameAssert.AreEqual(
-                Parsek.Patches.MapFocusObjectOnSelectPatch
-                    .PreSwitchDialogDecision.SkipDialogSameTarget,
-                decision,
-                "Same-target Switch-To must skip the dialog");
-        }
-
-        [InGameTest(
-            Category = "SwitchSegment",
-            Description = "Pre-switch decision falls through to arm-and-skip when no prior session",
-            Scene = GameScenes.FLIGHT)]
-        public void PreSwitchDialog_NoPriorSession_FallsThrough()
-        {
-            // Fails if: the dialog branch fires when no session is armed,
-            // breaking the non-rapid-switch happy path (single Switch-To,
-            // no prior segment). The regular arm-and-skip flow must run.
-            var decision =
-                Parsek.Patches.MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
-                    hasActiveSession: false,
-                    priorFocusedPid: 0u,
-                    newTargetPid: 2222u,
-                    anotherDialogOpen: false);
-            InGameAssert.AreEqual(
-                Parsek.Patches.MapFocusObjectOnSelectPatch
-                    .PreSwitchDialogDecision.NoPriorSession,
-                decision,
-                "No-prior-session Switch-To must fall through to the regular flow");
-        }
-
-        [InGameTest(
-            Category = "SwitchSegment",
-            Description = "Pre-switch decision defers when another merge dialog is already open",
-            Scene = GameScenes.FLIGHT)]
-        public void PreSwitchDialog_AnotherDialogOpen_DefersToReEntryGuard()
-        {
-            // Fails if: a Switch-To click while a merge dialog is already
-            // open spawns a second dialog on top. The re-entry guard must
-            // defer.
-            var decision =
-                Parsek.Patches.MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
-                    hasActiveSession: true,
-                    priorFocusedPid: 1111u,
-                    newTargetPid: 2222u,
-                    anotherDialogOpen: true);
-            InGameAssert.AreEqual(
-                Parsek.Patches.MapFocusObjectOnSelectPatch
-                    .PreSwitchDialogDecision.SkipDialogReEntry,
-                decision,
-                "Concurrent merge dialog must defer the pre-switch dialog");
-        }
+        // M5 (PR #876 round-5 review): four in-game tests that exercised
+        // DecidePreSwitchDialogAction with hardcoded args were deleted —
+        // they were exact duplicates of the xUnit cases in
+        // SwitchIntentPatchSmokeTests.cs and read no live state.
+        // Per memory/reference_parsek_scenario_xunit.md, in-game tests
+        // are for things that require live KSP runtime; pure decision
+        // predicates belong in xUnit.
     }
 }

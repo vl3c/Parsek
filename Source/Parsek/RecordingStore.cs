@@ -421,6 +421,88 @@ namespace Parsek
         internal static bool HasCommittedTreeRestoreAttemptForTesting =>
             HasCommittedTreeRestoreAttempt;
 
+        /// <summary>
+        /// Slot identifier returned by <see cref="TryResolveTreeById"/> so
+        /// callers know whether the resolved tree came from the pending, active
+        /// (live activeTree on ParsekFlight), or committed slot. The slots are
+        /// walked in priority order: a live in-FLIGHT clone-restore wrapper
+        /// sits in the active slot and must beat the original committed copy.
+        /// </summary>
+        internal enum TreeSlotSource
+        {
+            None = 0,
+            Pending = 1,
+            Active = 2,
+            Committed = 3,
+        }
+
+        /// <summary>
+        /// M3 (PR #876 round-5 review): shared tree lookup used by both
+        /// <see cref="SceneExitInterceptor.TryResolveSessionTreeForDialog"/>
+        /// and <see cref="MergeDialog.ShowPreSwitchDecisionDialog"/>. The two
+        /// callers used to walk the same slots with diverging logic — the
+        /// pre-switch dialog stopped after pending+active and ignored
+        /// CommittedTrees, while SceneExit walked all three. This helper is
+        /// the canonical resolver.
+        ///
+        /// <para>Priority order: Pending (sealed-but-not-yet-committed) →
+        /// Active (live activeTree on <see cref="ParsekFlight"/>, including
+        /// in-FLIGHT clone-restore wrappers) → Committed (terminal storage).
+        /// The active slot wins over committed when a clone-restore is mid-
+        /// flight, so the segment-bearing clone is dialog-ed instead of the
+        /// original committed tree. Invariant: no live
+        /// <see cref="SwitchSegmentSession"/> should ever share its TreeId
+        /// with a non-clone committed tree.</para>
+        /// </summary>
+        internal static bool TryResolveTreeById(
+            string treeId,
+            out RecordingTree tree,
+            out TreeSlotSource sourceSlot)
+        {
+            tree = null;
+            sourceSlot = TreeSlotSource.None;
+            if (string.IsNullOrEmpty(treeId))
+                return false;
+
+            if (pendingTree != null
+                && string.Equals(pendingTree.Id, treeId, System.StringComparison.Ordinal))
+            {
+                tree = pendingTree;
+                sourceSlot = TreeSlotSource.Pending;
+                return true;
+            }
+
+            var flight = ParsekFlight.Instance;
+            if (flight != null
+                && flight.ActiveTreeForSerialization != null
+                && string.Equals(
+                    flight.ActiveTreeForSerialization.Id,
+                    treeId,
+                    System.StringComparison.Ordinal))
+            {
+                tree = flight.ActiveTreeForSerialization;
+                sourceSlot = TreeSlotSource.Active;
+                return true;
+            }
+
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    var t = committedTrees[i];
+                    if (t != null
+                        && string.Equals(t.Id, treeId, System.StringComparison.Ordinal))
+                    {
+                        tree = t;
+                        sourceSlot = TreeSlotSource.Committed;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         // Phase 2 (Rewind-to-Staging): state-version counter consumed by
         // <see cref="EffectiveState"/> to invalidate the ERS cache. Every code
         // path that mutates <see cref="committedRecordings"/> MUST call
