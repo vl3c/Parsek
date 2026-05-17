@@ -322,11 +322,24 @@ namespace Parsek.Patches
         /// Merge handler: commits the prior session's active tree using
         /// <see cref="ParsekFlight.CommitTreeFlight"/> (in-flight commit
         /// path that finalizes recordings, spawns committed leaves where
-        /// needed, and tears down the live recorder / activeTree). Then
-        /// arms a fresh Map Switch-To intent and calls
+        /// needed, and tears down the live recorder / activeTree). After
+        /// <c>CommitTreeFlight</c> succeeds and <c>OnTreeCommitted</c>
+        /// fires, this handler explicitly clears the prior
+        /// <see cref="ParsekScenario.ActiveSwitchSegmentSession"/> marker
+        /// before arming the new intent. The defensive
+        /// <c>superseded-by-new-switch</c> branch in
+        /// <see cref="ParsekFlight.TryConsumeStockActionIntent"/> is now
+        /// a backstop only — the marker should already be cleared by the
+        /// time consume fires for the new target. Without the explicit
+        /// clear here the marker survived <c>OnSave</c> / <c>OnLoad</c>
+        /// for any save-on-switch routine (Bug B, post-#876 playtest
+        /// 2026-05-17) and the next switch only collected it through the
+        /// defensive fallback, which logged as an orphan.
+        ///
+        /// <para>Then arms a fresh Map Switch-To intent and calls
         /// <c>FlightGlobals.SetActiveVessel(target)</c> so the consume
         /// helper picks up the marker on the inline
-        /// <c>onVesselChange</c> firing.
+        /// <c>onVesselChange</c> firing.</para>
         /// </summary>
         private static void MergePriorAndSwitchTo(
             Vessel target, SwitchSegmentSession priorSession)
@@ -352,15 +365,19 @@ namespace Parsek.Patches
                 return;
             }
 
-            // Step 1: in-flight commit of the prior tree. The prior session
-            // marker is cleared by the `superseded-by-new-switch` defensive
-            // branch in ParsekFlight.TryConsumeStockActionIntent after
-            // SetActiveVessel(target) below triggers OnVesselSwitchComplete.
-            // CommitTreeFlight commits the tree to storage but does not
-            // itself touch the session marker (unlike MergeCommit, which
-            // does fire OnTreeCommitted and clears via scoped-merge-success).
-            // Defensive: if the prior tree is gone, log and continue with
-            // the switch anyway.
+            // Step 1: in-flight commit of the prior tree. CommitTreeFlight
+            // commits the tree to storage but does not itself touch the
+            // session marker (unlike MergeCommit, which fires
+            // OnTreeCommitted and clears via scoped-merge-success). Bug B
+            // fix (post-#876 playtest 2026-05-17): clear the prior session
+            // marker synchronously below, AFTER OnTreeCommitted, so a
+            // save/load round-trip cannot resurrect it and the next switch
+            // does not have to lean on the `superseded-by-new-switch`
+            // defensive branch in TryConsumeStockActionIntent (which is
+            // now a backstop only).
+            //
+            // Defensive: if the prior tree is gone, log, clear the marker,
+            // and continue with the switch anyway.
             var flight = ParsekFlight.Instance;
             if (flight != null && flight.HasActiveTree)
             {
@@ -409,6 +426,25 @@ namespace Parsek.Patches
                     ParsekLog.Warn("SwitchIntentPatch",
                         $"pre-switch-dialog merge: OnTreeCommitted invoker threw " +
                         $"{ex.GetType().Name}: {ex.Message} - continuing with switch");
+                }
+
+                // Bug B fix (post-#876 playtest 2026-05-17): explicitly
+                // clear the prior session marker now that CommitTreeFlight
+                // and OnTreeCommitted have completed. Without this clear,
+                // the marker survived OnSave / OnLoad and the next switch
+                // only collected it through the defensive
+                // `superseded-by-new-switch` branch in
+                // TryConsumeStockActionIntent — logging an orphan every
+                // time. Must run BEFORE ArmIntentAndSwitchTo so the
+                // synchronous onVesselChange consume for the new target
+                // sees a clean slate.
+                if (scenario != null && scenario.ActiveSwitchSegmentSession != null)
+                {
+                    var clearedSessionId = scenario.ActiveSwitchSegmentSession.SessionId;
+                    scenario.ClearSwitchSegmentSession("merge-committed");
+                    ParsekLog.Info("SwitchIntentPatch",
+                        $"pre-switch-dialog-session-cleared " +
+                        $"sessionId={clearedSessionId:D} reason=merge-committed");
                 }
             }
             else

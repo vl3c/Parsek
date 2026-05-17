@@ -930,6 +930,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test seam: override the current Planetarium UT used by the
+        /// segment-aware duration path's live-recording fallback. Production
+        /// code leaves this null and the helper falls back to
+        /// <c>Planetarium.GetUniversalTime()</c>; unit tests inject a fixed
+        /// UT so the live-recording branch is exercisable without a Unity
+        /// runtime.
+        /// </summary>
+        internal static System.Func<double> NowUtProviderForTesting;
+
+        /// <summary>Clears all test seams in MergeDialog.</summary>
+        internal static void ResetTestOverrides()
+        {
+            NowUtProviderForTesting = null;
+        }
+
+        private static double CurrentUtForSegmentDuration()
+        {
+            var hook = NowUtProviderForTesting;
+            if (hook != null)
+            {
+                try { return hook(); }
+                catch { /* fall through to Planetarium */ }
+            }
+            try { return Planetarium.GetUniversalTime(); }
+            catch
+            {
+                // No Planetarium singleton (unit test without injected hook).
+                // Returning NaN forces the segment-aware branch to fall back
+                // to the persisted EndUT - StartUT computation instead of
+                // synthesizing a nonsense live duration.
+                return double.NaN;
+            }
+        }
+
+        /// <summary>
         /// Picks the duration to render in the merge dialog body. When an
         /// active switch-segment session targets a recording inside
         /// <paramref name="tree"/>, prefers the segment recording's elapsed
@@ -938,6 +973,18 @@ namespace Parsek
         /// Falls back to <see cref="ComputeTreeDurationRange"/> on:
         /// no session armed, session missing the active segment id, segment
         /// not present in this tree, or malformed segment bounds.
+        ///
+        /// <para>Live-recording fallback (Bug A, post-#876 playtest
+        /// 2026-05-17): a still-live segment that has only sampled its
+        /// initial point has <c>EndUT == StartUT</c> (or a stale
+        /// <c>ExplicitEndUT</c> behind <c>StartUT</c>), so
+        /// <c>EndUT - StartUT</c> rounds to zero even after ~40 seconds of
+        /// real flight. The dialog renders "0s" in that window. When the
+        /// segment looks live (<c>EndUT &lt;= StartUT</c>) AND the current
+        /// Planetarium UT is past <c>StartUT</c>, fall back to
+        /// <c>currentUT - StartUT</c>. Clamps non-finite or negative results
+        /// to <c>0</c> so a UT regression (rewind-to-staging crossing the
+        /// segment, etc.) cannot leak a nonsense duration into the UI.</para>
         /// </summary>
         internal static double ResolveDialogBodyDuration(RecordingTree tree)
         {
@@ -965,18 +1012,64 @@ namespace Parsek
 
             double startUT = segment.StartUT;
             double endUT = segment.EndUT;
-            if (endUT < startUT)
+
+            // Bug A live-recording fallback (post-#876 playtest 2026-05-17):
+            // a recording that has only sampled its initial point — or that
+            // is bound to the live recorder but has not yet been finalized —
+            // has EndUT <= StartUT. Prefer currentUT - startUT in that case
+            // so the dialog reflects the wall-clock elapsed segment time
+            // instead of rounding to 0s. This intentionally takes precedence
+            // over the malformed-segment-bounds warn below: a live-but-still
+            // sampling segment is the expected steady-state shape, not a
+            // bug, and emitting a Warn every dialog open would be noise.
+            if (endUT <= startUT)
             {
-                ParsekLog.Warn("SwitchSegment",
-                    $"BuildWholeTreeMergeDialogBody: malformed-segment-bounds " +
-                    $"recId={segment.RecordingId ?? "<null>"} " +
-                    $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"endUT={endUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"sessionId={session.SessionId:D} — falling back to tree-wide duration");
-                return ComputeTreeDurationRange(tree);
+                double currentUT = CurrentUtForSegmentDuration();
+                if (!double.IsNaN(currentUT)
+                    && !double.IsInfinity(currentUT)
+                    && currentUT > startUT)
+                {
+                    double liveDuration = currentUT - startUT;
+                    if (liveDuration < 0.0
+                        || double.IsNaN(liveDuration)
+                        || double.IsInfinity(liveDuration))
+                    {
+                        liveDuration = 0.0;
+                    }
+                    ParsekLog.Verbose("SwitchSegment",
+                        $"BuildWholeTreeMergeDialogBody: using live segment duration " +
+                        $"recId={segment.RecordingId ?? "<null>"} " +
+                        $"durationSec={liveDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"currentUT={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"sessionId={session.SessionId:D} treeId={tree.Id ?? "<null>"}");
+                    return liveDuration;
+                }
+                if (endUT < startUT)
+                {
+                    // currentUT unavailable (no Planetarium / regression
+                    // edge) and the bounds are malformed: fall back to
+                    // tree-wide duration and Warn so a real bug surfaces.
+                    ParsekLog.Warn("SwitchSegment",
+                        $"BuildWholeTreeMergeDialogBody: malformed-segment-bounds " +
+                        $"recId={segment.RecordingId ?? "<null>"} " +
+                        $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"endUT={endUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"sessionId={session.SessionId:D} — falling back to tree-wide duration");
+                    return ComputeTreeDurationRange(tree);
+                }
+                // endUT == startUT and no live clock — return 0 explicitly
+                // through the normal branch below; the Verbose log keeps the
+                // log shape consistent for the segment-aware path.
             }
 
             double segmentDuration = endUT - startUT;
+            if (segmentDuration < 0.0
+                || double.IsNaN(segmentDuration)
+                || double.IsInfinity(segmentDuration))
+            {
+                segmentDuration = 0.0;
+            }
             ParsekLog.Verbose("SwitchSegment",
                 $"BuildWholeTreeMergeDialogBody: using segment duration " +
                 $"recId={segment.RecordingId ?? "<null>"} " +

@@ -12,6 +12,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Pre-switch dialog showed 0s segment duration and leaked the prior session marker on Merge
+
+- ~~Post-#876 playtest (`logs/2026-05-17_1944_switch-fly-edge-case/KSP.log`) exposed two bugs in the new pre-switch Merge/Discard dialog flow. **Bug A**: the dialog body rendered "Kerbal X Probe - 0s" for a switch segment that had been recording for ~40 seconds. **Bug B**: clicking Merge committed the prior tree but did NOT clear the `SwitchSegmentSession` marker — the marker survived a save/load round-trip and was only collected by the defensive `superseded-by-new-switch` branch in `ParsekFlight.TryConsumeStockActionIntent` two seconds later when the next switch fired.~~
+
+**Root cause (A):** `MergeDialog.ResolveDialogBodyDuration` computed `segment.EndUT - segment.StartUT`. For a still-live segment that has only sampled its initial point, `Recording.EndUT` is identical to `Recording.StartUT` (or falls back to a 0.0 sentinel when `ExplicitEndUT` is NaN), so the difference rounds to 0 even after minutes of real flight.
+
+**Root cause (B):** `MapFocusObjectOnSelectPatch.MergePriorAndSwitchTo` called `ParsekFlight.CommitTreeFlight` but never called `ParsekScenario.ClearSwitchSegmentSession`. The Round-5 MED4 docstring tried to paper over this by pointing at the defensive supersede branch, but the marker was actually surviving until the next switch — visible in the log as `superseded-by-new-switch: prior sessionId=dd2d7121 newFocusedPid=…`.
+
+**Fix:**
+- `MergeDialog.ResolveDialogBodyDuration` adds a live-recording fallback: when `EndUT <= StartUT` AND the current Planetarium UT is past `StartUT`, render `currentUT - StartUT` instead. Non-finite or negative results clamp to 0. Added the `MergeDialog.NowUtProviderForTesting` Func-double test seam (mirrors `MarkerValidator.NowUtProvider` / `LedgerOrchestrator.NowUtProviderForTesting`) so the live-recording branch is testable under xUnit without a Unity Planetarium. New log line `[SwitchSegment][VERBOSE] BuildWholeTreeMergeDialogBody: using live segment duration recId=… durationSec=… startUT=… currentUT=… sessionId=… treeId=…`.
+- `MapFocusObjectOnSelectPatch.MergePriorAndSwitchTo` now calls `scenario.ClearSwitchSegmentSession("merge-committed")` after `CommitTreeFlight()` succeeds and `OnTreeCommitted` fires, BEFORE the new intent is armed by `ArmIntentAndSwitchTo`. New log line `[SwitchIntentPatch][INFO] pre-switch-dialog-session-cleared sessionId=… reason=merge-committed`. The defensive `superseded-by-new-switch` branch is now a backstop only — the marker should already be cleared by the time consume fires for the new target.
+- Discard handler already cleared via `RecordingStore.TryDiscardActiveSwitchSegmentAttempt` → `ClearSwitchSegmentSession("scoped-discard")`; no change needed there. Pinned by a new source-text gate test.
+- New tests (5 total) in `MergeDialogSwitchSegmentDurationTests` and `SwitchIntentPatchSmokeTests`: `DialogBody_LiveSegmentNotYetFinalized_ShowsCurrentUTMinusStartUT`, `DialogBody_FinalizedSegment_ShowsEndUTMinusStartUT`, `DialogBody_LiveSegmentNegativeOrNonFiniteUT_ClampsToZero`, `MergePriorAndSwitchTo_AfterCommit_ClearsSwitchSegmentSession`, `DiscardPriorAndSwitchTo_ClearsSwitchSegmentSession_ViaScopedDiscard`.
+
+**Status:** CLOSED 2026-05-17.
+
+---
+
 ## Done - v0.10.0 Switch/Fly auto-record started recordings with raw #autoLOC vessel-name token
 
 - ~~Stock UI Fly / Switch-To clicks on a stock craft (Jumping Flea, Kerbal X, etc.) stored the recording's `VesselName` and the fresh tree's `TreeName` as the raw KSP localization key (e.g. `#autoLOC_501224`) instead of the readable craft name. Reproduced in `logs/2026-05-17_1738_autoloc-name-bug/saves/s14/persistent.sfs:1605-1645` — root recording `d612a4bc…` has `vesselName = #autoLOC_501224` and tree `7e91f96d…` has `treeName = #autoLOC_501224`, while the EVA-split child recording 11 s later correctly shows `vesselName = Jumping Flea`.~~

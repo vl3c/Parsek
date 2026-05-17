@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Reflection;
 using HarmonyLib;
 using Parsek.Patches;
@@ -158,6 +160,152 @@ namespace Parsek.Tests
                 newTargetPid: 200u,
                 anotherDialogOpen: true);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogReEntry, actual);
+        }
+
+        // -----------------------------------------------------------------
+        // Bug B (post-#876 playtest 2026-05-17): the pre-switch Merge
+        // handler must clear the prior SwitchSegmentSession marker
+        // synchronously after CommitTreeFlight succeeds, not lean on
+        // the defensive `superseded-by-new-switch` branch in
+        // ParsekFlight.TryConsumeStockActionIntent. Without the
+        // explicit clear, the marker survived OnSave / OnLoad and the
+        // next switch only collected it through the defensive fallback.
+        //
+        // The Merge / Discard button handlers spawn Unity dialog
+        // callbacks (MergeDialog.ShowPreSwitchDecisionDialog) and the
+        // CommitTreeFlight pathway touches the live recorder, so a
+        // direct xUnit runtime assertion against MergePriorAndSwitchTo
+        // is not feasible without standing up KSP. The source-text
+        // gates below pin the load-bearing shape: (a) the clear call
+        // appears, (b) it carries a non-empty reason, and (c) it
+        // precedes ArmIntentAndSwitchTo. Discard is covered by a
+        // separate gate confirming the implicit clear via
+        // TryDiscardActiveSwitchSegmentAttempt's scoped-discard path.
+        // -----------------------------------------------------------------
+
+        private static string ReadMapFocusObjectPatchSource()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string path = Path.Combine(projectRoot,
+                "Source", "Parsek", "Patches", "MapFocusObjectOnSelectPatch.cs");
+            return File.ReadAllText(path);
+        }
+
+        // Fails if: a future refactor drops the explicit clear in the
+        // Merge handler, regressing to the defensive-supersede backstop
+        // and leaking the prior session across save/load round-trips.
+        [Fact]
+        public void MergePriorAndSwitchTo_AfterCommit_ClearsSwitchSegmentSession()
+        {
+            string source = ReadMapFocusObjectPatchSource();
+
+            // (a) The clear call exists inside the Merge handler.
+            int mergeStart = source.IndexOf(
+                "private static void MergePriorAndSwitchTo(",
+                StringComparison.Ordinal);
+            Assert.True(mergeStart > 0,
+                "MergePriorAndSwitchTo handler must be defined");
+            int mergeEnd = source.IndexOf(
+                "private static void DiscardPriorAndSwitchTo(",
+                mergeStart, StringComparison.Ordinal);
+            Assert.True(mergeEnd > mergeStart,
+                "DiscardPriorAndSwitchTo handler must follow Merge handler");
+            string mergeBody = source.Substring(mergeStart, mergeEnd - mergeStart);
+
+            // The new clear line — distinguished from the pre-existing
+            // "pre-switch-dialog-merge-no-active-tree" defensive clear
+            // by the merge-committed reason.
+            Assert.Contains(
+                "ClearSwitchSegmentSession(\"merge-committed\")",
+                mergeBody);
+            Assert.Contains(
+                "pre-switch-dialog-session-cleared",
+                mergeBody);
+            Assert.Contains(
+                "reason=merge-committed",
+                mergeBody);
+
+            // (b) The reason argument is non-empty (the merge-committed
+            // literal above is itself the evidence; assert it explicitly
+            // so a future refactor that swaps to a Guid / null can't
+            // sneak past).
+            Assert.DoesNotContain(
+                "ClearSwitchSegmentSession(null)", mergeBody);
+            Assert.DoesNotContain(
+                "ClearSwitchSegmentSession(\"\")", mergeBody);
+
+            // (c) The clear precedes ArmIntentAndSwitchTo so the
+            // synchronous onVesselChange consume for the new target
+            // sees a clean slate. The defensive clear branch (no active
+            // tree) also calls ArmIntentAndSwitchTo afterward, so the
+            // assertion is "every ClearSwitchSegmentSession call inside
+            // the Merge handler appears before the (single)
+            // ArmIntentAndSwitchTo invocation".
+            int armIdx = mergeBody.IndexOf(
+                "ArmIntentAndSwitchTo(target)", StringComparison.Ordinal);
+            Assert.True(armIdx > 0,
+                "MergePriorAndSwitchTo must call ArmIntentAndSwitchTo");
+            int searchFrom = 0;
+            int clearCount = 0;
+            while (true)
+            {
+                int idx = mergeBody.IndexOf(
+                    "ClearSwitchSegmentSession(",
+                    searchFrom, StringComparison.Ordinal);
+                if (idx < 0) break;
+                Assert.True(idx < armIdx,
+                    "ClearSwitchSegmentSession must precede ArmIntentAndSwitchTo");
+                clearCount++;
+                searchFrom = idx + 1;
+            }
+            Assert.True(clearCount >= 1,
+                "Merge handler must clear the prior session at least once");
+        }
+
+        // Fails if: future refactor of TryDiscardActiveSwitchSegmentAttempt
+        // drops the implicit clear, leaving the Discard handler in the
+        // same orphan state Bug B fixed for the Merge handler.
+        [Fact]
+        public void DiscardPriorAndSwitchTo_ClearsSwitchSegmentSession_ViaScopedDiscard()
+        {
+            // The Discard handler calls
+            // RecordingStore.TryDiscardActiveSwitchSegmentAttempt which
+            // calls scenario.ClearSwitchSegmentSession("scoped-discard")
+            // internally. This test pins both ends of that contract
+            // (the Discard handler routes through the helper, and the
+            // helper clears the session).
+            string mapPatchSource = ReadMapFocusObjectPatchSource();
+            int discardStart = mapPatchSource.IndexOf(
+                "private static void DiscardPriorAndSwitchTo(",
+                StringComparison.Ordinal);
+            Assert.True(discardStart > 0,
+                "DiscardPriorAndSwitchTo handler must be defined");
+            int discardEnd = mapPatchSource.IndexOf(
+                "private static void ArmIntentAndSwitchTo(",
+                discardStart, StringComparison.Ordinal);
+            Assert.True(discardEnd > discardStart,
+                "ArmIntentAndSwitchTo helper must follow Discard handler");
+            string discardBody = mapPatchSource.Substring(
+                discardStart, discardEnd - discardStart);
+            Assert.Contains(
+                "RecordingStore.TryDiscardActiveSwitchSegmentAttempt",
+                discardBody);
+
+            // Pin the helper still clears the session.
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string storePath = Path.Combine(projectRoot,
+                "Source", "Parsek", "RecordingStore.cs");
+            string storeSource = File.ReadAllText(storePath);
+            // TryDiscardActiveSwitchSegmentAttempt's success path always
+            // calls ClearSwitchSegmentSession("scoped-discard") before
+            // returning.
+            Assert.Contains(
+                "ClearSwitchSegmentSession(\"scoped-discard\")",
+                storeSource);
         }
     }
 }

@@ -42,6 +42,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            MergeDialog.ResetTestOverrides();
         }
 
         public void Dispose()
@@ -52,6 +53,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            MergeDialog.ResetTestOverrides();
         }
 
         // -----------------------------------------------------------------
@@ -219,6 +221,10 @@ namespace Parsek.Tests
 
             ArmSession("tree_c", "rec_seg");
 
+            // No live clock available — the malformed-bounds Warn branch
+            // is the documented fallback. Suppress the live-recording
+            // branch by leaving NowUtProviderForTesting unset (which
+            // returns NaN under xUnit, taking the malformed-Warn path).
             string body = MergeDialog.BuildWholeTreeMergeDialogBody(tree);
             Assert.Contains("Kerbal C", body);
             // Tree-wide span: min(r1.StartUT=0, segment.StartUT=1000)=0
@@ -229,6 +235,116 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[SwitchSegment]") &&
                 l.Contains("malformed-segment-bounds"));
+        }
+
+        // -----------------------------------------------------------------
+        // Bug A (post-#876 playtest 2026-05-17): segment duration shows
+        // 0s during a live recording. The segment has been recording for
+        // ~40 seconds but only its initial point is sampled, so
+        // segment.EndUT == segment.StartUT. The dialog rendered
+        // "Kerbal X Probe - 0s". Fix: when EndUT <= StartUT, prefer
+        // currentUT - StartUT.
+        // -----------------------------------------------------------------
+
+        // Fails if: a future refactor regresses live-recording duration
+        // to 0 by reading EndUT directly without the live-UT fallback.
+        [Fact]
+        public void DialogBody_LiveSegmentNotYetFinalized_ShowsCurrentUTMinusStartUT()
+        {
+            // Live segment recording: ExplicitStartUT set on segment
+            // creation, but ExplicitEndUT is still NaN (no per-frame
+            // update) and Points is empty so EndUT falls back to 0 in
+            // Recording.cs. Without the live-UT fallback,
+            // EndUT - StartUT = 0 - 799.557 (or with one point both
+            // equal startUT, so the diff is exactly 0).
+            const double startUT = 799.557;
+            const double currentUT = 839.557; // +40 s flight time
+            var segment = MakeRecording(
+                "rec_seg", "tree_live", startUT, 0.0, "Kerbal X Probe");
+            // Force the "single sample, EndUT == StartUT" shape: clear
+            // ExplicitEndUT so EndUT == StartUT from the getter.
+            segment.ExplicitEndUT = double.NaN;
+            // Recording.EndUT computes from points / orbit / sections.
+            // With none of those populated and ExplicitEndUT == NaN,
+            // EndUT returns 0.0, the exact production shape that
+            // surfaced in the playtest log
+            // (durationSec=0, recId=40ac6b22).
+            var tree = MakeTree("tree_live", segment);
+            tree.TreeName = "Kerbal X Probe";
+
+            ArmSession("tree_live", "rec_seg");
+            MergeDialog.NowUtProviderForTesting = () => currentUT;
+
+            string body = MergeDialog.BuildWholeTreeMergeDialogBody(tree);
+            Assert.Contains("Kerbal X Probe", body);
+            // 40s elapsed, NOT 0s.
+            Assert.Contains("40s", body);
+            Assert.DoesNotContain("- 0s", body);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]") &&
+                l.Contains("using live segment duration"));
+        }
+
+        // Fails if: a future refactor breaks the finalized-recording
+        // path (regression guard for the EndUT > StartUT branch).
+        [Fact]
+        public void DialogBody_FinalizedSegment_ShowsEndUTMinusStartUT()
+        {
+            // Finalized segment: EndUT > StartUT. The currentUT hook is
+            // set far in the future to prove the helper does NOT prefer
+            // wall-clock over the finalized bounds.
+            var segment = MakeRecording(
+                "rec_seg", "tree_fin", 100.0, 145.0, "Probe");
+            var tree = MakeTree("tree_fin", segment);
+            tree.TreeName = "Probe";
+
+            ArmSession("tree_fin", "rec_seg");
+            MergeDialog.NowUtProviderForTesting = () => 9999.0;
+
+            string body = MergeDialog.BuildWholeTreeMergeDialogBody(tree);
+            Assert.Contains("Probe", body);
+            // EndUT - StartUT = 45s, NOT 9899s (live fallback would say
+            // 9899s; the finalized branch must win).
+            Assert.Contains("45s", body);
+            Assert.Contains(logLines, l =>
+                l.Contains("[SwitchSegment]") &&
+                l.Contains("using segment duration") &&
+                !l.Contains("using live segment duration"));
+        }
+
+        // Fails if: a future refactor lets bogus duration values reach
+        // the UI on a UT regression (currentUT < startUT) — the live-
+        // fallback must clamp to 0 / fall through to the finalized
+        // bounds, never emit a negative duration.
+        [Fact]
+        public void DialogBody_LiveSegmentNegativeOrNonFiniteUT_ClampsToZero()
+        {
+            // Segment looks live (EndUT == StartUT), but currentUT is
+            // BEHIND startUT (a rewind-to-staging crossing the segment
+            // could synthesize this).
+            const double startUT = 1000.0;
+            const double currentUT = 500.0; // regression
+            var segment = MakeRecording(
+                "rec_seg", "tree_neg", startUT, 0.0, "Probe");
+            segment.ExplicitEndUT = double.NaN;
+            var tree = MakeTree("tree_neg", segment);
+            tree.TreeName = "Probe";
+
+            ArmSession("tree_neg", "rec_seg");
+            MergeDialog.NowUtProviderForTesting = () => currentUT;
+
+            string body = MergeDialog.BuildWholeTreeMergeDialogBody(tree);
+            Assert.Contains("Probe", body);
+            // currentUT < startUT → live branch is skipped, the
+            // malformed-bounds warn fires, ComputeTreeDurationRange
+            // returns negative, FormatDuration clamps to 0. The
+            // user-facing format is "0s"; assert no negative number
+            // leaks into the duration substring after "Probe - ".
+            int sepIdx = body.IndexOf(" - ", StringComparison.Ordinal);
+            Assert.True(sepIdx > 0, "body must contain ' - ' separator");
+            string durationPart = body.Substring(sepIdx + 3);
+            Assert.Equal("0s", durationPart);
+            Assert.DoesNotContain("-", durationPart);
         }
     }
 }
