@@ -479,6 +479,72 @@ namespace Parsek.Patches
         }
     }
 
+    /// <summary>
+    /// Arms a <see cref="StockActionIntentMarker"/> when the player clicks Fly on
+    /// a real (non-ghost) vessel in the Tracking Station. Composes with the sibling
+    /// <see cref="GhostTrackingFlyPatch"/> ghost-blocker by mirroring its ghost guard
+    /// and returning <c>true</c> unconditionally — this patch never blocks the
+    /// original. The marker authorizes immediate switch-segment start when the FLIGHT
+    /// scene-load tail consumes it in Phase C.
+    ///
+    /// Decompiled SpaceTracking.FlyVessel (KSP 1.12.5 Assembly-CSharp.dll, load-bearing
+    /// excerpt): the method calls <c>GamePersistence.SaveGame("persistent", ...)</c>
+    /// then <c>FlightDriver.StartAndFocusVessel("persistent", FlightGlobals.Vessels.IndexOf(v))</c>,
+    /// which transitions to FLIGHT. The Prefix arms BEFORE the save+scene-transition
+    /// so the serialized marker survives into FLIGHT. The method is <c>void</c>, so
+    /// there is no synchronous early-return signal a Postfix could read for refusal
+    /// cleanup; cross-run-orphan + TTL handle the leak case where the scene
+    /// transition never completes.
+    /// </summary>
+    [HarmonyPatch(typeof(SpaceTracking), "FlyVessel")]
+    // Both this Prefix and the sibling GhostTrackingFlyPatch's Prefix are owned by
+    // the same Harmony instance (`com.parsek.mod` from ParsekHarmony.cs). A
+    // [HarmonyAfter("com.parsek.mod")] attribute here would be a no-op self-
+    // reference; same-owner ordering is governed by [HarmonyPriority]. Mark this
+    // patch as Low so Harmony schedules the ghost-block Prefix first — the
+    // ghost-block runs the early-return path, and the in-method ghost-guard
+    // mirror below provides defense in depth if ordering ever shifts.
+    [HarmonyPriority(Priority.Low)]
+    internal static class SwitchIntentTrackingStationFlyPatch
+    {
+        static void Prefix(Vessel v)
+        {
+            // Ghost-block guard mirror: if the sibling GhostTrackingFlyPatch
+            // would have returned false (cancelling the body), we must NOT arm
+            // an intent because the scene transition will not happen. Load-
+            // bearing even though HarmonyPriority schedules the ghost-block
+            // Prefix first — Prefix early-returns do not skip sibling Prefixes,
+            // so this guard is what actually prevents an intent from arming on
+            // a ghost-blocked Fly click.
+            if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                return;
+
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"TS Fly intent not armed: ParsekScenario.Instance is null targetPid={v.persistentId}");
+                return;
+            }
+
+            var marker = new StockActionIntentMarker
+            {
+                IntentId = Guid.NewGuid(),
+                Action = StockActionType.TrackingStationFly,
+                TargetVesselPersistentId = v.persistentId,
+                SourceScene = StockActionSourceScene.TrackingStation,
+                CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
+                CapturedUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
+                ProcessSessionId = ParsekProcess.ProcessSessionId,
+            };
+            scenario.ArmStockActionIntent(marker);
+            ParsekLog.Info("SwitchIntentPatch",
+                $"TS Fly intent armed: intentId={marker.IntentId:D} action={marker.Action} " +
+                $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
+                $"capturedUT={marker.CapturedUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+    }
+
     [HarmonyPatch(typeof(SpaceTracking), "OnVesselDeleteConfirm")]
     internal static class GhostTrackingDeletePatch
     {

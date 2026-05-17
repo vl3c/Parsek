@@ -308,7 +308,7 @@ namespace Parsek.Tests
                 return "ok";
             };
 
-            bool result = MergeDialog.MergeDiscardWithResult(tree);
+            bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
             Assert.True(result);
             Assert.False(RecordingStore.HasPendingTree);
@@ -1264,7 +1264,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void MergeDiscardWithResult_JournalActive_RefusesAndReturnsFalse()
+        public void MergeDiscardRanToCompletion_JournalActive_RefusesAndReturnsFalse()
         {
             var rec = MakeRecording("rec-journal-discard", "tree-journal-discard", 100.0, 200.0);
             var tree = MakeTree("tree-journal-discard", "rec-journal-discard", rec);
@@ -1284,7 +1284,7 @@ namespace Parsek.Tests
             };
             ParsekScenario.SetInstanceForTesting(scenario);
 
-            bool result = MergeDialog.MergeDiscardWithResult(tree);
+            bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
             Assert.False(result);
             // Pending tree must remain stashed - the refusal is a no-op
@@ -1366,18 +1366,165 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeDiscardWithResult_NormalDiscard_ReturnsTrue()
+        public void MergeDiscardRanToCompletion_NormalDiscard_ReturnsTrue()
         {
-            // Sanity: bool overload returns true on the normal path so
+            // Sanity: the bool overload returns true on the normal path so
             // the pre-transition wrapper proceeds with postChoice.
             var rec = MakeRecording("rec-normal-discard", "tree-normal-discard", 100.0, 200.0);
             var tree = MakeTree("tree-normal-discard", "rec-normal-discard", rec);
             RecordingStore.StashPendingTree(tree);
 
-            bool result = MergeDialog.MergeDiscardWithResult(tree);
+            bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
             Assert.True(result);
             Assert.False(RecordingStore.HasPendingTree);
+        }
+
+        // ================================================================
+        // M1 (PR #876 round-5 review): MergeCommit / MergeDiscard refuse
+        // when the passed tree doesn't match RecordingStore.PendingTree.
+        // CommitPendingTree operates on the global pendingTree slot; if a
+        // Bug-C path routes a session-resolved tree from CommittedTrees,
+        // the commit would silently no-op and the player thinks Merge
+        // happened. The guard refuses with merge-commit-tree-mismatch Warn.
+        // ================================================================
+
+        [Fact]
+        public void MergeCommit_PassedTreeMismatchesPendingSlot_RefusesAndLogsWarn()
+        {
+            // Fails if: MergeCommit silently calls CommitPendingTree on a
+            // tree that isn't actually in the pending slot. That would
+            // either no-op (PendingTree==null) or commit a stale unrelated
+            // pending tree under the dialog's nose. Both are silent
+            // misbehaviour the round-5 review flagged.
+            var realPendingRec = MakeRecording(
+                "rec-mismatch-real", "tree-mismatch-real-pending", 100.0, 200.0);
+            var realPending = MakeTree(
+                "tree-mismatch-real-pending", "rec-mismatch-real", realPendingRec);
+            RecordingStore.StashPendingTree(realPending);
+
+            // Build an unrelated tree the dialog might pass in (e.g.
+            // committed-slot resolution from the Bug-C path).
+            var passedRec = MakeRecording(
+                "rec-mismatch-passed", "tree-mismatch-passed", 50.0, 80.0);
+            var passedTree = MakeTree(
+                "tree-mismatch-passed", "rec-mismatch-passed", passedRec);
+
+            MergeDialog.MergeCommit(
+                passedTree,
+                new Dictionary<string, bool> { { "rec-mismatch-passed", false } },
+                spawnCount: 0);
+
+            // The real pending tree must still be in storage (no commit).
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Equal("tree-mismatch-real-pending", RecordingStore.PendingTree.Id);
+            Assert.DoesNotContain(
+                RecordingStore.CommittedTrees,
+                t => t.Id == "tree-mismatch-passed" || t.Id == "tree-mismatch-real-pending");
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("merge-commit-tree-mismatch")
+                && l.Contains("tree-mismatch-passed")
+                && l.Contains("tree-mismatch-real-pending"));
+        }
+
+        [Fact]
+        public void MergeCommit_NoPendingTree_PassedTreeRefused()
+        {
+            // Fails if: MergeCommit no-ops without surfacing a Warn when the
+            // pending slot is empty. The caller-side dialog has already
+            // committed work to player perception; silent no-op was the
+            // exact M1 failure mode.
+            var passedRec = MakeRecording(
+                "rec-no-pending", "tree-no-pending", 0.0, 30.0);
+            var passedTree = MakeTree(
+                "tree-no-pending", "rec-no-pending", passedRec);
+
+            MergeDialog.MergeCommit(
+                passedTree,
+                new Dictionary<string, bool> { { "rec-no-pending", false } },
+                spawnCount: 0);
+
+            Assert.False(RecordingStore.HasPendingTree);
+            Assert.Empty(RecordingStore.CommittedTrees);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("merge-commit-tree-mismatch")
+                && l.Contains("tree-no-pending"));
+        }
+
+        [Fact]
+        public void MergeDiscardRanToCompletion_PassedTreeMismatchesPendingSlot_RefusesAndLogsWarn()
+        {
+            // Fails if: MergeDiscard's whole-pending-tree branch is allowed
+            // to run on a tree that isn't actually pending — would discard
+            // the real pending tree (or no-op) under the dialog's nose.
+            var realPendingRec = MakeRecording(
+                "rec-d-mismatch-real", "tree-d-mismatch-real", 100.0, 200.0);
+            var realPending = MakeTree(
+                "tree-d-mismatch-real", "rec-d-mismatch-real", realPendingRec);
+            RecordingStore.StashPendingTree(realPending);
+
+            var passedRec = MakeRecording(
+                "rec-d-mismatch-passed", "tree-d-mismatch-passed", 50.0, 80.0);
+            var passedTree = MakeTree(
+                "tree-d-mismatch-passed", "rec-d-mismatch-passed", passedRec);
+
+            bool ranToCompletion = MergeDialog.MergeDiscardRanToCompletion(passedTree);
+
+            Assert.False(ranToCompletion);
+            // Real pending tree survives.
+            Assert.True(RecordingStore.HasPendingTree);
+            Assert.Equal("tree-d-mismatch-real", RecordingStore.PendingTree.Id);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MergeDialog]")
+                && l.Contains("merge-discard-tree-mismatch")
+                && l.Contains("tree-d-mismatch-passed")
+                && l.Contains("tree-d-mismatch-real"));
+        }
+
+        // ================================================================
+        // M2 (PR #876 round-5 review): pre-switch dialog must not be
+        // dismissed by Esc. KSP's PopupDialog has no `dismissOnEscape`
+        // parameter, so we enforce the contract via the OnDismiss handler:
+        // when teardown fires without a button click, the dialog re-spawns.
+        // ================================================================
+
+        [Fact]
+        public void MergeDialog_PreSwitchDialog_EscRespawnsInsteadOfDismissing()
+        {
+            // Source-text gate over MergeDialog.cs. Fails if: a future
+            // refactor restores Esc-dismissal of the pre-switch dialog
+            // (regressing the stealth-Cancel UX bug that orphaned prior
+            // session marker / opened wrong-tree post-transition dialogs).
+            // Looks for the OnDismiss handler's re-spawn branch and the
+            // explicit `pre-switch-dialog-esc-refused-respawning` log.
+            string projectRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string mergeDialogPath = System.IO.Path.Combine(
+                projectRoot, "Source", "Parsek", "MergeDialog.cs");
+            Assert.True(System.IO.File.Exists(mergeDialogPath),
+                $"MergeDialog.cs not found at {mergeDialogPath}");
+            string source = System.IO.File.ReadAllText(mergeDialogPath);
+
+            // The pre-switch dialog body must reference the re-spawn log
+            // line that fires when OnDismiss runs without a button click.
+            Assert.Contains("pre-switch-dialog-esc-refused-respawning", source);
+
+            // And inside ShowPreSwitchDecisionDialog's OnDismiss handler,
+            // the re-spawn branch reads the buttonClicked flag, logs the
+            // refused-respawning line, and recursively calls
+            // ShowPreSwitchDecisionDialog. Use a regex that anchors on the
+            // OnDismiss handler's `if (buttonClicked)` check (close to the
+            // re-spawn log), not the initial `bool buttonClicked = false;`
+            // declaration far above. The gap budgets were bumped in PR
+            // #876 round-6 review because the respawn log now branches on
+            // Case A vs Case B with a comment block in between (LOW 3).
+            var respawnRegex = new System.Text.RegularExpressions.Regex(
+                @"if \(buttonClicked\)[\s\S]{0,2500}?pre-switch-dialog-esc-refused-respawning[\s\S]{0,2000}?ShowPreSwitchDecisionDialog\(",
+                System.Text.RegularExpressions.RegexOptions.Multiline);
+            Assert.Matches(respawnRegex, source);
         }
     }
 }

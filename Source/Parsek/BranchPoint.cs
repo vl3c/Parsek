@@ -12,7 +12,19 @@ namespace Parsek
         JointBreak = 4,
         Launch     = 5,
         Breakup    = 6,
-        Terminal   = 7
+        Terminal   = 7,
+
+        // Non-claiming boundary marker emitted when an active focused recording
+        // is segmented because the player switched focus (or otherwise crossed
+        // an observation boundary) onto / off the recorded vessel. Like
+        // BranchPointType.Launch this is metadata-free: it carries no
+        // SplitCause / DecouplerPartId (no parts transfer), no MergeCause /
+        // TargetVesselPersistentId (no vessels merge), no BreakupCause / debris
+        // metadata, and no TerminalCause (the recording is not ending). It
+        // records an observation/recording boundary, NOT a physical vessel
+        // ownership transfer. See docs/dev/plans/segment-scoped-switch-fly-autorecord.md
+        // §"Segment Creation".
+        VesselSwitchContinuation = 8
     }
 
     public class BranchPoint

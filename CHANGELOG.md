@@ -6,6 +6,12 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.0
 
+### Breaking Changes
+
+- Recording format bumped v0 -> v1; pre-1.0 saves are rejected with reason `format-version-mismatch`.
+- Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id.
+- Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog. Discard removes the segment subtree (segment recording plus any in-segment debris and continuation children) and preserves committed history; Merge appends the segment under the committed timeline. The dialog body reads `"{TreeName} - {Duration}"` for both switch segments and whole launches — duration is the load-bearing distinguisher.
+
 ### Defaults
 
 - Co-bubble peer blending now defaults OFF. Each ghost renders its own standalone absolute trajectory with no peer-blend. Opt in via the new Settings window > Diagnostics > "Use co-bubble peer blending" toggle.
@@ -16,12 +22,26 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Stock UI Fly / Switch-To into a previously committed vessel now correctly opens the segment-scoped Merge dialog, removes in-segment debris on Discard, and recognizes Parsek-spawned vessels as committed-tree members instead of fragmenting them into a standalone tree. The dialog body unifies on `"{TreeName} - {Duration}"` for both short segments and long launches.
+- Map Switch-To now opens a Merge/Discard dialog for the prior switch-segment recording before switching, instead of silently superseding it and orphaning the tree.
+- Map Switch-To to a far vessel now opens the Merge/Discard dialog for the ongoing recording before the scene reload, matching the Esc-to-Space-Center behavior.
+- Merge dialog after a switch/Fly auto-record now shows the segment's elapsed time, not the full tree's mission duration, so the player can distinguish a short post-switch segment from a long pre-switch recording at a glance.
+- Switch/Fly pre-switch dialog now shows the actual elapsed segment duration during a live recording (was 0s), and clicking Merge synchronously clears the prior session marker instead of leaning on the defensive supersede fallback.
+- Map Switch-To back to a previously flown, fresh-launched vessel (e.g. Kerbal X relaunched from VAB) now attaches the new switch-segment as a continuation under the existing mission tree instead of authoring a brand-new standalone tree. Before the fix, the new segment ended up in its own auto-group separate from the mission group.
+- Recordings and trees started by a stock UI Fly / Switch-To click on a stock craft (Jumping Flea, Kerbal X, etc.) now show the readable craft name instead of the raw `#autoLOC_...` localization token in the recordings list and tree title.
 - Re-Fly merge dialog no longer says the vessel "landed" when you actually crashed. The destroy-event refresh was racing KSP's transient LANDED situation flag on ground impact and stamping TerminalState.Landed instead of TerminalState.Destroyed; subsequent part-die and joint-break refreshes for residual parts in the same impact frame could also clobber the destroy stamp. Same fix applies to the background-vessel destroy path.
 - Re-Fly on a recording spanning the rewind point now keeps the post-rewind continuation visible in the timeline after save. The merge journal migrates the in-place fork into the committed tree at a new `TreeMerge` phase before the splitter runs, so the fork's row and active pointer survive serialization instead of being dropped to disk.
 - Re-Fly abandon-and-retry no longer leaves the prior session's provisional in the timeline as a phantom row. The new attempt reaps any abandoned attempt on the same rewind point before its closure walk runs, so the retry's supersede table cannot pick up an invalid row pointing at the orphan.
 - Timeline W (Watch) button now works for every launch row after a Re-Fly. The button used to render permanently disabled for any launch sitting after a superseded recording.
 - Vessels with `ForceHeaviest`-autostrutted radial parts (canonical case: stock Kerbal X with three landing legs surface-attached to the central tank) no longer cascade-explode at first Unpack on any load path. The fix seeds packed-part rigidbody masses lazily at the autostrut read site so the heaviest-part anchor picks the real heaviest part instead of whichever sibling happens to be closest.
 - Re-Fly is no longer silently stripped from a crashed slot whose recording continued through a vessel switch before being destroyed. The rewind-point reaper was reaping the RP on the next scene change even while the timeline still showed the slot as a re-flyable unfinished flight.
+
+### Internals
+
+- Implement segment-scoped switch/Fly auto-record per `docs/dev/plans/segment-scoped-switch-fly-autorecord.md` (PR #876). Playtest follow-up: scoped Discard now walks the topological subtree rooted at the segment recording (catching in-segment debris), the second whole-pending-tree dialog flow was deleted, the consume dispatch was hoisted to the top of `OnFlightReady`, the merge dialog body unifies on `BuildWholeTreeMergeDialogBody`, and `TryFindCommittedTreeMatchingVessel` recognizes Parsek-spawned vessels via `SpawnedVesselPersistentId`.
+- Final review follow-up: deferred consume dispatch when restore is pending to avoid a race against `ResetFlightReadyState`; doc reconciliation across plan, todo, and CHANGELOG; minor logging hygiene.
+- Round-5 review follow-up: defensive guards in merge/discard tree-passing, Esc disabled on pre-switch dialog, shared tree resolver between SceneExit and pre-switch dialog, and assorted doc + test polish.
+- Pre-switch dialog Round-6 review follow-up: context-aware ScreenMessage and ledger reason on no-session Discard, plus minor diagnostic log hygiene.
 
 ---
 
@@ -165,7 +185,7 @@ All notable changes to Parsek are documented here.
 - New `GhostRenderTrace.EmitActivationDecision` structured phase emit covers the deferred-ghost activation hide/activate split for `RenderInRangeGhost` and `SynchronizeLoadedGhostForWatch`. Gated by `ghostRenderTracing`. See `docs/dev/plans/fix-controlled-ghost-init-slide.md` Phase 1.
 - New `SceneExitInterceptor` Harmony Prefix on `HighLogic.LoadScene(GameScenes)` (HarmonyPriority.Last). Single chokepoint that catches PauseMenu's `saveAndExit`, PauseMenu's CanRestart no-save, and FlightResultsDialog's KSC/Menu/TS direct LoadScene paths. Decision matrix is pure for unit-testability.
 - New `MergeDialog.ShowTreeDialog(tree, labels, preCommitFinalize, postChoice)` overload. Decision-building (`BuildDefaultVesselDecisions`) runs AFTER `preCommitFinalize` so `CanPersistVessel` reads finalized `TerminalStateValue` rather than the live activeTree's null values.
-- New `MergeDialog.MergeDiscardWithResult` returns `bool` so the pre-transition wrapper can detect a refused discard (merge-journal-active guard) and skip the LoadScene re-invoke - keeping the player in flight.
+- New `MergeDialog.MergeDiscardRanToCompletion` returns `bool` so the pre-transition wrapper can detect a refused discard (merge-journal-active guard inside `MergeDiscardRanToCompletion`'s deferred branch) and skip the LoadScene re-invoke when the discard did not complete. The 2026-05-17 playtest follow-up deleted the second whole-pending-tree dialog flow, so the original `MergeDiscardOutcome` tri-state collapsed back to a bool.
 - `MergeDialog.MergeDiscard` and `MergeDialog.TryDiscardActiveReFlyAttempt` now refuse defensively when `ParsekScenario.ActiveMergeJournal != null`, mirroring `RevertInterceptor.DiscardReFlyHandler`'s long-standing guard. Closes a pre-existing race against the journal finisher.
 - New `VesselSpawner.BackfillMaxDistanceAbsoluteOnly` filters to Absolute-frame TrackSection points so the live idle-on-pad fast path doesn't misread RELATIVE-frame `lat/lon/alt` (which are anchor-local Cartesian metres) as body-fixed coordinates.
 - `RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting` renamed to `IsNextTreeSceneExitCommitSuppressionArmed` - the flag is no longer test-only.
@@ -184,7 +204,7 @@ All notable changes to Parsek are documented here.
 - New `GhostRenderTraceTests` cases for the activation-decision phase: hidden-frame field shape, first-visible transition with `hiddenPoseDelta`, detailed-window open at first-visible, `AfterUpdate` raw-UT appends, default-valued `rawPlaybackUT` contract, and the loop-path invariant that all three loop call sites emit `clampFired=false`.
 - New `SceneExitInterceptorTests` covering the decision matrix and `SafeWritePersistent` test seam.
 - New `RelativeAnchorResolverTests` coverage for structured failure outcomes, same-chain continuation cycle propagation, non-finite relative poses, empty-frame range metadata, and the invariant that small-gap helper failures do not emit a second outer range warning.
-- New journal-active-guard tests for `MergeDiscard`, `MergeDiscardWithResult`, and `TryDiscardActiveReFlyAttempt`.
+- New journal-active-guard tests for `MergeDiscard`, `MergeDiscardRanToCompletion`, and `TryDiscardActiveReFlyAttempt`.
 - New `Source/Parsek.Tests/Harness/` resolver-level regression harness (PR 1 of the recording & ghost policies refactor; see `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md`). Hashes `RelativeAnchorResolver.TryResolveRecordingPose` outputs as a SHA-256 baseline; ships scenarios 1, 2, 6, 9 which must remain stable across PRs 3a/3b/3c.
 - Harness debris baselines (PR 2 of the refactor): scenarios 4, 5, 7 capture today's BROKEN debris composition (anchorRecordingId points at nearest eligible vessel rather than parent recording), plus scenario 10 (non-debris same-chain continuation invariant). 4/5/7 reset in PR 3b once the parent-anchor contract lands; 10 stays stable.
 - `RecordingFieldExtensionTests` continue to cover `DebrisParentRecordingId` sparse ConfigNode round-trips and the `IPlaybackTrajectory` bridge under the current v13 schema.

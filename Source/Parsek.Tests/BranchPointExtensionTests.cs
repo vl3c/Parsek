@@ -50,6 +50,17 @@ namespace Parsek.Tests
             Assert.Equal(7, (int)BranchPointType.Terminal);
         }
 
+        [Fact]
+        public void BranchPointType_VesselSwitchContinuation_HasValue8()
+        {
+            // Phase A.1 of segment-scoped-switch-fly-autorecord (Decision #1).
+            // Fails if: the enum integer drifts. The serialized branch-point
+            // codec writes the integer via (int)bp.Type and reads it back with
+            // Enum.IsDefined, so changing this value silently breaks every
+            // recorded tree containing a VesselSwitchContinuation branch point.
+            Assert.Equal(8, (int)BranchPointType.VesselSwitchContinuation);
+        }
+
         // --- Round-trip: Breakup with all metadata ---
 
         [Fact]
@@ -147,6 +158,80 @@ namespace Parsek.Tests
             Assert.Null(restored.MergeCause);
             Assert.Equal(0u, restored.TargetVesselPersistentId);
             Assert.Null(restored.TerminalCause);
+        }
+
+        // --- Round-trip: VesselSwitchContinuation (metadata-free) ---
+
+        [Fact]
+        public void BranchPoint_VesselSwitchContinuation_NoMetadata_RoundTrips()
+        {
+            // Phase A.1 forward-compat round-trip. VesselSwitchContinuation is
+            // a non-claiming observation/recording boundary, so it carries NO
+            // split / merge / breakup / terminal metadata — only id, UT,
+            // parents, and one child.
+            // Fails if: SaveBranchPointInto / LoadBranchPointFrom forget to
+            // round-trip the new enum integer (Enum.IsDefined-rejected and
+            // silently defaulted to Undock via the codec's fallback warning),
+            // or if any metadata field leaks into the persisted node.
+            var bp = new BranchPoint
+            {
+                Id = "bp_switch_cont_1",
+                UT = 19500.25,
+                Type = BranchPointType.VesselSwitchContinuation,
+                ParentRecordingIds = new List<string> { "rec_parent_focused" },
+                ChildRecordingIds = new List<string> { "rec_switch_segment" }
+            };
+
+            var node = new ConfigNode("BRANCH_POINT");
+            RecordingTree.SaveBranchPointInto(node, bp);
+
+            var restored = RecordingTree.LoadBranchPointFrom(node);
+
+            Assert.Equal("bp_switch_cont_1", restored.Id);
+            Assert.Equal(19500.25, restored.UT);
+            Assert.Equal(BranchPointType.VesselSwitchContinuation, restored.Type);
+            Assert.Single(restored.ParentRecordingIds);
+            Assert.Equal("rec_parent_focused", restored.ParentRecordingIds[0]);
+            Assert.Single(restored.ChildRecordingIds);
+            Assert.Equal("rec_switch_segment", restored.ChildRecordingIds[0]);
+
+            // Metadata-free contract: every metadata field stays at default.
+            Assert.Null(restored.SplitCause);
+            Assert.Equal(0u, restored.DecouplerPartId);
+            Assert.Null(restored.BreakupCause);
+            Assert.Equal(0.0, restored.BreakupDuration);
+            Assert.Equal(0, restored.DebrisCount);
+            Assert.Equal(0.0, restored.CoalesceWindow);
+            Assert.Null(restored.MergeCause);
+            Assert.Equal(0u, restored.TargetVesselPersistentId);
+            Assert.Null(restored.TerminalCause);
+
+            // Persisted node must NOT contain any metadata keys.
+            Assert.Null(node.GetValue("splitCause"));
+            Assert.Null(node.GetValue("decouplerPartId"));
+            Assert.Null(node.GetValue("breakupCause"));
+            Assert.Null(node.GetValue("breakupDuration"));
+            Assert.Null(node.GetValue("debrisCount"));
+            Assert.Null(node.GetValue("coalesceWindow"));
+            Assert.Null(node.GetValue("mergeCause"));
+            Assert.Null(node.GetValue("targetVesselPid"));
+            Assert.Null(node.GetValue("terminalCause"));
+        }
+
+        [Fact]
+        public void BranchPointType_VesselSwitchContinuation_IsNotClaiming()
+        {
+            // The branch type records an observation/recording boundary, NOT a
+            // physical parts-transfer between vessels (per plan §"Segment
+            // Creation"). Confirms the explicit non-claiming arm added to
+            // GhostingTriggerClassifier.IsClaimingBranchPoint.
+            // Fails if: someone reclassifies this enum value as claiming (which
+            // would route it through the dock/board/undock/eva/jointbreak ghost
+            // re-attach paths and corrupt chain walks) or removes the explicit
+            // case so it silently relies on the default arm.
+            Assert.False(
+                GhostingTriggerClassifier.IsClaimingBranchPoint(
+                    BranchPointType.VesselSwitchContinuation));
         }
 
         // --- Round-trip: Undock with SplitCause and DecouplerPartId ---
@@ -268,6 +353,7 @@ namespace Parsek.Tests
         [InlineData(BranchPointType.Launch, "Launch")]
         [InlineData(BranchPointType.Breakup, "Breakup")]
         [InlineData(BranchPointType.Terminal, "Terminal")]
+        [InlineData(BranchPointType.VesselSwitchContinuation, "VesselSwitchContinuation")]
         public void BranchPoint_ToString_IncludesNewTypeName(BranchPointType type, string expectedName)
         {
             var bp = new BranchPoint

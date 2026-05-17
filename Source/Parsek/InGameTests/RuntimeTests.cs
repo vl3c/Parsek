@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using Contracts;
+using HarmonyLib;
 using KSP.UI;
 using KSP.UI.Screens;
 using UnityEngine;
@@ -248,6 +249,78 @@ namespace Parsek.InGameTests
                     && a.science == b.science
                     && a.reputation == b.reputation;
             }
+        }
+
+        #endregion
+
+        #region LocalizedName
+
+        [InGameTest(Category = "LocalizedName",
+            Description = "KSP Localizer resolves the Jumping Flea stock-craft #autoLOC token under live KSP")]
+        public void ResolveLocalizedName_StockCraftToken_ResolvesUnderLiveKsp()
+        {
+            // xUnit-side ResolveLocalizedNameTests cover the null/empty/passthrough
+            // branches but cannot exercise the live Localizer. This is the in-game
+            // guard for "the Localizer actually loads stock-craft autoLOC tokens"
+            // — the failure mode that ships #autoLOC_501224 to the recordings list.
+            const string token = "#autoLOC_501224";
+            string resolved = Recording.ResolveLocalizedName(token);
+            InGameAssert.IsNotNull(resolved, "ResolveLocalizedName returned null");
+            InGameAssert.IsTrue(resolved != token,
+                $"Expected Localizer to resolve '{token}' under live KSP, got '{resolved}' (Localizer not loaded?)");
+            InGameAssert.IsTrue(resolved.Length > 0 && resolved[0] != '#',
+                $"Resolved name should not retain the # prefix, got '{resolved}'");
+            ParsekLog.Verbose("TestRunner", $"ResolveLocalizedName('{token}') -> '{resolved}'");
+        }
+
+        [InGameTest(Category = "LocalizedName",
+            Description = "SwitchSegmentBuilder writes resolved VesselName when passed an #autoLOC token")]
+        public void SwitchSegmentBuilder_AutoLocVesselName_WritesResolvedNameToRecording()
+        {
+            // End-to-end coverage for the builder-internal wrap: pass a raw
+            // #autoLOC stock-craft token as focusedVesselName and assert the
+            // resulting Recording.VesselName is resolved. Catches a regression
+            // where the wrap is removed or moved back to callers.
+            const string token = "#autoLOC_501224";
+            string expected = Recording.ResolveLocalizedName(token);
+            InGameAssert.IsTrue(expected != token,
+                $"Test prerequisite: Localizer must resolve '{token}' (got '{expected}')");
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-autoloc-test",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            string newRecId = System.Guid.NewGuid().ToString("N");
+            TrajectoryPoint Boundary(double ut) => new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = 0,
+                longitude = 0,
+                altitude = 100,
+                bodyName = "Kerbin",
+            };
+
+            var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                tree,
+                parentRecordingIdOrNull: null,
+                focusedVesselPersistentId: 7777u,
+                focusedVesselName: token,
+                switchUT: 0.0,
+                entryReason: SwitchSegmentEntryReason.KscMarkerFly,
+                intentId: System.Guid.NewGuid(),
+                sessionId: System.Guid.NewGuid(),
+                newRecordingId: newRecId,
+                newBranchPointId: null,
+                initialBoundaryPointFactory: Boundary);
+
+            InGameAssert.IsTrue(result.Created,
+                $"Expected Created=true, got failureReason='{result.FailureReason ?? "<null>"}'");
+            Recording newRec = tree.Recordings[newRecId];
+            InGameAssert.AreEqual(expected, newRec.VesselName);
+            InGameAssert.IsTrue(newRec.VesselName != token,
+                $"Builder shipped raw token '{token}' instead of resolved name");
         }
 
         #endregion
@@ -20881,5 +20954,237 @@ namespace Parsek.InGameTests
             public PatchedConicTransitionType EndTransition { get; set; }
             public IPatchedConicOrbitPatch NextPatch { get; set; }
         }
+
+        // ----------------------------------------------------------------
+        // Phase B.2 Harmony-patch registration stubs. Full end-to-end
+        // arming / consuming behavior is covered by Phase F in-game tests;
+        // these stubs confirm the three patches are registered with Harmony
+        // at startup and bound to the correct stock targets. Each stub picks
+        // the scene that the corresponding stock UI button is clicked from.
+        // ----------------------------------------------------------------
+
+        private const string ParsekHarmonyId = "com.parsek.mod";
+
+        private static bool ParsekHarmonyHasPatchOn(MethodBase target)
+        {
+            if (target == null)
+                return false;
+            var info = Harmony.GetPatchInfo(target);
+            if (info == null)
+                return false;
+            return info.Owners != null && info.Owners.Contains(ParsekHarmonyId);
+        }
+
+        [InGameTest(
+            Category = "SwitchIntentPatch",
+            Description = "Tracking Station Fly arming patch is registered with Harmony",
+            Scene = GameScenes.TRACKSTATION)]
+        public void TrackingStationFlyPatch_RegisteredWithHarmony()
+        {
+            // Fails if: the patch is not registered at Harmony startup (e.g.,
+            // class was removed, [HarmonyPatch] attribute was dropped, or
+            // ParsekHarmony.Awake skipped it due to a load-order failure).
+            MethodInfo target = typeof(SpaceTracking).GetMethod(
+                "FlyVessel",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(target, "SpaceTracking.FlyVessel must resolve");
+            InGameAssert.IsTrue(
+                ParsekHarmonyHasPatchOn(target),
+                "Harmony.GetPatchInfo(SpaceTracking.FlyVessel) must list com.parsek.mod as an owner");
+        }
+
+        [InGameTest(
+            Category = "SwitchIntentPatch",
+            Description = "KSC marker Fly arming patch is registered with Harmony",
+            Scene = GameScenes.SPACECENTER)]
+        public void KscVesselMarkerFlyPatch_RegisteredWithHarmony()
+        {
+            // Fails if: the patch is not registered at Harmony startup.
+            MethodInfo target = typeof(KSCVesselMarkers).GetMethod(
+                "FlyVessel",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(Vessel) },
+                modifiers: null);
+            InGameAssert.IsNotNull(target, "KSCVesselMarkers.FlyVessel(Vessel) must resolve");
+            InGameAssert.IsTrue(
+                ParsekHarmonyHasPatchOn(target),
+                "Harmony.GetPatchInfo(KSCVesselMarkers.FlyVessel) must list com.parsek.mod as an owner");
+        }
+
+        [InGameTest(
+            Category = "SwitchIntentPatch",
+            Description = "Map FocusObject OnSelect arming patch is registered with Harmony",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelectPatch_RegisteredWithHarmony()
+        {
+            // Fails if: the patch is not registered at Harmony startup (e.g.,
+            // FocusObject namespace renamed, OnSelect method missing).
+            System.Type focusObjectType = typeof(
+                KSP.UI.Screens.Mapview.MapContextMenuOptions.FocusObject);
+            MethodInfo target = focusObjectType.GetMethod(
+                "OnSelect",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            InGameAssert.IsNotNull(target, "FocusObject.OnSelect must resolve");
+            InGameAssert.IsTrue(
+                ParsekHarmonyHasPatchOn(target),
+                "Harmony.GetPatchInfo(FocusObject.OnSelect) must list com.parsek.mod as an owner");
+        }
+
+        // ----------------------------------------------------------------
+        // Phase F in-game promotion: pure-gate predicate coverage for the
+        // Map Switch-To Prefix arming logic. The Prefix's three-gate decision
+        // (FocusMode == OwnedVessel, CanSwitchVesselsFar, vessel non-null)
+        // is factored into Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo
+        // so we can drive each branch combinatorially here from a live KSP
+        // scene without needing to inject a real MapContextMenuOptions.FocusObject
+        // instance. Plan test #22.
+        // ----------------------------------------------------------------
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate arms for OwnedVessel focus mode (FocusObject Prefix)",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_OwnedVesselFocusMode_AllowsArm()
+        {
+            // Fails if: the OwnedVessel branch (Switch-To on a real owned
+            // vessel with far-switch enabled and a non-null vessel reference)
+            // is refused. This is the in-scope happy path.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                isOwnedVesselMode: true,
+                canSwitchVesselsFar: true,
+                vesselNotNull: true);
+            InGameAssert.IsTrue(wouldArm,
+                "OwnedVessel + far-switch + non-null vessel must arm");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses UnownedVessel focus mode (routes to TS)",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_UnownedVesselFocusMode_DoesNotArm()
+        {
+            // Fails if: the UnownedVessel branch is mistakenly armed. That
+            // branch calls SpaceTracking.GoToAndFocusVessel which loads
+            // TRACKSTATION — the TS Fly patch is responsible for arming
+            // there, not the Map Switch-To patch.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                isOwnedVesselMode: false,
+                canSwitchVesselsFar: true,
+                vesselNotNull: true);
+            InGameAssert.IsFalse(wouldArm,
+                "Non-OwnedVessel focus mode must NOT arm Map Switch-To intent");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses CelestialBody focus mode (camera-only)",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_CelestialBodyFocusMode_DoesNotArm()
+        {
+            // Fails if: the CelestialBody branch is mistakenly armed. That
+            // branch is camera-only (PlanetariumCamera.SetTarget); no
+            // vessel switch happens.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                isOwnedVesselMode: false,
+                canSwitchVesselsFar: true,
+                vesselNotNull: true);
+            InGameAssert.IsFalse(wouldArm,
+                "CelestialBody focus mode must NOT arm Map Switch-To intent");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses arming when CanSwitchVesselsFar is off",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_CanSwitchVesselsFarOff_DoesNotArm()
+        {
+            // Fails if: arming proceeds with far-switch disabled. Stock
+            // refuses the switch in that case; arming would leak a stuck
+            // marker.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                isOwnedVesselMode: true,
+                canSwitchVesselsFar: false,
+                vesselNotNull: true);
+            InGameAssert.IsFalse(wouldArm,
+                "CanSwitchVesselsFar=false must NOT arm Map Switch-To intent");
+        }
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "Map Switch-To gate refuses arming when target vessel is null (Traverse-failed)",
+            Scene = GameScenes.FLIGHT)]
+        public void MapFocusObjectOnSelect_PrefixGate_NullVessel_DoesNotArm()
+        {
+            // Fails if: the gate proceeds with a null vessel (would arm
+            // with PID 0). Stock would crash inside SetActiveVessel; our
+            // Prefix must bail and log a Warn instead.
+            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
+                isOwnedVesselMode: true,
+                canSwitchVesselsFar: true,
+                vesselNotNull: false);
+            InGameAssert.IsFalse(wouldArm,
+                "vessel=null must NOT arm Map Switch-To intent");
+        }
+
+        // ----------------------------------------------------------------
+        // Phase F: stock-action intent + segment-session lifecycle from a
+        // FLIGHT scene. The full consume site runs from
+        // ParsekFlight.TryConsumeStockActionIntent on
+        // OnVesselSwitchComplete / OnFlightReady; here we drive only the
+        // arm/clear lifecycle on the live ParsekScenario, since arming an
+        // intent and watching it clear with the right reason is the
+        // smallest atomic in-game contract.
+        // ----------------------------------------------------------------
+
+        [InGameTest(
+            Category = "SwitchSegment",
+            Description = "ParsekScenario arms and clears a stock-action intent marker cleanly",
+            Scene = GameScenes.FLIGHT)]
+        public void StockActionIntent_ArmAndClear_OnLiveScenario_LeavesNoLeak()
+        {
+            // Fails if: the live ParsekScenario.Instance does not retain a
+            // freshly armed marker, or the clear leaves it lingering. These
+            // are the two leaf operations the Phase B Harmony patches and
+            // the Phase C consume site rely on.
+            var scenario = ParsekScenario.Instance;
+            InGameAssert.IsNotNull(scenario,
+                "ParsekScenario.Instance must exist in FLIGHT");
+
+            var marker = new StockActionIntentMarker
+            {
+                IntentId = System.Guid.NewGuid(),
+                Action = StockActionType.MapSwitchTo,
+                TargetVesselPersistentId = 7777u,
+                SourceScene = StockActionSourceScene.Flight,
+                CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
+                CapturedUT = Planetarium.fetch != null
+                    ? Planetarium.GetUniversalTime() : 0.0,
+                ProcessSessionId = ParsekProcess.ProcessSessionId,
+            };
+
+            // Snapshot any prior marker (defensive — should be null in a
+            // clean session) and clear before arming so this test is
+            // observable independently of prior in-game tests.
+            scenario.ClearStockActionIntent("in-game-test-prearm");
+            scenario.ArmStockActionIntent(marker);
+            InGameAssert.IsNotNull(scenario.CurrentStockActionIntent,
+                "Intent must be retrievable after ArmStockActionIntent");
+            InGameAssert.AreEqual(
+                marker.IntentId, scenario.CurrentStockActionIntent.IntentId,
+                "Armed marker's IntentId must match");
+
+            scenario.ClearStockActionIntent("in-game-test-cleanup");
+            InGameAssert.IsNull(scenario.CurrentStockActionIntent,
+                "Intent must be null after ClearStockActionIntent");
+        }
+
+        // M5 (PR #876 round-5 review): four in-game tests that exercised
+        // DecidePreSwitchDialogAction with hardcoded args were deleted —
+        // they were exact duplicates of the xUnit cases in
+        // SwitchIntentPatchSmokeTests.cs and read no live state.
+        // Per memory/reference_parsek_scenario_xunit.md, in-game tests
+        // are for things that require live KSP runtime; pure decision
+        // predicates belong in xUnit.
     }
 }
