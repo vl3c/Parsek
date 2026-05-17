@@ -8042,11 +8042,13 @@ namespace Parsek
 
             // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
             // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecId,
                 newPid,
-                Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Unknown",
+                newVessel.vesselName ?? "Unknown",
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,
@@ -8268,11 +8270,13 @@ namespace Parsek
 
             // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
             // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecId,
                 newPid,
-                Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Unknown",
+                newVessel.vesselName ?? "Unknown",
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,
@@ -8376,11 +8380,13 @@ namespace Parsek
             // Standalone path: parent is null, no branch-point id needed.
             // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
             // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecordingIdOrNull: null,
                 newPid,
-                Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Unknown",
+                newVessel.vesselName ?? "Unknown",
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,

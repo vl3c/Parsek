@@ -16,9 +16,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 - ~~Stock UI Fly / Switch-To clicks on a stock craft (Jumping Flea, Kerbal X, etc.) stored the recording's `VesselName` and the fresh tree's `TreeName` as the raw KSP localization key (e.g. `#autoLOC_501224`) instead of the readable craft name. Reproduced in `logs/2026-05-17_1738_autoloc-name-bug/saves/s14/persistent.sfs:1605-1645` — root recording `d612a4bc…` has `vesselName = #autoLOC_501224` and tree `7e91f96d…` has `treeName = #autoLOC_501224`, while the EVA-split child recording 11 s later correctly shows `vesselName = Jumping Flea`.~~
 
-**Root cause:** All three `SwitchSegmentBuilder.CreateSwitchContinuationSegment` callers in `ParsekFlight.cs` (committed-spawned-clone, bg-member-continuation, standalone) passed `newVessel.vesselName ?? "Unknown"` raw, and the standalone path's fresh-tree creation seeded `TreeName = newVessel.vesselName ?? "Standalone"`. The legacy recording-creation paths (e.g. `ParsekFlight.cs:8246` root recording, the EVA-split branches in `BuildSplitBranchData`, the merged-vessel path) all wrap with `Recording.ResolveLocalizedName`, which is why the EVA-split child resolved correctly while the root did not.
+**Root cause:** `SwitchSegmentBuilder.CreateSwitchContinuationSegment` wrote `VesselName = focusedVesselName ?? string.Empty` without resolving the KSP localization key, and all three `ParsekFlight.cs` callers (committed-spawned-clone, bg-member-continuation, standalone) plus the standalone path's fresh-tree `TreeName` assignment passed `newVessel.vesselName` raw. The legacy recording-creation paths (e.g. `ParsekFlight.cs:8246` root recording, the EVA-split branches in `BuildSplitBranchData`, the merged-vessel path) all wrap with `Recording.ResolveLocalizedName`, which is why the EVA-split child resolved correctly while the root did not.
 
-**Fix:** Wrap all four call sites with `Recording.ResolveLocalizedName(newVessel.vesselName) ?? "..."`. The Localizer is loaded by FLIGHT scene entry, so the resolution succeeds; the existing `ResolveLocalizedNameTests` cover the underlying helper. The `_vessel.craft` ProtoVessel snapshot's `name` field still contains the raw token because KSP keeps the live `Vessel.vesselName` as the loc key — that's a separate concern for snapshot-driven respawn display and is not addressed by this fix.
+**Fix:** Centralized the wrap inside `SwitchSegmentBuilder.CreateSwitchContinuationSegment` so any future caller is immune (the builder now stores `VesselName = Recording.ResolveLocalizedName(focusedVesselName) ?? string.Empty`). Diagnostic log lines still see the raw `focusedVesselName` for KSP.log grep parity. The standalone path's fresh-tree `TreeName` assignment in `ParsekFlight.cs:8358` keeps its caller-side wrap because the builder doesn't construct trees. New in-game tests under `RuntimeTests.cs` category `LocalizedName` cover (a) the live KSP Localizer actually resolves `#autoLOC_501224` and (b) the builder ships the resolved name end-to-end. The `_vessel.craft` ProtoVessel snapshot's `name` field still contains the raw token because KSP keeps the live `Vessel.vesselName` as the loc key — tracked separately in the open-bug section above.
 
 **Status:** CLOSED 2026-05-17.
 
@@ -78,6 +78,18 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 **Fix:** `TimelineWindowUI` now builds its `recIndex` for the W-button path from a new `committedIndexById` dictionary, populated at cache rebuild from `RecordingStore.CommittedRecordings` rather than from `EffectiveState.ComputeERS()`. The old ERS-scoped `recordingIndexById` field and its `FindRecordingIndexById` helper had no other callers and were removed as part of the fix. `Source/Parsek/UI/TimelineWindowUI.cs` is now in `scripts/ers-els-audit-allowlist.txt` with an inline `[ERS-exempt]` comment and an allowlist rationale matching the existing physical-visibility consumer entries (RecordingsTableUI, WatchModeController). Coverage: `BuildRecordingIndexLookup_ErsAndCommittedIndicesDivergeAfterSupersede` pins the invariant against future drift between the two index spaces.
 
 **Status:** CLOSED 2026-05-17.
+
+---
+
+## Open - v0.10.0 `_vessel.craft` ProtoVessel snapshot still carries the raw `#autoLOC_...` token in the `name` field
+
+**Evidence:** `logs/2026-05-17_1738_autoloc-name-bug/saves/s14/Parsek/Recordings/20b37b69460e42e2a862ad112539de68_vessel.craft.txt:3` — `name = #autoLOC_501224` even after the recording-metadata fix (PR #887) resolved `Recording.VesselName` and `RecordingTree.TreeName` to "Jumping Flea". The companion `.sfs` row has `vesselName = Jumping Flea`, but the ProtoVessel snapshot used to re-spawn the ghost / restore the vessel still ships the raw localization key.
+
+**Root cause:** `VesselSpawner.TryBackupSnapshot` calls `vessel.BackupVessel()` then `pv.Save(node)`. KSP keeps the live `Vessel.vesselName` as the raw `#autoLOC_...` localization key until UI display time (the UI resolves it on render), so the ProtoVessel inherits the unresolved key into the snapshot's `name` field. Recording metadata is fine because Parsek wraps with `Recording.ResolveLocalizedName` at construction; the snapshot path never touches that helper.
+
+**Possible fix:** `VesselSpawner.NormalizeBackedUpSnapshotFromLiveVessel` (or a sibling normalizer) could rewrite the snapshot root `name` value to `Recording.ResolveLocalizedName(node.GetValue("name"))` before persistence. Needs verification that ProtoVessel.Load round-tripping is happy with a non-token name (it should be — the field is just a string), and that nothing downstream keys off the raw token. The respawned vessel's `Vessel.vesselName` after `ProtoVessel.Load` would then carry the readable name immediately, including for tracking-station rows, CommNet labels, and any code that displays the live vessel name without going through the UI resolver.
+
+**Status:** OPEN. Low priority — only affects display of the re-spawned ghost / restored-vessel name (the recording table itself is now correct after PR #887).
 
 ---
 
