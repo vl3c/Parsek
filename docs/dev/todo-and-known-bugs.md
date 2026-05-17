@@ -12,6 +12,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Map Switch-To to a previously committed fresh-launched vessel fragmented it into a standalone tree
+
+- ~~Post-#876 playtest 2026-05-17 (`logs/2026-05-17_2122_kerbalx-grouping-bug/`). Player launched Kerbal X (NEW_FROM_FILE rollout), flew it to orbit, the mission committed (tree `6c70ac3ed4aa498aaa64ba407adb1ebf` with root recording `79663bae...` carrying `VesselPersistentId=2708531065`). Player launched a second mission (GDLV3), then Map Switch-To'd back to Kerbal X. The new 28 s switch-segment recording (`fab1cd54...`) landed in a brand-new standalone tree `c0f6063d-9d20-48d5-bed5-b17a15d13b7b` (also named "Kerbal X") instead of attaching as a continuation under the original mission tree. The auto-grouping then placed the segment outside the existing "Kerbal X" group.~~
+
+**Root cause:** `ParsekFlight.TryFindCommittedTreeMatchingVessel` (the gate in `TryRouteCommittedSpawnedClone`) matches either `rec.VesselPersistentId == pid` OR `rec.SpawnedVesselPersistentId == pid`. The downstream `TryFindCommittedTreeForSpawnedVessel` used by `TryTakeCommittedTreeForSpawnedVesselRestore` was narrower: it required `rec.VesselSpawned == true` AND `rec.SpawnedVesselPersistentId == pid`. Fresh-launched vessels commit with `VesselSpawned=false` / `SpawnedVesselPersistentId=0`, so the gate accepted them but the restore helper rejected them. The consume path logged `committed-spawned-clone-restore-failed-start-standalone` (KSP.log line 32864) and authored a fresh standalone tree. `ResolveLiveTreeRecordingPidForRestore` already falls back to `VesselPersistentId`, and the clear-prior-spawn-flags block in `TryTakeCommittedTreeForSpawnedVesselRestore` is gated on `VesselSpawned || SpawnedVesselPersistentId!=0`, so the downstream pipeline was already correct for direct-PID matches; only the matcher was wrong.
+
+**Fix:** `ParsekFlight.TryFindCommittedTreeForSpawnedVessel` now accepts both shapes:
+- Spawned match (unchanged): `rec.VesselSpawned && rec.SpawnedVesselPersistentId != 0 && rec.SpawnedVesselPersistentId == activeVesselPid`.
+- Direct match (new): `!rec.VesselSpawned && rec.SpawnedVesselPersistentId == 0 && rec.VesselPersistentId != 0 && rec.VesselPersistentId == activeVesselPid`.
+
+The `IsCommittedSpawnedRecordingRestorable` restorability gate (terminal-state + chain-tip checks) still applies to both shapes. Two new unit tests in `VesselSwitchTreeTests`: `TryFindCommittedTreeForSpawnedVessel_DirectVesselPidMatchForFreshLaunchedRecording` (pins the regression) and `TryFindCommittedTreeForSpawnedVessel_DoesNotMatchNonActiveDestroyedFreshLaunchRecording` (pins the restorability gate continues to apply for direct matches).
+
+**Status:** CLOSED 2026-05-17.
+
+---
+
 ## Done - v0.10.0 Pre-switch dialog showed 0s segment duration and leaked the prior session marker on Merge
 
 - ~~Post-#876 playtest (`logs/2026-05-17_1944_switch-fly-edge-case/KSP.log`) exposed two bugs in the new pre-switch Merge/Discard dialog flow. **Bug A**: the dialog body rendered "Kerbal X Probe - 0s" for a switch segment that had been recording for ~40 seconds. **Bug B**: clicking Merge committed the prior tree but did NOT clear the `SwitchSegmentSession` marker — the marker survived a save/load round-trip and was only collected by the defensive `superseded-by-new-switch` branch in `ParsekFlight.TryConsumeStockActionIntent` two seconds later when the next switch fired.~~

@@ -1049,6 +1049,78 @@ namespace Parsek.Tests
             Assert.Equal("rec_active", matchedRecordingId);
         }
 
+        [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_DirectVesselPidMatchForFreshLaunchedRecording()
+        {
+            // Regression for the kerbal-x-grouping-bug repro (post-#876
+            // playtest 2026-05-17). A fresh-launched vessel (NEW_FROM_FILE)
+            // commits its mission recording with VesselSpawned=false and
+            // SpawnedVesselPersistentId=0, but VesselPersistentId equal to
+            // the live PID still occupying the save. When the player Map-
+            // Switch-To's that vessel, the committed-clone path must
+            // recognise the recording via direct VesselPersistentId match;
+            // otherwise the new switch-segment ends up in a fresh standalone
+            // tree disjoint from the original mission tree (which then gets
+            // its own auto-group and the segment appears outside the
+            // mission's group in the UI).
+            var tree = MakeTree("rec_orbiting");
+            tree.Recordings["rec_orbiting"].VesselPersistentId = 2708531065u;
+            tree.Recordings["rec_orbiting"].VesselSpawned = false;
+            tree.Recordings["rec_orbiting"].SpawnedVesselPersistentId = 0u;
+            tree.Recordings["rec_orbiting"].TerminalStateValue = TerminalState.Orbiting;
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 2708531065u,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId);
+
+            Assert.True(found,
+                "A fresh-launched committed recording whose VesselPersistentId equals " +
+                "the live PID must be matched by the committed-clone lookup so the " +
+                "new switch-segment attaches to the existing mission tree.");
+            Assert.Same(tree, matchedTree);
+            Assert.Equal("rec_orbiting", matchedRecordingId);
+        }
+
+        [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_DoesNotMatchNonActiveDestroyedFreshLaunchRecording()
+        {
+            // A direct-VesselPersistentId-match recording is still gated by
+            // IsCommittedSpawnedRecordingRestorable. A destroyed non-active
+            // recording must not be returned as a restore target (the
+            // active-recording short-circuit in IsCommittedSpawnedRecording-
+            // Restorable intentionally bypasses the terminal-state filter,
+            // so the test uses a non-active dead leaf).
+            var tree = MakeTree("rec_active");
+            // The active recording is unrelated to the focused PID (different
+            // vessel altogether) so we can exercise the dead-leaf path.
+            tree.Recordings["rec_active"].VesselPersistentId = 9999u;
+
+            tree.Recordings["rec_dead"] = new Recording
+            {
+                RecordingId = "rec_dead",
+                VesselName = "Old Wreck",
+                VesselPersistentId = 2708531065u,
+                VesselSpawned = false,
+                SpawnedVesselPersistentId = 0u,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 50.0,
+                ExplicitEndUT = 90.0,
+                TreeOrder = 1
+            };
+
+            bool found = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 2708531065u,
+                out RecordingTree _,
+                out string _);
+
+            Assert.False(found,
+                "Direct-PID match must still respect the restorability gate; " +
+                "non-active terminal-state recordings are not valid continuation parents.");
+        }
+
         #endregion
 
         #region Existing tests still pass with default activeTree parameter

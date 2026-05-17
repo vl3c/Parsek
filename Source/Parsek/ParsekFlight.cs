@@ -12934,6 +12934,31 @@ namespace Parsek
             return activeVesselPid != 0 && activeVesselPid == freshRolloutVesselPid;
         }
 
+        // Bug (post-#876 playtest 2026-05-17): the kerbal-x-grouping-bug repro.
+        // The matcher historically only recognised Parsek-spawned recordings
+        // (VesselSpawned=true with SpawnedVesselPersistentId equal to the live
+        // PID). Fresh-launched vessels (NEW_FROM_FILE etc.) commit recordings
+        // with VesselSpawned=false and SpawnedVesselPersistentId=0 but their
+        // VesselPersistentId equals the live PID of the vessel currently
+        // sitting in the save. When the player Map-Switch-To'd a far Kerbal X
+        // (committed mission, never Parsek-spawned), TryFindCommittedTree-
+        // MatchingVessel's broader gate routed into the committed-clone
+        // branch but this helper rejected the recording, so the consume path
+        // fell through to StartStandaloneContinuationSegment and authored a
+        // brand-new "Kerbal X" tree disjoint from the original mission tree.
+        // The new tree got its own auto-group, so the segment appeared
+        // outside the mission group in the UI.
+        //
+        // The fix: also match recordings whose VesselPersistentId equals the
+        // live PID when the recording was not Parsek-spawned. ResolveLive-
+        // TreeRecordingPidForRestore already falls back to VesselPersistentId
+        // when SpawnedVesselPersistentId is zero, and PrepareCommittedTree-
+        // RestoreForSpawnedVessel uses that helper, so the downstream
+        // restore path resumes the live recording correctly. The clear-
+        // prior-spawn-flags block in TryTakeCommittedTreeForSpawnedVessel-
+        // Restore is gated on VesselSpawned || SpawnedVesselPersistentId!=0,
+        // so the direct-PID match leaves the recording's identity fields
+        // untouched.
         internal static bool TryFindCommittedTreeForSpawnedVessel(
             IReadOnlyList<RecordingTree> committedTrees,
             uint activeVesselPid,
@@ -12954,14 +12979,18 @@ namespace Parsek
                 Recording bestMatch = null;
                 foreach (Recording rec in candidate.Recordings.Values)
                 {
-                    if (rec == null
-                        || !rec.VesselSpawned
-                        || rec.SpawnedVesselPersistentId == 0
-                        || rec.SpawnedVesselPersistentId != activeVesselPid
-                        || string.IsNullOrEmpty(rec.RecordingId))
-                    {
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                         continue;
-                    }
+
+                    bool spawnedMatch = rec.VesselSpawned
+                        && rec.SpawnedVesselPersistentId != 0
+                        && rec.SpawnedVesselPersistentId == activeVesselPid;
+                    bool directMatch = !rec.VesselSpawned
+                        && rec.SpawnedVesselPersistentId == 0
+                        && rec.VesselPersistentId != 0
+                        && rec.VesselPersistentId == activeVesselPid;
+                    if (!spawnedMatch && !directMatch)
+                        continue;
 
                     if (!IsCommittedSpawnedRecordingRestorable(candidate, rec))
                         continue;
