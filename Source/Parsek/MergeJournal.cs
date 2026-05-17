@@ -66,6 +66,12 @@ namespace Parsek
         public static class Phases
         {
             public const string Begin = "Begin";
+            // Bug fix-refly-abandon-and-fork-persist §Bug2b: TreeMerge sits
+            // between Begin and Split. It migrates the in-place-continuation
+            // fork from the active tree into the committed tree (and unions
+            // any partial active-tree state with the committed one) BEFORE
+            // the splitter mutates the committed tree's contents.
+            public const string TreeMerge = "TreeMerge";
             public const string Split = "Split";
             public const string Supersede = "Supersede";
             public const string Tombstone = "Tombstone";
@@ -105,7 +111,8 @@ namespace Parsek
         /// </summary>
         public static bool IsPostDurablePhase(string phase)
         {
-            return phase == Phases.Split
+            return phase == Phases.TreeMerge
+                || phase == Phases.Split
                 || phase == Phases.Supersede
                 || phase == Phases.Tombstone
                 || phase == Phases.Finalize
@@ -130,7 +137,8 @@ namespace Parsek
         /// </summary>
         public static bool IsKnownPostBeginPhase(string phase)
         {
-            return phase == Phases.Split
+            return phase == Phases.TreeMerge
+                || phase == Phases.Split
                 || phase == Phases.Supersede
                 || phase == Phases.Tombstone
                 || phase == Phases.Finalize

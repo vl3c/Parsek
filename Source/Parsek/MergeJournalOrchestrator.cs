@@ -84,6 +84,11 @@ namespace Parsek
         {
             None,
             Begin,
+            // Bug fix-refly-abandon-and-fork-persist §Bug2b: inserted between
+            // Begin and Split. Enum order matches the string-constants order
+            // in MergeJournal.Phases so a literal cast of Phase.TreeMerge to
+            // the string "TreeMerge" is consistent.
+            TreeMerge,
             Split,
             Supersede,
             Tombstone,
@@ -208,6 +213,23 @@ namespace Parsek
             DurableSave("begin", persistSynchronously: true);
             MaybeInject(Phase.Begin);
 
+            // Step 1.4: Bug fix-refly-abandon-and-fork-persist §Bug2b —
+            // migrate the in-place-continuation fork from the active tree
+            // into the committed tree BEFORE the splitter mutates the
+            // committed tree's contents. Without this, the fork's
+            // RECORDING node lives only in the active tree (which is
+            // about to be discarded), the splitter's TIP supersede row
+            // names the fork id, but OnSave writes only the committed
+            // tree's RECORDING_TREE — the fork disappears.
+            //
+            // Gated on marker.InPlaceContinuation: non-in-place sessions
+            // own their fork in a separate (new) tree and don't need
+            // migration into marker.TreeId's committed tree.
+            MigrateActiveReFlyForkIntoCommittedTree(marker, provisional);
+            AdvancePhase(scenario, MergeJournal.Phases.TreeMerge);
+            DurableSave("treemerge", persistSynchronously: true);
+            MaybeInject(Phase.TreeMerge);
+
             // Step 1.5: split the origin recording at the rewind UT if it spans
             // the rewind point. Mutates marker.SupersedeTargetId on success so the
             // Supersede step's closure starts at TIP. SplitOriginAtRewindUT is
@@ -222,7 +244,8 @@ namespace Parsek
             catch (Exception ex)
             {
                 // Inner already rolled back via its own catch + RollBackInMemory.
-                // Journal phase is still Begin on disk → next load rolls back.
+                // Journal phase is TreeMerge on disk → next load drives
+                // forward through Split (idempotent re-run).
                 ParsekLog.Warn(Tag,
                     $"Split step threw {ex.GetType().Name}: {ex.Message} — inner rolled back; re-throwing");
                 throw;
@@ -474,6 +497,22 @@ namespace Parsek
             // (the entry value), so a resume entering at Split drives all the
             // way through to Complete.
             // ------------------------------------------------------------------
+
+            if (journal.Phase == MergeJournal.Phases.TreeMerge)
+            {
+                // Bug fix-refly-abandon-and-fork-persist §Bug2b: re-run the
+                // active-tree → committed-tree fork migration idempotently.
+                // AddOrReplaceRecording overwrites by id, ActiveRecordingId
+                // swap is a no-op when the value is already the fork id,
+                // and TryUnionActiveReFlyTreeIntoCommitted's per-key skip
+                // makes a second invocation a no-op. Drives forward into
+                // Split.
+                MigrateActiveReFlyForkIntoCommittedTree(
+                    scenario.ActiveReFlySessionMarker,
+                    ResolveProvisional(scenario));
+                AdvancePhase(scenario, MergeJournal.Phases.Split);
+                stepsDriven++;
+            }
 
             if (journal.Phase == MergeJournal.Phases.Split)
             {
@@ -750,6 +789,155 @@ namespace Parsek
         {
             try { return Planetarium.GetUniversalTime(); }
             catch { return 0.0; }
+        }
+
+        /// <summary>
+        /// Bug fix-refly-abandon-and-fork-persist §Bug2b: migrate the
+        /// in-place-continuation fork's RECORDING node from the active
+        /// tree (the live transient one owned by <c>ParsekFlight</c>) into
+        /// the committed tree (the one OnSave will serialize). Step 1.4
+        /// of <see cref="RunMerge"/> calls this BEFORE the splitter runs
+        /// so the splitter and the supersede-row writer can find the fork
+        /// in <c>committedTree.Recordings</c>.
+        ///
+        /// <para><b>Precondition</b>: <paramref name="marker"/>.<c>InPlaceContinuation</c>
+        /// must be true. Non-in-place sessions own their fork in a
+        /// separate (new) tree and do not need migration into
+        /// <c>marker.TreeId</c>'s committed tree — Verbose-skip in that case.</para>
+        ///
+        /// <para><b>Idempotency</b>: by-id dict insertion +
+        /// <c>ActiveRecordingId</c> string assignment + union helper
+        /// per-key skip make this a no-op on re-run. The
+        /// <see cref="CompleteFromPostDurable"/> path re-invokes the
+        /// helper after a mid-merge crash and depends on this contract.</para>
+        ///
+        /// <para>Operations:</para>
+        /// <list type="number">
+        ///   <item><description>Resolve <c>committedTree</c> by
+        ///   <c>marker.TreeId</c>. Warn-and-return if missing.</description></item>
+        ///   <item><description>If <c>ParsekFlight.Instance?.ActiveTreeForSerialization</c>
+        ///   matches the same id and is a distinct object, run
+        ///   <c>TryUnionActiveReFlyTreeIntoCommitted</c> (via the public
+        ///   shim) so any active-only recordings/BPs join the committed
+        ///   tree. The recorder's last flush may have added new BPs and
+        ///   debris that the committed tree's pre-Re-Fly snapshot lacks.
+        ///   </description></item>
+        ///   <item><description>Ensure <paramref name="provisional"/> is in
+        ///   <c>committedTree.Recordings</c>. Call
+        ///   <c>AddOrReplaceRecording</c> if not (overwrite-by-id; the
+        ///   record may already have been merged in by step 2).</description></item>
+        ///   <item><description>Set <c>committedTree.ActiveRecordingId</c> to
+        ///   the fork's id so the next OnSave writes the correct active
+        ///   pointer.</description></item>
+        /// </list>
+        /// </summary>
+        internal static void MigrateActiveReFlyForkIntoCommittedTree(
+            ReFlySessionMarker marker, Recording provisional)
+        {
+            if (marker == null) return;
+            if (provisional == null) return;
+
+            if (!marker.InPlaceContinuation)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"MigrateActiveReFlyForkIntoCommittedTree: skipped (sess={marker.SessionId ?? "<no-id>"} " +
+                    "non-in-place session; fork lives in its own tree, no migration needed)");
+                return;
+            }
+
+            // 1. Find the committed tree.
+            var committedTrees = RecordingStore.CommittedTrees;
+            RecordingTree committedTree = null;
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    if (committedTrees[i] != null
+                        && string.Equals(committedTrees[i].Id, marker.TreeId, StringComparison.Ordinal))
+                    {
+                        committedTree = committedTrees[i];
+                        break;
+                    }
+                }
+            }
+            if (committedTree == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"MigrateActiveReFlyForkIntoCommittedTree: no committed tree for " +
+                    $"marker.TreeId={marker.TreeId ?? "<no-id>"} sess={marker.SessionId ?? "<no-id>"} " +
+                    "— merge cannot complete cleanly");
+                return;
+            }
+
+            int recsBefore = committedTree.Recordings?.Count ?? 0;
+            string activeIdBefore = committedTree.ActiveRecordingId;
+            int unionedRecs = 0;
+            int unionedBps = 0;
+
+            // 2. Union the active tree (if distinct from the committed) so
+            //    recorder-flushed state (new BPs, debris, etc.) joins the
+            //    canonical committed tree.
+            var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
+            if (activeTree != null
+                && !ReferenceEquals(activeTree, committedTree)
+                && string.Equals(activeTree.Id, marker.TreeId, StringComparison.Ordinal))
+            {
+                RecordingStore.UnionActiveReFlyTreeIntoCommittedForMerge(
+                    committedTree, activeTree, marker,
+                    out unionedRecs, out unionedBps);
+            }
+
+            // 3. Ensure the fork itself is in committedTree.Recordings.
+            //    Step 2's union usually handles this, but the in-place
+            //    branch of AtomicMarkerWrite may have attached the fork
+            //    only to the active tree (via EnsureForkAttachedToTree)
+            //    so the committed dict needs an explicit add.
+            if (!string.IsNullOrEmpty(provisional.RecordingId))
+            {
+                if (committedTree.Recordings == null
+                    || !committedTree.Recordings.ContainsKey(provisional.RecordingId))
+                {
+                    committedTree.AddOrReplaceRecording(provisional);
+                    committedTree.RebuildBackgroundMap();
+                }
+            }
+
+            // 4. Promote ActiveRecordingId to the fork's id. The splitter's
+            //    Step 2.12 may have already promoted from HEAD to TIP; this
+            //    step refines the pointer to the fork (which is conceptually
+            //    the new live recording for the in-place continuation).
+            if (!string.IsNullOrEmpty(provisional.RecordingId)
+                && !string.Equals(committedTree.ActiveRecordingId,
+                                  provisional.RecordingId,
+                                  StringComparison.Ordinal))
+            {
+                committedTree.ActiveRecordingId = provisional.RecordingId;
+            }
+
+            int recsAfter = committedTree.Recordings?.Count ?? 0;
+            // M1 review fix: downgrade no-op idempotent re-runs to Verbose
+            // so a crash-resumed merge doesn't spam Info every time the
+            // finisher re-invokes the helper. State-change (recs added,
+            // active id moved, union work) keeps Info so the production
+            // happy-path stays visible.
+            bool didWork = recsAfter != recsBefore
+                || !string.Equals(activeIdBefore, committedTree.ActiveRecordingId, StringComparison.Ordinal)
+                || unionedRecs != 0
+                || unionedBps != 0;
+            string msg =
+                $"MigrateActiveReFlyForkIntoCommittedTree: fork={provisional.RecordingId ?? "<no-id>"} " +
+                $"committedTreeRecsBefore={recsBefore.ToString(CultureInfo.InvariantCulture)} " +
+                $"committedTreeRecsAfter={recsAfter.ToString(CultureInfo.InvariantCulture)} " +
+                $"activeRecordingIdBefore={activeIdBefore ?? "<null>"} " +
+                $"activeRecordingIdAfter={committedTree.ActiveRecordingId ?? "<null>"} " +
+                $"unionedRecs={unionedRecs.ToString(CultureInfo.InvariantCulture)} " +
+                $"unionedBps={unionedBps.ToString(CultureInfo.InvariantCulture)} " +
+                $"sess={marker.SessionId ?? "<no-id>"} " +
+                $"didWork={didWork}";
+            if (didWork)
+                ParsekLog.Info(Tag, msg);
+            else
+                ParsekLog.Verbose(Tag, msg);
         }
 
         /// <summary>
