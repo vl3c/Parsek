@@ -26,6 +26,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WarnUnresolved_LogLineDistinguishesFocusFromAnchor()
+        {
+            // fix-refly-relative-anchor Phase 4 audit: the WarnUnresolved log
+            // line must emit `focusRecordingId=` (caller's recording) and
+            // `anchorRecordingId=` (the anchor that failed to resolve) as
+            // distinct fields so a future reader can tell at a glance whether
+            // a recording is trying to resolve its own anchor (legitimate
+            // "anchor recording has no data at UT" failure with identical
+            // ids) or whether the producer wrote a self-anchor edge upstream
+            // (would be a recorder bug). Drives the
+            // anchor-out-of-recorded-range path through TryResolveRecordingPose
+            // with a distinct focus / anchor pair and asserts both ids
+            // appear in the log with the corrected field names.
+            var tree = new RecordingTree { Id = "tree" };
+            // Anchor recording with valid TrackSections but no coverage at
+            // the requested UT (10.5 is past the section endUT of 0.5).
+            Recording anchor = new Recording
+            {
+                RecordingId = "anchor-rec",
+                TreeId = tree.Id,
+                VesselName = "anchor-rec",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0.0,
+                endUT = 0.5,
+            };
+            anchor.TrackSections.Add(section);
+            anchor.Points.Add(MakePoint(0.0, new Vector3d(100, 0, 0), Quaternion.identity));
+            anchor.Points.Add(MakePoint(0.5, new Vector3d(101, 0, 0), Quaternion.identity));
+
+            Recording focus = MakeRelativeRecording(
+                "focus-rec",
+                tree.Id,
+                localOffset: new Vector3d(1, 0, 0),
+                anchorRecordingId: anchor.RecordingId,
+                startUT: 10.0,
+                endUT: 20.0);
+
+            tree.AddOrReplaceRecording(anchor);
+            tree.AddOrReplaceRecording(focus);
+
+            var context = MakeContext(tree, focusRecordingId: focus.RecordingId);
+            bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
+                context,
+                focus.RecordingId,
+                10.5,
+                new HashSet<string>(StringComparer.Ordinal),
+                out _,
+                out RelativeAnchorResolveFailure failure);
+
+            Assert.False(resolved);
+            Assert.Equal("anchor-out-of-recorded-range", failure.Reason);
+            // Both ids appear in the log under their respective field names
+            // and they are NOT the same value (which is the bug the
+            // tightening guards against).
+            Assert.Contains(logLines, l =>
+                l.Contains("[RelativeAnchorResolver]") &&
+                l.Contains("reason=anchor-out-of-recorded-range") &&
+                l.Contains("focusRecordingId=focus-rec") &&
+                l.Contains("anchorRecordingId=anchor-rec"));
+        }
+
+        [Fact]
         public void TryResolveAnchorPose_EmptyAnchorRecordingId_ReturnsFalseWithReason()
         {
             var context = MakeContext(new RecordingTree { Id = "tree" });
@@ -106,7 +172,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-recording-id-missing") &&
-                l.Contains("recordingId=relative-child"));
+                l.Contains("focusRecordingId=relative-child"));
             Assert.DoesNotContain(logLines, l => l.Contains("anchorPid=12345"));
         }
 
@@ -349,7 +415,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(child);
 
             bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
-                MakeContext(tree),
+                MakeContext(tree, focusRecordingId: child.RecordingId),
                 child.RecordingId,
                 10.25,
                 new HashSet<string>(StringComparer.Ordinal),
@@ -366,7 +432,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-out-of-recorded-range") &&
-                l.Contains("recordingId=absolute-anchor"));
+                l.Contains("focusRecordingId=relative-child") &&
+                l.Contains("anchorRecordingId=absolute-anchor"));
         }
 
         [Fact]
@@ -393,7 +460,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(child);
 
             bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
-                MakeContext(tree),
+                MakeContext(tree, focusRecordingId: child.RecordingId),
                 child.RecordingId,
                 10.02,
                 new HashSet<string>(StringComparer.Ordinal),
@@ -404,7 +471,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-out-of-recorded-range") &&
-                l.Contains("recordingId=absolute-anchor"));
+                l.Contains("focusRecordingId=relative-child") &&
+                l.Contains("anchorRecordingId=absolute-anchor"));
         }
 
         [Fact]
@@ -471,7 +539,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(child);
 
             bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
-                MakeContext(tree),
+                MakeContext(tree, focusRecordingId: child.RecordingId),
                 child.RecordingId,
                 10.02,
                 new HashSet<string>(StringComparer.Ordinal),
@@ -482,7 +550,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-out-of-recorded-range") &&
-                l.Contains("recordingId=relative-anchor"));
+                l.Contains("focusRecordingId=relative-child") &&
+                l.Contains("anchorRecordingId=relative-anchor"));
         }
 
         [Fact]
@@ -505,7 +574,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(child);
 
             bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
-                MakeContext(tree),
+                MakeContext(tree, focusRecordingId: child.RecordingId),
                 child.RecordingId,
                 10.02,
                 new HashSet<string>(StringComparer.Ordinal),
@@ -516,7 +585,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-out-of-recorded-range") &&
-                l.Contains("recordingId=relative-anchor"));
+                l.Contains("focusRecordingId=relative-child") &&
+                l.Contains("anchorRecordingId=relative-anchor"));
         }
 
         [Fact]
@@ -1032,7 +1102,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(recording);
 
             bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
-                MakeContext(tree),
+                MakeContext(tree, focusRecordingId: recording.RecordingId),
                 recording.RecordingId,
                 5.0,
                 new HashSet<string>(StringComparer.Ordinal),
@@ -1042,7 +1112,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-track-sections-missing") &&
-                l.Contains("recordingId=sectionless-v11"));
+                l.Contains("focusRecordingId=sectionless-v11") &&
+                l.Contains("anchorRecordingId=sectionless-v11"));
         }
 
         [Fact]
@@ -1550,7 +1621,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=loop-live-anchor-unresolved") &&
-                l.Contains("recordingId=loop-root"));
+                l.Contains("focusRecordingId=loop-root"));
         }
 
         [Fact]
@@ -1807,7 +1878,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=absolute-pose-nonfinite") &&
-                l.Contains("recordingId=absolute-anchor"));
+                l.Contains("anchorRecordingId=absolute-anchor"));
         }
 
         [Fact]

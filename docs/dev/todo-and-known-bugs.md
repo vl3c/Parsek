@@ -69,7 +69,7 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Open - v0.9.2 Re-fly provisional Relative section anchored to fast-separating sibling causes chaotic ghost playback during watch mode
+## Done - v0.10.0 Re-fly provisional Relative section anchored to fast-separating sibling causes chaotic ghost playback during watch mode
 
 **Evidence:** Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. User entered watch mode at 22:56:02 after committing three nested re-flies on the same save. During the 27-second watch window (until 22:56:29), `GhostRenderTrace` fired **281 `reason=large-delta` events** — all concentrated on the three re-fly provisional recordings:
 
@@ -98,7 +98,9 @@ Crucially, **this is NOT a CoBubble bug.** Every chaotic frame logs `mode=Record
 
 **See also:** Closely related to the "Controlled-decoupled child vessels lack a parent-anchored recording surface" Open entry below and to the rotation-Slerp Open entry below — both surfaced from the same playtest and share the recorder-side "stable anchor selection" theme. The deeper fix here should consider whether the recorder's anchor-selection logic can be unified across debris, controlled-decoupled children, and re-fly provisionals (the design space is shared even if the code paths are different today).
 
-**Status:** OPEN.
+**Fix:** Both recorder sites (`BackgroundRecorder.UpdateBackgroundAnchorDetection` and `FlightRecorder.UpdateAnchorDetection`) now consult `ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor` before the generic nearest-search. When the active recording is the live re-fly provisional (matched through `ReFlySessionMarker.ActiveReFlyRecordingId`), the recorder pins the Relative section's `anchorRecordingId` to `marker.SupersedeTargetId` (with `OriginChildRecordingId` legacy fallback) rather than letting the nearest-search pick a fast-separating sibling. A visited-set cycle guard with depth-cap 8 handles nested re-flies and breadcrumb-logs at depth 4. The fix lands recorder-side only; no schema changes. Phase 4 audit confirmed `SupersedeCommit.IsPreRewindCarveOut` is unaffected (the predicate walks `ChainId` / `RecordingSupersedeRelation`s / `DebrisParentRecordingId` and never reads `TrackSection` fields) and that the `relative-anchor-unresolved` log line emitting `recordingId == anchorRecordingId` was a resolver-side log artifact, not a producer bug: `RelativeAnchorResolver.WarnUnresolved` was passing `recording.RecordingId` for both the focus and anchor args at four sites in `TryResolveRecordingPose`. Fix tightens those sites to pass `context.FocusRecordingId` as the focus and renames the log field `recordingId=` → `focusRecordingId=` so the two ids are always visually distinct. Plan and execution at `docs/dev/plans/fix-refly-relative-anchor-selection.md`. Phase 3 (cleanup of stale Relative sections at marker-write time) dropped: the precondition window does not exist because Re-Fly invocation always reloads the scene via `GamePersistence.LoadGame`, which constructs a fresh `FlightRecorder` before `AtomicMarkerWrite` runs.
+
+**Status:** CLOSED 2026-05-17.
 
 ---
 
