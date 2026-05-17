@@ -611,6 +611,94 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Inserts <paramref name="toInsert"/> into the committed list at the
+        /// slot immediately after the first recording whose
+        /// <see cref="Recording.RecordingId"/> matches
+        /// <paramref name="afterRecordingId"/>. If no match is found,
+        /// <paramref name="toInsert"/> is appended at the end. Used by
+        /// <see cref="RecordingTreeSplitter"/> to insert TIP right after HEAD
+        /// (mirrors the optimizer split's <c>recordings.Insert(recIdx+1, ...)</c>
+        /// pattern in <see cref="RunOptimizationSplitPass"/>). Bumps
+        /// <see cref="StateVersion"/>.
+        /// </summary>
+        internal static void InsertCommittedAfter(string afterRecordingId, Recording toInsert)
+        {
+            if (toInsert == null) return;
+            int insertAt = committedRecordings.Count;
+            if (!string.IsNullOrEmpty(afterRecordingId))
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    if (string.Equals(
+                            committedRecordings[i].RecordingId,
+                            afterRecordingId,
+                            StringComparison.Ordinal))
+                    {
+                        insertAt = i + 1;
+                        break;
+                    }
+                }
+            }
+            committedRecordings.Insert(insertAt, toInsert);
+            BumpStateVersion();
+        }
+
+        /// <summary>
+        /// Removes the first committed recording whose
+        /// <see cref="Recording.RecordingId"/> equals
+        /// <paramref name="recordingId"/>. Returns true when a row was
+        /// removed. Used by <see cref="RecordingTreeSplitter.RollBackInMemory"/>
+        /// during snapshot rollback when only the id is known (the TIP
+        /// reference may have been mutated in earlier ledger steps).
+        /// Bumps <see cref="StateVersion"/> on success.
+        /// </summary>
+        internal static bool RemoveCommittedById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (string.Equals(
+                        committedRecordings[i].RecordingId,
+                        recordingId,
+                        StringComparison.Ordinal))
+                {
+                    committedRecordings.RemoveAt(i);
+                    BumpStateVersion();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Replaces the first committed recording whose
+        /// <see cref="Recording.RecordingId"/> equals
+        /// <paramref name="replacement"/>.<see cref="Recording.RecordingId"/>
+        /// with the supplied reference. No-op when the id is not found.
+        /// Used by <see cref="RecordingTreeSplitter.RollBackInMemory"/> to
+        /// swap origin's reference back to a pre-split <see cref="Recording.DeepClone"/>
+        /// after <see cref="RecordingOptimizer.SplitAtUT"/> trimmed the
+        /// in-place mutable. Bumps <see cref="StateVersion"/> on success.
+        /// </summary>
+        internal static bool ReplaceCommittedReference(Recording replacement)
+        {
+            if (replacement == null || string.IsNullOrEmpty(replacement.RecordingId)) return false;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (string.Equals(
+                        committedRecordings[i].RecordingId,
+                        replacement.RecordingId,
+                        StringComparison.Ordinal))
+                {
+                    committedRecordings[i] = replacement;
+                    BumpStateVersion();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Phase 6 of Rewind-to-Staging (design §6.3 step 4 phase 1): adds a
         /// provisional re-fly recording to the committed list in the same
         /// synchronous block as the <see cref="ReFlySessionMarker"/> write.
@@ -3420,6 +3508,15 @@ namespace Parsek
                     ? new List<string>(original.RecordingGroups) : null;
                 second.CreatingSessionId = original.CreatingSessionId;
                 second.ProvisionalForRpId = original.ProvisionalForRpId;
+                // NOTE: same pattern as RecordingTreeSplitter Pass 6 M3 fix.
+                // Safe here because the optimizer auto-split only runs on
+                // already-committed recordings where original.SupersedeTargetId
+                // is null (the field is transient on NotCommitted provisionals
+                // only). If a future change ever calls the optimizer on a
+                // NotCommitted provisional, this inheritance would silently
+                // carry a phantom id onto `second` until LoadTimeSweep scrubs
+                // it on next load — null it explicitly in that case (mirror
+                // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
                 second.SupersedeTargetId = original.SupersedeTargetId;
 
                 // Derive SegmentBodyName from trajectory points

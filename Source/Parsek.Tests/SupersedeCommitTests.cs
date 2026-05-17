@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Parsek.Logistics;
 using Parsek.Tests.Generators;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -3106,8 +3107,15 @@ namespace Parsek.Tests
                 childBranchPointId: "bp_origin_child",
                 state: MergeState.Immutable, terminal: TerminalState.Destroyed);
             origin.ExplicitStartUT = 0.0;
+            // EndUT must be well past rewindUT + eps so the new
+            // chain-head carve-out (Task A3) does not fire on origin
+            // itself — the fixture tests the debris-case branch and any
+            // origin whose EndUT <= rewindUT + eps would now be carved
+            // out as a chain head. Pre-Task-A3 fixtures used
+            // EndUT = 5.0 which silently fired the new predicate.
             origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
             origin.Points.Add(new TrajectoryPoint { ut = 5.0 });
+            origin.ExplicitEndUT = 100.0;
 
             var recordings = new List<Recording> { origin };
             var bps = new List<BranchPoint>
@@ -3129,6 +3137,13 @@ namespace Parsek.Tests
                 rec.ExplicitStartUT = row.startUT;
                 rec.IsDebris = row.isDebris;
                 if (row.isDebris) rec.DebrisParentRecordingId = row.parent;
+                // Pass 7: IsPreRewindCarveOut now reads bounds from
+                // TryGetActualTrajectoryBounds (sampled content only). Add
+                // a single Point at the row's startUT so the debris has
+                // actual bounds matching its Explicit metadata; otherwise
+                // the predicate falls through and pre-rewind debris would
+                // erroneously receive supersede rows in this fixture.
+                rec.Points.Add(new TrajectoryPoint { ut = row.startUT });
                 recordings.Add(rec);
             }
             InstallTree(treeId, recordings, bps);
@@ -3174,11 +3189,11 @@ namespace Parsek.Tests
             Assert.DoesNotContain("rec_debris_pre", subtree);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("AppendRelations: skip pre-rewind debris")
+                && l.Contains("AppendRelations: skip pre-rewind PreRewindDebris")
                 && l.Contains("old=rec_debris_pre"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("skippedPreRewindDebris=1"));
+                && l.Contains("skippedPreRewindCarveOut=1"));
         }
 
         [Fact]
@@ -3195,7 +3210,7 @@ namespace Parsek.Tests
             Assert.Contains("rec_debris_post", subtree);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("skippedPreRewindDebris=0"));
+                && l.Contains("skippedPreRewindCarveOut=0"));
         }
 
         [Fact]
@@ -3221,7 +3236,7 @@ namespace Parsek.Tests
             // 2 post-rewind debris (StartUT 34.10, 37.14) + origin. Pre-rewind
             // debris stays out of the supersede write-set and out of the
             // returned subtree; the 2 post-rewind debris and the origin are
-            // each superseded; the summary log reports skippedPreRewindDebris=6.
+            // each superseded; the summary log reports skippedPreRewindCarveOut=6.
             var (scenario, subtree) = RunAppendForDebrisFixture(
                 rewindPointUT: 29.42, invokedUT: 29.42,
                 ("rec_debris_pre_1", true, 23.66, "rec_origin_prdb"),
@@ -3255,7 +3270,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("skippedPreRewindDebris=6"));
+                && l.Contains("skippedPreRewindCarveOut=6"));
         }
 
         [Fact]
@@ -3311,18 +3326,71 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AppendRelations_NonDebrisRecording_NeverFilteredByPreRewindGate()
+        public void AppendRelations_NonDebrisPostRewindRecording_StillGetsSupersedeRow()
         {
-            // A non-debris recording with StartUT well before the cutoff
-            // still gets a supersede row — IsPreRewindDebris is scoped to
-            // debris only. The chain-sibling / pid-peer / BP closure paths
-            // own non-debris pre-rewind handling.
-            var (scenario, _) = RunAppendForDebrisFixture(
-                rewindPointUT: 29.42, invokedUT: 29.42,
-                ("rec_child", false, 10.0, "rec_origin_prdb"));
+            // A non-debris recording that ends post-rewind (EndUT
+            // > rewindUT + eps) must still get a supersede row — Task A3's
+            // chain-head carve-out only fires when EndUT <= rewindUT + eps.
+            // This locks in that post-rewind non-debris recordings (the
+            // TIP-side of a chain, pid-peers, BP children) keep their rows.
+            //
+            // Pre-Task-A3 the same fixture used a non-debris recording
+            // whose EndUT defaulted to 0.0 (no Points / no ExplicitEndUT)
+            // and asserted "non-debris is never carved out". Under Task A3,
+            // EndUT == 0.0 <= rewindUT + eps matches the chain-head
+            // predicate; the test was renamed and the child reshaped to a
+            // clearly-post-rewind recording so the assertion exercises the
+            // path it was meant to exercise.
+            const string treeId = "tree_postrw";
+            const string originId = "rec_origin_postrw";
+            const string childId = "rec_child_postrw";
+            const string provisionalId = "rec_prov_postrw";
+
+            var origin = Rec(originId, treeId,
+                childBranchPointId: "bp_origin_child",
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            origin.ExplicitStartUT = 0.0;
+            origin.ExplicitEndUT = 100.0; // past rewindUT + eps
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 5.0 });
+
+            var child = Rec(childId, treeId,
+                parentBranchPointId: "bp_origin_child",
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            child.ExplicitStartUT = 35.0; // > rewindUT - eps
+            child.ExplicitEndUT = 50.0;   // > rewindUT + eps
+            // IsDebris stays false (default).
+
+            var bps = new List<BranchPoint>
+            {
+                Bp("bp_origin_child", BranchPointType.Breakup,
+                    parents: new List<string> { originId },
+                    children: new List<string> { childId }),
+            };
+            InstallTree(treeId,
+                new List<Recording> { origin, child }, bps);
+
+            var provisional = AddProvisional(provisionalId, treeId,
+                TerminalState.Landed, supersedeTargetId: originId);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_postrw",
+                TreeId = treeId,
+                ActiveReFlyRecordingId = provisionalId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                RewindPointId = "rp_postrw",
+                InvokedUT = 29.42,
+                RewindPointUT = 29.42,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var scenario = InstallScenario(marker);
+
+            SupersedeCommit.AppendRelations(marker, provisional, scenario);
 
             Assert.Contains(scenario.RecordingSupersedes,
-                r => r.OldRecordingId == "rec_child");
+                r => r.OldRecordingId == childId);
         }
 
         [Fact]
@@ -3453,6 +3521,732 @@ namespace Parsek.Tests
             Assert.True(TombstoneAttributionHelper.InSupersedeScope(
                 postRewindAction, subtreeSet),
                 "Post-rewind debris action must remain in tombstone scope.");
+        }
+
+        // ---------- IsPreRewindCarveOut (Task A3) --------------------------
+        // Generalizes the IsPreRewindDebris predicate to also carve out the
+        // post-split chain HEAD a future Task-A4 SplitOriginAtRewindUT
+        // orchestrator will produce. The new chain-head case is dormant
+        // today (no caller manufactures HEAD with EndUT == rewindUT until
+        // Task A4 lands) but these tests lock in the contract so the moment
+        // the orchestrator ships, AppendRelations carves HEAD out
+        // automatically. Boundary semantics:
+        //   - Debris case (lower-boundary test): StartUT < rewindUT - eps.
+        //   - Chain-head case (upper-boundary test): EndUT <= rewindUT + eps.
+        // The asymmetric epsilon sign matters: a first-revision draft of
+        // Task A3 would have shipped a unified `rewindUT - eps` cutoff for
+        // BOTH predicates, making HEAD's `EndUT == rewindUT` fail the test
+        // and reintroducing the very bug Task A1-A8 exists to fix.
+        //
+        // Pass 7: both predicates now read bounds from
+        // `Recording.TryGetActualTrajectoryBounds` (sampled content only,
+        // ExplicitStartUT/EndUT excluded). Fixtures below carry a minimal
+        // two-Point trajectory matching their Explicit bounds so the
+        // predicate has actual content to evaluate; the bounds happen to
+        // equal Explicit*UT in these tests but the assertions exercise the
+        // ACTUAL view.
+
+        private static void StampActualBounds(Recording rec, double startUT, double endUT)
+        {
+            // Add minimal Points so `HasActualTrajectoryBounds` is true and
+            // `TryGetActualTrajectoryBounds` returns the supplied range.
+            // Pass 7 of fix-supersede-identity-scope: `IsPreRewindCarveOut`
+            // now reads bounds from sampled content, not the
+            // ExplicitStartUT/EndUT-blended view.
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = startUT,
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero,
+            });
+            if (endUT > startUT)
+            {
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = endUT,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                });
+            }
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_PreRewindDebris_ReturnsTrueWithReason()
+        {
+            // Debris recording that physically separated strictly before
+            // the rewind UT — the original PR #858 carve-out shape.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var debris = new Recording
+            {
+                RecordingId = "rec_debris_carveout",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin_carveout",
+                ExplicitStartUT = 22.5, // < 34.0 - 0.05
+                ExplicitEndUT = 28.0,
+            };
+            StampActualBounds(debris, 22.5, 28.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                debris, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindDebris, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_PreRewindChainHead_ReturnsTrueWithReason()
+        {
+            // Pass 4: chain-shape predicate (not id-match). HEAD must share
+            // TIP's ChainId+ChainBranch with a lower ChainIndex and an EndUT
+            // at or before rewindUT + eps. TIP must be reachable via
+            // RecordingStore.CommittedRecordings so the lookup at
+            // FindCommittedRecordingByIdForCarveOut succeeds.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_pass4",
+                IsDebris = false,
+                ChainId = "chain_pass4",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_pass4",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_head_carveout",
+                IsDebris = false,
+                ChainId = "chain_pass4",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                ExplicitStartUT = 8.42,
+                ExplicitEndUT = 34.0, // == rewindUT exactly
+            };
+            StampActualBounds(head, 8.42, 34.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                head, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NonHeadSiblingEndingAtRewindUT_NotCarvedOut()
+        {
+            // Pass 2 review User-H2: an EVA recording ending on a Board BP at
+            // exactly rewindUT lives on a DIFFERENT chain (EVA has its own
+            // vessel identity → its own ChainId). The chain-shape predicate
+            // correctly excludes it from the carve-out and lets it receive
+            // its legitimate supersede row.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_neg",
+                ChainId = "chain_main",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_neg",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var unrelatedSiblingEndingAtRewind = new Recording
+            {
+                RecordingId = "rec_eva_or_fairing",
+                IsDebris = false,
+                ChainId = "chain_eva", // DIFFERENT chain
+                ChainBranch = 0,
+                ChainIndex = 0,
+                ExplicitStartUT = 12.0,
+                ExplicitEndUT = 34.0, // same as rewindUT — but DIFFERENT chain
+            };
+            StampActualBounds(unrelatedSiblingEndingAtRewind, 12.0, 34.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                unrelatedSiblingEndingAtRewind, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NoSupersedeTargetIdOnMarker_NotCarvedOut()
+        {
+            // Pass 4: a marker without SupersedeTargetId can't resolve TIP, so
+            // the chain-head case is unavailable. The recording falls through
+            // to the legacy "write the row" default.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = null,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_head_no_tip_id",
+                IsDebris = false,
+                ChainId = "chain_orphan",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                ExplicitStartUT = 8.0,
+                ExplicitEndUT = 34.0,
+            };
+            StampActualBounds(head, 8.0, 34.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                head, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NestedReFly_HEAD2EqualsFork1_CarvedOutCorrectly()
+        {
+            // Pass 4 regression test: this is the case my Pass 2 id-match
+            // form silently failed. On the second Re-Fly of the same slot,
+            // marker.OriginChildRecordingId is the slot's stable origin
+            // (HEAD₁.id from the first Re-Fly), but the second split operates
+            // on fork₁ (which becomes HEAD₂ in place). HEAD₂.RecordingId is
+            // fork₁.id, not HEAD₁.id — the id-match form did NOT fire and
+            // HEAD₂ got a supersede row pointing at fork₂, silently re-
+            // introducing the very bug this PR exists to fix.
+            //
+            // The chain-shape predicate fires correctly because HEAD₂
+            // (= fork₁) and TIP₂ are chain siblings on a fresh ChainId Y
+            // (the second Re-Fly's chain); marker.OriginChildRecordingId
+            // doesn't participate.
+
+            // First Re-Fly's wreckage in the store (HEAD₁ + TIP₁ + fork₁,
+            // all on chain X). We only need the supersede-row consumer
+            // shape, not full topology.
+            var fork1Head2 = new Recording
+            {
+                RecordingId = "fork1_id",
+                IsDebris = false,
+                ChainId = "chain_Y",   // fresh chain from the second Re-Fly's split
+                ChainBranch = 0,
+                ChainIndex = 0,        // HEAD₂ position
+                ExplicitStartUT = 34.0, // fork₁ originally started at rewindUT₁
+                ExplicitEndUT = 60.0,   // ends at the SECOND rewindUT
+            };
+            var tip2 = new Recording
+            {
+                RecordingId = "tip2_id",
+                ChainId = "chain_Y",
+                ChainBranch = 0,
+                ChainIndex = 1,        // TIP₂ position
+                ExplicitStartUT = 60.0,
+                ExplicitEndUT = 90.0,
+            };
+            StampActualBounds(fork1Head2, 34.0, 60.0);
+            StampActualBounds(tip2, 60.0, 90.0);
+            RecordingStore.AddCommittedInternal(fork1Head2);
+            RecordingStore.AddCommittedInternal(tip2);
+
+            // Second Re-Fly's marker. OriginChildRecordingId still points at
+            // the slot's original recording (HEAD₁.id) — this is what
+            // tripped my Pass 2 id-match form.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_refly_2",
+                RewindPointUT = 60.0,
+                InvokedUT = 60.0,
+                OriginChildRecordingId = "head1_id", // SLOT's stable origin
+                SupersedeTargetId = "tip2_id",        // post-second-split TIP
+                ActiveReFlyRecordingId = "fork2_id",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                fork1Head2, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_PostRewindChainSibling_ReturnsFalse()
+        {
+            // Post-rewind chain sibling: StartUT == rewindUT, EndUT well past
+            // rewindUT + eps. Must NOT be carved out — it's the TIP-side
+            // chain member that should still receive a supersede row.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_carveout",
+                IsDebris = false,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(tip, 34.0, 52.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                tip, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NonDebrisSpansRewindUT_ReturnsFalse()
+        {
+            // The PRE-split origin from the user's 2026-05-16 repro: a
+            // single recording covering [8.42, 52.7] that straddles
+            // rewindUT=34.0. Task A4's orchestrator will SPLIT this into
+            // HEAD + TIP; this test locks in that pre-split origin is NOT
+            // carved out by mistake — the orchestrator runs first, then the
+            // closure walk finds HEAD as a chain sibling of TIP, and HEAD's
+            // EndUT == rewindUT triggers the chain-head case. Until the
+            // split runs, the spanning recording must receive a row.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var spanningOrigin = new Recording
+            {
+                RecordingId = "rec_origin_spanning",
+                IsDebris = false,
+                ExplicitStartUT = 8.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(spanningOrigin, 8.0, 52.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                spanningOrigin, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_DebrisDoesNotMatchChainHead_StillReturnsDebrisReason()
+        {
+            // Predicate ordering test: a debris recording whose StartUT is
+            // strictly pre-rewind AND whose EndUT happens to be at rewindUT
+            // matches both predicates' type-agnostic UT tests. The
+            // implementation checks the debris case FIRST (per the plan's
+            // code block), so the debris reason wins. This confirms the
+            // ordering — a future refactor that flipped the order would
+            // mis-tag this recording as a chain head.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var debrisAtBoundary = new Recording
+            {
+                RecordingId = "rec_debris_at_boundary",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin_carveout",
+                ExplicitStartUT = 20.0, // < 34.0 - 0.05
+                ExplicitEndUT = 34.0,  // == rewindUT
+            };
+            StampActualBounds(debrisAtBoundary, 20.0, 34.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                debrisAtBoundary, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindDebris, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NaNRewindPointUT_FallsBackToDebrisCutoff()
+        {
+            // Legacy marker pattern: RewindPointUT is NaN, debris case falls
+            // back to ComputePreRewindCutoff(InvokedUT - eps). The chain-head
+            // case is gated on RewindPointUT directly (NOT via
+            // ComputePreRewindCutoff) because chain-head testing requires
+            // the ACTUAL rewind UT, not a fallback approximation — so the
+            // chain-head predicate is unavailable for legacy markers and
+            // only the debris case fires.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = double.NaN,
+                InvokedUT = 34.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var debris = new Recording
+            {
+                RecordingId = "rec_debris_legacy",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin_legacy",
+                ExplicitStartUT = 20.0, // < 34.0 - 0.05
+                ExplicitEndUT = 28.0,
+            };
+            StampActualBounds(debris, 20.0, 28.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                debris, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindDebris, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NaNAllUTs_ReturnsFalse()
+        {
+            // Half-populated legacy marker: both RewindPointUT and InvokedUT
+            // are NaN / non-positive. Both predicates fall back to "no
+            // cutoff available" and return false — the pre-fix default
+            // (write the row) is preserved per the no-backward-compat
+            // policy for pre-1.0 saves.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = double.NaN,
+                InvokedUT = 0.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var debris = new Recording
+            {
+                RecordingId = "rec_debris_nomarker",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin_nomarker",
+                ExplicitStartUT = 5.0,
+                ExplicitEndUT = 10.0,
+            };
+            StampActualBounds(debris, 5.0, 10.0);
+            var head = new Recording
+            {
+                RecordingId = "rec_head_nomarker",
+                IsDebris = false,
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 34.0,
+            };
+            StampActualBounds(head, 0.0, 34.0);
+
+            Assert.False(SupersedeCommit.IsPreRewindCarveOut(
+                debris, marker, out var debrisReason));
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, debrisReason);
+
+            Assert.False(SupersedeCommit.IsPreRewindCarveOut(
+                head, marker, out var headReason));
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, headReason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_NoActualTrajectoryBounds_NotCarvedOut()
+        {
+            // Pass 7 regression test (consumer-side defense): a recording
+            // with no Points / OrbitSegments / playable TrackSections must
+            // never be carved out, even if its (Explicit-only or all-zero)
+            // metadata satisfies every other predicate. This pins the bug
+            // class closed against:
+            //   1. Future producer regressions that recreate empty HEADs.
+            //   2. Legacy saves authored under the pre-Pass-7 splitter,
+            //      which may carry an empty HEAD whose chain shape still
+            //      matches TIP (StartUT=EndUT=0, ChainId set, ChainIndex<TIP).
+            // The carve-out's contract is "keep visible recordings whose
+            // data predates the rewind". Zero content = no launch portion
+            // to protect; the recording should fall through to a normal
+            // whole-recording supersede row.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_pass7",
+                IsDebris = false,
+                ChainId = "chain_pass7",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(tip, 34.0, 52.0);
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_pass7",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+
+            // Empty HEAD that satisfies the chain-head predicate on metadata
+            // but has zero sampled content. Bounds default to StartUT=0,
+            // EndUT=0; chain shape matches TIP at ChainIndex 0 vs 1.
+            var emptyHead = new Recording
+            {
+                RecordingId = "rec_empty_head_pass7",
+                IsDebris = false,
+                ChainId = "chain_pass7",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                // Deliberately no Points / TrackSections / OrbitSegments —
+                // exercises the no-actual-bounds branch.
+                ExplicitStartUT = double.NaN,
+                ExplicitEndUT = double.NaN,
+            };
+            Assert.False(emptyHead.HasActualTrajectoryBounds);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                emptyHead, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_StaleExplicitStartUT_DebrisDoesNotEscape()
+        {
+            // Pass 7 regression test: a debris recording that physically
+            // separated AFTER the rewind UT but carries an inherited
+            // ExplicitStartUT < rewindUT (set when the debris child was
+            // first created, anchored to the parent's branchUT) must NOT
+            // be carved out as pre-rewind. Reading bounds from sampled
+            // content prevents the misclassification.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var debris = new Recording
+            {
+                RecordingId = "rec_debris_stale_start",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin_stale",
+                // Stale logical start (parent's branchUT). Sampled content
+                // actually starts at UT=40 — strictly post-rewind.
+                ExplicitStartUT = 8.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(debris, 40.0, 52.0);
+
+            // Sanity: blended StartUT exposes the stale Explicit value, but
+            // actual bounds match the sampled content.
+            Assert.Equal(8.0, debris.StartUT);
+            Assert.True(debris.TryGetActualTrajectoryBounds(
+                out double actualStart, out _));
+            Assert.Equal(40.0, actualStart);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                debris, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_StaleExplicitEndUT_GenuineHeadStillCarvedOut()
+        {
+            // Pass 7 regression test: a genuine HEAD half whose actual data
+            // ends at rewindUT but whose stale ExplicitEndUT carries a
+            // POST-rewind value must STILL be carved out (its actual content
+            // is pre-rewind launch data — the stale metadata must not block
+            // protection). Reading bounds from sampled content lets the
+            // predicate fire.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_stale_end",
+                IsDebris = false,
+                ChainId = "chain_stale_end",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(tip, 34.0, 52.0);
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_stale_end",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_head_stale_end",
+                IsDebris = false,
+                ChainId = "chain_stale_end",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                ExplicitStartUT = 8.42,
+                // Stale ExplicitEndUT carried over from before some trim
+                // pass — sits past rewindUT + epsilon.
+                ExplicitEndUT = 99.0,
+            };
+            // Actual sampled content ends at the rewind UT.
+            StampActualBounds(head, 8.42, 34.0);
+
+            // Sanity: blended EndUT exposes the stale Explicit value; actual
+            // bounds reflect the sampled content.
+            Assert.Equal(99.0, head.EndUT);
+            Assert.True(head.TryGetActualTrajectoryBounds(out _, out double actualEnd));
+            Assert.Equal(34.0, actualEnd);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                head, marker, out var reason);
+
+            Assert.True(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
+        }
+
+        [Fact]
+        public void AppendRelations_FilterBlockUsesCarveOut_ChainHeadSkipped()
+        {
+            // Integration test: scenario with origin + chain TIP + fork
+            // (provisional). Origin has EndUT == rewindUT (acts as HEAD
+            // after a hypothetical split), TIP has StartUT == rewindUT,
+            // fork is the post-rewind provisional. The closure walk starts
+            // at TIP (marker.SupersedeTargetId = TIP), enqueues origin as a
+            // chain sibling, and AppendRelations carves origin out via the
+            // PreRewindChainHead reason. Result: a row `TIP -> fork` is
+            // written, NO row for origin.
+            const string treeId = "tree_chainhead";
+            const string headId = "rec_head_ch";
+            const string tipId = "rec_tip_ch";
+            const string forkId = "rec_fork_ch";
+            const string chainId = "chain_ch";
+
+            var head = Rec(headId, treeId,
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            head.ExplicitStartUT = 8.42;
+            head.ExplicitEndUT = 34.0; // == rewindUT exactly
+            head.ChainId = chainId;
+            head.ChainBranch = 0;
+            head.ChainIndex = 0;
+            StampActualBounds(head, 8.42, 34.0);
+
+            var tip = Rec(tipId, treeId,
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            tip.ExplicitStartUT = 34.0;
+            tip.ExplicitEndUT = 52.0;
+            tip.ChainId = chainId;
+            tip.ChainBranch = 0;
+            tip.ChainIndex = 1;
+            StampActualBounds(tip, 34.0, 52.0);
+
+            InstallTree(treeId,
+                new List<Recording> { head, tip },
+                new List<BranchPoint>());
+
+            var fork = AddProvisional(forkId, treeId,
+                TerminalState.Landed, supersedeTargetId: tipId);
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_ch",
+                TreeId = treeId,
+                ActiveReFlyRecordingId = forkId,
+                OriginChildRecordingId = headId,
+                SupersedeTargetId = tipId,
+                RewindPointId = "rp_ch",
+                InvokedUT = 34.0,
+                RewindPointUT = 34.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var scenario = InstallScenario(marker);
+
+            var subtree = SupersedeCommit.AppendRelations(marker, fork, scenario);
+
+            // The chain sibling HEAD is in the closure (chain-sibling enqueue)
+            // but is carved out before row-write.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == tipId && r.NewRecordingId == forkId);
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == headId);
+            // Filtered subtree (consumed by CommitTombstones) excludes HEAD.
+            Assert.DoesNotContain(headId, subtree);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("AppendRelations: skip pre-rewind PreRewindChainHead")
+                && l.Contains("old=" + headId));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("skippedPreRewindCarveOut=1"));
+        }
+
+        [Fact]
+        public void IsPreRewindDebris_Wrapper_DelegatesToCarveOut()
+        {
+            // Backward-compat wrapper for the in-game tests at
+            // InGameTests/MergeCrashedReFlyCreatesCPSupersedeTest.cs and
+            // InGameTests/MergeLandedReFlyCreatesImmutableSupersedeTest.cs.
+            // The wrapper returns true ONLY for the debris case, so a
+            // chain-head match must report false through the wrapper even
+            // though IsPreRewindCarveOut returns true for it.
+            // Pass 4 update: chain-shape carve-out needs a TIP installed in
+            // CommittedRecordings so the lookup at
+            // FindCommittedRecordingByIdForCarveOut resolves.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_wrap",
+                ChainId = "chain_wrap",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            StampActualBounds(tip, 34.0, 52.0);
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_wrap",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+
+            var debris = new Recording
+            {
+                RecordingId = "rec_debris_wrap",
+                IsDebris = true,
+                DebrisParentRecordingId = "rec_origin_wrap",
+                ExplicitStartUT = 22.0,
+                ExplicitEndUT = 28.0,
+            };
+            StampActualBounds(debris, 22.0, 28.0);
+            Assert.True(SupersedeCommit.IsPreRewindDebris(debris, marker));
+
+            var head = new Recording
+            {
+                RecordingId = "rec_head_wrap",
+                IsDebris = false,
+                ChainId = "chain_wrap",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                ExplicitStartUT = 8.0,
+                ExplicitEndUT = 34.0,
+            };
+            StampActualBounds(head, 8.0, 34.0);
+            // IsPreRewindCarveOut would return true (PreRewindChainHead),
+            // but the wrapper is debris-only and must return false.
+            Assert.True(SupersedeCommit.IsPreRewindCarveOut(head, marker, out var reason));
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead, reason);
+            Assert.False(SupersedeCommit.IsPreRewindDebris(head, marker));
         }
     }
 }

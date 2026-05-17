@@ -509,6 +509,221 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void PrimarySelection_NonDebrisBeatsDebris_OverridingEarlierStartUT()
+        {
+            // Regression for the post-PR872 user-reported bug: in re-fly the
+            // probe ghost (controlled child) was anchored to a sibling debris
+            // piece purely because the debris had an earlier StartUT
+            // (Rule 3). Rule 6 promotes the non-debris side to primary so
+            // the controlled ghost plays standalone instead of snapping
+            // onto a debris track that ends abruptly when the debris crashes.
+            var debris = new Recording
+            {
+                RecordingId = "rec-debris",
+                IsDebris = true,
+                ExplicitStartUT = 20.66,
+                VesselName = "Kerbal X Debris"
+            };
+            var probe = new Recording
+            {
+                RecordingId = "rec-probe",
+                IsDebris = false,
+                ExplicitStartUT = 24.26,
+                VesselName = "Kerbal X Probe"
+            };
+            SectionAnnotationStore.PutCoBubbleTrace("rec-debris",
+                MakeTrace("rec-probe", 34.74, 38.76, new Vector3d(1, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("rec-probe",
+                MakeTrace("rec-debris", 34.74, 38.76, new Vector3d(-1, 0, 0)));
+
+            Dictionary<string, string> map = CoBubblePrimarySelector.Resolve(
+                new List<Recording> { debris, probe }, marker: null,
+                out Dictionary<string, int> rulesByPeer);
+
+            // Probe is primary; debris is peer.
+            Assert.True(map.ContainsKey("rec-debris"));
+            Assert.Equal("rec-probe", map["rec-debris"]);
+            Assert.False(map.ContainsKey("rec-probe"));
+            // Rule 6 fired.
+            Assert.Equal(6, rulesByPeer["rec-debris"]);
+        }
+
+        [Fact]
+        public void PrimarySelection_ThreeWayFormation_ProbeWinsAgainstDebrisA_DeterministicAcrossInputOrder()
+        {
+            // Three recordings in one cluster: a controlled probe and two
+            // debris pieces, all pairwise in CoBubble overlap. Three pairs:
+            //   (probe, debris-A)     → Rule 6, probe primary
+            //   (probe, debris-B)     → Rule 6, probe primary
+            //   (debris-A, debris-B)  → both debris → Rule 3 (earlier StartUT),
+            //                           debris-A primary
+            //
+            // The selector's `result[peerId] = primaryId` is last-write-wins,
+            // so debris-B's primary depends on which pair processes last.
+            // Tracing both input orderings shows the (debris-A, debris-B)
+            // pair iterates after the (probe, debris-B) pair in both cases
+            // (because debris-A's trace list is reached before debris-B's
+            // trace list completes its de-dup walk), so debris-B's final
+            // primary is debris-A — Rule 6's promotion for the (probe,
+            // debris-B) pair is silently overwritten. This is a pre-existing
+            // multi-pair-peer concern in the selector that Rule 6 does NOT
+            // introduce; Rule 3 had the same overwrite behavior against
+            // Rule 4 before this PR. Document it here as the current truth
+            // and pin determinism — fixing it properly belongs with the
+            // deeper recorder-side parent-anchored-surface fix tracked in
+            // todo-and-known-bugs.md, not in this short-term selector patch.
+            //
+            // Invariants asserted:
+            //   - map.Count == 2 (probe is never a peer)
+            //   - map[debris-A] == probe, rules[debris-A] == 6 (stable: the
+            //     (probe, debris-A) pair has no competitor for debris-A's
+            //     primary slot)
+            //   - Result is identical across forward/reverse input order
+            //     (determinism — the reviewer's "iteration order doesn't
+            //     matter" claim, pinned per actual current behavior)
+            var probe = new Recording
+            {
+                RecordingId = "rec-probe",
+                IsDebris = false,
+                ExplicitStartUT = 24.0,
+                VesselName = "Probe"
+            };
+            var debrisA = new Recording
+            {
+                RecordingId = "rec-debris-a",
+                IsDebris = true,
+                ExplicitStartUT = 20.0,
+                VesselName = "Debris A"
+            };
+            var debrisB = new Recording
+            {
+                RecordingId = "rec-debris-b",
+                IsDebris = true,
+                ExplicitStartUT = 22.0,
+                VesselName = "Debris B"
+            };
+            // Each recording stores the symmetric pair (peer, primary) trace
+            // for every other recording, mirroring how DetectAndStore emits
+            // two traces per overlap window.
+            SectionAnnotationStore.PutCoBubbleTrace("rec-probe",
+                MakeTrace("rec-debris-a", 30.0, 40.0, new Vector3d(1, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("rec-probe",
+                MakeTrace("rec-debris-b", 30.0, 40.0, new Vector3d(2, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("rec-debris-a",
+                MakeTrace("rec-probe", 30.0, 40.0, new Vector3d(-1, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("rec-debris-a",
+                MakeTrace("rec-debris-b", 30.0, 40.0, new Vector3d(1, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("rec-debris-b",
+                MakeTrace("rec-probe", 30.0, 40.0, new Vector3d(-2, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("rec-debris-b",
+                MakeTrace("rec-debris-a", 30.0, 40.0, new Vector3d(-1, 0, 0)));
+
+            // Run twice with different input orderings to verify the result
+            // is independent of recording-list order.
+            Dictionary<string, string> mapForward = CoBubblePrimarySelector.Resolve(
+                new List<Recording> { probe, debrisA, debrisB }, marker: null,
+                out Dictionary<string, int> rulesForward);
+            Dictionary<string, string> mapReverse = CoBubblePrimarySelector.Resolve(
+                new List<Recording> { debrisB, debrisA, probe }, marker: null,
+                out Dictionary<string, int> rulesReverse);
+
+            // Probe is never a peer (it's primary against both debris).
+            Assert.Equal(2, mapForward.Count);
+            Assert.False(mapForward.ContainsKey("rec-probe"));
+
+            // Debris-A's primary slot has only one competitor — the
+            // (probe, debris-A) Rule 6 win — so this is stable.
+            Assert.Equal("rec-probe", mapForward["rec-debris-a"]);
+            Assert.Equal(6, rulesForward["rec-debris-a"]);
+
+            // Debris-B's primary slot has two competitors: Rule 6 from
+            // (probe, debris-B) and Rule 3 from (debris-A, debris-B).
+            // Current behavior: last-write-wins, debris-A overwrites probe.
+            Assert.Equal("rec-debris-a", mapForward["rec-debris-b"]);
+            Assert.Equal(3, rulesForward["rec-debris-b"]);
+
+            // Determinism: same outcome regardless of input order.
+            Assert.Equal(mapForward["rec-debris-a"], mapReverse["rec-debris-a"]);
+            Assert.Equal(mapForward["rec-debris-b"], mapReverse["rec-debris-b"]);
+            Assert.Equal(rulesForward["rec-debris-a"], rulesReverse["rec-debris-a"]);
+            Assert.Equal(rulesForward["rec-debris-b"], rulesReverse["rec-debris-b"]);
+        }
+
+        [Fact]
+        public void PrimarySelection_LiveStillBeatsNonDebrisRule()
+        {
+            // Rule 1 (live) must continue to win even when the live side is
+            // marked IsDebris=true (degenerate but constructible case —
+            // ensures Rule 6 doesn't accidentally outrank Rule 1). Uses the
+            // marker.ActiveReFlyRecordingId path so the live set is seeded
+            // without needing TrackSections + anchor wiring.
+            var liveDebris = new Recording
+            {
+                RecordingId = "rec-live-debris",
+                IsDebris = true,
+                ExplicitStartUT = 0.0
+            };
+            var probe = new Recording
+            {
+                RecordingId = "rec-probe",
+                IsDebris = false,
+                ExplicitStartUT = 10.0
+            };
+            SectionAnnotationStore.PutCoBubbleTrace("rec-live-debris",
+                MakeTrace("rec-probe", 100.0, 110.0, new Vector3d(1, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("rec-probe",
+                MakeTrace("rec-live-debris", 100.0, 110.0, new Vector3d(-1, 0, 0)));
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess",
+                ActiveReFlyRecordingId = "rec-live-debris",
+                OriginChildRecordingId = "rec-live-debris"
+            };
+
+            Dictionary<string, string> map = CoBubblePrimarySelector.Resolve(
+                new List<Recording> { liveDebris, probe }, marker,
+                out Dictionary<string, int> rulesByPeer);
+
+            // Live debris wins despite being debris.
+            Assert.Equal("rec-live-debris", map["rec-probe"]);
+            Assert.Equal(1, rulesByPeer["rec-probe"]);
+        }
+
+        [Fact]
+        public void PrimarySelection_BothDebris_FallsThroughToLaterRules()
+        {
+            // Both sides IsDebris=true: Rule 6 doesn't fire; selection falls
+            // through to Rule 3 (earlier StartUT). This guards against a
+            // misimplementation that would short-circuit when only one side
+            // is debris vs. both — both-debris pairs must keep their pre-
+            // existing behavior.
+            var debrisA = new Recording
+            {
+                RecordingId = "rec-debris-a",
+                IsDebris = true,
+                ExplicitStartUT = 20.0
+            };
+            var debrisB = new Recording
+            {
+                RecordingId = "rec-debris-b",
+                IsDebris = true,
+                ExplicitStartUT = 25.0
+            };
+            SectionAnnotationStore.PutCoBubbleTrace("rec-debris-a",
+                MakeTrace("rec-debris-b", 30.0, 40.0, new Vector3d(1, 0, 0)));
+            SectionAnnotationStore.PutCoBubbleTrace("rec-debris-b",
+                MakeTrace("rec-debris-a", 30.0, 40.0, new Vector3d(-1, 0, 0)));
+
+            Dictionary<string, string> map = CoBubblePrimarySelector.Resolve(
+                new List<Recording> { debrisA, debrisB }, marker: null,
+                out Dictionary<string, int> rulesByPeer);
+
+            // Earlier StartUT (Rule 3) picks debris-A.
+            Assert.Equal("rec-debris-a", map["rec-debris-b"]);
+            Assert.Equal(3, rulesByPeer["rec-debris-b"]);
+        }
+
+        [Fact]
         public void Recursion_PrimariesAreGuarded()
         {
             // Even if a primary somehow has its own trace stored, the
@@ -747,6 +962,24 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("rule=3"));
         }
 
+        [Fact]
+        public void NotifyCoBubblePrimarySelection_LogsRule6()
+        {
+            // Mirror of NotifyCoBubblePrimarySelection_LogsRuleIndex for the
+            // post-§10.1 non-debris-over-debris rule. The log line is the
+            // only operator-visible signal that Rule 6 fired; without it,
+            // a regression that silently demoted controlled vessels back
+            // into the peer slot would be invisible until the visual seam
+            // resurfaced. Pin the wire format here.
+            RenderSessionState.NotifyCoBubblePrimarySelection(
+                "peer-debris", "primary-probe", ruleIndex: 6);
+            Assert.Contains(logLines, l => l.Contains("[Pipeline-CoBubble]")
+                && l.Contains("Primary selection")
+                && l.Contains("peer=peer-debris")
+                && l.Contains("primary=primary-probe")
+                && l.Contains("rule=6"));
+        }
+
         // ---------- P2-F: useCoBubbleBlend flag-off skips primary resolve ----------
 
         [Fact]
@@ -871,8 +1104,8 @@ namespace Parsek.Tests.Rendering
         {
             // No live anchors; equal DAG hops (no chain edges); rec-Early
             // has a smaller StartUT and must win primary.
-            var rEarly = new Recording { RecordingId = "rec-Early", ExplicitStartUT =100.0 };
-            var rLate  = new Recording { RecordingId = "rec-Late",  ExplicitStartUT =500.0 };
+            var rEarly = new Recording { RecordingId = "rec-Early", ExplicitStartUT = 100.0 };
+            var rLate  = new Recording { RecordingId = "rec-Late",  ExplicitStartUT = 500.0 };
             SectionAnnotationStore.PutCoBubbleTrace("rec-Early",
                 MakeTrace("rec-Late", 100.0, 110.0, new Vector3d(1, 0, 0)));
             SectionAnnotationStore.PutCoBubbleTrace("rec-Late",
@@ -890,8 +1123,8 @@ namespace Parsek.Tests.Rendering
         {
             // No live anchors; equal hops; equal StartUT; one recording's
             // section has a higher sampleRateHz at the trace midpoint.
-            var rHi = new Recording { RecordingId = "rec-Hi", ExplicitStartUT =100.0 };
-            var rLo = new Recording { RecordingId = "rec-Lo", ExplicitStartUT =100.0 };
+            var rHi = new Recording { RecordingId = "rec-Hi", ExplicitStartUT = 100.0 };
+            var rLo = new Recording { RecordingId = "rec-Lo", ExplicitStartUT = 100.0 };
             // Single TrackSection covering [100..110] with the trace midpoint
             // at 105. Higher rate must win.
             rHi.TrackSections = new List<TrackSection>

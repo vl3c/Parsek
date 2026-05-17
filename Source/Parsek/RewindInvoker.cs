@@ -1121,6 +1121,13 @@ namespace Parsek
             // with no placeholder. If the slot already supersedes origin, a
             // fresh placeholder is required so commit appends priorTip -> new
             // instead of creating origin -> priorTip -> origin cycles.
+            //
+            // Composite walker (Task A2 rewired ChildSlot.EffectiveRecordingId
+            // to use EffectiveState.EffectiveTipRecordingId): traces
+            // slot.OriginChildRecordingId → (chain) → (supersede) → final tip.
+            // For nested Re-Fly chains the previous fork is reached via
+            // chain-hop + supersede-hop in a single traversal — load-bearing
+            // for fix-supersede-identity-scope plan §"Edge cases" #4.
             string priorTip = selected.EffectiveRecordingId(scenario.RecordingSupersedes);
             Recording originChild = FindRecordingById(selected.OriginChildRecordingId);
             bool originIsPriorTip = string.Equals(

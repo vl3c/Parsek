@@ -33,9 +33,53 @@ namespace Parsek
     /// 13's load-time sweep will clean up the dangling marker + partial
     /// supersede relations.
     /// </para>
+    ///
+    /// <para>
+    /// <see cref="AppendRelations"/> applies a generalized pre-rewind
+    /// carve-out covering BOTH pre-rewind debris AND post-split pre-rewind
+    /// chain heads (see <see cref="IsPreRewindCarveOut"/>).
+    /// </para>
+    ///
+    /// <para>
+    /// As of Task A4 (Split-at-rewind-UT), the merge orchestrator now invokes
+    /// <see cref="RecordingTreeSplitter.SplitOriginAtRewindUT"/> BEFORE
+    /// <see cref="AppendRelations"/> to split a Re-Fly origin that spans the
+    /// rewind UT into HEAD (kept visible) + TIP (superseded). After the split
+    /// the marker's <see cref="ReFlySessionMarker.SupersedeTargetId"/> points
+    /// at TIP, so the closure walk starts at TIP and naturally enqueues HEAD
+    /// as a chain sibling. The carve-out predicate
+    /// <see cref="IsPreRewindCarveOut"/> then filters HEAD out of the
+    /// supersede write-set (reason
+    /// <see cref="PreRewindCarveOutReason.PreRewindChainHead"/>) so HEAD's
+    /// row remains in ERS / timeline / Watch / KSC. Debris carve-out
+    /// (PR #858 / reason <see cref="PreRewindCarveOutReason.PreRewindDebris"/>)
+    /// is preserved unchanged.
+    /// </para>
     /// </summary>
     internal static class SupersedeCommit
     {
+        /// <summary>
+        /// Reason a recording was excluded from <see cref="AppendRelations"/>'s
+        /// write-set by the pre-rewind carve-out filter. Set as the
+        /// <c>out</c> parameter of <see cref="IsPreRewindCarveOut"/>.
+        /// </summary>
+        internal enum PreRewindCarveOutReason
+        {
+            /// <summary>The recording does not match the carve-out predicate.</summary>
+            None = 0,
+            /// <summary>
+            /// Debris recording that physically separated strictly before the
+            /// rewind point (the original PR #858 carve-out).
+            /// </summary>
+            PreRewindDebris = 1,
+            /// <summary>
+            /// Non-debris recording whose <c>EndUT</c> lies at or just past
+            /// the rewind UT — the HEAD half of a post-split origin produced
+            /// by <see cref="RecordingTreeSplitter.SplitOriginAtRewindUT"/>.
+            /// </summary>
+            PreRewindChainHead = 2,
+        }
+
         private const string Tag = "Supersede";
         private const string SessionTag = "ReFlySession";
         private const string LedgerSwapTag = "LedgerSwap";
@@ -203,11 +247,19 @@ namespace Parsek
                 }
             }
 
-            // Pre-rewind debris filter (see IsPreRewindDebris): debris
-            // recordings that physically separated before the rewind point
-            // are independent vessel histories that the re-fly does not
-            // redo, so they are excluded from the supersede write-set AND
-            // from the returned subtree so the downstream tombstone scan
+            // Pre-rewind carve-out filter (see IsPreRewindCarveOut). Two
+            // cases share this filter:
+            //   1. Pre-rewind debris (PR #858): debris recordings that
+            //      physically separated before the rewind point are
+            //      independent vessel histories that the re-fly does not
+            //      redo.
+            //   2. Pre-rewind chain head (Task A4, dormant until the
+            //      split orchestrator lands): the HEAD half of an origin
+            //      recording that was split at the rewind UT. HEAD covers
+            //      the launch portion (kept visible), TIP covers the
+            //      post-rewind portion (becomes the new supersede target).
+            // Both are excluded from the supersede write-set AND from the
+            // returned subtree so the downstream tombstone scan
             // (CommitSupersede / MergeJournalOrchestrator route this return
             // value into CommitTombstones) leaves their attributed ledger
             // actions alone too. The session-suppressed closure walk itself
@@ -215,14 +267,22 @@ namespace Parsek
             // PR #858's render carve-out and PR #860's watch-mode /
             // map-presence scoping while the active session is live; the
             // write-set filter is the commit-time policy decision.
-            var preRewindDebrisIds = new HashSet<string>(StringComparer.Ordinal);
+            var preRewindCarveOutIds = new HashSet<string>(StringComparer.Ordinal);
             Dictionary<string, Recording> recById = null;
+            // Pass 4 follow-up micro-optimization: pre-resolve TIP once so
+            // IsPreRewindCarveOut's chain-head case skips its per-call O(N)
+            // store scan. TIP id is constant across every iteration (it's
+            // marker.SupersedeTargetId), so a one-shot lookup at the top
+            // amortizes correctly for any subtree size.
+            Recording tipForCarveOut = !string.IsNullOrEmpty(marker.SupersedeTargetId)
+                ? FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId)
+                : null;
 
             int added = 0;
             int skippedExisting = 0;
             int skippedSelfLink = 0;
             int skippedExtraSelfLink = 0;
-            int skippedPreRewindDebris = 0;
+            int skippedPreRewindCarveOut = 0;
             if (subtree != null)
             {
                 foreach (string oldId in subtree)
@@ -270,7 +330,7 @@ namespace Parsek
                             $"CommitSupersede: skip existing relation old={oldId} new={newRecordingId}");
                         continue;
                     }
-                    // Pre-rewind debris is filtered LAST so the existing
+                    // Pre-rewind carve-out is filtered LAST so the existing
                     // skip-counter contracts (self-link / extra-self-link /
                     // existing-relation) keep their meaning. Build the
                     // id->Recording index lazily; most batches are tiny and
@@ -286,15 +346,17 @@ namespace Parsek
                     if (recById == null)
                         recById = BuildCommittedRecordingIndex();
                     Recording rec;
+                    PreRewindCarveOutReason carveOutReason;
                     if (recById.TryGetValue(oldId, out rec)
-                        && IsPreRewindDebris(rec, marker))
+                        && IsPreRewindCarveOut(rec, marker, tipForCarveOut, out carveOutReason))
                     {
-                        skippedPreRewindDebris++;
-                        preRewindDebrisIds.Add(oldId);
+                        skippedPreRewindCarveOut++;
+                        preRewindCarveOutIds.Add(oldId);
                         ParsekLog.Verbose(Tag,
-                            $"AppendRelations: skip pre-rewind debris old={oldId} new={newRecordingId} " +
-                            $"(startUT={rec.StartUT.ToString("R", ic)} cutoff={ComputePreRewindCutoff(marker).ToString("R", ic)} " +
-                            $"parent={rec.DebrisParentRecordingId ?? "<null>"})");
+                            $"AppendRelations: skip pre-rewind {carveOutReason} old={oldId} new={newRecordingId} " +
+                            $"(startUT={rec.StartUT.ToString("R", ic)} endUT={rec.EndUT.ToString("R", ic)} " +
+                            $"rewindUT={marker.RewindPointUT.ToString("R", ic)} " +
+                            $"debrisParent={rec.DebrisParentRecordingId ?? "<null>"})");
                         continue;
                     }
                     var rel = new RecordingSupersedeRelation
@@ -318,65 +380,259 @@ namespace Parsek
                 $"skippedExisting={skippedExisting.ToString(ic)} " +
                 $"skippedSelfLink={skippedSelfLink.ToString(ic)} " +
                 $"skippedExtraSelfLink={skippedExtraSelfLink.ToString(ic)} " +
-                $"skippedPreRewindDebris={skippedPreRewindDebris.ToString(ic)})");
+                $"skippedPreRewindCarveOut={skippedPreRewindCarveOut.ToString(ic)})");
 
-            // Filter pre-rewind debris out of the returned subtree so the
-            // downstream tombstone scope (CommitTombstones) leaves ledger
+            // Filter pre-rewind carve-out ids out of the returned subtree so
+            // the downstream tombstone scope (CommitTombstones) leaves ledger
             // actions attributed to those recordings alone. The closure
             // itself remains unfiltered.
-            if (preRewindDebrisIds.Count == 0)
+            if (preRewindCarveOutIds.Count == 0)
                 return subtree ?? new List<string>();
-            var filtered = new List<string>(subtree.Count - preRewindDebrisIds.Count);
+            var filtered = new List<string>(subtree.Count - preRewindCarveOutIds.Count);
             foreach (var id in subtree)
-                if (!preRewindDebrisIds.Contains(id))
+                if (!preRewindCarveOutIds.Contains(id))
                     filtered.Add(id);
             return filtered;
         }
 
         /// <summary>
-        /// True iff <paramref name="rec"/> is a debris recording whose
-        /// <see cref="Recording.StartUT"/> lies strictly before the re-fly's
-        /// pre-rewind cutoff (see <see cref="ComputePreRewindCutoff"/>). Such
-        /// debris was a physically independent vessel established before the
-        /// rewind point — the re-fly does not redo its flight — so it must
-        /// not receive a <see cref="RecordingSupersedeRelation"/> at commit
-        /// and its attributed ledger actions must not be tombstoned.
+        /// Generalized pre-rewind carve-out predicate used by
+        /// <see cref="AppendRelations"/>. Returns true when
+        /// <paramref name="rec"/> must be excluded from the supersede
+        /// write-set (and from the subtree fed to
+        /// <c>CommitTombstones</c>). Two cases share this filter:
+        ///
+        /// <list type="bullet">
+        /// <item><description>
+        /// <b>Pre-rewind debris</b> (PR #858): a debris recording whose
+        /// <see cref="Recording.StartUT"/> lies strictly before
+        /// <see cref="ComputePreRewindCutoff"/> = <c>rewindUT - epsilon</c>.
+        /// Such debris physically separated before the rewind point and
+        /// represents an independent vessel history the re-fly does not
+        /// redo. Requires a non-null
+        /// <see cref="Recording.DebrisParentRecordingId"/>: legacy v11
+        /// debris loaded without the v12 ownership link follows the
+        /// unfiltered legacy path.
+        /// </description></item>
+        /// <item><description>
+        /// <b>Pre-rewind chain head</b> (Task A4, dormant until the split
+        /// orchestrator lands): a non-debris recording whose
+        /// <see cref="Recording.EndUT"/> falls at or just past
+        /// <c>marker.RewindPointUT + epsilon</c>. After
+        /// <c>SplitOriginAtRewindUT</c> splits an origin recording at the
+        /// rewind UT, the HEAD half has <c>EndUT == rewindUT</c> exactly;
+        /// this case carves HEAD out of the closure so only the TIP half
+        /// (and the subtree below it) receives supersede rows. The two
+        /// predicates are <b>not</b> symmetric: debris tests the lower
+        /// boundary (<c>StartUT &lt; rewindUT - epsilon</c>) while
+        /// chain-head tests the upper boundary
+        /// (<c>EndUT &lt;= rewindUT + epsilon</c>). Using
+        /// <see cref="ComputePreRewindCutoff"/> for the chain-head test
+        /// would fail HEAD's <c>EndUT == rewindUT</c> by exactly one
+        /// epsilon and reintroduce the very bug Task A1-A8 exists to fix;
+        /// the asymmetric inline cutoff is deliberate.
+        /// </description></item>
+        /// </list>
+        ///
+        /// <para>The debris case is checked first. A debris recording that
+        /// also happens to satisfy the chain-head predicate is therefore
+        /// reported with
+        /// <see cref="PreRewindCarveOutReason.PreRewindDebris"/>.</para>
         ///
         /// <para>Closure semantics (PR #858 render carve-out and PR #860
-        /// watch-mode / map-presence scoping) are unaffected — pre-rewind
-        /// debris stays in <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>
-        /// during the active re-fly session, and only the supersede write-set
-        /// is filtered at commit time.</para>
-        ///
-        /// <para>Defensive guards: a debris recording without a
-        /// <see cref="Recording.DebrisParentRecordingId"/> (legacy v11 data)
-        /// is not classified pre-rewind by this gate — it has no v12
-        /// ownership link to anchor the topology decision against and so
-        /// follows the unfiltered legacy path. A non-debris recording is
-        /// never classified pre-rewind regardless of StartUT.</para>
+        /// watch-mode / map-presence scoping) are unaffected — carved-out
+        /// recordings stay in
+        /// <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>
+        /// during the active re-fly session, and only the supersede
+        /// write-set is filtered at commit time.</para>
+        /// </summary>
+        internal static bool IsPreRewindCarveOut(
+            Recording rec, ReFlySessionMarker marker,
+            out PreRewindCarveOutReason reason)
+        {
+            return IsPreRewindCarveOut(rec, marker, preResolvedTip: null, out reason);
+        }
+
+        /// <summary>
+        /// Hot-loop overload of <see cref="IsPreRewindCarveOut(Recording, ReFlySessionMarker, out PreRewindCarveOutReason)"/>
+        /// taking a pre-resolved TIP recording so the chain-head case skips its
+        /// per-call O(N) <see cref="RecordingStore.CommittedRecordings"/>
+        /// linear scan. The TIP id is read from
+        /// <see cref="ReFlySessionMarker.SupersedeTargetId"/> and is the
+        /// same value across every iteration of <see cref="AppendRelations"/>'s
+        /// subtree loop and
+        /// <see cref="MergeJournalOrchestrator"/>'s <c>RebuildSubtree</c> loop,
+        /// so callers hoist the resolution once. Pass <c>null</c> to fall back
+        /// to the internal lookup (single-shot callers, tests, the
+        /// <see cref="IsPreRewindDebris"/> wrapper).
+        /// </summary>
+        internal static bool IsPreRewindCarveOut(
+            Recording rec, ReFlySessionMarker marker,
+            Recording preResolvedTip,
+            out PreRewindCarveOutReason reason)
+        {
+            reason = PreRewindCarveOutReason.None;
+            if (rec == null || marker == null) return false;
+
+            // Debris case (PR #858). Uses ComputePreRewindCutoff
+            // = rewindUT - epsilon (StartUT < cutoff means "started
+            // strictly before the rewind"; the epsilon absorbs
+            // sampler jitter forward of the rewind point).
+            //
+            // Pass 7 review: read bounds from sampled content (not
+            // `Recording.StartUT`'s ExplicitStartUT-blended view). Debris
+            // recordings frequently carry `ExplicitStartUT` set to the
+            // parent's branchUT (the logical/intended start), which can be
+            // strictly earlier than the debris's first sampled Point. The
+            // blended view would falsely classify post-rewind debris as
+            // pre-rewind and escape the supersede write-set. The
+            // `TryGetActualTrajectoryBounds` short-circuit also closes the
+            // empty-recording case: a recording with no sampled content
+            // has no launch portion to protect, so the predicate
+            // unconditionally fails — see the
+            // `IsPreRewindCarveOut_NoActualTrajectoryBounds_NotCarvedOut`
+            // regression test in `SupersedeCommitTests.cs`.
+            double debrisCutoff = ComputePreRewindCutoff(marker);
+            if (!double.IsNaN(debrisCutoff)
+                && rec.IsDebris
+                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && rec.TryGetActualTrajectoryBounds(out double recActualStart, out _)
+                && recActualStart < debrisCutoff)
+            {
+                reason = PreRewindCarveOutReason.PreRewindDebris;
+                return true;
+            }
+
+            // Chain-head case (Task A4, retargeted to chain-shape match in
+            // Pass 4 after the id-match form regressed nested Re-Fly).
+            //
+            // Required for the carve-out to fire:
+            //   1. Non-debris (the debris case above handles the lower
+            //      boundary).
+            //   2. rec.EndUT <= rewindUT + epsilon (upper-boundary cutoff —
+            //      HEAD's EndUT is exactly rewindUT after the split).
+            //   3. marker.SupersedeTargetId is set (after the split, this
+            //      names TIP). NaN/empty disables this case.
+            //   4. rec shares TIP's ChainId + ChainBranch.
+            //   5. rec.ChainIndex < TIP.ChainIndex.
+            //
+            // Why chain-shape and NOT marker.OriginChildRecordingId:
+            // OriginChildRecordingId is the SLOT'S stable origin id, set when
+            // the slot was first created. For the first Re-Fly the slot's
+            // origin and the split's HEAD happen to share the id (origin
+            // becomes HEAD in place). For the SECOND Re-Fly on the same
+            // slot, the marker still carries the slot's original
+            // OriginChildRecordingId (= HEAD₁.id), but the split this pass
+            // operates on starts at fork₁ (= HEAD₂). HEAD₂.RecordingId is
+            // fork₁.id, not HEAD₁.id, so the id-match form failed to fire
+            // and HEAD₂ silently got a supersede row → fork₁'s launch
+            // portion vanished from the timeline. That's the bug class this
+            // PR was created to fix — re-introduced by the over-tightening
+            // attempt before Pass 4 corrected the predicate.
+            //
+            // Chain-shape derives correctly from split-time invariants: every
+            // split the splitter produces creates HEAD/TIP as chain siblings
+            // sharing a ChainId, with HEAD at the lower index. Pre-existing
+            // chain members at lower ChainIndex (e.g. env-class siblings
+            // from a prior optimizer split) also satisfy the predicate —
+            // they're correctly carved out as part of the same pre-rewind
+            // history.
+            //
+            // Unrelated closure entries (EVA recordings, fairing jettisons,
+            // PID peers, BP-children of unrelated recordings) live on
+            // different ChainIds and are correctly NOT carved out.
+            //
+            // Epsilon sign is OPPOSITE the debris case (lower boundary):
+            // debris tests StartUT < rewindUT - epsilon; chain-head tests
+            // EndUT <= rewindUT + epsilon. Do not unify via
+            // ComputePreRewindCutoff — re-introducing the symmetry would
+            // fail HEAD's EndUT == rewindUT by exactly one epsilon.
+            double headCutoff =
+                !double.IsNaN(marker.RewindPointUT) && marker.RewindPointUT > 0.0
+                    ? marker.RewindPointUT + EffectiveState.PidPeerStartUtEpsilonSeconds
+                    : double.NaN;
+            // Pass 7 review: read EndUT from sampled content for the same
+            // reason as the debris case above — blended `Recording.EndUT`
+            // can carry a stale `ExplicitEndUT` (post-rewind value on a
+            // recording whose actual data stops before the rewind) and
+            // would erroneously keep the recording visible. The
+            // `TryGetActualTrajectoryBounds` predicate also unconditionally
+            // fails for a recording with no sampled content (the bug
+            // class this PR exists to close at the consumer side too: a
+            // post-split empty HEAD whose `EndUT=0` would otherwise
+            // tautologically satisfy `EndUT <= rewindUT + epsilon`).
+            if (!double.IsNaN(headCutoff)
+                && !rec.IsDebris
+                && !string.IsNullOrEmpty(marker.SupersedeTargetId)
+                && !string.IsNullOrEmpty(rec.ChainId)
+                && rec.TryGetActualTrajectoryBounds(out _, out double recActualEnd)
+                && recActualEnd <= headCutoff)
+            {
+                Recording tip = preResolvedTip
+                    ?? FindCommittedRecordingByIdForCarveOut(marker.SupersedeTargetId);
+                if (tip != null
+                    && !string.IsNullOrEmpty(tip.ChainId)
+                    && string.Equals(rec.ChainId, tip.ChainId, StringComparison.Ordinal)
+                    && rec.ChainBranch == tip.ChainBranch
+                    && rec.ChainIndex < tip.ChainIndex)
+                {
+                    reason = PreRewindCarveOutReason.PreRewindChainHead;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Linear-scan lookup of a recording by id from
+        /// <see cref="RecordingStore.CommittedRecordings"/>, used by
+        /// <see cref="IsPreRewindCarveOut"/>'s chain-head case to resolve TIP
+        /// from <see cref="ReFlySessionMarker.SupersedeTargetId"/>. Kept
+        /// private to this file so the lookup is a single small helper rather
+        /// than another index-builder API. AppendRelations already builds its
+        /// own id index for the closure-walk loop; for the typical subtree
+        /// size (~10 entries) the O(N) lookup per IsPreRewindCarveOut call
+        /// adds negligible cost. Returns null when not found or when the
+        /// store is empty.
+        /// </summary>
+        private static Recording FindCommittedRecordingByIdForCarveOut(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            var src = RecordingStore.CommittedRecordings;
+            if (src == null) return null;
+            for (int i = 0; i < src.Count; i++)
+            {
+                var rec = src[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Backward-compatibility wrapper around
+        /// <see cref="IsPreRewindCarveOut"/>. Returns true only for the
+        /// debris case (matching the pre-Task-A3 contract). The
+        /// load-bearing logic lives in
+        /// <see cref="IsPreRewindCarveOut"/>; this thin wrapper preserves
+        /// the symbol's binary contract for the in-game tests at
+        /// <c>InGameTests/MergeCrashedReFlyCreatesCPSupersedeTest.cs</c>
+        /// and <c>InGameTests/MergeLandedReFlyCreatesImmutableSupersedeTest.cs</c>.
         /// </summary>
         internal static bool IsPreRewindDebris(Recording rec, ReFlySessionMarker marker)
         {
-            if (rec == null || marker == null) return false;
-            if (!rec.IsDebris) return false;
-            if (string.IsNullOrEmpty(rec.DebrisParentRecordingId)) return false;
-            double cutoff = ComputePreRewindCutoff(marker);
-            // NaN cutoff (marker has no usable UT — both RewindPointUT and
-            // InvokedUT are NaN / non-positive) collapses to the pre-fix
-            // default: write the supersede row. This preserves behavior on
-            // legacy markers and on any defensive caller that hands us a
-            // half-populated marker, at the cost of leaving the rare
-            // legacy case un-fixed. Acceptable per the no-backward-compat
-            // policy for pre-1.0 saves.
-            if (double.IsNaN(cutoff)) return false;
-            return rec.StartUT < cutoff;
+            return IsPreRewindCarveOut(rec, marker, out var reason)
+                && reason == PreRewindCarveOutReason.PreRewindDebris;
         }
 
         /// <summary>
         /// Computes the cutoff UT below which a debris recording is treated
-        /// as pre-rewind by <see cref="IsPreRewindDebris"/>. Prefers
-        /// <see cref="ReFlySessionMarker.RewindPointUT"/> (added in PR #858
-        /// as the stable, drift-immune <c>rp.UT</c> capture — see
+        /// as pre-rewind by the debris case of <see cref="IsPreRewindCarveOut"/>
+        /// (and by its <see cref="IsPreRewindDebris"/> back-compat wrapper).
+        /// Prefers <see cref="ReFlySessionMarker.RewindPointUT"/> (added in
+        /// PR #858 as the stable, drift-immune <c>rp.UT</c> capture — see
         /// <c>RewindInvoker.AtomicMarkerWrite</c>) and falls back to
         /// <see cref="ReFlySessionMarker.InvokedUT"/> for legacy markers
         /// persisted before the field shipped. Both branches subtract
@@ -387,6 +643,16 @@ namespace Parsek
         /// <c>double.NaN</c> only when neither field carries a usable
         /// (non-NaN, strictly positive) value; callers must treat NaN as
         /// "no cutoff available" and fall back to legacy behavior.
+        ///
+        /// <para>Note the asymmetric epsilon sign between cases of
+        /// <see cref="IsPreRewindCarveOut"/>: the debris case calls
+        /// <c>ComputePreRewindCutoff</c> for a LOWER-boundary cutoff
+        /// (<c>rewindUT - epsilon</c>); the chain-head case uses its own
+        /// inline UPPER-boundary cutoff (<c>rewindUT + epsilon</c>). Do
+        /// not "unify" the two via this helper — re-introducing the
+        /// epsilon sign symmetry would fail HEAD's <c>EndUT == rewindUT</c>
+        /// by exactly one epsilon and reopen the bug Task A1-A8 exists to
+        /// fix.</para>
         /// </summary>
         internal static double ComputePreRewindCutoff(ReFlySessionMarker marker)
         {

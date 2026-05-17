@@ -140,14 +140,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Walks forward through <paramref name="supersedes"/> starting at
-        /// <see cref="OriginChildRecordingId"/>. Delegates to
-        /// <see cref="EffectiveState.EffectiveRecordingId"/> so the walk logic
-        /// lives in one place (design section 5.2 / Phase 2 consolidation).
+        /// Walks forward from <see cref="OriginChildRecordingId"/> through both
+        /// chain links AND supersede edges to the slot's current logical tip.
+        /// Delegates to <see cref="EffectiveState.EffectiveTipRecordingId"/> so
+        /// the composite walker handles rewind-UT splits (where the slot's origin
+        /// remains the HEAD half while the supersede edge attaches to the chain
+        /// TIP) in addition to plain supersede chains. Design section 5.2 +
+        /// fix-supersede-identity-scope plan §4.
         /// </summary>
         public string EffectiveRecordingId(IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
-            return EffectiveState.EffectiveRecordingId(OriginChildRecordingId, supersedes);
+            return EffectiveState.EffectiveTipRecordingId(OriginChildRecordingId, supersedes);
         }
     }
 }

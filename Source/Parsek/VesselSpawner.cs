@@ -274,6 +274,14 @@ namespace Parsek
                 ConfigNode node = new ConfigNode("VESSEL");
                 pv.Save(node);
                 NormalizeBackedUpSnapshotFromLiveVessel(node, vessel);
+                // Live PART/crew= reflects whichever kerbal is physically seated, which
+                // after a SwapReservedCrewInFlight pass is a stand-in. Persisting the
+                // stand-in name would cause EnsureCrewExistInRoster to fabricate a new
+                // kerbal with that name at spawn time instead of restoring the original.
+                KerbalsModule.ReverseMapCrewNamesInSnapshot(
+                    node,
+                    CrewReservationManager.CrewReplacements,
+                    $"TryBackupSnapshot pid={vessel.persistentId} vessel='{vessel.vesselName ?? "(unknown)"}'");
                 return node;
             }
             catch (Exception ex)
