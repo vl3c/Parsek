@@ -98,5 +98,66 @@ namespace Parsek.Tests
                 isOwnedVesselMode, canSwitchVesselsFar, vesselNotNull);
             Assert.Equal(expected, actual);
         }
+
+        [Fact]
+        public void DecidePreSwitchDialogAction_NoSession_ReturnsNoPriorSession()
+        {
+            // Fails if: the pre-switch decision helper opens a dialog when
+            // no SwitchSegmentSession is armed. The regular arm-and-skip
+            // flow must run unchanged in that case (rapid-switch
+            // interception only triggers when there's a prior session).
+            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
+                hasActiveSession: false,
+                priorFocusedPid: 0u,
+                newTargetPid: 1234u,
+                anotherDialogOpen: false);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.NoPriorSession, actual);
+        }
+
+        [Fact]
+        public void DecidePreSwitchDialogAction_DifferentTarget_OpensDialog()
+        {
+            // Fails if: a Switch-To to a different vessel while a prior
+            // session is armed does NOT open the pre-switch dialog. This
+            // is the rapid-switch case the dialog is for - Bug A/B from
+            // logs/2026-05-17_1805_switch-fly-post-scene-discard-bug.
+            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
+                hasActiveSession: true,
+                priorFocusedPid: 100u,
+                newTargetPid: 200u,
+                anotherDialogOpen: false);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.OpenDialog, actual);
+        }
+
+        [Fact]
+        public void DecidePreSwitchDialogAction_SameTarget_SkipsDialog()
+        {
+            // Fails if: a duplicate Switch-To on the same vessel as the
+            // active session opens a redundant dialog. The consume
+            // helper's `duplicate-intent-same-target` branch already
+            // handles same-target clicks; opening a dialog would be
+            // confusing UX.
+            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
+                hasActiveSession: true,
+                priorFocusedPid: 200u,
+                newTargetPid: 200u,
+                anotherDialogOpen: false);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogSameTarget, actual);
+        }
+
+        [Fact]
+        public void DecidePreSwitchDialogAction_AnotherDialogOpen_SkipsDialogReEntry()
+        {
+            // Fails if: a Switch-To click while another merge dialog is
+            // already open spawns a second dialog on top. The re-entry
+            // guard must defer to the existing dialog so the player
+            // resolves it first.
+            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
+                hasActiveSession: true,
+                priorFocusedPid: 100u,
+                newTargetPid: 200u,
+                anotherDialogOpen: true);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogReEntry, actual);
+        }
     }
 }

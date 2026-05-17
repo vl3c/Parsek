@@ -81,6 +81,25 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
+## Open - v0.10.0 Switch/Fly auto-record: in-FLIGHT committed-clone restore + multi-segment scene-exit
+
+**Context:** PR #876 added a pre-switch Merge/Discard dialog on Map Switch-To when a switch-segment session is already active (the Path 1 fix from in-game playtest). This handles the rapid-switch case cleanly: each Switch-To consciously commits or discards the prior segment. Two architectural gaps remain.
+
+**Sub-issue (Bug D from playtest):** `TryFindCommittedTreeMatchingVessel` correctly matches a Parsek-spawned vessel's PID to its source committed tree, but `TryRestoreCommittedTreeForSpawnedActiveVessel` rejects the restore when a live recorder is already attached (in-FLIGHT Switch-To from another active vessel). Net: the segment falls back to a fresh standalone tree instead of attaching to the cloned committed tree, losing #866's clone-restore safety. Visible in `logs/2026-05-17_1805_switch-fly-post-scene-discard-bug/KSP.log` at 17:47:42.404 and 17:47:49.228 (`committed-spawned-clone-restore-failed-start-standalone`).
+
+**Sub-issue (multi-segment scene-exit):** If two segments do end up coexisting (e.g. dialog spawn failure forced the defensive supersede path), scene-exit only dialogs one tree. The other is silently merged or discarded.
+
+**Proposed Path 2:**
+- Background-flush the live recorder cleanly before invoking `TryRestoreCommittedTreeForSpawnedActiveVessel` for in-FLIGHT Switch-To targets, so committed-clone routing actually works end-to-end.
+- Track multiple active sessions in `ParsekScenario` (a list, not a single slot) so the supersede defensive path doesn't lose tree references.
+- Scene-exit iterates ALL pending switch-segment trees, presenting either a multi-row combined dialog or successive single-tree dialogs.
+
+**Scope:** Touches consume routing, session-state model, scene-exit dialog enumeration. Independent of PR #876's Path 1 dialog work but builds on its data-model foundation.
+
+**Status:** OPEN.
+
+---
+
 ## Open - v0.10.0 `_vessel.craft` ProtoVessel snapshot still carries the raw `#autoLOC_...` token in the `name` field
 
 **Evidence:** `logs/2026-05-17_1738_autoloc-name-bug/saves/s14/Parsek/Recordings/20b37b69460e42e2a862ad112539de68_vessel.craft.txt:3` — `name = #autoLOC_501224` even after the recording-metadata fix (PR #887) resolved `Recording.VesselName` and `RecordingTree.TreeName` to "Jumping Flea". The companion `.sfs` row has `vesselName = Jumping Flea`, but the ProtoVessel snapshot used to re-spawn the ghost / restore the vessel still ships the raw localization key.
@@ -277,6 +296,7 @@ Either Parsek's rotation-interpolation routine (`TrajectoryMath.SlerpQuaternion`
 - Phase F follow-ups: replaced the no-op `[HarmonyAfter("com.parsek.mod")]` self-reference on `SwitchIntentTrackingStationFlyPatch` with `[HarmonyPriority(Priority.Low)]`; extracted the bare `1024` tree-walk cap to `RecordingStore.SwitchSegmentRecordingTreeWalkMaxIterations` and added a Warn log on the safety break. Added cross-cutting save/load/F5/F9 xUnit coverage (`SwitchSegmentSaveLoadTests`) and promoted Map FocusObject gate predicate coverage from B.2 stubs to in-game tests + a scenario-level intent arm/clear lifecycle test (`RuntimeTests`, Category=SwitchSegment).
 - Post-PR cleanup: removed the three per-source auto-record settings (`autoRecordOnTsFly`, `autoRecordOnKscFly`, `autoRecordOnMapSwitchTo`) that had been added but were not requested. The feature is now always-on subject to the intrinsic gates.
 - Playtest follow-up (2026-05-17, four bugs in the same commit before PR #876 landed): (a) hoisted the `TryConsumeStockActionIntent` dispatch to the top of `OnFlightReady` (after the `restoringActiveTree` skip, before `ShouldIgnoreFlightReadyReset`) via the new `DispatchConsumeIntentIfArmed` helper, so TS Fly / KSC Fly consume runs even when `TryRestoreCommittedTreeForSpawnedActiveVessel` pre-attached the recorder; (b) widened scoped Discard to walk the topological subtree rooted at the segment recording (renamed `CollectSwitchSegmentMarkerOwnedRecordingIds` → `CollectSwitchSegmentSubtreeRecordingIds`) so debris from a Breakup-during-segment is removed regardless of `SwitchSegmentSessionId` stamp, and deleted the second whole-pending-tree dialog flow entirely (`ShowSecondaryPendingDiscardDialog`, `BuildSecondaryPendingTreeDialogBody`, `HasRemainingPendingChangesAfterSegmentDiscard`, `MergeDiscardOutcome.DeferredToSecondaryDialog`); (c) unified the pre/post-transition merge dialog body on `BuildWholeTreeMergeDialogBody` (`"{TreeName} - {Duration}"`) — both switch-segment and whole-tree merges share the template now, and the duration line is the load-bearing distinguisher; (d) `TryFindCommittedTreeMatchingVessel` now also probes `Recording.SpawnedVesselPersistentId` (gated by `VesselSpawned=true`) so a Switch-To on a Parsek-spawned vessel routes to the committed-clone branch instead of falling through to standalone.
+- Pre-switch dialog (2026-05-17 follow-up playtest, `logs/2026-05-17_1805_switch-fly-post-scene-discard-bug/`): rapid Map Switch-To while a switch-segment session is already armed now opens a Merge / Discard pre-switch dialog BEFORE stock `SetActiveVessel` fires. Eliminates the orphan-tree-from-supersede chain (Bug A/B/C). On Merge the prior session's active tree commits in-flight via `CommitTreeFlight`; on Discard the prior session goes through scoped discard via `TryDiscardActiveSwitchSegmentAttempt`; both paths then arm a fresh Map Switch-To intent and call `FlightGlobals.SetActiveVessel(target)` so the consume helper picks up the new marker on the synchronous `onVesselChange` firing. Bug C minimal fix: the pre-transition scene-exit gate (`SceneExitInterceptor.ShouldShowDialogBeforeSceneChange`) now includes a `switchSegmentActive` seam — when an active switch-segment session is armed but the live recorder has been torn down (e.g. vessel destroyed mid-segment), the prefix resolves the session's tree via `TryResolveSessionTreeForDialog` and dialogs against it instead of grabbing the (possibly orphan) pending tree.
 
 **Scope:** Three stock UI button surfaces only. `[`/`]` cycling, boarding, dock/undock, ReFly arrivals, and `FlightDriver.StartAndFocusVessel` invocations from save load / scenario startup do NOT immediate-start a segment. Map Switch-To to an unloaded vessel deliberately does NOT immediate-start (falls back to the first-modification watcher) because the scene transition resets in-scene markers.
 

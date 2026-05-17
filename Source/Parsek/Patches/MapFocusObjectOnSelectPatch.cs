@@ -116,12 +116,12 @@ namespace Parsek.Patches
             return method;
         }
 
-        static void Prefix(object __instance, out Guid __state)
+        static bool Prefix(object __instance, out Guid __state)
         {
             __state = default(Guid);
 
             if (__instance == null)
-                return;
+                return true;
 
             // GetMode() — defensive Traverse so we don't crash if the method is
             // renamed in a future KSP drop.
@@ -134,7 +134,7 @@ namespace Parsek.Patches
             {
                 ParsekLog.Warn("SwitchIntentPatch",
                     $"Map Switch-To intent not armed: GetMode() failed: {ex.GetType().Name}: {ex.Message}");
-                return;
+                return true;
             }
 
             if (FocusModeOwnedVessel == null || modeValue == null || !modeValue.Equals(FocusModeOwnedVessel))
@@ -143,7 +143,7 @@ namespace Parsek.Patches
                 // patch); CelestialBody is camera-only. Neither is in scope.
                 ParsekLog.Verbose("SwitchIntentPatch",
                     $"Map Switch-To intent not armed: focusMode={(modeValue != null ? modeValue.ToString() : "<null>")} (not OwnedVessel)");
-                return;
+                return true;
             }
 
             // Defensive Traverse on the private 'vessel' field. If KSP renames
@@ -158,13 +158,13 @@ namespace Parsek.Patches
             {
                 ParsekLog.Warn("SwitchIntentPatch",
                     $"Map Switch-To intent not armed: vessel field Traverse failed: {ex.GetType().Name}: {ex.Message}");
-                return;
+                return true;
             }
             if (vessel == null)
             {
                 ParsekLog.Warn("SwitchIntentPatch",
                     "Map Switch-To intent not armed: FocusObject.vessel is null (Traverse may have failed)");
-                return;
+                return true;
             }
 
             // Stock will refuse the switch if CanSwitchVesselsFar is off (the
@@ -183,13 +183,13 @@ namespace Parsek.Patches
             {
                 ParsekLog.Warn("SwitchIntentPatch",
                     $"Map Switch-To intent not armed: CanSwitchVesselsFar read failed: {ex.GetType().Name}: {ex.Message}");
-                return;
+                return true;
             }
             if (!canSwitchVesselsFar)
             {
                 ParsekLog.Verbose("SwitchIntentPatch",
                     $"Map Switch-To intent not armed: CanSwitchVesselsFar=false targetPid={vessel.persistentId}");
-                return;
+                return true;
             }
 
             var scenario = ParsekScenario.Instance;
@@ -197,7 +197,65 @@ namespace Parsek.Patches
             {
                 ParsekLog.Warn("SwitchIntentPatch",
                     $"Map Switch-To intent not armed: ParsekScenario.Instance is null targetPid={vessel.persistentId}");
-                return;
+                return true;
+            }
+
+            // Rapid-switch interception (post-#876 playtest 2026-05-17):
+            // when a SwitchSegmentSession is already armed and the new target
+            // is a different vessel, open a pre-switch Merge/Discard dialog
+            // BEFORE stock OnSelect runs. This prevents the silent supersede
+            // path from orphaning the prior session's tree (Bug A/B) and
+            // turning the post-transition deferred dialog into a wrong-tree
+            // prompt (Bug C). The Postfix is skipped (Prefix returns false)
+            // because the dialog button handlers will arm the new intent and
+            // call SetActiveVessel themselves.
+            //
+            // Same-target Switch-To (player double-clicks the active session's
+            // own vessel) bypasses the dialog: the consume helper's existing
+            // `duplicate-intent-same-target` branch handles it.
+            //
+            // Re-entry guard: if a merge/dialog popup is already open (this
+            // dialog or any other), defer to the existing one so the player
+            // resolves it first.
+            var existingSession = scenario.ActiveSwitchSegmentSession;
+            var decision = DecidePreSwitchDialogAction(
+                hasActiveSession: existingSession != null,
+                priorFocusedPid: existingSession?.FocusedVesselPersistentId ?? 0u,
+                newTargetPid: vessel.persistentId,
+                anotherDialogOpen: ParsekScenario.MergeDialogPending);
+            switch (decision)
+            {
+                case PreSwitchDialogDecision.OpenDialog:
+                    {
+                        bool dialogOpened = TryOpenPreSwitchDecisionDialog(vessel, existingSession);
+                        if (dialogOpened)
+                        {
+                            // Skip stock OnSelect; dialog button handlers will arm
+                            // the new intent and invoke FlightGlobals.SetActiveVessel.
+                            return false;
+                        }
+                        // Dialog spawn failed — fall through to the original
+                        // arm-and-skip flow. The existing `superseded-by-new-switch`
+                        // defensive path in the consume helper will still log the
+                        // orphan as a documented degradation. Already Warn-logged by
+                        // ShowPreSwitchDecisionDialog.
+                        break;
+                    }
+                case PreSwitchDialogDecision.SkipDialogSameTarget:
+                    ParsekLog.Verbose("SwitchIntentPatch",
+                        $"pre-switch-dialog skipped: same-target Switch-To " +
+                        $"priorSessionId={existingSession.SessionId:D} " +
+                        $"targetPid={vessel.persistentId} - duplicate-intent-same-target consume path will handle");
+                    break;
+                case PreSwitchDialogDecision.SkipDialogReEntry:
+                    ParsekLog.Verbose("SwitchIntentPatch",
+                        $"pre-switch-dialog skipped: another merge dialog is open " +
+                        $"priorSessionId={existingSession.SessionId:D} " +
+                        $"targetPid={vessel.persistentId} - re-entry guard");
+                    break;
+                case PreSwitchDialogDecision.NoPriorSession:
+                default:
+                    break;
             }
 
             Guid intentId = Guid.NewGuid();
@@ -230,6 +288,174 @@ namespace Parsek.Patches
                 $"Map Switch-To intent armed: intentId={marker.IntentId:D} action={marker.Action} " +
                 $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
                 $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
+            return true;
+        }
+
+        /// <summary>
+        /// Opens the pre-switch Merge / Discard decision dialog for the
+        /// given <paramref name="target"/> vessel. The Merge handler commits
+        /// the prior active tree in-flight and then arms a fresh intent +
+        /// invokes <see cref="FlightGlobals.SetActiveVessel"/>; the Discard
+        /// handler scoped-discards the prior session and does the same
+        /// arm-then-switch. Returns true when the dialog was spawned (caller
+        /// returns false from the Prefix); false on spawn failure (caller
+        /// falls back to the original arm-and-skip flow).
+        ///
+        /// <para>Defensive note: this method does NOT arm an intent before
+        /// the dialog opens. The button handlers own arming + SetActiveVessel
+        /// so a Discard cleanly disposes of the prior session before the new
+        /// switch routes through <c>OnVesselSwitchComplete</c>. If the
+        /// player dismisses the dialog without clicking either button (e.g.
+        /// Esc), no intent is left armed.</para>
+        /// </summary>
+        private static bool TryOpenPreSwitchDecisionDialog(
+            Vessel target,
+            SwitchSegmentSession priorSession)
+        {
+            return MergeDialog.ShowPreSwitchDecisionDialog(
+                target,
+                mergeAction: () => MergePriorAndSwitchTo(target, priorSession),
+                discardAction: () => DiscardPriorAndSwitchTo(target, priorSession));
+        }
+
+        /// <summary>
+        /// Merge handler: commits the prior session's active tree using
+        /// <see cref="ParsekFlight.CommitTreeFlight"/> (in-flight commit
+        /// path that finalizes recordings, spawns committed leaves where
+        /// needed, and tears down the live recorder / activeTree). Then
+        /// arms a fresh Map Switch-To intent and calls
+        /// <c>FlightGlobals.SetActiveVessel(target)</c> so the consume
+        /// helper picks up the marker on the inline
+        /// <c>onVesselChange</c> firing.
+        /// </summary>
+        private static void MergePriorAndSwitchTo(
+            Vessel target, SwitchSegmentSession priorSession)
+        {
+            var scenario = ParsekScenario.Instance;
+            string priorSessionIdStr = priorSession != null
+                ? priorSession.SessionId.ToString("D", CultureInfo.InvariantCulture)
+                : "<none>";
+
+            // Step 1: in-flight commit of the prior tree. CommitTreeFlight
+            // also clears the SwitchSegmentSession marker via its
+            // OnTreeCommitted -> MergeDialog observer (see MergeCommit's
+            // `scoped-merge-success` clear path). Defensive: if the prior
+            // tree is gone, log and continue with the switch anyway.
+            var flight = ParsekFlight.Instance;
+            if (flight != null && flight.HasActiveTree)
+            {
+                try
+                {
+                    flight.CommitTreeFlight();
+                    ParsekLog.Info("SwitchIntentPatch",
+                        $"pre-switch-dialog committed-prior-segment " +
+                        $"priorSessionId={priorSessionIdStr}");
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error("SwitchIntentPatch",
+                        $"pre-switch-dialog merge: CommitTreeFlight threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - continuing with switch anyway");
+                }
+            }
+            else
+            {
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"pre-switch-dialog merge: no active tree to commit " +
+                    $"priorSessionId={priorSessionIdStr} - clearing session and switching");
+                // Defensive clear in case the active tree disappeared but the
+                // session marker is still armed (degenerate state).
+                if (scenario != null && scenario.ActiveSwitchSegmentSession != null)
+                    scenario.ClearSwitchSegmentSession("pre-switch-dialog-merge-no-active-tree");
+            }
+
+            ArmIntentAndSwitchTo(target);
+        }
+
+        /// <summary>
+        /// Discard handler: scoped-discards the prior session via
+        /// <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>,
+        /// then arms a fresh Map Switch-To intent and calls
+        /// <c>FlightGlobals.SetActiveVessel(target)</c>.
+        /// </summary>
+        private static void DiscardPriorAndSwitchTo(
+            Vessel target, SwitchSegmentSession priorSession)
+        {
+            string priorSessionIdStr = priorSession != null
+                ? priorSession.SessionId.ToString("D", CultureInfo.InvariantCulture)
+                : "<none>";
+
+            try
+            {
+                string reason;
+                var disposition = RecordingStore.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"pre-switch-dialog scoped-discard-success " +
+                    $"priorSessionId={priorSessionIdStr} " +
+                    $"disposition={disposition} reason={reason ?? "<none>"}");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("SwitchIntentPatch",
+                    $"pre-switch-dialog discard: TryDiscardActiveSwitchSegmentAttempt threw " +
+                    $"{ex.GetType().Name}: {ex.Message} - continuing with switch anyway");
+            }
+
+            ArmIntentAndSwitchTo(target);
+        }
+
+        /// <summary>
+        /// Shared arm-then-switch finisher for the dialog button handlers.
+        /// Arms a fresh Map Switch-To intent and invokes
+        /// <c>FlightGlobals.SetActiveVessel(target)</c>. The consume helper
+        /// will pick up the marker on the synchronous <c>onVesselChange</c>
+        /// firing inside <c>SetActiveVessel</c>.
+        /// </summary>
+        private static void ArmIntentAndSwitchTo(Vessel target)
+        {
+            if (target == null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    "pre-switch-dialog: target vessel is null - cannot arm intent or switch");
+                return;
+            }
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"pre-switch-dialog: scenario is null - cannot arm intent (targetPid={target.persistentId})");
+                return;
+            }
+
+            Guid intentId = Guid.NewGuid();
+            var marker = new StockActionIntentMarker
+            {
+                IntentId = intentId,
+                Action = StockActionType.MapSwitchTo,
+                TargetVesselPersistentId = target.persistentId,
+                SourceScene = StockActionSourceScene.Flight,
+                CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
+                CapturedUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
+                ProcessSessionId = ParsekProcess.ProcessSessionId,
+            };
+            scenario.ArmStockActionIntent(marker);
+            ParsekLog.Info("SwitchIntentPatch",
+                $"pre-switch-dialog re-armed intent: intentId={marker.IntentId:D} action={marker.Action} " +
+                $"targetPid={marker.TargetVesselPersistentId} " +
+                $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
+
+            try
+            {
+                FlightGlobals.SetActiveVessel(target);
+                if (MapView.MapIsEnabled)
+                    MapView.ExitMapView();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("SwitchIntentPatch",
+                    $"pre-switch-dialog: FlightGlobals.SetActiveVessel threw " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         static void Postfix(Guid __state)
@@ -304,6 +530,55 @@ namespace Parsek.Patches
             if (!isOwnedVesselMode) return false;
             if (!canSwitchVesselsFar) return false;
             return true;
+        }
+
+        /// <summary>
+        /// Pre-switch decision branch selector exposed for unit tests. The
+        /// Prefix opens the pre-switch Merge / Discard dialog only when a
+        /// switch-segment session is already armed, the new target vessel
+        /// PID differs from the session's focused PID, and no other merge
+        /// dialog is open. Otherwise the original arm-and-skip flow runs.
+        ///
+        /// <para>Returns:
+        /// <list type="bullet">
+        /// <item><c>OpenDialog</c>: a prior session exists with a different
+        ///     focused PID; the dialog should be opened and stock OnSelect
+        ///     skipped.</item>
+        /// <item><c>SkipDialogSameTarget</c>: the prior session targets the
+        ///     same vessel — the consume helper's
+        ///     `duplicate-intent-same-target` branch will handle.</item>
+        /// <item><c>SkipDialogReEntry</c>: another merge/dialog popup is
+        ///     already open; defer to that one.</item>
+        /// <item><c>NoPriorSession</c>: no session is armed; the regular
+        ///     arm-and-skip flow runs unchanged.</item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        internal enum PreSwitchDialogDecision
+        {
+            NoPriorSession = 0,
+            OpenDialog = 1,
+            SkipDialogSameTarget = 2,
+            SkipDialogReEntry = 3,
+        }
+
+        /// <summary>
+        /// Pure helper for unit-testing the pre-switch dialog gate. See
+        /// <see cref="PreSwitchDialogDecision"/> for the truth table.
+        /// </summary>
+        internal static PreSwitchDialogDecision DecidePreSwitchDialogAction(
+            bool hasActiveSession,
+            uint priorFocusedPid,
+            uint newTargetPid,
+            bool anotherDialogOpen)
+        {
+            if (!hasActiveSession)
+                return PreSwitchDialogDecision.NoPriorSession;
+            if (priorFocusedPid == newTargetPid)
+                return PreSwitchDialogDecision.SkipDialogSameTarget;
+            if (anotherDialogOpen)
+                return PreSwitchDialogDecision.SkipDialogReEntry;
+            return PreSwitchDialogDecision.OpenDialog;
         }
     }
 }

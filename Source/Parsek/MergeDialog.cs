@@ -427,6 +427,201 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pre-switch decision dialog for the rapid Switch-To case (Map view
+        /// "Switch To" clicked while a <see cref="SwitchSegmentSession"/> is
+        /// already armed). Opens BEFORE the new stock <c>SetActiveVessel</c>
+        /// runs and presents two buttons:
+        ///
+        /// <list type="bullet">
+        /// <item><b>Merge</b>: finalize + stash + commit the prior session's
+        ///     active tree using the pre-transition merge path (same as
+        ///     scene-exit), then arm the new intent and call
+        ///     <c>FlightGlobals.SetActiveVessel(target)</c>.</item>
+        /// <item><b>Discard</b>: scoped-discard the prior session via
+        ///     <see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>,
+        ///     then arm the new intent and call
+        ///     <c>FlightGlobals.SetActiveVessel(target)</c>.</item>
+        /// </list>
+        ///
+        /// <para>There is no Cancel button — Switch-To is unambiguous player
+        /// intent. The dialog only decides what to do with the prior segment
+        /// before the switch proceeds.</para>
+        ///
+        /// <para>Returns true when the dialog was spawned (caller's Prefix
+        /// returns false to skip the stock <c>OnSelect</c>). Returns false
+        /// when <see cref="PopupDialog.SpawnPopupDialog"/> returned null —
+        /// the caller's Prefix should fall back to running the original
+        /// <c>OnSelect</c> so the supersede defensive path can take over.</para>
+        /// </summary>
+        internal static bool ShowPreSwitchDecisionDialog(
+            Vessel target,
+            System.Action mergeAction,
+            System.Action discardAction)
+        {
+            if (target == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "ShowPreSwitchDecisionDialog: target vessel is null - cannot spawn dialog");
+                return false;
+            }
+            if (mergeAction == null || discardAction == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "ShowPreSwitchDecisionDialog: merge/discard action is null - cannot spawn dialog");
+                return false;
+            }
+
+            // Read prior session metadata for the dialog body (TreeName and
+            // segment duration), routed through the same shared helper as the
+            // scene-exit dialog so a 12s switch segment is visually distinct
+            // from a 30-minute launch. If the active scenario / session is
+            // unavailable for any reason, fall back to a stub body so the
+            // dialog still spawns rather than silently leaving the player
+            // stranded with no decision UI.
+            var scenario = ParsekScenario.Instance;
+            var session = scenario != null
+                ? scenario.ActiveSwitchSegmentSession
+                : null;
+            string priorSessionIdStr = session != null
+                ? session.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)
+                : "<none>";
+
+            // Locate the session's tree so we can render the duration body.
+            // The session.TreeId may resolve to the live activeTree (rapid
+            // Switch-To inside FLIGHT) or a pending stash. Defensive: when no
+            // tree resolves, build the body off whatever name we can read.
+            RecordingTree priorTree = null;
+            try
+            {
+                var flight = ParsekFlight.Instance;
+                if (flight != null
+                    && flight.ActiveTreeForSerialization != null
+                    && session != null
+                    && string.Equals(
+                        flight.ActiveTreeForSerialization.Id,
+                        session.TreeId,
+                        System.StringComparison.Ordinal))
+                {
+                    priorTree = flight.ActiveTreeForSerialization;
+                }
+                else if (RecordingStore.PendingTree != null
+                    && session != null
+                    && string.Equals(
+                        RecordingStore.PendingTree.Id,
+                        session.TreeId,
+                        System.StringComparison.Ordinal))
+                {
+                    priorTree = RecordingStore.PendingTree;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"ShowPreSwitchDecisionDialog: tree lookup threw " +
+                    $"{ex.GetType().Name}: {ex.Message} — body will use a stub");
+            }
+
+            string message;
+            if (priorTree != null)
+            {
+                try
+                {
+                    message = BuildWholeTreeMergeDialogBody(priorTree);
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"ShowPreSwitchDecisionDialog: BuildWholeTreeMergeDialogBody threw " +
+                        $"{ex.GetType().Name}: {ex.Message} — using stub body");
+                    message = priorTree.TreeName ?? "<unnamed>";
+                }
+            }
+            else
+            {
+                message = session != null && !string.IsNullOrEmpty(session.TreeId)
+                    ? $"Prior switch-segment session (tree id={session.TreeId})"
+                    : "Prior switch-segment session";
+            }
+
+            const string title = "Pending switch-segment recording";
+            DialogGUIButton[] buttons = new[]
+            {
+                new DialogGUIButton("Merge", () =>
+                {
+                    ParsekLog.Info("SwitchIntentPatch",
+                        $"pre-switch-dialog-merge-chosen priorSessionId={priorSessionIdStr} " +
+                        $"newTargetPid={target.persistentId}");
+                    ClearPendingFlag("pre-switch-dialog merge button");
+                    try
+                    {
+                        mergeAction.Invoke();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Error("SwitchIntentPatch",
+                            $"pre-switch-dialog merge action threw " +
+                            $"{ex.GetType().Name}: {ex.Message}");
+                    }
+                }),
+                new DialogGUIButton("Discard", () =>
+                {
+                    ParsekLog.Info("SwitchIntentPatch",
+                        $"pre-switch-dialog-discard-chosen priorSessionId={priorSessionIdStr} " +
+                        $"newTargetPid={target.persistentId}");
+                    ClearPendingFlag("pre-switch-dialog discard button");
+                    try
+                    {
+                        discardAction.Invoke();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Error("SwitchIntentPatch",
+                            $"pre-switch-dialog discard action threw " +
+                            $"{ex.GetType().Name}: {ex.Message}");
+                    }
+                }),
+            };
+
+            // Mirror the scene-exit dialog's lock/flag sequencing so input is
+            // blocked the same way and the OnDismiss teardown clears the lock
+            // even if the popup is dismissed via a non-button path.
+            PopupDialog.DismissPopup(DialogName);
+            LockInput();
+            ParsekScenario.MergeDialogPending = true;
+            PopupDialog popup = PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    DialogName,
+                    message,
+                    title,
+                    HighLogic.UISkin,
+                    buttons
+                ),
+                false,
+                HighLogic.UISkin
+            );
+            if (popup != null)
+            {
+                popup.OnDismiss += () =>
+                {
+                    ClearPendingFlag("pre-switch-dialog popup teardown");
+                };
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"pre-switch-dialog-opened priorSessionId={priorSessionIdStr} " +
+                    $"priorFocusedPid={(session != null ? session.FocusedVesselPersistentId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "<none>")} " +
+                    $"newTargetPid={target.persistentId}");
+                return true;
+            }
+
+            ClearPendingFlag("pre-switch-dialog spawn returned null");
+            ParsekLog.Warn("SwitchIntentPatch",
+                $"pre-switch-dialog-spawn-failed defensive-fallback-to-supersede " +
+                $"priorSessionId={priorSessionIdStr} newTargetPid={target.persistentId}");
+            return false;
+        }
+
+        /// <summary>
         /// Pre-transition button-handler core: run preCommitFinalize, then
         /// build decisions on the just-stashed pending tree, then run
         /// MergeCommit / MergeDiscard. Skip postChoice if the action

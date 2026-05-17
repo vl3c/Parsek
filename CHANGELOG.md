@@ -23,6 +23,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Stock UI Fly / Switch-To into a previously committed vessel now correctly opens the segment-scoped Merge dialog, removes in-segment debris on Discard, and recognizes Parsek-spawned vessels as committed-tree members instead of fragmenting them into a standalone tree. The dialog body unifies on `"{TreeName} - {Duration}"` for both short segments and long launches.
+- Map Switch-To now opens a Merge/Discard dialog for the prior switch-segment recording before switching, instead of silently superseding it and orphaning the tree.
 - Merge dialog after a switch/Fly auto-record now shows the segment's elapsed time, not the full tree's mission duration, so the player can distinguish a short post-switch segment from a long pre-switch recording at a glance.
 - Recordings and trees started by a stock UI Fly / Switch-To click on a stock craft (Jumping Flea, Kerbal X, etc.) now show the readable craft name instead of the raw `#autoLOC_...` localization token in the recordings list and tree title.
 - Re-Fly merge dialog no longer says the vessel "landed" when you actually crashed. The destroy-event refresh was racing KSP's transient LANDED situation flag on ground impact and stamping TerminalState.Landed instead of TerminalState.Destroyed; subsequent part-die and joint-break refreshes for residual parts in the same impact frame could also clobber the destroy stamp. Same fix applies to the background-vessel destroy path.
