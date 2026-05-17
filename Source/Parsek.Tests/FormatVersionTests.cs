@@ -30,9 +30,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CurrentRecordingFormatVersion_IsResetV0()
+        public void CurrentRecordingFormatVersion_IsV1()
         {
-            Assert.Equal(0, RecordingStore.CurrentRecordingFormatVersion);
+            // Bumped 0 -> 1 in the VesselSwitchContinuation branch type commit
+            // (docs/dev/plans/segment-scoped-switch-fly-autorecord.md Phase A.1).
+            // Per pre-1.0 no-backwards-compat policy, pre-v1 saves are rejected
+            // at load via IsRecordingSchemaCompatible(format-version-mismatch).
+            // Fails if: someone bumps CurrentRecordingFormatVersion without
+            // updating this pin, or rolls it back without restoring the
+            // pre-bump enum / migration semantics.
+            Assert.Equal(1, RecordingStore.CurrentRecordingFormatVersion);
             Assert.Equal(1, RecordingStore.CurrentRecordingSchemaGeneration);
         }
 
