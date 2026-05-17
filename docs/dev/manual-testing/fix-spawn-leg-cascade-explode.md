@@ -54,5 +54,7 @@ into a clean `Kerbal Space Program/saves/<name>/`, launch KSP, and load
      physics activation.
 5. As a control, repeat the spawn path against a stock-craft vessel without
    `ForceHeaviest` autostruts (e.g., a single-pod test rocket); confirm the
-   `Seeded packed-spawn rb.mass` log line still appears (the fix runs
-   unconditionally) and the vessel still spawns and unpacks normally.
+   `Seeded packed-spawn rb.mass` log line still appears (the seeder loop
+   walks every part on every multi-part spawn; the per-part rb.mass write
+   itself is gated on the part having a non-null rigidbody and `partInfo`)
+   and the vessel still spawns and unpacks normally.

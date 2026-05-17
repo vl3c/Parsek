@@ -3,7 +3,8 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Pure-helper tests for <see cref="VesselSpawner.ComputeRigidbodyMassForPackedSpawn"/>.
+    /// Pure-helper tests for <see cref="VesselSpawner.ComputeRigidbodyMassForPackedSpawn"/>
+    /// and <see cref="VesselSpawner.FormatPackedSpawnSeedSkipMessage"/>.
     ///
     /// Background: KSP's FlightIntegrator updates Part.rb.mass only for unpacked
     /// parts; Parsek-spawned packed vessels keep Unity's rb.mass=1 default until
@@ -14,6 +15,15 @@ namespace Parsek.Tests
     /// Seeding rb.mass right after pv.Load with this formula keeps the anchor
     /// selection on the real heaviest part and prevents the unpack-time
     /// cascade-explode.
+    ///
+    /// The live wrapper <see cref="VesselSpawner.SeedRigidbodyMassesForPackedSpawn"/>
+    /// can't be exercised from xUnit because its inner loop calls Unity's
+    /// overloaded <c>Part == null</c> operator, which is an ECall method that
+    /// throws SecurityException outside the engine runtime (same constraint as
+    /// the Quaternion.Slerp / Vector3.Lerp note in RecordingOptimizerTests).
+    /// The skip-message format is testable via the extracted pure formatter so
+    /// the log-line contract the manual checklist relies on does not silently
+    /// drift.
     /// </summary>
     public class RigidbodyMassPackedSpawnTests
     {
@@ -146,6 +156,62 @@ namespace Parsek.Tests
 
             Assert.True(parentWithDecoration > parentWithoutDecoration);
             Assert.InRange(parentWithDecoration, 1.499f, 1.501f);
+        }
+
+        [Fact]
+        public void NegativeAggregateMass_ClampsToMinimumRBMass()
+        {
+            // Fails if: a buggy IPartMassModifier mod produces a net-negative
+            // moduleMass so partMass + resourceMass + physicslessChildMass < 0,
+            // and the helper returns a negative rb.mass that PhysX rejects /
+            // re-treats as static. The two Mathf.Max stages must lift the
+            // result to MinimumRBMass for the common case (MinimumMass = 0).
+            float seeded = VesselSpawner.ComputeRigidbodyMassForPackedSpawn(
+                partMass: -5.0f,
+                resourceMass: 0f,
+                physicslessChildMass: 0f,
+                minimumMass: 0f,
+                minimumRBMass: 0.001f);
+
+            Assert.True(seeded == 0.001f, $"expected exact MinimumRBMass=0.001f, got {seeded}");
+        }
+
+        [Fact]
+        public void SkipMessage_NullVessel_HasVesselNullFlagAndContext()
+        {
+            // Fails if: a future refactor drops the early-return null guard
+            // or the warn log format. The log line is part of the
+            // bug-recurrence signature in
+            // docs/dev/manual-testing/fix-spawn-leg-cascade-explode.md; silent
+            // skips would mask a missing-fix regression on every spawn.
+            string msg = VesselSpawner.FormatPackedSpawnSeedSkipMessage(
+                logContext: "test-null-vessel",
+                vesselNull: true,
+                partsNull: false);
+
+            Assert.Contains("SeedRigidbodyMassesForPackedSpawn skipped for test-null-vessel", msg);
+            Assert.Contains("vesselNull=T", msg);
+            Assert.Contains("partsNull=F", msg);
+            Assert.Contains("rb.mass=1 default", msg);
+        }
+
+        [Fact]
+        public void SkipMessage_NullPartsList_HasPartsNullFlag()
+        {
+            // Fails if: the partsNull branch of the skip-warn message drops
+            // its T/F flag or its context, so the manual checklist can't tell
+            // whether the warn was the vessel-null path or the parts-null
+            // path. The parts-null shape happens when ProtoVessel.Load lands
+            // a Vessel with no instantiated parts (mid-failure or partial
+            // load).
+            string msg = VesselSpawner.FormatPackedSpawnSeedSkipMessage(
+                logContext: "test-parts-null",
+                vesselNull: false,
+                partsNull: true);
+
+            Assert.Contains("test-parts-null", msg);
+            Assert.Contains("vesselNull=F", msg);
+            Assert.Contains("partsNull=T", msg);
         }
     }
 }

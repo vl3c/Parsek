@@ -5544,9 +5544,34 @@ namespace Parsek
             return total;
         }
 
+        // Pure log-message formatters so the format contract is xUnit-testable
+        // (the live wrapper itself can't be called from xUnit because Unity's
+        // overloaded `Part == null` operator on the inner loop is an ECall
+        // method that throws SecurityException outside the engine runtime).
+        internal static string FormatPackedSpawnSeedSkipMessage(
+            string logContext, bool vesselNull, bool partsNull)
+        {
+            return "SeedRigidbodyMassesForPackedSpawn skipped for " + logContext + ": " +
+                "vesselNull=" + (vesselNull ? "T" : "F") + " " +
+                "partsNull=" + (partsNull ? "T" : "F") + " — " +
+                "ForceHeaviest autostrut anchor selection on this vessel falls back to " +
+                "Unity's rb.mass=1 default until first unpack";
+        }
+
         internal static void SeedRigidbodyMassesForPackedSpawn(Vessel vessel, string logContext)
         {
-            if (vessel == null || vessel.parts == null) return;
+            // ReferenceEquals bypasses UnityEngine.Object.op_Equality on the
+            // top-level null check. Production callers already null-check
+            // pv.vesselRef before reaching here, so the lifecycle-aware
+            // destroyed-vs-null distinction is not needed at this seam.
+            bool vesselNull = ReferenceEquals(vessel, null);
+            bool partsNull = !vesselNull && vessel.parts == null;
+            if (vesselNull || partsNull)
+            {
+                ParsekLog.Warn("Spawner",
+                    FormatPackedSpawnSeedSkipMessage(logContext, vesselNull, partsNull));
+                return;
+            }
 
             int updatedCount = 0;
             int skippedNoRb = 0;
