@@ -12,9 +12,21 @@ All notable changes to Parsek are documented here.
 - Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id.
 - Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog. Discard removes the segment subtree (segment recording plus any in-segment debris and continuation children) and preserves committed history; Merge appends the segment under the committed timeline. The dialog body reads `"{TreeName} - {Duration}"` for both switch segments and whole launches — duration is the load-bearing distinguisher.
 
+### Defaults
+
+- Co-bubble peer blending now defaults OFF. Each ghost renders its own standalone absolute trajectory with no peer-blend. Opt in via the new Settings window > Diagnostics > "Use co-bubble peer blending" toggle.
+
+### UI
+
+- Settings window > Diagnostics now has a "Use co-bubble peer blending" toggle so the rendering pipeline can be flipped between standalone-absolute and co-bubble-blended at runtime.
+
 ### Bug Fixes
 
 - Stock UI Fly / Switch-To into a previously committed vessel now correctly opens the segment-scoped Merge dialog, removes in-segment debris on Discard, and recognizes Parsek-spawned vessels as committed-tree members instead of fragmenting them into a standalone tree. The dialog body unifies on `"{TreeName} - {Duration}"` for both short segments and long launches.
+- Re-Fly merge dialog no longer says the vessel "landed" when you actually crashed. The destroy-event refresh was racing KSP's transient LANDED situation flag on ground impact and stamping TerminalState.Landed instead of TerminalState.Destroyed; subsequent part-die and joint-break refreshes for residual parts in the same impact frame could also clobber the destroy stamp. Same fix applies to the background-vessel destroy path.
+- Re-Fly on a recording spanning the rewind point now keeps the post-rewind continuation visible in the timeline after save. The merge journal migrates the in-place fork into the committed tree at a new `TreeMerge` phase before the splitter runs, so the fork's row and active pointer survive serialization instead of being dropped to disk.
+- Re-Fly abandon-and-retry no longer leaves the prior session's provisional in the timeline as a phantom row. The new attempt reaps any abandoned attempt on the same rewind point before its closure walk runs, so the retry's supersede table cannot pick up an invalid row pointing at the orphan.
+- Timeline W (Watch) button now works for every launch row after a Re-Fly. The button used to render permanently disabled for any launch sitting after a superseded recording.
 
 ### Internals
 

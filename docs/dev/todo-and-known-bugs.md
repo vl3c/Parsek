@@ -12,6 +12,51 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Closed - v0.10.0 Re-Fly abandon-and-retry leaks NotCommitted provisional + closure walk poisons it
+
+**Evidence:** `logs/2026-05-16_2226_pr872-groups-investigation/s11-save-evidence/` — `rec_675a9193` (Kerbal X #2) and `rec_3cdedee5` (Kerbal X #3) appear as `NotCommitted` provisional recordings in `persistent.sfs:1646` and `:2558`, each with `creatingSessionId` naming a session whose marker was cleared at retry time. The next session's `AppendRelations` closure walk found them as PID peers of the new TIP and wrote invalid supersede rows `oldRecordingId=rec_675a9193 → newRecordingId=rec_3993fbe2` (`:3046`) and `oldRecordingId=rec_3cdedee5 → newRecordingId=rec_f944e1e4` (`:3086`). NotCommitted is the in-progress-provisional state and must never appear as a supersede source — an invariant violation of the data model.
+
+**Fix (PR — `fix-refly-abandon-and-fork-persist` branch):** Four-layer defense.
+
+- Primary: `RewindInvoker.ReapPriorProvisionalsForRp` hoisted outside `AtomicMarkerWrite`'s try block. Walks `RecordingStore.CommittedRecordings`, every committed tree's `Recordings` dict, the pending tree, and the live active tree; removes orphan NotCommitted recordings whose `ProvisionalForRpId` matches the new session's RP and whose `CreatingSessionId` differs. Sidecar files deleted.
+- Structural: `LoadTimeSweep.RemoveDiscardRecordings` extended to walk every tree dict instead of only the flat list. Previously, `RemoveCommittedInternal` only touched the flat list and `FinalizeTreeCommit` re-added the zombie from the tree dict on the next commit pass.
+- Secondary: `EffectiveState.EnqueueChainSiblings` / `EnqueuePidPeerSiblings` skip NotCommitted candidates with a `Warn` log.
+- Tertiary: `SupersedeCommit.AppendRelations` refuses to write a row whose `oldRecordingId` resolves to a NotCommitted recording (`#if DEBUG throw, else Warn-and-skip` mirroring `ValidateSupersedeTarget`).
+
+Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
+
+**Status:** CLOSED.
+
+---
+
+## Closed - v0.10.0 In-place-continuation fork dropped from RECORDING_TREE on save
+
+**Evidence:** `logs/2026-05-16_2226_pr872-groups-investigation/s11-save-evidence/` — fork `rec_12b7252f…` (the post-rewind continuation of Kerbal X #1, committed `Immutable` at runtime and referenced by the supersede table + tombstones) has all four sidecar files on disk (`.prec`, `.pann`, `_vessel.craft`, `_ghost.craft`) but zero RECORDING nodes anywhere in `persistent.sfs`. Tree `cde7313f…` has `activeRecordingId = 575240c7…` (the HEAD launch) instead of pointing at the fork. The user sees the launch row but no post-rewind continuation in the recordings table — and the cited evidence's `[Anchor] recorded-relative-unresolved: reason=focus-tree-missing recordingId=rec_12b7252f` confirms downstream consumers couldn't find it either.
+
+**Fix (PR — `fix-refly-abandon-and-fork-persist` branch):** Three sub-fixes that work together.
+
+- §2c: `RecordingTreeSplitter.SplitOriginAtRewindUT` Step 2.12 now actively promotes `tree.ActiveRecordingId` from HEAD to TIP (instead of just verbose-logging the invariant). `SplitSnapshot.PreSplitActiveRecordingId` / `ActiveRecordingIdMutated` capture the pre-mutation value; `RollBackInMemory` restores it.
+- §2a: `RecordingStore.CommitTree` gains a union path that fires when the live Re-Fly marker references the tree being committed. `TryUnionActiveReFlyTreeIntoCommitted` merges incoming-only ids into the existing committed tree (preserving pre-existing debris pruned by `trim-scope=ActiveRecOnly`). `tree` is reassigned to the merged object so the 6 downstream helpers see the canonical post-union view.
+- §2b: New `MergeJournal.Phases.TreeMerge` between `Begin` and `Split`, with its own DurableSave barrier. `RunMerge` invokes `MigrateActiveReFlyForkIntoCommittedTree` at Step 1.4 to copy the fork from the active tree into `committedTree.Recordings` and promote `ActiveRecordingId` to the fork id. Gated on `marker.InPlaceContinuation`. `CompleteFromPostDurable` learned the new phase via the updated `IsPostDurablePhase` / `IsKnownPostBeginPhase` predicates. Phase count 10→11, durable-save barrier count 5→6.
+
+Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
+
+**Status:** CLOSED.
+
+---
+
+## Done - v0.10.0 Timeline W button passed an ERS index to ghost-engine APIs keyed on the raw committed list
+
+- ~~User flew Kerbal X mission 1, Re-Flew it to commit a supersede subtree, then launched Kerbal X mission 2 in a separate slot. Both launches showed up in the Timeline window in flight, but only the later launch (rec id `4b1d249f…`) had a working Watch button — the earlier launch (rec id `ab25e241…`) rendered as a disabled "no ghost" button even after its ghost spawned. The recordings-table Watch button worked for the same recording, so the divergence was strictly the Timeline path.~~
+
+**Root cause:** `TimelineWindowUI.recordingIndexById` is built from `EffectiveState.ComputeERS()` so cross-link navigation stays scoped to visible recordings (`TimelineWindowUI.cs:344-358`). The watch-button code path at `TimelineWindowUI.cs:892-930` then fed that ERS index into `flight.HasActiveGhost(recIndex)` / `IsGhostOnSameBody` / `IsGhostWithinVisualRange` / `WatchedRecordingIndex` / `EnterWatchMode` / `DescribeWatchEligibilityForLogs`, all of which key on `RecordingStore.CommittedRecordings` positions (the ghost engine builds its `cachedTrajectories` from the raw list at `ParsekFlight.cs:16807-16809`, and `WatchModeController.HasActiveGhost` does `ghostStates.TryGetValue(index, …)`). After a Re-Fly's supersede write, ERS skips the superseded entries (`EffectiveState.cs:829-832`), so every recording sitting after them is at a different ERS index than committed index. `flight.HasActiveGhost(ersIndex)` therefore queried the wrong `ghostStates[]` slot — for the affected recording it was always empty, so the W button stayed disabled. Verified in the 22:55:47 log line: the engine had `Ghost #10 "Kerbal X"` (id=ab25e241, committed index 10) but the timeline transition log read `watchEval(rec=#7 …) hasGhost=False` (ERS index 7). Had the button ever flipped enabled, `EnterWatchMode(7)` would have watched whatever recording was at `CommittedRecordings[7]`, which is a different vessel entirely.
+
+**Fix:** `TimelineWindowUI` now builds its `recIndex` for the W-button path from a new `committedIndexById` dictionary, populated at cache rebuild from `RecordingStore.CommittedRecordings` rather than from `EffectiveState.ComputeERS()`. The old ERS-scoped `recordingIndexById` field and its `FindRecordingIndexById` helper had no other callers and were removed as part of the fix. `Source/Parsek/UI/TimelineWindowUI.cs` is now in `scripts/ers-els-audit-allowlist.txt` with an inline `[ERS-exempt]` comment and an allowlist rationale matching the existing physical-visibility consumer entries (RecordingsTableUI, WatchModeController). Coverage: `BuildRecordingIndexLookup_ErsAndCommittedIndicesDivergeAfterSupersede` pins the invariant against future drift between the two index spaces.
+
+**Status:** CLOSED 2026-05-17.
+
+---
+
 ## Open - v0.9.2 Re-fly provisional Relative section anchored to fast-separating sibling causes chaotic ghost playback during watch mode
 
 **Evidence:** Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. User entered watch mode at 22:56:02 after committing three nested re-flies on the same save. During the 27-second watch window (until 22:56:29), `GhostRenderTrace` fired **281 `reason=large-delta` events** — all concentrated on the three re-fly provisional recordings:
@@ -98,6 +143,30 @@ Either Parsek's rotation-interpolation routine (`TrajectoryMath.SlerpQuaternion`
 **Related findings (PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/`):** Two adjacent anchor-selection bugs surfaced during watch-mode observation and are filed as separate Open entries above: (a) **re-fly provisional Relative sections** are anchored to fast-separating siblings (e.g. upper-stage re-fly provisional anchored to the descending lower-stage probe), producing chaotic playback with 178m teleports and subsurface dives; (b) **rotation Slerp wraparound** mid-section can teleport ANY Relative-anchored ghost ~180m due to a missing sign-correction in the quaternion interpolation path. Both are independent of the controlled-decoupled-child case here but share the recorder/playback "stable anchor selection + clean rotation interpolation" theme. The deeper fix here should consider whether the recorder's anchor-selection logic can be unified across debris children, controlled-decoupled children, and re-fly provisionals — the design space is shared even if the code paths are different today.
 
 **Status:** OPEN. Plan to be written in a separate worktree before implementation.
+
+---
+
+## Done - v0.10.0 Re-Fly merge dialog auto-seal preview reported "landed" after the player crashed the upper stage
+
+- ~~User-reported during the v0.10.0 co-bubble-off playtest (`logs/2026-05-17_1529_cobubble-disabled-refly/KSP.log`). The user crashed the upper stage of Kerbal X on Re-Fly and the post-merge confirmation dialog claimed it would auto-seal because the vessel had "landed". `KSP.log:16844`: `Re-Fly auto-seal preview: willSeal=True actionPermanent=False button='Commit to Timeline' labelSource=classifier:crashed reasons=[Landed]`. The button classifier (UnfinishedFlightClassifier via chain-tip terminal) correctly tagged the outcome "crashed", but `ReFlyAutoSealPreviewer.CollectRecordedTerminalReasons` read the provisional's own `TerminalStateValue` and got `Landed` - two contradictory verdicts on the same recording surfaced together in the same dialog.~~
+
+**Root cause:** `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel` ran `TryBuildSurfaceTerminalCache` before any destroy-aware branch (`RecordingFinalizationCacheProducer.cs:176`). KSP flips a ground-impacting vessel's `Vessel.Situation` to `LANDED` for a moment before the destroy event fires; the producer's surface-terminal short-circuit accepted that transient situation and stamped `TerminalState.Landed`. The subsequent `destroy_event` refresh saw the prior cache as `Landed` (not `Destroyed`), so `TryBuildAlreadyClassifiedDestroyedSkip` did not fire and the same surface-terminal branch re-stamped `Landed`. Same root cause on the BG path: `BackgroundRecorder.OnBackgroundVesselWillDestroy` calls `RefreshFinalizationCache` with reason `background_destroy`, which raced the BG vessel's last sampled `LANDED` situation.
+
+**Fix:** Added `RecordingFinalizationCacheProducer.IsDestroyRefreshReason(string)` (true for `"destroy_event"` and `"background_destroy"`) and a new branch in `TryBuildFromLiveVessel` that runs after `TryBuildAlreadyClassifiedDestroyedSkip` and before `TryBuildSurfaceTerminalCache`. When the refresh reason names a destroy call site, the producer skips the surface-terminal short-circuit and stamps `TerminalState.Destroyed` via a new `PopulateDestroyEventTerminalCache` helper. Reason-string match is exact-case-Ordinal so a typo or case drift fails closed. The helper also eagerly mutates `recording.TerminalStateValue` (when unset) so any same-frame follow-up refresh on residual parts (`part_die`, `joint_break`, `periodic`, `background_part_die`, `background_joint_break`) hits `TryBuildAlreadyClassifiedDestroyedSkip` and short-circuits without reaching the surface-terminal branch again. Pre-existing recording terminal verdicts are not overwritten. Decision-level Info log `Destroy-reason override: rec=... reason=... situation=... eagerRecordingStamp=...` is emitted before the `VerboseRateLimited` Accept log so the destroy override stays visible even when a prior Landed stamp's dedup window suppresses the Accept line.
+
+**Coverage:** `RecordingFinalizationCacheProducerTests` adds six new tests. `TryBuildFromLiveVessel_DestroyEventReason_OverridesSurfaceTerminal_StampsDestroyed` is the canonical fix assertion (Situation=LANDED + reason="destroy_event" yields TerminalState.Destroyed + eager recording mutation + Info log). `TryBuildFromLiveVessel_BackgroundDestroyReason_OverridesSurfaceTerminal_StampsDestroyed` pins the BG-path counterpart with matching assertions. `TryBuildFromLiveVessel_DestroyEventThenPartDieSameLandedSituation_KeepsDestroyed` pins the sequencing-race fix: destroy_event then part_die then periodic on the same LANDED vessel all keep TerminalState.Destroyed. `TryBuildFromLiveVessel_DestroyEventReason_DoesNotOverwriteExistingTerminalStateValue` pins the "do not clobber the Applier's authoritative state" guard. `TryBuildFromLiveVessel_NonDestroyReason_LandedSituationStillStampsLanded` is the negative pair so a periodic refresh of a genuinely landed vessel still classifies as Landed (no over-broad reason match). `IsDestroyRefreshReason_MatchesDestroyEventAndBackgroundDestroyOnly` pins the reason-string contract (case-sensitive, null/empty/other reasons fail). Full suite is 11901 passing.
+
+**Status:** CLOSED 2026-05-17.
+
+---
+
+## Done - v0.10.0 Co-bubble peer blending default flipped to off + Diagnostics toggle added
+
+- ~~v0.9.2 shipped with co-bubble peer-blend on by default. Co-bubble has produced three separate v0.9.2 fix passes (entry snap, crossfade-tail jump, multi-tier recursion guard) and contributes to the controlled-child snap class (PR #872 / #874). User playtest with the flag forced off (`logs/2026-05-17_1529_cobubble-disabled-refly`) showed clean Re-Fly rendering on stage separations with no nearby formation peers, suggesting standalone Absolute trajectories are visually acceptable in the common case. Flip the default to off for the v0.10 playtest cycle so the player base exercises the standalone-only path and surfaces any cases where co-bubble is actually load-bearing.~~
+
+**Change:** `ParsekSettings._useCoBubbleBlend` default flipped from `true` to `false`. The new Settings window > Diagnostics > "Use co-bubble peer blending" toggle lets the player opt back in. `UseCoBubbleBlendSettingTests.UseCoBubbleBlend_DefaultsFalse` pins the new default; `UseCoBubbleBlend_DirectAssignThroughProperty_LogsInfo` was inverted to assign `true` (the value-changing direction now). The `.pann` ConfigurationHash continues to gate on the flag, so any cached pannotations sidecars hashed against the old default are invalidated on first load under the new default.
+
+**Status:** CLOSED 2026-05-17.
 
 ---
 

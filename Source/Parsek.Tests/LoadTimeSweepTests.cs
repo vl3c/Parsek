@@ -770,6 +770,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DiscardSet_ZombieProvisional_AlsoCleansTreeDict()
+        {
+            // Bug fix-refly-abandon-and-fork-persist §Bug1 structural leak:
+            // RemoveDiscardRecordings used to call RecordingStore.
+            // RemoveCommittedInternal only, which removes from the flat list
+            // but leaves the recording in its tree's Recordings dict. The
+            // next FinalizeTreeCommit pass would then re-add it. This test
+            // confirms the extended cleanup walks every tree dict.
+            var bp = Bp("bp_1", "rp_dead");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_zombie", MergeState.NotCommitted, sessionId: "sess_dead",
+                        supersedeTarget: "rec_origin"),
+                    Rec("rec_origin", MergeState.CommittedProvisional),
+                },
+                new List<BranchPoint> { bp });
+            var zombieRp = Rp("rp_dead", "bp_1", sessionProvisional: true,
+                creatingSessionId: "sess_dead", slots: new[] { Slot(0, "rec_origin") });
+            RewindPointReaper.DeleteQuicksaveForTesting = id =>
+            {
+                deletedRpIds.Add(id);
+                return true;
+            };
+            InstallScenario(
+                rps: new List<RewindPoint> { zombieRp },
+                marker: null);
+
+            // Pre-condition: the zombie is in the committed tree's dict.
+            var tree = RecordingStore.CommittedTrees[0];
+            Assert.True(tree.Recordings.ContainsKey("rec_zombie"));
+
+            LoadTimeSweep.Run();
+
+            Assert.False(tree.Recordings.ContainsKey("rec_zombie"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") &&
+                l.Contains("Zombie discarded rec=rec_zombie") &&
+                l.Contains("removedFromCommittedTrees=1"));
+        }
+
+        [Fact]
         public void Reaper_PreservesEligibleRpReferencedByActiveMarker()
         {
             var bp = Bp("bp_1", "rp_1");

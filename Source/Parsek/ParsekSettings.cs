@@ -179,7 +179,10 @@ namespace Parsek
         /// / §10 / §18 Phase 5). When true, ghost peers that shared a physics
         /// bubble with a co-recorded primary at recording time render via the
         /// stored co-bubble offset trace (sub-meter relative geometry) instead
-        /// of falling through to standalone Stages 1+2+3+4. Default true.
+        /// of falling through to standalone Stages 1+2+3+4. Default false:
+        /// off-by-default while the v0.10 playtest cycle evaluates whether
+        /// standalone Absolute rendering is visually acceptable for Re-Fly
+        /// stage separations without nearby formation peers.
         ///
         /// <para>
         /// The flag participates in the <c>.pann</c> ConfigurationHash (HR-10
@@ -188,7 +191,7 @@ namespace Parsek
         /// </para>
         /// </summary>
         [GameParameters.CustomParameterUI("Use co-bubble blend",
-            toolTip = "When on (Phase 5), close-formation ghosts blend toward sub-meter offsets stored in the recording. Off → standalone Stages 1-4 only.")]
+            toolTip = "When on (Phase 5), close-formation ghosts blend toward sub-meter offsets stored in the recording. Off (default during v0.10 playtest) → standalone Stages 1-4 only.")]
         public bool useCoBubbleBlend
         {
             get { return _useCoBubbleBlend; }
@@ -202,7 +205,7 @@ namespace Parsek
                     ParsekSettingsPersistence.RecordUseCoBubbleBlend(value);
             }
         }
-        private bool _useCoBubbleBlend = true;
+        private bool _useCoBubbleBlend = false;
 
         /// <summary>
         /// Phase 8 of the ghost trajectory rendering pipeline (design doc
